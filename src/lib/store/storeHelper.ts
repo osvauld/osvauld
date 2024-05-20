@@ -2,7 +2,7 @@
 import { folderStore, selectedFolder } from "./folder.store";
 import { groupStore } from "./group.store";
 import { credentialStore } from "./credential.store";
-import { fetchAllFolders } from "../apis/folder.api";
+import { fetchAllSharedFolders } from "../apis/folder.api";
 import { fetchAllUserGroups } from "../apis/group.api";
 import { fetchCredentialsByFolder } from "../apis/credentials.api";
 import { sendMessage } from "../components/dashboard/helper";
@@ -10,7 +10,7 @@ import { get } from 'svelte/store';
 import browser from 'webextension-polyfill'
 
 export const setFolderStore = async () => {
-    const responseJson = await fetchAllFolders();
+    const responseJson = await fetchAllSharedFolders();
     const sortedData = responseJson.data.sort((a, b) => a.name.localeCompare(b.name));
     const selectedFolderValue = get(selectedFolder);
     if (!selectedFolderValue) {

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import browser, { identity } from "webextension-polyfill";
+  import browser from "webextension-polyfill";
   import {
     addCredential,
-    fetchAllFolders,
+    fetchAllSharedFolders,
     fetchFolderUsersForDataSync,
   } from "../dashboard/apis";
   import { sendMessage } from "../dashboard/helper";
@@ -33,7 +33,7 @@
   };
   // Function to handle form submission
   const handleSubmit = async () => {
-    const responseJson = await fetchAllFolders();
+    const responseJson = await fetchAllSharedFolders();
     folderData = responseJson.data.sort((a, b) => a.name.localeCompare(b.name));
     showFolderList = true;
   };

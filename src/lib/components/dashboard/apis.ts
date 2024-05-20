@@ -8,7 +8,7 @@ export {
 } from '../../apis/credentials.api';
 
 export {
-    fetchAllFolders, fetchFolderUsers, createFolder, shareFolderWithUsers,
+    fetchAllSharedFolders, fetchFolderUsers, createFolder, shareFolderWithUsers,
     shareFolderWithGroups, fetchFolderGroups, editFolderPermissionForGroup, editFolderPermissionForUser,
     fetchFolderUsersForDataSync, removeFolder, renameFolder
 } from '../../apis/folder.api';

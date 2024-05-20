@@ -2,7 +2,7 @@ import { ShareFolderWithUsersPayload, ShareFolderWithGroupsPayload } from "../dt
 import { FolderGroupResponse, FolderUserResponse, BaseResponse, FetchAllFoldersResponse } from "../dtos/response.dto";
 import { getTokenAndBaseUrl, sendMessage } from "../components/dashboard/helper";
 
-export const fetchAllFolders = async (): Promise<FetchAllFoldersResponse> => {
+export const fetchAllSharedFolders = async (): Promise<FetchAllFoldersResponse> => {
 
   const { token, baseUrl } = await getTokenAndBaseUrl()
   const options = {
@@ -12,7 +12,7 @@ export const fetchAllFolders = async (): Promise<FetchAllFoldersResponse> => {
       "Content-Type": "application/json",
     },
   };
-  return fetch(`${baseUrl}/folders/`, options).then(
+  return fetch(`${baseUrl}/folders/shared`, options).then(
     (response) => response.json()
   );
 };
