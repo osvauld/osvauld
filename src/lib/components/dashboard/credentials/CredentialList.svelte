@@ -18,6 +18,7 @@
     showCredentialDetailsDrawer,
     selectedCredential,
     modalManager,
+    showCredentialEditor,
   } from "../store";
   import { onDestroy } from "svelte";
   import DownArrow from "../../basic/icons/downArrow.svelte";
@@ -32,10 +33,10 @@
   let sensitiveFields: Fields[] = [];
   let areCardsSelected = false;
   let noCardsSelected = false;
-  let showCreateCredentialModal = false;
   let isShareHovered = false;
   let accesslistHovered = false;
   let addCredentialHovered = false;
+  $: showCreateCredentialModal = $showCredentialEditor || false;
   $: isShareCredActive = checkedCards.length !== 0;
 
   $: sortedCredentials = $credentialStore.sort(
@@ -96,11 +97,7 @@
     setTimeout(() => {
       noCardsSelected = false;
     }, 1000);
-
-    if (!noCardsSelected) {
-      console.log("cards slected ", "setting share credential drawer to true");
-      showCredentialShareDrawer.set(true);
-    }
+    !noCardsSelected && showCredentialShareDrawer.set(true);
   };
 
   const addCredentialManager = () => {
@@ -247,6 +244,9 @@
     >
       <button class="p-6 rounded bg-transparent" on:click|stopPropagation>
         <CredentialEditor
+          edit={$showCredentialEditor}
+          credentialId={$modalManager && $modalManager?.id}
+          name={$modalManager && $modalManager?.name}
           on:close={() => (showCreateCredentialModal = false)}
         />
       </button>
@@ -274,8 +274,9 @@
         <ShareCredentialModal
           {users}
           credentials={checkedCards}
-          singleCredentialId={$modalManager.type === "Credential"
-            ? $modalManager.id
+          singleCredentialId={$modalManager &&
+          $modalManager?.type === "Credential"
+            ? $modalManager?.id
             : null}
           groups={allGroups}
           on:close={() => showCredentialShareDrawer.set(false)}

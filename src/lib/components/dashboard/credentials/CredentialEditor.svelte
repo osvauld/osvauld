@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { fly, blur } from "svelte/transition";
   import { ClosePanel, Add, BinIcon } from "../icons";
   import Loader from "../components/Loader.svelte";
@@ -8,6 +8,7 @@
     selectedFolder,
     modalManager,
     DeleteConfirmationModal,
+    showCredentialEditor,
   } from "../store";
 
   import {
@@ -15,6 +16,7 @@
     addCredential,
     updateCredential,
     fetchCredentialUsersForDataSync,
+    fetchCredentialsFieldsByIds,
   } from "../apis";
 
   import {
@@ -26,13 +28,8 @@
   import AddLoginFields from "./AddLoginFields.svelte";
   import { sendMessage } from "../helper";
   import { setCredentialStore } from "../../../store/storeHelper";
-
+  let responseJson;
   export let edit = false;
-  export let credentialFields = [
-    { fieldName: "Username", fieldValue: "", sensitive: false },
-    { fieldName: "Password", fieldValue: "", sensitive: true },
-    { fieldName: "URL", fieldValue: "https://", sensitive: false },
-  ];
   export let credentialId = null;
   export let description = "";
   export let name = "";
@@ -43,6 +40,12 @@
   let addCredentialPaylod: AddCredentialPayload;
   let hoveredIndex: Number | null = null;
   let errorMessage = "";
+
+  export let credentialFields = [
+    { fieldName: "Username", fieldValue: "", sensitive: false },
+    { fieldName: "Password", fieldValue: "", sensitive: true },
+    { fieldName: "URL", fieldValue: "https://", sensitive: false },
+  ];
 
   const dispatcher = createEventDispatcher();
   const addField = () => {
@@ -162,18 +165,6 @@
     }
   };
 
-  onMount(async () => {
-    if (edit) {
-      const responseJson = await fetchCredentialUsersForDataSync(credentialId);
-      usersToShare = responseJson.data;
-    } else {
-      const responseJson = await fetchFolderUsersForDataSync(
-        $selectedFolder.id
-      );
-      usersToShare = responseJson.data;
-    }
-  });
-
   function closeDialog() {
     dispatcher("close");
   }
@@ -190,6 +181,49 @@
   function triggerSensitiveBubble(index: number, isEnter: boolean) {
     isEnter ? (hoveredIndex = index) : (hoveredIndex = null);
   }
+
+  async function decryptFields(fields) {
+    let fieldsForEdit = [];
+    for (let field of fields) {
+      const response = await sendMessage("decryptField", field.fieldValue);
+      let decryptedValue = response.data;
+      fieldsForEdit.push({
+        fieldName: field.fieldName,
+        fieldValue: decryptedValue,
+        sensitive: true,
+      });
+    }
+
+    return fieldsForEdit;
+  }
+
+  onMount(async () => {
+    if ($showCredentialEditor) {
+      responseJson = await fetchCredentialsFieldsByIds([credentialId]);
+      console.log(
+        "responseJson in credential Editor",
+        responseJson.data[0].fields
+      );
+      if (responseJson && responseJson.data) {
+        credentialFields = await decryptFields(responseJson.data[0].fields);
+      }
+      if (edit) {
+        const responseJson =
+          await fetchCredentialUsersForDataSync(credentialId);
+        usersToShare = responseJson.data;
+      } else {
+        const responseJson = await fetchFolderUsersForDataSync(
+          $selectedFolder.id
+        );
+        usersToShare = responseJson.data;
+      }
+    }
+  });
+
+  onDestroy(async () => {
+    modalManager.set(null);
+    showCredentialEditor.set(null);
+  });
 </script>
 
 <form on:submit|preventDefault={saveCredential}>

@@ -27,7 +27,6 @@
     ? [singleCredentialId]
     : credentials.map((cred) => cred.credentialId);
   onMount(async () => {
-    console.log("Credential Ids inside share credentisl Modal", credIds);
     const responseJson = await fetchCredentialsFieldsByIds(credIds);
     credentialsFields = responseJson.data;
     modalManager.set(null);

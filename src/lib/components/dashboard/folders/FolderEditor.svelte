@@ -64,8 +64,7 @@
     });
   };
 
-  const handleClose = (message) => {
-    console.log("Closing triggered", message);
+  const handleClose = () => {
     showFolderRenameDrawer.set(false);
     showAddFolderDrawer.set(false);
   };

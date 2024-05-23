@@ -10,6 +10,7 @@
     showFolderShareDrawer,
     showFolderRenameDrawer,
     showCredentialShareDrawer,
+    showCredentialEditor,
   } from "../store";
   import { clickOutside } from "../helper";
   import { derived } from "svelte/store";
@@ -64,6 +65,11 @@
     showFolderRenameDrawer.set(true);
   };
 
+  const callRenameCredentialModal = () => {
+    showMoreOptions.set(false);
+    showCredentialEditor.set(true);
+  };
+
   const deleteInitiate = () => {
     showMoreOptions.set(false);
     buttonRef.set(null);
@@ -110,7 +116,10 @@
         class="flex justify-start gap-2 items-center w-full p-2 text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive rounded-lg cursor-pointer"
         on:mouseenter={() => (isEditHovered = true)}
         on:mouseleave={() => (isEditHovered = false)}
-        on:click|stopPropagation={callRenameFolderModal}
+        on:click|stopPropagation={$modalManager &&
+        $modalManager.type === "Folder"
+          ? callRenameFolderModal
+          : callRenameCredentialModal}
       >
         <div class="w-6 h-6 flex items-center justify-center">
           <EditIcon color={isEditHovered ? "#F2F2F0" : "#85889C"} />
