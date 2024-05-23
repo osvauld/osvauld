@@ -17,6 +17,7 @@
     selectedFolder,
     showCredentialDetailsDrawer,
     selectedCredential,
+    modalManager,
   } from "../store";
   import { onDestroy } from "svelte";
   import DownArrow from "../../basic/icons/downArrow.svelte";
@@ -95,7 +96,11 @@
     setTimeout(() => {
       noCardsSelected = false;
     }, 1000);
-    !noCardsSelected && showCredentialShareDrawer.set(true);
+
+    if (!noCardsSelected) {
+      console.log("cards slected ", "setting share credential drawer to true");
+      showCredentialShareDrawer.set(true);
+    }
   };
 
   const addCredentialManager = () => {
@@ -269,6 +274,9 @@
         <ShareCredentialModal
           {users}
           credentials={checkedCards}
+          singleCredentialId={$modalManager.type === "Credential"
+            ? $modalManager.id
+            : null}
           groups={allGroups}
           on:close={() => showCredentialShareDrawer.set(false)}
         />

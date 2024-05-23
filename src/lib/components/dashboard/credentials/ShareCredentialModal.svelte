@@ -2,7 +2,7 @@
   import { fly } from "svelte/transition";
   import { onMount } from "svelte";
 
-  import { showCredentialShareDrawer } from "../store";
+  import { showCredentialShareDrawer, modalManager } from "../store";
   import { fetchCredentialsFieldsByIds } from "../apis";
 
   import { User, Group, Credential, CredentialFields } from "../dtos";
@@ -13,7 +13,8 @@
   import InfoIcon from "../../basic/icons/infoIcon.svelte";
   import InfoOverlay from "../components/Info.svelte";
   import ClosePanel from "../../basic/icons/closePanel.svelte";
-  export let credentials: Credential[];
+  export let credentials: Credential[] = [];
+  export let singleCredentialId = null;
   export let users: User[];
   export let groups: Group[];
   let credentialsFields: CredentialFields[] = [];
@@ -22,10 +23,14 @@
   let saveChanges;
   let saveEnabled = false;
 
-  const credIds = credentials.map((cred) => cred.credentialId);
+  const credIds = singleCredentialId
+    ? [singleCredentialId]
+    : credentials.map((cred) => cred.credentialId);
   onMount(async () => {
+    console.log("Credential Ids inside share credentisl Modal", credIds);
     const responseJson = await fetchCredentialsFieldsByIds(credIds);
     credentialsFields = responseJson.data;
+    modalManager.set(null);
   });
 
   let selectedTab = "Groups";
@@ -64,9 +69,7 @@
 
     {#if showInfoTab}
       <div
-        class="relative h-[1.875rem] w-full px-4 py-2 mx-auto flex justify-between items-center border border-osvauld-bordergreen rounded-lg cursor-pointer mb-3 hover:bg-osvauld-bordergreen {infoDropdown
-          ? 'bg-osvauld-bordergreen'
-          : ''}"
+        class="relative h-[1.875rem] w-full px-4 py-2 mx-auto flex justify-between items-center border border-osvauld-bordergreen rounded-lg cursor-pointer mb-3 hover:bg-osvauld-bordergreen"
       >
         <span class="">
           <InfoIcon />

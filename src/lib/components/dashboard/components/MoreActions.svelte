@@ -9,6 +9,7 @@
     modalManager,
     showFolderShareDrawer,
     showFolderRenameDrawer,
+    showCredentialShareDrawer,
   } from "../store";
   import { clickOutside } from "../helper";
   import { derived } from "svelte/store";
@@ -53,6 +54,11 @@
     showFolderShareDrawer.set(true);
   };
 
+  const callShareCredentialModal = () => {
+    showMoreOptions.set(false);
+    showCredentialShareDrawer.set(true);
+  };
+
   const callRenameFolderModal = () => {
     closeModal();
     showFolderRenameDrawer.set(true);
@@ -92,7 +98,9 @@
         <FolderShare size={24} color={isShareHovered ? "#F2F2F0" : "#85889C"} />
         <button
           class="font-inter text-base whitespace-nowrap"
-          on:click|stopPropagation={callShareFolderModal}
+          on:click|stopPropagation={$modalManager.type === "Folder"
+            ? callShareFolderModal
+            : callShareCredentialModal}
         >
           Share {$modalManager.type === "Folder" ? "folder" : ""}
         </button>
