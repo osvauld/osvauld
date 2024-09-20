@@ -23,6 +23,7 @@ export let toastStore = writable({ show: false, message: "", type: true });
 export let selectedSection = writable<SelectedSection>("SharedFolders");
 export let showAddCliDrawer = writable(false);
 export let showAddEnvDrawer = writable(false);
+export let promptPassword = writable(false);
 
 const storedPage = browser.storage.local.get("selectedPage");
 type MoreActionsTypes = "Folder" | "Group" | "Credential";

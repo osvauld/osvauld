@@ -12,6 +12,7 @@
 		accessListSelected,
 		showMoreGroupOptions,
 		toastStore,
+		promptPassword,
 	} from "./store/ui.store";
 	import { sendMessage } from "./components/dashboard/helper";
 	import Welcome from "./components/popup/Welcome.svelte";
@@ -23,6 +24,7 @@
 	import ShareToast from "./components/dashboard/components/ShareToast.svelte";
 	import { setFolderStore } from "./store/storeHelper";
 	import { selectedFolder } from "./store/folder.store";
+	import PasswordPromptModal from "./components/dashboard/components/PasswordPromptModal.svelte";
 	let showWelcome = false;
 	let signedUp = true;
 	onMount(async () => {
@@ -75,6 +77,9 @@
 
 		{#if $showMoreOptions}
 			<MoreActions />
+		{/if}
+		{#if $promptPassword}
+			<PasswordPromptModal />
 		{/if}
 		{#if $modalManager}
 			{#if $DeleteConfirmationModal && $modalManager.type === "Credential"}

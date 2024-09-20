@@ -38,4 +38,5 @@ export {
 	showAddEnvDrawer,
 	showFolderRenameDrawer,
 	showRenameGroupDrawer,
+	promptPassword,
 } from "../../store/ui.store";

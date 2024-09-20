@@ -195,7 +195,6 @@ browser.runtime.onMessage.addListener(async (request) => {
 		}
 
 		case "exportCertificate": {
-			console.log(request.data, "reached here");
 			return getCertificate(request.data.passphrase);
 		}
 

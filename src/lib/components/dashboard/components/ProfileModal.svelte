@@ -5,6 +5,7 @@
 	import { CopyIcon, Tick } from "../icons";
 	import { createEventDispatcher } from "svelte";
 	import { scale } from "svelte/transition";
+	import { promptPassword } from "../store";
 
 	const dispatch = createEventDispatcher();
 
@@ -43,11 +44,19 @@
 		delayFunction();
 	};
 
+	const passwordprompter = async () => {
+		promptPassword.set(true);
+	};
+
 	const initiateRecovery = async () => {
 		const { baseUrl } = await getTokenAndBaseUrl();
+		// Here a modal needs to be initiated to confirm master password
+		// Once submit, we can call this function then instead of directly calling it
 		const certificate = await sendMessage("exportCertificate", {
 			passphrase: "test",
 		});
+
+		// Now the certificate string is here
 		const encryptionPvtKeyObj =
 			await browser.storage.local.get("encryptionPvtKey");
 		const signPvtKeyObj = await browser.storage.local.get("signPvtKey");
@@ -71,13 +80,15 @@
 	class="absolute z-50 bg-osvauld-frameblack border border-osvauld-iconblack w-[14rem] rounded-2xl"
 	style="top: {top + 10}px; left: {left - 100}px;"
 	use:clickOutside
-	on:clickOutside="{handleClickOutside}">
+	on:clickOutside="{handleClickOutside}"
+>
 	<div class="flex flex-col items-start p-2 gap-2 w-full h-full">
 		<button
 			class="flex items-center p-2 gap-2 w-full h-12 text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive rounded-lg"
 			on:mouseenter="{() => (isUsernameHovered = true)}"
 			on:mouseleave="{() => (isUsernameHovered = false)}"
-			on:click|preventDefault="{copyUsername}">
+			on:click|preventDefault="{copyUsername}"
+		>
 			<div class="w-6 h-6 flex items-center justify-center">
 				{#if copied && isUsernameHovered}
 					<span in:scale>
@@ -94,7 +105,8 @@
 			class="flex items-center p-2 gap-2 w-full h-12 text-osvauld-fieldText hover:text-osvauld-dangerRed hover:bg-osvauld-modalFieldActive rounded-lg"
 			on:mouseenter="{() => (isRecoveryHovered = true)}"
 			on:mouseleave="{() => (isRecoveryHovered = false)}"
-			on:click|preventDefault="{initiateRecovery}">
+			on:click|preventDefault="{passwordprompter}"
+		>
 			<div class="w-6 h-6 flex items-center justify-center">
 				{#if copied && isRecoveryHovered}
 					<span in:scale>
