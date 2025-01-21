@@ -40,9 +40,9 @@
 		<span class="flex justify-center items-center"
 			><Home color="#5B5D6D" /></span>
 		<span
-			>{$currentVault.id === "all"
+			>{$currentVault?.id === "all"
 				? "All Vaults"
-				: `${$currentVault.name}`}</span>
+				: `${$currentVault?.name}`}</span>
 	</button>
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
