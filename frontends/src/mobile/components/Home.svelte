@@ -42,10 +42,10 @@
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
-			// const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
-			// 	? deviceLanguage
-			// 	: "en";
-			const languageToUse = "fr";
+			const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
+				? deviceLanguage
+				: "en";
+			// const languageToUse = "fr";
 			await loadLocaleAsync(languageToUse);
 			setLocale(languageToUse);
 		} catch (error) {

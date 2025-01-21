@@ -16,7 +16,7 @@
 	import Toast from "./components/ui/Toast.svelte";
 	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
 	import AddCredentialModal from "./components/views/AddCredentialModal.svelte";
-	import ProfileView from "./components/views/ProfileView.svelte";
+	import AddDeviceView from "./components/views/AddDeviceView.svelte";
 	import CredentialEditorModal from "./components/views/CredentialEditorModal.svelte";
 	import CredentialViewModal from "./components/views/CredentialViewModal.svelte";
 	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
@@ -29,7 +29,7 @@
 		deleteConfirmationModal,
 		toastStore,
 	} from "./components/store/desktop.ui.store";
-	import AddDeviceView from "./components/views/AddDeviceView.svelte";
+
 	import { setFolderStore } from "../lib/store/storeHelper";
 
 	let showWelcome = false;
@@ -40,10 +40,10 @@
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
-			// const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
-			// 	? deviceLanguage
-			// 	: "en";
-			const languageToUse = "fr";
+			const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
+				? deviceLanguage
+				: "en";
+			// const languageToUse = "fr";
 			await loadLocaleAsync(languageToUse);
 			setLocale(languageToUse);
 		} catch (error) {
