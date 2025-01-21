@@ -64,7 +64,7 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
-            let db_path = app_dir.join("sqlite30.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("sqlite31.db").to_str().unwrap().to_string();
 
 
             // Create a new Tokio runtime
