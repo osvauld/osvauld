@@ -10,17 +10,19 @@
 		CATEGORIES,
 		renderRelevantHeading,
 	} from "../../../utils/CredentialUtils";
+	import { onMount } from "svelte";
 
 	export let credentials;
+	let updatedCredentials;
 
-	//Credentials can be unfiltered or filtered as per selection from the categories
-
-	$: updatedCredentials = $credentialListWithType
-		? credentials.filter(
-				(credential) =>
-					credential.data.credentialType === $credentialListWithType,
-			)
-		: credentials;
+	$: {
+		updatedCredentials = $credentialListWithType
+			? credentials.filter(
+					(credential) =>
+						credential.data.credentialType === $credentialListWithType,
+				)
+			: credentials;
+	}
 </script>
 
 <div class="grid grid-cols-1 gap-3 p-4 overflow-y-scroll overflow-x-hidden">

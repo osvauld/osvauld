@@ -14,3 +14,5 @@ export let bottomNavActive = writable(true);
 export let credentialListWithType = writable("");
 
 export let refreshVaults = writable(false);
+
+export let refreshCredentialList = writable(false);
