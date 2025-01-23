@@ -20,7 +20,7 @@ const en = {
 	selectImportTarget: "Select Import Target",
 	cancel: "Cancel",
 	copyNote: "Copy Note",
-	delete: "",
+	delete: "Delete",
 	thisActionCannotBeUndone: "Are you sure? This action cannot be undone.",
 	deletedSuccessfully: "Deleted successfully",
 	fieldNames: {

@@ -9,11 +9,15 @@
 	import CategoryLayout from "./layouts/CategoryLayout.svelte";
 	import ProfileLayout from "./layouts/ProfileLayout.svelte";
 	import BottomNavigation from "./sections/BottomNavigation.svelte";
+	import VaultManager from "./views/VaultManager.svelte";
+
+	import { sendMessage } from "../../lib/components/dashboard/helper";
 	import {
-		selectedCredentialType,
-		categorySelection,
 		currentLayout,
 		bottomNavActive,
+		vaults,
+		vaultSwitchActive,
+		refreshVaults,
 	} from "../store/mobile.ui.store";
 
 	const SUPPORTED_LANGUAGES = [
@@ -38,7 +42,22 @@
 	// 		? "category"
 	// 		: "default";
 
-	async function initializeLanguage() {
+	const initializeVaults = async () => {
+		try {
+			const resp = await sendMessage("getFolder");
+			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
+			vaults.set(updatedVaults);
+		} catch (e) {
+			console.log("Error received ===>", e);
+		}
+	};
+
+	$: if ($refreshVaults) {
+		initializeVaults();
+		refreshVaults.set(false);
+	}
+
+	const initializeLanguage = async () => {
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
@@ -53,10 +72,11 @@
 			await loadLocaleAsync("en");
 			setLocale("en");
 		}
-	}
+	};
 
 	onMount(() => {
 		initializeLanguage();
+		initializeVaults();
 	});
 </script>
 
@@ -68,6 +88,10 @@
 	<ProfileLayout />
 {:else if $currentLayout === "home"}
 	<DefaultLayout />
+{/if}
+
+{#if $vaultSwitchActive}
+	<VaultManager />
 {/if}
 
 {#if $bottomNavActive}

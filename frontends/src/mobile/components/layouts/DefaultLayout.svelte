@@ -16,16 +16,6 @@
 	// vaultSwitchActive.subscribe((value) => {
 	// 	console.log(value);
 	// });
-
-	onMount(async () => {
-		try {
-			const resp = await sendMessage("getFolder");
-			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
-			vaults.set(updatedVaults);
-		} catch (e) {
-			console.log("Error received ===>", e);
-		}
-	});
 </script>
 
 <main
@@ -35,8 +25,5 @@
 		<FilteredCredentialListComponent />
 	{:else}
 		<RecentsAndCategories />
-	{/if}
-	{#if $vaultSwitchActive}
-		<VaultManager />
 	{/if}
 </main>
