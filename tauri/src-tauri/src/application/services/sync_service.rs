@@ -22,6 +22,7 @@ pub enum SyncData {
     Folder(Folder),
     Credential(Credential),
     Device(Device),
+    SyncRecord(SyncRecord),
 }
 
 pub struct SyncService {
@@ -77,9 +78,7 @@ impl SyncService {
             .await?;
         let content_records = existing_sync_records
             .into_iter()
-            .map(|record| {
-                sync_record::SyncRecord::create_new_sync_for_device(&record, device.id.clone())
-            })
+            .map(|record| record.create_new_sync_for_device(device.id.clone()))
             .collect::<Vec<_>>();
         all_sync_records.extend(content_records);
         if !all_sync_records.is_empty() {
@@ -128,6 +127,7 @@ impl SyncService {
                     .await?;
                 SyncData::Device(device)
             }
+            sync_record::ResourceType::Record => SyncData::SyncRecord(sync_record.clone()),
             _ => {
                 return Err(RepositoryError::DatabaseError(format!(
                     "Unknown resource type: {:?}",
@@ -223,6 +223,12 @@ impl SyncService {
                         todo!("other operation types not implemented {:?}", op)
                     }
                 };
+            }
+
+            SyncData::SyncRecord(record) => {
+                self.sync_repository
+                    .save_sync_records(&[record.clone()])
+                    .await?;
             }
         }
 
@@ -321,6 +327,25 @@ impl SyncService {
         // Save all sync records
         self.sync_repository
             .save_sync_records(&sync_records)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn process_sync_record_sync(
+        &self,
+        sync_record: &SyncRecord,
+    ) -> Result<(), RepositoryError> {
+        // Check if we already have this sync record
+        let _ = self
+            .sync_repository
+            .find_by_id(&sync_record.id)
+            .await
+            .is_ok();
+
+        // Save the sync record
+        self.sync_repository
+            .save_sync_records(&[sync_record.clone()])
             .await?;
 
         Ok(())

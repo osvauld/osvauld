@@ -66,9 +66,21 @@ impl SyncRepository for SqliteSyncRepository {
         let mut conn = self.connection.lock().await;
         let sync_models = sync_records::table
             .filter(sync_records::target_device_id.eq(target_device_id))
+            .filter(sync_records::operation_type.ne("status_change"))
+            .order_by(sync_records::created_at.asc())
             .select(SyncRecordModel::as_select())
             .load::<SyncRecordModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(SyncRecordModel::to_domain_records(sync_models))
+    }
+
+    async fn find_by_id(&self, sync_id: &str) -> Result<SyncRecord, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let sync_rec = sync_records::table
+            .filter(sync_records::id.eq(sync_id))
+            .select(SyncRecordModel::as_select())
+            .first::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        Ok(sync_rec.into())
     }
 }

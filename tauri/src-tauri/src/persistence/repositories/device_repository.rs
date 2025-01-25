@@ -27,6 +27,7 @@ impl DeviceRepository for SqliteDeviceRepository {
             device_key: device.device_key,
             created_at: device.created_at,
             updated_at: device.updated_at,
+            last_synced_at: device.last_synced_at,
         };
 
         diesel::insert_into(devices::table)
@@ -59,5 +60,19 @@ impl DeviceRepository for SqliteDeviceRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(DeviceModel::to_domain_devices(device_models))
+    }
+
+    async fn udpate_last_synced_at(
+        &self,
+        device_id: &str,
+        timestamp: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        diesel::update(devices::table)
+            .filter(devices::id.eq(device_id))
+            .set(devices::last_synced_at.eq(timestamp))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        Ok(())
     }
 }

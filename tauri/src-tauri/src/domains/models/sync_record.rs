@@ -1,3 +1,4 @@
+use crate::domains::models::device::Device;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -9,6 +10,7 @@ pub enum ResourceType {
     Credential,
     SyncStatus,
     Device,
+    Record,
 }
 
 impl ToString for ResourceType {
@@ -18,6 +20,7 @@ impl ToString for ResourceType {
             ResourceType::Credential => "credential".to_string(),
             ResourceType::SyncStatus => "sync_status".to_string(),
             ResourceType::Device => "device".to_string(),
+            ResourceType::Record => "record".to_string(),
         }
     }
 }
@@ -28,6 +31,7 @@ impl From<String> for ResourceType {
             "credential" => ResourceType::Credential,
             "sync_status" => ResourceType::SyncStatus,
             "device" => ResourceType::Device,
+            "record" => ResourceType::Record,
             _ => ResourceType::Folder, // Default case - or you could use Option/Result instead
         }
     }
@@ -108,6 +112,7 @@ pub struct SyncRecord {
     pub status: SyncStatus,
     pub folder_id: Option<String>,
     pub credential_id: Option<String>,
+    pub synced_from: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -132,6 +137,7 @@ impl SyncRecord {
             credential_id: None,
             created_at: now,
             updated_at: now,
+            synced_from: None,
         }
     }
 
@@ -154,6 +160,7 @@ impl SyncRecord {
             credential_id: Some(credential_id),
             created_at: now,
             updated_at: now,
+            synced_from: None,
         }
     }
 
@@ -175,6 +182,7 @@ impl SyncRecord {
             credential_id: self.credential_id.clone(), // Maintain credential relationship if any
             created_at: now,                   // New timestamps for this sync record
             updated_at: now,
+            synced_from: None,
         }
     }
 
@@ -203,6 +211,62 @@ impl SyncRecord {
             status: SyncStatus::Pending,
             folder_id: None,
             credential_id: None,
+            created_at: now,
+            updated_at: now,
+            synced_from: None,
+        }
+    }
+    pub fn create_status_change_records(
+        completed_sync: &SyncRecord,
+        current_device_id: String,
+        devices: Vec<Device>,
+    ) -> Vec<SyncRecord> {
+        let now = Local::now().timestamp_millis();
+
+        devices
+            .into_iter()
+            .filter(|device| {
+                // Filter out both source and target devices of the original sync
+                device.id != completed_sync.source_device_id
+                    && device.id != completed_sync.target_device_id
+            })
+            .map(|device| {
+                SyncRecord {
+                    id: Uuid::new_v4().to_string(),
+                    resource_id: completed_sync.id.clone(),
+                    resource_type: ResourceType::Record,
+                    operation_type: OperationType::StatusChange,
+                    source_device_id: current_device_id.clone(),
+                    target_device_id: device.id,
+                    status: SyncStatus::Pending,
+                    folder_id: None,
+                    credential_id: None,
+                    synced_from: None, // Changed this to None since it's a status notification
+                    created_at: now,
+                    updated_at: now,
+                }
+            })
+            .collect()
+    }
+
+    pub fn create_sync_record_sync(
+        sync_record: &SyncRecord,
+        source_device_id: String,
+        target_device_id: String,
+    ) -> SyncRecord {
+        let now = Local::now().timestamp_millis();
+
+        SyncRecord {
+            id: Uuid::new_v4().to_string(),
+            resource_id: sync_record.id.clone(),
+            resource_type: ResourceType::Record,
+            operation_type: OperationType::Create,
+            source_device_id: source_device_id.clone(),
+            target_device_id,
+            status: SyncStatus::Pending,
+            folder_id: None,
+            credential_id: None,
+            synced_from: Some(source_device_id),
             created_at: now,
             updated_at: now,
         }

@@ -45,7 +45,7 @@ impl Credential {
             folder_id,
             signature,
             encrypted_key,
-            created_at: now.clone(),
+            created_at: now,
             updated_at: now,
             favorite: false,
             last_accessed: now,

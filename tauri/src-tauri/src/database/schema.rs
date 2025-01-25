@@ -23,6 +23,7 @@ diesel::table! {
         device_key -> Text,
         updated_at -> BigInt,
         created_at -> BigInt,
+        last_synced_at -> Nullable<BigInt>,
     }
 }
 
@@ -49,6 +50,7 @@ diesel::table! {
         source_device_id -> Text,
         target_device_id -> Text,
         status -> Text,
+        synced_from -> Nullable<Text>,
         updated_at -> BigInt,
         created_at -> BigInt,
     }

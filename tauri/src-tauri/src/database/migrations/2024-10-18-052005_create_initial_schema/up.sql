@@ -36,7 +36,8 @@ CREATE TABLE devices (
     id TEXT PRIMARY KEY NOT NULL,
     device_key TEXT NOT NULL UNIQUE,
     updated_at BIGINT NOT NULL,
-    created_at BIGINT NOT NULL 
+    created_at BIGINT NOT NULL,
+    last_synced_at BIGINT
 );
 
 CREATE TABLE sync_records (
@@ -49,6 +50,7 @@ CREATE TABLE sync_records (
     source_device_id TEXT NOT NULL,
     target_device_id TEXT NOT NULL,
     status TEXT NOT NULL,
+    synced_from TEXT,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL
 );

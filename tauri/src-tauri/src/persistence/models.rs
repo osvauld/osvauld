@@ -59,6 +59,7 @@ pub struct SyncRecordModel {
     pub status: String,
     pub folder_id: Option<String>,
     pub credential_id: Option<String>,
+    pub synced_from: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -75,8 +76,9 @@ impl From<&DomainSyncRecord> for SyncRecordModel {
             status: record.status.to_string(),
             folder_id: record.folder_id.clone(),
             credential_id: record.credential_id.clone(),
-            created_at: record.created_at,
-            updated_at: record.updated_at,
+            synced_from: record.synced_from.clone(),
+            created_at: record.created_at.clone(),
+            updated_at: record.updated_at.clone(),
         }
     }
 }
@@ -106,6 +108,7 @@ impl From<SyncRecordModel> for DomainSyncRecord {
             status: model.status.into(),
             folder_id: model.folder_id,
             credential_id: model.credential_id,
+            synced_from: model.synced_from,
             created_at: model.created_at,
             updated_at: model.updated_at,
         }
@@ -189,6 +192,7 @@ pub struct DeviceModel {
     pub device_key: String,
     pub created_at: i64,
     pub updated_at: i64,
+    pub last_synced_at: Option<i64>,
 }
 
 impl From<&DomainDevice> for DeviceModel {
@@ -198,6 +202,7 @@ impl From<&DomainDevice> for DeviceModel {
             device_key: device.device_key.clone(),
             created_at: device.created_at,
             updated_at: device.updated_at,
+            last_synced_at: device.last_synced_at,
         }
     }
 }
@@ -209,6 +214,7 @@ impl From<DeviceModel> for DomainDevice {
             device_key: model.device_key,
             created_at: model.created_at,
             updated_at: model.updated_at,
+            last_synced_at: model.last_synced_at,
         }
     }
 }

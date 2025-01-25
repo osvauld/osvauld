@@ -33,6 +33,7 @@ pub trait SyncRepository: Send + Sync {
         &self,
         target_device_id: &str,
     ) -> Result<Vec<SyncRecord>, RepositoryError>;
+    async fn find_by_id(&self, sync_id: &str) -> Result<SyncRecord, RepositoryError>;
 }
 
 #[async_trait]
@@ -72,4 +73,9 @@ pub trait DeviceRepository: Send + Sync {
     async fn save(&self, device: Device) -> Result<(), RepositoryError>;
     async fn find_by_id(&self, device_id: &str) -> Result<Device, RepositoryError>;
     async fn get_all_devices(&self) -> Result<Vec<Device>, RepositoryError>;
+    async fn udpate_last_synced_at(
+        &self,
+        device_id: &str,
+        timestamp: i64,
+    ) -> Result<(), RepositoryError>;
 }
