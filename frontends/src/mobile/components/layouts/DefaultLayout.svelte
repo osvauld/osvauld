@@ -16,14 +16,18 @@
 	// vaultSwitchActive.subscribe((value) => {
 	// 	console.log(value);
 	// });
+
+	onMount(() => {
+		console.log("Credential list with type", $credentialListWithType);
+	});
 </script>
 
 <main
 	class="w-screen h-screen relative bg-mobile-bgPrimary flex flex-col pb-[60px] overflow-hidden">
-	<TopNavBar />
 	{#if $credentialListWithType}
 		<FilteredCredentialListComponent />
 	{:else}
+		<TopNavBar />
 		<RecentsAndCategories />
 	{/if}
 </main>
