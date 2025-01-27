@@ -16,10 +16,6 @@
 	// vaultSwitchActive.subscribe((value) => {
 	// 	console.log(value);
 	// });
-
-	onMount(() => {
-		console.log("Credential list with type", $credentialListWithType);
-	});
 </script>
 
 <main

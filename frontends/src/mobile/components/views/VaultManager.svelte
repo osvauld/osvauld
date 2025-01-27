@@ -58,8 +58,6 @@
 		bottomNavActive.set(true);
 		credentialListWithType.set("");
 		selectedCredential.set({});
-
-		// Follwing is problematic, if folder is changed from add credential, it shouldnt change layout
 		if ($vaultSwitchForAddingCredential) {
 			vaultSwitchForAddingCredential.set(false);
 			return;
