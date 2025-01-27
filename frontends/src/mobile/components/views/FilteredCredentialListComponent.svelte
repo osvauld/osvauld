@@ -12,9 +12,16 @@
 	let credentials = [];
 
 	const fetchCredentials = async () => {
-		credentials = await sendMessage("getCredentialsForFolder", {
-			folderId: $currentVault.id,
-		});
+		if ($currentVault.id === "all") {
+			credentials = await sendMessage("getAllCredentials", {
+				favourite: false,
+			});
+			return;
+		} else {
+			credentials = await sendMessage("getCredentialsForFolder", {
+				folderId: $currentVault.id,
+			});
+		}
 	};
 
 	const goBack = () => {

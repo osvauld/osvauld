@@ -11,6 +11,7 @@
 		credentialListWithType,
 		selectedCredential,
 		currentLayout,
+		vaultSwitchForAddingCredential,
 	} from "../../store/mobile.ui.store";
 	import { onMount } from "svelte";
 	import { sendMessage } from "../../../lib/components/dashboard/helper";
@@ -57,7 +58,12 @@
 		bottomNavActive.set(true);
 		credentialListWithType.set("");
 		selectedCredential.set({});
-		currentLayout.set("home");
+		if ($vaultSwitchForAddingCredential) {
+			vaultSwitchForAddingCredential.set(false);
+			return;
+		} else {
+			currentLayout.set("home");
+		}
 	};
 
 	const goBack = () => {

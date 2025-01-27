@@ -16,3 +16,4 @@ export let credentialListWithType = writable("");
 export let refreshVaults = writable(false);
 
 export let refreshCredentialList = writable(false);
+export let vaultSwitchForAddingCredential = writable(false);

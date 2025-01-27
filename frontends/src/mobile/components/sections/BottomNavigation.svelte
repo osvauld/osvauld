@@ -39,7 +39,7 @@
 		on:click="{handleVaultManger}">
 		<span class="flex justify-center items-center"
 			><Home color="#5B5D6D" /></span>
-		<span
+		<span class="capitalize"
 			>{$currentVault?.id === "all"
 				? "All Vaults"
 				: `${$currentVault?.name}`}</span>

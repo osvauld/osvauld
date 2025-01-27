@@ -20,10 +20,10 @@
 
 <main
 	class="w-screen h-screen relative bg-mobile-bgPrimary flex flex-col pb-[60px] overflow-hidden">
-	<TopNavBar />
 	{#if $credentialListWithType}
 		<FilteredCredentialListComponent />
 	{:else}
+		<TopNavBar />
 		<RecentsAndCategories />
 	{/if}
 </main>
