@@ -7,11 +7,17 @@
 		vaults,
 		currentVault,
 		vaultSwitchActive,
+		vaultSwitchForAddingCredential,
 	} from "../../store/mobile.ui.store";
 	import RightArrow from "../../../icons/rightArrow.svelte";
 	import Add from "../../../icons/add.svelte";
 	import { onMount } from "svelte";
 	let vaultNotSelected = false;
+
+	const handleSelectVaultToProceed = () => {
+		vaultSwitchActive.set(true);
+		vaultSwitchForAddingCredential.set(true);
+	};
 
 	const handleClick = (categoryId: string) => {
 		if ($currentVault.id === "all") {
@@ -39,13 +45,13 @@
 	</div>
 </div>
 
-{#if $vaults.length === 1}
+{#if $vaults.length === 1 || $currentVault.id === "all"}
 	<button
 		class="text-osvauld-dangerRed text-base flex justify-between items-center mx-3 px-3 py-2 mb-2 bg-mobile-bgSeconary rounded-md active:bg-mobile-bgHighlight/10 transition-colors touch-manipulation"
 		class:shadow-sm="{vaultNotSelected}"
 		class:shadow-red-400="{vaultNotSelected}"
-		on:click="{() => vaultSwitchActive.set(true)}"
-		>Please add vault to proceed <RightArrow /></button>
+		on:click="{handleSelectVaultToProceed}"
+		>Please add/select vault to proceed <RightArrow /></button>
 {/if}
 
 <div
