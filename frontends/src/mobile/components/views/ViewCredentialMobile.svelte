@@ -58,7 +58,6 @@
 
 	onMount(() => {
 		bottomNavActive.set(false);
-		console.log("selected credential", $selectedCredential);
 	});
 </script>
 
