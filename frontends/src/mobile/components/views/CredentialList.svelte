@@ -5,6 +5,7 @@
 		credentialLayoutType,
 		selectedCredential,
 		credentialListWithType,
+		currentVault,
 	} from "../../store/mobile.ui.store";
 	import {
 		CATEGORIES,
@@ -16,12 +17,19 @@
 	let updatedCredentials;
 
 	$: {
-		updatedCredentials = $credentialListWithType
-			? credentials.filter(
-					(credential) =>
-						credential.data.credentialType === $credentialListWithType,
-				)
-			: credentials;
+		updatedCredentials =
+			$credentialListWithType && $credentialListWithType !== "favourites"
+				? credentials.filter(
+						(credential) =>
+							credential.data.credentialType === $credentialListWithType,
+					)
+				: credentials;
+
+		if ($currentVault.id !== "all") {
+			updatedCredentials = updatedCredentials.filter(
+				(credential) => credential.folder_id === $currentVault.id,
+			);
+		}
 	}
 </script>
 

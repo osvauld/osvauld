@@ -6,13 +6,19 @@
 	import {
 		currentVault,
 		credentialListWithType,
+		favoriteCredentials,
 	} from "../../store/mobile.ui.store";
 	import { onMount } from "svelte";
 
 	let credentials = [];
 
 	const fetchCredentials = async () => {
-		if ($currentVault.id === "all") {
+		if ($favoriteCredentials) {
+			credentials = await sendMessage("getAllCredentials", {
+				favourite: true,
+			});
+			return;
+		} else if ($currentVault.id === "all") {
 			credentials = await sendMessage("getAllCredentials", {
 				favourite: false,
 			});
@@ -25,6 +31,9 @@
 	};
 
 	const goBack = () => {
+		if ($favoriteCredentials) {
+			favoriteCredentials.set(false);
+		}
 		credentialListWithType.set("");
 	};
 
@@ -42,11 +51,16 @@
 	<div
 		class="text-mobile-textPrimary text-2xl font-medium flex flex-col pl-4 py-3">
 		<span class="text-mobile-textTertiary">{$credentialListWithType}</span>
-		<div class="flex text-sm font-light gap-1 items-center tracking-wider">
+		<div
+			class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
 			<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
 			{$currentVault.name}
 		</div>
 	</div>
 
 	<CredentialList {credentials} />
+{:else}
+	<span
+		class="w-full h-full flex justify-center items-center text-md text-white"
+		>No credentials found</span>
 {/if}
