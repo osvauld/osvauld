@@ -17,7 +17,7 @@
 	import { onMount } from "svelte";
 
 	const DeleteConfirmation = async () => {
-		if ($deleteConfirmationModal.item == "folder") {
+		if ($deleteConfirmationModal.item == "vault") {
 			await sendMessage("deleteFolder", {
 				folderId: $currentVault.id,
 			});
@@ -39,9 +39,9 @@
 		deleteConfirmationModal.set({ item: "", show: false });
 	};
 
-	onMount(() => {
-		console.log("Inside delete Modal", $selectedCredential);
-	});
+	// onMount(() => {
+	// 	console.log("Inside delete Modal", $selectedCredential);
+	// });
 </script>
 
 <button

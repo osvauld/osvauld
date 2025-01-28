@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { CATEGORIES } from "../../../utils/CredentialUtils";
 	import LL from "../../../i18n/i18n-svelte";
 	import {
@@ -11,7 +12,7 @@
 	} from "../../store/mobile.ui.store";
 	import RightArrow from "../../../icons/rightArrow.svelte";
 	import Add from "../../../icons/add.svelte";
-	import { onMount } from "svelte";
+
 	let vaultNotSelected = false;
 
 	const handleSelectVaultToProceed = () => {
@@ -30,10 +31,6 @@
 		selectedCredentialType.set(categoryId);
 		currentLayout.set("credential");
 	};
-
-	onMount(() => {
-		console.log("Available Vaults", $vaults);
-	});
 </script>
 
 <div class="p-3">
