@@ -7,11 +7,11 @@
 	let credentialTypeCount = {};
 
 	const showFilteredCredentialList = (credentialType) => {
+		if (!credentialTypeCount[credentialType]) return;
 		credentialListWithType.set(credentialType);
 	};
 
 	$: {
-		credentialTypeCount = {};
 		credentials.forEach((credential) => {
 			const type = credential.data.credentialType;
 			credentialTypeCount[type] ??= 0;

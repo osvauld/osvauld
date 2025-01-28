@@ -11,6 +11,7 @@
 		vaults,
 	} from "../../store/mobile.ui.store";
 	import FilteredCredentialListComponent from "../views/FilteredCredentialListComponent.svelte";
+	import VaultHeader from "../ui/VaultHeader.svelte";
 
 	const NUM_CREDS = 1;
 	// vaultSwitchActive.subscribe((value) => {
@@ -23,6 +24,7 @@
 	{#if $credentialListWithType}
 		<FilteredCredentialListComponent />
 	{:else}
+		<VaultHeader />
 		<TopNavBar />
 		<RecentsAndCategories />
 	{/if}
