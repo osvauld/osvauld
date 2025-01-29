@@ -23,7 +23,10 @@
 	import Eye from "../../../icons/eye.svelte";
 	import FavStar from "../../../icons/favStar.svelte";
 
-	import { CATEGORIES, sensitiveFieldNames } from "../../utils/credentialUtils";
+	import {
+		CATEGORIES,
+		credentialFieldsUpdater,
+	} from "../../utils/credentialUtils";
 
 	import {
 		writeToClipboard,
@@ -34,7 +37,7 @@
 	let copied = false;
 	let copiedItemIndex;
 	let deleteHovered = false;
-	let showPassword = false;
+	let showSecretIndex = {};
 	let favourite = $currentCredential?.favourite || false;
 
 	let type = $currentCredential.data.credentialType;
@@ -43,8 +46,11 @@
 		(vault) => vault.id === $currentCredential?.folder_id,
 	)?.name;
 
-	const togglePassword = () => {
-		showPassword = !showPassword;
+	const toggleSecretVisibility = (fieldIndex) => {
+		showSecretIndex = {
+			...showSecretIndex,
+			[fieldIndex]: !showSecretIndex[fieldIndex],
+		};
 	};
 
 	const CloseViewModal = () => {
@@ -157,20 +163,22 @@
 					{#if field.fieldValue.trim().length !== 0}
 						<span class="text-mobile-textlabel text-sm">{field.fieldName}</span>
 						<div class="flex gap-2">
-							{#if sensitiveFieldNames.includes(field.fieldName)}
+							{#if credentialFieldsUpdater(type).find((templateField) => templateField.fieldName === field.fieldName)?.sensitive}
 								<!-- If field name is sensitive, Hide -->
 								<div
 									class="bg-osvauld-fieldActive rounded-lg py-1 px-4 w-full flex"
 									on:click|stopPropagation>
 									<input
-										type="{showPassword ? 'text' : 'password'}"
+										type="{showSecretIndex[index] ? 'text' : 'password'}"
 										class="w-5/6 text-left p-0 leading-3 bg-osvauld-fieldActive text-mobile-textField text-base border-0 outline-0 focus:ring-0 truncate"
-										value="{showPassword ? field.fieldValue : '••••••••'}" />
+										value="{showSecretIndex[index]
+											? field.fieldValue
+											: '••••••••'}" />
 									<button
 										type="button"
 										class="ml-auto flex-none flex justify-center items-center"
-										on:click="{() => togglePassword()}">
-										{#if showPassword}
+										on:click="{() => toggleSecretVisibility(index)}">
+										{#if showSecretIndex[index]}
 											<ClosedEye />
 										{:else}
 											<Eye />
