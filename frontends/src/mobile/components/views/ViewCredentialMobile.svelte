@@ -1,6 +1,9 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { scale } from "svelte/transition";
+
+	import { sendMessage } from "../../../lib/components/dashboard/helper";
+
 	import MobileLeftArrow from "../../../icons/mobileLeftArrow.svelte";
 	import Tick from "../../../icons/tick.svelte";
 	import CopyIcon from "../../../icons/copyIcon.svelte";
@@ -10,6 +13,7 @@
 	import MobileHome from "../../../icons/mobileHome.svelte";
 	import Bin from "../../../icons/binIcon.svelte";
 	import Star from "../../../icons/star.svelte";
+	import FavStar from "../../../icons/favStar.svelte";
 
 	import {
 		currentLayout,
@@ -18,12 +22,18 @@
 		credentialLayoutType,
 		currentVault,
 		deleteConfirmationModal,
+		vaults,
 	} from "../../store/mobile.ui.store";
 
 	import { writeToClipboard } from "../../../lib/components/dashboard/helper";
 
 	let copied = false;
 	let copiedItemIndex;
+	let isFavourite = $selectedCredential?.favourite || false;
+
+	let vaultName = $vaults.find(
+		(vault) => vault.id === $selectedCredential.folder_id,
+	)?.name;
 
 	const directToHome = () => {
 		currentLayout.set("home");
@@ -49,6 +59,11 @@
 		}, 2000);
 	};
 
+	const toggleFavorite = async (id) => {
+		isFavourite = !isFavourite;
+		await sendMessage("toggleFav", { credentialId: id });
+	};
+
 	onMount(() => {
 		bottomNavActive.set(false);
 	});
@@ -63,7 +78,15 @@
 	<span class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary"
 		><Edit size="{24}" /></span>
 	<span class="p-2.5 rounded-lg bg-mobile-bgSeconary"><Share /></span>
-	<span class="p-2.5 rounded-lg bg-mobile-bgSeconary"><Star /></span>
+	<button
+		class="p-2.5 bg-mobile-bgSeconary rounded-md flex justify-center items-center active:scale-95"
+		on:click|stopPropagation="{() => toggleFavorite($selectedCredential.id)}">
+		{#if isFavourite}
+			<FavStar />
+		{:else}
+			<Star />
+		{/if}
+	</button>
 	<span class="p-2.5 rounded-lg bg-mobile-bgSeconary"
 		><More color="#85889C" /></span>
 </nav>
@@ -71,9 +94,10 @@
 	class="text-mobile-textPrimary text-2xl font-medium flex flex-col pl-4 py-3">
 	<span class="text-mobile-textTertiary"
 		>{$selectedCredential?.data?.credentialType}</span>
-	<div class="flex text-sm font-light gap-1 items-center tracking-wider">
+	<div
+		class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
 		<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
-		{$currentVault.name}
+		{vaultName || $currentVault.name}
 	</div>
 </div>
 

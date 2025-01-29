@@ -9,6 +9,7 @@
 		credentialListWithType,
 		vaultSwitchActive,
 		vaults,
+		favoriteCredentials,
 	} from "../../store/mobile.ui.store";
 	import FilteredCredentialListComponent from "../views/FilteredCredentialListComponent.svelte";
 	import VaultHeader from "../ui/VaultHeader.svelte";

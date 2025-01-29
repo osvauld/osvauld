@@ -15,3 +15,4 @@ export let refreshVaults = writable(false);
 export let refreshCredentialList = writable(false);
 export let vaultSwitchForAddingCredential = writable(false);
 export let deleteConfirmationModal = writable({ item: "", show: false });
+export let favoriteCredentials = writable(false);
