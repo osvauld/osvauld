@@ -24,10 +24,10 @@
 	let credentialType;
 
 	const closeEditorModal = () => {
-		credentialEditorModal.set(false);
 		selectedVaultForInput.set({});
 		selectedCategoryForInput.set("");
 		refreshCredentialList.set(true);
+		credentialEditorModal.set(false);
 	};
 
 	const addCredentialHandlerFunc = async () => {

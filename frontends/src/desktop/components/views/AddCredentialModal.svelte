@@ -19,7 +19,6 @@
 	const handleVaultSelection = (e) => {
 		vaultSwitchActive = false;
 		selectedVault = e.detail;
-		console.log("selected vault", selectedVault);
 		selectedVaultForInput.set(selectedVault);
 	};
 

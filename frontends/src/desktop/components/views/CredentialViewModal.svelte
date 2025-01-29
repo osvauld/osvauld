@@ -5,6 +5,7 @@
 		currentVault,
 		deleteConfirmationModal,
 		vaults,
+		refreshCredentialList,
 	} from "../store/desktop.ui.store";
 
 	import { scale } from "svelte/transition";
@@ -18,21 +19,39 @@
 	import Share from "../../../icons/FolderShare.svelte";
 	import Star from "../../../icons/star.svelte";
 	import Bin from "../../../icons/binIcon.svelte";
+	import ClosedEye from "../../../icons/closedEye.svelte";
+	import Eye from "../../../icons/eye.svelte";
+	import FavStar from "../../../icons/favStar.svelte";
 
-	import { CATEGORIES } from "../../utils/credentialUtils";
+	import {
+		CATEGORIES,
+		credentialFieldsUpdater,
+	} from "../../utils/credentialUtils";
 
-	import { writeToClipboard } from "../../../lib/components/dashboard/helper";
+	import {
+		writeToClipboard,
+		sendMessage,
+	} from "../../../lib/components/dashboard/helper";
 	import { onMount } from "svelte";
 
 	let copied = false;
 	let copiedItemIndex;
 	let deleteHovered = false;
+	let showSecretIndex = {};
+	let favourite = $currentCredential?.favourite || false;
 
 	let type = $currentCredential.data.credentialType;
 	let categoryInfo = CATEGORIES.find((item) => item.type === type);
 	let folderName = $vaults.find(
 		(vault) => vault.id === $currentCredential?.folder_id,
 	)?.name;
+
+	const toggleSecretVisibility = (fieldIndex) => {
+		showSecretIndex = {
+			...showSecretIndex,
+			[fieldIndex]: !showSecretIndex[fieldIndex],
+		};
+	};
 
 	const CloseViewModal = () => {
 		viewCredentialModal.set(false);
@@ -54,6 +73,12 @@
 		viewCredentialModal.set(false);
 		deleteConfirmationModal.set({ item: "credential", show: true });
 	};
+
+	const toggleFavorite = async (id) => {
+		favourite = !favourite;
+		await sendMessage("toggleFav", { credentialId: id });
+		refreshCredentialList.set(true);
+	};
 </script>
 
 <div
@@ -68,8 +93,16 @@
 				{:else}
 					<span>!</span>
 				{/if}</span>
-			<span class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary"
-				><Star /></span>
+			<button
+				class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary flex justify-center items-center active:scale-95"
+				on:click|stopPropagation="{() =>
+					toggleFavorite($currentCredential.id)}">
+				{#if favourite}
+					<FavStar />
+				{:else}
+					<Star />
+				{/if}
+			</button>
 			<button
 				class="p-2.5 rounded-lg bg-mobile-bgSeconary"
 				on:mouseenter="{() => (deleteHovered = true)}"
@@ -130,23 +163,59 @@
 					{#if field.fieldValue.trim().length !== 0}
 						<span class="text-mobile-textlabel text-sm">{field.fieldName}</span>
 						<div class="flex gap-2">
-							<div
-								class="bg-mobile-bgSeconary rounded-lg py-2.5 px-4 flex-1 max-w-full truncate">
-								<span class=" text-mobile-textField text-base"
-									>{field.fieldValue}</span>
-							</div>
-							<button
-								class="bg-mobile-bgSeconary rounded-lg p-3"
-								on:click|preventDefault|stopPropagation="{() =>
-									copyToClipboard(field.fieldValue, index)}">
-								{#if copied && copiedItemIndex === index}
-									<span in:scale>
-										<Tick />
-									</span>
-								{:else}
-									<CopyIcon color="{'#85889C'}" />
-								{/if}
-							</button>
+							{#if credentialFieldsUpdater(type).find((templateField) => templateField.fieldName === field.fieldName)?.sensitive}
+								<!-- If field name is sensitive, Hide -->
+								<div
+									class="bg-osvauld-fieldActive rounded-lg py-1 px-4 w-full flex"
+									on:click|stopPropagation>
+									<input
+										type="{showSecretIndex[index] ? 'text' : 'password'}"
+										class="w-5/6 text-left p-0 leading-3 bg-osvauld-fieldActive text-mobile-textField text-base border-0 outline-0 focus:ring-0 truncate"
+										value="{showSecretIndex[index]
+											? field.fieldValue
+											: '••••••••'}" />
+									<button
+										type="button"
+										class="ml-auto flex-none flex justify-center items-center"
+										on:click="{() => toggleSecretVisibility(index)}">
+										{#if showSecretIndex[index]}
+											<ClosedEye />
+										{:else}
+											<Eye />
+										{/if}
+									</button>
+								</div>
+								<button
+									class="bg-osvauld-fieldActive rounded-lg p-3"
+									on:click|preventDefault|stopPropagation="{() =>
+										copyToClipboard(field.fieldValue, index)}">
+									{#if copied && copiedItemIndex === index}
+										<span in:scale>
+											<Tick />
+										</span>
+									{:else}
+										<CopyIcon color="{'#85889C'}" />
+									{/if}
+								</button>
+							{:else}
+								<div
+									class="bg-mobile-bgSeconary rounded-lg py-2.5 px-4 flex-1 max-w-full truncate">
+									<span class=" text-mobile-textField text-base"
+										>{field.fieldValue}</span>
+								</div>
+								<button
+									class="bg-mobile-bgSeconary rounded-lg p-3"
+									on:click|preventDefault|stopPropagation="{() =>
+										copyToClipboard(field.fieldValue, index)}">
+									{#if copied && copiedItemIndex === index}
+										<span in:scale>
+											<Tick />
+										</span>
+									{:else}
+										<CopyIcon color="{'#85889C'}" />
+									{/if}
+								</button>
+							{/if}
 						</div>
 					{/if}
 				{/each}

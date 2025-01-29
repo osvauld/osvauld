@@ -18,9 +18,7 @@
 	let clickTimer = null;
 	let clickDelay = 200;
 	let credentials = [];
-	let favouriteCredentials = [];
 	let prevDeleteModalState = false;
-	let prevEditorModalState = false;
 	let prevImportModalState = false;
 	let importHovered = false;
 	let importSelected = false;
@@ -41,6 +39,7 @@
 			credentials = await sendMessage("getAllCredentials", {
 				favourite: false,
 			});
+			// console.log("All credentialds fetched", credentials);
 		} catch (error) {
 			credentials = [];
 		}
@@ -64,13 +63,6 @@
 	$: if ($currentVault.id === "all") {
 		fetchAllCredentials();
 		credentialcardstates = [];
-	}
-
-	$: {
-		if (prevEditorModalState && !$credentialEditorModal) {
-			fetchCredentials($currentVault.id);
-		}
-		prevEditorModalState = $credentialEditorModal;
 	}
 
 	$: {
@@ -152,19 +144,21 @@
 		</div>
 	{/if}
 	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
-		<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-			{#each Array(getColumnCount()) as _, colIndex}
-				<div class="flex flex-col gap-3">
-					{#each getColumnItems(updatedCredentials, colIndex) as credential (credential.id)}
-						<CredentialCard
-							{credential}
-							{credentialcardstates}
-							on:dbl="{handleDoubleClick}"
-							on:clk="{handleClick}" />
-					{/each}
-				</div>
-			{/each}
-		</div>
+		{#key updatedCredentials}
+			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+				{#each Array(getColumnCount()) as _, colIndex}
+					<div class="flex flex-col gap-3">
+						{#each getColumnItems(updatedCredentials, colIndex) as credential (credential.id)}
+							<CredentialCard
+								{credential}
+								{credentialcardstates}
+								on:dbl="{handleDoubleClick}"
+								on:clk="{handleClick}" />
+						{/each}
+					</div>
+				{/each}
+			</div>
+		{/key}
 	</div>
 	{#if $currentVault.id !== "all"}
 		<button
