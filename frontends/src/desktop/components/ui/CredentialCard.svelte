@@ -37,6 +37,10 @@
 		await sendMessage("toggleFav", { credentialId: id });
 		refreshCredentialList.set(true);
 	};
+
+	// onMount(() => {
+	// 	console.log(credential.id, credential.favourite);
+	// });
 </script>
 
 <div class="min-w-0">

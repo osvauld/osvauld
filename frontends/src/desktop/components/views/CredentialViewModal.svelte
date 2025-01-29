@@ -5,6 +5,7 @@
 		currentVault,
 		deleteConfirmationModal,
 		vaults,
+		refreshCredentialList,
 	} from "../store/desktop.ui.store";
 
 	import { scale } from "svelte/transition";
@@ -20,16 +21,21 @@
 	import Bin from "../../../icons/binIcon.svelte";
 	import ClosedEye from "../../../icons/closedEye.svelte";
 	import Eye from "../../../icons/eye.svelte";
+	import FavStar from "../../../icons/favStar.svelte";
 
 	import { CATEGORIES, sensitiveFieldNames } from "../../utils/credentialUtils";
 
-	import { writeToClipboard } from "../../../lib/components/dashboard/helper";
+	import {
+		writeToClipboard,
+		sendMessage,
+	} from "../../../lib/components/dashboard/helper";
 	import { onMount } from "svelte";
 
 	let copied = false;
 	let copiedItemIndex;
 	let deleteHovered = false;
 	let showPassword = false;
+	let favourite = $currentCredential?.favourite || false;
 
 	let type = $currentCredential.data.credentialType;
 	let categoryInfo = CATEGORIES.find((item) => item.type === type);
@@ -61,6 +67,12 @@
 		viewCredentialModal.set(false);
 		deleteConfirmationModal.set({ item: "credential", show: true });
 	};
+
+	const toggleFavorite = async (id) => {
+		favourite = !favourite;
+		await sendMessage("toggleFav", { credentialId: id });
+		refreshCredentialList.set(true);
+	};
 </script>
 
 <div
@@ -75,8 +87,16 @@
 				{:else}
 					<span>!</span>
 				{/if}</span>
-			<span class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary"
-				><Star /></span>
+			<button
+				class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary flex justify-center items-center active:scale-95"
+				on:click|stopPropagation="{() =>
+					toggleFavorite($currentCredential.id)}">
+				{#if favourite}
+					<FavStar />
+				{:else}
+					<Star />
+				{/if}
+			</button>
 			<button
 				class="p-2.5 rounded-lg bg-mobile-bgSeconary"
 				on:mouseenter="{() => (deleteHovered = true)}"
