@@ -22,6 +22,15 @@ export const CATEGORIES = [
 	{ id: "databases", type: "Database", icon: MobileDatabase },
 ];
 
+export const sensitiveFieldNames = [
+	"Password",
+	"Private Key",
+	"Passphrase",
+	"API Key",
+	"API Secret",
+	"PIN",
+];
+
 export const THEMES = {
 	one: "#FAB387",
 	two: "#89B4FA",

@@ -18,8 +18,10 @@
 	import Share from "../../../icons/FolderShare.svelte";
 	import Star from "../../../icons/star.svelte";
 	import Bin from "../../../icons/binIcon.svelte";
+	import ClosedEye from "../../../icons/closedEye.svelte";
+	import Eye from "../../../icons/eye.svelte";
 
-	import { CATEGORIES } from "../../utils/credentialUtils";
+	import { CATEGORIES, sensitiveFieldNames } from "../../utils/credentialUtils";
 
 	import { writeToClipboard } from "../../../lib/components/dashboard/helper";
 	import { onMount } from "svelte";
@@ -27,12 +29,17 @@
 	let copied = false;
 	let copiedItemIndex;
 	let deleteHovered = false;
+	let showPassword = false;
 
 	let type = $currentCredential.data.credentialType;
 	let categoryInfo = CATEGORIES.find((item) => item.type === type);
 	let folderName = $vaults.find(
 		(vault) => vault.id === $currentCredential?.folder_id,
 	)?.name;
+
+	const togglePassword = () => {
+		showPassword = !showPassword;
+	};
 
 	const CloseViewModal = () => {
 		viewCredentialModal.set(false);
@@ -130,23 +137,57 @@
 					{#if field.fieldValue.trim().length !== 0}
 						<span class="text-mobile-textlabel text-sm">{field.fieldName}</span>
 						<div class="flex gap-2">
-							<div
-								class="bg-mobile-bgSeconary rounded-lg py-2.5 px-4 flex-1 max-w-full truncate">
-								<span class=" text-mobile-textField text-base"
-									>{field.fieldValue}</span>
-							</div>
-							<button
-								class="bg-mobile-bgSeconary rounded-lg p-3"
-								on:click|preventDefault|stopPropagation="{() =>
-									copyToClipboard(field.fieldValue, index)}">
-								{#if copied && copiedItemIndex === index}
-									<span in:scale>
-										<Tick />
-									</span>
-								{:else}
-									<CopyIcon color="{'#85889C'}" />
-								{/if}
-							</button>
+							{#if sensitiveFieldNames.includes(field.fieldName)}
+								<!-- If field name is sensitive, Hide -->
+								<div
+									class="bg-osvauld-fieldActive rounded-lg py-1 px-4 w-full flex"
+									on:click|stopPropagation>
+									<input
+										type="{showPassword ? 'text' : 'password'}"
+										class="w-5/6 text-left p-0 leading-3 bg-osvauld-fieldActive text-mobile-textField text-base border-0 outline-0 focus:ring-0 truncate"
+										value="{showPassword ? field.fieldValue : '••••••••'}" />
+									<button
+										type="button"
+										class="ml-auto flex-none flex justify-center items-center"
+										on:click="{() => togglePassword()}">
+										{#if showPassword}
+											<ClosedEye />
+										{:else}
+											<Eye />
+										{/if}
+									</button>
+								</div>
+								<button
+									class="bg-osvauld-fieldActive rounded-lg p-3"
+									on:click|preventDefault|stopPropagation="{() =>
+										copyToClipboard(field.fieldValue, index)}">
+									{#if copied && copiedItemIndex === index}
+										<span in:scale>
+											<Tick />
+										</span>
+									{:else}
+										<CopyIcon color="{'#85889C'}" />
+									{/if}
+								</button>
+							{:else}
+								<div
+									class="bg-mobile-bgSeconary rounded-lg py-2.5 px-4 flex-1 max-w-full truncate">
+									<span class=" text-mobile-textField text-base"
+										>{field.fieldValue}</span>
+								</div>
+								<button
+									class="bg-mobile-bgSeconary rounded-lg p-3"
+									on:click|preventDefault|stopPropagation="{() =>
+										copyToClipboard(field.fieldValue, index)}">
+									{#if copied && copiedItemIndex === index}
+										<span in:scale>
+											<Tick />
+										</span>
+									{:else}
+										<CopyIcon color="{'#85889C'}" />
+									{/if}
+								</button>
+							{/if}
 						</div>
 					{/if}
 				{/each}
