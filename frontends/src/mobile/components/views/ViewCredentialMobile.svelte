@@ -21,6 +21,7 @@
 		selectedCredential,
 		credentialLayoutType,
 		currentVault,
+		deleteConfirmationModal,
 		vaults,
 	} from "../../store/mobile.ui.store";
 
@@ -39,6 +40,13 @@
 		bottomNavActive.set(true);
 		selectedCredential.set({});
 		credentialLayoutType.set("addition");
+	};
+
+	const handleDelete = () => {
+		deleteConfirmationModal.set({
+			item: "credential",
+			show: true,
+		});
 	};
 
 	const copyToClipboard = async (fieldValue, index) => {
@@ -85,7 +93,7 @@
 <div
 	class="text-mobile-textPrimary text-2xl font-medium flex flex-col pl-4 py-3">
 	<span class="text-mobile-textTertiary"
-		>{$selectedCredential.data.credentialType}</span>
+		>{$selectedCredential?.data?.credentialType}</span>
 	<div
 		class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
 		<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
@@ -95,7 +103,7 @@
 
 <div
 	class="grow p-4 text-mobile-textPrimary overflow-y-auto scrollbar-thin flex flex-col gap-2 mt-2">
-	{#each $selectedCredential.data.credentialFields as field, index (field.fieldName)}
+	{#each $selectedCredential?.data?.credentialFields as field, index (field.fieldName)}
 		{#if field.fieldValue.trim().length !== 0}
 			<span class="text-mobile-textlabel text-sm">{field.fieldName}</span>
 			<div class="flex gap-2">
@@ -140,9 +148,10 @@
 		<span class="px-5 py-2.5 flex justify-start items-center">
 			<Share />
 			<span class="ml-2">Share now</span></span>
-		<span
-			class="text-osvauld-dangerRed px-5 py-2.5 flex justify-start items-center">
+		<button
+			class="text-osvauld-dangerRed px-5 py-2.5 flex justify-start items-center"
+			on:click|stopPropagation="{handleDelete}">
 			<Bin color="#FF6A6A" />
-			<span class="ml-2">Delete</span></span>
+			<span class="ml-2">Delete</span></button>
 	</div>
 </div>

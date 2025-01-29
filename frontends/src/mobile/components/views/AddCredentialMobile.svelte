@@ -89,9 +89,9 @@
 <div
 	class="h-[68px] flex-shrink-0 p-3 flex justify-between items-center text-mobile-bgPrimary">
 	<button
-		class="px-10 py-2.5 text-mobile-textSecondary"
+		class="px-10 py-2.5 text-mobile-textSecondary bg-mobile-bgSeconary rounded-lg font-medium"
 		on:click="{directToHome}">Cancel</button>
 	<button
 		class="px-10 py-2.5 bg-osvauld-carolinablue rounded-lg font-medium"
-		on:click="{addCredentialHandlerFunc}">Add Card</button>
+		on:click="{addCredentialHandlerFunc}">Add Secret</button>
 </div>

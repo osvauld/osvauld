@@ -22,7 +22,6 @@
 				favourite: false,
 			});
 			credentialsLoaded = true;
-			console.log("fetching all credentials", credentials);
 		} catch (error) {
 			credentials = [];
 		}

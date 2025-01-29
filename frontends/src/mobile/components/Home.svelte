@@ -10,6 +10,7 @@
 	import ProfileLayout from "./layouts/ProfileLayout.svelte";
 	import BottomNavigation from "./sections/BottomNavigation.svelte";
 	import VaultManager from "./views/VaultManager.svelte";
+	import DeleteConfirmationModal from "./ui/DeleteConfirmationModal.svelte";
 
 	import { sendMessage } from "../../lib/components/dashboard/helper";
 	import {
@@ -18,6 +19,7 @@
 		vaults,
 		vaultSwitchActive,
 		refreshVaults,
+		deleteConfirmationModal,
 	} from "../store/mobile.ui.store";
 
 	const SUPPORTED_LANGUAGES = [
@@ -96,4 +98,8 @@
 
 {#if $bottomNavActive}
 	<BottomNavigation />
+{/if}
+
+{#if $deleteConfirmationModal.show}
+	<DeleteConfirmationModal />
 {/if}

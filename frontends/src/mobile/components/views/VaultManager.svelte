@@ -69,6 +69,10 @@
 	const goBack = () => {
 		vaultSwitchActive.set(false);
 	};
+
+	onMount(async () => {
+		await fetchAllVaults();
+	});
 </script>
 
 <button
