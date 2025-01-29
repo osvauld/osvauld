@@ -21,9 +21,9 @@
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">
-	<div class="h-28 py-10 px-16 flex items-center justify-between flex-shrink-0">
+	<div class="h-28 py-10 px-16 flex items-center justify-between shrink-0">
 		<h1
-			class="text-4xl font-light text-osvauld-sideListTextActive flex justify-between items-center gap-3 capitalize max-w-1/2 truncate">
+			class="flex-1 truncate text-4xl font-light text-osvauld-sideListTextActive text-left capitalize">
 			{$selectedCategory
 				? $selectedCategory
 				: $currentVault.id === "all"
@@ -31,7 +31,7 @@
 					: $currentVault.name}
 		</h1>
 
-		<div class="gap-4 flex justify-between items-center ml-3">
+		<div class="shrink-0 gap-4 flex justify-between items-center ml-3">
 			{#if $currentVault.id !== "all"}
 				<button
 					class="p-2"
