@@ -18,9 +18,7 @@
 	let clickTimer = null;
 	let clickDelay = 200;
 	let credentials = [];
-	let favouriteCredentials = [];
 	let prevDeleteModalState = false;
-	let prevEditorModalState = false;
 	let prevImportModalState = false;
 	let importHovered = false;
 	let importSelected = false;
@@ -64,13 +62,6 @@
 	$: if ($currentVault.id === "all") {
 		fetchAllCredentials();
 		credentialcardstates = [];
-	}
-
-	$: {
-		if (prevEditorModalState && !$credentialEditorModal) {
-			fetchCredentials($currentVault.id);
-		}
-		prevEditorModalState = $credentialEditorModal;
 	}
 
 	$: {
