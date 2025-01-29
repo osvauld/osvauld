@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { slide, scale } from "svelte/transition";
+
 	import { writeToClipboard } from "../../../lib/components/dashboard/helper";
+	import { sensitiveFieldNames } from "../../../utils/CredentialUtils";
 	import LL from "../../../i18n/i18n-svelte";
+
 	import Tick from "../../../icons/tick.svelte";
 	import CopyIcon from "../../../icons/copyIcon.svelte";
 	import ClosedEye from "../../../icons/closedEye.svelte";
@@ -35,6 +38,7 @@
 	in:slide
 	out:slide>
 	{#if type === "Note"}
+		<!-- If credential type is note -->
 		{@const value = fields.find(
 			(item) => item.fieldName === "Note",
 		)?.fieldValue}
@@ -67,7 +71,8 @@
 				<span class="text-osvauld-fadedCancel text-sm"
 					>{$LL.fieldNames[field?.fieldName]() || field.fieldName}</span>
 				<div class="flex gap-2 w-full">
-					{#if field.fieldName === "Password"}
+					{#if sensitiveFieldNames.includes(field.fieldName)}
+						<!-- If field name is sensitive, Hide -->
 						<div
 							class="bg-osvauld-fieldActive rounded-lg py-1 px-4 w-full flex"
 							on:click|stopPropagation>
@@ -99,6 +104,7 @@
 							{/if}
 						</button>
 					{:else}
+						<!-- Regular credential field -->
 						<div
 							class="bg-osvauld-fieldActive rounded-lg py-2.5 px-4 flex-1 max-w-full truncate">
 							<span class="text-left text-mobile-textField text-base"
