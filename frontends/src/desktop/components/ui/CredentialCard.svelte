@@ -10,15 +10,19 @@
 	import Star from "../../../icons/star.svelte";
 	import FavStar from "../../../icons/favStar.svelte";
 	import CredentialOverview from "./CredentialOverview.svelte";
+	import { refreshCredentialList } from "../store/desktop.ui.store";
+
+	import { LL } from "../../../i18n/i18n-svelte";
 
 	export let credential;
 	export let credentialcardstates = [];
-	let starred = false;
+	let favourite = credential?.favourite || false;
 
 	const dispatch = createEventDispatcher();
 
 	let type = credential.data.credentialType;
 	let categoryInfo = CATEGORIES.find((item) => item.type === type);
+	let typeIdForTranslation = CATEGORIES.find((item) => item.type === type)?.id;
 
 	const dispatchDoubleClick = (credential) => {
 		dispatch("dbl", credential);
@@ -29,11 +33,14 @@
 	};
 
 	const toggleFavorite = async (id) => {
-		starred = !starred;
-		// const toggleResp = await sendMessage("toggleFav", { credentialId: id });
-		// Call the API to toggle the favorite status
-		// Refresh credential list
+		favourite = !favourite;
+		await sendMessage("toggleFav", { credentialId: id });
+		refreshCredentialList.set(true);
 	};
+
+	// onMount(() => {
+	// 	console.log(credential.id, credential.favourite);
+	// });
 </script>
 
 <div class="min-w-0">
@@ -53,7 +60,7 @@
 			<button
 				class="ml-auto p-2.5 bg-osvauld-fieldActive rounded-md flex justify-center items-center active:scale-95"
 				on:click|stopPropagation="{() => toggleFavorite(credential.id)}">
-				{#if starred}
+				{#if favourite}
 					<FavStar />
 				{:else}
 					<Star />
@@ -67,15 +74,15 @@
 		</div>
 		<div class="flex flex-col">
 			<h3
-				class="font-Jakarta text-xl font-medium text-left text-mobile-textbright truncate max-w-[16rem]">
+				class="font-Jakarta text-xl font-medium text-left text-osvauld-sideListTextActive truncate max-w-[16rem]">
 				{renderRelevantHeading(
 					credential.data.credentialFields,
 					type,
 					credential.id,
 				)}
 			</h3>
-			<span class="text-xs text-left text-mobile-textPrimary">
-				{type}
+			<span class="text-sm text-left text-osvauld-fieldTextActive">
+				{$LL.types[typeIdForTranslation]()}
 			</span>
 		</div>
 		{#if credentialcardstates.find((item) => item.id === credential.id)?.show}

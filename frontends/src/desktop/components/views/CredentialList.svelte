@@ -6,18 +6,19 @@
 		viewCredentialModal,
 		currentCredential,
 		deleteConfirmationModal,
+		refreshCredentialList,
 	} from "../store/desktop.ui.store";
 	import { sendMessage } from "../../../lib/components/dashboard/helper";
 	import Import from "../../../icons/import.svelte";
 	import ImportModal from "./ImportModal.svelte";
 	import CredentialCard from "../ui/CredentialCard.svelte";
 	import { onMount } from "svelte";
+	import LL from "../../../i18n/i18n-svelte";
 
 	let clickTimer = null;
 	let clickDelay = 200;
 	let credentials = [];
 	let prevDeleteModalState = false;
-	let prevEditorModalState = false;
 	let prevImportModalState = false;
 	let importHovered = false;
 	let importSelected = false;
@@ -36,8 +37,9 @@
 	const fetchAllCredentials = async () => {
 		try {
 			credentials = await sendMessage("getAllCredentials", {
-				folderId: "all",
+				favourite: false,
 			});
+			// console.log("All credentialds fetched", credentials);
 		} catch (error) {
 			credentials = [];
 		}
@@ -49,16 +51,18 @@
 		credentialcardstates = [];
 	}
 
+	$: if ($refreshCredentialList) {
+		if ($currentVault.id === "all") {
+			fetchAllCredentials();
+		} else {
+			fetchCredentials($currentVault.id);
+		}
+		refreshCredentialList.set(false);
+	}
+
 	$: if ($currentVault.id === "all") {
 		fetchAllCredentials();
 		credentialcardstates = [];
-	}
-
-	$: {
-		if (prevEditorModalState && !$credentialEditorModal) {
-			fetchCredentials($currentVault.id);
-		}
-		prevEditorModalState = $credentialEditorModal;
 	}
 
 	$: {
@@ -75,9 +79,11 @@
 	}
 
 	$: updatedCredentials = $selectedCategory
-		? credentials.filter(
-				(credential) => credential.data.credentialType === $selectedCategory,
-			)
+		? $selectedCategory === "favourites"
+			? credentials.filter((credential) => credential.favourite)
+			: credentials.filter(
+					(credential) => credential.data.credentialType === $selectedCategory,
+				)
 		: credentials;
 
 	const selectedCredential = (credential) => {
@@ -138,19 +144,21 @@
 		</div>
 	{/if}
 	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
-		<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-			{#each Array(getColumnCount()) as _, colIndex}
-				<div class="flex flex-col gap-3">
-					{#each getColumnItems(updatedCredentials, colIndex) as credential (credential.id)}
-						<CredentialCard
-							{credential}
-							{credentialcardstates}
-							on:dbl="{handleDoubleClick}"
-							on:clk="{handleClick}" />
-					{/each}
-				</div>
-			{/each}
-		</div>
+		{#key updatedCredentials}
+			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+				{#each Array(getColumnCount()) as _, colIndex}
+					<div class="flex flex-col gap-3">
+						{#each getColumnItems(updatedCredentials, colIndex) as credential (credential.id)}
+							<CredentialCard
+								{credential}
+								{credentialcardstates}
+								on:dbl="{handleDoubleClick}"
+								on:clk="{handleClick}" />
+						{/each}
+					</div>
+				{/each}
+			</div>
+		{/key}
 	</div>
 	{#if $currentVault.id !== "all"}
 		<button
@@ -160,7 +168,7 @@
 			on:mouseleave="{() => (importHovered = false)}"
 			on:click="{() => (importSelected = true)}">
 			<Import color="{importHovered ? '#0D0E13' : '#6E7681'}" />
-			<span class="ml-2">Import</span>
+			<span class="ml-2">{$LL.import()}</span>
 		</button>
 	{/if}
 </div>

@@ -9,34 +9,24 @@
 		credentialListWithType,
 		vaultSwitchActive,
 		vaults,
+		favoriteCredentials,
 	} from "../../store/mobile.ui.store";
 	import FilteredCredentialListComponent from "../views/FilteredCredentialListComponent.svelte";
+	import VaultHeader from "../ui/VaultHeader.svelte";
 
 	const NUM_CREDS = 1;
 	// vaultSwitchActive.subscribe((value) => {
 	// 	console.log(value);
 	// });
-
-	onMount(async () => {
-		try {
-			const resp = await sendMessage("getFolder");
-			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
-			vaults.set(updatedVaults);
-		} catch (e) {
-			console.log("Error received ===>", e);
-		}
-	});
 </script>
 
 <main
 	class="w-screen h-screen relative bg-mobile-bgPrimary flex flex-col pb-[60px] overflow-hidden">
-	<TopNavBar />
 	{#if $credentialListWithType}
 		<FilteredCredentialListComponent />
 	{:else}
+		<VaultHeader />
+		<TopNavBar />
 		<RecentsAndCategories />
-	{/if}
-	{#if $vaultSwitchActive}
-		<VaultManager />
 	{/if}
 </main>

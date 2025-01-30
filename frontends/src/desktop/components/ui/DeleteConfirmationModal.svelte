@@ -5,7 +5,9 @@
 		currentVault,
 		deleteConfirmationModal,
 		toastStore,
+		refreshCredentialList,
 	} from "../store/desktop.ui.store";
+	import LL from "../../../i18n/i18n-svelte";
 	import { renderRelevantHeading } from "../../utils/credentialUtils";
 	import { fly } from "svelte/transition";
 	import Warning from "../../../icons/warning.svelte";
@@ -21,13 +23,14 @@
 			await sendMessage("deleteCredential", {
 				credentialId: $currentCredential.id,
 			});
+			refreshCredentialList.set(true);
 		}
 
 		// We need to collect response above and show toggle accordingly
 		//
 		toastStore.set({
 			show: true,
-			message: `${$deleteConfirmationModal.item} deleted successfully`,
+			message: `${$deleteConfirmationModal.item} ${$LL.deletedSuccessfully()}`,
 			success: true,
 		});
 		deleteConfirmationModal.set({ item: "", show: false });
@@ -48,7 +51,8 @@
 		on:submit|preventDefault|stopPropagation="{DeleteConfirmation}">
 		<div class="flex justify-between items-center w-full">
 			<span class="text-[21px] font-medium text-osvauld-quarzowhite capitalize"
-				>Delete {$deleteConfirmationModal.item === "credential"
+				>{$LL.delete()}
+				{$deleteConfirmationModal.item === "credential"
 					? renderRelevantHeading(
 							$currentCredential.data.credentialFields,
 							$currentCredential.data.credentialType,
@@ -71,7 +75,7 @@
 				<Warning />
 			</div>
 			<div class="text-osvauld-textActive text-left">
-				Are you sure? This action cannot be undone.
+				{$LL.thisActionCannotBeUndone()}
 			</div>
 		</div>
 		<div
@@ -80,12 +84,12 @@
 		<div class="flex justify-end items-center gap-4 w-full">
 			<button
 				class="font-medium text-base rounded-md py-[5px] px-[15px] text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
-				on:click="{withdrawCredentialDeleteModal}">Cancel</button>
+				on:click="{withdrawCredentialDeleteModal}">{$LL.cancel()}</button>
 			<button
 				class="border border-osvauld-dangerRed py-[5px] px-[15px] text-base font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all"
 				type="submit"
 				on:click="{DeleteConfirmation}"
-				>Delete {$deleteConfirmationModal.item}</button>
+				>{$LL.delete()} {$deleteConfirmationModal.item}</button>
 		</div>
 	</form>
 </button>

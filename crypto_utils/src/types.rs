@@ -45,6 +45,7 @@ pub struct CredentialWithEncryptedKey {
     pub encrypted_key: String,
     pub last_accessed: i64,
     pub favourite: bool,
+    pub folder_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

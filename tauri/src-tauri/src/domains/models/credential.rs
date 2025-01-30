@@ -25,6 +25,7 @@ pub struct DecryptedCredential {
     pub data: Value,
     pub last_accessed: i64,
     pub favourite: bool,
+    pub folder_id: String,
 }
 
 impl Credential {

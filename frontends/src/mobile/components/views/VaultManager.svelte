@@ -11,6 +11,7 @@
 		credentialListWithType,
 		selectedCredential,
 		currentLayout,
+		vaultSwitchForAddingCredential,
 	} from "../../store/mobile.ui.store";
 	import { onMount } from "svelte";
 	import { sendMessage } from "../../../lib/components/dashboard/helper";
@@ -22,17 +23,32 @@
 		node.focus();
 	};
 
+	const fetchAllVaults = async () => {
+		try {
+			const resp = await sendMessage("getFolder");
+			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
+			vaults.set(updatedVaults);
+		} catch (e) {
+			console.log("Error received", e);
+		}
+	};
+
 	const handleFolderCreation = async () => {
-		await sendMessage("addFolder", {
-			name: newVaultName,
-			description: "",
-		});
-		bottomNavActive.set(true);
-		// todo: change this to the newly created vault (be)
-		currentVault.set(newVaultName);
-		vaultSwitchActive.set(false);
+		// bottomNavActive.set(true);
+		try {
+			await sendMessage("addFolder", {
+				name: newVaultName,
+				description: "",
+			});
+		} catch (e) {
+			console.log("Vault creation failed");
+		}
+
+		await fetchAllVaults();
+		currentVault.set($vaults.find((vault) => vault.name === newVaultName));
 		newVaultName = "";
 		newVaultInputActive = false;
+		vaultSwitchActive.set(false);
 	};
 
 	const selectVault = (vault) => {
@@ -42,7 +58,12 @@
 		bottomNavActive.set(true);
 		credentialListWithType.set("");
 		selectedCredential.set({});
-		currentLayout.set("home");
+		if ($vaultSwitchForAddingCredential) {
+			vaultSwitchForAddingCredential.set(false);
+			return;
+		} else {
+			currentLayout.set("home");
+		}
 	};
 
 	const goBack = () => {
@@ -50,13 +71,7 @@
 	};
 
 	onMount(async () => {
-		try {
-			const resp = await sendMessage("getFolder");
-			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
-			vaults.set(updatedVaults);
-		} catch (e) {
-			console.log("Error received ===>", e);
-		}
+		await fetchAllVaults();
 	});
 </script>
 
@@ -69,7 +84,7 @@
 	aria-label="Close overlay">
 </button>
 <div
-	class="absolute w-full h-auto bottom-0 border-t-[1px] border-mobile-textSecondary bg-mobile-bgPrimary rounded-t-2xl px-2 pt-2 pb-16 flex flex-col gap-2 text-lg"
+	class="absolute w-full h-auto bottom-5 border-t-[1px] border-mobile-textSecondary bg-mobile-bgPrimary rounded-t-2xl px-2 pt-2 pb-16 flex flex-col gap-2 text-lg"
 	in:slide
 	on:click|preventDefault|stopPropagation>
 	{#each $vaults as vault (vault.id)}
@@ -86,9 +101,8 @@
 	{/each}
 
 	{#if newVaultInputActive}
-		<form
+		<div
 			class="h-[250px] rounded-[20px] border border-mobile-bgLight px-3 pt-3 pb-4 text-mobile-textPrimary flex flex-col gap-3"
-			on:submit|preventDefault="{handleFolderCreation}"
 			in:slide
 			out:slide>
 			<span class="text-lg text-center">New Vault</span>
@@ -102,11 +116,12 @@
 					use:autofocus
 					bind:value="{newVaultName}" />
 				<button
-					type="submit"
+					type="button"
 					class="h-[48px] flex justify-center items-center gap-1 rounded-lg bg-mobile-highlightBlue text-mobile-bgPrimary font-medium text-lg mt-6"
+					on:click|stopPropagation="{handleFolderCreation}"
 					>Create New Vault <Add color="#000" /></button>
 			</div>
-		</form>
+		</div>
 	{:else}
 		<button
 			type="submit"

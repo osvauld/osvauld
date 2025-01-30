@@ -6,6 +6,7 @@
 		parseCsvLogins,
 		approvedCredentialSubmit,
 	} from "../../utils/credentialParser";
+	import LL from "../../../i18n/i18n-svelte";
 	import { IntermediateCredential, Platform } from "../../dtos/import.dto";
 	import Import from "../../../icons/import.svelte";
 	import ImportTable from "../views/ImportTable.svelte";
@@ -157,7 +158,7 @@
 		</div>
 	{:else}
 		<div class="text-3xl my-4 flex justify-center">
-			<span class="">Select Import Target</span>
+			<span class="">{$LL.selectImportTarget()}</span>
 		</div>
 		<div
 			class="w-full h-[80%] gap-2 grid grid-cols-4 grid-rows-4 text-osvauld-chalkwhite text-xl">
@@ -171,14 +172,14 @@
 					on:mouseenter="{() => (hoveredIndex = index)}"
 					on:mouseleave="{() => (hoveredIndex = undefined)}">
 					<span class="text-osvauld-highlightwhite font-semibold"
-						>{option}</span>
+						>{$LL.importTargets[option]()}</span>
 				</button>
 			{/each}
 		</div>
 		<div class="flex justify-end items-center pr-10">
 			<button
 				class="border border-osvauld-iconblack rounded-lg px-3 py-1.5 hover:bg-osvauld-carolinablue hover:text-osvauld-ninjablack"
-				on:click="{dispatchCancel}">Cancel</button>
+				on:click="{dispatchCancel}">{$LL.cancel()}</button>
 		</div>
 	{/if}
 </div>

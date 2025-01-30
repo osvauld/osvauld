@@ -55,3 +55,7 @@
 .secondary-btn {
 	@apply border border-osvauld-iconblack bg-osvauld-addfieldgrey  rounded-lg text-osvauld-sheffieldgrey active:scale-95;
 }
+
+.profileBtn {
+	@apply p-3 flex justify-start items-center gap-2 border border-osvauld-defaultBorder border-opacity-40 rounded-lg hover:bg-osvauld-frameblack hover:border-opacity-100 hover:text-osvauld-sideListTextActive;
+}

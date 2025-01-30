@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { sendMessage } from "../../../lib/components/dashboard/helper";
-	import { currentVault } from "../../store/mobile.ui.store";
+	import {
+		currentVault,
+		refreshCredentialList,
+	} from "../../store/mobile.ui.store";
 	import { listen, UnlistenFn } from "@tauri-apps/api/event";
 	import RegretFace from "../../../icons/regretFace.svelte";
 	import CategoriesFilter from "./CategoriesFilter.svelte";
@@ -12,6 +15,17 @@
 	let credentialsLoaded = false;
 
 	let unlisten: UnlistenFn;
+
+	const fetchAllCredentials = async () => {
+		try {
+			credentials = await sendMessage("getAllCredentials", {
+				favourite: false,
+			});
+			credentialsLoaded = true;
+		} catch (error) {
+			credentials = [];
+		}
+	};
 
 	// This async function handles fetching and processing notes
 	const fetchCredentials = async (vaultId: string) => {
@@ -39,16 +53,23 @@
 		}
 	};
 
+	const fetchCredentialsForVault = async (vaultId) => {
+		if (!vaultId) return;
+		vaultId === "all"
+			? await fetchAllCredentials()
+			: await fetchCredentials(vaultId);
+	};
+
 	// Watch for vault changes
-	$: if ($currentVault?.id) {
-		fetchCredentials($currentVault.id);
+	$: fetchCredentialsForVault($currentVault?.id);
+	$: if ($refreshCredentialList) {
+		fetchCredentialsForVault($currentVault.id);
+		refreshCredentialList.set(false);
 	}
 
 	// Initial setup on mount
 	onMount(() => {
-		// if ($currentVault?.id) {
-		// 	fetchCredentials($currentVault.id);
-		// }
+		// Fetch all Credentials
 		setupSyncListener();
 	});
 
@@ -81,7 +102,7 @@
 
 {#if !credentialsLoaded}
 	<div class="w-full h-full flex justify-center items-center">
-		<span>Loading...</span>
+		<span class="text-mobile-textPrimary">Loading...</span>
 	</div>
 {:else if credentials.length === 0}
 	<div

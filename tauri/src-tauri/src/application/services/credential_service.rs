@@ -89,6 +89,7 @@ impl CredentialService {
                 encrypted_key: cred.encrypted_key,
                 last_accessed: cred.last_accessed,
                 favourite: cred.favorite,
+                folder_id: cred.folder_id,
             })
             .collect();
 
@@ -114,6 +115,7 @@ impl CredentialService {
                     data: parsed_data,
                     last_accessed: cred.last_accessed,
                     favourite: cred.favourite,
+                    folder_id: cred.folder_id,
                 }
             })
             .collect();
@@ -163,6 +165,7 @@ impl CredentialService {
                 encrypted_key: cred.encrypted_key,
                 last_accessed: cred.last_accessed,
                 favourite: cred.favorite,
+                folder_id: cred.folder_id,
             })
             .collect();
 
@@ -188,6 +191,7 @@ impl CredentialService {
                     data: parsed_data,
                     last_accessed: cred.last_accessed,
                     favourite: cred.favourite,
+                    folder_id: cred.folder_id,
                 }
             })
             .collect();

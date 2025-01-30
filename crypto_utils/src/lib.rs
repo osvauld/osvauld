@@ -235,6 +235,7 @@ impl CryptoUtils {
                 encrypted_key: credential.encrypted_key, // Keep the original encrypted key
                 last_accessed: credential.last_accessed,
                 favourite: credential.favourite,
+                folder_id: credential.folder_id,
             };
 
             decrypted_credentials.push(decrypted_credential);

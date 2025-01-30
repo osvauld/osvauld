@@ -152,4 +152,7 @@ pub struct GetCredentialForFolderInput {
 pub struct CredentialResponse {
     pub id: String,
     pub data: serde_json::Value,
+    pub favourite: bool,
+    pub last_accessed: i64,
+    pub folder_id: String,
 }

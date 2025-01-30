@@ -5,22 +5,32 @@
 		credentialLayoutType,
 		selectedCredential,
 		credentialListWithType,
+		currentVault,
 	} from "../../store/mobile.ui.store";
 	import {
 		CATEGORIES,
 		renderRelevantHeading,
 	} from "../../../utils/CredentialUtils";
+	import { onMount } from "svelte";
 
 	export let credentials;
+	let updatedCredentials;
 
-	//Credentials can be unfiltered or filtered as per selection from the categories
+	$: {
+		updatedCredentials =
+			$credentialListWithType && $credentialListWithType !== "favourites"
+				? credentials.filter(
+						(credential) =>
+							credential.data.credentialType === $credentialListWithType,
+					)
+				: credentials;
 
-	$: updatedCredentials = $credentialListWithType
-		? credentials.filter(
-				(credential) =>
-					credential.data.credentialType === $credentialListWithType,
-			)
-		: credentials;
+		if ($currentVault.id !== "all") {
+			updatedCredentials = updatedCredentials.filter(
+				(credential) => credential.folder_id === $currentVault.id,
+			);
+		}
+	}
 </script>
 
 <div class="grid grid-cols-1 gap-3 p-4 overflow-y-scroll overflow-x-hidden">

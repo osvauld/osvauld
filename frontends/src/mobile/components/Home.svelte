@@ -9,11 +9,17 @@
 	import CategoryLayout from "./layouts/CategoryLayout.svelte";
 	import ProfileLayout from "./layouts/ProfileLayout.svelte";
 	import BottomNavigation from "./sections/BottomNavigation.svelte";
+	import VaultManager from "./views/VaultManager.svelte";
+	import DeleteConfirmationModal from "./ui/DeleteConfirmationModal.svelte";
+
+	import { sendMessage } from "../../lib/components/dashboard/helper";
 	import {
-		selectedCredentialType,
-		categorySelection,
 		currentLayout,
 		bottomNavActive,
+		vaults,
+		vaultSwitchActive,
+		refreshVaults,
+		deleteConfirmationModal,
 	} from "../store/mobile.ui.store";
 
 	const SUPPORTED_LANGUAGES = [
@@ -38,14 +44,29 @@
 	// 		? "category"
 	// 		: "default";
 
-	async function initializeLanguage() {
+	const initializeVaults = async () => {
+		try {
+			const resp = await sendMessage("getFolder");
+			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
+			vaults.set(updatedVaults);
+		} catch (e) {
+			console.log("Error received ===>", e);
+		}
+	};
+
+	$: if ($refreshVaults) {
+		initializeVaults();
+		refreshVaults.set(false);
+	}
+
+	const initializeLanguage = async () => {
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
 			const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
 				? deviceLanguage
 				: "en";
-			// const languageToUse = "ar";
+			// const languageToUse = "fr";
 			await loadLocaleAsync(languageToUse);
 			setLocale(languageToUse);
 		} catch (error) {
@@ -53,10 +74,11 @@
 			await loadLocaleAsync("en");
 			setLocale("en");
 		}
-	}
+	};
 
 	onMount(() => {
 		initializeLanguage();
+		initializeVaults();
 	});
 </script>
 
@@ -70,6 +92,14 @@
 	<DefaultLayout />
 {/if}
 
+{#if $vaultSwitchActive}
+	<VaultManager />
+{/if}
+
 {#if $bottomNavActive}
 	<BottomNavigation />
+{/if}
+
+{#if $deleteConfirmationModal.show}
+	<DeleteConfirmationModal />
 {/if}

@@ -10,6 +10,7 @@
 	import Bin from "../../../icons/binIcon.svelte";
 	import DownArrow from "../../../icons/downArrow.svelte";
 	import CredentialList from "../views/CredentialList.svelte";
+	import { LL } from "../../../i18n/i18n-svelte";
 
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;
@@ -20,13 +21,17 @@
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">
-	<div class="h-28 py-10 px-16 flex items-center justify-between flex-shrink-0">
+	<div class="h-28 py-10 px-16 flex items-center justify-between shrink-0">
 		<h1
-			class="text-4xl font-light text-osvauld-sideListTextActive flex justify-between items-center gap-3 capitalize max-w-1/2 truncate">
-			{$selectedCategory ? $selectedCategory : $currentVault.name}
+			class="flex-1 truncate text-4xl font-light text-osvauld-sideListTextActive text-left capitalize">
+			{$selectedCategory
+				? $selectedCategory
+				: $currentVault.id === "all"
+					? $LL.all()
+					: $currentVault.name}
 		</h1>
 
-		<div class="gap-4 flex justify-between items-center ml-3">
+		<div class="shrink-0 gap-4 flex justify-between items-center ml-3">
 			{#if $currentVault.id !== "all"}
 				<button
 					class="p-2"
@@ -40,7 +45,7 @@
 			<button
 				class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-2 px-3 text-sm rounded-md ml-4"
 				aria-label="Sort by latest">
-				<span class="mr-2 pl-2">Latest</span>
+				<span class="mr-2 pl-2">{$LL.latest()}</span>
 				<span><DownArrow type="common" /></span>
 			</button>
 			<button
@@ -48,7 +53,7 @@
 				on:mouseenter="{() => (addCredentialHovered = true)}"
 				on:mouseleave="{() => (addCredentialHovered = false)}"
 				on:click="{() => addCredentialModal.set(true)}">
-				<span class="mr-2">Add New Credential</span>
+				<span class="mr-2">{$LL.addNewCredential()}</span>
 				<Add color="{addCredentialHovered ? '#000' : '#A3A4B5'}" />
 			</button>
 		</div>

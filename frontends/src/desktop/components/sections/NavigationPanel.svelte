@@ -5,6 +5,7 @@
 	import VaultManager from "../views/VaultManager.svelte";
 	import { currentVault, selectedCategory } from "../store/desktop.ui.store";
 	import { CATEGORIES } from "../../utils/credentialUtils";
+	import { LL } from "../../../i18n/i18n-svelte";
 
 	let selectedSection = "home";
 	let localSelectedCategory = "";
@@ -14,6 +15,12 @@
 		localSelectedCategory = "";
 		selectedSection = section;
 		selectedCategory.set("");
+	};
+
+	const handleFavourite = (section) => {
+		localSelectedCategory = "";
+		selectedSection = section;
+		selectedCategory.set("favourites");
 	};
 
 	const handleCategoryFilter = (type, id) => {
@@ -32,15 +39,17 @@
 <nav
 	class="w-[360px] py-10 px-4 whitespace-nowrap"
 	aria-label="Main Navigation">
-	<div class=" relative">
+	<div class="relative">
 		<button
-			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-3 flex justify-between items-center capitalize"
+			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-3 flex justify-between items-center capitalize trun"
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
 			aria-expanded="false"
-			on:click="{() => (vaultManagerActive = !vaultManagerActive)}"
-			>{$currentVault.name}<span
-				class="transition-transform duration-300 {vaultManagerActive
+			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+			<span class="flex-1 truncate text-left"
+				>{$currentVault.id === "all" ? $LL.all() : $currentVault.name}</span
+			><span
+				class="shrink-0 transition-transform duration-300 {vaultManagerActive
 					? '-rotate-90'
 					: 'rotate-90'}"><Arrow color="#F2F2F0" size="24" /></span
 			></button>
@@ -61,7 +70,7 @@
 					on:click="{() => handleSectionChange('home')}"
 					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
 					<Home color="{selectedSection === 'home' ? '#F2F2F0' : '#85889C'}" />
-					<span>Home</span>
+					<span>{$LL.tabs.home()}</span>
 				</button>
 			</li>
 			<li>
@@ -70,7 +79,7 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => handleSectionChange('favourites')}"
+					on:click="{() => handleFavourite('favourites')}"
 					aria-current="{selectedSection === 'favourites'
 						? 'page'
 						: undefined}">
@@ -78,7 +87,7 @@
 						color="{selectedSection === 'favourites'
 							? '#F2F2F0'
 							: '#85889C'}" />
-					<span>Favourites</span>
+					<span>{$LL.nav.favourites()}</span>
 				</button>
 			</li>
 		</ul>
@@ -101,7 +110,7 @@
 						color="{localSelectedCategory === category.id
 							? '#F2F2F0'
 							: '#85889C'}" />
-					<span>{category.type}</span>
+					<span>{$LL.types[category.id]()}</span>
 				</button>
 			</li>
 		{/each}

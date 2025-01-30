@@ -11,6 +11,8 @@
 		currentLayout,
 		bottomNavActive,
 		vaultSwitchActive,
+		favoriteCredentials,
+		credentialListWithType,
 	} from "../../store/mobile.ui.store";
 	import MultipleUsers from "../../../icons/multipleUsers.svelte";
 
@@ -30,6 +32,11 @@
 
 		vaultSwitchActive.set(!$vaultSwitchActive);
 	};
+
+	const handleFavouriteSelection = () => {
+		credentialListWithType.set("favourites");
+		favoriteCredentials.set(true);
+	};
 </script>
 
 <nav
@@ -39,10 +46,10 @@
 		on:click="{handleVaultManger}">
 		<span class="flex justify-center items-center"
 			><Home color="#5B5D6D" /></span>
-		<span
-			>{$currentVault.id === "all"
+		<span class="capitalize"
+			>{$currentVault?.id === "all"
 				? "All Vaults"
-				: `${$currentVault.name}`}</span>
+				: `${$currentVault?.name}`}</span>
 	</button>
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
@@ -66,7 +73,9 @@
 		><span class="flex justify-center items-center"
 			><MultipleUsers color="#5B5D6D" /></span>
 		<span>Shared</span></button>
-	<button class=" flex-1 flex justify-center items-center flex-col"
+	<button
+		class=" flex-1 flex justify-center items-center flex-col"
+		on:click|stopPropagation="{handleFavouriteSelection}"
 		><span class="flex justify-center items-center"
 			><Star color="#5B5D6D" /></span>
 		<span>Favourites</span></button>

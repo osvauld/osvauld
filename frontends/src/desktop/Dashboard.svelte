@@ -1,33 +1,67 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import Loader from "../lib/components/dashboard/components/Loader.svelte";
-
 	import { invoke } from "@tauri-apps/api/core";
+	import { onMount } from "svelte";
 	import { sendMessage } from "../lib/components/dashboard/helper";
+
+	import Loader from "../lib/components/dashboard/components/Loader.svelte";
 	import Welcome from "../lib/components/popup/Welcome.svelte";
 	import Signup from "../lib/components/popup/Signup.svelte";
-	import Toast from "./components/ui/Toast.svelte";
-	import { setFolderStore } from "../lib/store/storeHelper";
+
+	import { loadLocaleAsync } from "../i18n/i18n-util.async";
+	import { setLocale } from "../i18n/i18n-svelte";
+
 	import PasswordPromptModal from "../lib/components/dashboard/components/PasswordPromptModal.svelte";
 	import { LocalStorageService } from "../utils/storageHelper";
+
+	import Toast from "./components/ui/Toast.svelte";
 	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
 	import AddCredentialModal from "./components/views/AddCredentialModal.svelte";
+	import AddDeviceView from "./components/views/AddDeviceView.svelte";
+	import CredentialEditorModal from "./components/views/CredentialEditorModal.svelte";
+	import CredentialViewModal from "./components/views/CredentialViewModal.svelte";
+	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
+	import { SUPPORTED_LANGUAGES } from "./utils/translationUtils";
 	import {
 		addCredentialModal,
 		credentialEditorModal,
-		profileModal,
+		addDeviceModal,
 		viewCredentialModal,
 		deleteConfirmationModal,
 		toastStore,
 	} from "./components/store/desktop.ui.store";
-	import ProfileView from "./components/views/ProfileView.svelte";
-	import CredentialEditorModal from "./components/views/CredentialEditorModal.svelte";
-	import CredentialViewModal from "./components/views/CredentialViewModal.svelte";
-	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
+
+	import { setFolderStore } from "../lib/store/storeHelper";
 
 	let showWelcome = false;
 	let signedUp = false;
 	let isLoading = true;
+
+	async function initializeLanguage() {
+		try {
+			const locale = await invoke("get_system_locale");
+			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
+			const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
+				? deviceLanguage
+				: "en";
+			// const languageToUse = "fr";
+			await loadLocaleAsync(languageToUse);
+			setLocale(languageToUse);
+		} catch (error) {
+			console.error("Error detecting system language:", error);
+			await loadLocaleAsync("en");
+			setLocale("en");
+		}
+	}
+
+	const handleSignedUp = () => {
+		signedUp = true;
+		showWelcome = false;
+	};
+
+	const handleAuthenticated = async () => {
+		await setFolderStore();
+		showWelcome = false;
+	};
 
 	onMount(async () => {
 		try {
@@ -39,22 +73,14 @@
 			} else {
 				await setFolderStore();
 			}
+
+			initializeLanguage();
 		} catch (error) {
 			console.error("Error during initialization:", error);
 		} finally {
 			isLoading = false;
 		}
 	});
-
-	const handleSignedUp = () => {
-		signedUp = true;
-		showWelcome = false;
-	};
-
-	const handleAuthenticated = async () => {
-		await setFolderStore();
-		showWelcome = false;
-	};
 </script>
 
 <style>
@@ -94,18 +120,12 @@
 			<CredentialViewModal />
 		{/if}
 
-
-		
-
-		{#if $viewCredentialModal}
-			<CredentialViewModal />
-		{/if}
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
 		{/if}
 
-		{#if $profileModal}
-			<ProfileView />
+		{#if $addDeviceModal}
+			<AddDeviceView />
 		{/if}
 
 		<!-- {#if $showMoreOptions}
