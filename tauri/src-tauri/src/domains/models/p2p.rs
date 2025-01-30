@@ -14,7 +14,7 @@ pub enum Message {
     SyncAck(String),
     SyncComplete,
     AddDevice(Device),
-    AddDeviceAck(String),
+    AddDeviceAck(Device),
     FileTransfer { name: String, data: Vec<u8> },
 }
 

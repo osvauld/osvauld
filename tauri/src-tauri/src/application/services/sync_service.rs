@@ -50,10 +50,11 @@ impl SyncService {
         }
     }
 
-    pub async fn add_new_device_sync(&self, device: Device) -> Result<(), RepositoryError> {
+    pub async fn add_new_device_sync(&self, device: Device) -> Result<Device, RepositoryError> {
         let _ = self.device_repository.save(device.clone()).await;
         let current_device_id = self.store_repository.get_device_key().await?;
         let mut all_sync_records: Vec<SyncRecord> = Vec::new();
+        let mut current_device_pub_key: String = "".to_string();
         //create sync records for existing devices
         let devices = self.device_repository.get_all_devices().await?;
         for target_device in devices {
@@ -67,6 +68,7 @@ impl SyncService {
                 //if current device status should be completed
                 if target_device.id == current_device_id {
                     sync_record.status = SyncStatus::Completed;
+                    current_device_pub_key = target_device.device_key;
                 }
                 all_sync_records.push(sync_record);
             }
@@ -87,7 +89,8 @@ impl SyncService {
                 .await?;
         }
 
-        Ok(())
+        let current_device = Device::new(current_device_id, current_device_pub_key);
+        Ok(current_device)
     }
 
     pub async fn get_next_pending_sync(
@@ -137,6 +140,11 @@ impl SyncService {
         };
 
         Ok(Some(SyncPayload { sync_record, data }))
+    }
+
+    pub async fn add_device_entry(&self, device: Device) -> Result<(), RepositoryError> {
+        //TODO: handle check for device alreay here.
+        self.device_repository.save(device).await
     }
 
     pub async fn update_sync_status(

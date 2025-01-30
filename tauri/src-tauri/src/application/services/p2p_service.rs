@@ -439,12 +439,13 @@ impl P2PService {
     async fn handle_add_device_request(&self, device: Device) -> Result<(), String> {
         info!("Processing device addition request for ID: {:?}", device.id);
 
-        self.sync_service
+        let current_device = self
+            .sync_service
             .add_new_device_sync(device.clone())
             .await
             .map_err(|e| e.to_string())?;
         // Create and send acknowledgment message
-        let ack_message = Message::AddDeviceAck(device.id.clone());
+        let ack_message = Message::AddDeviceAck(current_device);
         let serialized = serde_json::to_string(&ack_message)
             .map_err(|e| format!("Failed to serialize acknowledgment: {}", e))?;
 
@@ -585,13 +586,18 @@ impl P2PService {
                                                             )
                                                             .await
                                                         }
-                                                        Message::AddDeviceAck(device_id) => {
-                                                            info!("Received device addition acknowledgment for ID: {}", device_id);
+                                                        Message::AddDeviceAck(device) => {
+                                                            info!("Received device addition acknowledgment for ID: {}", device.id);
+                                                            let _ = self
+                                                                .handle_add_device_ack(
+                                                                    device.clone(),
+                                                                )
+                                                                .await;
                                                             let _ = self.start_sync().await;
                                                             // Emit event for UI update
                                                             if let Err(e) = self.app_handle.emit(
                                                                 "device-add-acknowledged",
-                                                                device_id.clone(),
+                                                                device.id.clone(),
                                                             ) {
                                                                 error!("Failed to emit device-add-acknowledged event: {}", e);
                                                             }
@@ -753,6 +759,13 @@ impl P2PService {
                 Err(err)
             }
         }
+    }
+
+    async fn handle_add_device_ack(&self, device: Device) -> Result<(), String> {
+        self.sync_service
+            .add_device_entry(device)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     async fn handle_file_receive(&self, name: String, data: Vec<u8>) -> Result<(), String> {
