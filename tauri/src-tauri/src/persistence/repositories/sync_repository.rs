@@ -47,12 +47,20 @@ impl SyncRepository for SqliteSyncRepository {
         Ok(SyncRecordModel::to_domain_records(sync_models))
     }
 
-    async fn update_status(&self, sync_id: &str, status: &str) -> Result<(), RepositoryError> {
+    async fn update_status(
+        &self,
+        sync_id: &str,
+        status: &str,
+        updated_at: &i64,
+    ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         diesel::update(sync_records::table)
             .filter(sync_records::id.eq(sync_id))
-            .set(sync_records::status.eq(status))
+            .set((
+                sync_records::status.eq(status),
+                sync_records::updated_at.eq(updated_at),
+            ))
             .execute(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 

@@ -5,7 +5,9 @@ use crate::domains::repositories::{
     CredentialRepository, DeviceRepository, FolderRepository, RepositoryError, StoreRepository,
     SyncRepository,
 };
+use chrono::Local;
 use log::{error, info};
+
 use serde::{Deserialize, Serialize};
 use std::ffi::c_uint;
 use std::sync::Arc;
@@ -152,7 +154,10 @@ impl SyncService {
         sync_id: &str,
         status: &str,
     ) -> Result<(), RepositoryError> {
-        self.sync_repository.update_status(sync_id, status).await
+        let now = Local::now().timestamp_millis();
+        self.sync_repository
+            .update_status(sync_id, status, &now)
+            .await
     }
 
     pub async fn process_sync_payload(&self, payload: &SyncPayload) -> Result<(), RepositoryError> {

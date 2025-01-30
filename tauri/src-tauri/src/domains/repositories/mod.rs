@@ -28,7 +28,12 @@ pub trait SyncRepository: Send + Sync {
         &self,
         target_device_id: &str,
     ) -> Result<Vec<SyncRecord>, RepositoryError>;
-    async fn update_status(&self, sync_id: &str, status: &str) -> Result<(), RepositoryError>;
+    async fn update_status(
+        &self,
+        sync_id: &str,
+        status: &str,
+        updated_at: &i64,
+    ) -> Result<(), RepositoryError>;
     async fn get_sync_records_by_device_id(
         &self,
         target_device_id: &str,
