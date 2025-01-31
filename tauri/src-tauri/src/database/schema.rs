@@ -18,6 +18,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    device_record_status (id) {
+        id -> Text,
+        device_record_id -> Text,
+        aware_device_id -> Text,
+        synced -> Bool,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    device_records (id) {
+        id -> Text,
+        sync_record_id -> Text,
+        device_id -> Text,
+        status -> Text,
+        synced -> Bool,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
     devices (id) {
         id -> Text,
         device_key -> Text,
@@ -45,14 +68,9 @@ diesel::table! {
         resource_id -> Text,
         resource_type -> Text,
         operation_type -> Text,
-        folder_id -> Nullable<Text>,
-        credential_id -> Nullable<Text>,
         source_device_id -> Text,
-        target_device_id -> Text,
-        status -> Text,
-        synced_from -> Nullable<Text>,
-        updated_at -> BigInt,
         created_at -> BigInt,
+        updated_at -> BigInt,
     }
 }
 
@@ -67,9 +85,16 @@ diesel::table! {
 }
 
 diesel::joinable!(credentials -> folders (folder_id));
+diesel::joinable!(device_record_status -> device_records (device_record_id));
+diesel::joinable!(device_record_status -> devices (aware_device_id));
+diesel::joinable!(device_records -> devices (device_id));
+diesel::joinable!(device_records -> sync_records (sync_record_id));
+diesel::joinable!(sync_records -> devices (source_device_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     credentials,
+    device_record_status,
+    device_records,
     devices,
     folders,
     sync_records,

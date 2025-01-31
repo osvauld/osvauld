@@ -47,7 +47,7 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .filter(|metadata| {
                     !metadata.target().contains("tracing::span")
-                        && !metadata.target().contains("iroh::magicsock")
+                        && !metadata.target().contains("iroh")
                         && !metadata.target().contains("hyper_util")
                         && !metadata.target().contains("netwatch")
                         && !metadata.target().contains("iroh_net_report")

@@ -1,6 +1,11 @@
 use crate::domains::models::{
-    auth::Certificate, credential::Credential, device::Device, folder::Folder,
-    sync_record::SyncRecord,
+    auth::Certificate,
+    credential::Credential,
+    device::Device,
+    folder::Folder,
+    sync_record::{
+        DeviceRecord, DeviceRecordStatus, InitialDeviceSyncSet, SyncRecord, SyncRecordSet,
+    },
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -23,22 +28,12 @@ pub trait FolderRepository: Send + Sync {
 
 #[async_trait]
 pub trait SyncRepository: Send + Sync {
-    async fn save_sync_records(&self, records: &[SyncRecord]) -> Result<(), RepositoryError>;
-    async fn get_pending_records(
+    async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError>;
+    async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
+    async fn add_initial_device_sync_set(
         &self,
-        target_device_id: &str,
-    ) -> Result<Vec<SyncRecord>, RepositoryError>;
-    async fn update_status(
-        &self,
-        sync_id: &str,
-        status: &str,
-        updated_at: &i64,
+        sync_set: InitialDeviceSyncSet,
     ) -> Result<(), RepositoryError>;
-    async fn get_sync_records_by_device_id(
-        &self,
-        target_device_id: &str,
-    ) -> Result<Vec<SyncRecord>, RepositoryError>;
-    async fn find_by_id(&self, sync_id: &str) -> Result<SyncRecord, RepositoryError>;
 }
 
 #[async_trait]
@@ -83,4 +78,19 @@ pub trait DeviceRepository: Send + Sync {
         device_id: &str,
         timestamp: i64,
     ) -> Result<(), RepositoryError>;
+
+    async fn get_devices_except(
+        &self,
+        exclude_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError>;
+}
+
+#[async_trait]
+pub trait DeviceRecordRepository: Send + Sync {
+    async fn add_records(&self, record: DeviceRecord) -> Result<(), RepositoryError>;
+}
+
+#[async_trait]
+pub trait DeviceRecordStatusRepository: Send + Sync {
+    async fn add_device_records(&self, records: DeviceRecordStatus) -> Result<(), RepositoryError>;
 }

@@ -1,5 +1,4 @@
 use crate::application::services::{CredentialService, SyncService};
-use crate::database::schema::sync_records::credential_id;
 use crate::domains::models::sync_record::ResourceType;
 use crate::types::{
     AddCredentialInput, CredentialResponse, CryptoResponse, DeleteCredentialInput,

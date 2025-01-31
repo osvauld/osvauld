@@ -1,8 +1,8 @@
-use crate::database::schema::sync_records;
+use crate::database::schema::{device_record_status, device_records, sync_records};
 use crate::database::DbConnection;
-use crate::domains::models::sync_record::SyncRecord;
+use crate::domains::models::sync_record::{InitialDeviceSyncSet, SyncRecord, SyncRecordSet};
 use crate::domains::repositories::{RepositoryError, SyncRepository};
-use crate::persistence::models::SyncRecordModel;
+use crate::persistence::models::{DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
 
@@ -18,77 +18,79 @@ impl SqliteSyncRepository {
 
 #[async_trait]
 impl SyncRepository for SqliteSyncRepository {
-    async fn save_sync_records(&self, records: &[SyncRecord]) -> Result<(), RepositoryError> {
+    async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
-        let sync_models: Vec<SyncRecordModel> =
-            records.iter().map(|r| SyncRecordModel::from(r)).collect();
 
-        diesel::insert_into(sync_records::table)
-            .values(&sync_models)
-            .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-        Ok(())
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            let sync_model = SyncRecordModel::from(&record_set.sync_record);
+            let device_models: Vec<DeviceRecordModel> = record_set
+                .device_records
+                .iter()
+                .map(DeviceRecordModel::from)
+                .collect();
+            let status_models: Vec<DeviceRecordStatusModel> = record_set
+                .device_record_statuses
+                .iter()
+                .map(DeviceRecordStatusModel::from)
+                .collect();
+
+            diesel::insert_into(sync_records::table)
+                .values(&sync_model)
+                .execute(conn)?;
+
+            diesel::insert_into(device_records::table)
+                .values(&device_models)
+                .execute(conn)?;
+
+            diesel::insert_into(device_record_status::table)
+                .values(&status_models)
+                .execute(conn)?;
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
-
-    async fn get_pending_records(
-        &self,
-        target_device_id: &str,
-    ) -> Result<Vec<SyncRecord>, RepositoryError> {
+    async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        let sync_models = sync_records::table
-            .filter(sync_records::status.eq("pending"))
-            .filter(sync_records::target_device_id.eq(target_device_id))
+        let models = sync_records::table
             .order_by(sync_records::created_at.asc())
             .select(SyncRecordModel::as_select())
             .load::<SyncRecordModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-        Ok(SyncRecordModel::to_domain_records(sync_models))
+        Ok(models.iter().map(|m| m.to_domain()).collect())
     }
 
-    async fn update_status(
+    async fn add_initial_device_sync_set(
         &self,
-        sync_id: &str,
-        status: &str,
-        updated_at: &i64,
+        sync_set: InitialDeviceSyncSet,
     ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        diesel::update(sync_records::table)
-            .filter(sync_records::id.eq(sync_id))
-            .set((
-                sync_records::status.eq(status),
-                sync_records::updated_at.eq(updated_at),
-            ))
-            .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            let device_models: Vec<DeviceRecordModel> = sync_set
+                .device_records
+                .iter()
+                .map(DeviceRecordModel::from)
+                .collect();
 
-        Ok(())
-    }
+            let status_models: Vec<DeviceRecordStatusModel> = sync_set
+                .device_record_statuses
+                .iter()
+                .map(DeviceRecordStatusModel::from)
+                .collect();
 
-    async fn get_sync_records_by_device_id(
-        &self,
-        target_device_id: &str,
-    ) -> Result<Vec<SyncRecord>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
-        let sync_models = sync_records::table
-            .filter(sync_records::target_device_id.eq(target_device_id))
-            .filter(sync_records::operation_type.ne("status_change"))
-            .order_by(sync_records::created_at.asc())
-            .select(SyncRecordModel::as_select())
-            .load::<SyncRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-        Ok(SyncRecordModel::to_domain_records(sync_models))
-    }
+            diesel::insert_into(device_records::table)
+                .values(&device_models)
+                .execute(conn)?;
 
-    async fn find_by_id(&self, sync_id: &str) -> Result<SyncRecord, RepositoryError> {
-        let mut conn = self.connection.lock().await;
-        let sync_rec = sync_records::table
-            .filter(sync_records::id.eq(sync_id))
-            .select(SyncRecordModel::as_select())
-            .first::<SyncRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-        Ok(sync_rec.into())
+            diesel::insert_into(device_record_status::table)
+                .values(&status_models)
+                .execute(conn)?;
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
 }

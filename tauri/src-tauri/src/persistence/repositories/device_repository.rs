@@ -75,4 +75,29 @@ impl DeviceRepository for SqliteDeviceRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(())
     }
+    async fn get_devices_except(
+        &self,
+        exclude_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError> {
+        use crate::database::schema::devices::dsl::*;
+
+        let conn = &mut self.connection.lock().await;
+
+        devices
+            .filter(id.ne_all(exclude_ids))
+            .load::<DeviceModel>(conn)
+            .map(|device_models| {
+                device_models
+                    .into_iter()
+                    .map(|model| Device {
+                        id: model.id,
+                        device_key: model.device_key,
+                        created_at: model.created_at,
+                        updated_at: model.updated_at,
+                        last_synced_at: model.last_synced_at,
+                    })
+                    .collect()
+            })
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+    }
 }
