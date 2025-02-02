@@ -1,0 +1,72 @@
+{
+    "version": "v0.2.0",
+    "entity": {
+        "type": "organisation",
+        "role": "owner",
+        "name": "Osvauld Security Solutions Pvt Ltd",
+        "email": "osvauld@gmail.com",
+        "phone": "+919496393059",
+        "description": "Osvauld is a technology company that poineers on creating privacy focused solutions to consumers and businesses.",
+        "webpageUrl": {
+            "url": "https://www.osvauld.com",
+            "wellKnown": ""
+        }
+    },
+    "projects": [{
+        "guid": "osvauld",
+        "name": "Osvauld",
+        "description": "Osvauld is a personal password manager, that works offline, without any central servers where you can have absolute control and ownership of your data.",
+        "webpageUrl": {
+            "url": "https://www.osvauld.com",
+            "wellKnown": ""
+        },
+        "repositoryUrl": {
+            "url": "https://github.com/osvauld/osvauld",
+            "wellKnown": ""
+        },
+        "licenses": ["spdx:MIT"],
+        "tags": ["v0.2"]
+    }],
+    "funding": {
+        "channels": [{
+            "guid": "buymeacoffe",
+            "type": "payment-provider",
+            "address": "https://buymeacoffee.com/osvauld",
+            "description": "You can support us through buymeacoffee"
+        },
+        {
+            "guid": "our-crypto-wallet",
+            "type": "other",
+            "address": "0x783e6D7326990d3A2CEeBB637F16386D06B01e73",
+            "description": "You can support us through sending us ETH"
+        }],
+        "plans": [{
+            "guid": "developer-time",
+            "status": "active",
+            "name": "Developer compensation",
+            "description": "This will cover the cost of one developer working part-time on the projects.",
+            "amount": 1000,
+            "currency": "USD",
+            "frequency": "monthly",
+            "channels": ["our-crypto-wallet", "buymeacoffe"]
+        },
+        {
+            "guid": "angel-plan",
+            "status": "active",
+            "name": "Goodwill plan",
+            "description": "Pay anything you wish to show your goodwill for the project.",
+            "amount": 0,
+            "currency": "USD",
+            "frequency": "one-time",
+            "channels": ["our-crypto-wallet", "buymeacoffe"]
+        }],
+        "history": [{
+            "year": 2024,
+            "income": 8000,
+            "expenses": 400,
+            "taxes": 0,
+            "currency": "USD",
+            "description": "Government funding/grant through Kerala Startup Mission"
+        }]
+    }
+}
