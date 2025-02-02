@@ -8,7 +8,7 @@ diesel::table! {
         folder_id -> Text,
         signature -> Text,
         encrypted_key -> Text,
-        favorite -> Bool,
+        favourite -> Bool,
         last_accessed -> BigInt,
         deleted -> Bool,
         deleted_at -> Nullable<BigInt>,

@@ -1,8 +1,9 @@
 use crate::application::services::auth_service::AuthService;
 use crate::application::services::sync_service::SyncService;
-use crate::application::services::SyncPayload;
 use crate::domains::models::device::Device;
-use crate::domains::models::p2p::{ConnectionTicket, HandshakeError, HandshakeMessage, Message};
+use crate::domains::models::p2p::{
+    ConnectionTicket, HandshakeError, HandshakeMessage, Message, SyncPayload,
+};
 use crate::types::CryptoResponse;
 use iroh::endpoint::Connection;
 const MAX_HANDSHAKE_SIZE: usize = 8192; // 8KB max size for handshake messages
@@ -415,10 +416,6 @@ impl P2PService {
         };
         match self.sync_service.get_next_pending_sync(&device).await {
             Ok(Some(payload)) => {
-                info!(
-                    "Sending sync payload for resource: {}",
-                    payload.sync_record.resource_id
-                );
                 let message = Message::SyncResponse(payload);
                 self.send_message(serde_json::to_string(&message).map_err(|e| e.to_string())?)
                     .await?;
@@ -464,10 +461,6 @@ impl P2PService {
 
     async fn handle_sync_ack(&self, sync_id: String) -> Result<(), String> {
         info!("Received sync acknowledgment for ID: {}", sync_id);
-        self.sync_service
-            .update_sync_status(&sync_id, "completed")
-            .await
-            .map_err(|e| e.to_string())?;
         let device = {
             let device_guard = self.device.lock().await;
             (*device_guard
@@ -475,6 +468,10 @@ impl P2PService {
                 .ok_or_else(|| "Device not set".to_string())?)
             .clone()
         };
+        self.sync_service
+            .mark_sync_complete(&sync_id, device.clone())
+            .await
+            .map_err(|e| e.to_string())?;
 
         match self.sync_service.get_next_pending_sync(&device).await {
             Ok(Some(payload)) => {
@@ -499,11 +496,6 @@ impl P2PService {
     }
 
     async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
-        info!(
-            "Received sync payload for resource: {}",
-            payload.sync_record.resource_id
-        );
-
         // Process the sync payload
         // TODO: handle error case
         if let Err(e) = self.sync_service.process_sync_payload(&payload).await {
@@ -516,12 +508,7 @@ impl P2PService {
             .emit("sync-completed", true)
             .map_err(|e| e.to_string())?;
 
-        // Send acknowledgment
-        info!(
-            "Sending acknowledgment for sync ID: {}",
-            payload.sync_record.id
-        );
-        let message = Message::SyncAck(payload.sync_record.id);
+        let message = Message::SyncAck(payload.sync_record.unwrap().id);
         self.send_message(serde_json::to_string(&message).map_err(|e| e.to_string())?)
             .await?;
 

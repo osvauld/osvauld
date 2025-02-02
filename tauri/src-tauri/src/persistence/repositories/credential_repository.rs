@@ -41,6 +41,18 @@ impl CredentialRepository for SqliteCredentialRepository {
         Ok(CredentialModel::to_domain_credentials(credential_models))
     }
 
+    async fn find_all_by_folder(
+        &self,
+        folder_id: &str,
+    ) -> Result<Vec<Credential>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let credential_models = credentials::table
+            .filter(credentials::folder_id.eq(folder_id))
+            .load::<CredentialModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(CredentialModel::to_domain_credentials(credential_models))
+    }
     async fn find_by_id(&self, id: &str) -> Result<Credential, RepositoryError> {
         let mut conn = self.connection.lock().await;
         let credential_model = credentials::table
@@ -86,8 +98,8 @@ impl CredentialRepository for SqliteCredentialRepository {
         let now = Local::now().timestamp_millis();
 
         // First get current favorite status
-        let current_favorite: bool = credentials::table
-            .select(credentials::favorite)
+        let current_favourite: bool = credentials::table
+            .select(credentials::favourite)
             .filter(credentials::id.eq(credential_id))
             .first(&mut *conn)
             .map_err(|e| match e {
@@ -99,7 +111,7 @@ impl CredentialRepository for SqliteCredentialRepository {
         diesel::update(credentials::table)
             .filter(credentials::id.eq(credential_id))
             .set((
-                credentials::favorite.eq(!current_favorite),
+                credentials::favourite.eq(!current_favourite),
                 credentials::updated_at.eq(now),
             ))
             .execute(&mut *conn)
@@ -138,7 +150,7 @@ impl CredentialRepository for SqliteCredentialRepository {
         let mut conn = self.connection.lock().await;
         let credential_models = credentials::table
             .filter(credentials::deleted.eq(false))
-            .filter(credentials::favorite.eq(true))
+            .filter(credentials::favourite.eq(true))
             .load::<CredentialModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 

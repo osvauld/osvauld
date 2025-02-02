@@ -1,3 +1,4 @@
+use crate::domains::models::credential::Credential;
 use crate::domains::models::device::Device;
 use crate::domains::models::sync_types::{OperationType, ResourceType, SyncStatus};
 use chrono::Local;
@@ -80,6 +81,52 @@ impl SyncRecord {
             other_devices,
         )
     }
+
+    pub fn create_soft_delete_credential_records(
+        credential_id: String,
+        current_device_id: String,
+        devices: &[Device],
+    ) -> SyncRecordSet {
+        Self::create_sync_records(
+            credential_id,
+            ResourceType::Credential,
+            OperationType::SoftDelete,
+            current_device_id,
+            devices,
+        )
+    }
+
+    pub fn create_soft_delete_folder_records(
+        folder_id: String,
+        credentials: Vec<Credential>,
+        current_device_id: String,
+        devices: &[Device],
+    ) -> Vec<SyncRecordSet> {
+        let mut sync_sets = Vec::new();
+
+        // Create sync records for credentials first
+        for credential in credentials {
+            let credential_sync_set = Self::create_soft_delete_credential_records(
+                credential.id,
+                current_device_id.clone(),
+                devices,
+            );
+            sync_sets.push(credential_sync_set);
+        }
+
+        // Create sync record for folder
+        let folder_sync_set = Self::create_sync_records(
+            folder_id,
+            ResourceType::Folder,
+            OperationType::SoftDelete,
+            current_device_id,
+            devices,
+        );
+        sync_sets.push(folder_sync_set);
+
+        sync_sets
+    }
+
     fn create_sync_records(
         resource_id: String,
         resource_type: ResourceType,
@@ -161,20 +208,35 @@ impl SyncRecord {
         }
     }
 
-    pub fn create_status_change_records(
-        completed_sync_id: String,
+    pub fn create_completion_records(
+        sync_id: String,
         synced_device_id: String,
         current_device_id: String,
         other_devices: &[Device],
+    ) -> StatusChangeSet {
+        SyncRecord::create_status_change_records(
+            sync_id,
+            synced_device_id,
+            current_device_id,
+            other_devices,
+            SyncStatus::Completed,
+        )
+    }
+    fn create_status_change_records(
+        sync_id: String,
+        synced_device_id: String,
+        current_device_id: String,
+        other_devices: &[Device],
+        status: SyncStatus,
     ) -> StatusChangeSet {
         let now = Local::now().timestamp_millis();
 
         // Create single device record for the device that just synced
         let device_record = DeviceRecord {
             id: Uuid::new_v4().to_string(),
-            sync_record_id: completed_sync_id,
+            sync_record_id: sync_id,
             device_id: synced_device_id,
-            status: SyncStatus::Completed,
+            status,
             synced: true,
             created_at: now,
             updated_at: now,

@@ -88,7 +88,7 @@ impl CredentialService {
                 signature: cred.signature,
                 encrypted_key: cred.encrypted_key,
                 last_accessed: cred.last_accessed,
-                favourite: cred.favorite,
+                favourite: cred.favourite,
                 folder_id: cred.folder_id,
             })
             .collect();
@@ -164,7 +164,7 @@ impl CredentialService {
                 signature: cred.signature,
                 encrypted_key: cred.encrypted_key,
                 last_accessed: cred.last_accessed,
-                favourite: cred.favorite,
+                favourite: cred.favourite,
                 folder_id: cred.folder_id,
             })
             .collect();

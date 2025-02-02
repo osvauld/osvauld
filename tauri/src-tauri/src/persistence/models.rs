@@ -90,6 +90,20 @@ pub struct DeviceRecordModel {
     pub updated_at: i64,
 }
 
+impl DeviceRecordModel {
+    pub fn to_domain(&self) -> DomainDeviceRecord {
+        DomainDeviceRecord {
+            id: self.id.clone(),
+            sync_record_id: self.sync_record_id.clone(),
+            device_id: self.device_id.clone(),
+            status: SyncStatus::from(self.status.clone()),
+            synced: self.synced,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
 #[derive(Queryable, Insertable, Selectable, Debug)]
 #[diesel(table_name = device_record_status)]
 pub struct DeviceRecordStatusModel {
@@ -99,6 +113,19 @@ pub struct DeviceRecordStatusModel {
     pub synced: bool,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl DeviceRecordStatusModel {
+    pub fn to_domain(&self) -> DomainDeviceRecordStatus {
+        DomainDeviceRecordStatus {
+            id: self.id.clone(),
+            device_record_id: self.device_record_id.clone(),
+            aware_device_id: self.aware_device_id.clone(),
+            synced: self.synced,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
 }
 
 impl From<&DomainSyncRecord> for SyncRecordModel {
@@ -150,7 +177,7 @@ pub struct CredentialModel {
     pub folder_id: String,
     pub signature: String,
     pub encrypted_key: String,
-    pub favorite: bool,
+    pub favourite: bool,
     pub last_accessed: i64,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
@@ -167,7 +194,7 @@ impl From<&DomainCredential> for CredentialModel {
             folder_id: credential.folder_id.clone(),
             signature: credential.signature.clone(),
             encrypted_key: credential.encrypted_key.clone(),
-            favorite: credential.favorite,
+            favourite: credential.favourite,
             last_accessed: credential.last_accessed,
             deleted: credential.deleted,
             deleted_at: credential.deleted_at,
@@ -189,7 +216,7 @@ impl From<CredentialModel> for DomainCredential {
             created_at: model.created_at,
             updated_at: model.updated_at,
             last_accessed: model.last_accessed,
-            favorite: model.favorite,
+            favourite: model.favourite,
             deleted: model.deleted,
             deleted_at: model.deleted_at,
         }

@@ -4,8 +4,8 @@ use crate::domains::models::device::Device;
 use crate::domains::repositories::{DeviceRepository, RepositoryError};
 use crate::persistence::models::DeviceModel;
 use async_trait::async_trait;
-use chrono::Local;
 use diesel::prelude::*;
+use diesel::ExpressionMethods;
 
 pub struct SqliteDeviceRepository {
     connection: DbConnection,
@@ -79,25 +79,13 @@ impl DeviceRepository for SqliteDeviceRepository {
         &self,
         exclude_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
-        use crate::database::schema::devices::dsl::*;
+        let mut conn = self.connection.lock().await;
 
-        let conn = &mut self.connection.lock().await;
-
-        devices
-            .filter(id.ne_all(exclude_ids))
-            .load::<DeviceModel>(conn)
-            .map(|device_models| {
-                device_models
-                    .into_iter()
-                    .map(|model| Device {
-                        id: model.id,
-                        device_key: model.device_key,
-                        created_at: model.created_at,
-                        updated_at: model.updated_at,
-                        last_synced_at: model.last_synced_at,
-                    })
-                    .collect()
-            })
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+        let device_models = devices::table
+            .filter(devices::id.ne_all(exclude_ids))
+            .order_by(devices::created_at.desc())
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        Ok(DeviceModel::to_domain_devices(device_models))
     }
 }

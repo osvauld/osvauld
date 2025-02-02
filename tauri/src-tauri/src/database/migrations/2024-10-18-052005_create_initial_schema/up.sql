@@ -23,7 +23,7 @@ CREATE TABLE credentials (
     folder_id TEXT NOT NULL,
     signature TEXT NOT NULL,
     encrypted_key TEXT NOT NULL,
-    favorite BOOLEAN NOT NULL DEFAULT FALSE,
+    favourite BOOLEAN NOT NULL DEFAULT FALSE,
     last_accessed BIGINT NOT NULL,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at BIGINT,

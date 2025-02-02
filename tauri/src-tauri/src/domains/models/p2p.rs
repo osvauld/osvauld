@@ -1,9 +1,27 @@
-use crate::application::services::SyncPayload;
 use crate::domains::models::device::Device;
+use crate::domains::models::folder::Folder;
+use crate::domains::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
+use crate::domains::models::Credential;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SyncPayload {
+    pub sync_record: Option<SyncRecord>, // Optional because status updates don't have sync record
+    pub device_records: Vec<DeviceRecord>,
+    pub device_record_statuses: Vec<DeviceRecordStatus>,
+    pub data: Option<SyncData>, // The actual folder/credential/device data
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum SyncData {
+    Folder(Folder),
+    Credential(Credential),
+    Device(Device),
+    SyncRecord(SyncRecord),
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Chat(String),

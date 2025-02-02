@@ -4,7 +4,8 @@ use crate::domains::models::{
     device::Device,
     folder::Folder,
     sync_record::{
-        DeviceRecord, DeviceRecordStatus, InitialDeviceSyncSet, SyncRecord, SyncRecordSet,
+        DeviceRecord, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet, SyncRecord,
+        SyncRecordSet,
     },
 };
 use async_trait::async_trait;
@@ -34,6 +35,20 @@ pub trait SyncRepository: Send + Sync {
         &self,
         sync_set: InitialDeviceSyncSet,
     ) -> Result<(), RepositoryError>;
+    async fn add_status_change_set(
+        &self,
+        status_set: StatusChangeSet,
+    ) -> Result<(), RepositoryError>;
+    async fn get_pending_sync_by_type(
+        &self,
+        device_id: &str,
+        resource_type: &str,
+    ) -> Result<Option<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>, RepositoryError>;
+    // Status Updates
+    async fn get_unsynced_status_updates(
+        &self,
+        device_id: &str,
+    ) -> Result<Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>, RepositoryError>;
 }
 
 #[async_trait]
@@ -58,6 +73,8 @@ pub trait StoreRepository: Send + Sync {
 pub trait CredentialRepository: Send + Sync {
     async fn save(&self, credential: &Credential) -> Result<(), RepositoryError>;
     async fn find_by_folder(&self, folder_id: &str) -> Result<Vec<Credential>, RepositoryError>;
+    async fn find_all_by_folder(&self, folder_id: &str)
+        -> Result<Vec<Credential>, RepositoryError>;
     async fn find_by_id(&self, id: &str) -> Result<Credential, RepositoryError>;
     async fn delete_credential(&self, id: &str) -> Result<(), RepositoryError>;
     async fn soft_delete_credential(&self, id: &str) -> Result<(), RepositoryError>;

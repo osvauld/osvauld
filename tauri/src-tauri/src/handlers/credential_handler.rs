@@ -1,5 +1,5 @@
 use crate::application::services::{CredentialService, SyncService};
-use crate::domains::models::sync_record::ResourceType;
+use crate::domains::models::sync_types::ResourceType;
 use crate::types::{
     AddCredentialInput, CredentialResponse, CryptoResponse, DeleteCredentialInput,
     GetAllCredentials, GetCredentialForFolderInput, ToggleFavInput, UpdateLastAccessedInput,
