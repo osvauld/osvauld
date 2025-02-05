@@ -41,12 +41,12 @@
 	aria-label="Main Navigation">
 	<div class="relative">
 		<button
-			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-3 flex justify-between items-center capitalize trun"
+			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize trun"
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
 			aria-expanded="false"
 			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
-			<span class="flex-1 truncate text-left"
+			<span class="flex-1 truncate text-left py-1"
 				>{$currentVault.id === "all" ? $LL.all() : $currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {vaultManagerActive
