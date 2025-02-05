@@ -73,7 +73,7 @@
 			</button>
 		</div>
 		<span
-			class="text-xs text-red-500 font-thin mt-2 {errorMessage
+			class="text-xs text-red-500 font-light mt-2 {errorMessage
 				? 'visible'
 				: 'invisible'}">Wrong Passphrase</span>
 		<button
