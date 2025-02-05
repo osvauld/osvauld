@@ -11,23 +11,35 @@
 	let showPassword = false;
 	let errorMessage = false;
 	let isLoaderActive = false;
+	let inputElem;
 
 	function toggleShowPassword() {
 		showPassword = !showPassword;
 	}
 
-	$: type = showPassword ? "text" : "password";
-	async function handleSubmit() {
-		isLoaderActive = true;
-		const pubkey = await sendMessage("login", { passphrase });
-		dispatch("authenticated", true);
-		isLoaderActive = false;
-	}
 	const onInput = (event: any) => {
 		passphrase = event.target.value;
 	};
 	function autofocus(node: any) {
 		node.focus();
+	}
+
+	$: type = showPassword ? "text" : "password";
+
+	async function handleSubmit() {
+		isLoaderActive = true;
+		const pubkey = await sendMessage("login", { passphrase });
+		if (pubkey) {
+			dispatch("authenticated", true);
+		} else {
+			isLoaderActive = false;
+			errorMessage = true;
+			passphrase = "";
+			autofocus(inputElem);
+			setTimeout(() => {
+				errorMessage = false;
+			}, 1500);
+		}
 	}
 </script>
 
@@ -45,7 +57,9 @@
 				{type}
 				id="passphrase"
 				autocomplete="off"
+				value="{passphrase}"
 				use:autofocus
+				bind:this="{inputElem}"
 				on:input="{onInput}" />
 			<button
 				type="button"
@@ -59,9 +73,9 @@
 			</button>
 		</div>
 		<span
-			class="text-xs text-red-500 font-thin mt-2 {errorMessage
+			class="text-xs text-red-500 font-light mt-2 {errorMessage
 				? 'visible'
-				: 'invisible'}">Passphrase doesn't match</span>
+				: 'invisible'}">Wrong Passphrase</span>
 		<button
 			class="bg-osvauld-carolinablue py-2 px-10 mt-8 rounded-lg text-osvauld-ninjablack font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
 			type="submit">
