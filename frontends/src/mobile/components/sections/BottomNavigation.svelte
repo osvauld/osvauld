@@ -16,6 +16,10 @@
 	} from "../../store/mobile.ui.store";
 	import MultipleUsers from "../../../icons/multipleUsers.svelte";
 
+	$: isFavouriteSelected = $credentialListWithType === "favourites";
+	$: isHome = $currentLayout === "home";
+	$: isAddSelected = $currentLayout === "category";
+
 	const handleClick = (route) => {
 		currentLayout.set(route);
 		if (route === "credential ") categorySelection.set(!$categorySelection);
@@ -45,8 +49,8 @@
 		class=" flex-1 flex justify-center items-center flex-col"
 		on:click="{handleVaultManger}">
 		<span class="flex justify-center items-center"
-			><Home color="#5B5D6D" /></span>
-		<span class="capitalize"
+			><Home color="{isHome ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class="capitalize" class:text-mobile-highlightBlue="{isHome}"
 			>{$currentVault?.id === "all"
 				? "All Vaults"
 				: `${$currentVault?.name}`}</span>
@@ -55,28 +59,28 @@
 		class=" flex-1 flex justify-center items-center flex-col"
 		on:click="{() => handleClick('category')}">
 		<span class="flex justify-center items-center"
-			><Add color="#5B5D6D" /></span>
-		<span>{$LL.tabs.add()}</span></button>
-	<!-- <button
-		class=" flex-1 flex justify-center items-center flex-col"
-		on:click="{() => handleClick('generator')}"
+			><Add color="{isAddSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class:text-mobile-highlightBlue="{isAddSelected}">Add</span></button>
+	<button class=" flex-1 flex justify-center items-center flex-col"
 		><span class="flex justify-center items-center"
 			><PwdGen color="{'#5B5D6D'}" /></span>
-		<span>{$LL.tabs.generator()}</span></button> -->
+		<span>Generator</span></button>
 	<!-- <button
 		on:click="{() => handleClick('profile')}"
 		class=" flex-1 flex flex-col justify-center items-center">
 		<span class="flex justify-center items-center"
 			><Profile color="{'#5B5D6D'}" /></span>
 		<span>{$LL.tabs.profile()}</span></button> -->
-	<button class=" flex-1 flex justify-center items-center flex-col"
+	<!-- <button class=" flex-1 flex justify-center items-center flex-col"
 		><span class="flex justify-center items-center"
 			><MultipleUsers color="#5B5D6D" /></span>
-		<span>Shared</span></button>
+		<span>Shared</span></button> -->
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
 		on:click|stopPropagation="{handleFavouriteSelection}"
 		><span class="flex justify-center items-center"
-			><Star color="#5B5D6D" /></span>
-		<span>Favourites</span></button>
+			><Star color="{isFavouriteSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class:text-mobile-highlightBlue="{isFavouriteSelected}"
+			>Favourites</span
+		></button>
 </nav>
