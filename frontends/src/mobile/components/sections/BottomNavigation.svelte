@@ -20,7 +20,7 @@
 	$: isHome = $currentLayout === "home";
 	$: isAddSelected = $currentLayout === "category";
 
-	const handleClick = (route) => {
+	const handleAddCredential = (route) => {
 		currentLayout.set(route);
 		if (route === "credential ") categorySelection.set(!$categorySelection);
 		else if (route === "home") {
@@ -38,8 +38,10 @@
 	};
 
 	const handleFavouriteSelection = () => {
-		credentialListWithType.set("favourites");
-		favoriteCredentials.set(true);
+		$favoriteCredentials
+			? credentialListWithType.set("")
+			: credentialListWithType.set("favourites");
+		favoriteCredentials.set(!$favoriteCredentials);
 	};
 </script>
 
@@ -57,7 +59,7 @@
 	</button>
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
-		on:click="{() => handleClick('category')}">
+		on:click="{() => handleAddCredential('category')}">
 		<span class="flex justify-center items-center"
 			><Add color="{isAddSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
 		<span class:text-mobile-highlightBlue="{isAddSelected}">Add</span></button>
