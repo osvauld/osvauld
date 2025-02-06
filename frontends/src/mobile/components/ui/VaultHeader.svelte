@@ -6,7 +6,10 @@
 	import {
 		currentVault,
 		deleteConfirmationModal,
+		bottomNavActive,
+		vaultSwitchActive,
 	} from "../../store/mobile.ui.store";
+	import Location from "../../../icons/location.svelte";
 
 	let vaultOptionsmodal = false;
 
@@ -18,14 +21,27 @@
 	const handleVaultOptions = () => {
 		vaultOptionsmodal = !vaultOptionsmodal;
 	};
+
+	const showVaultManager = () => {
+		if ($vaultSwitchActive) {
+			bottomNavActive.set(true);
+		}
+
+		vaultSwitchActive.set(!$vaultSwitchActive);
+	};
 </script>
 
 <div
-	class="fixed top-0 w-full flex justify-between items-center text-mobile-textPrimary text-2xl font-semibold px-4 py-2">
+	class="fixed top-0 w-full flex justify-start items-center text-mobile-textPrimary text-2xl font-semibold px-4 py-2">
+	<button
+		class="p-2 bg-mobile-bgSeconary rounded-lg m-1"
+		on:click|stopPropagation="{showVaultManager}">
+		<Location />
+	</button>
 	<span class="max-w-3/4 truncate capitalize">{$currentVault.name}</span>
 
 	{#if $currentVault.id !== "all"}
-		<div class="relative">
+		<div class="relative ml-auto">
 			<button
 				class="bg-mobile-bgSeconary rounded-lg w-11 h-11 rotate-90 flex justify-center items-center"
 				on:click="{handleVaultOptions}">
