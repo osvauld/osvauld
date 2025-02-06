@@ -50,7 +50,7 @@
 </script>
 
 <main
-	class="w-screen h-screen p-2 pt-3 bg-mobile-bgPrimary flex flex-col !font-sans {isSignedUp &&
+	class="w-dvw h-dvh p-2 pt-3 bg-mobile-bgPrimary flex flex-col !font-sans {isSignedUp &&
 	!loggedIn
 		? 'justify-center'
 		: 'justify-start'} items-center">
