@@ -31,10 +31,6 @@ pub trait FolderRepository: Send + Sync {
 pub trait SyncRepository: Send + Sync {
     async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError>;
     async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
-    async fn add_initial_device_sync_set(
-        &self,
-        sync_set: InitialDeviceSyncSet,
-    ) -> Result<(), RepositoryError>;
     async fn add_status_change_set(
         &self,
         status_set: StatusChangeSet,

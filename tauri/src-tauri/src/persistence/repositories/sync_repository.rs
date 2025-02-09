@@ -65,38 +65,6 @@ impl SyncRepository for SqliteSyncRepository {
         Ok(models.iter().map(|m| m.to_domain()).collect())
     }
 
-    async fn add_initial_device_sync_set(
-        &self,
-        sync_set: InitialDeviceSyncSet,
-    ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
-
-        conn.transaction::<_, diesel::result::Error, _>(|conn| {
-            let device_models: Vec<DeviceRecordModel> = sync_set
-                .device_records
-                .iter()
-                .map(DeviceRecordModel::from)
-                .collect();
-
-            let status_models: Vec<DeviceRecordStatusModel> = sync_set
-                .device_record_statuses
-                .iter()
-                .map(DeviceRecordStatusModel::from)
-                .collect();
-
-            diesel::insert_into(device_records::table)
-                .values(&device_models)
-                .execute(conn)?;
-
-            diesel::insert_into(device_record_status::table)
-                .values(&status_models)
-                .execute(conn)?;
-
-            Ok(())
-        })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
-    }
-
     async fn add_status_change_set(
         &self,
         status_set: StatusChangeSet,
@@ -136,28 +104,43 @@ impl SyncRepository for SqliteSyncRepository {
     ) -> Result<Option<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>, RepositoryError>
     {
         let mut conn = self.connection.lock().await;
-        let sync_record = sync_records::table
-            .inner_join(device_records::table)
-            .filter(device_records::device_id.eq(device_id))
-            .filter(device_records::status.eq("pending"))
+
+        // Start by finding unsynced device record status
+        let unsynced_status = device_record_status::table
+            .inner_join(device_records::table.inner_join(sync_records::table))
+            .filter(device_record_status::aware_device_id.eq(device_id))
+            .filter(device_record_status::synced.eq(false))
             .filter(sync_records::resource_type.eq(resource_type))
             .order_by(sync_records::created_at.asc())
-            .limit(1)
-            .select(SyncRecordModel::as_select())
-            .first::<SyncRecordModel>(&mut *conn)
+            .select(DeviceRecordStatusModel::as_select())
+            .first::<DeviceRecordStatusModel>(&mut *conn)
             .optional()
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-        match sync_record {
-            Some(sync_model) => {
+
+        match unsynced_status {
+            Some(status) => {
+                // Get the device record
+                let device_record = device_records::table
+                    .find(&status.device_record_id)
+                    .first::<DeviceRecordModel>(&mut *conn)
+                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+                // Get the sync record
+                let sync_record = sync_records::table
+                    .find(&device_record.sync_record_id)
+                    .first::<SyncRecordModel>(&mut *conn)
+                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+                // Get all device records for this sync
                 let device_records = device_records::table
-                    .filter(device_records::sync_record_id.eq(&sync_model.id))
+                    .filter(device_records::sync_record_id.eq(&sync_record.id))
                     .select(DeviceRecordModel::as_select())
                     .load::<DeviceRecordModel>(&mut *conn)
                     .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
+                // Get all device record statuses
                 let device_record_ids: Vec<String> =
                     device_records.iter().map(|dr| dr.id.clone()).collect();
-
                 let status_records = device_record_status::table
                     .filter(device_record_status::device_record_id.eq_any(device_record_ids))
                     .select(DeviceRecordStatusModel::as_select())
@@ -165,7 +148,7 @@ impl SyncRepository for SqliteSyncRepository {
                     .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
                 Ok(Some((
-                    sync_model.to_domain(),
+                    sync_record.to_domain(),
                     device_records.iter().map(|dr| dr.to_domain()).collect(),
                     status_records.iter().map(|sr| sr.to_domain()).collect(),
                 )))

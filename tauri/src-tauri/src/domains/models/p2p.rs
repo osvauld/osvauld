@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time;
 
+use super::sync_record::SyncRecordSet;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SyncPayload {
     pub sync_record: Option<SyncRecord>, // Optional because status updates don't have sync record
@@ -31,9 +33,15 @@ pub enum Message {
     SyncResponse(SyncPayload),
     SyncAck(String),
     SyncComplete,
-    AddDevice(Device),
+    AddDevice {
+        device: Device,
+        records: SyncRecordSet,
+    },
     AddDeviceAck(Device),
-    FileTransfer { name: String, data: Vec<u8> },
+    FileTransfer {
+        name: String,
+        data: Vec<u8>,
+    },
 }
 
 #[derive(Serialize, Deserialize)]

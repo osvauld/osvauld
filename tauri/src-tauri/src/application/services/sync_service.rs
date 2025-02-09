@@ -41,7 +41,10 @@ impl SyncService {
     }
 
     pub async fn add_new_device_sync(&self, device: Device) -> Result<Device, RepositoryError> {
-        let _ = self.device_repository.save(device.clone()).await;
+        // Save the device first
+        let _ = self.device_repository.save(device.clone()).await?;
+
+        // Get necessary information
         let current_device_id = self.store_repository.get_device_key().await?;
         let current_device = self
             .device_repository
@@ -49,15 +52,18 @@ impl SyncService {
             .await?;
         let records = self.sync_repository.get_all_sync_records().await?;
         let devices = self.device_repository.get_all_devices().await?;
-        let device_record_set = SyncRecord::create_initial_device_sync_records(
+
+        // Create the sync record set
+        let sync_set = SyncRecord::create_initial_device_sync_records(
             device.id,
             current_device_id,
             &records,
             &devices,
         );
-        self.sync_repository
-            .add_initial_device_sync_set(device_record_set)
-            .await?;
+
+        // Add the sync record set
+        self.sync_repository.add_sync_record_set(sync_set).await?;
+
         Ok(current_device)
     }
 
@@ -71,15 +77,16 @@ impl SyncService {
             .get_pending_sync_by_type(&device.id, "device")
             .await?
         {
-            let device = self
+            let device_data = self
                 .device_repository
                 .find_by_id(&sync_record.resource_id)
                 .await?;
+
             return Ok(Some(SyncPayload {
                 sync_record: Some(sync_record),
                 device_records,
                 device_record_statuses: statuses,
-                data: Some(SyncData::Device(device)),
+                data: Some(SyncData::Device(device_data)),
             }));
         }
 
@@ -93,6 +100,7 @@ impl SyncService {
                 .folder_repository
                 .find_by_id(&sync_record.resource_id)
                 .await?;
+
             return Ok(Some(SyncPayload {
                 sync_record: Some(sync_record),
                 device_records,
@@ -111,6 +119,7 @@ impl SyncService {
                 .credential_repository
                 .find_by_id(&sync_record.resource_id)
                 .await?;
+
             return Ok(Some(SyncPayload {
                 sync_record: Some(sync_record),
                 device_records,
@@ -209,7 +218,11 @@ impl SyncService {
                     SyncData::Credential(credential) => {
                         self.credential_repository.save(credential).await?
                     }
-                    SyncData::Device(device) => self.device_repository.save(device.clone()).await?,
+                    SyncData::Device(device) => {
+                        if device.id != current_device_id {
+                            self.device_repository.save(device.clone()).await?
+                        };
+                    }
                     _ => {}
                 }
             }
@@ -307,25 +320,6 @@ impl SyncService {
                 ))
             }
         }
-
-        Ok(())
-    }
-
-    async fn process_sync_record_sync(
-        &self,
-        sync_record: &SyncRecord,
-    ) -> Result<(), RepositoryError> {
-        // Check if we already have this sync record
-        let _ = self
-            .sync_repository
-            .find_by_id(&sync_record.id)
-            .await
-            .is_ok();
-
-        // Save the sync record
-        self.sync_repository
-            .save_sync_records(&[sync_record.clone()])
-            .await?;
 
         Ok(())
     }

@@ -1,3 +1,5 @@
+use std::clone;
+
 use crate::domains::models::credential::Credential;
 use crate::domains::models::device::Device;
 use crate::domains::models::sync_types::{OperationType, ResourceType, SyncStatus};
@@ -37,12 +39,13 @@ pub struct DeviceRecordStatus {
     pub updated_at: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SyncRecordSet {
     pub sync_record: SyncRecord,
     pub device_records: Vec<DeviceRecord>,
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
+
 #[derive(Debug)]
 pub struct StatusChangeSet {
     pub device_records: Vec<DeviceRecord>,
@@ -50,6 +53,7 @@ pub struct StatusChangeSet {
 }
 #[derive(Debug)]
 pub struct InitialDeviceSyncSet {
+    pub sync_record: SyncRecord,
     pub device_records: Vec<DeviceRecord>,
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
@@ -93,6 +97,15 @@ impl SyncRecord {
             OperationType::SoftDelete,
             current_device_id,
             devices,
+        )
+    }
+    pub fn create_signup_device(device: Device) -> SyncRecordSet {
+        SyncRecord::create_sync_records(
+            device.id.clone(),
+            ResourceType::Device,
+            OperationType::Create,
+            device.id.clone(),
+            &[][..],
         )
     }
 
@@ -273,18 +286,68 @@ impl SyncRecord {
             device_record_statuses,
         }
     }
+
     pub fn create_initial_device_sync_records(
         new_device_id: String,
         current_device_id: String,
         existing_sync_records: &[SyncRecord],
         all_devices: &[Device],
-    ) -> InitialDeviceSyncSet {
+    ) -> SyncRecordSet {
         let now = Local::now().timestamp_millis();
 
-        // Create pending device records for the new device for each existing sync
-        let device_records: Vec<DeviceRecord> = existing_sync_records
-            .iter()
-            .map(|existing_sync| DeviceRecord {
+        // Create the sync record for the new device
+        let device_sync_record = SyncRecord {
+            id: Uuid::new_v4().to_string(),
+            resource_id: new_device_id.clone(),
+            resource_type: ResourceType::Device,
+            operation_type: OperationType::Create,
+            source_device_id: current_device_id.clone(),
+            created_at: now,
+            updated_at: now,
+        };
+
+        let mut device_records = Vec::new();
+        let mut device_record_statuses = Vec::new();
+
+        // 1. Create device records for all devices (including new device)
+        for device in all_devices {
+            // Set status and synced flag based on device
+            let status = if device.id == current_device_id || device.id == new_device_id {
+                SyncStatus::Completed
+            } else {
+                SyncStatus::Pending
+            };
+            let synced = device.id == current_device_id || device.id == new_device_id;
+
+            let device_record = DeviceRecord {
+                id: Uuid::new_v4().to_string(),
+                sync_record_id: device_sync_record.id.clone(),
+                device_id: device.id.clone(),
+                status,
+                synced,
+                created_at: now,
+                updated_at: now,
+            };
+
+            // Create status records for this device record
+            for aware_device in all_devices {
+                device_record_statuses.push(DeviceRecordStatus {
+                    id: Uuid::new_v4().to_string(),
+                    device_record_id: device_record.id.clone(),
+                    aware_device_id: aware_device.id.clone(),
+                    // Only current device is initially aware of records
+                    synced: aware_device.id == current_device_id,
+                    created_at: now,
+                    updated_at: now,
+                });
+            }
+
+            device_records.push(device_record);
+        }
+
+        // 2. Create device records for existing sync records
+        for existing_sync in existing_sync_records {
+            let device_record = DeviceRecord {
                 id: Uuid::new_v4().to_string(),
                 sync_record_id: existing_sync.id.clone(),
                 device_id: new_device_id.clone(),
@@ -292,38 +355,26 @@ impl SyncRecord {
                 synced: false,
                 created_at: now,
                 updated_at: now,
-            })
-            .collect();
+            };
 
-        // Create status records for each device record
-        let mut device_record_statuses = Vec::new();
-
-        for device_record in &device_records {
-            // For each device record, we need status records for all devices
+            // Create status records for this device record
             for device in all_devices {
                 device_record_statuses.push(DeviceRecordStatus {
                     id: Uuid::new_v4().to_string(),
                     device_record_id: device_record.id.clone(),
                     aware_device_id: device.id.clone(),
-                    // Only the current device starts as synced
+                    // Only current device is initially aware of records
                     synced: device.id == current_device_id,
                     created_at: now,
                     updated_at: now,
                 });
             }
 
-            // Also add a status record for the new device
-            device_record_statuses.push(DeviceRecordStatus {
-                id: Uuid::new_v4().to_string(),
-                device_record_id: device_record.id.clone(),
-                aware_device_id: new_device_id.clone(),
-                synced: false, // New device starts unaware
-                created_at: now,
-                updated_at: now,
-            });
+            device_records.push(device_record);
         }
 
-        InitialDeviceSyncSet {
+        SyncRecordSet {
+            sync_record: device_sync_record,
             device_records,
             device_record_statuses,
         }

@@ -95,6 +95,7 @@ pub fn run() {
                         store_repository.clone(),
                         crypto_utils.clone(),
                         device_repo.clone(),
+                        sync_repo.clone(),
                     ));
                     let sync_service = Arc::new(SyncService::new(
                         sync_repo.clone(),

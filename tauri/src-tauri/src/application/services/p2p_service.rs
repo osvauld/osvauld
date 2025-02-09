@@ -4,6 +4,7 @@ use crate::domains::models::device::Device;
 use crate::domains::models::p2p::{
     ConnectionTicket, HandshakeError, HandshakeMessage, Message, SyncPayload,
 };
+use crate::domains::models::sync_record::SyncRecordSet;
 use crate::types::CryptoResponse;
 use iroh::endpoint::Connection;
 const MAX_HANDSHAKE_SIZE: usize = 8192; // 8KB max size for handshake messages
@@ -82,7 +83,12 @@ impl P2PService {
         Ok(())
     }
 
-    pub async fn add_device(&self, device: Device, ticket: String) -> Result<(), String> {
+    pub async fn add_device(
+        &self,
+        device: Device,
+        records: SyncRecordSet,
+        ticket: String,
+    ) -> Result<(), String> {
         // First establish connection with the target device using the ticket
         info!(
             "Initiating device addition process for device: {:?}",
@@ -92,7 +98,7 @@ impl P2PService {
 
         // Once connected, send the AddDevice message
         info!("Connection established, sending AddDevice message");
-        let add_device_message = Message::AddDevice(device);
+        let add_device_message = Message::AddDevice { device, records };
         let serialized = serde_json::to_string(&add_device_message)
             .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
 
@@ -433,7 +439,11 @@ impl P2PService {
         }
         Ok(())
     }
-    async fn handle_add_device_request(&self, device: Device) -> Result<(), String> {
+    async fn handle_add_device_request(
+        &self,
+        device: Device,
+        records: SyncRecordSet,
+    ) -> Result<(), String> {
         info!("Processing device addition request for ID: {:?}", device.id);
 
         let current_device = self
@@ -567,9 +577,10 @@ impl P2PService {
                                                             self.handle_sync_ack(sync_id.clone())
                                                                 .await
                                                         }
-                                                        Message::AddDevice(device_payload) => {
+                                                        Message::AddDevice { device, records } => {
                                                             self.handle_add_device_request(
-                                                                device_payload.clone(),
+                                                                device.clone(),
+                                                                records.clone(),
                                                             )
                                                             .await
                                                         }
