@@ -35,16 +35,27 @@ pub trait SyncRepository: Send + Sync {
         &self,
         status_set: StatusChangeSet,
     ) -> Result<(), RepositoryError>;
+    async fn update_device_record(
+        &self,
+        device_id: String,
+        sync_id: String,
+    ) -> Result<(), RepositoryError>;
+
     async fn get_pending_sync_by_type(
         &self,
         device_id: &str,
         resource_type: &str,
     ) -> Result<Option<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>, RepositoryError>;
     // Status Updates
-    async fn get_unsynced_status_updates(
+    async fn get_unsynced_device_sync_records(
         &self,
         device_id: &str,
     ) -> Result<Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>, RepositoryError>;
+    async fn update_sync_status(
+        &self,
+        device_record_ids: Vec<String>,
+        status_record_ids: Vec<String>,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time;
 
-use super::sync_record::SyncRecordSet;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SyncPayload {
     pub sync_record: Option<SyncRecord>, // Optional because status updates don't have sync record
@@ -31,17 +29,11 @@ pub enum Message {
     Pong,
     SyncRequest,
     SyncResponse(SyncPayload),
-    SyncAck(String),
+    SyncAck(SyncAckType),
     SyncComplete,
-    AddDevice {
-        device: Device,
-        records: SyncRecordSet,
-    },
-    AddDeviceAck(Device),
-    FileTransfer {
-        name: String,
-        data: Vec<u8>,
-    },
+    AddDevice(SyncPayload),
+    AddDeviceAck,
+    FileTransfer { name: String, data: Vec<u8> },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,4 +75,15 @@ pub struct HandshakeMessage {
     pub challenge: String,
     pub signature: String,
     pub device: Device,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SyncAckDeviceRecord {
+    pub device_records: Vec<String>, // device_record_ids
+    pub status_updates: Vec<String>, // device_record_status_ids
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SyncAckType {
+    SyncRecord(String),                 // sync_record_id
+    DeviceRecords(SyncAckDeviceRecord), // device_record_ids
 }

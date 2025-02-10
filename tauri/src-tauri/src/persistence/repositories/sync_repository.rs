@@ -65,6 +65,39 @@ impl SyncRepository for SqliteSyncRepository {
         Ok(models.iter().map(|m| m.to_domain()).collect())
     }
 
+    async fn update_device_record(
+        &self,
+        device_id: String,
+        sync_id: String,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let device_record_id = device_records::table
+            .filter(device_records::sync_record_id.eq(&sync_id))
+            .filter(device_records::device_id.eq(&device_id))
+            .select(device_records::id)
+            .first::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        diesel::update(device_records::table)
+            .filter(device_records::sync_record_id.eq(&sync_id))
+            .filter(device_records::device_id.eq(&device_id))
+            .filter(device_records::status.eq("pending"))
+            .set((
+                device_records::synced.eq(true),
+                device_records::updated_at.eq(chrono::Local::now().timestamp_millis()),
+            ))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
+        diesel::update(device_record_status::table)
+            .filter(device_record_status::device_record_id.eq(&device_record_id))
+            .filter(device_record_status::aware_device_id.eq(&device_id))
+            .set((
+                device_record_status::synced.eq(true),
+                device_record_status::updated_at.eq(chrono::Local::now().timestamp_millis()),
+            ))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
+        Ok(())
+    }
     async fn add_status_change_set(
         &self,
         status_set: StatusChangeSet,
@@ -110,6 +143,7 @@ impl SyncRepository for SqliteSyncRepository {
             .inner_join(device_records::table.inner_join(sync_records::table))
             .filter(device_record_status::aware_device_id.eq(device_id))
             .filter(device_record_status::synced.eq(false))
+            .filter(device_records::synced.eq(false))
             .filter(sync_records::resource_type.eq(resource_type))
             .order_by(sync_records::created_at.asc())
             .select(DeviceRecordStatusModel::as_select())
@@ -156,24 +190,28 @@ impl SyncRepository for SqliteSyncRepository {
             None => Ok(None),
         }
     }
-    async fn get_unsynced_status_updates(
+    async fn get_unsynced_device_sync_records(
         &self,
         device_id: &str,
     ) -> Result<Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        let device_records = device_records::table
+        // Get device records that have unsynced status for the target device
+        let unsynced_records = device_records::table
             .inner_join(device_record_status::table)
             .filter(device_record_status::aware_device_id.eq(device_id))
             .filter(device_record_status::synced.eq(false))
             .order_by(device_records::created_at.asc())
             .select(DeviceRecordModel::as_select())
+            .distinct() // Add distinct to avoid duplicate device records
             .load::<DeviceRecordModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         let mut result = Vec::new();
-        for device_record in device_records {
-            let status_records = device_record_status::table
+
+        // For each unsynced record, get all its statuses
+        for device_record in unsynced_records {
+            let statuses = device_record_status::table
                 .filter(device_record_status::device_record_id.eq(&device_record.id))
                 .select(DeviceRecordStatusModel::as_select())
                 .load::<DeviceRecordStatusModel>(&mut *conn)
@@ -181,10 +219,46 @@ impl SyncRepository for SqliteSyncRepository {
 
             result.push((
                 device_record.to_domain(),
-                status_records.iter().map(|sr| sr.to_domain()).collect(),
+                statuses.iter().map(|s| s.to_domain()).collect(),
             ));
         }
 
         Ok(result)
+    }
+
+    async fn update_sync_status(
+        &self,
+        device_record_ids: Vec<String>,
+        status_record_ids: Vec<String>,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // Update device records
+            if !device_record_ids.is_empty() {
+                diesel::update(device_records::table)
+                    .filter(device_records::id.eq_any(device_record_ids))
+                    .set((
+                        device_records::synced.eq(true),
+                        device_records::updated_at.eq(chrono::Local::now().timestamp_millis()),
+                    ))
+                    .execute(conn)?;
+            }
+
+            // Update status records
+            if !status_record_ids.is_empty() {
+                diesel::update(device_record_status::table)
+                    .filter(device_record_status::id.eq_any(status_record_ids))
+                    .set((
+                        device_record_status::synced.eq(true),
+                        device_record_status::updated_at
+                            .eq(chrono::Local::now().timestamp_millis()),
+                    ))
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
 }

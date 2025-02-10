@@ -292,50 +292,48 @@ impl SyncRecord {
         current_device_id: String,
         existing_sync_records: &[SyncRecord],
         all_devices: &[Device],
+        new_device_record: SyncRecordSet,
     ) -> SyncRecordSet {
         let now = Local::now().timestamp_millis();
 
-        // Create the sync record for the new device
-        let device_sync_record = SyncRecord {
-            id: Uuid::new_v4().to_string(),
-            resource_id: new_device_id.clone(),
-            resource_type: ResourceType::Device,
-            operation_type: OperationType::Create,
-            source_device_id: current_device_id.clone(),
-            created_at: now,
-            updated_at: now,
-        };
-
+        // Keep the original sync record for the new device
+        let device_sync_record = new_device_record.sync_record;
         let mut device_records = Vec::new();
         let mut device_record_statuses = Vec::new();
 
-        // 1. Create device records for all devices (including new device)
+        // 1. Add the original device record and status from new_device_record
+        // These represent the new device's own record
+        device_records.extend(new_device_record.device_records);
+        device_record_statuses.extend(new_device_record.device_record_statuses);
+
+        // 2. Create device records for existing devices to acknowledge the new device
         for device in all_devices {
-            // Set status and synced flag based on device
-            let status = if device.id == current_device_id || device.id == new_device_id {
+            let status = if device.id == current_device_id {
                 SyncStatus::Completed
             } else {
                 SyncStatus::Pending
             };
-            let synced = device.id == current_device_id || device.id == new_device_id;
 
             let device_record = DeviceRecord {
                 id: Uuid::new_v4().to_string(),
                 sync_record_id: device_sync_record.id.clone(),
                 device_id: device.id.clone(),
                 status,
-                synced,
+                synced: device.id == current_device_id,
                 created_at: now,
                 updated_at: now,
             };
 
             // Create status records for this device record
-            for aware_device in all_devices {
+            // Both the current device and all existing devices need to be aware
+            for aware_device in all_devices.iter().chain(std::iter::once(&Device::new(
+                new_device_id.clone(),
+                String::new(),
+            ))) {
                 device_record_statuses.push(DeviceRecordStatus {
                     id: Uuid::new_v4().to_string(),
                     device_record_id: device_record.id.clone(),
                     aware_device_id: aware_device.id.clone(),
-                    // Only current device is initially aware of records
                     synced: aware_device.id == current_device_id,
                     created_at: now,
                     updated_at: now,
@@ -345,7 +343,7 @@ impl SyncRecord {
             device_records.push(device_record);
         }
 
-        // 2. Create device records for existing sync records
+        // 3. Create device records for all existing sync records for the new device
         for existing_sync in existing_sync_records {
             let device_record = DeviceRecord {
                 id: Uuid::new_v4().to_string(),
@@ -357,13 +355,16 @@ impl SyncRecord {
                 updated_at: now,
             };
 
-            // Create status records for this device record
-            for device in all_devices {
+            // Create status records for the existing sync records
+            // Both current device and all existing devices need to be aware
+            for device in all_devices.iter().chain(std::iter::once(&Device::new(
+                new_device_id.clone(),
+                String::new(),
+            ))) {
                 device_record_statuses.push(DeviceRecordStatus {
                     id: Uuid::new_v4().to_string(),
                     device_record_id: device_record.id.clone(),
                     aware_device_id: device.id.clone(),
-                    // Only current device is initially aware of records
                     synced: device.id == current_device_id,
                     created_at: now,
                     updated_at: now,

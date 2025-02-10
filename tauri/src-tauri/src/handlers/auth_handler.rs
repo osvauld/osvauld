@@ -1,5 +1,5 @@
 // src/handlers/auth_handler.rs
-use crate::application::services::{AuthService, P2PService};
+use crate::application::services::{AuthService, P2PService, SyncService};
 use crate::domains::models::device::Device;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
@@ -76,13 +76,13 @@ pub async fn handle_add_device(
     input: AddDeviceInput,
     auth_service: State<'_, Arc<AuthService>>,
     p2p_service: State<'_, Arc<P2PService>>,
+    sync_service: State<'_, Arc<SyncService>>,
 ) -> Result<CryptoResponse, String> {
     let (device, sync_record_set) = auth_service
         .add_device(input.certificate, input.passphrase)
         .await?;
-    p2p_service
-        .add_device(device, sync_record_set, input.ticket)
-        .await?;
+    let sync_payload = sync_service.generate_add_device_payload(device, sync_record_set);
+    p2p_service.add_device(sync_payload, input.ticket).await?;
     Ok(CryptoResponse::Success)
 }
 
