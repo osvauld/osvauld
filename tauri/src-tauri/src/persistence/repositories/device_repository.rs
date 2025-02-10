@@ -4,8 +4,8 @@ use crate::domains::models::device::Device;
 use crate::domains::repositories::{DeviceRepository, RepositoryError};
 use crate::persistence::models::DeviceModel;
 use async_trait::async_trait;
-use chrono::Local;
 use diesel::prelude::*;
+use diesel::ExpressionMethods;
 
 pub struct SqliteDeviceRepository {
     connection: DbConnection,
@@ -27,6 +27,7 @@ impl DeviceRepository for SqliteDeviceRepository {
             device_key: device.device_key,
             created_at: device.created_at,
             updated_at: device.updated_at,
+            last_synced_at: device.last_synced_at,
         };
 
         diesel::insert_into(devices::table)
@@ -58,6 +59,33 @@ impl DeviceRepository for SqliteDeviceRepository {
             .load::<DeviceModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
+        Ok(DeviceModel::to_domain_devices(device_models))
+    }
+
+    async fn udpate_last_synced_at(
+        &self,
+        device_id: &str,
+        timestamp: i64,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        diesel::update(devices::table)
+            .filter(devices::id.eq(device_id))
+            .set(devices::last_synced_at.eq(timestamp))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        Ok(())
+    }
+    async fn get_devices_except(
+        &self,
+        exclude_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let device_models = devices::table
+            .filter(devices::id.ne_all(exclude_ids))
+            .order_by(devices::created_at.desc())
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(DeviceModel::to_domain_devices(device_models))
     }
 }

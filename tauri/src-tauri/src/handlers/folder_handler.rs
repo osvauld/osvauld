@@ -1,5 +1,5 @@
 use crate::application::services::{FolderService, SyncService};
-use crate::domains::models::sync_record::ResourceType;
+use crate::domains::models::sync_types::ResourceType;
 use crate::types::{AddFolderInput, CryptoResponse, FolderResponse, SoftDeleteFolder};
 use std::sync::Arc;
 use tauri::State;

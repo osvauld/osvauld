@@ -1,6 +1,12 @@
 use crate::domains::models::{
-    auth::Certificate, credential::Credential, device::Device, folder::Folder,
-    sync_record::SyncRecord,
+    auth::Certificate,
+    credential::Credential,
+    device::Device,
+    folder::Folder,
+    sync_record::{
+        DeviceRecord, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet, SyncRecord,
+        SyncRecordSet,
+    },
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -23,16 +29,33 @@ pub trait FolderRepository: Send + Sync {
 
 #[async_trait]
 pub trait SyncRepository: Send + Sync {
-    async fn save_sync_records(&self, records: &[SyncRecord]) -> Result<(), RepositoryError>;
-    async fn get_pending_records(
+    async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError>;
+    async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
+    async fn add_status_change_set(
         &self,
-        target_device_id: &str,
-    ) -> Result<Vec<SyncRecord>, RepositoryError>;
-    async fn update_status(&self, sync_id: &str, status: &str) -> Result<(), RepositoryError>;
-    async fn get_sync_records_by_device_id(
+        status_set: StatusChangeSet,
+    ) -> Result<(), RepositoryError>;
+    async fn update_device_record(
         &self,
-        target_device_id: &str,
-    ) -> Result<Vec<SyncRecord>, RepositoryError>;
+        device_id: String,
+        sync_id: String,
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_pending_sync_by_type(
+        &self,
+        device_id: &str,
+        resource_type: &str,
+    ) -> Result<Option<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>, RepositoryError>;
+    // Status Updates
+    async fn get_unsynced_device_sync_records(
+        &self,
+        device_id: &str,
+    ) -> Result<Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>, RepositoryError>;
+    async fn update_sync_status(
+        &self,
+        device_record_ids: Vec<String>,
+        status_record_ids: Vec<String>,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
@@ -57,6 +80,8 @@ pub trait StoreRepository: Send + Sync {
 pub trait CredentialRepository: Send + Sync {
     async fn save(&self, credential: &Credential) -> Result<(), RepositoryError>;
     async fn find_by_folder(&self, folder_id: &str) -> Result<Vec<Credential>, RepositoryError>;
+    async fn find_all_by_folder(&self, folder_id: &str)
+        -> Result<Vec<Credential>, RepositoryError>;
     async fn find_by_id(&self, id: &str) -> Result<Credential, RepositoryError>;
     async fn delete_credential(&self, id: &str) -> Result<(), RepositoryError>;
     async fn soft_delete_credential(&self, id: &str) -> Result<(), RepositoryError>;
@@ -72,4 +97,24 @@ pub trait DeviceRepository: Send + Sync {
     async fn save(&self, device: Device) -> Result<(), RepositoryError>;
     async fn find_by_id(&self, device_id: &str) -> Result<Device, RepositoryError>;
     async fn get_all_devices(&self) -> Result<Vec<Device>, RepositoryError>;
+    async fn udpate_last_synced_at(
+        &self,
+        device_id: &str,
+        timestamp: i64,
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_devices_except(
+        &self,
+        exclude_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError>;
+}
+
+#[async_trait]
+pub trait DeviceRecordRepository: Send + Sync {
+    async fn add_records(&self, record: DeviceRecord) -> Result<(), RepositoryError>;
+}
+
+#[async_trait]
+pub trait DeviceRecordStatusRepository: Send + Sync {
+    async fn add_device_records(&self, records: DeviceRecordStatus) -> Result<(), RepositoryError>;
 }

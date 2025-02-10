@@ -1,9 +1,14 @@
-use crate::database::schema::{credentials, devices, folders, sync_records};
+use crate::database::schema::{
+    credentials, device_record_status, device_records, devices, folders, sync_records,
+};
 use crate::domains::models::{
     credential::Credential as DomainCredential,
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
-    sync_record::{SyncRecord as DomainSyncRecord, SyncStatus},
+    sync_record::DeviceRecord as DomainDeviceRecord,
+    sync_record::DeviceRecordStatus as DomainDeviceRecordStatus,
+    sync_record::SyncRecord as DomainSyncRecord,
+    sync_types::{OperationType, ResourceType, SyncStatus},
 };
 use diesel::prelude::*;
 
@@ -47,7 +52,7 @@ impl From<FolderModel> for DomainFolder {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable, QueryableByName, Debug, Clone)]
+#[derive(Queryable, Insertable, Selectable, Debug)]
 #[diesel(table_name = sync_records)]
 pub struct SyncRecordModel {
     pub id: String,
@@ -55,12 +60,72 @@ pub struct SyncRecordModel {
     pub resource_type: String,
     pub operation_type: String,
     pub source_device_id: String,
-    pub target_device_id: String,
-    pub status: String,
-    pub folder_id: Option<String>,
-    pub credential_id: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+impl SyncRecordModel {
+    pub fn to_domain(&self) -> DomainSyncRecord {
+        DomainSyncRecord {
+            id: self.id.clone(),
+            resource_id: self.resource_id.clone(),
+            resource_type: ResourceType::from(self.resource_type.clone()),
+            operation_type: OperationType::from(self.operation_type.clone()),
+            source_device_id: self.source_device_id.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = device_records)]
+pub struct DeviceRecordModel {
+    pub id: String,
+    pub sync_record_id: String,
+    pub device_id: String,
+    pub status: String,
+    pub synced: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl DeviceRecordModel {
+    pub fn to_domain(&self) -> DomainDeviceRecord {
+        DomainDeviceRecord {
+            id: self.id.clone(),
+            sync_record_id: self.sync_record_id.clone(),
+            device_id: self.device_id.clone(),
+            status: SyncStatus::from(self.status.clone()),
+            synced: self.synced,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = device_record_status)]
+pub struct DeviceRecordStatusModel {
+    pub id: String,
+    pub device_record_id: String,
+    pub aware_device_id: String,
+    pub synced: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl DeviceRecordStatusModel {
+    pub fn to_domain(&self) -> DomainDeviceRecordStatus {
+        DomainDeviceRecordStatus {
+            id: self.id.clone(),
+            device_record_id: self.device_record_id.clone(),
+            aware_device_id: self.aware_device_id.clone(),
+            synced: self.synced,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
 }
 
 impl From<&DomainSyncRecord> for SyncRecordModel {
@@ -71,47 +136,38 @@ impl From<&DomainSyncRecord> for SyncRecordModel {
             resource_type: record.resource_type.to_string(),
             operation_type: record.operation_type.to_string(),
             source_device_id: record.source_device_id.clone(),
-            target_device_id: record.target_device_id.clone(),
-            status: record.status.to_string(),
-            folder_id: record.folder_id.clone(),
-            credential_id: record.credential_id.clone(),
-            created_at: record.created_at.clone(),
-            updated_at: record.updated_at.clone(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
         }
     }
 }
 
-impl SyncRecordModel {
-    pub fn to_domain_records(models: Vec<SyncRecordModel>) -> Vec<DomainSyncRecord> {
-        models.into_iter().map(DomainSyncRecord::from).collect()
-    }
-
-    pub fn from_domain_records(records: Vec<DomainSyncRecord>) -> Vec<SyncRecordModel> {
-        records
-            .into_iter()
-            .map(|r| SyncRecordModel::from(&r))
-            .collect()
-    }
-}
-
-impl From<SyncRecordModel> for DomainSyncRecord {
-    fn from(model: SyncRecordModel) -> Self {
+impl From<&DomainDeviceRecord> for DeviceRecordModel {
+    fn from(record: &DomainDeviceRecord) -> Self {
         Self {
-            id: model.id,
-            resource_id: model.resource_id,
-            resource_type: model.resource_type.into(),
-            operation_type: model.operation_type.into(),
-            source_device_id: model.source_device_id,
-            target_device_id: model.target_device_id,
-            status: model.status.into(),
-            folder_id: model.folder_id,
-            credential_id: model.credential_id,
-            created_at: model.created_at,
-            updated_at: model.updated_at,
+            id: record.id.clone(),
+            sync_record_id: record.sync_record_id.clone(),
+            device_id: record.device_id.clone(),
+            status: record.status.to_string(),
+            synced: record.synced,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
         }
     }
 }
 
+impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
+    fn from(status: &DomainDeviceRecordStatus) -> Self {
+        Self {
+            id: status.id.clone(),
+            device_record_id: status.device_record_id.clone(),
+            aware_device_id: status.aware_device_id.clone(),
+            synced: status.synced,
+            created_at: status.created_at,
+            updated_at: status.updated_at,
+        }
+    }
+}
 #[derive(Queryable, Insertable)]
 #[diesel(table_name = credentials)]
 pub struct CredentialModel {
@@ -121,7 +177,7 @@ pub struct CredentialModel {
     pub folder_id: String,
     pub signature: String,
     pub encrypted_key: String,
-    pub favorite: bool,
+    pub favourite: bool,
     pub last_accessed: i64,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
@@ -138,7 +194,7 @@ impl From<&DomainCredential> for CredentialModel {
             folder_id: credential.folder_id.clone(),
             signature: credential.signature.clone(),
             encrypted_key: credential.encrypted_key.clone(),
-            favorite: credential.favorite,
+            favourite: credential.favourite,
             last_accessed: credential.last_accessed,
             deleted: credential.deleted,
             deleted_at: credential.deleted_at,
@@ -160,7 +216,7 @@ impl From<CredentialModel> for DomainCredential {
             created_at: model.created_at,
             updated_at: model.updated_at,
             last_accessed: model.last_accessed,
-            favorite: model.favorite,
+            favourite: model.favourite,
             deleted: model.deleted,
             deleted_at: model.deleted_at,
         }
@@ -189,6 +245,7 @@ pub struct DeviceModel {
     pub device_key: String,
     pub created_at: i64,
     pub updated_at: i64,
+    pub last_synced_at: Option<i64>,
 }
 
 impl From<&DomainDevice> for DeviceModel {
@@ -198,6 +255,7 @@ impl From<&DomainDevice> for DeviceModel {
             device_key: device.device_key.clone(),
             created_at: device.created_at,
             updated_at: device.updated_at,
+            last_synced_at: device.last_synced_at,
         }
     }
 }
@@ -209,6 +267,7 @@ impl From<DeviceModel> for DomainDevice {
             device_key: model.device_key,
             created_at: model.created_at,
             updated_at: model.updated_at,
+            last_synced_at: model.last_synced_at,
         }
     }
 }

@@ -36,7 +36,6 @@ pub struct EncryptedDataWithAccess {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-
 pub struct CredentialWithEncryptedKey {
     pub id: String,
     pub credential_type: String,

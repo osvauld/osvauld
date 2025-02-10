@@ -7,6 +7,7 @@ pub struct Device {
     pub device_key: String,
     pub created_at: i64,
     pub updated_at: i64,
+    pub last_synced_at: Option<i64>,
 }
 
 impl Device {
@@ -16,8 +17,9 @@ impl Device {
         Self {
             id,
             device_key: device_public_key,
-            created_at: now.clone(),
+            created_at: now,
             updated_at: now,
+            last_synced_at: None,
         }
     }
 }
