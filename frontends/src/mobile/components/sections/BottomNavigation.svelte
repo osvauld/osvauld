@@ -9,14 +9,17 @@
 		categorySelection,
 		currentVault,
 		currentLayout,
-		bottomNavActive,
-		vaultSwitchActive,
 		favoriteCredentials,
 		credentialListWithType,
+		credentialLayoutType,
 	} from "../../store/mobile.ui.store";
 	import MultipleUsers from "../../../icons/multipleUsers.svelte";
 
-	const handleClick = (route) => {
+	$: isFavouriteSelected = $credentialListWithType === "favourites";
+	$: isAddSelected = $currentLayout === "category";
+	let isListSelected = false;
+
+	const handleAddCredential = (route) => {
 		currentLayout.set(route);
 		if (route === "credential ") categorySelection.set(!$categorySelection);
 		else if (route === "home") {
@@ -25,17 +28,17 @@
 		}
 	};
 
-	const handleVaultManger = () => {
-		if ($vaultSwitchActive) {
-			bottomNavActive.set(true);
-		}
-
-		vaultSwitchActive.set(!$vaultSwitchActive);
+	const handleFavouriteSelection = () => {
+		$favoriteCredentials
+			? credentialListWithType.set("")
+			: credentialListWithType.set("favourites");
+		favoriteCredentials.set(!$favoriteCredentials);
 	};
 
-	const handleFavouriteSelection = () => {
-		credentialListWithType.set("favourites");
-		favoriteCredentials.set(true);
+	const handleStateReset = () => {
+		currentLayout.set("home");
+		credentialListWithType.set("");
+		credentialLayoutType.set("addition");
 	};
 </script>
 
@@ -43,40 +46,48 @@
 	class="h-[68px] py-2 w-full fixed bottom-0 bg-mobile-navBlue flex text-base font-sans font-normal text-mobile-iconPrimary">
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
+		on:click|stopPropagation="{handleStateReset}"
+		><span class="flex justify-center items-center"
+			><Home color="{isListSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class:text-mobile-highlightBlue="{isListSelected}">Home</span
+		></button>
+	<!-- 
+	<button
+		class=" flex-1 flex justify-center items-center flex-col"
 		on:click="{handleVaultManger}">
 		<span class="flex justify-center items-center"
-			><Home color="#5B5D6D" /></span>
-		<span class="capitalize"
+			><MultipleUsers color="{isHome ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class="capitalize" class:text-mobile-highlightBlue="{isHome}"
 			>{$currentVault?.id === "all"
 				? "All Vaults"
 				: `${$currentVault?.name}`}</span>
-	</button>
+	</button> -->
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
-		on:click="{() => handleClick('category')}">
+		on:click="{() => handleAddCredential('category')}">
 		<span class="flex justify-center items-center"
-			><Add color="#5B5D6D" /></span>
-		<span>{$LL.tabs.add()}</span></button>
-	<!-- <button
-		class=" flex-1 flex justify-center items-center flex-col"
-		on:click="{() => handleClick('generator')}"
+			><Add color="{isAddSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class:text-mobile-highlightBlue="{isAddSelected}">Add</span></button>
+	<!-- <button class=" flex-1 flex justify-center items-center flex-col"
 		><span class="flex justify-center items-center"
 			><PwdGen color="{'#5B5D6D'}" /></span>
-		<span>{$LL.tabs.generator()}</span></button> -->
+		<span>Generator</span></button> -->
 	<!-- <button
 		on:click="{() => handleClick('profile')}"
 		class=" flex-1 flex flex-col justify-center items-center">
 		<span class="flex justify-center items-center"
 			><Profile color="{'#5B5D6D'}" /></span>
 		<span>{$LL.tabs.profile()}</span></button> -->
-	<button class=" flex-1 flex justify-center items-center flex-col"
+	<!-- <button class=" flex-1 flex justify-center items-center flex-col"
 		><span class="flex justify-center items-center"
 			><MultipleUsers color="#5B5D6D" /></span>
-		<span>Shared</span></button>
+		<span>Switch</span></button> -->
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
 		on:click|stopPropagation="{handleFavouriteSelection}"
 		><span class="flex justify-center items-center"
-			><Star color="#5B5D6D" /></span>
-		<span>Favourites</span></button>
+			><Star color="{isFavouriteSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
+		<span class:text-mobile-highlightBlue="{isFavouriteSelected}"
+			>Favourites</span
+		></button>
 </nav>

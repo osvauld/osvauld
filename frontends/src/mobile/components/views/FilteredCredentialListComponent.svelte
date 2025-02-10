@@ -42,22 +42,21 @@
 	});
 </script>
 
-{#if credentials.length !== 0}
-	<nav class="w-full h-[48px] px-3 flex items-center gap-2 flex-shrink-0">
-		<button on:click="{goBack}" class="p-2.5 rounded-lg bg-mobile-bgSeconary">
-			<MobileLeftArrow />
-		</button>
-	</nav>
+<nav class="w-full h-[48px] px-3 flex items-center gap-2 flex-shrink-0">
+	<button on:click="{goBack}" class="p-2.5 rounded-lg bg-mobile-bgSeconary">
+		<MobileLeftArrow />
+	</button>
+</nav>
+<div
+	class="text-mobile-textPrimary text-2xl font-medium flex flex-col pl-4 py-3">
+	<span class="text-mobile-textTertiary">{$credentialListWithType}</span>
 	<div
-		class="text-mobile-textPrimary text-2xl font-medium flex flex-col pl-4 py-3">
-		<span class="text-mobile-textTertiary">{$credentialListWithType}</span>
-		<div
-			class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
-			<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
-			{$currentVault.name}
-		</div>
+		class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
+		<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
+		{$currentVault.name}
 	</div>
-
+</div>
+{#if credentials.length !== 0}
 	<CredentialList {credentials} />
 {:else}
 	<span

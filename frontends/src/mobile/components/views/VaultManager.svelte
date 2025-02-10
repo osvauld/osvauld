@@ -87,19 +87,6 @@
 	class="absolute w-full h-auto bottom-5 border-t-[1px] border-mobile-textSecondary bg-mobile-bgPrimary rounded-t-2xl px-2 pt-2 pb-16 flex flex-col gap-2 text-lg"
 	in:slide
 	on:click|preventDefault|stopPropagation>
-	{#each $vaults as vault (vault.id)}
-		{@const isActive = $currentVault.name === vault.name}
-		<button
-			on:click="{() => selectVault(vault)}"
-			class="h-[48px] p-4 text-mobile-textPrimary flex items-center rounded-lg"
-			class:bg-mobile-bgLight="{isActive}"
-			class:text-mobile-textTertiary="{isActive}">
-			<span><RoundedInfo color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
-			<span class="grow text-left pl-2 capitalize">{vault.name}</span>
-			<span><RightArrow color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
-		</button>
-	{/each}
-
 	{#if newVaultInputActive}
 		<div
 			class="h-[250px] rounded-[20px] border border-mobile-bgLight px-3 pt-3 pb-4 text-mobile-textPrimary flex flex-col gap-3"
@@ -123,6 +110,18 @@
 			</div>
 		</div>
 	{:else}
+		{#each $vaults as vault (vault.id)}
+			{@const isActive = $currentVault.name === vault.name}
+			<button
+				on:click="{() => selectVault(vault)}"
+				class="h-[48px] p-4 text-mobile-textPrimary flex items-center rounded-lg"
+				class:bg-mobile-bgLight="{isActive}"
+				class:text-mobile-textTertiary="{isActive}">
+				<span><RoundedInfo color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
+				<span class="grow text-left pl-2 capitalize">{vault.name}</span>
+				<span><RightArrow color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
+			</button>
+		{/each}
 		<button
 			type="submit"
 			on:click="{() => (newVaultInputActive = true)}"

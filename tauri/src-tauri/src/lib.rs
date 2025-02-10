@@ -64,6 +64,8 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
+
+
             let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
