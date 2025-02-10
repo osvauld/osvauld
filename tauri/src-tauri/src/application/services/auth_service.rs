@@ -1,6 +1,9 @@
 use crate::domains::models::auth::{Certificate, User};
-use crate::domains::models::device::Device;
-use crate::domains::repositories::{DeviceRepository, RepositoryError, StoreRepository};
+use crate::domains::models::sync_record::{self, SyncRecordSet};
+use crate::domains::models::{device::Device, sync_record::SyncRecord};
+use crate::domains::repositories::{
+    DeviceRepository, RepositoryError, StoreRepository, SyncRepository,
+};
 use crypto_utils::CryptoUtils;
 use rand::{rngs::OsRng, RngCore};
 use std::sync::Arc;
@@ -10,6 +13,7 @@ pub struct AuthService {
     store_repository: Arc<dyn StoreRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
     device_repository: Arc<dyn DeviceRepository>,
+    sync_repository: Arc<dyn SyncRepository>,
 }
 
 impl AuthService {
@@ -17,15 +21,21 @@ impl AuthService {
         store_repository: Arc<dyn StoreRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         device_repository: Arc<dyn DeviceRepository>,
+        sync_repository: Arc<dyn SyncRepository>,
     ) -> Self {
         Self {
             store_repository,
             crypto_utils,
             device_repository,
+            sync_repository,
         }
     }
 
-    async fn create_device(&self, passphrase: &str, username: &str) -> Result<Device, String> {
+    async fn create_device(
+        &self,
+        passphrase: &str,
+        username: &str,
+    ) -> Result<(Device, SyncRecordSet), String> {
         // Generate device keys and get device ID
         let (device_key, device_id) = {
             let crypto = self.crypto_utils.lock().await;
@@ -45,9 +55,15 @@ impl AuthService {
 
         let device = Device::new(device_id.clone(), device_key.public_key);
 
+        let sync_record = SyncRecord::create_signup_device(device.clone());
+
         // Save device information to repository
         self.device_repository
             .save(device.clone())
+            .await
+            .map_err(|e| e.to_string())?;
+        self.sync_repository
+            .add_sync_record_set(sync_record.clone())
             .await
             .map_err(|e| e.to_string())?;
 
@@ -65,7 +81,7 @@ impl AuthService {
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(device)
+        Ok((device, sync_record))
     }
 
     pub async fn get_current_device(&self) -> Result<Device, RepositoryError> {
@@ -180,7 +196,7 @@ impl AuthService {
         &self,
         certificate: String,
         passphrase: String,
-    ) -> Result<Device, String> {
+    ) -> Result<(Device, SyncRecordSet), String> {
         let result = {
             let crypto = self.crypto_utils.lock().await;
             crypto
@@ -193,7 +209,7 @@ impl AuthService {
             public_key: result.public_key,
             salt: result.salt,
         };
-        let device = self.create_device(&passphrase, "test").await?;
+        let device_sync_data = self.create_device(&passphrase, "test").await?;
 
         self.store_repository
             .store_certificate(
@@ -205,7 +221,7 @@ impl AuthService {
             .map_err(|e| e.to_string())?;
         self.load_certificate(&passphrase).await?;
 
-        Ok(device)
+        Ok(device_sync_data)
     }
 
     pub async fn export_certificate(&self, passphrase: String) -> Result<String, String> {

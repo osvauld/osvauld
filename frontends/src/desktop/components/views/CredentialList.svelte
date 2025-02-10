@@ -39,7 +39,6 @@
 			credentials = await sendMessage("getAllCredentials", {
 				favourite: false,
 			});
-			// console.log("All credentialds fetched", credentials);
 		} catch (error) {
 			credentials = [];
 		}
@@ -67,7 +66,11 @@
 
 	$: {
 		if (prevDeleteModalState && !$deleteConfirmationModal.show) {
-			fetchCredentials($currentVault.id);
+			if ($currentVault.id === "all") {
+				fetchAllCredentials();
+			} else {
+				fetchCredentials($currentVault.id);
+			}
 		}
 		prevDeleteModalState = $deleteConfirmationModal.show;
 	}

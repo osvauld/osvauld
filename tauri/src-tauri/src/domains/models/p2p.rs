@@ -1,9 +1,27 @@
-use crate::application::services::SyncPayload;
 use crate::domains::models::device::Device;
+use crate::domains::models::folder::Folder;
+use crate::domains::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
+use crate::domains::models::Credential;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time;
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SyncPayload {
+    pub sync_record: Option<SyncRecord>, // Optional because status updates don't have sync record
+    pub device_records: Vec<DeviceRecord>,
+    pub device_record_statuses: Vec<DeviceRecordStatus>,
+    pub data: Option<SyncData>, // The actual folder/credential/device data
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum SyncData {
+    Folder(Folder),
+    Credential(Credential),
+    Device(Device),
+    SyncRecord(SyncRecord),
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Chat(String),
@@ -11,10 +29,10 @@ pub enum Message {
     Pong,
     SyncRequest,
     SyncResponse(SyncPayload),
-    SyncAck(String),
+    SyncAck(SyncAckType),
     SyncComplete,
-    AddDevice(Device),
-    AddDeviceAck(String),
+    AddDevice(SyncPayload),
+    AddDeviceAck,
     FileTransfer { name: String, data: Vec<u8> },
 }
 
@@ -57,4 +75,15 @@ pub struct HandshakeMessage {
     pub challenge: String,
     pub signature: String,
     pub device: Device,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SyncAckDeviceRecord {
+    pub device_records: Vec<String>, // device_record_ids
+    pub status_updates: Vec<String>, // device_record_status_ids
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum SyncAckType {
+    SyncRecord(String),                 // sync_record_id
+    DeviceRecords(SyncAckDeviceRecord), // device_record_ids
 }

@@ -47,7 +47,7 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .filter(|metadata| {
                     !metadata.target().contains("tracing::span")
-                        && !metadata.target().contains("iroh::magicsock")
+                        && !metadata.target().contains("iroh")
                         && !metadata.target().contains("hyper_util")
                         && !metadata.target().contains("netwatch")
                         && !metadata.target().contains("iroh_net_report")
@@ -64,8 +64,9 @@ pub fn run() {
         .setup(|app| {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
-            let db_path = app_dir.join("sqlite35.db").to_str().unwrap().to_string();
 
+
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -96,6 +97,7 @@ pub fn run() {
                         store_repository.clone(),
                         crypto_utils.clone(),
                         device_repo.clone(),
+                        sync_repo.clone(),
                     ));
                     let sync_service = Arc::new(SyncService::new(
                         sync_repo.clone(),
