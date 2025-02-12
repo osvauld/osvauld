@@ -1,0 +1,33 @@
+{
+	"compilerOptions": {
+		"target": "esnext",
+		"module": "esnext",
+		"strict": true,
+		"moduleResolution": "node",
+		"sourceMap": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"checkJs": true,
+		"types": [
+			"svelte"
+		],
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true,
+		"baseUrl": ".",
+		"declaration": true,
+		"declarationMap": true,
+		"allowJs": true,
+		"isolatedModules": true
+	},
+	"include": [
+		"utils/**/*.ts",
+		"dtos/**/*.ts",
+		"icons/**/*.svelte",
+		"i18n/**/*.ts",
+		"*.ts"
+	],
+	"exclude": [
+		"node_modules/*",
+		"*.wasm"
+	]
+}

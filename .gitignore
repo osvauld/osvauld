@@ -14,3 +14,4 @@ frontends/src/desktop/desktop/assets/*
 *.map
 /target
 wasm/pkg
+frontends/packages/password-manager/node_modules

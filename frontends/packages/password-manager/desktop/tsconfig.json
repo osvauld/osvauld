@@ -1,0 +1,37 @@
+{
+	"compilerOptions": {
+		"target": "esnext",
+		"module": "esnext",
+		"strict": true,
+		"moduleResolution": "node",
+		"sourceMap": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"checkJs": true,
+		"types": [
+			"svelte"
+		],
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true,
+		"baseUrl": ".",
+		"paths": {
+			"@osvauld/password-manager-common": [
+				"../common"
+			],
+			"@osvauld/password-manager-common/*": [
+				"../common/*"
+			]
+		},
+		"allowJs": true,
+		"isolatedModules": true
+	},
+	"include": [
+		"components/**/*.ts",
+		"store/*.ts",
+		"*.ts",
+		"*.svelte"
+	],
+	"exclude": [
+		"node_modules/*",
+	]
+}
