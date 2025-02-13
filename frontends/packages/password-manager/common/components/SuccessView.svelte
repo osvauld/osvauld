@@ -1,6 +1,8 @@
 <script>
-	import { changePassword } from "../../../lib/components/dashboard/store";
-
+	// import { changePassword } from "../../../lib/components/dashboard/store";
+	// TODO:EMERGENCY
+	import { writable } from "svelte/store";
+	let changePassword = writable(false);
 	export let recovery = false;
 	export let status = true;
 </script>

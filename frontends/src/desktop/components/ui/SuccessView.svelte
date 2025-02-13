@@ -1,8 +1,8 @@
 <script>
-	import { changePassword } from "../../../lib/components/dashboard/store";
-
 	export let recovery = false;
 	export let status = true;
+	// TODO:EMERGENCY this was a state used
+	let changePassword = false;
 </script>
 
 <style>

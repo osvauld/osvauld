@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { createEventDispatcher } from "svelte";
-	import type { IntermediateCredential } from "../../dtos/import.dto";
-	import { currentVault } from "../store/desktop.ui.store";
+	import type { IntermediateCredential } from "@osvauld/password-manager-common/dtos/import.dto";
+	import { currentVault } from "../../store/desktop.ui.store";
 
 	export let dataFromParser: IntermediateCredential[];
 

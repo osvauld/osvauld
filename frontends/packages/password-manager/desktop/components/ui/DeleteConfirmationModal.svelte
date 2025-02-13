@@ -1,17 +1,18 @@
 <script>
-	import ClosePanel from "../../../icons/closePanel.svelte";
+	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
+
 	import {
 		currentCredential,
 		currentVault,
 		deleteConfirmationModal,
 		toastStore,
 		refreshCredentialList,
-	} from "../store/desktop.ui.store";
-	import LL from "../../../i18n/i18n-svelte";
-	import { renderRelevantHeading } from "../../utils/credentialUtils";
+	} from "../../store/desktop.ui.store";
+	import LL from "@osvauld/password-manager-common/i18n/i18n-svelte";
+	import { renderRelevantHeading } from "@osvauld/password-manager-common//utils/credentialUtils";
 	import { fly } from "svelte/transition";
-	import Warning from "../../../icons/warning.svelte";
-	import { sendMessage } from "../../../lib/components/dashboard/helper";
+	import Warning from "@osvauld/password-manager-common/icons/warning.svelte";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
 	const DeleteConfirmation = async () => {
 		if ($deleteConfirmationModal.item == "folder") {

@@ -1,17 +1,17 @@
 <script>
 	import { slide, fly } from "svelte/transition";
-	import OsvauldDesktopLogo from "../../../icons/osvauldDesktopLogo.svelte";
-	import Lens from "../../../icons/lens.svelte";
-	import Profile from "../../../icons/profile.svelte";
-	import Key from "../../../icons/key.svelte";
+	import OsvauldDesktopLogo from "@osvauld/password-manager-common/icons/osvauldDesktopLogo.svelte";
+	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
+	import Profile from "@osvauld/password-manager-common/icons/profile.svelte";
+	import Key from "@osvauld/password-manager-common/icons/key.svelte";
 
-	import RightArrow from "../../../icons/rightArrow.svelte";
-	import { addDeviceModal } from "../store/desktop.ui.store";
-	import Sync from "../../../icons/sync.svelte";
-	import Devices from "../../../icons/devices.svelte";
-	import Discord from "../../../icons/discord.svelte";
-	import QrScanner from "../../../icons/qrScanner.svelte";
-	import Logout from "../../../icons/logout.svelte";
+	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
+	import { addDeviceModal } from "../../store/desktop.ui.store";
+	import Sync from "@osvauld/password-manager-common/icons/sync.svelte";
+	import Devices from "@osvauld/password-manager-common/icons/devices.svelte";
+	import Discord from "@osvauld/password-manager-common/icons/discord.svelte";
+	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
+	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
 
 	let showDropdown = false;
 	let hoveredItem = "";
@@ -31,7 +31,7 @@
 		}
 		showDropdown = false;
 	};
-	import { LL } from "../../../i18n/i18n-svelte";
+	import { LL } from "@osvauld/password-manager-common//i18n/i18n-svelte";
 </script>
 
 <div class="h-32 w-full border-b border-osvauld-borderColor flex">

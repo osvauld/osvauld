@@ -3,8 +3,8 @@
 	import HeaderSection from "../sections/HeaderSection.svelte";
 	import NavigationPanel from "../sections/NavigationPanel.svelte";
 	import { onMount } from "svelte";
-	import { vaults } from "../store/desktop.ui.store";
-	import { sendMessage } from "../../../lib/components/dashboard/helper";
+	import { vaults } from "../../store/desktop.ui.store";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
 	onMount(async () => {
 		try {

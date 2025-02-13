@@ -2,17 +2,17 @@
 	import {
 		renderRelevantHeading,
 		CATEGORIES,
-	} from "../../utils/credentialUtils";
+	} from "@osvauld/password-manager-common/utils/credentialUtils";
 
-	import { sendMessage } from "../../../lib/components/dashboard/helper";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { onMount, createEventDispatcher } from "svelte";
-	import MenuVertical from "../../../icons/menuVertical.svelte";
-	import Star from "../../../icons/star.svelte";
-	import FavStar from "../../../icons/favStar.svelte";
+	import MenuVertical from "@osvauld/password-manager-common/icons/menuVertical.svelte";
+	import Star from "@osvauld/password-manager-common/icons/star.svelte";
+	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import CredentialOverview from "./CredentialOverview.svelte";
-	import { refreshCredentialList } from "../store/desktop.ui.store";
+	import { refreshCredentialList } from "../../store/desktop.ui.store";
 
-	import { LL } from "../../../i18n/i18n-svelte";
+	import { LL } from "@osvauld/password-manager-common//i18n/i18n-svelte";
 
 	export let credential;
 	export let credentialcardstates = [];

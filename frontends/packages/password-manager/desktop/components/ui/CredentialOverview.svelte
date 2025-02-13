@@ -1,17 +1,14 @@
 <script lang="ts">
 	import { slide, scale } from "svelte/transition";
 
-	import { writeToClipboard } from "../../../lib/components/dashboard/helper";
-	import {
-		sensitiveFieldNames,
-		credentialFieldsUpdater,
-	} from "../../../utils/CredentialUtils";
-	import LL from "../../../i18n/i18n-svelte";
+	import { writeToClipboard } from "@osvauld/password-manager-common/utils/helper";
+	import { credentialFieldsUpdater } from "@osvauld/password-manager-common/utils/credentialUtils";
+	import LL from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
-	import Tick from "../../../icons/tick.svelte";
-	import CopyIcon from "../../../icons/copyIcon.svelte";
-	import ClosedEye from "../../../icons/closedEye.svelte";
-	import Eye from "../../../icons/eye.svelte";
+	import Tick from "@osvauld/password-manager-common/icons/tick.svelte";
+	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
+	import ClosedEye from "@osvauld/password-manager-common/icons/closedEye.svelte";
+	import Eye from "@osvauld/password-manager-common/icons/eye.svelte";
 	import { onMount } from "svelte";
 
 	export let type;

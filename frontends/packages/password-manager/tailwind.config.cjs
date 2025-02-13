@@ -3,7 +3,7 @@ const tailwindcss = require("tailwindcss");
 const autoprefixer = require("autoprefixer");
 
 module.exports = {
-	content: ["./src/**/*.{html,js,svelte,ts}"],
+	content: ["./common/**/*.{html,js,svelte,ts}", "./desktop/**/*.{html,js,svelte,ts}", "./mobile/**/*.{html,js,svelte,ts}"],
 	theme: {
 		screens: {
 			sm: "640px",

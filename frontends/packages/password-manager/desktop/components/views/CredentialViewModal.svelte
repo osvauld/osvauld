@@ -6,32 +6,32 @@
 		deleteConfirmationModal,
 		vaults,
 		refreshCredentialList,
-	} from "../store/desktop.ui.store";
+	} from "../../store/desktop.ui.store";
 
 	import { scale } from "svelte/transition";
 
-	import Tick from "../../../icons/tick.svelte";
-	import CopyIcon from "../../../icons/copyIcon.svelte";
-	import More from "../../../icons/more.svelte";
-	import Edit from "../../../icons/editIcon.svelte";
-	import MobileHome from "../../../icons/mobileHome.svelte";
-	import ClosePanel from "../../../icons/closePanel.svelte";
-	import Share from "../../../icons/FolderShare.svelte";
-	import Star from "../../../icons/star.svelte";
-	import Bin from "../../../icons/binIcon.svelte";
-	import ClosedEye from "../../../icons/closedEye.svelte";
-	import Eye from "../../../icons/eye.svelte";
-	import FavStar from "../../../icons/favStar.svelte";
+	import Tick from "@osvauld/password-manager-common//icons/tick.svelte";
+	import CopyIcon from "@osvauld/password-manager-common//icons/copyIcon.svelte";
+	import More from "@osvauld/password-manager-common//icons/more.svelte";
+	import Edit from "@osvauld/password-manager-common//icons/editIcon.svelte";
+	import MobileHome from "@osvauld/password-manager-common//icons/mobileHome.svelte";
+	import ClosePanel from "@osvauld/password-manager-common//icons/closePanel.svelte";
+	import Share from "@osvauld/password-manager-common//icons/FolderShare.svelte";
+	import Star from "@osvauld/password-manager-common//icons/star.svelte";
+	import Bin from "@osvauld/password-manager-common//icons/binIcon.svelte";
+	import ClosedEye from "@osvauld/password-manager-common//icons/closedEye.svelte";
+	import Eye from "@osvauld/password-manager-common//icons/eye.svelte";
+	import FavStar from "@osvauld/password-manager-common//icons/favStar.svelte";
 
 	import {
 		CATEGORIES,
 		credentialFieldsUpdater,
-	} from "../../utils/credentialUtils";
+	} from "@osvauld/password-manager-common//utils/credentialUtils";
 
 	import {
 		writeToClipboard,
 		sendMessage,
-	} from "../../../lib/components/dashboard/helper";
+	} from "@osvauld/password-manager-common/utils/helper";
 	import { onMount } from "svelte";
 
 	let copied = false;

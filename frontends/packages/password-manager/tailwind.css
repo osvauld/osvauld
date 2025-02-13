@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.scrollbar-none::-webkit-scrollbar {
+	width: 0px; /* width of the scrollbar */
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+	width: 4px; /* width of the scrollbar */
+	height: 130px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+	background: transparent; /* color of the track */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+	background-color: #2f303e; /* color of the thumb */
+	border-radius: 4px; /* roundness of the scrollbar thumb */
+}
+
+.active.scrollbar-thin::-webkit-scrollbar-thumb {
+	background-color: #2f303e; /* color of the thumb */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+	background-color: #2f303e; /* color of the thumb on hover */
+}
+
+.scrollbar::-webkit-scrollbar {
+	width: 15px;
+	height: 15px;
+}
+
+.scrollbar::-webkit-scrollbar-track {
+	border-radius: 100vh;
+	background: #f7f4ed;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+	background: #e0cbcb;
+	border-radius: 100vh;
+	border: 3px solid #f6f7ed;
+}
+
+.scrollbar::-webkit-scrollbar-thumb:hover {
+	background: #c0a0b9;
+}
+
+.primary-btn {
+	@apply rounded-lg bg-osvauld-carolinablue text-osvauld-ninjablack;
+}
+
+.secondary-btn {
+	@apply border border-osvauld-iconblack bg-osvauld-addfieldgrey  rounded-lg text-osvauld-sheffieldgrey active:scale-95;
+}
+
+.profileBtn {
+	@apply p-3 flex justify-start items-center gap-2 border border-osvauld-defaultBorder border-opacity-40 rounded-lg hover:bg-osvauld-frameblack hover:border-opacity-100 hover:text-osvauld-sideListTextActive;
+}

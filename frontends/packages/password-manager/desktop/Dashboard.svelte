@@ -25,9 +25,9 @@
 		viewCredentialModal,
 		deleteConfirmationModal,
 		toastStore,
-	} from "./components/store/desktop.ui.store";
+	} from "./store/desktop.ui.store";
 
-	import { setFolderStore } from "../lib/store/storeHelper";
+	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 
 	let showWelcome = false;
 	let signedUp = false;

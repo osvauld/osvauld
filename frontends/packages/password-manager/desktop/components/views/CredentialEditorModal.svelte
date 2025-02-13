@@ -1,16 +1,16 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import More from "../../../icons/more.svelte";
-	import Share from "../../../icons/FolderShare.svelte";
-	import Edit from "../../../icons/editIcon.svelte";
-	import MobileHome from "../../../icons/mobileHome.svelte";
-	import Star from "../../../icons/star.svelte";
-	import ClosePanel from "../../../icons/closePanel.svelte";
+	import More from "@osvauld/password-manager-common//icons/more.svelte";
+	import Share from "@osvauld/password-manager-common//icons/FolderShare.svelte";
+	import Edit from "@osvauld/password-manager-common//icons/editIcon.svelte";
+	import MobileHome from "@osvauld/password-manager-common//icons/mobileHome.svelte";
+	import Star from "@osvauld/password-manager-common//icons/star.svelte";
+	import ClosePanel from "@osvauld/password-manager-common//icons/closePanel.svelte";
 	import {
 		CATEGORIES,
 		credentialFieldsUpdater,
-	} from "../../utils/credentialUtils";
-	import { addCredentialHandler } from "../../../utils/addCredentialHelper";
+	} from "@osvauld/password-manager-common/utils/credentialUtils";
+	import { addCredentialHandler } from "@osvauld/password-manager-common//utils/addCredentialHelper";
 
 	import {
 		credentialEditorModal,
@@ -18,7 +18,7 @@
 		selectedCategoryForInput,
 		selectedVaultForInput,
 		refreshCredentialList,
-	} from "../store/desktop.ui.store";
+	} from "../../store/desktop.ui.store";
 
 	let credentialFields = [];
 	let credentialType;

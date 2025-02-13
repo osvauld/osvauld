@@ -1,5 +1,5 @@
 <script>
-	import Menu from "../../../icons/Menu.svelte";
+	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
 	// import Star from "../../../icons/star.svelte";
 </script>
 

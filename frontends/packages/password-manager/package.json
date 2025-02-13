@@ -2,11 +2,15 @@
 	"name": "@osvauld/password-manager",
 	"private": false,
 	"workspaces": [
-		"packages/password-manager/*"
+		"common",
+		"desktop",
+		"mobile"
 	],
 	"devDependencies": {
 		"@sveltejs/vite-plugin-svelte": "^5.0.3",
 		"@tailwindcss/forms": "^0.5.10",
+		"@tailwindcss/postcss": "^4.0.6",
+		"@tailwindcss/vite": "^4.0.6",
 		"@types/node": "^22.13.1",
 		"@typescript-eslint/eslint-plugin": "^8.24.0",
 		"@typescript-eslint/parser": "^8.24.0",

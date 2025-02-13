@@ -1,5 +1,6 @@
 {
 	"compilerOptions": {
+		"verbatimModuleSyntax": true,
 		"target": "esnext",
 		"module": "esnext",
 		"strict": true,

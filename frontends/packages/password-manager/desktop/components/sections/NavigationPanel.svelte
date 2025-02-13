@@ -1,11 +1,11 @@
-<script>
-	import Arrow from "../../../icons/rightArrow.svelte";
-	import Home from "../../../icons/mobileHome.svelte";
-	import Star from "../../../icons/star.svelte";
+<script lang="ts">
+	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
+	import Home from "@osvauld/password-manager-common/icons/mobileHome.svelte";
+	import Star from "@osvauld/password-manager-common/icons/star.svelte";
 	import VaultManager from "../views/VaultManager.svelte";
-	import { currentVault, selectedCategory } from "../store/desktop.ui.store";
-	import { CATEGORIES } from "../../utils/credentialUtils";
-	import { LL } from "../../../i18n/i18n-svelte";
+	import { currentVault, selectedCategory } from "../../store/desktop.ui.store";
+	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
+	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	let selectedSection = "home";
 	let localSelectedCategory = "";

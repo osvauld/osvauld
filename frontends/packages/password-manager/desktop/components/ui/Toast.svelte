@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { toastStore } from "../store/desktop.ui.store";
+	import { toastStore } from "../../store/desktop.ui.store";
 	// let closehovered = false;
 	const triggerCloseEvent = () => {
 		toastStore.set({ show: false, message: "", success: false });

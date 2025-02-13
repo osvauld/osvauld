@@ -3,11 +3,13 @@
 	import { sendMessage, writeToClipboard } from "../utils/helper";
 
 	import { fly } from "svelte/transition";
-	import { promptPassword, changePassword } from "../store";
+	// import { promptPassword, changePassword } from "../store";
 	import { ClosedEye, ClosePanel, Eye } from "../index";
 	import SuccessView from "./SuccessView.svelte";
 	import NewPassword from "./NewPassword.svelte";
-
+	import { writable } from "svelte/store";
+	let promptPassword = writable(false);
+	let changePassword = writable(false);
 	let password: string = "";
 	let success: boolean = false;
 	let errorView: boolean = false;

@@ -5,12 +5,12 @@
 		credentialEditorModal,
 		selectedCategoryForInput,
 		selectedVaultForInput,
-	} from "../store/desktop.ui.store";
-	import ClosePanel from "../../../icons/closePanel.svelte";
-	import RightArrow from "../../../icons/rightArrow.svelte";
+	} from "../../store/desktop.ui.store";
+	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
+	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
 	import VaultSelector from "../ui/VaultSelector.svelte";
-	import Add from "../../../icons/add.svelte";
-	import { CATEGORIES } from "../../utils/credentialUtils";
+	import Add from "@osvauld/password-manager-common/icons/add.svelte";
+	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
 
 	let vaultSwitchActive = false;
 	let selectedVault;

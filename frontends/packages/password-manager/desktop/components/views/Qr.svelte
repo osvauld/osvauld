@@ -1,7 +1,7 @@
 <script lang="ts">
 	import QRCode from "@castlenine/svelte-qrcode";
 	import { onMount } from "svelte";
-	import { sendMessage } from "../../../lib/components/dashboard/helper";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	let connectionTicket = "";
 	let certificate = "";
 	let recoveryString = "";

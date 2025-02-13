@@ -1,7 +1,7 @@
 <script>
 	import { fly } from "svelte/transition";
-	import MobileHome from "../../../icons/mobileHome.svelte";
-	import { vaults, currentVault } from "../store/desktop.ui.store";
+	import MobileHome from "@osvauld/password-manager-common/icons/mobileHome.svelte";
+	import { vaults, currentVault } from "../../store/desktop.ui.store";
 	import { createEventDispatcher, onMount } from "svelte";
 
 	const dispatch = createEventDispatcher();

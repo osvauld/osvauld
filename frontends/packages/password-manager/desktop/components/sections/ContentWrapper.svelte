@@ -4,13 +4,13 @@
 		selectedCategory,
 		addCredentialModal,
 		deleteConfirmationModal,
-	} from "../store/desktop.ui.store";
-	import Add from "../../../icons/add.svelte";
-	import Menu from "../../../icons/Menu.svelte";
-	import Bin from "../../../icons/binIcon.svelte";
-	import DownArrow from "../../../icons/downArrow.svelte";
+	} from "../../store/desktop.ui.store";
+	import Add from "@osvauld/password-manager-common/icons/add.svelte";
+	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
+	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
+	import DownArrow from "@osvauld/password-manager-common/icons/downArrow.svelte";
 	import CredentialList from "../views/CredentialList.svelte";
-	import { LL } from "../../../i18n/i18n-svelte";
+	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;

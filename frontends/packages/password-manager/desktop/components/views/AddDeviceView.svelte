@@ -1,8 +1,7 @@
 <script lang="ts">
-	import { addDeviceModal } from "../store/desktop.ui.store";
-	import Initiator from "../../../mobile/components/views/Initiator.svelte";
-	import Acceptor from "../../../mobile/components/views/Acceptor.svelte";
-	import ClosePanel from "../../../icons/closePanel.svelte";
+	import { addDeviceModal } from "../../store/desktop.ui.store";
+	import Initiator from "@osvauld/password-manager-common/components/Initiator.svelte";
+	import ClosePanel from "@osvauld/password-manager-common//icons/closePanel.svelte";
 	import Qr from "./Qr.svelte";
 
 	let isInitiator = false;
@@ -16,10 +15,9 @@
 	};
 </script>
 
-<button
+<div
 	class="fixed inset-0 z-50 bg-transparent flex justify-center items-center"
 	role="presentation"
-	aria-hidden="true"
 	on:mousedown="{goBack}">
 	<div
 		class="w-[40rem] h-[44rem] bg-mobile-bgPrimary flex flex-col relative p-4 overflow-hidden">
@@ -34,4 +32,4 @@
 		</nav>
 		<Qr />
 	</div>
-</button>
+</div>

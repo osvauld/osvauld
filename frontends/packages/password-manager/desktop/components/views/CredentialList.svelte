@@ -7,13 +7,12 @@
 		currentCredential,
 		deleteConfirmationModal,
 		refreshCredentialList,
-	} from "../store/desktop.ui.store";
-	import { sendMessage } from "../../../lib/components/dashboard/helper";
-	import Import from "../../../icons/import.svelte";
+	} from "../../store/desktop.ui.store";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
+	import Import from "@osvauld/password-manager-common/icons/import.svelte";
 	import ImportModal from "./ImportModal.svelte";
 	import CredentialCard from "../ui/CredentialCard.svelte";
-	import { onMount } from "svelte";
-	import LL from "../../../i18n/i18n-svelte";
+	import LL from "@osvauld/password-manager-common//i18n/i18n-svelte";
 
 	let clickTimer = null;
 	let clickDelay = 200;

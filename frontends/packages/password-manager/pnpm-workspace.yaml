@@ -1,4 +1,4 @@
 packages:  
-  - 'shared'  
-  - 'desktop'  
-  - 'mobile' 
+  - common  
+  - desktop  
+  - mobile  
