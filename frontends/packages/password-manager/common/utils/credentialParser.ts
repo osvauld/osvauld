@@ -1,8 +1,8 @@
 import {
-	IntermediateCredential,
-	Credential,
-	ApprovedCredentialSubmitParams,
-	Platform,
+	type IntermediateCredential,
+	type CredentialImportType as Credential,
+	type ApprovedCredentialSubmitParams,
+	type Platform,
 } from "../dtos/import.dto";
 
 import {

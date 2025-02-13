@@ -1,31 +1,38 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@layer base, components, utilities;
+@reference "./tailwind.config.js";
 
 .scrollbar-none::-webkit-scrollbar {
-	width: 0px; /* width of the scrollbar */
+	width: 0px;
+	/* width of the scrollbar */
 }
 
 .scrollbar-thin::-webkit-scrollbar {
-	width: 4px; /* width of the scrollbar */
+	width: 4px;
+	/* width of the scrollbar */
 	height: 130px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-	background: transparent; /* color of the track */
+	background: transparent;
+	/* color of the track */
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-	background-color: #2f303e; /* color of the thumb */
-	border-radius: 4px; /* roundness of the scrollbar thumb */
+	background-color: #2f303e;
+	/* color of the thumb */
+	border-radius: 4px;
+	/* roundness of the scrollbar thumb */
 }
 
 .active.scrollbar-thin::-webkit-scrollbar-thumb {
-	background-color: #2f303e; /* color of the thumb */
+	background-color: #2f303e;
+	/* color of the thumb */
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-	background-color: #2f303e; /* color of the thumb on hover */
+	background-color: #2f303e;
+	/* color of the thumb on hover */
 }
 
 .scrollbar::-webkit-scrollbar {
@@ -53,7 +60,7 @@
 }
 
 .secondary-btn {
-	@apply border border-osvauld-iconblack bg-osvauld-addfieldgrey  rounded-lg text-osvauld-sheffieldgrey active:scale-95;
+	@apply border border-osvauld-iconblack bg-osvauld-addfieldgrey rounded-lg text-osvauld-sheffieldgrey active:scale-95;
 }
 
 .profileBtn {

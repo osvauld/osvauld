@@ -7,12 +7,15 @@
 		approvedCredentialSubmit,
 	} from "@osvauld/password-manager-common/utils/credentialParser";
 	import LL from "@osvauld/password-manager-common/i18n/i18n-svelte";
-	import { IntermediateCredential, Platform } from "@osvauld/password-manager-common/dtos/import.dto";
+	import type {
+		IntermediateCredential,
+		Platform,
+	} from "@osvauld/password-manager-common/dtos/import.dto";
 	import Import from "@osvauld/password-manager-common/icons/import.svelte";
 	import ImportTable from "../views/ImportTable.svelte";
 	import ImportLoader from "../ui/ImportLoader.svelte";
 	import ImportMessage from "../ui/ImportMessage.svelte";
-	import SuccessView from "@osvauld/password-manager-common/components/SuccessView.svelte"
+	import SuccessView from "@osvauld/password-manager-common/components/SuccessView.svelte";
 	let selectedPlatform: Platform;
 	let isOptionSelected: boolean = false;
 	let loadingScreen: boolean = false;

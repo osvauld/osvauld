@@ -10,20 +10,19 @@ export default defineConfig(({ mode }) => {
 	return {
 		appType: "spa",
 		clearScreen: false,
-		root: ".", // Root is current directory since we're in desktop package
+		root: ".",
 
 		plugins: [
+			tailwindcss(),
 			svelte({
 				preprocess: sveltePreprocess({
 					typescript: true,
 				}),
 				compilerOptions: {
 					dev: isDev,
-					// Use this to enable HMR in Svelte 5
 					hmr: isDev,
 				},
 			}),
-			tailwindcss(), // Use the Tailwind CSS Vite plugin
 		],
 
 		resolve: {

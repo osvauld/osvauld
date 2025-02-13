@@ -2,8 +2,8 @@ import { folderStore, selectedFolder, } from "../store/folder.store";
 import { credentialStore } from "../store/credential.store";
 import { sendMessage } from "./helper";
 import { get } from "svelte/store";
-import { Folder } from "../dtos/folder.dto";
-import { User } from "../dtos/user.dto";
+import { type Folder } from "../dtos/folder.dto";
+import { type User } from "../dtos/user.dto";
 import { LocalStorageService } from "./storageHelper";
 export const setFolderStore = async () => {
 	const folderResponse = await sendMessage('getFolder', {})

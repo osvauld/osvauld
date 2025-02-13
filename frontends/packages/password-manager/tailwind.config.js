@@ -1,12 +1,9 @@
-const forms = require("@tailwindcss/forms");
-const tailwindcss = require("tailwindcss");
-const autoprefixer = require("autoprefixer");
-
-module.exports = {
+export default {
 	content: [
 		"./common/**/*.{html,js,svelte,ts}",
 		"./desktop/**/*.{html,js,svelte,ts}",
 		"./mobile/**/*.{html,js,svelte,ts}",
+		"./tailwind.css",
 	],
 	theme: {
 		screens: {
@@ -150,12 +147,7 @@ module.exports = {
 				xl: "20px",
 				"2xl": "24px",
 			},
-			borderRadius: {
-				lg: "var(--radius)",
-				md: "calc(var(--radius) - 2px)",
-				sm: "calc(var(--radius) - 4px)",
-			},
+
 		},
-	},
-	plugins: [forms, tailwindcss, autoprefixer],
+	}
 };

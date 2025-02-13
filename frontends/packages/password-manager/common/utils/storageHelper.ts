@@ -1,8 +1,7 @@
-import browser from "webextension-polyfill";
-
+import browserMock from './browserMock';
 const getFromStorage = async (key: string): Promise<string | undefined> => {
 	try {
-		const result = await browser.storage.local.get(key);
+		const result = await browserMock.storage.local.get(key);
 		return result[key] as string;
 	} catch (error) {
 		console.error(`Error getting ${key} from storage:`, error);
@@ -12,7 +11,7 @@ const getFromStorage = async (key: string): Promise<string | undefined> => {
 
 const setToStorage = async (key: string, value: string): Promise<void> => {
 	try {
-		await browser.storage.local.set({ [key]: value });
+		await browserMock.storage.local.set({ [key]: value });
 	} catch (error) {
 		console.error(`Error setting ${key} in storage:`, error);
 	}
@@ -40,7 +39,7 @@ export const StorageService = {
 
 	clearStorage: async (): Promise<void> => {
 		try {
-			await browser.storage.local.clear();
+			await browserMock.storage.local.clear();
 		} catch (error) {
 			console.error("Error clearing storage:", error);
 		}

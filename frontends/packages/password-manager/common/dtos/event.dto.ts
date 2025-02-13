@@ -1,5 +1,5 @@
 // new cred definitons
-import { Folder } from "./folder.dto";
+import { type Folder } from "./folder.dto";
 
 export type ModifiedEvent = {
 	data: {

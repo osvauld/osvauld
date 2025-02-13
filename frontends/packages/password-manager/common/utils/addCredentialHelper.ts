@@ -1,7 +1,7 @@
 import { sendMessage, getDomain } from "../utils/helper";
 import {
-	CredentialFieldComponentProps,
-	Field,
+	type CredentialFieldComponentProps,
+	type Field,
 } from "../dtos/index";
 
 const totpValidator = (secretKey: string): boolean => {

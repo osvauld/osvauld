@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { Folder } from "../dtos/folder.dto";
+import { type Folder } from "../dtos/folder.dto";
 import { LocalStorageService } from "../utils/storageHelper";
 export let folderStore = writable<Folder[]>([]);
 
