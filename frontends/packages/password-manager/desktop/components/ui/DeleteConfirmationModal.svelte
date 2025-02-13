@@ -43,7 +43,7 @@
 	};
 </script>
 
-<button
+<div
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px]"
 	on:click|preventDefault="{withdrawCredentialDeleteModal}">
 	<form
@@ -93,4 +93,4 @@
 				>{$LL.delete()} {$deleteConfirmationModal.item}</button>
 		</div>
 	</form>
-</button>
+</div>

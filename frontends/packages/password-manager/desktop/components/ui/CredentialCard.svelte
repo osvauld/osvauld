@@ -44,7 +44,7 @@
 </script>
 
 <div class="min-w-0">
-	<button
+	<div
 		class="bg-osvauld-frameblack w-full border border-osvauld-cardBorder rounded-xl p-4"
 		on:dblclick|stopPropagation="{() => dispatchDoubleClick(credential)}"
 		on:click|stopPropagation="{() => dispatchClick(credential.id)}">
@@ -88,5 +88,5 @@
 		{#if credentialcardstates.find((item) => item.id === credential.id)?.show}
 			<CredentialOverview {type} fields="{credential.data.credentialFields}" />
 		{/if}
-	</button>
+	</div>
 </div>
