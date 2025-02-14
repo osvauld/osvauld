@@ -1,10 +1,8 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import path from "path";
-import autoprefixer from "autoprefixer";
-import tailwindcss from "tailwindcss";
 import { sveltePreprocess } from "svelte-preprocess";
-
+import tailwindcss from "@tailwindcss/vite";
 export default defineConfig(({ mode }) => {
 	const isDev = mode === "development";
 
@@ -14,18 +12,14 @@ export default defineConfig(({ mode }) => {
 		root: ".",  // Root is current directory since we're in mobile package
 
 		plugins: [
+			tailwindcss(),
 			svelte({
 				preprocess: sveltePreprocess({
 					typescript: true,
-					postcss: {
-						plugins: [tailwindcss(), autoprefixer()],
-					},
 				}),
 				compilerOptions: {
 					dev: isDev,
-				},
-				hot: isDev && {
-					preserveState: true,
+					hmr: isDev,
 				},
 			}),
 		],
@@ -33,12 +27,6 @@ export default defineConfig(({ mode }) => {
 		resolve: {
 			alias: {
 				"@osvauld/password-manager-common": path.resolve(__dirname, "../common"),
-			},
-		},
-
-		css: {
-			postcss: {
-				plugins: [tailwindcss(), autoprefixer()],
 			},
 		},
 
