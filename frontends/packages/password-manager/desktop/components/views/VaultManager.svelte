@@ -60,7 +60,7 @@
 
 <div
 	class="fixed inset-0 bg-transparent z-[999]"
-	on:click="{() => (vaultManagerActive = false)}">
+	on:click={() => (vaultManagerActive = false)}>
 	<div
 		class="absolute top-56 left-4 w-[360px] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg"
 		style="width: calc(360px - 2rem);"
@@ -73,11 +73,10 @@
 					{@const isActive = $currentVault.id === vault.id}
 					<button
 						class="h-[48px] w-full p-4 text-mobile-textPrimary flex items-center rounded-lg hover:bg-osvauld-frameblack"
-						class:bg-mobile-bgLight="{isActive}"
-						class:text-mobile-textTertiary="{isActive}"
-						on:click|stopPropagation="{() => handleVaultSwitch(vault)}">
-						<span
-							><MobileHome color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
+						class:bg-mobile-bgLight={isActive}
+						class:text-mobile-textTertiary={isActive}
+						on:click|stopPropagation={() => handleVaultSwitch(vault)}>
+						<span><MobileHome color={isActive ? "#F2F2F0" : "#85889C"} /></span>
 						<span class="grow text-left pl-2 capitalize max-w-full truncate"
 							>{vault.id === "all" ? $LL.all() : vault.name}</span>
 					</button>
@@ -89,7 +88,7 @@
 						class="rounded-[20px] border border-mobile-bgLight px-3 pt-3 pb-4 text-mobile-textPrimary flex flex-col gap-3"
 						in:slide
 						out:slide
-						on:submit|preventDefault|stopPropagation="{handleVaultCreation}">
+						on:submit|preventDefault|stopPropagation={handleVaultCreation}>
 						<span class="text-lg text-center">{$LL.newVault()} </span>
 						<hr class="h-px border-0 bg-mobile-bgLight" />
 						<div class="flex flex-col grow gap-1">
@@ -98,11 +97,11 @@
 							<input
 								type="text"
 								id="new-vault-name"
-								class="bg-mobile-bgSeconary border-0 outline-0 focus:ring-0 rounded-lg"
+								class="bg-mobile-bgSeconary p-2 border-0 outline-0 focus:ring-0 rounded-lg"
 								autocomplete="off"
 								autocorrect="off"
 								use:autofocus
-								bind:value="{newVaultName}" />
+								bind:value={newVaultName} />
 							<button
 								type="submit"
 								class="h-[48px] flex justify-center items-center gap-1 rounded-lg bg-mobile-highlightBlue text-mobile-bgPrimary font-medium text-lg mt-6"
@@ -111,7 +110,7 @@
 					</form>
 				{:else}
 					<button
-						on:click="{handleNewVaultInput}"
+						on:click={handleNewVaultInput}
 						class="h-[48px] w-full flex justify-center items-center gap-1 rounded-lg border-2 border-mobile-bgHighlight p-4 active:bg-mobile-bgLight text-mobile-textActive"
 						>{$LL.createNewVault()} <Add color="#85889C" /></button>
 				{/if}

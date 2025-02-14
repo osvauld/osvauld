@@ -47,24 +47,24 @@
 	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey">
 	<form
 		class="flex flex-col justify-center items-center"
-		on:submit|preventDefault="{handleSubmit}">
+		on:submit|preventDefault={handleSubmit}>
 		<label for="passphrase">Enter Passphrase</label>
 
 		<div
 			class="flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
 			<input
-				class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 focus:border-osvauld-activeBorder"
+				class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
 				{type}
 				id="passphrase"
 				autocomplete="off"
-				value="{passphrase}"
+				value={passphrase}
 				use:autofocus
-				bind:this="{inputElem}"
-				on:input="{onInput}" />
+				bind:this={inputElem}
+				on:input={onInput} />
 			<button
 				type="button"
 				class="flex justify-center items-center"
-				on:click="{toggleShowPassword}">
+				on:click={toggleShowPassword}>
 				{#if showPassword}
 					<ClosedEye />
 				{:else}
@@ -80,7 +80,7 @@
 			class="bg-osvauld-carolinablue py-2 px-10 mt-8 rounded-lg text-osvauld-ninjablack font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
 			type="submit">
 			{#if isLoaderActive}
-				<Loader size="{24}" color="#1F242A" duration="{1}" />
+				<Loader size={24} color="#1F242A" duration={1} />
 			{:else}
 				<span>Submit</span>
 			{/if}</button>

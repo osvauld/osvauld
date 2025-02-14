@@ -10,7 +10,7 @@
 	};
 
 	const goBack = () => {
-		console.log("goback clicked");
+		addDeviceModal.set(false);
 	};
 </script>
 

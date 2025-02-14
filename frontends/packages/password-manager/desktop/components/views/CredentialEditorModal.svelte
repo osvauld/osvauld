@@ -60,12 +60,12 @@
 		class="w-[23.5rem] h-full flex flex-col bg-osvauld-ninjablack border-l border-l-osvauld-sideListHighlight p-3">
 		<div class="w-full h-[48px] px-3 flex items-center gap-2 flex-shrink-0">
 			<button
-				on:click="{closeEditorModal}"
+				on:click={closeEditorModal}
 				class="p-2.5 rounded-lg bg-mobile-bgSeconary">
-				<ClosePanel size="{24}" />
+				<ClosePanel size={24} />
 			</button>
 			<span class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary"
-				><Edit size="{24}" /></span>
+				><Edit size={24} /></span>
 			<span class="p-2.5 rounded-lg bg-mobile-bgSeconary"><Share /></span>
 			<span class="p-2.5 rounded-lg bg-mobile-bgSeconary"><Star /></span>
 			<span class="p-2.5 rounded-lg bg-mobile-bgSeconary"
@@ -76,7 +76,7 @@
 			<span class="text-mobile-textTertiary">{credentialType}</span>
 			<div
 				class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
-				<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
+				<span><MobileHome size={14} color={"#85889C"} /></span>
 				{$selectedVaultForInput?.id
 					? $selectedVaultForInput?.name
 					: $currentVault.name}
@@ -87,11 +87,11 @@
 			{#each credentialFields as field (field.fieldName)}
 				<input
 					type="text"
-					bind:value="{field.fieldValue}"
-					placeholder="{field.fieldName}"
+					bind:value={field.fieldValue}
+					placeholder={field.fieldName}
 					autocorrect="off"
 					autocomplete="off"
-					class="w-full bg-mobile-bgSeconary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none" />
+					class="w-full bg-mobile-bgSeconary border p-2 rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none" />
 			{/each}
 		</div>
 		<div class="flex justify-center">
@@ -99,17 +99,17 @@
 				name="note"
 				id="details"
 				rows="5"
-				class="w-[calc(100%-1.5rem)] bg-mobile-bgSeconary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none"
+				class="w-[calc(100%-1.5rem)] p-2 bg-mobile-bgSeconary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none"
 				placeholder="Enter description about credential here"></textarea>
 		</div>
 		<div
 			class="h-[68px] flex-shrink-0 p-3 flex justify-between items-center text-mobile-bgPrimary">
 			<button
 				class="px-10 py-2.5 text-mobile-textSecondary"
-				on:click="{closeEditorModal}">Cancel</button>
+				on:click={closeEditorModal}>Cancel</button>
 			<button
 				class="px-10 py-2.5 bg-osvauld-carolinablue rounded-lg font-medium"
-				on:click="{addCredentialHandlerFunc}">Save</button>
+				on:click={addCredentialHandlerFunc}>Save</button>
 		</div>
 	</div>
 </div>

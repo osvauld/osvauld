@@ -46,19 +46,19 @@
 			<input
 				type="text"
 				name="search"
-				class="grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
-				placeholder="{$LL.search()}" />
+				class="ml-4 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
+				placeholder={$LL.search()} />
 		</div>
 		<div class="relative ml-3 text-osvauld-fieldText font-normal text-sm z-40">
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				on:click="{() => (showDropdown = !showDropdown)}">
+				on:click={() => (showDropdown = !showDropdown)}>
 				<Profile color="#4D4F60" />
 				<span class="ml-2">John Doe</span>
 				<span
 					class="ml-auto transition-transform ease-linear"
-					class:rotate-90="{showDropdown}">
+					class:rotate-90={showDropdown}>
 					<RightArrow />
 				</span>
 			</button>
@@ -67,7 +67,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation="{() => (showDropdown = false)}">
+					on:click|stopPropagation={() => (showDropdown = false)}>
 				</div>
 				<div
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -76,12 +76,12 @@
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							class="profileBtn"
-							on:mouseenter="{() => (hoveredItem = id)}"
-							on:mouseleave="{() => (hoveredItem = '')}"
-							on:click|stopPropagation="{() => handleDropDownClick(id)}">
+							on:mouseenter={() => (hoveredItem = id)}
+							on:mouseleave={() => (hoveredItem = "")}
+							on:click|stopPropagation={() => handleDropDownClick(id)}>
 							<Icon
-								color="{hoveredItem === id ? '#F2F2F0' : '#85889C'}"
-								size="{24}" />
+								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
+								size={24} />
 							{label}
 						</button>
 					{/each}

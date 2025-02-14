@@ -12,7 +12,7 @@
 </script>
 
 <div
-	class="absolute w-full h-auto border border-osvauld-iconblack rounded-2xl p-2"
+	class="absolute w-full h-auto border border-osvauld-iconblack bg-osvauld-frameblack rounded-2xl p-2"
 	style="top: calc(100% + 10px)">
 	<div
 		class="h-full max-h-[22rem] scrollbar-thin overflow-y-scroll bg-osvauld-frameblack px-2 pt-2 pb-3 flex flex-col gap-2 text-lg"
@@ -27,10 +27,10 @@
 				{@const isActive = $currentVault.id === vault.id}
 				<button
 					class="h-[48px] p-4 text-mobile-textPrimary flex items-center rounded-lg hover:bg-osvauld-frameblack"
-					class:bg-mobile-bgLight="{isActive}"
-					class:text-mobile-textTertiary="{isActive}"
-					on:click|stopPropagation="{() => handleVaultSelection(vault)}">
-					<span><MobileHome color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
+					class:bg-mobile-bgLight={isActive}
+					class:text-mobile-textTertiary={isActive}
+					on:click|stopPropagation={() => handleVaultSelection(vault)}>
+					<span><MobileHome color={isActive ? "#F2F2F0" : "#85889C"} /></span>
 					<span class="grow text-left pl-2 capitalize max-w-full truncate"
 						>{vault.name}</span>
 				</button>
