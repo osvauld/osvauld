@@ -5,7 +5,7 @@
   "identifier": "com.osvauld.app",
   "build": {
     "beforeDevCommand": "cd ../frontends/packages/password-manager/desktop && pnpm dev",
-    "beforeBuildCommand": "cd ../frontends/packages/desktop && pnpm build",
+    "beforeBuildCommand": "cd ../frontends/packages/password-manager/desktop && pnpm build",
     "devUrl": "http://localhost:1421"
   },
   "app": {
