@@ -10,6 +10,7 @@
 		"check": "svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@osvauld/password-manager-common": "workspace:*"
+		"@osvauld/password-manager-common": "workspace:*",
+		"@tauri-apps/plugin-barcode-scanner": "^2.2.0"
 	}
 }

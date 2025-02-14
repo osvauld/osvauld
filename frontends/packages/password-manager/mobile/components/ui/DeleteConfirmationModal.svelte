@@ -44,9 +44,9 @@
 	// });
 </script>
 
-<button
+<div
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px] px-4"
-	on:click|stopPropagation="{withdrawCredentialDeleteModal}">
+	on:click|stopPropagation={withdrawCredentialDeleteModal}>
 	<div
 		class="p-3 bg-mobile-navBlue border border-osvauld-activeBorder rounded-3xl w-full h-[21.12rem] flex flex-col items-start justify-start gap-3 overflow-hidden"
 		in:fly>
@@ -87,12 +87,12 @@
 			<button
 				class="w-full border border-osvauld-dangerRed py-2.5 px-auto text-lg font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all"
 				type="submit"
-				on:click|stopPropagation="{DeleteConfirmation}"
+				on:click|stopPropagation={DeleteConfirmation}
 				>{$LL.delete()} {$deleteConfirmationModal.item}</button>
 			<button
 				class="w-full font-medium text-lg rounded-md py-2.5 px-auto bg-mobile-bgSeconary text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
-				on:click|stopPropagation="{withdrawCredentialDeleteModal}"
+				on:click|stopPropagation={withdrawCredentialDeleteModal}
 				>{$LL.cancel()}</button>
 		</div>
 	</div>
-</button>
+</div>

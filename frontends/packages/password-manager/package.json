@@ -28,6 +28,7 @@
 		"@castlenine/svelte-qrcode": "^2.3.0",
 		"@tauri-apps/api": "^2.2.0",
 		"@tauri-apps/plugin-clipboard-manager": "^2.2.1",
+		"@tauri-apps/plugin-store": "^2.2.0",
 		"papaparse": "^5.5.2",
 		"totp-generator": "^1.0.0",
 		"typesafe-i18n": "^5.26.2"

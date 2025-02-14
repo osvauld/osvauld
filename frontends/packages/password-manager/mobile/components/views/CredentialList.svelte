@@ -38,16 +38,16 @@
 		{@const categoryInfo = CATEGORIES.find(
 			(item) => item.type === credentialType,
 		)}
-		<button
+		<div
 			class="p-3 bg-mobile-bgSeconary rounded-xl font-normal flex justify-start items-center gap-3"
-			on:click="{() => {
+			on:click={() => {
 				selectedCredential.set(credential);
-				credentialLayoutType.set('view');
-				currentLayout.set('credential');
-			}}">
+				credentialLayoutType.set("view");
+				currentLayout.set("credential");
+			}}>
 			<span class="flex justify-center items-center p-2">
 				<!-- <MobileKey /> -->
-				<svelte:component this="{categoryInfo.icon}" color="{'#BFC0CC'}" />
+				<svelte:component this={categoryInfo.icon} color={"#BFC0CC"} />
 			</span>
 			<div class="flex flex-col">
 				<h3
@@ -64,10 +64,10 @@
 			</div>
 			<button
 				class="ml-auto p-3 flex justify-center items-center"
-				on:click|stopPropagation="{() =>
-					console.log('Propagation is not allowed here')}">
+				on:click|stopPropagation={() =>
+					console.log("Propagation is not allowed here")}>
 				<Menu />
 			</button>
-		</button>
+		</div>
 	{/each}
 </div>
