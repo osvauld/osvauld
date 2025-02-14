@@ -77,7 +77,7 @@
 
 <button
 	class="fixed top-0 left-0 w-full h-full bg-osvauld-backgroundBlur backdrop-blur-[0.1px]"
-	on:click|stopPropagation|preventDefault="{goBack}"
+	on:click|stopPropagation|preventDefault={goBack}
 	type="button"
 	role="dialog"
 	aria-hidden="true"
@@ -99,13 +99,13 @@
 				<input
 					type="text"
 					id="new-vault-name"
-					class="bg-mobile-bgSeconary border-0 outline-0 focus:ring-0 rounded-lg"
+					class="bg-mobile-bgSeconary border-0 outline-0 focus:ring-0 p-2 rounded-lg"
 					use:autofocus
-					bind:value="{newVaultName}" />
+					bind:value={newVaultName} />
 				<button
 					type="button"
 					class="h-[48px] flex justify-center items-center gap-1 rounded-lg bg-mobile-highlightBlue text-mobile-bgPrimary font-medium text-lg mt-6"
-					on:click|stopPropagation="{handleFolderCreation}"
+					on:click|stopPropagation={handleFolderCreation}
 					>Create New Vault <Add color="#000" /></button>
 			</div>
 		</div>
@@ -113,18 +113,18 @@
 		{#each $vaults as vault (vault.id)}
 			{@const isActive = $currentVault.name === vault.name}
 			<button
-				on:click="{() => selectVault(vault)}"
+				on:click={() => selectVault(vault)}
 				class="h-[48px] p-4 text-mobile-textPrimary flex items-center rounded-lg"
-				class:bg-mobile-bgLight="{isActive}"
-				class:text-mobile-textTertiary="{isActive}">
-				<span><RoundedInfo color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
+				class:bg-mobile-bgLight={isActive}
+				class:text-mobile-textTertiary={isActive}>
+				<span><RoundedInfo color={isActive ? "#F2F2F0" : "#85889C"} /></span>
 				<span class="grow text-left pl-2 capitalize">{vault.name}</span>
-				<span><RightArrow color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
+				<span><RightArrow color={isActive ? "#F2F2F0" : "#85889C"} /></span>
 			</button>
 		{/each}
 		<button
 			type="submit"
-			on:click="{() => (newVaultInputActive = true)}"
+			on:click={() => (newVaultInputActive = true)}
 			class="h-[48px] flex justify-center items-center gap-1 rounded-lg border-2 border-mobile-bgHighlight p-4 active:bg-mobile-bgLight text-mobile-textActive"
 			>Create New Vault <Add color="#85889C" /></button>
 	{/if}

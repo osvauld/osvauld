@@ -73,22 +73,22 @@
 
 <form
 	class="flex flex-col justify-center items-center"
-	on:submit|preventDefault="{handlePassPhraseSubmit}">
+	on:submit|preventDefault={handlePassPhraseSubmit}>
 	<label for="passphrase" class="font-normal mt-6">Enter Passphrase</label>
 
 	<div
 		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
 		<input
-			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 w-full"
-			type="{firstInputType}"
+			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 outline-0 p-2 w-full"
+			type={firstInputType}
 			autocomplete="off"
 			id="password"
-			on:input="{(e) => onInput(e, 'passphrase')}" />
+			on:input={(e) => onInput(e, "passphrase")} />
 
 		<button
 			type="button"
 			class="flex justify-center items-center"
-			on:click="{() => togglePassword(true)}">
+			on:click={() => togglePassword(true)}>
 			{#if showFirstPassword}
 				<ClosedEye />
 			{:else}
@@ -102,16 +102,16 @@
 	<div
 		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
 		<input
-			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 w-full"
-			type="{secondInputType}"
+			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 p-2 outline-0 w-full"
+			type={secondInputType}
 			autocomplete="off"
 			id="password"
-			on:input="{(e) => onInput(e, 'confirmPassphrase')}" />
+			on:input={(e) => onInput(e, "confirmPassphrase")} />
 
 		<button
 			type="button"
 			class="flex justify-center items-center"
-			on:click="{() => togglePassword(false)}">
+			on:click={() => togglePassword(false)}>
 			{#if showSecondPassword}
 				<ClosedEye />
 			{:else}
@@ -137,9 +137,9 @@
 			? 'border border-osvauld-iconblack text-osvauld-sheffieldgrey'
 			: 'bg-osvauld-carolinablue text-osvauld-ninjablack'} py-2 px-10 mt-8 rounded-lg font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
 		type="submit"
-		disabled="{submitDisabled}">
+		disabled={submitDisabled}>
 		{#if isLoaderActive}
-			<Loader size="{24}" color="#1F242A" duration="{1}" />
+			<Loader size={24} color="#1F242A" duration={1} />
 		{:else}
 			<span>Submit</span>
 		{/if}</button>

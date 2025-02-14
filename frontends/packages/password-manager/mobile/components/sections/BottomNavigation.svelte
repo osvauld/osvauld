@@ -46,11 +46,10 @@
 	class="h-[68px] py-2 w-full fixed bottom-0 bg-mobile-navBlue flex text-base font-sans font-normal text-mobile-iconPrimary">
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
-		on:click|stopPropagation="{handleStateReset}"
+		on:click|stopPropagation={handleStateReset}
 		><span class="flex justify-center items-center"
-			><Home color="{isListSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
-		<span class:text-mobile-highlightBlue="{isListSelected}">Home</span
-		></button>
+			><Home color={isListSelected ? "#89B4FA" : "#5B5D6D"} /></span>
+		<span class:text-osvauld-carolinablue={isListSelected}>Home</span></button>
 	<!-- 
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
@@ -64,10 +63,10 @@
 	</button> -->
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
-		on:click="{() => handleAddCredential('category')}">
+		on:click={() => handleAddCredential("category")}>
 		<span class="flex justify-center items-center"
-			><Add color="{isAddSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
-		<span class:text-mobile-highlightBlue="{isAddSelected}">Add</span></button>
+			><Add color={isAddSelected ? "#89B4FA" : "#5B5D6D"} /></span>
+		<span class:text-osvauld-carolinablue={isAddSelected}>Add</span></button>
 	<!-- <button class=" flex-1 flex justify-center items-center flex-col"
 		><span class="flex justify-center items-center"
 			><PwdGen color="{'#5B5D6D'}" /></span>
@@ -84,10 +83,9 @@
 		<span>Switch</span></button> -->
 	<button
 		class=" flex-1 flex justify-center items-center flex-col"
-		on:click|stopPropagation="{handleFavouriteSelection}"
+		on:click|stopPropagation={handleFavouriteSelection}
 		><span class="flex justify-center items-center"
-			><Star color="{isFavouriteSelected ? '#89B4FA' : '#5B5D6D'}" /></span>
-		<span class:text-mobile-highlightBlue="{isFavouriteSelected}"
-			>Favourites</span
+			><Star color={isFavouriteSelected ? "#89B4FA" : "#5B5D6D"} /></span>
+		<span class:text-osvauld-carolinablue={isFavouriteSelected}>Favourites</span
 		></button>
 </nav>

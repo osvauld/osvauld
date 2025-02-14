@@ -55,12 +55,12 @@
 
 <nav
 	class="w-full h-[48px] pr-3 flex justify-start items-center gap-1 flex-shrink-0">
-	<button on:click="{directToHome}" class="p-2 pr-1">
+	<button on:click={directToHome} class="p-2 pr-1">
 		<span class="inline-block rotate-90">
 			<MobileDownArrow />
 		</span>
 	</button>
-	<svelte:component this="{selectedCategory.icon}" color="#85889C" />
+	<svelte:component this={selectedCategory.icon} color="#85889C" />
 	<h1 class="text-mobile-textPrimary text-2xl font-medium">
 		{selectedCategory?.type}
 	</h1>
@@ -73,15 +73,15 @@
 		{#each credentialFields as field (field.fieldName)}
 			<input
 				type="text"
-				bind:value="{field.fieldValue}"
-				placeholder="{field.fieldName}"
-				class="w-full bg-mobile-bgPrimary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0" />
+				bind:value={field.fieldValue}
+				placeholder={field.fieldName}
+				class="w-full bg-mobile-bgPrimary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive outline-0 p-2 focus:ring-0" />
 		{/each}
 		<textarea
 			name="note"
 			id="details"
 			rows="5"
-			class="bg-mobile-bgPrimary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0"
+			class="bg-mobile-bgPrimary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActivep-2 outline-0 p-2 focus:ring-0"
 			placeholder="Enter description about credential here"></textarea>
 	</div>
 </div>
@@ -90,8 +90,8 @@
 	class="h-[68px] flex-shrink-0 p-3 flex justify-between items-center text-mobile-bgPrimary">
 	<button
 		class="px-10 py-2.5 text-mobile-textSecondary bg-mobile-bgSeconary rounded-lg font-medium"
-		on:click="{directToHome}">Cancel</button>
+		on:click={directToHome}>Cancel</button>
 	<button
 		class="px-10 py-2.5 bg-osvauld-carolinablue rounded-lg font-medium"
-		on:click="{addCredentialHandlerFunc}">Add Secret</button>
+		on:click={addCredentialHandlerFunc}>Add Secret</button>
 </div>
