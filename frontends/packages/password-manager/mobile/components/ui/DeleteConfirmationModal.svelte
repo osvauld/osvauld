@@ -48,7 +48,7 @@
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px] px-4"
 	on:click|stopPropagation={withdrawCredentialDeleteModal}>
 	<div
-		class="p-3 bg-mobile-navBlue border border-osvauld-activeBorder rounded-3xl w-full h-[21.12rem] flex flex-col items-start justify-start gap-3 overflow-hidden"
+		class="p-3 bg-mobile-navBlue border border-osvauld-activeBorder rounded-3xl w-full h-auto flex flex-col items-start justify-start gap-3 overflow-hidden"
 		in:fly>
 		<div class="flex justify-between items-center w-full pt-2 pb-5">
 			<span

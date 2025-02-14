@@ -87,14 +87,14 @@
 			class="flex-1 h-[48px] text-center {isRecents
 				? 'text-osvauld-carolinablue border-b-2 border-osvauld-carolinablue'
 				: 'text-mobile-textSecondary'}"
-			on:click="{() => (isRecents = true)}">
+			on:click={() => (isRecents = true)}>
 			Recents
 		</button>
 		<button
 			class="flex-1 h-[48px] text-center {!isRecents
 				? 'text-osvauld-carolinablue border-b-2 border-osvauld-carolinablue'
 				: 'text-mobile-textSecondary'}"
-			on:click="{() => (isRecents = false)}">
+			on:click={() => (isRecents = false)}>
 			Categories
 		</button>
 	</div>
@@ -109,7 +109,7 @@
 		class="w-full h-full flex justify-center items-center text-mobile-textPrimary text-base font-light">
 		<div class="flex flex-col justify-center items-center gap-4">
 			<span>
-				<RegretFace size="{64}" />
+				<RegretFace size={64} />
 			</span>
 			<span>Unable to find associated credentials</span>
 		</div>

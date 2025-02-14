@@ -33,13 +33,13 @@
 			</h2>
 			<div class="flex gap-3">
 				<button
-					class="flex-1 px-10 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium"
-					on:click="{() => handleSelection(false)}">
+					class="flex-1 px-10 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium whitespace-nowrap"
+					on:click={() => handleSelection(false)}>
 					Sign Up
 				</button>
 				<button
-					class="flex-1 px-10 py-2.5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg font-medium"
-					on:click="{() => handleSelection(true)}">
+					class="flex-1 px-10 py-2.5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg font-medium whitespace-nowrap"
+					on:click={() => handleSelection(true)}>
 					Import Key
 				</button>
 			</div>
@@ -47,9 +47,9 @@
 	{:else}
 		<!-- Existing Flow -->
 		{#if importPvtKeyFlag}
-			<ImportPvtKey on:login="{handleSignedUp}" />
+			<ImportPvtKey on:login={handleSignedUp} />
 		{:else}
-			<SetPassPhrase {challenge} on:signedUp="{handleSignedUp}" />
+			<SetPassPhrase {challenge} on:signedUp={handleSignedUp} />
 		{/if}
 	{/if}
 </div>
