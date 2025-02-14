@@ -1,0 +1,178 @@
+@import "tailwindcss";
+@layer base, components, utilities;
+
+@theme {
+	--breakpoint-sm: 640px;
+	--breakpoint-md: 768px;
+	--breakpoint-lg: 1024px;
+	--breakpoint-xl: 1280px;
+	--breakpoint-2xl: 1536px;
+	--breakpoint-3xl: 1920px;
+	--color-macchiato-rosewater: #f5e0dc;
+	--color-macchiato-flamingo: #f2cdcd;
+	--color-macchiato-pink: #f5c2e7;
+	--color-macchiato-mauve: #cba6f7;
+	--color-macchiato-red: #f38ba8;
+	--color-macchiato-maroon: #eba0ac;
+	--color-macchiato-peach: #fab387;
+	--color-macchiato-yellow: #f9e2af;
+	--color-macchiato-green: #a6e3a1;
+	--color-macchiato-teal: #94e2d5;
+	--color-macchiato-sky: #89dceb;
+	--color-macchiato-sapphire: #74c7ec;
+	--color-macchiato-blue: #89b4fa;
+	--color-macchiato-lavender: #b4befe;
+	--color-macchiato-text: #cdd6f4;
+	--color-macchiato-subtext1: #bac2de;
+	--color-macchiato-subtext0: #a6adc8;
+	--color-macchiato-overlay2: #9399b2;
+	--color-macchiato-overlay1: #7f849c;
+	--color-macchiato-overlay0: #6c7086;
+	--color-macchiato-surface2: #585b70;
+	--color-macchiato-surface1: #45475a;
+	--color-macchiato-surface0: #313244;
+	--color-macchiato-base: #1e1e2e;
+	--color-macchiato-mantle: #181825;
+	--color-macchiato-crust: #11111b;
+
+	/* Osvauld Colors */
+	--color-osvauld-frameblack: #0D0E13;
+	--color-osvauld-bordergreen: #161B22;
+	--color-osvauld-iconblack: #2F303E;
+	--color-osvauld-cardshade: #111218;
+	--color-osvauld-ninjablack: #010409;
+	--color-osvauld-sheffieldgrey: #6E7681;
+	--color-osvauld-placeholderblack: #30363D;
+	--color-osvauld-addfieldgrey: #12161C;
+	--color-osvauld-quarzowhite: #C9D1D9;
+	--color-osvauld-lilacpink: #CBA6F7;
+	--color-osvauld-carolinablue: #89B4FA;
+	--color-osvauld-flaxblue: #CDD6F4;
+	--color-osvauld-chalkwhite: #A6B0BB;
+	--color-osvauld-pearlgreen: #1C292C;
+	--color-osvauld-cretangreen: #598681;
+	--color-osvauld-dusklabel: #8B949E;
+	--color-osvauld-activelavender: #B4BEFE;
+	--color-osvauld-whaleblue: #1D333F;
+	--color-osvauld-spritzigblue: #74C7EC;
+	--color-osvauld-quartzitegreen: #223127;
+	--color-osvauld-grapegreen: #A6E3A1;
+	--color-osvauld-safflowerpink: #322A35;
+	--color-osvauld-croworange: #33302A;
+	--color-osvauld-frostylabel: #9399B2;
+	--color-osvauld-illutionpurple: #B7BDF8;
+	--color-osvauld-sensitivebgblack: #14191E;
+	--color-osvauld-sensitivebgblue: #253244;
+	--color-osvauld-highlightwhite: #E8EFF6;
+	--color-osvauld-managerPurple: #3B3441;
+	--color-osvauld-ownerGreen: #2C3B33;
+	--color-osvauld-readerOrange: #3C3B35;
+	--color-osvauld-ownerText: #A6E3A1;
+	--color-osvauld-readerText: #F9E2AF;
+	--color-osvauld-managerText: #F5C2E7;
+	--color-osvauld-plainwhite: #FFF;
+	--color-osvauld-toastCloseBlue: #2D3A4D;
+	--color-osvauld-backgroundBlur: #010409ad;
+	--color-osvauld-activeBorder: #4D4F60;
+	--color-osvauld-defaultBorder: #2F303E;
+	--color-osvauld-textActive: #A3A4B5;
+	--color-osvauld-textPassive: #6E7681;
+	--color-osvauld-fieldActive: #16171F;
+	--color-osvauld-fieldText: #85889C;
+	--color-osvauld-fieldTextActive: #BFC0CC;
+	--color-osvauld-darkLineSeperator: #21262D;
+	--color-osvauld-modalFieldActive: #20212B;
+	--color-osvauld-sideListTextActive: #F2F2F0;
+	--color-osvauld-fadedCancel: #67697C;
+	--color-osvauld-dangerRed: #FF6A6A;
+	--color-osvauld-sideListHighlight: #292A36;
+	--color-osvauld-permissionsGreen: #263A47;
+	--color-osvauld-permissionGreenText: #74C7EC;
+	--color-osvauld-borderColor: #292A36;
+	--color-osvauld-cancelBackground: #21222C;
+	--color-osvauld-tickGreen: #00FF00;
+	--color-osvauld-cardBorder: #373946;
+
+	/* Mobile Colors */
+	--color-mobile-bgPrimary: #000000;
+	--color-mobile-bgSeconary: #0D0E13;
+	--color-mobile-bgHighlight: #2F303E;
+	--color-mobile-bgFade: #161722;
+	--color-mobile-bgLight: #20212B;
+	--color-mobile-bgExtraLight: #111218;
+	--color-mobile-textPrimary: #85889C;
+	--color-mobile-textSecondary: #4D4F60;
+	--color-mobile-textTertiary: #F2F2F0;
+	--color-mobile-textbright: #BFC0CC;
+	--color-mobile-iconPrimary: #5B5D6D;
+	--color-mobile-highlightBlue: #89B4FA;
+	--color-mobile-navBlue: #010109;
+	--color-mobile-textActive: #A3A4B5;
+	--color-mobile-textlabel: #373946;
+	--color-mobile-textField: #DCDDE4;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+	width: 0px;
+	/* width of the scrollbar */
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+	width: 4px;
+	/* width of the scrollbar */
+	height: 130px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+	background: transparent;
+	/* color of the track */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+	background-color: #2f303e;
+	/* color of the thumb */
+	border-radius: 4px;
+	/* roundness of the scrollbar thumb */
+}
+
+.active.scrollbar-thin::-webkit-scrollbar-thumb {
+	background-color: #2f303e;
+	/* color of the thumb */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+	background-color: #2f303e;
+	/* color of the thumb on hover */
+}
+
+.scrollbar::-webkit-scrollbar {
+	width: 15px;
+	height: 15px;
+}
+
+.scrollbar::-webkit-scrollbar-track {
+	border-radius: 100vh;
+	background: #f7f4ed;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+	background: #e0cbcb;
+	border-radius: 100vh;
+	border: 3px solid #f6f7ed;
+}
+
+.scrollbar::-webkit-scrollbar-thumb:hover {
+	background: #c0a0b9;
+}
+
+.primary-btn {
+	@apply rounded-lg bg-osvauld-carolinablue text-osvauld-ninjablack;
+}
+
+.secondary-btn {
+	@apply border border-osvauld-iconblack bg-osvauld-addfieldgrey rounded-lg text-osvauld-sheffieldgrey active:scale-95;
+}
+
+.profileBtn {
+	@apply p-3 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
+}

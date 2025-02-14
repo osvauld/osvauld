@@ -1,0 +1,14 @@
+{
+	"files": [],
+	"references": [
+		{
+			"path": "./packages/password-manager/common"
+		},
+		{
+			"path": "./packages/password-manager/desktop"
+		},
+		{
+			"path": "./packages/password-manager/mobile"
+		}
+	]
+}

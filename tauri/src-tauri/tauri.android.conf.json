@@ -1,8 +1,7 @@
 {
     "build": {
-        "beforeDevCommand": "cd ../frontends && npm run dev:mobile",
-        "beforeBuildCommand": "cd ../frontends && npm run build:mobile",
-        "devUrl": "http://localhost:1420",
-        "frontendDist": "../../frontends/src/mobile/mobile"
+    "beforeDevCommand": "cd ../frontends/packages/password-manager/mobile && pnpm dev",
+    "beforeBuildCommand": "cd ../frontends/packages/mobile && pnpm build",
+    "devUrl": "http://localhost:1420"
     }
 }
