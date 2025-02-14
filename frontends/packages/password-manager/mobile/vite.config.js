@@ -41,10 +41,10 @@ export default defineConfig(({ mode }) => {
 		server: {
 			strictPort: true,
 			port: 1420,
-			host: process.env.TAURI_DEV_HOST || "0.0.0.0",
+			host: process.env.TAURI_DEV_HOST || "localhost",
 			hmr: {
 				protocol: 'ws',
-				host: process.env.TAURI_DEV_HOST || '0.0.0.0',
+				host: process.env.TAURI_DEV_HOST || 'localhost',
 				port: 1420,
 			},
 			watch: {
