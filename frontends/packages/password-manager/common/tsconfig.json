@@ -1,10 +1,11 @@
 {
 	"compilerOptions": {
 		"verbatimModuleSyntax": true,
+		"composite": true,
 		"target": "esnext",
 		"module": "esnext",
 		"strict": true,
-		"moduleResolution": "node",
+		"moduleResolution": "bundler",
 		"sourceMap": true,
 		"esModuleInterop": true,
 		"skipLibCheck": true,
@@ -24,6 +25,7 @@
 		"utils/**/*.ts",
 		"dtos/**/*.ts",
 		"icons/**/*.svelte",
+		"components/**/*.svelte",
 		"i18n/**/*.ts",
 		"*.ts"
 	],
