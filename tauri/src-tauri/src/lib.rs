@@ -30,6 +30,7 @@ use crate::persistence::repositories::{
 };
 use crypto_utils::CryptoUtils;
 use log::LevelFilter;
+use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
@@ -65,6 +66,12 @@ pub fn run() {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
 
+            if !app_dir.exists() {
+                if let Err(e) = fs::create_dir_all(&app_dir) {
+                    error!("Failed to create app data directory: {}", e);
+                    panic!("Cannot continue without app data directory");
+                }
+            }
 
             let db_path = app_dir.join("desktop2.db").to_str().unwrap().to_string();
 
