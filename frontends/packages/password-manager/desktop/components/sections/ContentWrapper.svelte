@@ -21,9 +21,9 @@
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">
-	<div class="h-28 py-10 px-16 flex items-center justify-between shrink-0">
+	<div class="py-10 px-16 flex items-center justify-between shrink-0">
 		<h1
-			class="flex-1 truncate text-4xl font-light text-osvauld-sideListTextActive text-left capitalize">
+			class="flex-1 h-full truncate text-4xl font-light text-osvauld-sideListTextActive text-left capitalize">
 			{$selectedCategory
 				? $selectedCategory
 				: $currentVault.id === "all"
