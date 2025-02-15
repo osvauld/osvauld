@@ -29,9 +29,12 @@
 	},
 	"include": [
 		"components/**/*.ts",
+		"components/**/*.svelte",
 		"store/*.ts",
 		"*.ts",
-		"*.svelte"
+		"*.svelte",
+		"../common/**/*.ts",
+		"../common/**/*.svelte"
 	],
 	"exclude": [
 		"node_modules/*",
