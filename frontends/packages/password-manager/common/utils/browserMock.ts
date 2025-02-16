@@ -76,7 +76,8 @@ const tauriBrowser = {
           'deleteFolder': (data: any) => invoke('soft_delete_folder', { input: data }),
           'toggleFav': (data: any) => invoke('toggle_fav', { input: data }),
           'updateLastAccessed': (data: any) => invoke('update_last_accessed', { input: data }),
-          'getAllCredentials': (data: any) => invoke('get_all_credentials', { input: data })
+          'getAllCredentials': (data: any) => invoke('get_all_credentials', { input: data }),
+          'logout': () => invoke('logout')
         };
 
         const handler = handlerMap[action];
