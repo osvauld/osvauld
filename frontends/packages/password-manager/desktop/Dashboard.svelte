@@ -25,11 +25,11 @@
 		viewCredentialModal,
 		deleteConfirmationModal,
 		toastStore,
+		showWelcome,
 	} from "./store/desktop.ui.store";
 
 	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 
-	let showWelcome = false;
 	let signedUp = false;
 	let isLoading = true;
 
@@ -52,12 +52,12 @@
 
 	const handleSignedUp = () => {
 		signedUp = true;
-		showWelcome = false;
+		showWelcome.set(false);
 	};
 
 	const handleAuthenticated = async () => {
 		await setFolderStore();
-		showWelcome = false;
+		showWelcome.set(false);
 	};
 
 	onMount(async () => {
@@ -66,7 +66,7 @@
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
 			if (checkPvtLoad === false) {
-				showWelcome = true;
+				showWelcome.set(true);
 			} else {
 				await setFolderStore();
 			}
@@ -92,13 +92,13 @@
    w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">
-			<Loader size="{24}" color="#1F242A" duration="{1}" />
+			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
-		<Signup on:signedUp="{handleSignedUp}" />
-	{:else if showWelcome}
+		<Signup on:signedUp={handleSignedUp} />
+	{:else if $showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
-			<Welcome on:authenticated="{handleAuthenticated}" />
+			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
 		<DefaultLayout />

@@ -108,3 +108,11 @@ pub async fn handle_change_passphrase(
         new_certificate.private_key,
     ))
 }
+
+#[tauri::command]
+pub async fn handle_logout(
+    auth_service: State<'_, Arc<AuthService>>,
+) -> Result<CryptoResponse, String> {
+    auth_service.logout().await?;
+    Ok(CryptoResponse::Success)
+}

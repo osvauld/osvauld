@@ -4,6 +4,7 @@
 	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
 	import Profile from "@osvauld/password-manager-common/icons/profile.svelte";
 	import Key from "@osvauld/password-manager-common/icons/key.svelte";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
 	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
 	import { addDeviceModal } from "../../store/desktop.ui.store";
@@ -12,6 +13,7 @@
 	import Discord from "@osvauld/password-manager-common/icons/discord.svelte";
 	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
 	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
+	import { showWelcome } from "../../store/desktop.ui.store";
 
 	let showDropdown = false;
 	let hoveredItem = "";
@@ -28,6 +30,10 @@
 	const handleDropDownClick = (id) => {
 		if (id === "add") {
 			addDeviceModal.set(true);
+		}
+		if (id == "logout") {
+			sendMessage("logout");
+			showWelcome.set(true);
 		}
 		showDropdown = false;
 	};
