@@ -25,12 +25,12 @@
 		viewCredentialModal,
 		deleteConfirmationModal,
 		toastStore,
+		showWelcome,
 	} from "./store/desktop.ui.store";
 
 	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 	import DesktopImportPvtKey from "./components/ui/DesktopImportPvtKey.svelte";
 
-	let showWelcome = false;
 	let signedUp = false;
 	let isLoading = true;
 
@@ -53,12 +53,12 @@
 
 	const handleSignedUp = () => {
 		signedUp = true;
-		showWelcome = false;
+		showWelcome.set(false);
 	};
 
 	const handleAuthenticated = async () => {
 		await setFolderStore();
-		showWelcome = false;
+		showWelcome.set(false);
 	};
 
 	onMount(async () => {
@@ -67,7 +67,7 @@
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
 			if (checkPvtLoad === false) {
-				showWelcome = true;
+				showWelcome.set(true);
 			} else {
 				await setFolderStore();
 			}

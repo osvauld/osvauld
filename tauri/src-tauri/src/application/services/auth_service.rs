@@ -287,4 +287,10 @@ impl AuthService {
                 acc
             })
     }
+
+    pub async fn logout(&self) -> Result<(), String> {
+        let mut crypto = self.crypto_utils.lock().await;
+        crypto.clear_cert();
+        Ok(())
+    }
 }
