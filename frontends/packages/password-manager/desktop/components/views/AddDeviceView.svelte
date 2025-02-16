@@ -10,7 +10,7 @@
 	};
 
 	const goBack = () => {
-		addDeviceModal.set(false);
+		//		addDeviceModal.set(false);
 	};
 </script>
 

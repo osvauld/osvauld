@@ -6,7 +6,8 @@
   "build": {
     "beforeDevCommand": "cd ../frontends/packages/password-manager/desktop && pnpm dev",
     "beforeBuildCommand": "cd ../frontends/packages/password-manager/desktop && pnpm build",
-    "devUrl": "http://localhost:1421"
+    "devUrl": "http://localhost:1421",
+    "frontendDist": "../../frontends/packages/password-manager/desktop/dist"
   },
   "app": {
     "withGlobalTauri": true,
