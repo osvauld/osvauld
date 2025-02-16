@@ -9,7 +9,6 @@
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
 	const dispatch = createEventDispatcher();
 
-	export let challenge: string;
 	let username = "test";
 
 	let passphrase = "";
@@ -40,7 +39,6 @@
 			try {
 				const response = await sendMessage("savePassphrase", {
 					passphrase,
-					challenge,
 					username,
 				});
 

@@ -28,6 +28,7 @@
 	} from "./store/desktop.ui.store";
 
 	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
+	import DesktopImportPvtKey from "./components/ui/DesktopImportPvtKey.svelte";
 
 	let showWelcome = false;
 	let signedUp = false;
@@ -92,13 +93,15 @@
    w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">
-			<Loader size="{24}" color="#1F242A" duration="{1}" />
+			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
-		<Signup on:signedUp="{handleSignedUp}" />
+		<Signup
+			ImportComponent={DesktopImportPvtKey}
+			on:signedUp={handleSignedUp} />
 	{:else if showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
-			<Welcome on:authenticated="{handleAuthenticated}" />
+			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
 		<DefaultLayout />

@@ -837,10 +837,6 @@ impl P2PService {
             .node_addr()
             .await
             .map_err(|e| e.to_string())?;
-        let relay_url = node_addr
-            .relay_url
-            .expect("Should have a relay URL, assuming a default endpoint setup.");
-
         let addrs = node_addr
             .direct_addresses
             .into_iter()
@@ -849,7 +845,6 @@ impl P2PService {
         let ticket = ConnectionTicket {
             node_id: state.endpoint.node_id().to_string(),
             addresses: addrs,
-            relay_url: relay_url.to_string(),
         };
 
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
@@ -866,23 +861,14 @@ impl P2PService {
             let ticket: ConnectionTicket = serde_json::from_str(ticket_str)
                 .map_err(|e| format!("Invalid ticket format: {}", e))?;
 
-            info!(
-                "Parsed ticket - Node ID: {}, URL: {}",
-                ticket.node_id, ticket.relay_url
-            );
             info!("Addresses from ticket: {:?}", ticket.addresses);
-            let clea_url = ticket.relay_url.trim_end_matches("/").to_string();
-            let url = Url::parse(&clea_url).map_err(|e| e.to_string())?;
-            let relay_url = Some(iroh::RelayUrl::from(url));
-
-            info!("Constructed relay URL: {:?}", relay_url);
 
             let node_addr = NodeAddr::from_parts(
                 ticket
                     .node_id
                     .parse()
                     .map_err(|e| format!("Invalid node ID: {}", e))?,
-                relay_url,
+                None,
                 ticket
                     .addresses
                     .iter()
