@@ -56,7 +56,8 @@
 	}
 </script>
 
-<div class="p-4 z-[999] flex flex-col gap-4">
+<div
+	class="p-4 inset-0 items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px] fixed flex flex-col gap-4">
 	<div class="bg-mobile-bgSeconary rounded-lg p-4">
 		<h2 class="text-xl mb-2 text-mobile-textPrimary">Receive Connection</h2>
 		<p class="text-mobile-textSecondary mb-4">
