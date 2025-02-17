@@ -77,6 +77,7 @@ pub async fn handle_add_device(
     p2p_service: State<'_, Arc<P2PService>>,
     sync_service: State<'_, Arc<SyncService>>,
 ) -> Result<CryptoResponse, String> {
+    println!("adding device");
     let (device, sync_record_set) = auth_service
         .add_device(input.certificate, input.passphrase)
         .await?;

@@ -852,7 +852,7 @@ impl P2PService {
     pub async fn connect_with_ticket(&self, ticket_str: &str) -> Result<(), String> {
         self.ensure_initialized().await?;
 
-        info!("Starting connection process with ticket: {}", ticket_str);
+        println!("Starting connection process with ticket: {}", ticket_str);
 
         let (endpoint, node_addr) = {
             let state_guard = self.state.lock().await;
@@ -879,9 +879,9 @@ impl P2PService {
                     .collect::<Vec<_>>(),
             );
 
-            info!("Created NodeAddr: {:?}", node_addr);
-            info!("Our endpoint ID: {}", state.endpoint.node_id());
-            info!(
+            println!("Created NodeAddr: {:?}", node_addr);
+            println!("Our endpoint ID: {}", state.endpoint.node_id());
+            println!(
                 "ALPN Protocol being used: {}",
                 String::from_utf8_lossy(ALPN_PROTOCOL)
             );
@@ -895,17 +895,10 @@ impl P2PService {
         match &connect_result {
             Ok(conn) => {
                 info!("Connection successful!");
-                info!("Remote address: {}", conn.remote_address());
-                info!("Connection stats: {:?}", conn.stats());
-
-                // Try to get additional connection info if possible
-                if let Ok(peer_id) = iroh::endpoint::get_remote_node_id(conn) {
-                    info!("Connected to peer ID: {}", peer_id);
-                }
             }
             Err(e) => {
-                error!("Connection failed. Error details:");
-                error!("Error: {}", e);
+                println!("Connection failed. Error details:");
+                println!("Error: {}", e);
                 error!("Node addr used: {:?}", node_addr);
                 // Try to get any additional endpoint state that might be helpful
                 info!("Endpoint bound sockets: {:?}", endpoint.bound_sockets());

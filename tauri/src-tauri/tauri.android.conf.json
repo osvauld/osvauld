@@ -1,8 +1,8 @@
 {
     "build": {
     "beforeDevCommand": "cd ../frontends/packages/password-manager/mobile && pnpm dev",
-    "beforeBuildCommand": "cd ../frontends/packages/mobile && pnpm build",
+    "beforeBuildCommand": "cd ../frontends/packages/password-manager/mobile && pnpm build",
     "devUrl": "http://localhost:1420",
-    "frontendDist": "../../frontends/packages/mobile/dist"
+    "frontendDist": "../../frontends/packages/password-manager/mobile/dist"
     }
 }
