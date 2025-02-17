@@ -89,14 +89,13 @@
 			class="w-full h-[48px] px-3 flex justify-start items-center gap-2 flex-shrink-0">
 			<span class=" p-2.5 rounded-lg bg-mobile-bgSeconary"
 				>{#if categoryInfo && categoryInfo.icon}
-					<svelte:component this="{categoryInfo.icon}" color="{'#BFC0CC'}" />
+					<svelte:component this={categoryInfo.icon} color={"#BFC0CC"} />
 				{:else}
 					<span>!</span>
 				{/if}</span>
 			<button
 				class="ml-auto p-2.5 rounded-lg bg-mobile-bgSeconary flex justify-center items-center active:scale-95"
-				on:click|stopPropagation="{() =>
-					toggleFavorite($currentCredential.id)}">
+				on:click|stopPropagation={() => toggleFavorite($currentCredential.id)}>
 				{#if favourite}
 					<FavStar />
 				{:else}
@@ -105,17 +104,17 @@
 			</button>
 			<button
 				class="p-2.5 rounded-lg bg-mobile-bgSeconary"
-				on:mouseenter="{() => (deleteHovered = true)}"
-				on:mouseleave="{() => (deleteHovered = false)}"
-				on:click|stopPropagation="{handleCredentialDelete}"
+				on:mouseenter={() => (deleteHovered = true)}
+				on:mouseleave={() => (deleteHovered = false)}
+				on:click|stopPropagation={handleCredentialDelete}
 				><Bin
-					color="{deleteHovered ? '#FF6A6A' : '#85889C'}"
-					size="{24}" /></button>
+					color={deleteHovered ? "#FF6A6A" : "#85889C"}
+					size={24} /></button>
 			<span class=" p-2.5 rounded-lg bg-mobile-bgSeconary"
-				><Edit size="{24}" /></span>
+				><Edit size={24} /></span>
 			<button
 				class="p-2.5 rounded-lg bg-mobile-bgSeconary"
-				on:click="{CloseViewModal}"><ClosePanel size="{24}" /></button>
+				on:click={CloseViewModal}><ClosePanel size={24} /></button>
 		</div>
 		<div
 			class="text-mobile-textPrimary text-2xl font-medium flex flex-col pl-4 py-3">
@@ -123,7 +122,7 @@
 				>{$currentCredential.data.credentialType}</span>
 			<div
 				class="flex text-sm font-light gap-1 items-center tracking-wider capitalize">
-				<span><MobileHome size="{14}" color="{'#85889C'}" /></span>
+				<span><MobileHome size={14} color={"#85889C"} /></span>
 				<span>{folderName}</span>
 			</div>
 		</div>
@@ -144,8 +143,8 @@
 					</div>
 					<button
 						class="bg-osvauld-fieldActive rounded-lg p-3 w-full flex gap-2 justify-center items-center"
-						on:click|preventDefault|stopPropagation="{() =>
-							copyToClipboard(value, 0)}">
+						on:click|preventDefault|stopPropagation={() =>
+							copyToClipboard(value, 0)}>
 						<span
 							class="text-osvauld-fieldText font-Jakarta font-medium text-lg"
 							>Copy note</span>
@@ -154,7 +153,7 @@
 								<Tick />
 							</span>
 						{:else}
-							<CopyIcon color="{'#85889C'}" />
+							<CopyIcon color={"#85889C"} />
 						{/if}
 					</button>
 				</div>
@@ -166,18 +165,19 @@
 							{#if credentialFieldsUpdater(type).find((templateField) => templateField.fieldName === field.fieldName)?.sensitive}
 								<!-- If field name is sensitive, Hide -->
 								<div
-									class="bg-osvauld-fieldActive rounded-lg py-1 px-4 w-full flex"
+									class="bg-mobile-bgSeconary rounded-lg py-1 px-4 w-full flex"
 									on:click|stopPropagation>
 									<input
-										type="{showSecretIndex[index] ? 'text' : 'password'}"
-										class="w-5/6 text-left p-0 leading-3 bg-osvauld-fieldActive text-mobile-textField text-base border-0 outline-0 focus:ring-0 truncate"
-										value="{showSecretIndex[index]
+										type={showSecretIndex[index] ? "text" : "password"}
+										class="w-5/6 text-left p-0 leading-3 bg-mobile-bgSeconary text-mobile-textField text-base border-0 outline-0 focus:ring-0 truncate"
+										disabled
+										value={showSecretIndex[index]
 											? field.fieldValue
-											: '••••••••'}" />
+											: "••••••••"} />
 									<button
 										type="button"
 										class="ml-auto flex-none flex justify-center items-center"
-										on:click="{() => toggleSecretVisibility(index)}">
+										on:click={() => toggleSecretVisibility(index)}>
 										{#if showSecretIndex[index]}
 											<ClosedEye />
 										{:else}
@@ -186,15 +186,15 @@
 									</button>
 								</div>
 								<button
-									class="bg-osvauld-fieldActive rounded-lg p-3"
-									on:click|preventDefault|stopPropagation="{() =>
-										copyToClipboard(field.fieldValue, index)}">
+									class="bg-mobile-bgSeconary rounded-lg p-3"
+									on:click|preventDefault|stopPropagation={() =>
+										copyToClipboard(field.fieldValue, index)}>
 									{#if copied && copiedItemIndex === index}
 										<span in:scale>
 											<Tick />
 										</span>
 									{:else}
-										<CopyIcon color="{'#85889C'}" />
+										<CopyIcon color={"#85889C"} />
 									{/if}
 								</button>
 							{:else}
@@ -205,14 +205,14 @@
 								</div>
 								<button
 									class="bg-mobile-bgSeconary rounded-lg p-3"
-									on:click|preventDefault|stopPropagation="{() =>
-										copyToClipboard(field.fieldValue, index)}">
+									on:click|preventDefault|stopPropagation={() =>
+										copyToClipboard(field.fieldValue, index)}>
 									{#if copied && copiedItemIndex === index}
 										<span in:scale>
 											<Tick />
 										</span>
 									{:else}
-										<CopyIcon color="{'#85889C'}" />
+										<CopyIcon color={"#85889C"} />
 									{/if}
 								</button>
 							{/if}

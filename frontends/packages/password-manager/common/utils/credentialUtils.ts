@@ -10,16 +10,16 @@ import MobileContact from "../icons/mobileContact.svelte";
 import MobileWallet from "../icons/mobileWallet.svelte";
 
 export const CATEGORIES = [
-	{ id: "logins", type: "Logins", icon: LoginIcon },
-	{ id: "pins", type: "PINs", icon: KeyIcon },
-	{ id: "creditdebitcards", type: "Credit/Debit Cards", icon: CreditCard },
-	{ id: "notes", type: "Notes", icon: MobileNote },
-	{ id: "contacts", type: "Contacts", icon: MobileContact },
-	{ id: "bankaccounts", type: "Bank Accounts", icon: MobileBank },
-	{ id: "digitalwallets", type: "Digital Wallets", icon: MobileWallet },
-	{ id: "sshkeys", type: "SSH Keys", icon: MobileOldKey },
-	{ id: "apicredentials", type: "API Keys", icon: MobileApiIcon },
-	{ id: "databases", type: "Databases", icon: MobileDatabase },
+	{ id: "logins", type: "Login", icon: LoginIcon },
+	{ id: "pins", type: "PIN", icon: KeyIcon },
+	{ id: "creditdebitcards", type: "Credit/DebitCard", icon: CreditCard },
+	{ id: "notes", type: "Note", icon: MobileNote },
+	{ id: "contacts", type: "Contact", icon: MobileContact },
+	{ id: "bankaccounts", type: "Bank Account", icon: MobileBank },
+	{ id: "digitalwallets", type: "Digital Wallet", icon: MobileWallet },
+	{ id: "sshkeys", type: "SSH Key", icon: MobileOldKey },
+	{ id: "apicredentials", type: "API Key", icon: MobileApiIcon },
+	{ id: "databases", type: "Database", icon: MobileDatabase },
 ];
 
 export const THEMES = {
