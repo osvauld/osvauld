@@ -16,3 +16,4 @@ export let refreshCredentialList = writable(false);
 export let deleteConfirmationModal = writable({ item: "", show: false });
 export let toastStore = writable({ show: false, message: "", success: true });
 export let showWelcome = writable(true);
+export let showSyncQr = writable(false);

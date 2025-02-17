@@ -6,6 +6,7 @@
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
+	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 
 	import { loadLocaleAsync } from "@osvauld/password-manager-common/i18n/i18n-util.async";
 	import { setLocale } from "@osvauld/password-manager-common/i18n/i18n-svelte";
@@ -26,13 +27,21 @@
 		deleteConfirmationModal,
 		toastStore,
 		showWelcome,
+		showSyncQr,
 	} from "./store/desktop.ui.store";
 
 	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 	import DesktopImportPvtKey from "./components/ui/DesktopImportPvtKey.svelte";
 
-	let signedUp = false;
-	let isLoading = true;
+	let signedUp = $state(false);
+	let isLoading = $state(true);
+	$effect(() => {
+		console.log("State changed:", {
+			isLoading,
+			signedUp,
+			showWelcome: $showWelcome,
+		});
+	});
 
 	async function initializeLanguage() {
 		try {
@@ -57,6 +66,7 @@
 	};
 
 	const handleAuthenticated = async () => {
+		console.log("authenticated");
 		await setFolderStore();
 		showWelcome.set(false);
 	};
@@ -92,6 +102,7 @@
     bg-osvauld-frameblack
    w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
+		{console.log("showing loader")}
 		<div class="flex justify-center items-center w-full h-full">
 			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
@@ -99,11 +110,13 @@
 		<Signup
 			ImportComponent={DesktopImportPvtKey}
 			on:signedUp={handleSignedUp} />
-	{:else if showWelcome}
+	{:else if $showWelcome}
+		{console.log("showing welcome")}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
+		{console.log("attempting to show default layout")}
 		<DefaultLayout />
 
 		<!-- AddCredentialModal opens up folder or/and category type selection modal -->
@@ -126,6 +139,9 @@
 
 		{#if $addDeviceModal}
 			<AddDeviceView />
+		{/if}
+		{#if $showSyncQr}
+			<Acceptor />
 		{/if}
 
 		<!-- {#if $showMoreOptions}
