@@ -1,5 +1,6 @@
 import { writable } from "svelte/store";
 
+export let language = writable("en");
 export let currentView = writable("all");
 export let vaults = writable([]);
 export let currentVault = writable({ id: "all", name: "all vaults" });
