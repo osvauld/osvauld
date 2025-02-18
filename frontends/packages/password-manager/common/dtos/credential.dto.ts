@@ -1,5 +1,5 @@
 type UUID = string;
-type FieldType = "meta" | "sensitive" | "additional" | "totp";
+
 export type Field = {
 	fieldId?: string;
 	fieldName: string;
@@ -53,6 +53,26 @@ export type BasicFields = {
 	fieldValue: string;
 };
 
+export type ValidationResult =  {
+	success: boolean;
+	message?: string;
+}
+  
+export type CredentialData = {
+	  credentialFields: CredentialFieldComponentProps[];
+	  name: string;
+	  description: string;
+	  credentialType: string;
+}
+  
+export type CredentialPayload = {
+	name: string;
+	description: string;
+	credentialType: string;
+	credentialFields: Field[];
+}
+  
+
 export type UserEncryptedCredentials = {
 	userId: string;
 	credentials: CredentialFields[];
@@ -73,12 +93,13 @@ export type InjectionPayload = {
 	username: string;
 };
 
-type fieldType = "meta" | "sensitive" | "additional" | "totp";
+export type FieldType = "meta" | "sensitive" | "additional" | "totp";
+
 export type CredentialFieldComponentProps = {
 	fieldId?: string;
 	fieldName: string;
 	fieldValue: string;
-	fieldType?: fieldType;
+	fieldType?: FieldType;
 	sensitive: boolean;
 };
 
