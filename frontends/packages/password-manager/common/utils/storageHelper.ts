@@ -18,6 +18,10 @@ const setToStorage = async (key: string, value: string): Promise<void> => {
 };
 
 export const StorageService = {
+	
+	getCurrentVault: () => getFromStorage("vault"),
+	setCurrentVault: (vault: any) => setToStorage("vault", vault),
+
 	getCertificate: () => getFromStorage("certificate"),
 	setCertificate: (certificate: string) =>
 		setToStorage("certificate", certificate),

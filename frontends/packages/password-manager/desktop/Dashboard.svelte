@@ -28,14 +28,15 @@
 		toastStore,
 		showWelcome,
 		language,
+		currentVault,
 	} from "./store/desktop.ui.store";
 
-	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
+	import { StorageService } from "@osvauld/password-manager-common/utils/storageHelper";
 
 	let signedUp = false;
 	let isLoading = true;
 
-	async function initializeLanguage() {
+	const initializeLanguage = async () => {
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
@@ -51,7 +52,14 @@
 			await loadLocaleAsync("en");
 			setLocale("en");
 		}
-	}
+	};
+
+	const vaultInitlization = async () => {
+		const currentVaultState = await StorageService.getCurrentVault();
+		if (!currentVaultState) return;
+		const currentVaultJSON = JSON.parse(currentVaultState);
+		if (currentVaultJSON?.id) currentVault.set(currentVaultJSON);
+	};
 
 	const handleSignedUp = () => {
 		signedUp = true;
@@ -59,7 +67,7 @@
 	};
 
 	const handleAuthenticated = async () => {
-		await setFolderStore();
+		await vaultInitlization();
 		showWelcome.set(false);
 	};
 
@@ -78,7 +86,7 @@
 			if (checkPvtLoad === false) {
 				showWelcome.set(true);
 			} else {
-				await setFolderStore();
+				await vaultInitlization();
 			}
 
 			initializeLanguage();
