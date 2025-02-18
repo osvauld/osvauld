@@ -57,7 +57,8 @@ pub fn run() {
                         && !metadata.target().contains("iroh_relay")
                         && !metadata.target().contains("portmapper")
                         && !metadata.target().contains("igd_next::aio::tokio")
-                        && !metadata.target().contains("tao::platform_impl::platform")
+                        && !metadata.target().contains("igd_next::aio::tokio")
+                        && !metadata.target().contains("rustls::client")
                 })
                 .build(),
         )
@@ -73,7 +74,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));

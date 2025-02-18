@@ -75,6 +75,7 @@
 				<div class="mx-auto">
 					<QRCode data={JSON.stringify(connectionTicket)} />
 				</div>
+				<textarea name="text" id="sdfa"> {connectionTicket} </textarea>
 
 				<button
 					on:click={copyTicket}

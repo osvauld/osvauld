@@ -492,6 +492,21 @@ impl P2PService {
                 let message = Message::SyncComplete;
                 let serialized = serde_json::to_string(&message).map_err(|e| e.to_string())?;
                 self.send_message(serialized).await?;
+                let is_initiator = {
+                    let initiator_guard = self.is_initiator.lock().await;
+                    *initiator_guard
+                        .as_ref()
+                        .ok_or_else(|| "is_initiator not set".to_string())?
+                };
+
+                self.app_handle
+                    .emit("sync-complete", true)
+                    .map_err(|e| e.to_string())?;
+
+                // If not initiator, start sync
+                if !is_initiator {
+                    self.start_sync().await?;
+                }
             }
             Err(e) => {
                 error!("Failed to get next pending sync: {}", e);
@@ -549,9 +564,9 @@ impl P2PService {
             .map_err(|e| e.to_string())?;
 
         // If not initiator, start sync
-        if !is_initiator {
-            self.start_sync().await?;
-        }
+        //if !is_initiator {
+        //    self.start_sync().await?;
+        //}
 
         Ok(())
     }

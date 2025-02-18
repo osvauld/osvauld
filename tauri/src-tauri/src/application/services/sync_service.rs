@@ -89,6 +89,7 @@ impl SyncService {
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
         // Try device syncs first
+        info!("getting records for********* {}", device.id);
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
             .get_pending_sync_by_type(&device.id, "device")

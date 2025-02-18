@@ -3,11 +3,12 @@
   "productName": "osvauld",
   "version": "0.1.0",
   "identifier": "com.osvauld.app",
-  "build": {
-    "beforeDevCommand": "cd ../frontends/packages/password-manager/mobile && pnpm dev",
-    "beforeBuildCommand": "cd ../frontends/packages/password-manager/desktop && pnpm build",
-    "devUrl": "http://localhost:1420"
-  },
+    "build": {
+    "beforeDevCommand": "cd ../frontends/packages/password-manager/mobile && pnpm dev --host 0.0.0.0",
+    "beforeBuildCommand": "cd ../frontends/packages/password-manager/mobile && pnpm build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../../frontends/packages/password-manager/mobile/dist"
+    },
   "app": {
     "withGlobalTauri": true,
     "windows": [
