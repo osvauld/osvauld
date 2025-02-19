@@ -70,6 +70,7 @@ impl SyncRepository for SqliteSyncRepository {
         device_id: String,
         sync_id: String,
     ) -> Result<(), RepositoryError> {
+        //TODO: update the device_sync_record of other device_record_id
         let mut conn = self.connection.lock().await;
         let device_record_id = device_records::table
             .filter(device_records::sync_record_id.eq(&sync_id))
@@ -98,6 +99,18 @@ impl SyncRepository for SqliteSyncRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
         Ok(())
     }
+    async fn update_device_sync_record_status(
+        &self,
+        device_sync_record_id: String,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        diesel::update(device_record_status::table)
+            .filter(device_record_status::id.eq(device_sync_record_id))
+            .set(device_record_status::synced.eq(true))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
+        Ok(())
+    }
     async fn add_status_change_set(
         &self,
         status_set: StatusChangeSet,
@@ -105,11 +118,8 @@ impl SyncRepository for SqliteSyncRepository {
         let mut conn = self.connection.lock().await;
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
-            let device_models: Vec<DeviceRecordModel> = status_set
-                .device_records
-                .iter()
-                .map(DeviceRecordModel::from)
-                .collect();
+            let device_model: DeviceRecordModel =
+                DeviceRecordModel::from(&status_set.device_record);
 
             let status_models: Vec<DeviceRecordStatusModel> = status_set
                 .device_record_statuses
@@ -118,7 +128,7 @@ impl SyncRepository for SqliteSyncRepository {
                 .collect();
 
             diesel::insert_into(device_records::table)
-                .values(&device_models)
+                .values(&device_model)
                 .execute(conn)?;
 
             diesel::insert_into(device_record_status::table)

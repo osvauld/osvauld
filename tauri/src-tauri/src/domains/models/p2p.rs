@@ -30,10 +30,12 @@ pub enum Message {
     SyncRequest,
     SyncResponse(SyncPayload),
     SyncAck(SyncAckType),
+    AckComplete(String),
     SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
     FileTransfer { name: String, data: Vec<u8> },
+    Error,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,6 +85,11 @@ pub struct SyncAckDeviceRecord {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncAckType {
-    SyncRecord(String),                 // sync_record_id
-    DeviceRecords(SyncAckDeviceRecord), // device_record_ids
+    FullSync {
+        sync_record_id: String,
+        device_record: DeviceRecord,
+        device_sync_records: Vec<DeviceRecordStatus>,
+    },
+    DeviceRecords(Vec<String>), // list of device_record_ids
+    DeviceSyncRecord(String),
 }

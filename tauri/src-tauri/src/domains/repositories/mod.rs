@@ -17,6 +17,8 @@ pub enum RepositoryError {
     DatabaseError(String),
     #[error("Not found")]
     NotFound,
+    #[error("Custom error: {0}")]
+    CustomError(String),
 }
 
 #[async_trait]
@@ -55,6 +57,10 @@ pub trait SyncRepository: Send + Sync {
         &self,
         device_record_ids: Vec<String>,
         status_record_ids: Vec<String>,
+    ) -> Result<(), RepositoryError>;
+    async fn update_device_sync_record_status(
+        &self,
+        device_sync_record_status: String,
     ) -> Result<(), RepositoryError>;
 }
 
