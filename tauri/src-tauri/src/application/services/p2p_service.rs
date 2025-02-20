@@ -466,9 +466,11 @@ impl P2PService {
             .process_acknowledgement(ack_type, device.clone())
             .await
             .map_err(|e| e.to_string())?;
-        let ack_complete_msg = Message::AckComplete(device_sync_record_id);
-        let serialized = serde_json::to_string(&ack_complete_msg).map_err(|e| e.to_string())?;
-        self.send_message(serialized).await?;
+        if let Some(record_id) = device_sync_record_id {
+            let ack_complete_msg = Message::AckComplete(record_id);
+            let serialized = serde_json::to_string(&ack_complete_msg).map_err(|e| e.to_string())?;
+            self.send_message(serialized).await?;
+        }
 
         match self.sync_service.get_next_pending_sync(&device).await {
             Ok(Some(payload)) => {

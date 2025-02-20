@@ -46,6 +46,11 @@ pub struct SyncRecordSet {
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
 
+pub struct DeviceRecordSet {
+    pub device_records: Vec<DeviceRecord>,
+    pub device_record_statuses: Vec<DeviceRecordStatus>,
+}
+
 #[derive(Debug)]
 pub struct StatusChangeSet {
     pub device_record: DeviceRecord,
@@ -374,5 +379,35 @@ impl SyncRecord {
             device_records,
             device_record_statuses,
         }
+    }
+
+    pub fn process_device_records(
+        device_records: &[DeviceRecord],
+        device_statuses: &[DeviceRecordStatus],
+        current_device_id: &str,
+    ) -> (Vec<DeviceRecord>, Vec<DeviceRecordStatus>) {
+        let updated_records = device_records
+            .iter()
+            .map(|record| {
+                let mut r = record.clone();
+                if r.device_id == current_device_id {
+                    r.synced = true;
+                }
+                r
+            })
+            .collect();
+
+        let updated_statuses = device_statuses
+            .iter()
+            .map(|status| {
+                let mut s = status.clone();
+                if s.aware_device_id == current_device_id {
+                    s.synced = true;
+                }
+                s
+            })
+            .collect();
+
+        (updated_records, updated_statuses)
     }
 }

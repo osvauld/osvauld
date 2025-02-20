@@ -78,6 +78,20 @@ impl SyncRecordModel {
     }
 }
 
+impl From<&DomainSyncRecord> for SyncRecordModel {
+    fn from(record: &DomainSyncRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            resource_id: record.resource_id.clone(),
+            resource_type: record.resource_type.to_string(),
+            operation_type: record.operation_type.to_string(),
+            source_device_id: record.source_device_id.clone(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }
+    }
+}
+
 #[derive(Queryable, Insertable, Selectable, Debug)]
 #[diesel(table_name = device_records)]
 pub struct DeviceRecordModel {
@@ -100,6 +114,20 @@ impl DeviceRecordModel {
             synced: self.synced,
             created_at: self.created_at,
             updated_at: self.updated_at,
+        }
+    }
+}
+
+impl From<&DomainDeviceRecord> for DeviceRecordModel {
+    fn from(record: &DomainDeviceRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            sync_record_id: record.sync_record_id.clone(),
+            device_id: record.device_id.clone(),
+            status: record.status.to_string(),
+            synced: record.synced,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
         }
     }
 }
@@ -128,34 +156,6 @@ impl DeviceRecordStatusModel {
     }
 }
 
-impl From<&DomainSyncRecord> for SyncRecordModel {
-    fn from(record: &DomainSyncRecord) -> Self {
-        Self {
-            id: record.id.clone(),
-            resource_id: record.resource_id.clone(),
-            resource_type: record.resource_type.to_string(),
-            operation_type: record.operation_type.to_string(),
-            source_device_id: record.source_device_id.clone(),
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-        }
-    }
-}
-
-impl From<&DomainDeviceRecord> for DeviceRecordModel {
-    fn from(record: &DomainDeviceRecord) -> Self {
-        Self {
-            id: record.id.clone(),
-            sync_record_id: record.sync_record_id.clone(),
-            device_id: record.device_id.clone(),
-            status: record.status.to_string(),
-            synced: record.synced,
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-        }
-    }
-}
-
 impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
     fn from(status: &DomainDeviceRecordStatus) -> Self {
         Self {
@@ -168,6 +168,7 @@ impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
         }
     }
 }
+
 #[derive(Queryable, Insertable)]
 #[diesel(table_name = credentials)]
 pub struct CredentialModel {

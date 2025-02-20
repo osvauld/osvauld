@@ -1,6 +1,7 @@
 use crate::database::schema::device_record_status;
 use crate::domains::models::device::Device;
 use crate::domains::models::p2p::{Message, SyncAckType, SyncData, SyncPayload};
+use crate::domains::models::sync_record::DeviceRecordSet;
 use crate::domains::models::{
     credential::Credential,
     folder::Folder,
@@ -177,37 +178,6 @@ impl SyncService {
         self.device_repository.save(device).await
     }
 
-    fn process_device_records(
-        &self,
-        device_records: &[DeviceRecord],
-        device_statuses: &[DeviceRecordStatus],
-        current_device_id: &str,
-    ) -> (Vec<DeviceRecord>, Vec<DeviceRecordStatus>) {
-        let updated_records = device_records
-            .iter()
-            .map(|record| {
-                let mut r = record.clone();
-                if r.device_id == current_device_id {
-                    r.synced = true;
-                }
-                r
-            })
-            .collect();
-
-        let updated_statuses = device_statuses
-            .iter()
-            .map(|status| {
-                let mut s = status.clone();
-                if s.aware_device_id == current_device_id {
-                    s.synced = true;
-                }
-                s
-            })
-            .collect();
-
-        (updated_records, updated_statuses)
-    }
-
     // pub async fn mark_sync_complete(
     //     &self,
     //     sync_id: &str,
@@ -237,7 +207,7 @@ impl SyncService {
         &self,
         ack: SyncAckType,
         device: Device,
-    ) -> Result<String, RepositoryError> {
+    ) -> Result<Option<String>, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         match ack {
             SyncAckType::FullSync {
@@ -274,7 +244,7 @@ impl SyncService {
                 self.sync_repository
                     .update_device_record(device.id, sync_record_id)
                     .await?;
-                Ok(synced_device_record_id)
+                Ok(Some(synced_device_record_id))
             }
             SyncAckType::DeviceSyncRecord(record) => {
                 info!("processing device sync record status {}", record);
@@ -282,8 +252,10 @@ impl SyncService {
             }
 
             SyncAckType::DeviceRecords(records) => {
-                info!("processing records");
-                todo!();
+                self.sync_repository
+                    .update_device_sync_record_by_device_id(records, device.id)
+                    .await?;
+                Ok(None)
             }
         }
     }
@@ -292,7 +264,7 @@ impl SyncService {
         payload: &SyncPayload,
     ) -> Result<SyncAckType, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
-        let (mut device_records, mut device_statuses) = self.process_device_records(
+        let (mut device_records, mut device_record_statuses) = SyncRecord::process_device_records(
             &payload.device_records,
             &payload.device_record_statuses,
             &current_device_id,
@@ -324,12 +296,12 @@ impl SyncService {
                 &devices,
             );
             device_records.push(status_change_records.device_record.clone());
-            device_statuses.extend(status_change_records.device_record_statuses.clone());
+            device_record_statuses.extend(status_change_records.device_record_statuses.clone());
 
             let record_set = SyncRecordSet {
                 sync_record: sync_record.clone(),
                 device_records,
-                device_record_statuses: device_statuses,
+                device_record_statuses,
             };
             self.sync_repository.add_sync_record_set(record_set).await?;
             Ok(SyncAckType::FullSync {
@@ -338,19 +310,18 @@ impl SyncService {
                 device_sync_records: status_change_records.device_record_statuses.clone(),
             })
         } else {
-            todo!()
-            // let status_set = StatusChangeSet {
-            //     device_record: device_records.clone(),
-            //     device_record_statuses: device_statuses,
-            // };
-            // self.sync_repository
-            //     .add_status_change_set(status_set)
-            //     .await?;
-            // let device_record_ids = device_records
-            //     .into_iter()
-            //     .map(|record| record.id)
-            //     .collect::<Vec<_>>();
-            // Ok(SyncAckType::DeviceRecords(device_record_ids))
+            let device_record_ids: Vec<_> = device_records
+                .iter()
+                .map(|device_record| device_record.id.clone())
+                .collect();
+            let device_record_set = DeviceRecordSet {
+                device_record_statuses,
+                device_records,
+            };
+            self.sync_repository
+                .update_device_record_set(device_record_set)
+                .await?;
+            Ok(SyncAckType::DeviceRecords(device_record_ids))
         }
     }
 

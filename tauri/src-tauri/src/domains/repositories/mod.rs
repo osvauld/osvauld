@@ -4,8 +4,8 @@ use crate::domains::models::{
     device::Device,
     folder::Folder,
     sync_record::{
-        DeviceRecord, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet, SyncRecord,
-        SyncRecordSet,
+        DeviceRecord, DeviceRecordSet, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet,
+        SyncRecord, SyncRecordSet,
     },
 };
 use async_trait::async_trait;
@@ -61,6 +61,15 @@ pub trait SyncRepository: Send + Sync {
     async fn update_device_sync_record_status(
         &self,
         device_sync_record_status: String,
+    ) -> Result<(), RepositoryError>;
+    async fn update_device_record_set(
+        &self,
+        record_set: DeviceRecordSet,
+    ) -> Result<(), RepositoryError>;
+    async fn update_device_sync_record_by_device_id(
+        &self,
+        device_record_ids: Vec<String>,
+        synced_device_id: String,
     ) -> Result<(), RepositoryError>;
 }
 
