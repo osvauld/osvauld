@@ -10,6 +10,7 @@
 
 	import { loadLocaleAsync } from "@osvauld/password-manager-common/i18n/i18n-util.async";
 	import { setLocale } from "@osvauld/password-manager-common/i18n/i18n-svelte";
+	import { type Locales } from "@osvauld/password-manager-common/i18n/i18n-types.js";
 
 	import Toast from "./components/ui/Toast.svelte";
 	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
@@ -18,7 +19,7 @@
 	import CredentialEditorModal from "./components/views/CredentialEditorModal.svelte";
 	import CredentialViewModal from "./components/views/CredentialViewModal.svelte";
 	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
-	import { SUPPORTED_LANGUAGES } from "@osvauld/password-manager-common/utils/translationUtils";
+	import { LANGUAGE_CODES } from "@osvauld/password-manager-common/utils/translationUtils";
 	import {
 		addCredentialModal,
 		credentialEditorModal,
@@ -27,8 +28,14 @@
 		deleteConfirmationModal,
 		toastStore,
 		showWelcome,
-		showSyncQr,
+    showSyncQr,
+		language,
+		currentVault,
 	} from "./store/desktop.ui.store";
+
+	import { StorageService } from "@osvauld/password-manager-common/utils/storageHelper";
+
+
 
 	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 	import DesktopImportPvtKey from "./components/ui/DesktopImportPvtKey.svelte";
@@ -48,15 +55,16 @@
 	let signedUp = false;
 	let isLoading = true;
 
+	const initializeLanguage = async () => {
 
-	async function initializeLanguage() {
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
-			const languageToUse = SUPPORTED_LANGUAGES.includes(deviceLanguage)
-				? deviceLanguage
+			const languageToUse: Locales = LANGUAGE_CODES.includes(deviceLanguage)
+				? (deviceLanguage as Locales)
 				: "en";
-			// const languageToUse = "fr";
+			// const languageToUse = "it";
+			language.set(languageToUse);
 			await loadLocaleAsync(languageToUse);
 			setLocale(languageToUse);
 		} catch (error) {
@@ -64,7 +72,14 @@
 			await loadLocaleAsync("en");
 			setLocale("en");
 		}
-	}
+	};
+
+	const vaultInitlization = async () => {
+		const currentVaultState = await StorageService.getCurrentVault();
+		if (!currentVaultState) return;
+		const currentVaultJSON = JSON.parse(currentVaultState);
+		if (currentVaultJSON?.id) currentVault.set(currentVaultJSON);
+	};
 
 	const handleSignedUp = () => {
 		signedUp = true;
@@ -72,10 +87,17 @@
 	};
 
 	const handleAuthenticated = async () => {
-		console.log("authenticated");
-		await setFolderStore();
+		await vaultInitlization();
+
 		showWelcome.set(false);
 	};
+
+	$: if ($language) {
+		(async () => {
+			await loadLocaleAsync($language);
+			setLocale($language);
+		})();
+	}
 
 	onMount(async () => {
 		try {
@@ -85,7 +107,7 @@
 			if (checkPvtLoad === false) {
 				showWelcome.set(true);
 			} else {
-				await setFolderStore();
+				await vaultInitlization();
 			}
 
 			initializeLanguage();

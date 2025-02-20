@@ -6,6 +6,8 @@
 	import { currentVault, selectedCategory } from "../../store/desktop.ui.store";
 	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
+	import { LocalStorageService } from "@osvauld/password-manager-common";
+	import { StorageService } from "@osvauld/password-manager-common";
 
 	let selectedSection = "home";
 	let localSelectedCategory = "";
@@ -33,6 +35,11 @@
 		localSelectedCategory = "";
 		selectedSection = "home";
 		selectedCategory.set("");
+		// Storing Current vault for persisting
+		(async () => {
+			const currentVaultString = JSON.stringify($currentVault);
+			await StorageService.setCurrentVault(currentVaultString);
+		})();
 	}
 </script>
 
@@ -45,7 +52,7 @@
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
 			aria-expanded="false"
-			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+			on:click={() => (vaultManagerActive = !vaultManagerActive)}>
 			<span class="flex-1 truncate text-left py-1"
 				>{$currentVault.id === "all" ? $LL.all() : $currentVault.name}</span
 			><span
@@ -67,9 +74,9 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => handleSectionChange('home')}"
-					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
-					<Home color="{selectedSection === 'home' ? '#F2F2F0' : '#85889C'}" />
+					on:click={() => handleSectionChange("home")}
+					aria-current={selectedSection === "home" ? "page" : undefined}>
+					<Home color={selectedSection === "home" ? "#F2F2F0" : "#85889C"} />
 					<span>{$LL.tabs.home()}</span>
 				</button>
 			</li>
@@ -79,14 +86,10 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => handleFavourite('favourites')}"
-					aria-current="{selectedSection === 'favourites'
-						? 'page'
-						: undefined}">
+					on:click={() => handleFavourite("favourites")}
+					aria-current={selectedSection === "favourites" ? "page" : undefined}>
 					<Star
-						color="{selectedSection === 'favourites'
-							? '#F2F2F0'
-							: '#85889C'}" />
+						color={selectedSection === "favourites" ? "#F2F2F0" : "#85889C"} />
 					<span>{$LL.nav.favourites()}</span>
 				</button>
 			</li>
@@ -101,15 +104,15 @@
 						  {localSelectedCategory === category.id
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => handleCategoryFilter(category.type, category.id)}"
-					aria-current="{localSelectedCategory === category.id
-						? 'page'
-						: undefined}">
+					on:click={() => handleCategoryFilter(category.type, category.id)}
+					aria-current={localSelectedCategory === category.id
+						? "page"
+						: undefined}>
 					<svelte:component
-						this="{category.icon}"
-						color="{localSelectedCategory === category.id
-							? '#F2F2F0'
-							: '#85889C'}" />
+						this={category.icon}
+						color={localSelectedCategory === category.id
+							? "#F2F2F0"
+							: "#85889C"} />
 					<span>{$LL.types[category.id]()}</span>
 				</button>
 			</li>
