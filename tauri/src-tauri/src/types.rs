@@ -9,7 +9,6 @@ pub enum CryptoResponse {
     },
     Error(String),
     SavePassphrase {
-        signature: String,
         username: String,
         deviceKey: String,
         encryptionKey: String,
@@ -39,7 +38,6 @@ pub enum CryptoResponse {
 pub struct SavePassphraseInput {
     pub username: String,
     pub passphrase: String,
-    pub challenge: String,
 }
 
 #[derive(Deserialize)]

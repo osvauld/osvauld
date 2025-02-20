@@ -13,7 +13,8 @@
 	import Discord from "@osvauld/password-manager-common/icons/discord.svelte";
 	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
 	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
-	import { showWelcome } from "../../store/desktop.ui.store";
+	import { showWelcome, showSyncQr } from "../../store/desktop.ui.store";
+
 
 	let showDropdown = false;
 	let hoveredItem = "";
@@ -30,6 +31,11 @@
 	const handleDropDownClick = (id) => {
 		if (id === "add") {
 			addDeviceModal.set(true);
+		} else if (id == "logout") {
+			sendMessage("logout");
+			showWelcome.set(true);
+		} else if (id == "sync") {
+			showSyncQr.set(true);
 		}
 		if (id == "logout") {
 			sendMessage("logout");

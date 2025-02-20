@@ -403,6 +403,11 @@ impl P2PService {
         Ok(())
     }
 
+    pub async fn ack_complete(&self, device_record_status_id: String) -> Result<(), String> {
+        self.sync_service
+            .handle_ack_complete(device_record_status_id)
+            .await
+    }
     pub async fn handle_sync_request(&self) -> Result<(), String> {
         info!("Handling incoming sync request");
         let device = {
@@ -456,28 +461,15 @@ impl P2PService {
                 .ok_or_else(|| "Device not set".to_string())?)
             .clone()
         };
-        match ack_type {
-            SyncAckType::SyncRecord(sync_id) => {
-                info!("Received sync record acknowledgment for ID: {}", sync_id);
-                self.sync_service
-                    .mark_sync_complete(&sync_id, device.clone())
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-            SyncAckType::DeviceRecords(device_records) => {
-                info!(
-                    "Received device records acknowledgment for {} records and {} statuses",
-                    device_records.device_records.len(),
-                    device_records.status_updates.len()
-                );
-                self.sync_service
-                    .update_sync_status(
-                        device_records.device_records,
-                        device_records.status_updates,
-                    )
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
+        let device_sync_record_id = self
+            .sync_service
+            .process_acknowledgement(ack_type, device.clone())
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(record_id) = device_sync_record_id {
+            let ack_complete_msg = Message::AckComplete(record_id);
+            let serialized = serde_json::to_string(&ack_complete_msg).map_err(|e| e.to_string())?;
+            self.send_message(serialized).await?;
         }
 
         match self.sync_service.get_next_pending_sync(&device).await {
@@ -492,6 +484,10 @@ impl P2PService {
                 let message = Message::SyncComplete;
                 let serialized = serde_json::to_string(&message).map_err(|e| e.to_string())?;
                 self.send_message(serialized).await?;
+
+                self.app_handle
+                    .emit("sync-complete", true)
+                    .map_err(|e| e.to_string())?;
             }
             Err(e) => {
                 error!("Failed to get next pending sync: {}", e);
@@ -503,35 +499,16 @@ impl P2PService {
     }
 
     async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
-        // Process the sync payload
-        let sync_ack = match self.sync_service.process_sync_payload(&payload).await {
-            Ok((device_record_ids, status_ids)) => {
-                // Determine which type of ack to send based on the payload
-                if payload.sync_record.is_some() {
-                    Message::SyncAck(SyncAckType::SyncRecord(payload.sync_record.unwrap().id))
-                } else {
-                    Message::SyncAck(SyncAckType::DeviceRecords(SyncAckDeviceRecord {
-                        device_records: device_record_ids,
-                        status_updates: status_ids,
-                    }))
-                }
-            }
-            Err(e) => {
-                error!("Failed to process sync payload: {}", e);
-                return Err(e.to_string());
-            }
+        let ack_message = match self.sync_service.process_sync_payload(&payload).await {
+            Ok(sync_ack) => Message::SyncAck(sync_ack),
+            Err(_e) => Message::Error,
         };
 
-        info!("Processed sync payload successfully");
-        self.app_handle
-            .emit("sync-completed", true)
-            .map_err(|e| e.to_string())?;
-
-        // Send the appropriate ack message
-        self.send_message(serde_json::to_string(&sync_ack).map_err(|e| e.to_string())?)
-            .await?;
-
+        let serialized = serde_json::to_string(&ack_message).map_err(|e| e.to_string())?;
+        self.send_message(serialized).await?;
         Ok(())
+
+        // Process the sync payload
     }
     async fn handle_sync_complete(&self) -> Result<(), String> {
         info!("Sync process completed");
@@ -549,8 +526,32 @@ impl P2PService {
             .map_err(|e| e.to_string())?;
 
         // If not initiator, start sync
-        if !is_initiator {
-            self.start_sync().await?;
+        if is_initiator {
+            let device = {
+                let device_guard = self.device.lock().await;
+                (*device_guard
+                    .as_ref()
+                    .ok_or_else(|| "Device not set".to_string())?)
+                .clone()
+            };
+
+            match self.sync_service.get_next_pending_sync(&device).await {
+                Ok(Some(payload)) => {
+                    let message = Message::SyncResponse(payload);
+                    self.send_message(serde_json::to_string(&message).map_err(|e| e.to_string())?)
+                        .await?;
+                }
+                Ok(None) => {
+                    info!("No pending syncs, sending sync complete");
+                    let message = Message::SyncComplete;
+                    self.send_message(serde_json::to_string(&message).map_err(|e| e.to_string())?)
+                        .await?;
+                }
+                Err(e) => {
+                    error!("Failed to get pending sync: {}", e);
+                    return Err(e.to_string());
+                }
+            }
         }
 
         Ok(())
@@ -626,6 +627,14 @@ impl P2PService {
                                                                 );
                                                             }
                                                             Ok(())
+                                                        }
+                                                        Message::AckComplete(
+                                                            device_sync_record_id,
+                                                        ) => {
+                                                            self.ack_complete(
+                                                                device_sync_record_id.clone(),
+                                                            )
+                                                            .await
                                                         }
                                                         _ => Ok(()),
                                                     };
@@ -837,10 +846,6 @@ impl P2PService {
             .node_addr()
             .await
             .map_err(|e| e.to_string())?;
-        let relay_url = node_addr
-            .relay_url
-            .expect("Should have a relay URL, assuming a default endpoint setup.");
-
         let addrs = node_addr
             .direct_addresses
             .into_iter()
@@ -849,7 +854,6 @@ impl P2PService {
         let ticket = ConnectionTicket {
             node_id: state.endpoint.node_id().to_string(),
             addresses: addrs,
-            relay_url: relay_url.to_string(),
         };
 
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
@@ -857,7 +861,7 @@ impl P2PService {
     pub async fn connect_with_ticket(&self, ticket_str: &str) -> Result<(), String> {
         self.ensure_initialized().await?;
 
-        info!("Starting connection process with ticket: {}", ticket_str);
+        println!("Starting connection process with ticket: {}", ticket_str);
 
         let (endpoint, node_addr) = {
             let state_guard = self.state.lock().await;
@@ -866,23 +870,14 @@ impl P2PService {
             let ticket: ConnectionTicket = serde_json::from_str(ticket_str)
                 .map_err(|e| format!("Invalid ticket format: {}", e))?;
 
-            info!(
-                "Parsed ticket - Node ID: {}, URL: {}",
-                ticket.node_id, ticket.relay_url
-            );
             info!("Addresses from ticket: {:?}", ticket.addresses);
-            let clea_url = ticket.relay_url.trim_end_matches("/").to_string();
-            let url = Url::parse(&clea_url).map_err(|e| e.to_string())?;
-            let relay_url = Some(iroh::RelayUrl::from(url));
-
-            info!("Constructed relay URL: {:?}", relay_url);
 
             let node_addr = NodeAddr::from_parts(
                 ticket
                     .node_id
                     .parse()
                     .map_err(|e| format!("Invalid node ID: {}", e))?,
-                relay_url,
+                None,
                 ticket
                     .addresses
                     .iter()
@@ -893,9 +888,9 @@ impl P2PService {
                     .collect::<Vec<_>>(),
             );
 
-            info!("Created NodeAddr: {:?}", node_addr);
-            info!("Our endpoint ID: {}", state.endpoint.node_id());
-            info!(
+            println!("Created NodeAddr: {:?}", node_addr);
+            println!("Our endpoint ID: {}", state.endpoint.node_id());
+            println!(
                 "ALPN Protocol being used: {}",
                 String::from_utf8_lossy(ALPN_PROTOCOL)
             );
@@ -909,17 +904,10 @@ impl P2PService {
         match &connect_result {
             Ok(conn) => {
                 info!("Connection successful!");
-                info!("Remote address: {}", conn.remote_address());
-                info!("Connection stats: {:?}", conn.stats());
-
-                // Try to get additional connection info if possible
-                if let Ok(peer_id) = iroh::endpoint::get_remote_node_id(conn) {
-                    info!("Connected to peer ID: {}", peer_id);
-                }
             }
             Err(e) => {
-                error!("Connection failed. Error details:");
-                error!("Error: {}", e);
+                println!("Connection failed. Error details:");
+                println!("Error: {}", e);
                 error!("Node addr used: {:?}", node_addr);
                 // Try to get any additional endpoint state that might be helpful
                 info!("Endpoint bound sockets: {:?}", endpoint.bound_sockets());
