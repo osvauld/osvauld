@@ -1,6 +1,7 @@
 use crate::database::schema::device_record_status;
 use crate::domains::models::device::Device;
-use crate::domains::models::p2p::{SyncData, SyncPayload};
+use crate::domains::models::p2p::{Message, SyncAckType, SyncData, SyncPayload};
+use crate::domains::models::sync_record::DeviceRecordSet;
 use crate::domains::models::{
     credential::Credential,
     folder::Folder,
@@ -89,6 +90,7 @@ impl SyncService {
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
         // Try device syncs first
+        info!("getting records for********* {}", device.id);
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
             .get_pending_sync_by_type(&device.id, "device")
@@ -176,89 +178,97 @@ impl SyncService {
         self.device_repository.save(device).await
     }
 
-    fn process_device_records(
+    // pub async fn mark_sync_complete(
+    //     &self,
+    //     sync_id: &str,
+    //     device: Device,
+    // ) -> Result<(), RepositoryError> {
+    //     let current_device_id = self.store_repository.get_device_key().await?;
+    //     let devices = self
+    //         .device_repository
+    //         .get_devices_except(vec![current_device_id.clone(), device.id.clone()].as_slice())
+    //         .await?;
+    //     let status_change_records = SyncRecord::create_completion_records(
+    //         sync_id.to_string(),
+    //         device.id.clone(),
+    //         current_device_id,
+    //         &devices,
+    //     );
+    //     self.sync_repository
+    //         .update_device_record(device.id.clone(), sync_id.to_string())
+    //         .await?;
+    //     self.sync_repository
+    //         .add_status_change_set(status_change_records)
+    //         .await?;
+    //     Ok(())
+    // }
+
+    pub async fn process_acknowledgement(
         &self,
-        device_records: &[DeviceRecord],
-        device_statuses: &[DeviceRecordStatus],
-        current_device_id: &str,
-    ) -> (
-        Vec<DeviceRecord>,
-        Vec<DeviceRecordStatus>,
-        Vec<String>, // (device_record_id, sync_record_id) for synced records
-        Vec<String>, // device_record_status_ids that were marked as synced
-    ) {
-        let mut synced_record_ids = Vec::new();
-        let mut synced_status_ids = Vec::new();
-
-        let updated_records = device_records
-            .iter()
-            .map(|record| {
-                let mut r = record.clone();
-                if r.device_id == current_device_id {
-                    r.status = SyncStatus::Completed;
-                    r.synced = true;
-                    synced_record_ids.push(r.id.clone());
-                }
-                r
-            })
-            .collect();
-
-        let updated_statuses = device_statuses
-            .iter()
-            .map(|status| {
-                let mut s = status.clone();
-                if s.aware_device_id == current_device_id {
-                    s.synced = true;
-                    synced_status_ids.push(s.id.clone());
-                }
-                s
-            })
-            .collect();
-
-        (
-            updated_records,
-            updated_statuses,
-            synced_record_ids,
-            synced_status_ids,
-        )
-    }
-
-    pub async fn mark_sync_complete(
-        &self,
-        sync_id: &str,
+        ack: SyncAckType,
         device: Device,
-    ) -> Result<(), RepositoryError> {
+    ) -> Result<Option<String>, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
-        let devices = self
-            .device_repository
-            .get_devices_except(vec![current_device_id.clone(), device.id.clone()].as_slice())
-            .await?;
-        let status_change_records = SyncRecord::create_completion_records(
-            sync_id.to_string(),
-            device.id.clone(),
-            current_device_id,
-            &devices,
-        );
-        self.sync_repository
-            .update_device_record(device.id.clone(), sync_id.to_string())
-            .await?;
-        self.sync_repository
-            .add_status_change_set(status_change_records)
-            .await?;
-        Ok(())
-    }
+        match ack {
+            SyncAckType::FullSync {
+                sync_record_id,
+                device_record,
+                mut device_sync_records,
+            } => {
+                info!(
+                    "Processing full sync acknowledgement for sync record: {}",
+                    sync_record_id
+                );
+                let synced_device_record_id = device_sync_records
+                    .iter_mut()
+                    .find_map(|dsr| {
+                        if dsr.aware_device_id == current_device_id {
+                            dsr.synced = true;
+                            Some(dsr.id.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or_else(|| {
+                        RepositoryError::CustomError(
+                            "No matching device sync record found for current device".to_string(),
+                        )
+                    })?;
 
+                self.sync_repository
+                    .add_status_change_set(StatusChangeSet {
+                        device_record_statuses: device_sync_records,
+                        device_record,
+                    })
+                    .await?;
+                self.sync_repository
+                    .update_device_record(device.id, sync_record_id)
+                    .await?;
+                Ok(Some(synced_device_record_id))
+            }
+            SyncAckType::DeviceSyncRecord(record) => {
+                info!("processing device sync record status {}", record);
+                todo!();
+            }
+
+            SyncAckType::DeviceRecords(records) => {
+                self.sync_repository
+                    .update_device_sync_record_by_device_id(records, device.id)
+                    .await?;
+                Ok(None)
+            }
+        }
+    }
     pub async fn process_sync_payload(
         &self,
         payload: &SyncPayload,
-    ) -> Result<(Vec<String>, Vec<String>), RepositoryError> {
+    ) -> Result<SyncAckType, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
-        let (device_records, device_statuses, synced_record_ids, synced_status_ids) = self
-            .process_device_records(
-                &payload.device_records,
-                &payload.device_record_statuses,
-                &current_device_id,
-            );
+        let (mut device_records, mut device_record_statuses) = SyncRecord::process_device_records(
+            &payload.device_records,
+            &payload.device_record_statuses,
+            &current_device_id,
+        );
 
         if let Some(sync_record) = &payload.sync_record {
             if let Some(data) = &payload.data {
@@ -276,23 +286,43 @@ impl SyncService {
                 }
             }
 
+            let devices = self
+                .device_repository
+                .get_devices_except(vec![current_device_id.clone()].as_slice())
+                .await?;
+            let status_change_records = SyncRecord::create_completion_records(
+                sync_record.id.clone(),
+                current_device_id,
+                &devices,
+            );
+            device_records.push(status_change_records.device_record.clone());
+            device_record_statuses.extend(status_change_records.device_record_statuses.clone());
+
             let record_set = SyncRecordSet {
                 sync_record: sync_record.clone(),
                 device_records,
-                device_record_statuses: device_statuses,
+                device_record_statuses,
             };
             self.sync_repository.add_sync_record_set(record_set).await?;
+            Ok(SyncAckType::FullSync {
+                sync_record_id: sync_record.id.clone(),
+                device_record: status_change_records.device_record.clone(),
+                device_sync_records: status_change_records.device_record_statuses.clone(),
+            })
         } else {
-            let status_set = StatusChangeSet {
+            let device_record_ids: Vec<_> = device_records
+                .iter()
+                .map(|device_record| device_record.id.clone())
+                .collect();
+            let device_record_set = DeviceRecordSet {
+                device_record_statuses,
                 device_records,
-                device_record_statuses: device_statuses,
             };
             self.sync_repository
-                .add_status_change_set(status_set)
+                .update_device_record_set(device_record_set)
                 .await?;
+            Ok(SyncAckType::DeviceRecords(device_record_ids))
         }
-
-        Ok((synced_record_ids, synced_status_ids))
     }
 
     pub async fn add_folder_to_sync(&self, folder: Folder) -> Result<(), RepositoryError> {
@@ -395,5 +425,11 @@ impl SyncService {
         self.sync_repository
             .update_sync_status(device_record_ids, status_record_ids)
             .await
+    }
+    pub async fn handle_ack_complete(&self, device_sync_record_id: String) -> Result<(), String> {
+        self.sync_repository
+            .update_device_sync_record_status(device_sync_record_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 }

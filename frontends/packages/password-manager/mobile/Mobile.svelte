@@ -6,6 +6,7 @@
 	import Logo from "@osvauld/password-manager-common/icons/logo.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
+	import MobileImportPvtKey from "./components/ui/MobileImportPvtKey.svelte";
 	let loggedIn = true;
 	let isLoaderActive = false;
 	let isSignedUp = false;
@@ -55,13 +56,13 @@
 	{#if isLoaderActive}
 		<Loader />
 	{:else if !isSignedUp}
-		<Signup on:signedUp="{handleSignUp}" />
+		<Signup ImportComponent={MobileImportPvtKey} on:signedUp={handleSignUp} />
 	{:else if loggedIn}
 		<Home />
 	{:else}
 		<div class="mb-12 flex justify-center items-center">
 			<Logo />
 		</div>
-		<Welcome on:authenticated="{checkAuth}" />
+		<Welcome on:authenticated={checkAuth} />
 	{/if}
 </main>

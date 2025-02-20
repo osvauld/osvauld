@@ -13,12 +13,13 @@
 	import Discord from "@osvauld/password-manager-common/icons/discord.svelte";
 	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
 	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
-	import { showWelcome, language } from "../../store/desktop.ui.store";
+	import { showWelcome, language, showSyncQr } from "../../store/desktop.ui.store";
 	import { LL } from "@osvauld/password-manager-common//i18n/i18n-svelte";
 	import {
 		LANGUAGE_CODES,
 		SUPPORTED_LANGUAGES,
 	} from "@osvauld/password-manager-common/utils/translationUtils";
+
 
 	let showDropdown = false;
 	let hoveredItem = "";
@@ -36,6 +37,11 @@
 	const handleDropDownClick = (id: string) => {
 		if (id === "add") {
 			addDeviceModal.set(true);
+		} else if (id == "logout") {
+			sendMessage("logout");
+			showWelcome.set(true);
+		} else if (id == "sync") {
+			showSyncQr.set(true);
 		}
 		if (id == "logout") {
 			sendMessage("logout");

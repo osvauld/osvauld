@@ -57,7 +57,8 @@ pub fn run() {
                         && !metadata.target().contains("iroh_relay")
                         && !metadata.target().contains("portmapper")
                         && !metadata.target().contains("igd_next::aio::tokio")
-                        && !metadata.target().contains("tao::platform_impl::platform")
+                        && !metadata.target().contains("igd_next::aio::tokio")
+                        && !metadata.target().contains("rustls::client")
                 })
                 .build(),
         )

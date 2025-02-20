@@ -90,12 +90,7 @@ impl AuthService {
         Ok(device)
     }
 
-    pub async fn handle_sign_up(
-        &self,
-        username: &str,
-        passphrase: &str,
-        challenge: &str,
-    ) -> Result<(User, String), String> {
+    pub async fn handle_sign_up(&self, username: &str, passphrase: &str) -> Result<User, String> {
         // Generate primary keys for the user
         let primary_key = {
             let crypto = self.crypto_utils.lock().await;
@@ -124,19 +119,10 @@ impl AuthService {
             .await
             .map_err(|e| e.to_string())?;
 
-        // Sign the challenge
-        let signature = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto.sign_message(challenge).map_err(|e| e.to_string())?
-        };
-
-        Ok((
-            User {
-                username: username.to_string(),
-                certificate,
-            },
-            signature,
-        ))
+        Ok(User {
+            username: username.to_string(),
+            certificate,
+        })
     }
 
     pub async fn load_certificate(&self, passphrase: &str) -> Result<String, String> {

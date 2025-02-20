@@ -1,17 +1,13 @@
 <script lang="ts">
 	import SetPassPhrase from "./SetPassPhrase.svelte";
-	import ImportPvtKey from "./ImportPvtKey.svelte";
 	import { createEventDispatcher } from "svelte";
 
-	let challenge = "";
+	export let ImportComponent; // Allow platform-specific import component to be passed
+
 	let importPvtKeyFlag = false;
-	let showSelection = true; // Controls visibility of the selection screen
+	let showSelection = true;
 
 	const dispatch = createEventDispatcher();
-
-	const handleRecovery = (e: any) => {
-		importPvtKeyFlag = e.detail;
-	};
 
 	const handleSignedUp = () => {
 		dispatch("signedUp");
@@ -26,7 +22,6 @@
 <div
 	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary">
 	{#if showSelection}
-		<!-- Selection Screen -->
 		<div class="w-full h-[112px] rounded-xl bg-mobile-bgSeconary p-4 mx-4">
 			<h2 class="text-mobile-textActive font-normal text-xl leading-6 mb-4">
 				Welcome to Osvauld
@@ -44,12 +39,10 @@
 				</button>
 			</div>
 		</div>
+	{:else if importPvtKeyFlag}
+		<svelte:component this={ImportComponent} on:login={handleSignedUp} />
 	{:else}
-		<!-- Existing Flow -->
-		{#if importPvtKeyFlag}
-			<ImportPvtKey on:login={handleSignedUp} />
-		{:else}
-			<SetPassPhrase {challenge} on:signedUp={handleSignedUp} />
-		{/if}
+		<SetPassPhrase on:signedUp={handleSignedUp} />
 	{/if}
 </div>
+
