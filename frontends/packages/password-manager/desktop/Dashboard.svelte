@@ -43,6 +43,12 @@
 		});
 	});
 
+	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
+
+	let signedUp = false;
+	let isLoading = true;
+
+
 	async function initializeLanguage() {
 		try {
 			const locale = await invoke("get_system_locale");
@@ -107,11 +113,11 @@
 			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
+
 		<Signup
 			ImportComponent={DesktopImportPvtKey}
 			on:signedUp={handleSignedUp} />
 	{:else if $showWelcome}
-		{console.log("showing welcome")}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
