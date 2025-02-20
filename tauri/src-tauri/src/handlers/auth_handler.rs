@@ -24,12 +24,11 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
 ) -> Result<CryptoResponse, String> {
-    let (user, signature) = auth_service
-        .handle_sign_up(&input.username, &input.passphrase, &input.challenge)
+    let user = auth_service
+        .handle_sign_up(&input.username, &input.passphrase)
         .await?;
 
     Ok(CryptoResponse::SavePassphrase {
-        signature,
         username: user.username,
         deviceKey: user.certificate.public_key.clone(),
         encryptionKey: user.certificate.public_key,
@@ -78,6 +77,7 @@ pub async fn handle_add_device(
     p2p_service: State<'_, Arc<P2PService>>,
     sync_service: State<'_, Arc<SyncService>>,
 ) -> Result<CryptoResponse, String> {
+    println!("adding device");
     let (device, sync_record_set) = auth_service
         .add_device(input.certificate, input.passphrase)
         .await?;

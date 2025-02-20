@@ -8,6 +8,7 @@
 
 	onMount(async () => {
 		try {
+			console.log("default layout mounted");
 			const resp = await sendMessage("getFolder");
 			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
 			vaults.set(updatedVaults);

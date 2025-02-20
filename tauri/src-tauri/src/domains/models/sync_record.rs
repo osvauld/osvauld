@@ -46,9 +46,14 @@ pub struct SyncRecordSet {
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
 
+pub struct DeviceRecordSet {
+    pub device_records: Vec<DeviceRecord>,
+    pub device_record_statuses: Vec<DeviceRecordStatus>,
+}
+
 #[derive(Debug)]
 pub struct StatusChangeSet {
-    pub device_records: Vec<DeviceRecord>,
+    pub device_record: DeviceRecord,
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
 #[derive(Debug)]
@@ -223,13 +228,11 @@ impl SyncRecord {
 
     pub fn create_completion_records(
         sync_id: String,
-        synced_device_id: String,
         current_device_id: String,
         other_devices: &[Device],
     ) -> StatusChangeSet {
         SyncRecord::create_status_change_records(
             sync_id,
-            synced_device_id,
             current_device_id,
             other_devices,
             SyncStatus::Completed,
@@ -237,7 +240,6 @@ impl SyncRecord {
     }
     fn create_status_change_records(
         sync_id: String,
-        synced_device_id: String,
         current_device_id: String,
         other_devices: &[Device],
         status: SyncStatus,
@@ -248,7 +250,7 @@ impl SyncRecord {
         let device_record = DeviceRecord {
             id: Uuid::new_v4().to_string(),
             sync_record_id: sync_id,
-            device_id: synced_device_id,
+            device_id: current_device_id.clone(),
             status,
             synced: true,
             created_at: now,
@@ -269,20 +271,18 @@ impl SyncRecord {
 
         // Create status records for other devices
         for other_device in other_devices {
-            if other_device.id != current_device_id {
-                device_record_statuses.push(DeviceRecordStatus {
-                    id: Uuid::new_v4().to_string(),
-                    device_record_id: device_record.id.clone(),
-                    aware_device_id: other_device.id.clone(),
-                    synced: false,
-                    created_at: now,
-                    updated_at: now,
-                });
-            }
+            device_record_statuses.push(DeviceRecordStatus {
+                id: Uuid::new_v4().to_string(),
+                device_record_id: device_record.id.clone(),
+                aware_device_id: other_device.id.clone(),
+                synced: false,
+                created_at: now,
+                updated_at: now,
+            });
         }
 
         StatusChangeSet {
-            device_records: vec![device_record],
+            device_record,
             device_record_statuses,
         }
     }
@@ -379,5 +379,35 @@ impl SyncRecord {
             device_records,
             device_record_statuses,
         }
+    }
+
+    pub fn process_device_records(
+        device_records: &[DeviceRecord],
+        device_statuses: &[DeviceRecordStatus],
+        current_device_id: &str,
+    ) -> (Vec<DeviceRecord>, Vec<DeviceRecordStatus>) {
+        let updated_records = device_records
+            .iter()
+            .map(|record| {
+                let mut r = record.clone();
+                if r.device_id == current_device_id {
+                    r.synced = true;
+                }
+                r
+            })
+            .collect();
+
+        let updated_statuses = device_statuses
+            .iter()
+            .map(|status| {
+                let mut s = status.clone();
+                if s.aware_device_id == current_device_id {
+                    s.synced = true;
+                }
+                s
+            })
+            .collect();
+
+        (updated_records, updated_statuses)
     }
 }

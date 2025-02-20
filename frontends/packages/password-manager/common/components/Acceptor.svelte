@@ -28,6 +28,7 @@
 	onMount(async () => {
 		try {
 			await invoke("start_p2p_listener");
+			console.log("acceptor mounted");
 			await setupEventListeners();
 			connectionTicket = await invoke("get_ticket");
 			status = "Ready to connect. Share the ticket with mobile device.";
@@ -55,7 +56,8 @@
 	}
 </script>
 
-<div class="p-4 flex flex-col gap-4">
+<div
+	class="p-4 inset-0 items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px] fixed flex flex-col gap-4">
 	<div class="bg-mobile-bgSeconary rounded-lg p-4">
 		<h2 class="text-xl mb-2 text-mobile-textPrimary">Receive Connection</h2>
 		<p class="text-mobile-textSecondary mb-4">
@@ -71,11 +73,12 @@
 		<div class="flex flex-col gap-3">
 			{#if connectionTicket}
 				<div class="mx-auto">
-					<QRCode data="{JSON.stringify(connectionTicket)}" />
+					<QRCode data={JSON.stringify(connectionTicket)} />
 				</div>
+				<textarea name="text" id="sdfa"> {connectionTicket} </textarea>
 
 				<button
-					on:click="{copyTicket}"
+					on:click={copyTicket}
 					class="w-full bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg py-3 font-medium">
 					Copy Ticket
 				</button>
