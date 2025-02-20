@@ -7,3 +7,6 @@ frontends/packages/password-manager/desktop/node_modules
 frontends/packages/password-manager/mobile/node_modules
 frontends/packages/password-manager/desktop/dist
 frontends/packages/password-manager/mobile/dist
+frontends/node_modules/
+frontends/packages/livnote/desktop/node_modules
+frontends/packages/common/node_modules/

@@ -28,35 +28,19 @@
 		deleteConfirmationModal,
 		toastStore,
 		showWelcome,
-    showSyncQr,
+		showSyncQr,
 		language,
 		currentVault,
 	} from "./store/desktop.ui.store";
 
 	import { StorageService } from "@osvauld/password-manager-common/utils/storageHelper";
 
-
-
-	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 	import DesktopImportPvtKey from "./components/ui/DesktopImportPvtKey.svelte";
-
-	let signedUp = $state(false);
-	let isLoading = $state(true);
-	$effect(() => {
-		console.log("State changed:", {
-			isLoading,
-			signedUp,
-			showWelcome: $showWelcome,
-		});
-	});
-
-	import { setFolderStore } from "@osvauld/password-manager-common/utils/storeHelper";
 
 	let signedUp = false;
 	let isLoading = true;
 
 	const initializeLanguage = async () => {
-
 		try {
 			const locale = await invoke("get_system_locale");
 			const deviceLanguage = String(locale).split(/[-_]/)[0].toLowerCase();
@@ -135,7 +119,6 @@
 			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
-
 		<Signup
 			ImportComponent={DesktopImportPvtKey}
 			on:signedUp={handleSignedUp} />

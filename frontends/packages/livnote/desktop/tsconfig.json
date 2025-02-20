@@ -18,23 +18,20 @@
 		"baseUrl": ".",
 		"paths": {
 			"@osvauld/password-manager-common": [
-				"../../common"
+				"../common"
 			],
 			"@osvauld/password-manager-common/*": [
-				"../../common/*"
+				"../common/*"
 			]
 		},
 		"allowJs": true,
 		"isolatedModules": true
 	},
 	"include": [
-		"components/**/*.ts",
-		"components/**/*.svelte",
-		"store/*.ts",
-		"*.ts",
-		"*.svelte",
-		"../common/**/*.ts",
-		"../common/**/*.svelte"
+    "lib/**/*.ts",
+    "lib/*.ts",
+    "lib/**/*.svelte",
+    "lib/*.svelte",
 	],
 	"exclude": [
 		"node_modules/*",
