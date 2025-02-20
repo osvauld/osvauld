@@ -31,6 +31,7 @@
 	};
 
 	const addCredentialHandlerFunc = async () => {
+		// Need to add basic validation
 		await addCredentialHandler(
 			{
 				name: "test",
@@ -55,9 +56,9 @@
 </script>
 
 <div
-	class="fixed inset-0 z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[0.5px] flex justify-end">
+	class="fixed inset-0 z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[0.5px] flex justify-center items-center">
 	<div
-		class="w-[23.5rem] h-full flex flex-col bg-osvauld-ninjablack border-l border-l-osvauld-sideListHighlight p-3">
+		class="w-[40rem] h-[50rem] flex flex-col bg-osvauld-ninjablack border border-osvauld-activeBorder rounded-3xl p-10">
 		<div class="w-full h-[48px] px-3 flex items-center gap-2 flex-shrink-0">
 			<button
 				on:click={closeEditorModal}
@@ -85,30 +86,39 @@
 		<div
 			class="grow p-4 text-mobile-textPrimary overflow-y-auto scrollbar-thin flex flex-col gap-2 mt-2">
 			{#each credentialFields as field (field.fieldName)}
-				<input
-					type="text"
-					bind:value={field.fieldValue}
-					placeholder={field.fieldName}
-					autocorrect="off"
-					autocomplete="off"
-					class="w-full bg-mobile-bgSeconary border p-2 rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none" />
+				{#if field.fieldName === "Note"}
+					<textarea
+						class="p-2 bg-mobile-bgSeconary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none"
+						rows="10"
+						bind:value={field.fieldValue}
+						placeholder="Start typing...."
+						autocomplete="off"></textarea>
+				{:else}
+					<input
+						type="text"
+						bind:value={field.fieldValue}
+						placeholder={field.fieldName}
+						autocorrect="off"
+						autocomplete="off"
+						class="w-full bg-mobile-bgSeconary border p-2 rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none" />
+				{/if}
 			{/each}
 		</div>
 		<div class="flex justify-center">
 			<textarea
 				name="note"
 				id="details"
-				rows="5"
+				rows="2"
 				class="w-[calc(100%-1.5rem)] p-2 bg-mobile-bgSeconary border rounded-lg border-mobile-bgHighlight focus:border-mobile-borderActive focus:ring-0 focus:outline-none"
 				placeholder="Enter description about credential here"></textarea>
 		</div>
 		<div
 			class="h-[68px] flex-shrink-0 p-3 flex justify-between items-center text-mobile-bgPrimary">
 			<button
-				class="px-10 py-2.5 text-mobile-textSecondary"
+				class="px-10 py-2.5 text-mobile-textSecondary cursor-pointer"
 				on:click={closeEditorModal}>Cancel</button>
 			<button
-				class="px-10 py-2.5 bg-osvauld-carolinablue rounded-lg font-medium"
+				class="px-10 py-2.5 bg-osvauld-carolinablue rounded-lg font-medium cursor-pointer"
 				on:click={addCredentialHandlerFunc}>Save</button>
 		</div>
 	</div>

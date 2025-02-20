@@ -45,21 +45,21 @@
 
 <div class="min-w-0">
 	<div
-		class="bg-osvauld-frameblack w-full border border-osvauld-cardBorder rounded-xl p-4"
-		on:dblclick|stopPropagation="{() => dispatchDoubleClick(credential)}"
-		on:click|stopPropagation="{() => dispatchClick(credential.id)}">
+		class="bg-osvauld-frameblack w-full border border-osvauld-cardBorder rounded-xl p-4 select-none"
+		on:dblclick|stopPropagation={() => dispatchDoubleClick(credential)}
+		on:click|stopPropagation={() => dispatchClick(credential.id)}>
 		<div class="flex items-center mb-4">
 			<span
 				class="flex justify-center items-center p-2.5 bg-osvauld-fieldActive rounded-md mr-3">
 				{#if categoryInfo && categoryInfo.icon}
-					<svelte:component this="{categoryInfo.icon}" color="{'#BFC0CC'}" />
+					<svelte:component this={categoryInfo.icon} color={"#BFC0CC"} />
 				{:else}
 					<span>!</span>
 				{/if}
 			</span>
 			<button
 				class="ml-auto p-2.5 bg-osvauld-fieldActive rounded-md flex justify-center items-center active:scale-95"
-				on:click|stopPropagation="{() => toggleFavorite(credential.id)}">
+				on:click|stopPropagation={() => toggleFavorite(credential.id)}>
 				{#if favourite}
 					<FavStar />
 				{:else}
@@ -68,7 +68,7 @@
 			</button>
 			<button
 				class="ml-3 p-2.5 bg-osvauld-fieldActive rounded-md flex justify-center items-center"
-				on:click|stopPropagation="{() => {}}">
+				on:click|stopPropagation={() => {}}>
 				<MenuVertical />
 			</button>
 		</div>
@@ -86,7 +86,7 @@
 			</span>
 		</div>
 		{#if credentialcardstates.find((item) => item.id === credential.id)?.show}
-			<CredentialOverview {type} fields="{credential.data.credentialFields}" />
+			<CredentialOverview {type} fields={credential.data.credentialFields} />
 		{/if}
 	</div>
 </div>

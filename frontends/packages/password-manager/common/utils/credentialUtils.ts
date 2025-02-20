@@ -10,6 +10,7 @@ import MobileContact from "../icons/mobileContact.svelte";
 import MobileWallet from "../icons/mobileWallet.svelte";
 
 export const CATEGORIES = [
+
   { id: "logins", type: "Logins", icon: LoginIcon },
   { id: "pins", type: "PINs", icon: KeyIcon },
   { id: "creditdebitcards", type: "Credit/Debit Cards", icon: CreditCard },
