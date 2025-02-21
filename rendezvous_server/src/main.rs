@@ -1,26 +1,28 @@
-use axum::{
-    routing::get,
-    Router,
-};
-use std::sync::Arc;
 use crate::storage::Storage;
-use crate::websocket::ws_handler;
-
+use axum::{extract::ws::Message, routing::get, Router};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc, Mutex};
 mod storage;
 mod websocket;
+
+type Clients = Arc<Mutex<HashMap<String, mpsc::UnboundedSender<Message>>>>;
 
 #[tokio::main]
 async fn main() {
     // Initialize the Sled database for local storage
     let storage = Arc::new(Storage::new("clients_db").unwrap());
+    let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
 
     // Set up the Axum router with a WebSocket route
     let app = Router::new()
-        .route("/ws", get(ws_handler))
-        .layer(axum::Extension(storage));
+        .route("/ws", get(websocket::ws_handler))
+        .layer(axum::Extension(storage.clone()))
+        .layer(axum::Extension(clients.clone()));
 
     // Start the server on localhost:3030
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3030").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3030")
+        .await
+        .unwrap();
     println!("WebSocket server running at ws://127.0.0.1:3030/ws");
     axum::serve(listener, app).await.unwrap();
 }

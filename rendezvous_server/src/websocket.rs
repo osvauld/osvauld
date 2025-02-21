@@ -1,97 +1,169 @@
+use crate::storage::Storage;
 use axum::{
-    extract::ws::{Message, WebSocket},
+    extract::ws::{Message, WebSocket, WebSocketUpgrade},
     response::IntoResponse,
     Extension,
 };
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use serde_json;
-use std::sync::Arc;
-use crate::storage::Storage;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::{mpsc, Mutex};
+use uuid::Uuid;
 
-#[derive(Deserialize)]
-struct ClientMessage {
-    id: String,
-    connection_string: String,
-}
+type Tx = mpsc::UnboundedSender<Message>;
+type Clients = Arc<Mutex<HashMap<String, Tx>>>;
 
-#[derive(Serialize)]
-struct ClientInfo {
-    id: String,
-    connection_string: String,
-}
-
-#[derive(Serialize)]
-struct ClientsResponse {
-    clients: Vec<ClientInfo>,
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "action", content = "payload")]
+enum WsMessage {
+    Register {
+        user_id: String,
+    },
+    ConnectionResponse {
+        user_id: String,
+        connection_string: String,
+    },
+    GetConnectionRequest,
+    GetConnectionStringRequest {
+        user_id: String,
+    },
+    ConnectionStringResponse {
+        user_id: String,
+        connection_string: Option<String>,
+    },
 }
 
 pub async fn ws_handler(
-    ws: axum::extract::ws::WebSocketUpgrade,
+    ws: WebSocketUpgrade,
     Extension(storage): Extension<Arc<Storage>>,
+    Extension(clients): Extension<Clients>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(|socket| handle_socket(socket, storage))
+    println!("New WebSocket connection request");
+    ws.on_upgrade(|socket| handle_socket(socket, storage, clients))
 }
 
-async fn handle_socket(mut socket: WebSocket, storage: Arc<Storage>) {
-    while let Some(msg) = socket.recv().await {
-        if let Ok(msg) = msg {
-            if let Ok(text) = msg.to_text() {
-                // Use helper to process the incoming message.
-                if let Err(e) = process_and_respond(text, &mut socket, storage.clone()).await {
-                    eprintln!("Error processing message: {}", e);
+async fn handle_socket(socket: WebSocket, storage: Arc<Storage>, clients: Clients) {
+    println!("WebSocket connection established");
+    let client_id = Uuid::new_v4().to_string();
+    println!("Generated client ID: {}", client_id);
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    clients.lock().await.insert(client_id.clone(), tx);
+
+    let (mut sender, mut receiver) = socket.split();
+
+    let recv_client_id = client_id.clone();
+    let recv_storage = storage.clone();
+    let recv_clients = clients.clone();
+
+    let mut send_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let mut recv_task = tokio::spawn(async move {
+        while let Some(Ok(message)) = receiver.next().await {
+            if let Ok(text) = message.to_text() {
+                println!("Received message: {}", text);
+
+                match serde_json::from_str::<WsMessage>(text) {
+                    Ok(ws_message) => match ws_message {
+                        WsMessage::Register { user_id } => {
+                            println!("Registering user: {}", user_id);
+                            if let Err(e) =
+                                recv_storage.save_client(&user_id, &recv_client_id).await
+                            {
+                                eprintln!("Error saving client: {}", e);
+                            }
+                        }
+                        WsMessage::ConnectionResponse {
+                            user_id,
+                            connection_string,
+                        } => {
+                            println!("Saving connection string for user: {}", user_id);
+                            if let Err(e) = recv_storage
+                                .save_connection_string(&user_id, &connection_string)
+                                .await
+                            {
+                                eprintln!("Error saving connection string: {}", e);
+                            }
+                        }
+                        WsMessage::GetConnectionStringRequest { user_id } => {
+                            println!("Fetching connection string for user: {}", user_id);
+                            let connection_string = match recv_storage
+                                .get_connection_string(&user_id)
+                                .await
+                            {
+                                Ok(Some(cs)) => Some(cs),
+                                Ok(None) => {
+                                    println!("No connection string found for user: {}", user_id);
+                                    None
+                                }
+                                Err(e) => {
+                                    eprintln!("Error fetching connection string: {}", e);
+                                    None
+                                }
+                            };
+
+                            let response = WsMessage::ConnectionStringResponse {
+                                user_id: user_id.clone(),
+                                connection_string,
+                            };
+
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if let Some(tx) = recv_clients.lock().await.get(&recv_client_id) {
+                                    if let Err(e) = tx.send(Message::Text(json.into())) {
+                                        eprintln!(
+                                            "Error sending connection string response: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        WsMessage::GetConnectionRequest => {
+                            println!(
+                                "Received GetConnectionRequest - this is a server-side message"
+                            );
+                        }
+                        WsMessage::ConnectionStringResponse { .. } => {
+                            println!(
+                                "Received ConnectionStringResponse - this is a server-side message"
+                            );
+                        }
+                    },
+                    Err(e) => {
+                        eprintln!("Error parsing message: {}", e);
+                    }
                 }
             }
         }
+    });
+
+    tokio::select! {
+        _ = (&mut send_task) => recv_task.abort(),
+        _ = (&mut recv_task) => send_task.abort(),
     }
+
+    println!("Client {} disconnected", client_id);
+    clients.lock().await.remove(&client_id);
 }
 
-
-async fn process_and_respond(
-    text: &str,
-    socket: &mut WebSocket,
-    storage: Arc<Storage>,
+pub async fn request_connection(
+    clients: &Clients,
+    client_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let client_msg = parse_client_message(text)?;
-    save_client_info(&client_msg, storage.clone()).await?;
-    let response = build_clients_response(&client_msg, storage.clone()).await?;
-    send_response(socket, &response).await?;
-    Ok(())
-}
+    let clients_map = clients.lock().await;
 
-fn parse_client_message(text: &str) -> Result<ClientMessage, serde_json::Error> {
-    serde_json::from_str(text)
-}
-
-async fn save_client_info(
-    client_msg: &ClientMessage,
-    storage: Arc<Storage>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    storage
-        .save_client(&client_msg.id, &client_msg.connection_string)
-        .await
-        .map_err(|e| e.into())
-}
-
-
-async fn build_clients_response(
-    client_msg: &ClientMessage,
-    storage: Arc<Storage>,
-) -> Result<ClientsResponse, Box<dyn std::error::Error>> {
-    let clients = storage.get_all_clients().await?;
-    let filtered_clients: Vec<ClientInfo> = clients
-        .into_iter()
-        .filter(|(id, _)| id != &client_msg.id)
-        .map(|(id, connection_string)| ClientInfo { id, connection_string })
-        .collect();
-    Ok(ClientsResponse {
-        clients: filtered_clients,
-    })
-}
-
-async fn send_response(
-    socket: &mut WebSocket,
-    response: &ClientsResponse,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let json = serde_json::to_string(response)?;
-    socket.send(Message::Text(json)).await.map_err(|e| e.into())
+    if let Some(tx) = clients_map.get(client_id) {
+        let msg = WsMessage::GetConnectionRequest;
+        let json = serde_json::to_string(&msg)?;
+        tx.send(Message::Text(json.into()))?;
+        Ok(())
+    } else {
+        Err("Client not found".into())
+    }
 }
