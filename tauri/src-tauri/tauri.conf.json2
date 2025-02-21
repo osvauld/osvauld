@@ -1,14 +1,13 @@
-
   {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
   "productName": "osvauld",
   "version": "0.1.0",
   "identifier": "com.osvauld.app",
   "build": {
-    "beforeDevCommand": "cd ../frontends/packages/livnote/desktop && pnpm dev",
-    "beforeBuildCommand": "cd ../frontends/packages/livnote/desktop && pnpm build",
+    "beforeDevCommand": "cd ../frontends/packages/password-manager/desktop && pnpm dev",
+    "beforeBuildCommand": "cd ../frontends/packages/password-manager/desktop && pnpm build",
     "devUrl": "http://localhost:1421",
-    "frontendDist": "../../frontends/packages/livnote/desktop/dist"
+    "frontendDist": "../../frontends/packages/password-manager/desktop/dist"
   },
   "app": {
     "withGlobalTauri": true,
