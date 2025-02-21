@@ -9,6 +9,7 @@
 
 	onMount(() => {
 		appState.subscribe(({ editor }) => {
+			console.log(editor);
 			if (editorContainer) {
 				editorContainer.appendChild(editor);
 				document.documentElement.classList.add("dark");
@@ -42,4 +43,3 @@
 	bind:this={editorContainer}
 	class="editor-container h-full w-full bg-osvauld-frameblack">
 </div>
-
