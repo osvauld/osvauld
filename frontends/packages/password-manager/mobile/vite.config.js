@@ -26,7 +26,7 @@ export default defineConfig(({ mode }) => {
 
     resolve: {
       alias: {
-        "@osvauld/password-manager-common": path.resolve(__dirname, "../common"),
+        "@osvauld/password-manager-common": path.resolve(__dirname, "../../common"),
       },
     },
 
