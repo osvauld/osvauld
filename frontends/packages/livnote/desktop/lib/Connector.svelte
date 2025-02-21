@@ -3,7 +3,14 @@
 	import Initiator from "./Initiator.svelte";
 	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
+	import { createEventDispatcher } from "svelte";
 
+	const dispatch = createEventDispatcher();
+
+	function handleClose() {
+		// Dispatch a "close" event to the parent component
+		dispatch("close");
+	}
 	let isInitiator = true;
 
 	function toggleView() {
@@ -14,7 +21,7 @@
 <!-- Place button here, outside any potentially covering container -->
 <button
 	class="bg-blue-500 text-white px-4 py-2 rounded m-2 z-50"
-	on:click="{toggleView}">
+	on:click={toggleView}>
 	{isInitiator ? "Switch to Acceptor" : "Switch to Initiator"}
 </button>
 
@@ -25,4 +32,5 @@
 	{:else}
 		<Acceptor />
 	{/if}
+	<button class="bg-blue-500" on:click={handleClose}> close </button>
 </div>

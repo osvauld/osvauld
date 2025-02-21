@@ -17,6 +17,7 @@
 		console.log("Content updated:", getContent());
 	}
 
+	let showConnector = true;
 	const handleSignedUp = () => {
 		signedUp = true;
 		showWelcome.set(false);
@@ -24,6 +25,10 @@
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+	};
+
+	const handleConnectorClose = () => {
+		showConnector = false;
 	};
 
 	onMount(async () => {
@@ -70,7 +75,9 @@
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
-		<Connector />
-		<!-- <RichTextEditor placeholder="Start writing..." on:change={handleChange} /> -->
+		{#if showConnector}
+			<Connector on:close={handleConnectorClose} />
+		{/if}
+		<RichTextEditor placeholder="Start writing..." on:change={handleChange} />
 	{/if}
 </main>

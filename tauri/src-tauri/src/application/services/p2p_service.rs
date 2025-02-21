@@ -16,9 +16,9 @@ use iroh::{
 use iroh_blobs::store::mem::Store;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
-use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::{AppHandle, Listener};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
@@ -58,12 +58,12 @@ impl P2PService {
             auth_service,
         }
     }
+
     async fn ensure_initialized(&self) -> Result<(), String> {
         let mut state = self.state.lock().await;
         if state.is_some() {
             return Ok(());
         }
-
         info!("Initializing P2P endpoint");
         let secret_key = SecretKey::generate(rand::rngs::OsRng);
         let endpoint = Endpoint::builder()
@@ -86,7 +86,7 @@ impl P2PService {
 
     pub async fn add_device(&self, records: SyncPayload, ticket: String) -> Result<(), String> {
         // First establish connection with the target device using the ticket
-        self.connect_with_ticket(&ticket).await?;
+        self.connect_with_ticket(&ticket, false).await?;
 
         // Once connected, send the AddDevice message
         info!("Connection established, sending AddDevice message");
@@ -129,7 +129,7 @@ impl P2PService {
                                 Ok(Ok(conn)) => {
                                     info!("Connection established, initiating handshake");
                                     // Perform handshake as the receiver (non-initiator)
-                                    match self_clone.perform_handshake(&conn, false).await {
+                                    match self_clone.perform_handshake(&conn, false, true).await {
                                         Ok(()) => {
                                             info!("Handshake completed successfully");
 
@@ -160,7 +160,12 @@ impl P2PService {
         Ok(CryptoResponse::Success)
     }
 
-    async fn perform_handshake(&self, conn: &Connection, is_initiator: bool) -> Result<(), String> {
+    async fn perform_handshake(
+        &self,
+        conn: &Connection,
+        is_initiator: bool,
+        is_live: bool,
+    ) -> Result<(), String> {
         let (mut send, mut recv) = match timeout(CONNECTION_TIMEOUT, async {
             {
                 let mut initiator = self.is_initiator.lock().await;
@@ -220,7 +225,7 @@ impl P2PService {
                 "receiver"
             }
         );
-        if is_initiator {
+        if is_initiator && !is_live {
             self.start_sync().await?;
         }
         //  else {
@@ -858,7 +863,7 @@ impl P2PService {
 
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
     }
-    pub async fn connect_with_ticket(&self, ticket_str: &str) -> Result<(), String> {
+    pub async fn connect_with_ticket(&self, ticket_str: &str, is_live: bool) -> Result<(), String> {
         self.ensure_initialized().await?;
 
         println!("Starting connection process with ticket: {}", ticket_str);
@@ -920,7 +925,7 @@ impl P2PService {
         let conn = connect_result.map_err(|e| format!("Connection failed: {e}"))?;
 
         info!("Starting handshake process...");
-        let handshake_result = self.perform_handshake(&conn, true).await;
+        let handshake_result = self.perform_handshake(&conn, true, is_live).await;
 
         match &handshake_result {
             Ok(_) => info!("Handshake completed successfully"),
@@ -934,5 +939,13 @@ impl P2PService {
             .map_err(|e| format!("Failed to emit sync event: {}", e))?;
 
         Ok(())
+    }
+
+    pub async fn listen_to_edit_events(&self) {
+        self.app_handle.listen("sendable", move |event| {
+            // Access the event payload if there is one.
+            println!("Backend received event: {:?}", event.payload());
+            // You can also add additional logic here based on the event.
+        });
     }
 }

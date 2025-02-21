@@ -22,7 +22,14 @@ pub async fn connect_with_ticket(
     ticket: String,
     state: State<'_, Arc<P2PService>>,
 ) -> Result<(), String> {
-    state.connect_with_ticket(&ticket).await
+    state.connect_with_ticket(&ticket, false).await
+}
+#[tauri::command]
+pub async fn connect_with_ticket_live(
+    ticket: String,
+    state: State<'_, Arc<P2PService>>,
+) -> Result<(), String> {
+    state.connect_with_ticket(&ticket, true).await
 }
 
 #[tauri::command]

@@ -7,6 +7,7 @@
 	import { addListNodes } from "prosemirror-schema-list";
 	import { baseKeymap } from "prosemirror-commands";
 	import { keymap } from "prosemirror-keymap";
+	import { emit } from "@tauri-apps/api/event";
 	import {
 		collab,
 		sendableSteps,
@@ -125,7 +126,7 @@
 				}
 				const sendable = sendableSteps(newState);
 				if (sendable) {
-					console.log(sendable);
+					emit("sendable", sendable);
 				}
 				dispatch("change", {
 					state: newState,

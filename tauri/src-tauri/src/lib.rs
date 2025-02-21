@@ -1,4 +1,5 @@
 use log::{error, info};
+use tauri::Listener;
 use tauri::Manager;
 pub mod application;
 mod database;
@@ -22,7 +23,8 @@ use crate::handlers::credential_handler::{
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
-    connect_with_ticket, get_system_locale, get_ticket, send_message, start_p2p_listener,
+    connect_with_ticket, connect_with_ticket_live, get_system_locale, get_ticket, send_message,
+    start_p2p_listener,
 };
 use crate::persistence::repositories::{
     SqliteCredentialRepository, SqliteDeviceRepository, SqliteFolderRepository,
@@ -74,7 +76,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -172,6 +174,7 @@ pub fn run() {
             toggle_fav,
             update_last_accessed,
             get_all_credentials,
+            connect_with_ticket_live
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

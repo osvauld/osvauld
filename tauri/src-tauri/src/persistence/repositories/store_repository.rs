@@ -16,7 +16,7 @@ impl TauriStoreRepository {
     }
 
     async fn get_store(&self) -> Arc<Store<Wry>> {
-        self.app_handle.store("desktop.bin").unwrap()
+        self.app_handle.store("mobile.bin").unwrap()
     }
 }
 
