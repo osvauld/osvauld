@@ -7,6 +7,11 @@
 	import { addListNodes } from "prosemirror-schema-list";
 	import { baseKeymap } from "prosemirror-commands";
 	import { keymap } from "prosemirror-keymap";
+	import {
+		collab,
+		sendableSteps,
+		receiveTransaction,
+	} from "prosemirror-collab";
 	import { history, undo, redo } from "prosemirror-history";
 	import {
 		splitListItem,
@@ -104,6 +109,7 @@
 				keymap(listKeymap),
 				keymap(baseKeymap),
 				selectionPlugin,
+				collab({ version: 0 }),
 			],
 		});
 	}
@@ -116,6 +122,10 @@
 				view.updateState(newState);
 				if (view.dom.hasAttribute("data-placeholder")) {
 					view.dom.removeAttribute("data-placeholder");
+				}
+				const sendable = sendableSteps(newState);
+				if (sendable) {
+					console.log(sendable);
 				}
 				dispatch("change", {
 					state: newState,
