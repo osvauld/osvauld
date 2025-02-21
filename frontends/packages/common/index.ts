@@ -24,6 +24,7 @@ export * from './components/Loader.svelte';
 export * from './components/Signup.svelte';
 export * from './components/Welcome.svelte';
 export * from './components/PasswordPromptModal.svelte';
+export * from './components/Acceptor.svelte';
 // Export Icons
 export { default as ActiveCopy } from './icons/activeCopy.svelte';
 export { default as Add } from './icons/add.svelte';
