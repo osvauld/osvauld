@@ -1,11 +1,11 @@
 <script>
-	import RichTextEditor from "./lib/RichTextEditor.svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
 	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import DesktopImportPvtKey from "./lib/DesktopImportPvtKey.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { onMount } from "svelte";
+	import DocumentEditor from "./lib/DocumentEditor.svelte";
 
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	let signedUp = false;
@@ -69,6 +69,7 @@
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
-		<RichTextEditor placeholder="Start writing..." on:change={handleChange} />
+		<DocumentEditor />
+		<!-- <RichTextEditor placeholder="Start writing..." on:change={handleChange} /> -->
 	{/if}
 </main>
