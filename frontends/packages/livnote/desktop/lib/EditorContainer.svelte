@@ -16,14 +16,6 @@
 	export let syncRole: string;
 	let currentDoc: Doc | null = null;
 
-	function refreshEditor(state: AppState) {
-		if (editorContainer && state) {
-			editorContainer.innerHTML = "";
-			editorContainer.appendChild(state.editor);
-			document.documentElement.classList.add("dark");
-		}
-	}
-
 	function setupDocumentHandlers(doc: Doc) {
 		console.log("Setting up document handlers");
 
@@ -83,8 +75,6 @@
 				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-				refreshEditor(get(appState));
-				appState.update((state) => state);
 			} catch (error) {
 				console.error("Error handling sync update:", error);
 			}
@@ -100,8 +90,6 @@
 				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-				refreshEditor(get(appState));
-				appState.update((state) => state);
 			} catch (error) {
 				console.error("Error handling snapshot:", error);
 			}
@@ -127,10 +115,11 @@
 			console.error("Failed to get page1 document");
 		}
 
-		// Set up UI updates
-		unsubscribe = appState.subscribe((state) => {
-			if (state) refreshEditor(state);
-		});
+		// Mount the editor exactly once
+		if (editorContainer && state.editor) {
+			document.documentElement.classList.add("dark");
+			editorContainer.appendChild(state.editor);
+		}
 
 		// Set up event listeners
 		await setupSyncListeners();
@@ -148,9 +137,6 @@
 		console.log("Destroying editor container");
 		unsubscribe?.();
 		unlistenHandlers.forEach((unlisten) => unlisten());
-		if (editorContainer) {
-			editorContainer.innerHTML = "";
-		}
 	});
 </script>
 
