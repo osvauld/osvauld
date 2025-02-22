@@ -19,6 +19,7 @@
 		sendableSteps,
 		receiveTransaction,
 	} from "prosemirror-collab";
+	import { Step } from "prosemirror-transform";
 	import EditorToolbar from "./EditorToolbar.svelte";
 	export let content = null;
 	export let placeholder = "Start writing...";
@@ -188,10 +189,20 @@
 			editable: () => !readonly,
 		});
 		let unsubscribe = await listen("sync-update-be", (event) => {
-			console.log("recieved", event);
 			try {
-				const newContent = JSON.parse(event.payload);
-				console.log(newContent);
+				const {
+					steps,
+					clientID: remoteClientID,
+					version: newVersion,
+				} = JSON.parse(JSON.parse(event.payload));
+
+				console.log(steps, "asdfasdfsdafdsaf");
+				// Don't apply our own steps
+				if (remoteClientID === clientID) return;
+
+				if (steps && view) {
+					receiveSteps(steps, remoteClientID, newVersion);
+				}
 				// if (newContent && view) {
 				// 	setContent(newContent);
 				// }
