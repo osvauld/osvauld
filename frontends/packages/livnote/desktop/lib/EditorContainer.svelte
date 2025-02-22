@@ -1,32 +1,73 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { getContext } from "svelte";
 	import type { Writable } from "svelte/store";
 	import type { AppState } from "./utils/editor.ts";
 	import { TauriSync } from "./utils/tauriSync.js";
+	import { listen } from "@tauri-apps/api/event";
+	import { initEditor } from "./utils/editor";
+	import * as Y from "yjs";
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
 	let tauriSync: TauriSync;
+	let unsubscribe: () => void;
+	export let syncRole: string;
 
-	export let syncRole;
 	onMount(async () => {
-		let currentAppState;
-		appState.subscribe((state) => {
-			currentAppState = state;
-			if (editorContainer) {
-				editorContainer.appendChild(state.editor);
-				document.documentElement.classList.add("dark");
-			}
-		});
+		if (syncRole === "acceptor") {
+			// Get the current state (which was created in DocumentEditor)
+			let currentAppState;
+			unsubscribe = appState.subscribe((state) => {
+				currentAppState = state;
+				if (editorContainer && state) {
+					editorContainer.innerHTML = "";
+					editorContainer.appendChild(state.editor);
+					document.documentElement.classList.add("dark");
+				}
+			});
 
-		// Initialize TauriSync with the collection and a unique device ID
-		// You might want to get the device ID from your auth service or generate one
-		const deviceId = crypto.randomUUID(); // or get from your auth system
-		tauriSync = new TauriSync(currentAppState.collection, deviceId);
+			const deviceId = crypto.randomUUID();
+			tauriSync = new TauriSync(currentAppState.collection, deviceId);
+			await tauriSync.sendInitialSnapshot();
+		} else {
+			// For initiator, wait for snapshot and then initialize
+			await listen("sync-snapshot", async (event) => {
+				const binaryData = new Uint8Array(event.payload as number[]);
 
-		// Send initial snapshot when mounted
-		await tauriSync.sendInitialSnapshot();
+				// Create initial state
+				const state = initEditor();
+
+				// Apply the snapshot to the doc
+				const doc = state.collection.getDoc("page1");
+				if (doc) {
+					Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+				}
+
+				appState.set(state);
+
+				// Set up subscription
+				unsubscribe = appState.subscribe((state) => {
+					if (editorContainer && state) {
+						editorContainer.innerHTML = "";
+						editorContainer.appendChild(state.editor);
+						document.documentElement.classList.add("dark");
+					}
+				});
+
+				const deviceId = crypto.randomUUID();
+				tauriSync = new TauriSync(state.collection, deviceId);
+			});
+		}
+	});
+
+	onDestroy(() => {
+		if (unsubscribe) {
+			unsubscribe();
+		}
+		if (editorContainer) {
+			editorContainer.innerHTML = "";
+		}
 	});
 </script>
 
