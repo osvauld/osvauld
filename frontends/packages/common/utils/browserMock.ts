@@ -77,7 +77,8 @@ const tauriBrowser = {
           'toggleFav': (data: any) => invoke('toggle_fav', { input: data }),
           'updateLastAccessed': (data: any) => invoke('update_last_accessed', { input: data }),
           'getAllCredentials': (data: any) => invoke('get_all_credentials', { input: data }),
-          'logout': () => invoke('logout')
+          'logout': () => invoke('logout'),
+          'getUserId': () => invoke('get_user_id'),
         };
 
         const handler = handlerMap[action];

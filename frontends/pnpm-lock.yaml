@@ -97,9 +97,6 @@ importers:
       typesafe-i18n:
         specifier: ^5.26.2
         version: 5.26.2(typescript@5.7.3)
-      yjs:
-        specifier: ^13.6.23
-        version: 13.6.23
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3

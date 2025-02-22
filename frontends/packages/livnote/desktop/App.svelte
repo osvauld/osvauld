@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import DocumentEditor from "./lib/DocumentEditor.svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
@@ -7,7 +7,8 @@
 	import Connector from "./lib/Connector.svelte";
 	import { onMount } from "svelte";
 	import Initiator from "./lib/Initiator.svelte";
-
+	import { wsConnector } from "../desktop/lib/store/wsConnectorStore";
+	import type { WSConnection } from "../desktop/lib/utils/wsConnector";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	let signedUp = false;
 	let isLoading = true;
@@ -17,6 +18,10 @@
 		console.log("Content updated:", getContent());
 	}
 
+	let wsConnectorInstance: WSConnection;
+
+	wsConnectorInstance = $wsConnector;
+
 	let showConnector = true;
 	const handleSignedUp = () => {
 		signedUp = true;
@@ -25,6 +30,14 @@
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+		// Registering connection to WS Rendezvous Server
+		sendMessage("getUserId")
+			.then((userId: string) => {
+				wsConnectorInstance.sendRegisterMessage(userId);
+			})
+			.catch(() => {
+				console.error("UserId generation failed");
+			});
 	};
 
 	const handleConnectorClose = () => {
