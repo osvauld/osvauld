@@ -14,7 +14,11 @@
 		liftListItem,
 		sinkListItem,
 	} from "prosemirror-schema-list";
-	import { collab } from "prosemirror-collab";
+	import {
+		collab,
+		sendableSteps,
+		receiveTransaction,
+	} from "prosemirror-collab";
 	import EditorToolbar from "./EditorToolbar.svelte";
 	export let content = null;
 	export let placeholder = "Start writing...";
@@ -22,6 +26,30 @@
 	export let clientID = Math.floor(Math.random() * 0xffffffff);
 	export let version = 0;
 
+	export function receiveSteps(steps, clientID, newVersion) {
+		if (!view) return;
+
+		try {
+			// Convert the JSON steps back to actual Step instances
+			const convertedSteps = steps.map((stepJSON) =>
+				Step.fromJSON(view.state.schema, stepJSON),
+			);
+
+			// Create a transaction that applies these steps
+			const tr = view.state.tr;
+			convertedSteps.forEach((step) => {
+				tr.step(step);
+			});
+
+			// Use receiveTransaction to properly handle collaborative state
+			receiveTransaction(view.state, tr.steps, tr.maps, clientID);
+
+			// Apply the transaction to update the editor
+			view.dispatch(tr);
+		} catch (err) {
+			console.error("Error applying collaborative steps:", err);
+		}
+	}
 	let isDarkMode = false;
 	const dispatch = createEventDispatcher();
 	let element;
@@ -105,8 +133,6 @@
 			],
 		});
 	}
-
-	// Get sendable steps for collaboration
 	function getSendableSteps(state) {
 		const plugin = state.plugins.find((plugin) =>
 			plugin.key.startsWith("collab$"),
@@ -119,40 +145,14 @@
 			clientID: clientID,
 		};
 
-		const tr = state.tr;
-		if (tr.steps.length > 0) {
-			sendable.steps = tr.steps;
+		// Get only the new steps since last sync
+		const steps = sendableSteps(state);
+		if (steps) {
+			sendable.steps = steps.steps.map((step) => step.toJSON());
+			sendable.version = steps.version;
 		}
 
 		return sendable.steps.length ? sendable : null;
-	}
-
-	// Apply received steps from other clients
-	export function receiveSteps(steps, clientIDs, newVersion) {
-		if (!view) return;
-
-		try {
-			const state = view.state;
-			const tr = state.tr;
-
-			// Convert received step JSON back to actual steps
-			const convertedSteps = steps.map((step) =>
-				step.fromJSON(state.schema, step),
-			);
-
-			// Apply each step
-			convertedSteps.forEach((step, i) => {
-				tr.step(step);
-			});
-
-			// Update the state
-			view.dispatch(tr);
-
-			// Update version
-			version = newVersion;
-		} catch (err) {
-			console.error("Error applying collaborative steps:", err);
-		}
 	}
 
 	onMount(async () => {
@@ -198,9 +198,10 @@
 			console.log("recieved", event);
 			try {
 				const newContent = JSON.parse(event.payload);
-				if (newContent && view) {
-					setContent(newContent);
-				}
+				console.log(newContent);
+				// if (newContent && view) {
+				// 	setContent(newContent);
+				// }
 			} catch (err) {
 				console.error("Error handling status-update-be event:", err);
 			}

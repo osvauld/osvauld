@@ -16,9 +16,8 @@
 	let isLoading = true;
 	let showWelcome = false;
 	async function handleChange(event) {
-		const { getContent } = event.detail;
-		const data = getContent();
-		await emit("sync-update", data);
+		console.log(event);
+		await emit("sync-update", event);
 	}
 
 	let wsConnectorInstance: WSConnection;
@@ -96,6 +95,6 @@
 	{:else if showConnector}
 		<Connector on:close={handleConnectorClose} />
 	{:else}
-		<RichTextEditor on:change={handleChange} />
+		<RichTextEditor on:collaboration-update={handleChange} />
 	{/if}
 </main>
