@@ -24,19 +24,9 @@ export function initEditor() {
   });
 
   // Set up sync state monitoring
-  collection.docSync.onStatusChange.subscribe(
-    (state) => state,
-    (syncState) => {
-      console.log('Editor: Sync state changed:', JSON.stringify(syncState));
-    }
-  );
 
   const editor = new AffineEditorContainer();
   editor.doc = doc;
-  editor.slots.docLinkClicked.on(({ docId }) => {
-    const target = <Doc>collection.getDoc(docId);
-    editor.doc = target;
-  });
 
   return { editor, collection };
 }

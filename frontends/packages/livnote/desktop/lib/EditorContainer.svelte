@@ -25,6 +25,8 @@
 			if (origin !== "remote") {
 				console.log("Local update detected, sending to peer");
 				handleDocUpdate(update);
+			} else {
+				console.lg(origin, "....");
 			}
 		});
 
@@ -42,7 +44,7 @@
 			console.log("Sending update, size:", updateArray.length);
 			await emit("sync-update", updateArray);
 		} catch (error) {
-			console.error("Error sending update:", error);
+			console.error("Error ssync-updateending update:", error);
 		}
 	}
 
@@ -90,7 +92,7 @@
 				const doc = currentDoc;
 				if (!doc) return;
 
-				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+				Y.applyUpdateV2(doc.spaceDoc, binaryData, "remote");
 				console.log("Doc state after update:", {
 					hasContent: !doc.isEmpty,
 					meta: doc.meta,
@@ -110,7 +112,7 @@
 				const doc = currentDoc;
 				if (!doc) return;
 
-				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+				Y.applyUpdateV2(doc.spaceDoc, binaryData, "remote");
 				refreshDocumentUI();
 			} catch (error) {
 				console.error("Error handling snapshot:", error);
