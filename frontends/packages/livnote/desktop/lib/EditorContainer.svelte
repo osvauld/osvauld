@@ -26,7 +26,7 @@
 				console.log("Local update detected, sending to peer");
 				handleDocUpdate(update);
 			} else {
-				console.lg(origin, "....");
+				console.log(origin, "....");
 			}
 		});
 
@@ -37,14 +37,21 @@
 			});
 		});
 	}
-
 	async function handleDocUpdate(update: Uint8Array) {
 		try {
-			const updateArray = Array.from(update);
-			console.log("Sending update, size:", updateArray.length);
-			await emit("sync-update", updateArray);
+			// Check buffer size before converting
+			if (update.length > 0) {
+				console.log("Sending update, size:", update.length);
+				// Send the update directly as Uint8Array
+				await emit("sync-update", Array.from(update));
+			} else {
+				console.warn("Empty update received, skipping");
+			}
 		} catch (error) {
-			console.error("Error ssync-updateending update:", error);
+			console.error("Error sending update:", error, {
+				updateSize: update?.length,
+				updateType: typeof update,
+			});
 		}
 	}
 
@@ -56,7 +63,7 @@
 		}
 
 		try {
-			const encodedState = Y.encodeStateAsUpdate(currentDoc.spaceDoc);
+			const encodedState = Y.encodeStateAsUpdateV2(currentDoc.spaceDoc);
 			const stateArray = Array.from(encodedState);
 			console.log("Sending snapshot, size:", stateArray.length);
 			await sendMessage("sendSnapshot", stateArray);
@@ -91,8 +98,9 @@
 
 				const doc = currentDoc;
 				if (!doc) return;
-
-				Y.applyUpdateV2(doc.spaceDoc, binaryData, "remote");
+				doc.spaceDoc.transact(() => {
+					Y.applyUpdateV2(doc.spaceDoc, binaryData);
+				}, "remote");
 				console.log("Doc state after update:", {
 					hasContent: !doc.isEmpty,
 					meta: doc.meta,
