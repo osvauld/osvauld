@@ -17,9 +17,8 @@ async fn main() {
         .layer(axum::Extension(storage.clone()))
         .layer(axum::Extension(clients.clone()));
 
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3030")
-        .await
-        .unwrap();
-    println!("WebSocket server running at ws://127.0.0.1:3030/ws");
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3030").await.unwrap();
+    println!("WebSocket server running at ws://0.0.0.0:3030/ws");
+
     axum::serve(listener, app).await.unwrap();
 }
