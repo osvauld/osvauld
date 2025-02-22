@@ -966,7 +966,7 @@ impl P2PService {
     }
     pub async fn send_snapshot(&self, snapshot: Vec<u8>) -> Result<(), String> {
         let msg = Message::SyncEvent {
-            event: "sync-update".to_string(),
+            event: "sync-snapshot".to_string(),
             payload: snapshot,
         };
         let serialized = serde_json::to_string(&msg)
