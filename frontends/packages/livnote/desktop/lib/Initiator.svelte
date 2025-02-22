@@ -59,44 +59,48 @@
 	}
 </script>
 
-<div class="p-4 flex flex-col gap-4">
-	<div class="bg-mobile-bgSeconary rounded-lg p-4">
-		<h2 class="text-xl mb-2 text-mobile-textPrimary">Connect to your device</h2>
-		<p class="text-mobile-textSecondary mb-4">
-			Enter the connection ticket from your device or scan QR code to establish
-			connection
-		</p>
-		{#if error}
-			<div class="bg-red-500/10 text-red-500 p-3 rounded-lg mb-4">
-				{error}
-			</div>
-		{/if}
-		<div class="flex flex-col gap-3">
-			<input
-				type="text"
-				bind:value={ticket}
-				placeholder="Enter connection ticket"
-				class="w-full bg-mobile-bgPrimary border rounded-lg text-mobile-textPrimary border-mobile-bgHighlight p-3 focus:border-mobile-borderActive focus:ring-0" />
-			<div class="flex gap-2">
-				<button
-					on:click={pasteTicket}
-					class="px-4 py-2.5 bg-mobile-bgHighlight text-mobile-textPrimary rounded-lg font-medium"
-					disabled={connecting || scanning}>
-					Paste
-				</button>
-				<button
-					on:click={connect}
-					class="flex-1 px-4 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium"
-					disabled={connecting || scanning || !ticket.trim()}>
-					{connecting ? "Connecting..." : "Connect"}
-				</button>
+<div class="items-center h-full flex flex-col justify-center">
+	<div class="p-4 flex flex-col gap-4">
+		<div class="bg-mobile-bgSeconary rounded-lg p-4">
+			<h2 class="text-xl mb-2 text-mobile-textPrimary">
+				Connect to your device
+			</h2>
+			<p class="text-mobile-textSecondary mb-4">
+				Enter the connection ticket from your device or scan QR code to
+				establish connection
+			</p>
+			{#if error}
+				<div class="bg-red-500/10 text-red-500 p-3 rounded-lg mb-4">
+					{error}
+				</div>
+			{/if}
+			<div class="flex flex-col gap-3">
+				<input
+					type="text"
+					bind:value={ticket}
+					placeholder="Enter connection ticket"
+					class="w-full bg-mobile-bgPrimary border rounded-lg text-mobile-textPrimary border-mobile-bgHighlight p-3 focus:border-mobile-borderActive focus:ring-0" />
+				<div class="flex gap-2">
+					<button
+						on:click={pasteTicket}
+						class="px-4 py-2.5 bg-mobile-bgHighlight text-mobile-textPrimary rounded-lg font-medium"
+						disabled={connecting || scanning}>
+						Paste
+					</button>
+					<button
+						on:click={connect}
+						class="flex-1 px-4 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium"
+						disabled={connecting || scanning || !ticket.trim()}>
+						{connecting ? "Connecting..." : "Connect"}
+					</button>
+				</div>
 			</div>
 		</div>
-	</div>
-	<div class="bg-mobile-bgSeconary rounded-lg p-4">
-		<div class="flex items-center gap-2">
-			<div class="w-2 h-2 rounded-full bg-mobile-textSecondary"></div>
-			<span class="text-mobile-textSecondary">Status: {status}</span>
+		<div class="bg-mobile-bgSeconary rounded-lg p-4">
+			<div class="flex items-center gap-2">
+				<div class="w-2 h-2 rounded-full bg-mobile-textSecondary"></div>
+				<span class="text-mobile-textSecondary">Status: {status}</span>
+			</div>
 		</div>
 	</div>
 </div>

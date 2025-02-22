@@ -14,8 +14,9 @@ use crate::application::services::FolderService;
 use crate::application::services::P2PService;
 use crate::application::services::SyncService;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, handle_add_device, handle_change_passphrase,
-    handle_export_certificate, handle_hash_and_sign, handle_sign_challenge, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, get_user_id, handle_add_device,
+    handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
+    handle_sign_challenge, handle_sign_up, login,
 };
 use crate::handlers::credential_handler::{
     get_all_credentials, handle_add_credential, handle_get_credentials_for_folder,
@@ -174,6 +175,7 @@ pub fn run() {
             toggle_fav,
             update_last_accessed,
             get_all_credentials,
+            get_user_id,
             send_snapshot
         ])
         .run(tauri::generate_context!())

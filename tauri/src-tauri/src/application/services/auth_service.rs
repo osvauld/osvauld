@@ -293,4 +293,23 @@ impl AuthService {
         crypto.clear_cert();
         Ok(())
     }
+
+    pub async fn get_user_id(&self) -> Result<String, String> {
+        let public_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .get_public_key()
+                .map_err(|e| format!("Failed to get public key: {}", e))?
+        };
+        let user_id = match CryptoUtils::get_key_id(&public_key.clone()).map_err(|e| e.to_string())
+        {
+            Ok(user_id) => user_id,
+            Err(err) => {
+                eprintln!("Error generating key ID: {}", err);
+                return Err(err);
+            }
+        };
+
+        Ok(user_id)
+    }
 }
