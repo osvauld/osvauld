@@ -99,10 +99,13 @@
 			<Acceptor />
 		{/if}
 
+	
+		
+		-->
 		{#if $toastStore.show}
 			<div class="z-100">
 				<Toast />
 			</div>
-		{/if} -->
+		{/if}
 	{/if}
 </main>

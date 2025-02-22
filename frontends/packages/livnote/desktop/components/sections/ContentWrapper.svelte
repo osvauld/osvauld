@@ -5,6 +5,8 @@
 		addCredentialModal,
 		deleteConfirmationModal,
 		noteViewLayout,
+		toastStore,
+		vaults,
 	} from "../../store/desktop.ui.store";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
@@ -16,6 +18,8 @@
 	import VaultManager from "../views/VaultManager.svelte";
 	import Star from "@osvauld/password-manager-common/icons/star.svelte";
 	import { MobileHome } from "@osvauld/password-manager-common";
+	import { sendMessage } from "@osvauld/password-manager-common";
+	import { addCredentialHandler } from "@osvauld/password-manager-common";
 
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;
@@ -26,6 +30,30 @@
 	// 	deleteConfirmationModal.set({ item: "folder", show: true });
 	// };
 
+	const handleAddNote = async () => {
+		if ($vaults.length <= 1 || $currentVault.id === "all") {
+			toastStore.set({
+				show: true,
+				message: "Please add/select folder",
+				success: false,
+			});
+			return;
+		}
+
+		await sendMessage("addCredential", {
+			credentialPayload: JSON.stringify({}),
+			folderId: $currentVault.id, /// Evide?
+			credentialType: "notes",
+		});
+
+		// Fetch all credentials in this folder and show it
+
+		const getCredentialsCall = await sendMessage("getCredentialsForFolder", {
+			folderId: $currentVault.id,
+		});
+		console.log("getCredentialsCall", getCredentialsCall);
+		noteViewLayout.set(true);
+	};
 	const handleSectionChange = (section) => {
 		selectedSection = section;
 	};
@@ -33,16 +61,7 @@
 
 <div class="flex-1 flex flex-col overflow-hidden">
 	<div class="py-5 px-16 flex items-center justify-start shrink-0">
-		{#if $noteViewLayout}
-			<h1
-				class="flex-1 h-full truncate text-4xl font-light text-osvauld-sideListTextActive text-left capitalize">
-				{$selectedCategory
-					? $selectedCategory
-					: $currentVault.id === "all"
-						? "All Vaults"
-						: $currentVault.name}
-			</h1>
-		{:else}
+		{#if !$noteViewLayout}
 			<div class="relative shrink-0">
 				<button
 					class="min-w-[20.25rem] text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
@@ -122,7 +141,7 @@
 				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center whitespace-nowrap border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-frameblack hover:bg-osvauld-carolinablue transition-colors"
 				on:mouseenter="{() => (addCredentialHovered = true)}"
 				on:mouseleave="{() => (addCredentialHovered = false)}"
-				on:click="{() => addCredentialModal.set(true)}">
+				on:click="{handleAddNote}">
 				<span class="mr-2">Add new note</span>
 				<Add color="{addCredentialHovered ? '#000' : '#A3A4B5'}" />
 			</button>
