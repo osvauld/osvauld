@@ -25,6 +25,17 @@
 		}
 	}
 
+	async function initializeTauriSync(state: AppState) {
+		const deviceId = crypto.randomUUID();
+		tauriSync = new TauriSync(state.collection, deviceId);
+
+		// If we're the acceptor, send the initial snapshot
+		if (syncRole === "acceptor") {
+			await tauriSync.sendInitialSnapshot();
+			console.log("Acceptor: Sent initial snapshot");
+		}
+	}
+
 	async function setupSyncListeners() {
 		// Listen for sync updates
 		const unlistenUpdate = await listen("sync-update-be", async (event) => {
@@ -45,10 +56,7 @@
 				console.log("Applying update to doc");
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
 
-				// Update UI
 				refreshEditor(currentState);
-
-				// Force a store update to trigger reactivity
 				appState.update((state) => state);
 			} catch (error) {
 				console.error("Error handling sync update:", error);
@@ -76,12 +84,6 @@
 
 				refreshEditor(currentState);
 				appState.update((state) => state);
-
-				// Initialize TauriSync after receiving snapshot if we're the initiator
-				if (syncRole === "initiator" && !tauriSync) {
-					const deviceId = crypto.randomUUID();
-					tauriSync = new TauriSync(currentState.collection, deviceId);
-				}
 			} catch (error) {
 				console.error("Error in sync-snapshot-be handler:", error);
 			}
@@ -93,7 +95,7 @@
 	onMount(async () => {
 		console.log(`Mounting EditorContainer with role: ${syncRole}`);
 
-		// Initialize state
+		// Initialize state for both roles
 		const state = initEditor();
 		const initialDoc = state.collection.getDoc("page1") as Doc;
 		if (!initialDoc) {
@@ -114,16 +116,8 @@
 		// Set up sync listeners for both roles
 		await setupSyncListeners();
 
-		// Initialize TauriSync for acceptor role
-		if (syncRole === "acceptor") {
-			const deviceId = crypto.randomUUID();
-			const currentState = get(appState);
-			if (currentState) {
-				tauriSync = new TauriSync(currentState.collection, deviceId);
-				await tauriSync.sendInitialSnapshot();
-				console.log("Acceptor: Sent initial snapshot");
-			}
-		}
+		// Initialize TauriSync for both roles
+		await initializeTauriSync(state);
 	});
 
 	onDestroy(() => {
@@ -160,4 +154,3 @@
 	bind:this={editorContainer}
 	class="editor-container h-full w-full bg-osvauld-frameblack">
 </div>
-

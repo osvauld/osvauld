@@ -15,24 +15,56 @@ export class TauriSync {
     this.currentDoc = null;
 
     console.log('TauriSync: Initializing with deviceId:', deviceId);
+
+    // Convert Map to Array before mapping
+    const docIds = Array.from(collection.docs.values()).map(doc => doc.id);
+    console.log('TauriSync: Collection info:', {
+      docIds,
+      id: collection.id,
+      schema: collection.schema
+    });
+
     this.initializeDocument();
   }
 
   private initializeDocument() {
+    console.log('TauriSync: Initializing document');
     this.currentDoc = this.collection.getDoc('page1');
+
     if (!this.currentDoc) {
+      console.log('TauriSync: Document not found, creating new one');
       this.collection.createDoc({ id: 'page1' });
       this.currentDoc = this.collection.getDoc('page1');
     }
 
     if (this.currentDoc) {
+      console.log('TauriSync: Document initialized:', {
+        id: this.currentDoc.id,
+        isEmpty: this.currentDoc.isEmpty,
+        meta: this.currentDoc.meta
+      });
+
       // Set up update handler for the document
-      this.currentDoc.spaceDoc.on('update', (update: Uint8Array, origin: any) => {
+      this.currentDoc.spaceDoc.on('update', (update: Uint8Array, origin: unknown) => {
+        console.log('TauriSync: Update detected:', {
+          updateSize: update.length,
+          origin,
+          isRemote: origin === 'remote'
+        });
+
         // Only broadcast updates that originated from this device
         if (origin !== 'remote') {
           console.log('TauriSync: Local doc update detected, sending update');
           this.handleDocUpdate(update);
         }
+      });
+
+      // Log whenever the doc changes
+      this.currentDoc.spaceDoc.on('afterTransaction', (transaction: Y.Transaction) => {
+        console.log('TauriSync: Document transaction:', {
+          origin: transaction.origin,
+          changed: transaction.changed.size > 0,
+        });
       });
     }
   }
@@ -41,18 +73,21 @@ export class TauriSync {
     try {
       // Convert the update to a regular array for serialization
       const updateArray = Array.from(update);
-      console.log('TauriSync: Sending update, length:', updateArray.length);
+      console.log('TauriSync: Preparing to send update:', {
+        length: updateArray.length,
+        deviceId: this.deviceId
+      });
 
       // Emit the update event
-      await emit('sync-update', JSON.stringify(updateArray));
-      console.log('TauriSync: Successfully sent update');
+      await emit('sync-update', updateArray);
+      console.log('TauriSync: Successfully sent update, length:', updateArray.length);
     } catch (error) {
       console.error('TauriSync: Error sending update:', error);
     }
   }
 
   public async sendInitialSnapshot() {
-    console.log('TauriSync: Sending initial Y.js state');
+    console.log('TauriSync: Preparing to send initial Y.js state');
     if (!this.currentDoc) {
       console.error('TauriSync: No document available to create snapshot');
       return;
@@ -61,9 +96,12 @@ export class TauriSync {
     try {
       const encodedState = Y.encodeStateAsUpdate(this.currentDoc.spaceDoc);
       const stateArray = Array.from(encodedState);
-      console.log('TauriSync: Sending snapshot, length:', stateArray.length);
+      console.log('TauriSync: Sending snapshot:', {
+        length: stateArray.length,
+        deviceId: this.deviceId
+      });
 
-      await emit('sync-snapshot', JSON.stringify(stateArray));
+      await emit('sync-snapshot', stateArray);
       console.log('TauriSync: Successfully sent initial snapshot');
     } catch (error) {
       console.error('TauriSync: Error sending initial snapshot:', error);
