@@ -6,6 +6,8 @@
 	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
 	import AddDeviceView from "./components/views/AddDeviceView.svelte";
 	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
+	import Connector from "./components/ui/Connector.svelte";
+	import Initiator from "./components/ui/Initiator.svelte";
 	import {
 		addCredentialModal,
 		credentialEditorModal,
@@ -17,6 +19,7 @@
 		language,
 		currentVault,
 		showWelcome1,
+		showConnector,
 	} from "./store/desktop.ui.store";
 	import DesktopImportPvtKey from "./components/lib/DesktopImportPvtKey.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
@@ -39,6 +42,14 @@
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+	};
+
+	let syncRole = ""; // Add this to store the role
+
+	const handleConnectorClose = (event) => {
+		const { isInitiator } = event.detail;
+		syncRole = isInitiator ? "initiator" : "acceptor";
+		showConnector.set(false);
 	};
 
 	onMount(async () => {
@@ -102,6 +113,11 @@
 	
 		
 		-->
+
+		{#if $showConnector}
+			<Connector on:close="{handleConnectorClose}" />
+		{/if}
+
 		{#if $toastStore.show}
 			<div class="z-100">
 				<Toast />

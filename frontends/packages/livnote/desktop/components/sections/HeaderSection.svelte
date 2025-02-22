@@ -7,7 +7,7 @@
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
 	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import { addDeviceModal } from "../../store/desktop.ui.store";
+	import { addDeviceModal, showConnector } from "../../store/desktop.ui.store";
 	import Sync from "@osvauld/password-manager-common/icons/sync.svelte";
 	import Devices from "@osvauld/password-manager-common/icons/devices.svelte";
 	import Discord from "@osvauld/password-manager-common/icons/discord.svelte";
@@ -23,7 +23,7 @@
 	let hoveredItem = "";
 
 	const MENUITEMS = [
-		{ id: "sync", label: "Sync", icon: Sync },
+		{ id: "share", label: "Share", icon: Sync },
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
 		{ id: "ask", label: "Ask in Discord", icon: Discord },
@@ -39,11 +39,10 @@
 			showWelcome1.set(true);
 		} else if (id == "sync") {
 			showSyncQr.set(true);
+		} else if (id === "share") {
+			showConnector.set(true);
 		}
-		if (id == "logout") {
-			sendMessage("logout");
-			showWelcome1.set(true);
-		}
+
 		showDropdown = false;
 	};
 </script>

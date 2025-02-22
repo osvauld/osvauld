@@ -20,3 +20,5 @@ export let showWelcome1 = writable(true);
 export let showSyncQr = writable(false);
 
 export let noteViewLayout = writable(false);
+
+export let showConnector = writable(false);
