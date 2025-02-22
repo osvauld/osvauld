@@ -77,7 +77,7 @@ export class TauriSync {
       // Encode the entire document state
       const encodedState = Y.encodeStateAsUpdate(yDoc);
 
-      await sendMessage("sync-snapshot", encodedState);
+      await sendMessage("sendSnapshot", encodedState);
       console.log('TauriSync: Emitted Y.js state');
     } catch (error) {
       console.error('TauriSync: Error sending Y.js state:', error);
