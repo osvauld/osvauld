@@ -12,16 +12,13 @@
 	import type { WSConnection } from "../desktop/lib/utils/wsConnector";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	import { listen, emit } from "@tauri-apps/api/event";
-	import { error } from "console";
 	let signedUp = false;
 	let isLoading = true;
 	let showWelcome = false;
 	async function handleChange(event) {
 		const { getContent } = event.detail;
 		const data = getContent();
-		await emit("sync-update", data).catch((error) => {
-			console.log("errror");
-		});
+		await emit("sync-update", data);
 	}
 
 	let wsConnectorInstance: WSConnection;
