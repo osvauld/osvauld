@@ -10,17 +10,16 @@
 	const appState = writable<AppState>(null);
 	setContext("appState", appState);
 
-	onMount(() => {
-		console.log("document editor");
-		if (syncRole === "acceptor") {
-			const state = initEditor();
-			appState.set(state);
-		}
-	});
+	// onMount(() => {
+	// 	console.log("document editor");
+	// 	if (syncRole === "acceptor") {
+	// 		const state = initEditor();
+	// 		appState.set(state);
+	// 	}
+	// });
 </script>
 
 <div
 	class="flex h-screen w-screen bg-osvauld-frameblack text-osvauld-textActive font-sans">
 	<EditorContainer {syncRole} />
 </div>
-

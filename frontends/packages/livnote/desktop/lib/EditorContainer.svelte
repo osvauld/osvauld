@@ -27,7 +27,6 @@
 	function setupDocumentHandlers(doc: Doc) {
 		console.log("Setting up document handlers");
 
-		// Handle local updates
 		doc.spaceDoc.on("update", (update: Uint8Array, origin: unknown) => {
 			if (origin !== "remote") {
 				console.log("Local update detected, sending to peer");
@@ -35,7 +34,6 @@
 			}
 		});
 
-		// Log transactions for debugging
 		doc.spaceDoc.on("afterTransaction", (transaction: Y.Transaction) => {
 			console.log("Document transaction:", {
 				origin: transaction.origin,
@@ -81,14 +79,11 @@
 				console.log("Received sync update");
 				const binaryData = new Uint8Array(event.payload as number[]);
 
-				const currentState = get(appState);
-				if (!currentState) return;
-
-				const doc = currentState.collection.getDoc("page1") as Doc;
+				const doc = currentDoc;
 				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-				refreshEditor(currentState);
+				refreshEditor(get(appState));
 				appState.update((state) => state);
 			} catch (error) {
 				console.error("Error handling sync update:", error);
@@ -101,14 +96,11 @@
 				console.log("Received sync snapshot");
 				const binaryData = new Uint8Array(event.payload as number[]);
 
-				const currentState = get(appState);
-				if (!currentState) return;
-
-				const doc = currentState.collection.getDoc("page1") as Doc;
+				const doc = currentDoc;
 				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-				refreshEditor(currentState);
+				refreshEditor(get(appState));
 				appState.update((state) => state);
 			} catch (error) {
 				console.error("Error handling snapshot:", error);
@@ -121,13 +113,18 @@
 	onMount(async () => {
 		console.log(`Mounting EditorContainer with role: ${syncRole}`);
 
-		const state = get(appState);
-		if (!state) return;
+		// Initialize the editor state
+		const state = initEditor();
+		console.log("Editor state initialized");
+		appState.set(state);
 
 		// Set up document
 		currentDoc = state.collection.getDoc("page1") as Doc;
 		if (currentDoc) {
+			console.log("Setting up document handlers for page1");
 			setupDocumentHandlers(currentDoc);
+		} else {
+			console.error("Failed to get page1 document");
 		}
 
 		// Set up UI updates
@@ -143,9 +140,12 @@
 			console.log("Acceptor: Sending initial snapshot");
 			await sendInitialSnapshot();
 		}
+
+		console.log("Mount complete for role:", syncRole);
 	});
 
 	onDestroy(() => {
+		console.log("Destroying editor container");
 		unsubscribe?.();
 		unlistenHandlers.forEach((unlisten) => unlisten());
 		if (editorContainer) {
