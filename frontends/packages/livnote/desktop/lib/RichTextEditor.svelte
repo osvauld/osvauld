@@ -147,7 +147,6 @@
 
 		// Get only the new steps since last sync
 		const steps = sendableSteps(state);
-		console.log(steps);
 		if (steps) {
 			sendable.version = steps.version;
 		}
@@ -172,7 +171,7 @@
 					if (sendableSteps) {
 						dispatch("collaboration-update", {
 							version: sendableSteps.version,
-							steps: sendableSteps.steps.map((step) => step.toJSON()),
+							steps: sendableSteps.steps,
 							clientID: clientID,
 						});
 					}
