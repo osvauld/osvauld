@@ -7,6 +7,7 @@
 		currentCredential,
 		deleteConfirmationModal,
 		refreshCredentialList,
+		noteViewLayout,
 	} from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import Import from "@osvauld/password-manager-common/icons/import.svelte";
@@ -23,6 +24,20 @@
 	let importHovered = false;
 	let importSelected = false;
 	let credentialcardstates = []; // { id: null, show: false }[];
+
+	let updatedCredentials = [
+		{ id: 1, favourite: true },
+		{ id: 2, favourite: false },
+		{ id: 3, favourite: true },
+		{ id: 4, favourite: false },
+		{ id: 5, favourite: true },
+		{ id: 6, favourite: false },
+		{ id: 7, favourite: true },
+		{ id: 8, favourite: false },
+		{ id: 9, favourite: true },
+		{ id: 10, favourite: false },
+		{ id: 11, favourite: true },
+	];
 
 	// const fetchCredentials = async (vaultId: string) => {
 	// 	try {
@@ -89,10 +104,10 @@
 	// 			)
 	// 	: credentials;
 
-	// const selectedCredential = (credential) => {
-	// 	viewCredentialModal.set(true);
-	// 	currentCredential.set(credential);
-	// };
+	const selectedCredential = (credential) => {
+		// viewCredentialModal.set(true);
+		// currentCredential.set(credential);
+	};
 
 	// const handleExpand = (id) => {
 	// 	const index = credentialcardstates.findIndex((item) => item.id === id);
@@ -109,34 +124,22 @@
 	// 	importSelected = false;
 	// };
 
-	// const getColumnCount = () => {
-	// 	if (typeof window === "undefined") return 1;
-	// 	if (window.innerWidth >= 1024) return 3;
-	// 	if (window.innerWidth >= 640) return 2;
-	// 	return 1;
-	// };
+	const getColumnCount = () => {
+		if (typeof window === "undefined") return 1;
+		if (window.innerWidth >= 1024) return 3;
+		if (window.innerWidth >= 640) return 2;
+		return 1;
+	};
 
-	// const getColumnItems = (items, colIndex) => {
-	// 	const colCount = getColumnCount();
-	// 	return items.filter((_, index) => index % colCount === colIndex);
-	// };
+	const getColumnItems = (items, colIndex) => {
+		const colCount = getColumnCount();
+		return items.filter((_, index) => index % colCount === colIndex);
+	};
 
-	// const handleClick = (e) => {
-	// 	if (clickTimer === null) {
-	// 		clickTimer = setTimeout(() => {
-	// 			handleExpand(e.detail);
-	// 			clickTimer = null;
-	// 		}, clickDelay);
-	// 	}
-	// };
-
-	// const handleDoubleClick = (e) => {
-	// 	if (clickTimer) {
-	// 		clearTimeout(clickTimer);
-	// 		clickTimer = null;
-	// 	}
-	// 	selectedCredential(e.detail);
-	// };
+	const handleClick = (e) => {
+		// selectedCredential(e.detail);
+		noteViewLayout.set(true);
+	};
 </script>
 
 <!-- <div class="grow max-h-[85%] px-16 py-4 relative">
@@ -177,6 +180,23 @@
 </div> -->
 <div class="grow max-h-[85%] px-16 py-4 relative">
 	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
-		<DocumentEditor />
+		{#if $noteViewLayout}
+			<DocumentEditor />
+		{:else}
+			{#key updatedCredentials}
+				<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+					{#each Array(getColumnCount()) as _, colIndex}
+						<div class="flex flex-col gap-3">
+							{#each getColumnItems(updatedCredentials, colIndex) as credential (credential.id)}
+								<CredentialCard
+									{credential}
+									{credentialcardstates}
+									on:clk="{handleClick}" />
+							{/each}
+						</div>
+					{/each}
+				</div>
+			{/key}
+		{/if}
 	</div>
 </div>

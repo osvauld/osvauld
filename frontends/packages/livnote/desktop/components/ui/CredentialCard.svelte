@@ -11,6 +11,7 @@
 	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import CredentialOverview from "./CredentialOverview.svelte";
 	import { refreshCredentialList } from "../../store/desktop.ui.store";
+	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
 
 	import { LL } from "@osvauld/password-manager-common//i18n/i18n-svelte";
 
@@ -20,13 +21,7 @@
 
 	const dispatch = createEventDispatcher();
 
-	let type = credential.data.credentialType;
-	let categoryInfo = CATEGORIES.find((item) => item.type === type);
-	let typeIdForTranslation = CATEGORIES.find((item) => item.type === type)?.id;
-
-	const dispatchDoubleClick = (credential) => {
-		dispatch("dbl", credential);
-	};
+	let type = "note";
 
 	const dispatchClick = (id) => {
 		dispatch("clk", id);
@@ -46,20 +41,15 @@
 <div class="min-w-0">
 	<div
 		class="bg-osvauld-frameblack w-full border border-osvauld-cardBorder rounded-xl p-4 select-none"
-		on:dblclick|stopPropagation={() => dispatchDoubleClick(credential)}
-		on:click|stopPropagation={() => dispatchClick(credential.id)}>
+		on:click|stopPropagation="{() => dispatchClick(credential.id)}">
 		<div class="flex items-center mb-4">
 			<span
 				class="flex justify-center items-center p-2.5 bg-osvauld-fieldActive rounded-md mr-3">
-				{#if categoryInfo && categoryInfo.icon}
-					<svelte:component this={categoryInfo.icon} color={"#BFC0CC"} />
-				{:else}
-					<span>!</span>
-				{/if}
+				<MobileNote color="{'#BFC0CC'}" />
 			</span>
 			<button
 				class="ml-auto p-2.5 bg-osvauld-fieldActive rounded-md flex justify-center items-center active:scale-95"
-				on:click|stopPropagation={() => toggleFavorite(credential.id)}>
+				on:click|stopPropagation="{() => toggleFavorite(credential.id)}">
 				{#if favourite}
 					<FavStar />
 				{:else}
@@ -68,25 +58,16 @@
 			</button>
 			<button
 				class="ml-3 p-2.5 bg-osvauld-fieldActive rounded-md flex justify-center items-center"
-				on:click|stopPropagation={() => {}}>
+				on:click|stopPropagation="{() => {}}">
 				<MenuVertical />
 			</button>
 		</div>
 		<div class="flex flex-col">
 			<h3
 				class="font-Jakarta text-xl font-medium text-left text-osvauld-sideListTextActive truncate max-w-[16rem]">
-				{renderRelevantHeading(
-					credential.data.credentialFields,
-					type,
-					credential.id,
-				)}
+				Heading
 			</h3>
-			<span class="text-sm text-left text-osvauld-fieldTextActive">
-				{$LL.types[typeIdForTranslation]()}
-			</span>
+			<span class="text-sm text-left text-osvauld-fieldTextActive"> Note </span>
 		</div>
-		{#if credentialcardstates.find((item) => item.id === credential.id)?.show}
-			<CredentialOverview {type} fields={credential.data.credentialFields} />
-		{/if}
 	</div>
 </div>
