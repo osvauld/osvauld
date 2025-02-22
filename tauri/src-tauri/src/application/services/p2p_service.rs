@@ -198,39 +198,25 @@ impl P2PService {
             *active_conn = Some(Arc::new(conn.clone()));
         }
         let self_clone = self.clone();
+        tokio::spawn({
+            async move {
+                info!(
+                    "Starting message listener for {}",
+                    if is_initiator {
+                        "initiator"
+                    } else {
+                        "receiver"
+                    }
+                );
+                self_clone.handle_messages().await;
+            }
+        });
 
-        // tokio::spawn({
-        //     async move {
-        //         info!(
-        //             "Starting message listener for {}",
-        //             if is_initiator {
-        //                 "initiator"
-        //             } else {
-        //                 "receiver"
-        //             }
-        //         );
-        //         self_clone.handle_messages().await;
-        //     }
-        // });
-        // info!(
-        //     "Handshake completed successfully for {}",
-        //     if is_initiator {
-        //         "initiator"
-        //     } else {
-        //         "receiver"
-        //     }
-        // );
-        // if !is_initiator {
-        //     // self.start_sync().await?;
-        // }
-        // let self_clone = self.clone();
-        //
-
+        let self_clone = self.clone();
         let listener = self.app_handle.listen("sync-update", move |data| {
             let self_clone = self_clone.clone();
             tokio::spawn(async move {
                 log::info!("got something from sync-update");
-
                 let payload_str = data.payload().to_string();
                 if !payload_str.is_empty() {
                     match serde_json::from_str::<serde_json::Value>(&payload_str) {
