@@ -8,6 +8,7 @@
 	import * as Y from "yjs";
 	import { get } from "svelte/store";
 	import type { Doc } from "@blocksuite/store";
+	import { sendMessage } from "@osvauld/password-manager-common";
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
@@ -15,6 +16,7 @@
 	let unlistenHandlers: Array<() => void> = [];
 	export let syncRole: string;
 	let currentDoc: Doc | null = null;
+	let editor: any = null;
 
 	function setupDocumentHandlers(doc: Doc) {
 		console.log("Setting up document handlers");
@@ -55,32 +57,51 @@
 			const encodedState = Y.encodeStateAsUpdate(currentDoc.spaceDoc);
 			const stateArray = Array.from(encodedState);
 			console.log("Sending snapshot, size:", stateArray.length);
-			await emit("sync-snapshot", stateArray);
+			await sendMessage("sendSnapshot", stateArray);
 			console.log("Snapshot sent successfully");
 		} catch (error) {
 			console.error("Error sending snapshot:", error);
 		}
 	}
 
+	function refreshDocumentUI() {
+		if (currentDoc && editor) {
+			console.log("Refreshing document UI");
+			// Trigger a reload of the document content
+			currentDoc.load(() => {
+				// Update the editor's doc reference
+				editor.doc = currentDoc;
+				console.log("Document reloaded in editor");
+			});
+		}
+	}
+
 	async function setupSyncListeners() {
 		console.log("Setting up sync listeners for role:", syncRole);
 
-		// Handle incoming updates
 		const unlistenUpdate = await listen("sync-update-be", async (event) => {
 			try {
 				console.log("Received sync update");
+				console.log("Raw payload:", event.payload);
+
 				const binaryData = new Uint8Array(event.payload as number[]);
+				console.log("Converted to Uint8Array, length:", binaryData.length);
 
 				const doc = currentDoc;
 				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+				console.log("Doc state after update:", {
+					hasContent: !doc.isEmpty,
+					meta: doc.meta,
+				});
+
+				refreshDocumentUI();
 			} catch (error) {
 				console.error("Error handling sync update:", error);
 			}
 		});
 
-		// Handle incoming snapshots
 		const unlistenSnapshot = await listen("sync-snapshot-be", async (event) => {
 			try {
 				console.log("Received sync snapshot");
@@ -90,6 +111,7 @@
 				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+				refreshDocumentUI();
 			} catch (error) {
 				console.error("Error handling snapshot:", error);
 			}
@@ -115,10 +137,11 @@
 			console.error("Failed to get page1 document");
 		}
 
-		// Mount the editor exactly once
-		if (editorContainer && state.editor) {
+		// Store editor reference and mount it once
+		editor = state.editor;
+		if (editorContainer && editor) {
 			document.documentElement.classList.add("dark");
-			editorContainer.appendChild(state.editor);
+			editorContainer.appendChild(editor);
 		}
 
 		// Set up event listeners
