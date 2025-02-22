@@ -34,15 +34,9 @@ pub enum Message {
     SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
-    FileTransfer {
-        name: String,
-        data: Vec<u8>,
-    },
+    FileTransfer { name: String, data: Vec<u8> },
     Error,
-    SyncEvent {
-        event: String,
-        payload: serde_json::Value,
-    },
+    SyncEvent { event: String, payload: Vec<u8> },
 }
 
 #[derive(Serialize, Deserialize)]

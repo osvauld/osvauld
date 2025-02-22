@@ -1,31 +1,82 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { getContext } from "svelte";
 	import type { Writable } from "svelte/store";
 	import type { AppState } from "./utils/editor.ts";
 	import { TauriSync } from "./utils/tauriSync.js";
+	import { listen } from "@tauri-apps/api/event";
+	import { initEditor } from "./utils/editor";
+	import * as Y from "yjs";
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
 	let tauriSync: TauriSync;
+	let unsubscribe: () => void;
+	export let syncRole: string;
 
 	onMount(async () => {
-		let currentAppState;
-		appState.subscribe((state) => {
-			currentAppState = state;
-			if (editorContainer) {
-				editorContainer.appendChild(state.editor);
-				document.documentElement.classList.add("dark");
-			}
-		});
+		if (syncRole === "acceptor") {
+			// For acceptor, we already have the state initialized
+			let currentState: AppState;
+			unsubscribe = appState.subscribe((state) => {
+				currentState = state;
+				if (editorContainer && state) {
+					editorContainer.innerHTML = "";
+					editorContainer.appendChild(state.editor);
+					document.documentElement.classList.add("dark");
+				}
+			});
 
-		// Initialize TauriSync with the collection and a unique device ID
-		// You might want to get the device ID from your auth service or generate one
-		const deviceId = crypto.randomUUID(); // or get from your auth system
-		tauriSync = new TauriSync(currentAppState.collection, deviceId);
+			// Initialize TauriSync and send initial snapshot
+			const deviceId = crypto.randomUUID();
+			tauriSync = new TauriSync(currentState.collection, deviceId);
+			await tauriSync.sendInitialSnapshot();
+			console.log("Acceptor: Sent initial snapshot");
+		} else if (syncRole === "initiator") {
+			console.log("Setting up sync-snapshot-be listener");
+			await listen("sync-snapshot-be", async (event) => {
+				try {
+					console.log("Received sync-snapshot-be event");
+					const binaryData = new Uint8Array(event.payload as number[]);
+					console.log("Created Uint8Array with length:", binaryData.length);
 
-		// Send initial snapshot when mounted
-		await tauriSync.sendInitialSnapshot();
+					const state = initEditor();
+					console.log("Created initial editor state");
+
+					const doc = state.collection.getDoc("page1");
+					if (doc) {
+						console.log("Found page1 doc, applying update");
+						Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+						console.log("Successfully applied update to doc");
+					}
+
+					appState.set(state);
+					console.log("Set new app state");
+
+					unsubscribe = appState.subscribe((state) => {
+						if (editorContainer && state) {
+							editorContainer.innerHTML = "";
+							editorContainer.appendChild(state.editor);
+							document.documentElement.classList.add("dark");
+						}
+					});
+
+					const deviceId = crypto.randomUUID();
+					tauriSync = new TauriSync(state.collection, deviceId);
+				} catch (error) {
+					console.error("Error in sync-snapshot-be handler:", error);
+				}
+			});
+		}
+	});
+
+	onDestroy(() => {
+		if (unsubscribe) {
+			unsubscribe();
+		}
+		if (editorContainer) {
+			editorContainer.innerHTML = "";
+		}
 	});
 </script>
 

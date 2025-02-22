@@ -24,7 +24,8 @@ use crate::handlers::credential_handler::{
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
-    connect_with_ticket, get_system_locale, get_ticket, send_message, start_p2p_listener,
+    connect_with_ticket, get_system_locale, get_ticket, send_message, send_snapshot,
+    start_p2p_listener,
 };
 use crate::persistence::repositories::{
     SqliteCredentialRepository, SqliteDeviceRepository, SqliteFolderRepository,
@@ -175,6 +176,7 @@ pub fn run() {
             update_last_accessed,
             get_all_credentials,
             get_user_id,
+            send_snapshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -36,3 +36,16 @@ pub async fn start_p2p_listener(
 pub fn get_system_locale() -> String {
     get_locale().unwrap_or_else(|| String::from("en-US"))
 }
+
+#[tauri::command]
+pub async fn send_snapshot(
+    snapshot: Vec<u8>,
+    state: State<'_, Arc<P2PService>>,
+) -> Result<(), CryptoResponse> {
+    log::info!("snapshot recived {:?}", snapshot);
+    let _ = state
+        .send_snapshot(snapshot)
+        .await
+        .map_err(|e| CryptoResponse::Error(e));
+    Ok(())
+}

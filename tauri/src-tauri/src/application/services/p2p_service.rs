@@ -198,7 +198,6 @@ impl P2PService {
             *active_conn = Some(Arc::new(conn.clone()));
         }
         let self_clone = self.clone();
-
         tokio::spawn({
             async move {
                 info!(
@@ -212,49 +211,58 @@ impl P2PService {
                 self_clone.handle_messages().await;
             }
         });
-        info!(
-            "Handshake completed successfully for {}",
-            if is_initiator {
-                "initiator"
-            } else {
-                "receiver"
-            }
-        );
-        if !is_initiator {
-            // self.start_sync().await?;
-        }
-        let self_clone = self.clone();
-        self.app_handle.listen("sync-update", move |data| {
-            let self_clone = self_clone.clone();
+        let sync_update_clone = self.clone();
+        let listener = self.app_handle.listen("sync-update", move |data| {
+            let self_clone = sync_update_clone.clone();
             tokio::spawn(async move {
                 log::info!("got something from sync-update");
-                let payload =
-                    match serde_json::from_str::<serde_json::Value>(&data.payload().to_string()) {
-                        Ok(val) => val,
-                        Err(e) => {
-                            error!("Failed to parse payload: {}", e);
-                            return;
-                        }
-                    };
 
-                let msg = Message::SyncEvent {
-                    event: "sync-update".to_string(),
-                    payload,
+                let payload_str = data.payload().to_string();
+                log::info!("Received payload string: {}", payload_str);
+
+                // Remove the surrounding quotes if they exist
+                let cleaned_payload = if payload_str.starts_with('"') && payload_str.ends_with('"')
+                {
+                    payload_str[1..payload_str.len() - 1].to_string()
+                } else {
+                    payload_str
                 };
 
-                match serde_json::to_string(&msg) {
-                    Ok(serialized) => {
-                        if let Err(e) = self_clone.send_message(serialized).await {
-                            error!("Failed to send sync event: {}", e);
+                match serde_json::from_str::<Vec<u8>>(&cleaned_payload) {
+                    Ok(binary_payload) => {
+                        log::info!(
+                            "Successfully parsed binary payload, length: {}",
+                            binary_payload.len()
+                        );
+                        let msg = Message::SyncEvent {
+                            event: "sync-update".to_string(),
+                            payload: binary_payload,
+                        };
+
+                        match serde_json::to_string(&msg) {
+                            Ok(serialized) => {
+                                log::info!("sending binary update message");
+                                if let Err(e) = self_clone.send_message(serialized).await {
+                                    error!("Failed to send sync event: {}", e);
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to serialize message: {}", e);
+                            }
                         }
                     }
-                    Err(e) => error!("Failed to serialize message: {}", e),
+                    Err(e) => {
+                        error!(
+                            "Failed to parse payload as binary array: {}. Cleaned payload was: {}",
+                            e, cleaned_payload
+                        );
+                    }
                 }
             });
         });
-        self.app_handle.listen("sync-snapshot", move |data| {
-            info!("got snapshot {:?}", data.payload());
-        });
+        // self.app_handle.listen("sync-snapshot", move |data| {
+        //     info!("got snapshot {:?}", data.payload());
+        // });
         //  else {
         //     let app_data_dir = self.app_handle.path().app_data_dir().unwrap();
         //     let test_file_path = app_data_dir.join("test.txt");
@@ -297,7 +305,37 @@ impl P2PService {
             .clone()
             .ok_or_else(|| "No active connection".to_string())
     }
+    async fn read_complete_message(&self, recv: &mut RecvStream) -> Result<String, HandshakeError> {
+        let mut buffer = Vec::new();
+        let mut temp_buf = [0u8; 8192];
 
+        loop {
+            match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut temp_buf)).await {
+                Ok(Ok(Some(n))) => {
+                    if n == 0 {
+                        break;
+                    }
+                    buffer.extend_from_slice(&temp_buf[..n]);
+
+                    // Try to parse what we have so far
+                    if let Ok(message_str) = String::from_utf8(buffer.clone()) {
+                        if let Ok(_) = serde_json::from_str::<HandshakeMessage>(&message_str) {
+                            return Ok(message_str);
+                        }
+                    }
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(e)) => return Err(HandshakeError::Connection(e.to_string())),
+                Err(e) => return Err(HandshakeError::Connection(format!("Timeout: {}", e))),
+            }
+        }
+
+        Err(HandshakeError::Connection(
+            "Incomplete message received".into(),
+        ))
+    }
+
+    // Modified initiate_handshake function
     async fn initiate_handshake(
         &self,
         send: &mut SendStream,
@@ -309,66 +347,44 @@ impl P2PService {
             .get_current_device()
             .await
             .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+
         let (challenge, signature) = self
             .auth_service
             .sign_random_challenge()
             .await
             .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+
         let handshake_message = HandshakeMessage {
             challenge,
             signature,
             device,
         };
+
         let serialized = serde_json::to_string(&handshake_message)
             .map_err(|e| HandshakeError::Serialization(e.to_string()))?;
+
         send.write_all(serialized.as_bytes())
             .await
             .map_err(|e| HandshakeError::Connection(e.to_string()))?;
+
         send.flush()
             .await
             .map_err(|e| HandshakeError::Connection(e.to_string()))?;
 
         info!("Initiator: Waiting for handshake response");
-        let mut buffer = [0u8; MAX_HANDSHAKE_SIZE];
-        match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut buffer)).await? {
-            Ok(Some(n)) => {
-                if n >= MAX_HANDSHAKE_SIZE {
-                    return Err(HandshakeError::Connection(
-                        "Handshake message too large".into(),
-                    ));
-                }
+        let message_str = self.read_complete_message(recv).await?;
 
-                let message_str = String::from_utf8(buffer[..n].to_vec())
-                    .map_err(|_| HandshakeError::Connection("Invalid UTF-8 in response".into()))?;
+        let response: HandshakeMessage = serde_json::from_str(&message_str)?;
 
-                let response: HandshakeMessage = serde_json::from_str(&message_str)?;
-                {
-                    let mut device = self.device.lock().await;
-                    *device = Some(response.device.clone());
-                }
-
-                // Verify the challenge matches
-                // if challenge != response.challenge {
-                //     return Err(HandshakeError::InvalidChallenge(
-                //         "Challenge mismatch".into(),
-                //     ));
-                // }
-
-                //TODO: Verify signature
-                // self.auth_service
-                //     .verify_signature(&response.device, &response.challenge, &response.signature)
-                //     .await
-                //     .map_err(|e| HandshakeError::InvalidSignature(e.to_string()))?;
-
-                info!("Initiator: Handshake completed successfully");
-                let _ = self.app_handle.emit("sync-complete", true);
-                Ok(())
-            }
-            Ok(None) => Err(HandshakeError::Connection("Connection closed".into())),
-            Err(e) => Err(HandshakeError::Connection(e.to_string())),
+        {
+            let mut device = self.device.lock().await;
+            *device = Some(response.device.clone());
         }
-    }
 
+        info!("Initiator: Handshake completed successfully");
+        let _ = self.app_handle.emit("sync-complete", true);
+        Ok(())
+    }
     async fn accept_handshake(
         &self,
         send: &mut SendStream,
@@ -381,60 +397,113 @@ impl P2PService {
         let handshake_message: HandshakeMessage =
             match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut buffer)).await? {
                 Ok(Some(n)) => {
+                    info!("Received {} bytes during handshake", n);
+
                     if n >= MAX_HANDSHAKE_SIZE {
+                        error!("Handshake message too large: {} bytes", n);
                         return Err(HandshakeError::Connection(
                             "Handshake message too large".into(),
                         ));
                     }
-                    let message_str = String::from_utf8(buffer[..n].to_vec()).map_err(|_| {
-                        HandshakeError::Connection("Invalid UTF-8 in response".into())
-                    })?;
-                    serde_json::from_str(&message_str)?
-                }
-                Ok(None) => return Err(HandshakeError::Connection("Connection closed".into())),
-                Err(e) => return Err(HandshakeError::Connection(e.to_string())),
-            };
-        //TODO: verify signature
 
+                    // First convert to string and log it
+                    let message_str = match String::from_utf8(buffer[..n].to_vec()) {
+                        Ok(str) => {
+                            info!(
+                                "Successfully converted handshake to string, length: {}",
+                                str.len()
+                            );
+                            info!("Handshake message preview: {}", &str[..str.len().min(100)]);
+                            str
+                        }
+                        Err(e) => {
+                            error!("Invalid UTF-8 in handshake response: {}", e);
+                            return Err(HandshakeError::Connection(
+                                "Invalid UTF-8 in response".into(),
+                            ));
+                        }
+                    };
+
+                    // Then try to parse the JSON
+                    match serde_json::from_str(&message_str) {
+                        Ok(msg) => {
+                            info!("Successfully parsed handshake message");
+                            msg
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to parse handshake JSON: {}. Message was: {}",
+                                e, &message_str
+                            );
+                            return Err(HandshakeError::Serialization(e.to_string()));
+                        }
+                    }
+                }
+                Ok(None) => {
+                    error!("Connection closed during handshake");
+                    return Err(HandshakeError::Connection("Connection closed".into()));
+                }
+                Err(e) => {
+                    error!("Error reading from connection during handshake: {}", e);
+                    return Err(HandshakeError::Connection(e.to_string()));
+                }
+            };
+
+        info!("Successfully received and parsed handshake message");
+
+        // Store the device information
         {
             let mut device = self.device.lock().await;
             *device = Some(handshake_message.device.clone());
         }
+
         // Get our device and create response
-        let device = self
-            .auth_service
-            .get_current_device()
-            .await
-            .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+        let device = match self.auth_service.get_current_device().await {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Failed to get current device: {}", e);
+                return Err(HandshakeError::AuthService(e.to_string()));
+            }
+        };
 
-        let (challenge, signature) = self
-            .auth_service
-            .sign_random_challenge()
-            .await
-            .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+        let (challenge, signature) = match self.auth_service.sign_random_challenge().await {
+            Ok(cs) => cs,
+            Err(e) => {
+                error!("Failed to sign challenge: {}", e);
+                return Err(HandshakeError::AuthService(e.to_string()));
+            }
+        };
 
-        let handshake_message = HandshakeMessage {
+        let response = HandshakeMessage {
             challenge,
             signature,
             device,
         };
-        info!("handshake_message {:?}", handshake_message);
 
-        // Send our response
-        let serialized = serde_json::to_string(&handshake_message)?;
+        info!("Created handshake response message");
 
-        send.write_all(serialized.as_bytes())
-            .await
-            .map_err(|e| HandshakeError::Connection(e.to_string()))?;
+        // Serialize and send our response
+        let serialized = match serde_json::to_string(&response) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to serialize response: {}", e);
+                return Err(HandshakeError::Serialization(e.to_string()));
+            }
+        };
 
-        send.flush()
-            .await
-            .map_err(|e| HandshakeError::Connection(e.to_string()))?;
+        if let Err(e) = send.write_all(serialized.as_bytes()).await {
+            error!("Failed to write response: {}", e);
+            return Err(HandshakeError::Connection(e.to_string()));
+        }
+
+        if let Err(e) = send.flush().await {
+            error!("Failed to flush response: {}", e);
+            return Err(HandshakeError::Connection(e.to_string()));
+        }
 
         info!("Receiver: Handshake completed successfully");
         Ok(())
     }
-
     pub async fn ack_complete(&self, device_record_status_id: String) -> Result<(), String> {
         self.sync_service
             .handle_ack_complete(device_record_status_id)
@@ -669,10 +738,11 @@ impl P2PService {
                                                             .await
                                                         }
                                                         Message::SyncEvent { event, payload } => {
-                                                            log::info!(
-                                                                "recived here....{:?}",
-                                                                event
-                                                            );
+                                                            self.handle_sync_event(
+                                                                event,
+                                                                payload.clone(),
+                                                            )
+                                                            .await;
                                                             Ok(())
                                                         }
                                                         _ => Ok(()),
@@ -973,5 +1043,56 @@ impl P2PService {
             .map_err(|e| format!("Failed to emit sync event: {}", e))?;
 
         Ok(())
+    }
+    pub async fn send_snapshot(&self, snapshot: Vec<u8>) -> Result<(), String> {
+        let msg = Message::SyncEvent {
+            event: "sync-snapshot".to_string(),
+            payload: snapshot,
+        };
+        let serialized = serde_json::to_string(&msg)
+            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
+        self.send_message(serialized).await;
+        Ok(())
+    }
+    pub async fn handle_sync_event(
+        &self,
+        event_name: &str,
+        payload: Vec<u8>,
+    ) -> Result<(), String> {
+        log::info!(
+            "Handling sync event '{}' with payload size: {}",
+            event_name,
+            payload.len()
+        );
+
+        match event_name {
+            "sync-update" | "sync-snapshot" => {
+                // Log the raw payload for debugging
+                log::info!(
+                    "Raw payload (first 100 bytes): {:?}",
+                    payload.iter().take(100).collect::<Vec<_>>()
+                );
+
+                // Since we're dealing with binary data, emit it directly without string conversion
+                let event_name = format!("{}-be", event_name);
+                log::info!("Emitting event: {} with binary payload", event_name);
+
+                match self.app_handle.emit(&event_name, payload) {
+                    Ok(_) => {
+                        log::info!("Successfully emitted binary event: {}", event_name);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        log::error!("Failed to emit event {}: {}", event_name, e);
+                        Err(e.to_string())
+                    }
+                }
+            }
+            _ => {
+                let err = format!("Unknown sync event type: {}", event_name);
+                log::error!("{}", err);
+                Err(err)
+            }
+        }
     }
 }
