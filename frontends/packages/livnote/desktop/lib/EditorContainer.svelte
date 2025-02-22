@@ -7,73 +7,123 @@
 	import { listen } from "@tauri-apps/api/event";
 	import { initEditor } from "./utils/editor";
 	import * as Y from "yjs";
+	import { get } from "svelte/store";
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
 	let tauriSync: TauriSync;
 	let unsubscribe: () => void;
+	let unlistenHandlers: Array<() => void> = [];
 	export let syncRole: string;
 
-	onMount(async () => {
-		if (syncRole === "acceptor") {
-			// For acceptor, we already have the state initialized
-			let currentState: AppState;
-			unsubscribe = appState.subscribe((state) => {
-				currentState = state;
-				if (editorContainer && state) {
-					editorContainer.innerHTML = "";
-					editorContainer.appendChild(state.editor);
-					document.documentElement.classList.add("dark");
-				}
-			});
+	async function setupSyncListeners() {
+		// Listen for sync updates
+		const unlisten1 = await listen("sync-update-be", async (event) => {
+			try {
+				console.log("Received sync-update-be event");
+				const binaryData = new Uint8Array(event.payload as number[]);
+				console.log("Update size:", binaryData.length);
 
-			// Initialize TauriSync and send initial snapshot
+				const currentState = get(appState);
+				if (currentState) {
+					const doc = currentState.collection.getDoc("page1");
+					if (doc) {
+						// Apply the update
+						Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+						console.log("Applied update to doc");
+
+						// Force UI refresh
+						if (editorContainer) {
+							editorContainer.innerHTML = "";
+							editorContainer.appendChild(currentState.editor);
+						}
+					}
+				}
+			} catch (error) {
+				console.error("Error handling sync update:", error);
+			}
+		});
+
+		unlistenHandlers.push(unlisten1);
+	}
+
+	onMount(async () => {
+		console.log(`Mounting EditorContainer with role: ${syncRole}`);
+
+		// Initialize state for both roles
+		const state = initEditor();
+		appState.set(state);
+
+		// Set up subscription for UI updates
+		unsubscribe = appState.subscribe((state) => {
+			if (editorContainer && state) {
+				editorContainer.innerHTML = "";
+				editorContainer.appendChild(state.editor);
+				document.documentElement.classList.add("dark");
+			}
+		});
+
+		// Set up common sync listeners for both roles
+		await setupSyncListeners();
+
+		if (syncRole === "acceptor") {
 			const deviceId = crypto.randomUUID();
-			tauriSync = new TauriSync(currentState.collection, deviceId);
-			await tauriSync.sendInitialSnapshot();
-			console.log("Acceptor: Sent initial snapshot");
+			const currentState = get(appState);
+			if (currentState) {
+				tauriSync = new TauriSync(currentState.collection, deviceId);
+				await tauriSync.sendInitialSnapshot();
+				console.log("Acceptor: Sent initial snapshot");
+			}
 		} else if (syncRole === "initiator") {
 			console.log("Setting up sync-snapshot-be listener");
-			await listen("sync-snapshot-be", async (event) => {
-				try {
-					console.log("Received sync-snapshot-be event");
-					const binaryData = new Uint8Array(event.payload as number[]);
-					console.log("Created Uint8Array with length:", binaryData.length);
 
-					const state = initEditor();
-					console.log("Created initial editor state");
+			const unlistenSnapshot = await listen(
+				"sync-snapshot-be",
+				async (event) => {
+					try {
+						console.log("Received sync-snapshot-be event");
+						const binaryData = new Uint8Array(event.payload as number[]);
+						console.log("Snapshot size:", binaryData.length);
 
-					const doc = state.collection.getDoc("page1");
-					if (doc) {
-						console.log("Found page1 doc, applying update");
-						Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-						console.log("Successfully applied update to doc");
-					}
+						const currentState = get(appState);
+						if (currentState) {
+							const doc = currentState.collection.getDoc("page1");
+							if (doc) {
+								Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+								console.log("Applied snapshot to doc");
 
-					appState.set(state);
-					console.log("Set new app state");
-
-					unsubscribe = appState.subscribe((state) => {
-						if (editorContainer && state) {
-							editorContainer.innerHTML = "";
-							editorContainer.appendChild(state.editor);
-							document.documentElement.classList.add("dark");
+								// Force UI refresh after snapshot
+								if (editorContainer) {
+									editorContainer.innerHTML = "";
+									editorContainer.appendChild(currentState.editor);
+								}
+							}
 						}
-					});
 
-					const deviceId = crypto.randomUUID();
-					tauriSync = new TauriSync(state.collection, deviceId);
-				} catch (error) {
-					console.error("Error in sync-snapshot-be handler:", error);
-				}
-			});
+						// Initialize TauriSync after receiving snapshot
+						if (!tauriSync) {
+							const deviceId = crypto.randomUUID();
+							const latestState = get(appState);
+							if (latestState) {
+								tauriSync = new TauriSync(latestState.collection, deviceId);
+							}
+						}
+					} catch (error) {
+						console.error("Error in sync-snapshot-be handler:", error);
+					}
+				},
+			);
+
+			unlistenHandlers.push(unlistenSnapshot);
 		}
 	});
 
 	onDestroy(() => {
+		// Clean up all listeners
 		if (unsubscribe) {
 			unsubscribe();
 		}
+		unlistenHandlers.forEach((unlisten) => unlisten());
 		if (editorContainer) {
 			editorContainer.innerHTML = "";
 		}
@@ -99,7 +149,9 @@
 	}
 </style>
 
+// EditorContainer.svelte
 <div
 	bind:this={editorContainer}
 	class="editor-container h-full w-full bg-osvauld-frameblack">
 </div>
+
