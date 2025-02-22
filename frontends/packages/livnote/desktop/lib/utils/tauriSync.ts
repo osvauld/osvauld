@@ -3,6 +3,7 @@ import { Doc, DocCollection, Job } from '@blocksuite/store';
 import { sendMessage } from '@osvauld/password-manager-common';
 import * as Y from 'yjs';
 
+// In tauriSync.ts
 export class TauriSync {
   private collection: DocCollection;
   private deviceId: string;
@@ -16,8 +17,6 @@ export class TauriSync {
     this.currentDoc = null;
 
     console.log('TauriSync: Initializing with deviceId:', deviceId);
-
-    // Initialize the document and set up listeners
     this.initializeDocument();
     this.setupTauriListeners().catch(error => {
       console.error('TauriSync: Error setting up Tauri listeners:', error);
@@ -25,7 +24,6 @@ export class TauriSync {
   }
 
   private initializeDocument() {
-    // Get or create the document
     this.currentDoc = this.collection.getDoc('page1');
     if (!this.currentDoc) {
       this.collection.createDoc({ id: 'page1' });
@@ -37,7 +35,7 @@ export class TauriSync {
       this.currentDoc.spaceDoc.on('update', (update: Uint8Array, origin: any) => {
         // Only broadcast updates that originated from this device
         if (origin !== 'remote') {
-          console.log('TauriSync: Local doc update detected');
+          console.log('TauriSync: Local doc update detected, sending update');
           this.handleDocUpdate(update);
         }
       });
@@ -48,57 +46,27 @@ export class TauriSync {
     try {
       // Convert the update to a regular array for serialization
       const updateArray = Array.from(update);
+      console.log('TauriSync: Sending update, length:', updateArray.length);
 
-      // Broadcast the update
+      // Emit the update event
       await emit('sync-update', JSON.stringify(updateArray));
-      console.log('TauriSync: Broadcasted doc update');
+      console.log('TauriSync: Successfully sent update');
     } catch (error) {
-      console.error('TauriSync: Error handling doc update:', error);
+      console.error('TauriSync: Error sending update:', error);
     }
-  }
-
-  private async setupTauriListeners() {
-    console.log('TauriSync: Setting up Tauri listeners');
-
-    // Listen for sync snapshots
-    await listen('sync-snapshot-be', async (event) => {
-      console.log('TauriSync: Received sync snapshot event');
-      try {
-        const binaryData = new Uint8Array(event.payload as number[]);
-        await this.loadSnapshot(binaryData);
-      } catch (error) {
-        console.error('TauriSync: Error processing sync snapshot:', error);
-      }
-    });
-
-    // Listen for sync updates
-    await listen('sync-update-be', async (event) => {
-      console.log('TauriSync: Received sync update event');
-      try {
-        // Parse the JSON string back to an array and convert to Uint8Array
-        const updateArray = JSON.parse(event.payload as string);
-        const update = new Uint8Array(updateArray);
-        await this.applyUpdate(update);
-      } catch (error) {
-        console.error('TauriSync: Error processing sync update:', error);
-      }
-    });
   }
 
   public async sendInitialSnapshot() {
     console.log('TauriSync: Sending initial Y.js state');
-
     if (!this.currentDoc) {
       console.error('TauriSync: No document available to create snapshot');
       return;
     }
 
     try {
-      // Encode the entire document state
       const encodedState = Y.encodeStateAsUpdate(this.currentDoc.spaceDoc);
-
-      // Convert to regular array for serialization
       const stateArray = Array.from(encodedState);
+      console.log('TauriSync: Sending snapshot, length:', stateArray.length);
 
       await sendMessage("sendSnapshot", stateArray);
       console.log('TauriSync: Successfully sent initial snapshot');
@@ -107,15 +75,43 @@ export class TauriSync {
     }
   }
 
+  private async setupTauriListeners() {
+    console.log('TauriSync: Setting up Tauri listeners');
+    try {
+      await listen('sync-snapshot-be', async (event) => {
+        console.log('TauriSync: Received sync-snapshot-be event');
+        try {
+          if (!event.payload) throw new Error('Received null payload');
+          const binaryData = new Uint8Array(event.payload as number[]);
+          await this.loadSnapshot(binaryData);
+        } catch (error) {
+          console.error('TauriSync: Error processing sync snapshot:', error);
+        }
+      });
+
+      await listen('sync-update-be', async (event) => {
+        console.log('TauriSync: Received sync-update-be event');
+        try {
+          if (!event.payload) throw new Error('Invalid payload');
+          const update = new Uint8Array(event.payload as number[]);
+          await this.applyUpdate(update);
+        } catch (error) {
+          console.error('TauriSync: Error processing sync update:', error);
+        }
+      });
+    } catch (error) {
+      console.error('TauriSync: Error in setupTauriListeners:', error);
+      throw error;
+    }
+  }
+
   private async loadSnapshot(snapshot: Uint8Array) {
-    console.log('TauriSync: Loading snapshot');
     if (!this.currentDoc) {
       console.error('TauriSync: No document available to load snapshot');
       return;
     }
 
     try {
-      // Apply the snapshot to the Y.js document
       Y.applyUpdate(this.currentDoc.spaceDoc, snapshot, 'remote');
       console.log('TauriSync: Successfully loaded snapshot');
     } catch (error) {
@@ -124,14 +120,12 @@ export class TauriSync {
   }
 
   private async applyUpdate(update: Uint8Array) {
-    console.log('TauriSync: Applying update');
     if (!this.currentDoc) {
       console.error('TauriSync: No document available to apply update');
       return;
     }
 
     try {
-      // Apply the update to the Y.js document
       Y.applyUpdate(this.currentDoc.spaceDoc, update, 'remote');
       console.log('TauriSync: Successfully applied update');
     } catch (error) {

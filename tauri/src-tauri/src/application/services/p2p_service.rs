@@ -217,27 +217,45 @@ impl P2PService {
             tokio::spawn(async move {
                 log::info!("got something from sync-update");
 
-                // Parse the payload string directly into Vec<u8>
-                match serde_json::from_str::<Vec<u8>>(data.payload()) {
+                let payload_str = data.payload().to_string();
+                log::info!("Received payload string: {}", payload_str);
+
+                // Remove the surrounding quotes if they exist
+                let cleaned_payload = if payload_str.starts_with('"') && payload_str.ends_with('"')
+                {
+                    payload_str[1..payload_str.len() - 1].to_string()
+                } else {
+                    payload_str
+                };
+
+                match serde_json::from_str::<Vec<u8>>(&cleaned_payload) {
                     Ok(binary_payload) => {
-                        // Create SyncEvent message with binary payload
+                        log::info!(
+                            "Successfully parsed binary payload, length: {}",
+                            binary_payload.len()
+                        );
                         let msg = Message::SyncEvent {
                             event: "sync-update".to_string(),
-                            payload: binary_payload, // Using Vec<u8> directly
+                            payload: binary_payload,
                         };
 
-                        // Send the message
-                        if let Ok(serialized) = serde_json::to_string(&msg) {
-                            log::info!("sending binary update message");
-                            if let Err(e) = self_clone.send_message(serialized).await {
-                                error!("Failed to send sync event: {}", e);
+                        match serde_json::to_string(&msg) {
+                            Ok(serialized) => {
+                                log::info!("sending binary update message");
+                                if let Err(e) = self_clone.send_message(serialized).await {
+                                    error!("Failed to send sync event: {}", e);
+                                }
                             }
-                        } else {
-                            error!("Failed to serialize message");
+                            Err(e) => {
+                                error!("Failed to serialize message: {}", e);
+                            }
                         }
                     }
                     Err(e) => {
-                        error!("Failed to parse payload as binary array: {}", e);
+                        error!(
+                            "Failed to parse payload as binary array: {}. Cleaned payload was: {}",
+                            e, cleaned_payload
+                        );
                     }
                 }
             });
@@ -287,7 +305,37 @@ impl P2PService {
             .clone()
             .ok_or_else(|| "No active connection".to_string())
     }
+    async fn read_complete_message(&self, recv: &mut RecvStream) -> Result<String, HandshakeError> {
+        let mut buffer = Vec::new();
+        let mut temp_buf = [0u8; 8192];
 
+        loop {
+            match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut temp_buf)).await {
+                Ok(Ok(Some(n))) => {
+                    if n == 0 {
+                        break;
+                    }
+                    buffer.extend_from_slice(&temp_buf[..n]);
+
+                    // Try to parse what we have so far
+                    if let Ok(message_str) = String::from_utf8(buffer.clone()) {
+                        if let Ok(_) = serde_json::from_str::<HandshakeMessage>(&message_str) {
+                            return Ok(message_str);
+                        }
+                    }
+                }
+                Ok(Ok(None)) => break,
+                Ok(Err(e)) => return Err(HandshakeError::Connection(e.to_string())),
+                Err(e) => return Err(HandshakeError::Connection(format!("Timeout: {}", e))),
+            }
+        }
+
+        Err(HandshakeError::Connection(
+            "Incomplete message received".into(),
+        ))
+    }
+
+    // Modified initiate_handshake function
     async fn initiate_handshake(
         &self,
         send: &mut SendStream,
@@ -299,64 +347,43 @@ impl P2PService {
             .get_current_device()
             .await
             .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+
         let (challenge, signature) = self
             .auth_service
             .sign_random_challenge()
             .await
             .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+
         let handshake_message = HandshakeMessage {
             challenge,
             signature,
             device,
         };
+
         let serialized = serde_json::to_string(&handshake_message)
             .map_err(|e| HandshakeError::Serialization(e.to_string()))?;
+
         send.write_all(serialized.as_bytes())
             .await
             .map_err(|e| HandshakeError::Connection(e.to_string()))?;
+
         send.flush()
             .await
             .map_err(|e| HandshakeError::Connection(e.to_string()))?;
 
         info!("Initiator: Waiting for handshake response");
-        let mut buffer = [0u8; MAX_HANDSHAKE_SIZE];
-        match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut buffer)).await? {
-            Ok(Some(n)) => {
-                if n >= MAX_HANDSHAKE_SIZE {
-                    return Err(HandshakeError::Connection(
-                        "Handshake message too large".into(),
-                    ));
-                }
+        let message_str = self.read_complete_message(recv).await?;
 
-                let message_str = String::from_utf8(buffer[..n].to_vec())
-                    .map_err(|_| HandshakeError::Connection("Invalid UTF-8 in response".into()))?;
+        let response: HandshakeMessage = serde_json::from_str(&message_str)?;
 
-                let response: HandshakeMessage = serde_json::from_str(&message_str)?;
-                {
-                    let mut device = self.device.lock().await;
-                    *device = Some(response.device.clone());
-                }
-
-                // Verify the challenge matches
-                // if challenge != response.challenge {
-                //     return Err(HandshakeError::InvalidChallenge(
-                //         "Challenge mismatch".into(),
-                //     ));
-                // }
-
-                //TODO: Verify signature
-                // self.auth_service
-                //     .verify_signature(&response.device, &response.challenge, &response.signature)
-                //     .await
-                //     .map_err(|e| HandshakeError::InvalidSignature(e.to_string()))?;
-
-                info!("Initiator: Handshake completed successfully");
-                let _ = self.app_handle.emit("sync-complete", true);
-                Ok(())
-            }
-            Ok(None) => Err(HandshakeError::Connection("Connection closed".into())),
-            Err(e) => Err(HandshakeError::Connection(e.to_string())),
+        {
+            let mut device = self.device.lock().await;
+            *device = Some(response.device.clone());
         }
+
+        info!("Initiator: Handshake completed successfully");
+        let _ = self.app_handle.emit("sync-complete", true);
+        Ok(())
     }
 
     async fn accept_handshake(
@@ -980,42 +1007,39 @@ impl P2PService {
         event_name: &str,
         payload: Vec<u8>,
     ) -> Result<(), String> {
+        log::info!(
+            "Handling sync event '{}' with payload size: {}",
+            event_name,
+            payload.len()
+        );
+
         match event_name {
-            "sync-update" => {
-                // First, convert the payload to a string since we received it as serialized JSON
-                let payload_str = String::from_utf8(payload)
-                    .map_err(|e| format!("Invalid UTF-8 in payload: {}", e))?;
+            "sync-update" | "sync-snapshot" => {
+                // Log the raw payload for debugging
+                log::info!(
+                    "Raw payload (first 100 bytes): {:?}",
+                    payload.iter().take(100).collect::<Vec<_>>()
+                );
 
-                // Parse the JSON string into a Vec<u8>
-                let binary_data: Vec<u8> = serde_json::from_str(&payload_str)
-                    .map_err(|e| format!("Failed to parse binary array: {}", e))?;
+                // Since we're dealing with binary data, emit it directly without string conversion
+                let event_name = format!("{}-be", event_name);
+                log::info!("Emitting event: {} with binary payload", event_name);
 
-                // Now emit the parsed binary data
-                if let Err(e) = self.app_handle.emit("sync-update", binary_data) {
-                    error!("Failed to emit sync update: {}", e);
-                    Err(e.to_string())
-                } else {
-                    Ok(())
-                }
-            }
-            "sync-snapshot" => {
-                // Similar handling for snapshot data
-                let payload_str = String::from_utf8(payload)
-                    .map_err(|e| format!("Invalid UTF-8 in payload: {}", e))?;
-
-                let binary_data: Vec<u8> = serde_json::from_str(&payload_str)
-                    .map_err(|e| format!("Failed to parse binary array: {}", e))?;
-
-                if let Err(e) = self.app_handle.emit("sync-snapshot", binary_data) {
-                    error!("Failed to emit sync snapshot: {}", e);
-                    Err(e.to_string())
-                } else {
-                    Ok(())
+                match self.app_handle.emit(&event_name, payload) {
+                    Ok(_) => {
+                        log::info!("Successfully emitted binary event: {}", event_name);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        log::error!("Failed to emit event {}: {}", event_name, e);
+                        Err(e.to_string())
+                    }
                 }
             }
             _ => {
-                error!("Unknown sync event type: {}", event_name);
-                Err("Unknown sync event type".to_string())
+                let err = format!("Unknown sync event type: {}", event_name);
+                log::error!("{}", err);
+                Err(err)
             }
         }
     }
