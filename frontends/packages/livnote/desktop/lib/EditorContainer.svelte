@@ -8,6 +8,7 @@
 	import { initEditor } from "./utils/editor";
 	import * as Y from "yjs";
 	import { get } from "svelte/store";
+	import type { Doc } from "@blocksuite/store";
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
@@ -16,8 +17,21 @@
 	let unlistenHandlers: Array<() => void> = [];
 	export let syncRole: string;
 
+	function refreshEditor(state: AppState, doc: Doc) {
+		if (editorContainer && state) {
+			// Remove old editor
+			editorContainer.innerHTML = "";
+
+			// Update editor with the confirmed non-null doc
+			state.editor.doc = doc;
+
+			// Append the updated editor
+			editorContainer.appendChild(state.editor);
+			document.documentElement.classList.add("dark");
+		}
+	}
+
 	async function setupSyncListeners() {
-		// Listen for sync updates
 		const unlisten1 = await listen("sync-update-be", async (event) => {
 			try {
 				console.log("Received sync-update-be event");
@@ -25,20 +39,22 @@
 				console.log("Update size:", binaryData.length);
 
 				const currentState = get(appState);
-				if (currentState) {
-					const doc = currentState.collection.getDoc("page1");
-					if (doc) {
-						// Apply the update
-						Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-						console.log("Applied update to doc");
+				if (!currentState) return;
 
-						// Force UI refresh
-						if (editorContainer) {
-							editorContainer.innerHTML = "";
-							editorContainer.appendChild(currentState.editor);
-						}
-					}
+				const doc = currentState.collection.getDoc("page1") as Doc;
+				if (!doc) {
+					console.error("No page1 doc found");
+					return;
 				}
+
+				console.log("Applying update to doc");
+				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+
+				// Update the editor with the confirmed non-null doc
+				refreshEditor(currentState, doc);
+
+				// Force a store update to trigger reactivity
+				appState.update((state) => state);
 			} catch (error) {
 				console.error("Error handling sync update:", error);
 			}
@@ -52,14 +68,22 @@
 
 		// Initialize state for both roles
 		const state = initEditor();
+		const initialDoc = state.collection.getDoc("page1") as Doc;
+		if (!initialDoc) {
+			console.error("Failed to initialize document");
+			return;
+		}
+
+		state.editor.doc = initialDoc;
 		appState.set(state);
 
 		// Set up subscription for UI updates
 		unsubscribe = appState.subscribe((state) => {
-			if (editorContainer && state) {
-				editorContainer.innerHTML = "";
-				editorContainer.appendChild(state.editor);
-				document.documentElement.classList.add("dark");
+			if (state) {
+				const doc = state.collection.getDoc("page1") as Doc;
+				if (doc) {
+					refreshEditor(state, doc);
+				}
 			}
 		});
 
@@ -86,27 +110,26 @@
 						console.log("Snapshot size:", binaryData.length);
 
 						const currentState = get(appState);
-						if (currentState) {
-							const doc = currentState.collection.getDoc("page1");
-							if (doc) {
-								Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-								console.log("Applied snapshot to doc");
+						if (!currentState) return;
 
-								// Force UI refresh after snapshot
-								if (editorContainer) {
-									editorContainer.innerHTML = "";
-									editorContainer.appendChild(currentState.editor);
-								}
-							}
+						const doc = currentState.collection.getDoc("page1") as Doc;
+						if (!doc) {
+							console.error("No page1 doc found");
+							return;
 						}
+
+						Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
+						console.log("Applied snapshot to doc");
+
+						refreshEditor(currentState, doc);
+
+						// Force a store update
+						appState.update((state) => state);
 
 						// Initialize TauriSync after receiving snapshot
 						if (!tauriSync) {
 							const deviceId = crypto.randomUUID();
-							const latestState = get(appState);
-							if (latestState) {
-								tauriSync = new TauriSync(latestState.collection, deviceId);
-							}
+							tauriSync = new TauriSync(currentState.collection, deviceId);
 						}
 					} catch (error) {
 						console.error("Error in sync-snapshot-be handler:", error);
@@ -119,7 +142,6 @@
 	});
 
 	onDestroy(() => {
-		// Clean up all listeners
 		if (unsubscribe) {
 			unsubscribe();
 		}
@@ -149,7 +171,6 @@
 	}
 </style>
 
-// EditorContainer.svelte
 <div
 	bind:this={editorContainer}
 	class="editor-container h-full w-full bg-osvauld-frameblack">
