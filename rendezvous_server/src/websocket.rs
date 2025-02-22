@@ -19,11 +19,14 @@ enum WsMessage {
     Register {
         user_id: String,
     },
-    ConnectionResponse {
+    GetConnectionStringResponse {
         user_id: String,
+        reciever_ws_connection_id: String,
         connection_string: String,
     },
-    GetConnectionRequest,
+    GetConnectionRequest {
+        reciever_ws_connection_id: String,
+    },
     GetConnectionStringRequest {
         user_id: String,
     },
@@ -79,8 +82,9 @@ async fn handle_socket(socket: WebSocket, storage: Arc<Storage>, clients: Client
                                 eprintln!("Error saving client: {}", e);
                             }
                         }
-                        WsMessage::ConnectionResponse {
+                        WsMessage::GetConnectionStringResponse {
                             user_id,
+                            reciever_ws_connection_id,
                             connection_string,
                         } => {
                             println!("Saving connection string for user: {}", user_id);
@@ -90,31 +94,15 @@ async fn handle_socket(socket: WebSocket, storage: Arc<Storage>, clients: Client
                             {
                                 eprintln!("Error saving connection string: {}", e);
                             }
-                        }
-                        WsMessage::GetConnectionStringRequest { user_id } => {
-                            println!("Fetching connection string for user: {}", user_id);
-                            let connection_string = match recv_storage
-                                .get_connection_string(&user_id)
-                                .await
-                            {
-                                Ok(Some(cs)) => Some(cs),
-                                Ok(None) => {
-                                    println!("No connection string found for user: {}", user_id);
-                                    None
-                                }
-                                Err(e) => {
-                                    eprintln!("Error fetching connection string: {}", e);
-                                    None
-                                }
-                            };
-
                             let response = WsMessage::ConnectionStringResponse {
                                 user_id: user_id.clone(),
-                                connection_string,
+                                connection_string: Some(connection_string.clone()),
                             };
 
                             if let Ok(json) = serde_json::to_string(&response) {
-                                if let Some(tx) = recv_clients.lock().await.get(&recv_client_id) {
+                                if let Some(tx) =
+                                    recv_clients.lock().await.get(&reciever_ws_connection_id)
+                                {
                                     if let Err(e) = tx.send(Message::Text(json.into())) {
                                         eprintln!(
                                             "Error sending connection string response: {}",
@@ -124,7 +112,39 @@ async fn handle_socket(socket: WebSocket, storage: Arc<Storage>, clients: Client
                                 }
                             }
                         }
-                        WsMessage::GetConnectionRequest => {
+                        WsMessage::GetConnectionStringRequest { user_id } => {
+                            println!("Fetching connection string for user: {}", user_id);
+
+                            let source_ws_connection_id =
+                                match recv_storage.get_ws_connection_id(&user_id).await {
+                                    Ok(Some(ws_c_id)) => Some(ws_c_id),
+                                    Ok(None) => {
+                                        println!("No ws connection id found for user: {}", user_id);
+                                        None
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error fetching connection string: {}", e);
+                                        None
+                                    }
+                                };
+                            let get_connection_string_request = WsMessage::GetConnectionRequest {
+                                reciever_ws_connection_id: recv_client_id.clone(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&get_connection_string_request)
+                            {
+                                if let Some(connection_id) = &source_ws_connection_id {
+                                    if let Some(tx) = recv_clients.lock().await.get(connection_id) {
+                                        if let Err(e) = tx.send(Message::Text(json.into())) {
+                                            eprintln!(
+                                                "Error sending connection string response: {}",
+                                                e
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        WsMessage::GetConnectionRequest { .. } => {
                             println!(
                                 "Received GetConnectionRequest - this is a server-side message"
                             );
@@ -150,20 +170,4 @@ async fn handle_socket(socket: WebSocket, storage: Arc<Storage>, clients: Client
 
     println!("Client {} disconnected", client_id);
     clients.lock().await.remove(&client_id);
-}
-
-pub async fn request_connection(
-    clients: &Clients,
-    client_id: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let clients_map = clients.lock().await;
-
-    if let Some(tx) = clients_map.get(client_id) {
-        let msg = WsMessage::GetConnectionRequest;
-        let json = serde_json::to_string(&msg)?;
-        tx.send(Message::Text(json.into()))?;
-        Ok(())
-    } else {
-        Err("Client not found".into())
-    }
 }
