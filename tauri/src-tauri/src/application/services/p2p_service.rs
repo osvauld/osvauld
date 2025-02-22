@@ -966,4 +966,28 @@ impl P2PService {
 
         Ok(())
     }
+    pub async fn send_snapshot(&self, snapshot: String) -> Result<(), String> {
+        match serde_json::from_str::<serde_json::Value>(&snapshot) {
+            Ok(val) => {
+                let msg = Message::SyncEvent {
+                    event: "sync-update".to_string(),
+                    payload: val,
+                };
+                match serde_json::to_string(&msg) {
+                    Ok(serialized) => {
+                        log::info!("sending message");
+                        if let Err(e) = self.send_message(serialized).await {
+                            error!("Failed to send sync event: {}", e);
+                        }
+                    }
+                    Err(e) => error!("Failed to serialize message: {}", e),
+                }
+            }
+            Err(e) => {
+                error!("Failed to parse payload: {}", e);
+            }
+        }
+
+        Ok(())
+    }
 }
