@@ -3,5 +3,6 @@ resolver = "2"
 members = [
     "crypto_utils",
     "wasm",
-    "tauri/src-tauri"
+    "tauri/src-tauri",
+    "rendezvous_server"
 ]

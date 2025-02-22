@@ -19,5 +19,6 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3030").await.unwrap();
     println!("WebSocket server running at ws://0.0.0.0:3030/ws");
+
     axum::serve(listener, app).await.unwrap();
 }

@@ -1,0 +1,20 @@
+.
+├── app.css
+├── App.svelte
+├── desktop.ts
+├── file.txt
+├── index.html
+├── lib
+│   ├── DesktopImportPvtKey.svelte
+│   ├── DocumentEditor.svelte
+│   ├── EditorContrainer.svelte
+│   └── utils
+│       └── editor.ts
+├── package.json
+├── svelte.config.mjs
+├── tailwind.config.js
+├── tailwind.css
+├── tsconfig.json
+└── vite.config.js
+
+3 directories, 15 files
