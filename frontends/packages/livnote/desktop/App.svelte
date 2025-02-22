@@ -1,11 +1,12 @@
 <script>
+	import DocumentEditor from "./lib/DocumentEditor.svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
-	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import DesktopImportPvtKey from "./lib/DesktopImportPvtKey.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
+	import Connector from "./lib/Connector.svelte";
 	import { onMount } from "svelte";
-	import DocumentEditor from "./lib/DocumentEditor.svelte";
+	import Initiator from "./lib/Initiator.svelte";
 
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	let signedUp = false;
@@ -16,6 +17,7 @@
 		console.log("Content updated:", getContent());
 	}
 
+	let showConnector = true;
 	const handleSignedUp = () => {
 		signedUp = true;
 		showWelcome.set(false);
@@ -23,6 +25,10 @@
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+	};
+
+	const handleConnectorClose = () => {
+		showConnector = false;
 	};
 
 	onMount(async () => {
@@ -68,8 +74,9 @@
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
+	{:else if showConnector}
+		<Connector on:close={handleConnectorClose} />
 	{:else}
 		<DocumentEditor />
-		<!-- <RichTextEditor placeholder="Start writing..." on:change={handleChange} /> -->
 	{/if}
 </main>

@@ -1,6 +1,12 @@
 import { AffineEditorContainer } from '@blocksuite/presets';
 import { Doc, Schema, Store, DocCollection } from '@blocksuite/store';
 import { AffineSchemas } from '@blocksuite/blocks';
+import { TauriSync } from './tauriSync';
+
+export interface AppState {
+  editor: AffineEditorContainer;
+  collection: DocCollection;
+}
 
 export function initEditor() {
   const schema = new Schema().register(AffineSchemas);
@@ -9,10 +15,6 @@ export function initEditor() {
 
   const doc = collection.createDoc({ id: 'page1' });
 
-  doc.spaceDoc.on("update", (data) => {
-
-    console.log(data);
-  })
   // Initialize the doc first
   doc.load(() => {
     const pageBlockId = doc.addBlock('affine:page', {});
@@ -20,17 +22,14 @@ export function initEditor() {
     const noteId = doc.addBlock('affine:note', {}, pageBlockId);
     doc.addBlock('affine:paragraph', {}, noteId);
   });
+
+  // Set up sync state monitoring
   collection.docSync.onStatusChange.subscribe(
     (state) => state,
     (syncState) => {
-      console.log('Sync state changed:', JSON.stringify(
-        syncState)
-      );
+      console.log('Editor: Sync state changed:', JSON.stringify(syncState));
     }
   );
-  // Wait for doc to be ready then subscribe to sync
-
-  // Listen to Y.js updates directly
 
   const editor = new AffineEditorContainer();
   editor.doc = doc;
@@ -38,5 +37,6 @@ export function initEditor() {
     const target = <Doc>collection.getDoc(docId);
     editor.doc = target;
   });
+
   return { editor, collection };
 }

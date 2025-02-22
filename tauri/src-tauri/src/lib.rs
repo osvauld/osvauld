@@ -1,4 +1,5 @@
 use log::{error, info};
+use tauri::Listener;
 use tauri::Manager;
 pub mod application;
 mod database;

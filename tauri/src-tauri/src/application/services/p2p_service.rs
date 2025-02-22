@@ -16,9 +16,9 @@ use iroh::{
 use iroh_blobs::store::mem::Store;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
-use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
+use tauri::{AppHandle, Listener};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
@@ -220,8 +220,13 @@ impl P2PService {
                 "receiver"
             }
         );
-        if is_initiator {
-            self.start_sync().await?;
+        if !is_initiator {
+            self.app_handle
+                .listen("sync-update", move |data| log::info!("got somethiing"));
+            self.app_handle.listen("sync-snapshot", move |data| {
+                info!("got snapshot {:?}", data.payload());
+            });
+            // self.start_sync().await?;
         }
         //  else {
         //     let app_data_dir = self.app_handle.path().app_data_dir().unwrap();
