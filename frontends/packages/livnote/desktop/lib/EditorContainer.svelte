@@ -31,6 +31,7 @@
 			tauriSync = new TauriSync(currentAppState.collection, deviceId);
 			await tauriSync.sendInitialSnapshot();
 		} else {
+			console.log("test");
 			// For initiator, wait for snapshot and then initialize
 			await listen("sync-snapshot", async (event) => {
 				const binaryData = new Uint8Array(event.payload as number[]);
