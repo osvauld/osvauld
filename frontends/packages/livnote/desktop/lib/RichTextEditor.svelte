@@ -8,6 +8,7 @@
 	import { baseKeymap } from "prosemirror-commands";
 	import { keymap } from "prosemirror-keymap";
 	import { history, undo, redo } from "prosemirror-history";
+	import { listen } from "@tauri-apps/api/event";
 	import {
 		splitListItem,
 		liftListItem,
@@ -136,7 +137,7 @@
 
 			// Convert received step JSON back to actual steps
 			const convertedSteps = steps.map((step) =>
-				Step.fromJSON(state.schema, step),
+				step.fromJSON(state.schema, step),
 			);
 
 			// Apply each step
@@ -154,7 +155,7 @@
 		}
 	}
 
-	onMount(() => {
+	onMount(async () => {
 		view = new EditorView(element, {
 			state: createEditorState(content),
 			dispatchTransaction(transaction) {
@@ -192,6 +193,17 @@
 				"data-placeholder": placeholder,
 			},
 			editable: () => !readonly,
+		});
+		let unsubscribe = await listen("status-update-be", (event) => {
+			console.log("recieved");
+			try {
+				const newContent = event.payload;
+				if (newContent && view) {
+					setContent(newContent);
+				}
+			} catch (err) {
+				console.error("Error handling status-update-be event:", err);
+			}
 		});
 	});
 
