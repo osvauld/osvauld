@@ -36,7 +36,7 @@ pub enum Message {
     AddDeviceAck,
     FileTransfer { name: String, data: Vec<u8> },
     Error,
-    SyncEvent { event: String, payload: Vec<u8> },
+    SyncEvent { event: String, payload: String },
 }
 
 #[derive(Serialize, Deserialize)]

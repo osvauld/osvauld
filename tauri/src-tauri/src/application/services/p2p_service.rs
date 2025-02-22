@@ -218,44 +218,21 @@ impl P2PService {
                 log::info!("got something from sync-update");
 
                 let payload_str = data.payload().to_string();
-                log::info!("Received payload string: {}", payload_str);
 
-                // Remove the surrounding quotes if they exist
-                let cleaned_payload = if payload_str.starts_with('"') && payload_str.ends_with('"')
-                {
-                    payload_str[1..payload_str.len() - 1].to_string()
-                } else {
-                    payload_str
+                let msg = Message::SyncEvent {
+                    event: "sync-update".to_string(),
+                    payload: payload_str,
                 };
 
-                match serde_json::from_str::<Vec<u8>>(&cleaned_payload) {
-                    Ok(binary_payload) => {
-                        log::info!(
-                            "Successfully parsed binary payload, length: {}",
-                            binary_payload.len()
-                        );
-                        let msg = Message::SyncEvent {
-                            event: "sync-update".to_string(),
-                            payload: binary_payload,
-                        };
-
-                        match serde_json::to_string(&msg) {
-                            Ok(serialized) => {
-                                log::info!("sending binary update message");
-                                if let Err(e) = self_clone.send_message(serialized).await {
-                                    error!("Failed to send sync event: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to serialize message: {}", e);
-                            }
+                match serde_json::to_string(&msg) {
+                    Ok(serialized) => {
+                        log::info!("sending binary update message");
+                        if let Err(e) = self_clone.send_message(serialized).await {
+                            error!("Failed to send sync event: {}", e);
                         }
                     }
                     Err(e) => {
-                        error!(
-                            "Failed to parse payload as binary array: {}. Cleaned payload was: {}",
-                            e, cleaned_payload
-                        );
+                        error!("Failed to serialize message: {}", e);
                     }
                 }
             });
@@ -1044,7 +1021,7 @@ impl P2PService {
 
         Ok(())
     }
-    pub async fn send_snapshot(&self, snapshot: Vec<u8>) -> Result<(), String> {
+    pub async fn send_snapshot(&self, snapshot: String) -> Result<(), String> {
         let msg = Message::SyncEvent {
             event: "sync-snapshot".to_string(),
             payload: snapshot,
@@ -1054,11 +1031,7 @@ impl P2PService {
         self.send_message(serialized).await;
         Ok(())
     }
-    pub async fn handle_sync_event(
-        &self,
-        event_name: &str,
-        payload: Vec<u8>,
-    ) -> Result<(), String> {
+    pub async fn handle_sync_event(&self, event_name: &str, payload: String) -> Result<(), String> {
         log::info!(
             "Handling sync event '{}' with payload size: {}",
             event_name,
@@ -1068,11 +1041,6 @@ impl P2PService {
         match event_name {
             "sync-update" | "sync-snapshot" => {
                 // Log the raw payload for debugging
-                log::info!(
-                    "Raw payload (first 100 bytes): {:?}",
-                    payload.iter().take(100).collect::<Vec<_>>()
-                );
-
                 // Since we're dealing with binary data, emit it directly without string conversion
                 let event_name = format!("{}-be", event_name);
                 log::info!("Emitting event: {} with binary payload", event_name);

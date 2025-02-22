@@ -63,7 +63,7 @@
 		}
 
 		try {
-			const encodedState = Y.encodeStateAsUpdate(currentDoc.spaceDoc);
+			const encodedState = Y.encodeStateAsUpdateV2(currentDoc.spaceDoc);
 			const stateArray = Array.from(encodedState);
 			console.log("Sending snapshot, size:", stateArray.length);
 			await sendMessage("sendSnapshot", stateArray);
@@ -98,7 +98,9 @@
 
 				const doc = currentDoc;
 				if (!doc) return;
-				Y.applyUpdate(doc.spaceDoc, binaryData);
+				doc.spaceDoc.transact(() => {
+					Y.applyUpdate(doc.spaceDoc, binaryData);
+				}, "remote");
 				console.log("Doc state after update:", {
 					hasContent: !doc.isEmpty,
 					meta: doc.meta,

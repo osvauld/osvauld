@@ -7,15 +7,21 @@
 	import Connector from "./lib/Connector.svelte";
 	import { onMount } from "svelte";
 	import Initiator from "./lib/Initiator.svelte";
+	import RichTextEditor from "./lib/RichTextEditor.svelte";
 	import { wsConnector } from "../desktop/lib/store/wsConnectorStore";
 	import type { WSConnection } from "../desktop/lib/utils/wsConnector";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
+	import { listen, emit } from "@tauri-apps/api/event";
+	import { error } from "console";
 	let signedUp = false;
 	let isLoading = true;
 	let showWelcome = false;
-	function handleChange(event) {
+	async function handleChange(event) {
 		const { getContent } = event.detail;
-		console.log("Content updated:", getContent());
+		const data = getContent();
+		await emit("sync-update", data).catch((error) => {
+			console.log("errror");
+		});
 	}
 
 	let wsConnectorInstance: WSConnection;
@@ -25,7 +31,7 @@
 	let showConnector = true;
 	const handleSignedUp = () => {
 		signedUp = true;
-		showWelcome.set(false);
+		showWelcome = false;
 	};
 
 	const handleAuthenticated = async () => {
@@ -93,6 +99,6 @@
 	{:else if showConnector}
 		<Connector on:close={handleConnectorClose} />
 	{:else}
-		<DocumentEditor {syncRole} />
+		<RichTextEditor on:change={handleChange} />
 	{/if}
 </main>

@@ -39,7 +39,7 @@ pub fn get_system_locale() -> String {
 
 #[tauri::command]
 pub async fn send_snapshot(
-    snapshot: Vec<u8>,
+    snapshot: String,
     state: State<'_, Arc<P2PService>>,
 ) -> Result<(), CryptoResponse> {
     log::info!("snapshot recived {:?}", snapshot);
