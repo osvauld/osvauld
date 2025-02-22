@@ -59,7 +59,7 @@
 	}
 </script>
 
-<div class="items-center h-full flex flex-col justify-center">
+<div class="items-center flex flex-col justify-center">
 	<div class="p-4 flex flex-col gap-4">
 		<div class="bg-mobile-bgSeconary rounded-lg p-4">
 			<h2 class="text-xl mb-2 text-mobile-textPrimary">
