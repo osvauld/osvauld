@@ -211,36 +211,34 @@ impl P2PService {
                 self_clone.handle_messages().await;
             }
         });
-
-        let self_clone = self.clone();
+        let sync_update_clone = self.clone();
         let listener = self.app_handle.listen("sync-update", move |data| {
-            let self_clone = self_clone.clone();
+            let self_clone = sync_update_clone.clone();
             tokio::spawn(async move {
                 log::info!("got something from sync-update");
-                let payload_str = data.payload().to_string();
-                if !payload_str.is_empty() {
-                    match serde_json::from_str::<serde_json::Value>(&payload_str) {
-                        Ok(val) => {
-                            let msg = Message::SyncEvent {
-                                event: "sync-update".to_string(),
-                                payload: val,
-                            };
-                            match serde_json::to_string(&msg) {
-                                Ok(serialized) => {
-                                    log::info!("sending message");
-                                    if let Err(e) = self_clone.send_message(serialized).await {
-                                        error!("Failed to send sync event: {}", e);
-                                    }
-                                }
-                                Err(e) => error!("Failed to serialize message: {}", e),
+
+                // Parse the payload string directly into Vec<u8>
+                match serde_json::from_str::<Vec<u8>>(data.payload()) {
+                    Ok(binary_payload) => {
+                        // Create SyncEvent message with binary payload
+                        let msg = Message::SyncEvent {
+                            event: "sync-update".to_string(),
+                            payload: binary_payload, // Using Vec<u8> directly
+                        };
+
+                        // Send the message
+                        if let Ok(serialized) = serde_json::to_string(&msg) {
+                            log::info!("sending binary update message");
+                            if let Err(e) = self_clone.send_message(serialized).await {
+                                error!("Failed to send sync event: {}", e);
                             }
-                        }
-                        Err(e) => {
-                            error!("Failed to parse payload: {}", e);
+                        } else {
+                            error!("Failed to serialize message");
                         }
                     }
-                } else {
-                    log::info!("Empty payload received in sync-update event");
+                    Err(e) => {
+                        error!("Failed to parse payload as binary array: {}", e);
+                    }
                 }
             });
         });
@@ -966,28 +964,14 @@ impl P2PService {
 
         Ok(())
     }
-    pub async fn send_snapshot(&self, snapshot: String) -> Result<(), String> {
-        match serde_json::from_str::<serde_json::Value>(&snapshot) {
-            Ok(val) => {
-                let msg = Message::SyncEvent {
-                    event: "sync-update".to_string(),
-                    payload: val,
-                };
-                match serde_json::to_string(&msg) {
-                    Ok(serialized) => {
-                        log::info!("sending message");
-                        if let Err(e) = self.send_message(serialized).await {
-                            error!("Failed to send sync event: {}", e);
-                        }
-                    }
-                    Err(e) => error!("Failed to serialize message: {}", e),
-                }
-            }
-            Err(e) => {
-                error!("Failed to parse payload: {}", e);
-            }
-        }
-
+    pub async fn send_snapshot(&self, snapshot: Vec<u8>) -> Result<(), String> {
+        let msg = Message::SyncEvent {
+            event: "sync-update".to_string(),
+            payload: snapshot,
+        };
+        let serialized = serde_json::to_string(&msg)
+            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
+        self.send_message(serialized).await;
         Ok(())
     }
 }
