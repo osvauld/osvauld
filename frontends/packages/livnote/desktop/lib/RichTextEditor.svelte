@@ -27,7 +27,7 @@
 	export let clientID = Math.floor(Math.random() * 0xffffffff);
 	export let version = 0;
 
-	export function receiveSteps(steps, clientID, newVersion) {
+	export function receiveSteps(steps, remoteClientID, newVersion) {
 		if (!view) return;
 
 		try {
@@ -42,11 +42,13 @@
 				tr.step(step);
 			});
 
-			// Use receiveTransaction to properly handle collaborative state
-			receiveTransaction(view.state, tr.steps, tr.maps, clientID);
-
-			// Apply the transaction to update the editor
-			view.dispatch(tr);
+			// Update version and apply the transaction
+			view.dispatch(
+				tr.setMeta("collab", {
+					version: newVersion,
+					clientID: remoteClientID,
+				}),
+			);
 		} catch (err) {
 			console.error("Error applying collaborative steps:", err);
 		}
