@@ -3,8 +3,7 @@
 	import { getContext } from "svelte";
 	import type { Writable } from "svelte/store";
 	import type { AppState } from "./utils/editor.ts";
-	import { TauriSync } from "./utils/tauriSync.js";
-	import { listen } from "@tauri-apps/api/event";
+	import { listen, emit } from "@tauri-apps/api/event";
 	import { initEditor } from "./utils/editor";
 	import * as Y from "yjs";
 	import { get } from "svelte/store";
@@ -12,10 +11,10 @@
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
-	let tauriSync: TauriSync;
 	let unsubscribe: () => void;
 	let unlistenHandlers: Array<() => void> = [];
 	export let syncRole: string;
+	let currentDoc: Doc | null = null;
 
 	function refreshEditor(state: AppState) {
 		if (editorContainer && state) {
@@ -25,37 +24,70 @@
 		}
 	}
 
-	async function initializeTauriSync(state: AppState) {
-		const deviceId = crypto.randomUUID();
-		tauriSync = new TauriSync(state.collection, deviceId);
+	function setupDocumentHandlers(doc: Doc) {
+		console.log("Setting up document handlers");
 
-		// If we're the acceptor, send the initial snapshot
-		if (syncRole === "acceptor") {
-			await tauriSync.sendInitialSnapshot();
-			console.log("Acceptor: Sent initial snapshot");
+		// Handle local updates
+		doc.spaceDoc.on("update", (update: Uint8Array, origin: unknown) => {
+			if (origin !== "remote") {
+				console.log("Local update detected, sending to peer");
+				handleDocUpdate(update);
+			}
+		});
+
+		// Log transactions for debugging
+		doc.spaceDoc.on("afterTransaction", (transaction: Y.Transaction) => {
+			console.log("Document transaction:", {
+				origin: transaction.origin,
+				changed: transaction.changed.size > 0,
+			});
+		});
+	}
+
+	async function handleDocUpdate(update: Uint8Array) {
+		try {
+			const updateArray = Array.from(update);
+			console.log("Sending update, size:", updateArray.length);
+			await emit("sync-update", updateArray);
+		} catch (error) {
+			console.error("Error sending update:", error);
+		}
+	}
+
+	async function sendInitialSnapshot() {
+		console.log("Preparing to send initial Y.js state");
+		if (!currentDoc) {
+			console.error("No document available for snapshot");
+			return;
+		}
+
+		try {
+			const encodedState = Y.encodeStateAsUpdate(currentDoc.spaceDoc);
+			const stateArray = Array.from(encodedState);
+			console.log("Sending snapshot, size:", stateArray.length);
+			await emit("sync-snapshot", stateArray);
+			console.log("Snapshot sent successfully");
+		} catch (error) {
+			console.error("Error sending snapshot:", error);
 		}
 	}
 
 	async function setupSyncListeners() {
-		// Listen for sync updates
+		console.log("Setting up sync listeners for role:", syncRole);
+
+		// Handle incoming updates
 		const unlistenUpdate = await listen("sync-update-be", async (event) => {
 			try {
-				console.log("Received sync-update-be event");
+				console.log("Received sync update");
 				const binaryData = new Uint8Array(event.payload as number[]);
-				console.log("Update size:", binaryData.length);
 
 				const currentState = get(appState);
 				if (!currentState) return;
 
 				const doc = currentState.collection.getDoc("page1") as Doc;
-				if (!doc) {
-					console.error("No page1 doc found");
-					return;
-				}
+				if (!doc) return;
 
-				console.log("Applying update to doc");
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-
 				refreshEditor(currentState);
 				appState.update((state) => state);
 			} catch (error) {
@@ -63,29 +95,23 @@
 			}
 		});
 
-		// Listen for snapshot updates
+		// Handle incoming snapshots
 		const unlistenSnapshot = await listen("sync-snapshot-be", async (event) => {
 			try {
-				console.log("Received sync-snapshot-be event");
+				console.log("Received sync snapshot");
 				const binaryData = new Uint8Array(event.payload as number[]);
-				console.log("Snapshot size:", binaryData.length);
 
 				const currentState = get(appState);
 				if (!currentState) return;
 
 				const doc = currentState.collection.getDoc("page1") as Doc;
-				if (!doc) {
-					console.error("No page1 doc found");
-					return;
-				}
+				if (!doc) return;
 
 				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
-				console.log("Applied snapshot to doc");
-
 				refreshEditor(currentState);
 				appState.update((state) => state);
 			} catch (error) {
-				console.error("Error in sync-snapshot-be handler:", error);
+				console.error("Error handling snapshot:", error);
 			}
 		});
 
@@ -95,35 +121,32 @@
 	onMount(async () => {
 		console.log(`Mounting EditorContainer with role: ${syncRole}`);
 
-		// Initialize state for both roles
-		const state = initEditor();
-		const initialDoc = state.collection.getDoc("page1") as Doc;
-		if (!initialDoc) {
-			console.error("Failed to initialize document");
-			return;
+		const state = get(appState);
+		if (!state) return;
+
+		// Set up document
+		currentDoc = state.collection.getDoc("page1") as Doc;
+		if (currentDoc) {
+			setupDocumentHandlers(currentDoc);
 		}
 
-		state.editor.doc = initialDoc;
-		appState.set(state);
-
-		// Set up subscription for UI updates
+		// Set up UI updates
 		unsubscribe = appState.subscribe((state) => {
-			if (state) {
-				refreshEditor(state);
-			}
+			if (state) refreshEditor(state);
 		});
 
-		// Set up sync listeners for both roles
+		// Set up event listeners
 		await setupSyncListeners();
 
-		// Initialize TauriSync for both roles
-		await initializeTauriSync(state);
+		// If we're the acceptor, send initial snapshot
+		if (syncRole === "acceptor") {
+			console.log("Acceptor: Sending initial snapshot");
+			await sendInitialSnapshot();
+		}
 	});
 
 	onDestroy(() => {
-		if (unsubscribe) {
-			unsubscribe();
-		}
+		unsubscribe?.();
 		unlistenHandlers.forEach((unlisten) => unlisten());
 		if (editorContainer) {
 			editorContainer.innerHTML = "";

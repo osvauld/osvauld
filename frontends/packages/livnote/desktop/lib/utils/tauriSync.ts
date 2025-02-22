@@ -64,6 +64,7 @@ export class TauriSync {
         console.log('TauriSync: Document transaction:', {
           origin: transaction.origin,
           changed: transaction.changed.size > 0,
+          deletedNodes: transaction.deletedNodes.size
         });
       });
     }
@@ -78,7 +79,7 @@ export class TauriSync {
         deviceId: this.deviceId
       });
 
-      // Emit the update event
+      // Emit the update event with different name to match backend
       await emit('sync-update', updateArray);
       console.log('TauriSync: Successfully sent update, length:', updateArray.length);
     } catch (error) {
@@ -101,10 +102,28 @@ export class TauriSync {
         deviceId: this.deviceId
       });
 
+      // Add a delay before sending snapshot to ensure backend is ready
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Emit snapshot event
       await emit('sync-snapshot', stateArray);
       console.log('TauriSync: Successfully sent initial snapshot');
+
+      // Confirm snapshot was sent
+      await emit('snapshot-sent', { deviceId: this.deviceId });
     } catch (error) {
       console.error('TauriSync: Error sending initial snapshot:', error);
+      // Notify about error
+      await emit('sync-error', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+        deviceId: this.deviceId
+      });
     }
+  }
+
+  // Add method to force a snapshot resend
+  public async resendSnapshot() {
+    console.log('TauriSync: Forcing snapshot resend');
+    await this.sendInitialSnapshot();
   }
 }
