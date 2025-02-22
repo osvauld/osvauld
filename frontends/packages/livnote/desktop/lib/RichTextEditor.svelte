@@ -147,8 +147,8 @@
 
 		// Get only the new steps since last sync
 		const steps = sendableSteps(state);
+		console.log(steps);
 		if (steps) {
-			sendable.steps = steps.steps.map((step) => step.toJSON());
 			sendable.version = steps.version;
 		}
 
