@@ -40,7 +40,7 @@
 			error = "";
 			connecting = true;
 			//TODO: handle live and sync connection
-			await invoke("connect_with_ticket_live", { ticket: ticket.trim() });
+			await invoke("connect_with_ticket", { ticket: ticket.trim() });
 		} catch (err) {
 			error = err.toString();
 			status = "Connection failed";
