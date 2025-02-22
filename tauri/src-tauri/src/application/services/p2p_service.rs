@@ -224,7 +224,7 @@ impl P2PService {
             // self.start_sync().await?;
         }
         let self_clone = self.clone();
-        self.app_handle.listen("sync-update", move |data| {
+        let listener = self.app_handle.listen("sync-update", move |data| {
             let self_clone = self_clone.clone();
             tokio::spawn(async move {
                 log::info!("got something from sync-update");
@@ -236,12 +236,10 @@ impl P2PService {
                             return;
                         }
                     };
-
                 let msg = Message::SyncEvent {
                     event: "sync-update".to_string(),
                     payload,
                 };
-
                 match serde_json::to_string(&msg) {
                     Ok(serialized) => {
                         if let Err(e) = self_clone.send_message(serialized).await {
