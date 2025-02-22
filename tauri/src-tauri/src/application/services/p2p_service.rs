@@ -385,7 +385,6 @@ impl P2PService {
         let _ = self.app_handle.emit("sync-complete", true);
         Ok(())
     }
-
     async fn accept_handshake(
         &self,
         send: &mut SendStream,
@@ -398,60 +397,113 @@ impl P2PService {
         let handshake_message: HandshakeMessage =
             match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut buffer)).await? {
                 Ok(Some(n)) => {
+                    info!("Received {} bytes during handshake", n);
+
                     if n >= MAX_HANDSHAKE_SIZE {
+                        error!("Handshake message too large: {} bytes", n);
                         return Err(HandshakeError::Connection(
                             "Handshake message too large".into(),
                         ));
                     }
-                    let message_str = String::from_utf8(buffer[..n].to_vec()).map_err(|_| {
-                        HandshakeError::Connection("Invalid UTF-8 in response".into())
-                    })?;
-                    serde_json::from_str(&message_str)?
-                }
-                Ok(None) => return Err(HandshakeError::Connection("Connection closed".into())),
-                Err(e) => return Err(HandshakeError::Connection(e.to_string())),
-            };
-        //TODO: verify signature
 
+                    // First convert to string and log it
+                    let message_str = match String::from_utf8(buffer[..n].to_vec()) {
+                        Ok(str) => {
+                            info!(
+                                "Successfully converted handshake to string, length: {}",
+                                str.len()
+                            );
+                            info!("Handshake message preview: {}", &str[..str.len().min(100)]);
+                            str
+                        }
+                        Err(e) => {
+                            error!("Invalid UTF-8 in handshake response: {}", e);
+                            return Err(HandshakeError::Connection(
+                                "Invalid UTF-8 in response".into(),
+                            ));
+                        }
+                    };
+
+                    // Then try to parse the JSON
+                    match serde_json::from_str(&message_str) {
+                        Ok(msg) => {
+                            info!("Successfully parsed handshake message");
+                            msg
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to parse handshake JSON: {}. Message was: {}",
+                                e, &message_str
+                            );
+                            return Err(HandshakeError::Serialization(e.to_string()));
+                        }
+                    }
+                }
+                Ok(None) => {
+                    error!("Connection closed during handshake");
+                    return Err(HandshakeError::Connection("Connection closed".into()));
+                }
+                Err(e) => {
+                    error!("Error reading from connection during handshake: {}", e);
+                    return Err(HandshakeError::Connection(e.to_string()));
+                }
+            };
+
+        info!("Successfully received and parsed handshake message");
+
+        // Store the device information
         {
             let mut device = self.device.lock().await;
             *device = Some(handshake_message.device.clone());
         }
+
         // Get our device and create response
-        let device = self
-            .auth_service
-            .get_current_device()
-            .await
-            .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+        let device = match self.auth_service.get_current_device().await {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Failed to get current device: {}", e);
+                return Err(HandshakeError::AuthService(e.to_string()));
+            }
+        };
 
-        let (challenge, signature) = self
-            .auth_service
-            .sign_random_challenge()
-            .await
-            .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
+        let (challenge, signature) = match self.auth_service.sign_random_challenge().await {
+            Ok(cs) => cs,
+            Err(e) => {
+                error!("Failed to sign challenge: {}", e);
+                return Err(HandshakeError::AuthService(e.to_string()));
+            }
+        };
 
-        let handshake_message = HandshakeMessage {
+        let response = HandshakeMessage {
             challenge,
             signature,
             device,
         };
-        info!("handshake_message {:?}", handshake_message);
 
-        // Send our response
-        let serialized = serde_json::to_string(&handshake_message)?;
+        info!("Created handshake response message");
 
-        send.write_all(serialized.as_bytes())
-            .await
-            .map_err(|e| HandshakeError::Connection(e.to_string()))?;
+        // Serialize and send our response
+        let serialized = match serde_json::to_string(&response) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Failed to serialize response: {}", e);
+                return Err(HandshakeError::Serialization(e.to_string()));
+            }
+        };
 
-        send.flush()
-            .await
-            .map_err(|e| HandshakeError::Connection(e.to_string()))?;
+        if let Err(e) = send.write_all(serialized.as_bytes()).await {
+            error!("Failed to write response: {}", e);
+            return Err(HandshakeError::Connection(e.to_string()));
+        }
+
+        if let Err(e) = send.flush().await {
+            error!("Failed to flush response: {}", e);
+            return Err(HandshakeError::Connection(e.to_string()));
+        }
 
         info!("Receiver: Handshake completed successfully");
         Ok(())
     }
-
     pub async fn ack_complete(&self, device_record_status_id: String) -> Result<(), String> {
         self.sync_service
             .handle_ack_complete(device_record_status_id)
