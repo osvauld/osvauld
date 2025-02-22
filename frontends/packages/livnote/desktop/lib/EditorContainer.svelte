@@ -13,21 +13,36 @@
 	let tauriSync: TauriSync;
 	let unsubscribe: () => void;
 	export let syncRole: string;
-	onMount(async () => {
-		if (syncRole === "initiator") {
-			console.log("Setting up sync-snapshot-be listener");
 
+	onMount(async () => {
+		if (syncRole === "acceptor") {
+			// For acceptor, we already have the state initialized
+			let currentState: AppState;
+			unsubscribe = appState.subscribe((state) => {
+				currentState = state;
+				if (editorContainer && state) {
+					editorContainer.innerHTML = "";
+					editorContainer.appendChild(state.editor);
+					document.documentElement.classList.add("dark");
+				}
+			});
+
+			// Initialize TauriSync and send initial snapshot
+			const deviceId = crypto.randomUUID();
+			tauriSync = new TauriSync(currentState.collection, deviceId);
+			await tauriSync.sendInitialSnapshot();
+			console.log("Acceptor: Sent initial snapshot");
+		} else if (syncRole === "initiator") {
+			console.log("Setting up sync-snapshot-be listener");
 			await listen("sync-snapshot-be", async (event) => {
 				try {
 					console.log("Received sync-snapshot-be event");
 					const binaryData = new Uint8Array(event.payload as number[]);
 					console.log("Created Uint8Array with length:", binaryData.length);
 
-					// Create initial state
 					const state = initEditor();
 					console.log("Created initial editor state");
 
-					// Apply the snapshot to the doc
 					const doc = state.collection.getDoc("page1");
 					if (doc) {
 						console.log("Found page1 doc, applying update");
@@ -38,7 +53,6 @@
 					appState.set(state);
 					console.log("Set new app state");
 
-					// Set up subscription and rest of initialization
 					unsubscribe = appState.subscribe((state) => {
 						if (editorContainer && state) {
 							editorContainer.innerHTML = "";

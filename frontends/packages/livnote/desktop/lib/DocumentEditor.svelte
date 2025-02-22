@@ -11,6 +11,7 @@
 	setContext("appState", appState);
 
 	onMount(() => {
+		console.log("document editor");
 		if (syncRole === "acceptor") {
 			const state = initEditor();
 			appState.set(state);
