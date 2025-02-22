@@ -1,6 +1,7 @@
 
 import { emit, listen } from '@tauri-apps/api/event';
 import { Doc, DocCollection, Job } from '@blocksuite/store';
+import { sendMessage } from '@osvauld/password-manager-common';
 
 export class TauriSync {
   private collection: DocCollection;
@@ -61,7 +62,6 @@ export class TauriSync {
       await this.applyUpdate(update);
     });
   }
-
   public async sendInitialSnapshot() {
     console.log('TauriSync: Sending initial snapshot');
     const currentDoc = this.collection.getDoc('page1');
@@ -73,17 +73,15 @@ export class TauriSync {
 
     try {
       const snapshot = await this.job.docToSnapshot(currentDoc);
-      console.log('TauriSync: Created snapshot');
+      console.log('TauriSync: Created snapshot and sending snapshot');
+      await sendMessage("sendSnapshot", snapshot)
 
-      await emit('sync-snapshot', {
-        sender: this.deviceId,
-        snapshot: snapshot
-      });
       console.log('TauriSync: Emitted snapshot event');
     } catch (error) {
       console.error('TauriSync: Error sending initial snapshot:', error);
     }
   }
+
 
   private async loadSnapshot(snapshot: any) {
     console.log('TauriSync: Loading snapshot');

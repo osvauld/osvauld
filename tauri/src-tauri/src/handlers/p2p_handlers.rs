@@ -42,6 +42,7 @@ pub async fn send_snapshot(
     snapshot: String,
     state: State<'_, Arc<P2PService>>,
 ) -> Result<(), CryptoResponse> {
+    log::info!("snapshot recived {:?}", snapshot);
     let _ = state
         .send_snapshot(snapshot)
         .await
