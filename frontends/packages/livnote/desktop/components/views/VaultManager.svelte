@@ -8,6 +8,7 @@
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	export let vaultManagerActive;
+	export let instance = "content";
 	let newVaultInputActive = false;
 	let newVaultName = "";
 
@@ -62,7 +63,7 @@
 	class="fixed inset-0 bg-transparent z-[999]"
 	on:click="{() => (vaultManagerActive = false)}">
 	<div
-		class="absolute top-52 left-16 w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg"
+		class="{`absolute  w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${instance === 'content' ? 'top-52 left-16 ' : 'top-56 left-4'}`}"
 		style="width: calc(360px - 2rem);"
 		id="vaultSelector"
 		in:fly

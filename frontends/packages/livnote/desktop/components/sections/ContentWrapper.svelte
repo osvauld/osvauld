@@ -60,7 +60,7 @@
 							: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
 					></button>
 				{#if vaultManagerActive}
-					<VaultManager bind:vaultManagerActive />
+					<VaultManager bind:vaultManagerActive instance="content" />
 				{/if}
 			</div>
 			<div

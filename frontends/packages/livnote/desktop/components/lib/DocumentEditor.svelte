@@ -8,7 +8,6 @@
 	setContext("appState", appState);
 </script>
 
-<div
-	class="flex h-screen w-screen bg-osvauld-frameblack text-osvauld-textActive font-sans">
+<div class="flex h-full text-osvauld-textActive font-sans bg-blue-400">
 	<EditorContainer />
 </div>

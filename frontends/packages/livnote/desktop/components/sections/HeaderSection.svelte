@@ -65,7 +65,8 @@
 				placeholder="Search..." />
 		</div>
 
-		<div class="relative ml-3 text-osvauld-fieldText font-normal text-sm z-40">
+		<div
+			class="relative ml-auto text-osvauld-fieldText font-normal text-sm z-40">
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
