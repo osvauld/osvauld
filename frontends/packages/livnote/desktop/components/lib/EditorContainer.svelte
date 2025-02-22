@@ -19,22 +19,30 @@
 
 <style>
 	:global(.editor-container) {
-		background-color: #0d0e13 !important;
+		background-color: #fff !important;
 	}
 
 	:global(.affine-default-page-block-container),
 	:global(.affine-database-kanban-view),
 	:global(.affine-database-table),
 	:global(.affine-page-root-block-container) {
-		background-color: #0d0e13 !important;
+		background-color: #fff !important;
 		color: #a3a4b5 !important;
 	}
 
 	:global(.kanban-column),
 	:global(.kanban-card),
 	:global(.affine-database-table-cell) {
-		background-color: #111218 !important;
+		background-color: #fff !important;
 		border-color: #292a36 !important;
+	}
+
+	:global(doc-meta-tags) {
+		display: none;
+	}
+
+	:global(affine-page-root-block-container) {
+		background-color: #fff !important;
 	}
 </style>
 

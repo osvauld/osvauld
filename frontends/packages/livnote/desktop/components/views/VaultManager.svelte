@@ -75,7 +75,7 @@
 					<button
 						class="h-[48px] w-full p-4 text-mobile-textPrimary flex items-center rounded-lg hover:bg-osvauld-frameblack"
 						class:bg-mobile-bgLight="{isActive}"
-						class:text-mobile-textTertiary="{isActive}"
+						class:text-osvauld-sideListTextActive="{isActive}"
 						on:click|stopPropagation="{() => handleVaultSwitch(vault)}">
 						<span
 							><MobileHome color="{isActive ? '#F2F2F0' : '#85889C'}" /></span>
@@ -92,7 +92,8 @@
 						out:slide
 						on:submit|preventDefault|stopPropagation="{handleVaultCreation}">
 						<span class="text-lg text-center">New Folder </span>
-						<hr class="h-px border-0 bg-mobile-bgLight" />
+						<span class="w-full border-b border-osvauld-modalFieldActive"
+						></span>
 						<div class="flex flex-col grow gap-1">
 							<label for="new-vault-name" class="text-sm">Add Title</label>
 							<input
