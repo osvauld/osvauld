@@ -38,6 +38,13 @@ pub fn get_system_locale() -> String {
 }
 
 #[tauri::command]
-pub fn send_snapshot(snapshot: String, state: State<'_, Arc<P2PService>>) -> String {
-    state.send_snapshot(snapshot).await?
+pub async fn send_snapshot(
+    snapshot: String,
+    state: State<'_, Arc<P2PService>>,
+) -> Result<(), CryptoResponse> {
+    let _ = state
+        .send_snapshot(snapshot)
+        .await
+        .map_err(|e| CryptoResponse::Error(e));
+    Ok(())
 }
