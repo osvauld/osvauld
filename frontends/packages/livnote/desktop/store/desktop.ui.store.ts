@@ -18,3 +18,5 @@ export let deleteConfirmationModal = writable({ item: "", show: false });
 export let toastStore = writable({ show: false, message: "", success: true });
 export let showWelcome1 = writable(true);
 export let showSyncQr = writable(false);
+
+export let noteViewLayout = writable(false);

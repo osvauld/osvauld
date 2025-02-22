@@ -49,8 +49,9 @@
 </script>
 
 <div class="h-32 w-full border-b border-osvauld-borderColor flex">
-	<span class="basis-[360px] shrink-0 h-full flex items-center justify-center">
-		<OsvauldDesktopLogo />
+	<span
+		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-4xl font-bold text-osvauld-sideListTextActive">
+		Livnote
 	</span>
 	<div class="grow py-10 px-16 flex items-center justify-start">
 		<div

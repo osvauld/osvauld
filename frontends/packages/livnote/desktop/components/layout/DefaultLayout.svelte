@@ -6,6 +6,8 @@
 	import { vaults } from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
+	import { noteViewLayout } from "../../store/desktop.ui.store";
+
 	// onMount(async () => {
 	// 	try {
 	// 		console.log("default layout mounted");
@@ -21,7 +23,9 @@
 <div class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden">
 	<HeaderSection />
 	<div class="grow flex overflow-hidden">
-		<NavigationPanel />
+		{#if $noteViewLayout}
+			<NavigationPanel />
+		{/if}
 		<ContentWrapper />
 	</div>
 </div>
