@@ -659,10 +659,11 @@ impl P2PService {
                                                             .await
                                                         }
                                                         Message::SyncEvent { event, payload } => {
-                                                            log::info!(
-                                                                "recived here....{:?}",
-                                                                event
-                                                            );
+                                                            self.handle_sync_event(
+                                                                event,
+                                                                payload.clone(),
+                                                            )
+                                                            .await;
                                                             Ok(())
                                                         }
                                                         _ => Ok(()),
@@ -973,5 +974,35 @@ impl P2PService {
             .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
         self.send_message(serialized).await;
         Ok(())
+    }
+    pub async fn handle_sync_event(
+        &self,
+        event_name: &str,
+        payload: Vec<u8>,
+    ) -> Result<(), String> {
+        match event_name {
+            "sync-update" => {
+                // Forward the update to the frontend
+                if let Err(e) = self.app_handle.emit("sync-update-be", payload.clone()) {
+                    error!("Failed to emit sync update: {}", e);
+                    Err(e.to_string())
+                } else {
+                    Ok(())
+                }
+            }
+            "sync-snapshot" => {
+                // Forward the snapshot to the frontend
+                if let Err(e) = self.app_handle.emit("sync-snapshot-be", payload.clone()) {
+                    error!("Failed to emit sync snapshot: {}", e);
+                    Err(e.to_string())
+                } else {
+                    Ok(())
+                }
+            }
+            _ => {
+                error!("Unknown sync event type: {}", event_name);
+                Err("Unknown sync event type".to_string())
+            }
+        }
     }
 }
