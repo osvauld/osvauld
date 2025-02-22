@@ -241,6 +241,7 @@ impl P2PService {
                             };
                             match serde_json::to_string(&msg) {
                                 Ok(serialized) => {
+                                    log::info!("sending message");
                                     if let Err(e) = self_clone.send_message(serialized).await {
                                         error!("Failed to send sync event: {}", e);
                                     }
