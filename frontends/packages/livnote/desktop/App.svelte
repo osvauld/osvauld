@@ -27,10 +27,13 @@
 		showWelcome = false;
 	};
 
-	const handleConnectorClose = () => {
+	let syncRole = ""; // Add this to store the role
+
+	const handleConnectorClose = (event) => {
+		const { isInitiator } = event.detail;
+		syncRole = isInitiator ? "initiator" : "acceptor";
 		showConnector = false;
 	};
-
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
@@ -77,6 +80,6 @@
 	{:else if showConnector}
 		<Connector on:close={handleConnectorClose} />
 	{:else}
-		<DocumentEditor />
+		<DocumentEditor {syncRole} />
 	{/if}
 </main>

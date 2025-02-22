@@ -9,6 +9,7 @@
 	let editorContainer: HTMLDivElement;
 	let tauriSync: TauriSync;
 
+	export let syncRole;
 	onMount(async () => {
 		let currentAppState;
 		appState.subscribe((state) => {

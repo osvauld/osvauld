@@ -9,7 +9,7 @@
 
 	function handleClose() {
 		// Dispatch a "close" event to the parent component
-		dispatch("close");
+		dispatch("close", { isInitiator });
 	}
 	let isInitiator = true;
 

@@ -982,8 +982,16 @@ impl P2PService {
     ) -> Result<(), String> {
         match event_name {
             "sync-update" => {
-                // Forward the update to the frontend
-                if let Err(e) = self.app_handle.emit("sync-update-be", payload.clone()) {
+                // First, convert the payload to a string since we received it as serialized JSON
+                let payload_str = String::from_utf8(payload)
+                    .map_err(|e| format!("Invalid UTF-8 in payload: {}", e))?;
+
+                // Parse the JSON string into a Vec<u8>
+                let binary_data: Vec<u8> = serde_json::from_str(&payload_str)
+                    .map_err(|e| format!("Failed to parse binary array: {}", e))?;
+
+                // Now emit the parsed binary data
+                if let Err(e) = self.app_handle.emit("sync-update", binary_data) {
                     error!("Failed to emit sync update: {}", e);
                     Err(e.to_string())
                 } else {
@@ -991,8 +999,14 @@ impl P2PService {
                 }
             }
             "sync-snapshot" => {
-                // Forward the snapshot to the frontend
-                if let Err(e) = self.app_handle.emit("sync-snapshot-be", payload.clone()) {
+                // Similar handling for snapshot data
+                let payload_str = String::from_utf8(payload)
+                    .map_err(|e| format!("Invalid UTF-8 in payload: {}", e))?;
+
+                let binary_data: Vec<u8> = serde_json::from_str(&payload_str)
+                    .map_err(|e| format!("Failed to parse binary array: {}", e))?;
+
+                if let Err(e) = self.app_handle.emit("sync-snapshot", binary_data) {
                     error!("Failed to emit sync snapshot: {}", e);
                     Err(e.to_string())
                 } else {
