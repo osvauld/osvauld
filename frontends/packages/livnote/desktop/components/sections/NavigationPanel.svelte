@@ -8,31 +8,53 @@
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import { LocalStorageService } from "@osvauld/password-manager-common";
 	import { StorageService } from "@osvauld/password-manager-common";
+	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
+	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 
 	let selectedSection = "home";
-	let localSelectedCategory = "";
+	let localSelectedCredential = 0;
 	let vaultManagerActive = false;
+	let hoveredCredential = null;
+
+	let availablecredentials = [
+		{ id: 1, favourite: true },
+		{ id: 2, favourite: false },
+		{ id: 3, favourite: true },
+		{ id: 4, favourite: false },
+		{ id: 5, favourite: true },
+		{ id: 6, favourite: false },
+		{ id: 7, favourite: true },
+		{ id: 8, favourite: false },
+		{ id: 9, favourite: true },
+		{ id: 10, favourite: false },
+		{ id: 11, favourite: true },
+		{ id: 12, favourite: true },
+		{ id: 13, favourite: false },
+		{ id: 14, favourite: true },
+		{ id: 15, favourite: false },
+		{ id: 16, favourite: true },
+	];
 
 	// const handleSectionChange = (section) => {
-	// 	localSelectedCategory = "";
+	// 	localSelectedCredential = "";
 	// 	selectedSection = section;
 	// 	selectedCategory.set("");
 	// };
 
 	// const handleFavourite = (section) => {
-	// 	localSelectedCategory = "";
+	// 	localSelectedCredential = "";
 	// 	selectedSection = section;
 	// 	selectedCategory.set("favourites");
 	// };
 
 	// const handleCategoryFilter = (type, id) => {
 	// 	selectedSection = "";
-	// 	localSelectedCategory = id;
+	// 	localSelectedCredential = id;
 	// 	selectedCategory.set(type);
 	// };
 
 	// $: if ($currentVault) {
-	// 	localSelectedCategory = "";
+	// 	localSelectedCredential = "";
 	// 	selectedSection = "home";
 	// 	selectedCategory.set("");
 	// 	// Storing Current vault for persisting
@@ -44,7 +66,7 @@
 </script>
 
 <nav
-	class="w-[360px] py-10 px-4 whitespace-nowrap"
+	class="w-[360px] h-full py-10 px-4 whitespace-nowrap"
 	aria-label="Main Navigation">
 	<div class="relative">
 		<button
@@ -99,25 +121,31 @@
 			</li>
 		</ul>
 	</div>
-	<ul class="font-light text-base space-y-1 text-osvauld-fieldText" role="list">
-		{#each CATEGORIES as category}
+	<ul
+		class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
+		role="list">
+		{#each availablecredentials as credential}
 			<li>
 				<button
-					class="w-full flex items-center gap-3 p-3 rounded-lg
+					class="w-full flex items-center justify-start gap-3 p-3 rounded-lg
                        transition-colors
-						  {localSelectedCategory === category.id
+						  {hoveredCredential === credential.id
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => {}}"
-					aria-current="{localSelectedCategory === category.id
-						? 'page'
-						: undefined}">
-					<svelte:component
-						this="{category.icon}"
-						color="{localSelectedCategory === category.id
+					on:mouseenter="{() => (hoveredCredential = credential.id)}"
+					on:mouseleave="{() => (hoveredCredential = null)}"
+					on:click="{() => {}}">
+					<MobileNote
+						color="{hoveredCredential === credential.id
 							? '#F2F2F0'
 							: '#85889C'}" />
-					<span>{category.id}</span>
+					<span>{credential.id}</span>
+					<span class="ml-auto">
+						{#if credential.favourite}
+							<FavStar />
+						{:else}
+							<Star />
+						{/if}</span>
 				</button>
 			</li>
 		{/each}
