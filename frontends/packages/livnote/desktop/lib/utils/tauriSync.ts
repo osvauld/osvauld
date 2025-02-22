@@ -2,7 +2,7 @@
 import { emit, listen } from '@tauri-apps/api/event';
 import { Doc, DocCollection, Job } from '@blocksuite/store';
 import { sendMessage } from '@osvauld/password-manager-common';
-
+import * as Y from 'yjs';
 export class TauriSync {
   private collection: DocCollection;
   private deviceId: string;
@@ -63,7 +63,7 @@ export class TauriSync {
     });
   }
   public async sendInitialSnapshot() {
-    console.log('TauriSync: Sending initial snapshot');
+    console.log('TauriSync: Sending initial Y.js state');
     const currentDoc = this.collection.getDoc('page1');
 
     if (!currentDoc) {
@@ -72,24 +72,36 @@ export class TauriSync {
     }
 
     try {
-      const snapshot = await this.job.docToSnapshot(currentDoc);
-      console.log('TauriSync: Created snapshot and sending snapshot');
-      await sendMessage("sendSnapshot", snapshot)
+      // Get the Y.js document
+      const yDoc = currentDoc.spaceDoc;
+      // Encode the entire document state
+      const encodedState = Y.encodeStateAsUpdate(yDoc);
 
-      console.log('TauriSync: Emitted snapshot event');
+      await emit('sync-snapshot', {
+        sender: this.deviceId,
+        snapshot: encodedState
+      });
+      console.log('TauriSync: Emitted Y.js state');
     } catch (error) {
-      console.error('TauriSync: Error sending initial snapshot:', error);
+      console.error('TauriSync: Error sending Y.js state:', error);
     }
   }
 
-
-  private async loadSnapshot(snapshot: any) {
-    console.log('TauriSync: Loading snapshot');
+  private async loadSnapshot(snapshot: Uint8Array) {
+    console.log('TauriSync: Loading Y.js state');
     try {
-      await this.job.snapshotToDoc(snapshot);
-      console.log('TauriSync: Successfully loaded snapshot');
+      let doc = this.collection.getDoc('page1');
+      if (!doc) {
+        // Create the doc if it doesn't exist
+        this.collection.createDoc({ id: 'page1' });
+        doc = this.collection.getDoc('page1');
+      }
+
+      // Apply the Y.js update
+      Y.applyUpdate(doc.spaceDoc, snapshot);
+      console.log('TauriSync: Successfully loaded Y.js state');
     } catch (error) {
-      console.error('TauriSync: Error loading snapshot:', error);
+      console.error('TauriSync: Error loading Y.js state:', error);
     }
   }
 
