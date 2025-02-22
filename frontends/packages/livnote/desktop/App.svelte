@@ -17,7 +17,7 @@
 	let showWelcome = false;
 	async function handleChange(event) {
 		console.log(event);
-		await emit("sync-update", JSON.stringify(event));
+		await emit("sync-update", JSON.stringify(event.detail));
 	}
 
 	let wsConnectorInstance: WSConnection;

@@ -146,9 +146,12 @@
 		};
 
 		// Get only the new steps since last sync
+		console.log("getting steps....");
 		const steps = sendableSteps(state);
+		console.log("step", steps);
 		if (steps) {
 			sendable.version = steps.version;
+			sendable.steps = steps.steps;
 		}
 
 		return sendable.steps.length ? sendable : null;
@@ -168,7 +171,9 @@
 				// Handle collaborative editing updates
 				if (transaction.docChanged) {
 					const sendableSteps = getSendableSteps(newState);
+					console.log("sendable steps", sendableSteps);
 					if (sendableSteps) {
+						console.log("sending steps");
 						dispatch("collaboration-update", {
 							version: sendableSteps.version,
 							steps: sendableSteps.steps,
@@ -176,17 +181,6 @@
 						});
 					}
 				}
-
-				dispatch("change", {
-					state: newState,
-					transaction,
-					getContent: () => newState.doc.toJSON(),
-					getHTML: () => {
-						const div = document.createElement("div");
-						div.appendChild(view.dom.cloneNode(true));
-						return div.innerHTML;
-					},
-				});
 			},
 			attributes: {
 				"data-placeholder": placeholder,
