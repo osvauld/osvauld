@@ -194,10 +194,10 @@
 			},
 			editable: () => !readonly,
 		});
-		let unsubscribe = await listen("status-update-be", (event) => {
-			console.log("recieved");
+		let unsubscribe = await listen("sync-update-be", (event) => {
+			console.log("recieved", event);
 			try {
-				const newContent = event.payload;
+				const newContent = JSON.parse(event.payload);
 				if (newContent && view) {
 					setContent(newContent);
 				}
