@@ -63,7 +63,7 @@
 		}
 
 		try {
-			const encodedState = Y.encodeStateAsUpdateV2(currentDoc.spaceDoc);
+			const encodedState = Y.encodeStateAsUpdate(currentDoc.spaceDoc);
 			const stateArray = Array.from(encodedState);
 			console.log("Sending snapshot, size:", stateArray.length);
 			await sendMessage("sendSnapshot", stateArray);
@@ -99,7 +99,7 @@
 				const doc = currentDoc;
 				if (!doc) return;
 				doc.spaceDoc.transact(() => {
-					Y.applyUpdateV2(doc.spaceDoc, binaryData);
+					Y.applyUpdate(doc.spaceDoc, binaryData);
 				}, "remote");
 				console.log("Doc state after update:", {
 					hasContent: !doc.isEmpty,
@@ -120,7 +120,7 @@
 				const doc = currentDoc;
 				if (!doc) return;
 
-				Y.applyUpdateV2(doc.spaceDoc, binaryData, "remote");
+				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
 				refreshDocumentUI();
 			} catch (error) {
 				console.error("Error handling snapshot:", error);
