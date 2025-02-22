@@ -199,57 +199,64 @@ impl P2PService {
         }
         let self_clone = self.clone();
 
-        tokio::spawn({
-            async move {
-                info!(
-                    "Starting message listener for {}",
-                    if is_initiator {
-                        "initiator"
-                    } else {
-                        "receiver"
-                    }
-                );
-                self_clone.handle_messages().await;
-            }
-        });
-        info!(
-            "Handshake completed successfully for {}",
-            if is_initiator {
-                "initiator"
-            } else {
-                "receiver"
-            }
-        );
-        if !is_initiator {
-            // self.start_sync().await?;
-        }
-        let self_clone = self.clone();
-        // let listener = self.app_handle.listen("sync-update", move |data| {
-        //     let self_clone = self_clone.clone();
-        //     tokio::spawn(async move {
-        //         log::info!("got something from sync-update");
-        //         let payload =
-        //             match serde_json::from_str::<serde_json::Value>(&data.payload().to_string()) {
-        //                 Ok(val) => val,
-        //                 Err(e) => {
-        //                     error!("Failed to parse payload: {}", e);
-        //                     return;
-        //                 }
-        //             };
-        //         let msg = Message::SyncEvent {
-        //             event: "sync-update".to_string(),
-        //             payload,
-        //         };
-        //         match serde_json::to_string(&msg) {
-        //             Ok(serialized) => {
-        //                 if let Err(e) = self_clone.send_message(serialized).await {
-        //                     error!("Failed to send sync event: {}", e);
-        //                 }
+        // tokio::spawn({
+        //     async move {
+        //         info!(
+        //             "Starting message listener for {}",
+        //             if is_initiator {
+        //                 "initiator"
+        //             } else {
+        //                 "receiver"
         //             }
-        //             Err(e) => error!("Failed to serialize message: {}", e),
-        //         }
-        //     });
+        //         );
+        //         self_clone.handle_messages().await;
+        //     }
         // });
+        // info!(
+        //     "Handshake completed successfully for {}",
+        //     if is_initiator {
+        //         "initiator"
+        //     } else {
+        //         "receiver"
+        //     }
+        // );
+        // if !is_initiator {
+        //     // self.start_sync().await?;
+        // }
+        // let self_clone = self.clone();
+        //
+
+        let listener = self.app_handle.listen("sync-update", move |data| {
+            let self_clone = self_clone.clone();
+            tokio::spawn(async move {
+                log::info!("got something from sync-update");
+
+                let payload_str = data.payload().to_string();
+                if !payload_str.is_empty() {
+                    match serde_json::from_str::<serde_json::Value>(&payload_str) {
+                        Ok(val) => {
+                            let msg = Message::SyncEvent {
+                                event: "sync-update".to_string(),
+                                payload: val,
+                            };
+                            match serde_json::to_string(&msg) {
+                                Ok(serialized) => {
+                                    if let Err(e) = self_clone.send_message(serialized).await {
+                                        error!("Failed to send sync event: {}", e);
+                                    }
+                                }
+                                Err(e) => error!("Failed to serialize message: {}", e),
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to parse payload: {}", e);
+                        }
+                    }
+                } else {
+                    log::info!("Empty payload received in sync-update event");
+                }
+            });
+        });
         // self.app_handle.listen("sync-snapshot", move |data| {
         //     info!("got snapshot {:?}", data.payload());
         // });
