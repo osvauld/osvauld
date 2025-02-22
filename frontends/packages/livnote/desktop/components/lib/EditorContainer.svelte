@@ -2,7 +2,7 @@
 	import { onMount } from "svelte";
 	import { getContext } from "svelte";
 	import type { Writable } from "svelte/store";
-	import type { AppState } from "./utils/editor.ts";
+	import type { AppState } from "./utils/editor.js";
 
 	const appState = getContext<Writable<AppState>>("appState");
 	let editorContainer: HTMLDivElement;
@@ -39,7 +39,6 @@
 </style>
 
 <div
-	bind:this={editorContainer}
+	bind:this="{editorContainer}"
 	class="editor-container h-full w-full bg-osvauld-frameblack">
 </div>
-

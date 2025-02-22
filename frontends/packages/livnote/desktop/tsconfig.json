@@ -28,10 +28,10 @@
 		"isolatedModules": true
 	},
 	"include": [
-    "lib/**/*.ts",
-    "lib/*.ts",
-    "lib/**/*.svelte",
-    "lib/*.svelte",
+    "components/layout/lib/**/*.ts",
+    "components/layout/lib/*.ts",
+    "components/layout/lib/**/*.svelte",
+    "components/layout/lib/*.svelte",
 	],
 	"exclude": [
 		"node_modules/*",
