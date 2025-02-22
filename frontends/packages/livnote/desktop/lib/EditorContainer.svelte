@@ -24,8 +24,7 @@
 		doc.spaceDoc.on("update", (update: Uint8Array, origin: unknown) => {
 			if (origin !== "remote") {
 				console.log("Local update detected, sending to peer");
-				const encodedState = Y.encodeStateAsUpdate(currentDoc.spaceDoc);
-				handleDocUpdate(encodedState);
+				handleDocUpdate(update);
 			} else {
 				console.log(origin, "....");
 			}
@@ -94,13 +93,17 @@
 				console.log("Received sync update");
 				console.log("Raw payload:", event.payload);
 
-				console.log("Received sync snapshot");
 				const binaryData = new Uint8Array(event.payload as number[]);
+				console.log("Converted to Uint8Array, length:", binaryData.length);
 
 				const doc = currentDoc;
 				if (!doc) return;
+				Y.applyUpdate(doc.spaceDoc, binaryData);
+				console.log("Doc state after update:", {
+					hasContent: !doc.isEmpty,
+					meta: doc.meta,
+				});
 
-				Y.applyUpdate(doc.spaceDoc, binaryData, "remote");
 				refreshDocumentUI();
 			} catch (error) {
 				console.error("Error handling sync update:", error);
