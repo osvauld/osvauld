@@ -26,6 +26,7 @@ pub enum CryptoResponse {
         publicKey: String,
         salt: String,
     },
+    UserId(String),
     ChangedPassphrase(String),
     ExportedCertificate(String),
     Folders(Vec<FolderResponse>),

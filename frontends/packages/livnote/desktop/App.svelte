@@ -1,30 +1,53 @@
-<script>
+<script lang="ts">
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
-	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import DesktopImportPvtKey from "./lib/DesktopImportPvtKey.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
+	import Connector from "./lib/Connector.svelte";
 	import { onMount } from "svelte";
-	import DocumentEditor from "./lib/DocumentEditor.svelte";
-
+	import Initiator from "./lib/Initiator.svelte";
+	import RichTextEditor from "./lib/RichTextEditor.svelte";
+	import { wsConnector } from "../desktop/lib/store/wsConnectorStore";
+	import type { WSConnection } from "../desktop/lib/utils/wsConnector";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
+	import { listen, emit } from "@tauri-apps/api/event";
 	let signedUp = false;
 	let isLoading = true;
 	let showWelcome = false;
-	function handleChange(event) {
-		const { getContent } = event.detail;
-		console.log("Content updated:", getContent());
+	async function handleChange(event) {
+		console.log(event.detail);
+		await emit("sync-update", JSON.stringify(event.detail));
 	}
 
+	let wsConnectorInstance: WSConnection;
+
+	wsConnectorInstance = $wsConnector;
+
+	let showConnector = true;
 	const handleSignedUp = () => {
 		signedUp = true;
-		showWelcome.set(false);
+		showWelcome = false;
 	};
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+		// Registering connection to WS Rendezvous Server
+		sendMessage("getUserId")
+			.then((userId: string) => {
+				wsConnectorInstance.sendRegisterMessage(userId);
+			})
+			.catch(() => {
+				console.error("UserId generation failed");
+			});
 	};
 
+	let syncRole = ""; // Add this to store the role
+
+	const handleConnectorClose = (event) => {
+		const { isInitiator } = event.detail;
+		syncRole = isInitiator ? "initiator" : "acceptor";
+		showConnector = false;
+	};
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
@@ -68,8 +91,9 @@
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
+	{:else if showConnector}
+		<Connector on:close={handleConnectorClose} />
 	{:else}
-		<DocumentEditor />
-		<!-- <RichTextEditor placeholder="Start writing..." on:change={handleChange} /> -->
+		<RichTextEditor on:collaboration-update={handleChange} />
 	{/if}
 </main>
