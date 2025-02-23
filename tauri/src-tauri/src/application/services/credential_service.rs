@@ -3,6 +3,7 @@ use crate::application::services::P2PService;
 use crate::domains::models::credential::{self, Credential, DecryptedCredential};
 use crate::domains::models::sync_record::SyncRecord;
 use crate::domains::repositories::{CredentialRepository, RepositoryError, SyncRepository};
+use crate::types::UpdateCredentials;
 use crypto_utils::CryptoUtils;
 use serde_json::Value;
 use std::result::Result::Ok;
@@ -197,5 +198,36 @@ impl CredentialService {
             .collect();
 
         Ok(credentials)
+    }
+
+    pub async fn update_credentials(
+        &self,
+        input: UpdateCredentials,
+    ) -> Result<(), CredentialServiceError> {
+        let encrypted = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .add_credential(input.data)
+                .map_err(|e| CredentialServiceError::CryptoError(e.to_string()))?
+        };
+        let old_credential = self
+            .credential_repository
+            .find_by_id(&input.id)
+            .await
+            .map_err(CredentialServiceError::RepositoryError)?;
+
+        let new_credential = Credential::new(
+            old_credential.credential_type,
+            encrypted.encrypted_data,
+            old_credential.folder_id,
+            encrypted.encrypted_key,
+            "signature".to_string(), // TODO: Implement proper signing
+        );
+        self.credential_repository
+            .update_credential(&new_credential)
+            .await
+            .map_err(CredentialServiceError::RepositoryError)?;
+
+        Ok(())
     }
 }

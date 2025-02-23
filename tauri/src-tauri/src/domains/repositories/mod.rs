@@ -104,6 +104,7 @@ pub trait CredentialRepository: Send + Sync {
     async fn update_last_accessed(&self, id: &str) -> Result<(), RepositoryError>;
     async fn get_all_credentails(&self) -> Result<Vec<Credential>, RepositoryError>;
     async fn get_favourites(&self) -> Result<Vec<Credential>, RepositoryError>;
+    async fn update_credential(&self, credential: &Credential) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

@@ -20,7 +20,7 @@ use crate::handlers::auth_handler::{
 };
 use crate::handlers::credential_handler::{
     get_all_credentials, handle_add_credential, handle_get_credentials_for_folder,
-    soft_delete_credential, toggle_fav, update_last_accessed,
+    soft_delete_credential, toggle_fav, update_credential, update_last_accessed,
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
@@ -176,7 +176,8 @@ pub fn run() {
             update_last_accessed,
             get_all_credentials,
             get_user_id,
-            send_snapshot
+            send_snapshot,
+            update_credential
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

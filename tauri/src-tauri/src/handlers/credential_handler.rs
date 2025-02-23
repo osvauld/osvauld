@@ -2,7 +2,8 @@ use crate::application::services::{CredentialService, SyncService};
 use crate::domains::models::sync_types::ResourceType;
 use crate::types::{
     AddCredentialInput, CredentialResponse, CryptoResponse, DeleteCredentialInput,
-    GetAllCredentials, GetCredentialForFolderInput, ToggleFavInput, UpdateLastAccessedInput,
+    GetAllCredentials, GetCredentialForFolderInput, ToggleFavInput, UpdateCredentials,
+    UpdateLastAccessedInput,
 };
 use log::info;
 use std::sync::Arc;
@@ -115,4 +116,16 @@ pub async fn get_all_credentials(
         .collect();
 
     Ok(CryptoResponse::Credentials(credential_responses))
+}
+
+#[tauri::command]
+pub async fn update_credential(
+    credential_service: State<'_, Arc<CredentialService>>,
+    input: UpdateCredentials,
+) -> Result<CryptoResponse, String> {
+    credential_service
+        .update_credentials(input)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(CryptoResponse::UpdateCredentials)
 }
