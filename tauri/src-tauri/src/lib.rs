@@ -14,9 +14,8 @@ use crate::application::services::FolderService;
 use crate::application::services::P2PService;
 use crate::application::services::SyncService;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, get_user_id, handle_add_device,
-    handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
-    handle_sign_challenge, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, get_user_id, handle_add_device, handle_change_passphrase,
+    handle_export_certificate, handle_hash_and_sign, handle_sign_challenge, handle_sign_up, login,
 };
 use crate::handlers::credential_handler::{
     get_all_credentials, handle_add_credential, handle_get_credentials_for_folder,
@@ -77,7 +76,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop100.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));

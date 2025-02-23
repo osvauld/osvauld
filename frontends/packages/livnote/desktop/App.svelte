@@ -1,39 +1,56 @@
-<script lang="ts">
+<script>
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
-	import DesktopImportPvtKey from "./lib/DesktopImportPvtKey.svelte";
+	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
+	import Toast from "./components/ui/Toast.svelte";
+	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
+	import AddDeviceView from "./components/views/AddDeviceView.svelte";
+	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
+	import Connector from "./components/ui/Connector.svelte";
+	import Initiator from "./components/ui/Initiator.svelte";
+	import {
+		addCredentialModal,
+		credentialEditorModal,
+		addDeviceModal,
+		viewCredentialModal,
+		deleteConfirmationModal,
+		toastStore,
+		showSyncQr,
+		language,
+		currentVault,
+		showWelcome1,
+		showConnector,
+		wsConnector,
+	} from "./store/desktop.ui.store";
+
+	import DesktopImportPvtKey from "./components/lib/DesktopImportPvtKey.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
-	import Connector from "./lib/Connector.svelte";
 	import { onMount } from "svelte";
-	import Initiator from "./lib/Initiator.svelte";
-	import RichTextEditor from "./lib/RichTextEditor.svelte";
-	import { wsConnector } from "../desktop/lib/store/wsConnectorStore";
-	import type { WSConnection } from "../desktop/lib/utils/wsConnector";
+
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
-	import { listen, emit } from "@tauri-apps/api/event";
 	let signedUp = false;
 	let isLoading = true;
 	let showWelcome = false;
-	async function handleChange(event) {
-		console.log(event.detail);
-		await emit("sync-update", JSON.stringify(event.detail));
-	}
 
-	let wsConnectorInstance: WSConnection;
+	let wsConnectorInstance;
 
 	wsConnectorInstance = $wsConnector;
 
-	let showConnector = true;
+	function handleChange(event) {
+		const { getContent } = event.detail;
+		console.log("Content updated:", getContent());
+	}
+
 	const handleSignedUp = () => {
 		signedUp = true;
-		showWelcome = false;
+		showWelcome1.set(false);
 	};
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
-		// Registering connection to WS Rendezvous Server
+
 		sendMessage("getUserId")
-			.then((userId: string) => {
+			.then((userId) => {
 				wsConnectorInstance.sendRegisterMessage(userId);
 			})
 			.catch(() => {
@@ -46,8 +63,9 @@
 	const handleConnectorClose = (event) => {
 		const { isInitiator } = event.detail;
 		syncRole = isInitiator ? "initiator" : "acceptor";
-		showConnector = false;
+		showConnector.set(false);
 	};
+
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
@@ -79,21 +97,45 @@
     bg-osvauld-frameblack
    w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
-		{console.log("showing loader")}
 		<div class="flex justify-center items-center w-full h-full">
-			<Loader size={24} color="#1F242A" duration={1} />
+			<Loader size="{24}" color="#1F242A" duration="{1}" />
 		</div>
 	{:else if !signedUp}
 		<Signup
-			ImportComponent={DesktopImportPvtKey}
-			on:signedUp={handleSignedUp} />
+			ImportComponent="{DesktopImportPvtKey}"
+			on:signedUp="{handleSignedUp}" />
 	{:else if showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
-			<Welcome on:authenticated={handleAuthenticated} />
+			<Welcome on:authenticated="{handleAuthenticated}" />
 		</div>
-	{:else if showConnector}
-		<Connector on:close={handleConnectorClose} />
 	{:else}
-		<RichTextEditor on:collaboration-update={handleChange} />
+		<!-- <DocumentEditor /> -->
+		<DefaultLayout />
+		<!-- 
+		{#if $deleteConfirmationModal.show}
+			<DeleteConfirmationModal />
+		{/if}
+
+		{#if $addDeviceModal}
+			<AddDeviceView />
+		{/if}
+
+		{#if $showSyncQr}
+			<Acceptor />
+		{/if}
+
+	
+		
+		-->
+
+		{#if $showConnector}
+			<Connector on:close="{handleConnectorClose}" />
+		{/if}
+
+		{#if $toastStore.show}
+			<div class="z-100">
+				<Toast />
+			</div>
+		{/if}
 	{/if}
 </main>

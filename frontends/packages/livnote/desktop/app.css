@@ -1,76 +1,75 @@
-/* editor.css */
 :root {
-  --affine-theme-mode: dark;
-  --affine-primary-color: #89b4fa;
-  --affine-background-color: #0d0e13;
-  --affine-page-background: #0d0e13;
-  --affine-text-color: #a3a4b5;
-  --affine-edgeless-background: #0d0e13;
-  --affine-board-background: #0d0e13;
-  --affine-card-background: #111218;
+	font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+	line-height: 1.5;
+	font-weight: 400;
+
+	color-scheme: light dark;
+	color: rgba(255, 255, 255, 0.87);
+	background-color: #242424;
+
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 
-/* Main container backgrounds */
-.affine-default-page-block-container,
-.affine-edgeless-page-block-container,
-.affine-page-root-block-container {
-  background-color: var(--affine-background-color) !important;
-  color: var(--affine-text-color) !important;
+a {
+	font-weight: 500;
+	color: #646cff;
+	text-decoration: inherit;
+}
+a:hover {
+	color: #535bf2;
 }
 
-/* Kanban board specific styles */
-.affine-database-kanban-view,
-.affine-database-kanban-column,
-.affine-database-kanban-card {
-  background-color: var(--affine-card-background) !important;
-  color: var(--affine-text-color) !important;
-  border-color: #292a36 !important;
+body {
+	margin: 0;
+	display: flex;
+	place-items: center;
+	min-width: 320px;
+	min-height: 100vh;
 }
 
-/* Table specific styles */
-.affine-database-table,
-.affine-database-table-cell,
-.affine-database-table-header {
-  background-color: var(--affine-card-background) !important;
-  color: var(--affine-text-color) !important;
-  border-color: #292a36 !important;
+h1 {
+	font-size: 3.2em;
+	line-height: 1.1;
 }
 
-/* Fix white spots in corners */
-.affine-page-root::before,
-.affine-page-root::after,
-.affine-block-children-container::before,
-.affine-block-children-container::after {
-  background-color: var(--affine-background-color) !important;
+.card {
+	padding: 2em;
 }
 
-/* Database view backgrounds */
-.affine-database-view-header,
-.affine-database-view-content {
-  background-color: var(--affine-background-color) !important;
-  color: var(--affine-text-color) !important;
+#app {
 }
 
-/* Card and column styles */
-.kanban-column,
-.kanban-card {
-  background-color: #111218 !important;
-  border-color: #292a36 !important;
+button {
+	border-radius: 8px;
+	border: 1px solid transparent;
+	padding: 0.6em 1.2em;
+	font-size: 1em;
+	font-weight: 500;
+	font-family: inherit;
+	background-color: #1a1a1a;
+	cursor: pointer;
+	transition: border-color 0.25s;
+}
+button:hover {
+	border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+	outline: 4px auto -webkit-focus-ring-color;
 }
 
-/* Surface area */
-.affine-surface {
-  background-color: var(--affine-background-color) !important;
-}
-
-/* Editor selection */
-.affine-block-selection {
-  background-color: #292a36 !important;
-}
-
-/* Toolbar and menus */
-.affine-toolbar,
-.affine-menu-container {
-  background-color: #111218 !important;
-  border-color: #292a36 !important;
+@media (prefers-color-scheme: light) {
+	:root {
+		color: #213547;
+		background-color: #ffffff;
+	}
+	a:hover {
+		color: #747bff;
+	}
+	button {
+		background-color: #f9f9f9;
+	}
 }

@@ -117,6 +117,7 @@ pub async fn handle_logout(
     Ok(CryptoResponse::Success)
 }
 
+
 #[tauri::command]
 pub async fn get_user_id(
     auth_service: State<'_, Arc<AuthService>>,
