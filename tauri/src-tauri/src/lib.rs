@@ -77,7 +77,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop100.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));

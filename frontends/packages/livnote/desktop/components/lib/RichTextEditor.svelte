@@ -16,17 +16,13 @@
 		redo,
 	} from "y-prosemirror";
 	import * as Y from "yjs";
-	import { Awareness } from "y-protocols/awareness";
-	import EditorToolbar from "./EditorToolbar.svelte";
 	import { listen } from "@tauri-apps/api/event";
+	import EditorToolbar from "./EditorToolbar.svelte";
+	import { editorInstance } from "./utils/editor.ts";
 
-	export let clientID = Math.floor(Math.random() * 0xffffffff);
 	const dispatch = createEventDispatcher();
 	let element;
 	let view;
-	let ydoc;
-	let type;
-	let awareness;
 
 	// Define the schema
 	const nodes = addListNodes(schema.spec.nodes, "paragraph block*", "block");
@@ -45,27 +41,10 @@
 	};
 	const editorSchema = new Schema({ nodes, marks });
 
-	// Create initial doc if needed
-	const createDefaultDoc = () => {
+	function createDefaultDoc() {
 		return editorSchema.node("doc", null, [
 			editorSchema.node("paragraph", null, []),
 		]);
-	};
-
-	// Initialize Yjs document and awareness
-	function initYjs() {
-		const ydoc = new Y.Doc();
-		const type = ydoc.getXmlFragment("prosemirror");
-		const awareness = new Awareness(ydoc);
-
-		awareness.setLocalState({
-			user: {
-				name: `User ${clientID}`,
-				color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-			},
-		});
-
-		return { ydoc, type, awareness };
 	}
 
 	function createEditorState(ytype, awareness) {
@@ -87,43 +66,28 @@
 		});
 	}
 
-	function createEditorView(element, state, yDoc) {
-		let editorView;
+	function createEditorView(element, state) {
+		const { ydoc } = editorInstance.getYjsDoc();
 
 		const dispatchTransaction = (tr) => {
-			if (!editorView) return;
+			if (!view) return;
 
-			const newState = editorView.state.apply(tr);
-			editorView.updateState(newState);
+			const newState = view.state.apply(tr);
+			view.updateState(newState);
 
-			if (tr.docChanged && yDoc) {
-				const update = Y.encodeStateAsUpdate(yDoc);
+			if (tr.docChanged && ydoc) {
+				const update = Y.encodeStateAsUpdate(ydoc);
 				dispatch("collaboration-update", {
 					update: Array.from(update),
-					clientID,
+					clientID: editorInstance.getYjsDoc().clientID,
 				});
 			}
 		};
 
-		editorView = new EditorView(element, {
+		return new EditorView(element, {
 			state,
 			dispatchTransaction,
 		});
-
-		return editorView;
-	}
-
-	// Apply incoming updates from other clients
-	export function applyUpdate(update, sender) {
-		if (!ydoc || sender === clientID) return;
-
-		try {
-			const updateArray =
-				update instanceof Uint8Array ? update : new Uint8Array(update);
-			Y.applyUpdate(ydoc, updateArray);
-		} catch (err) {
-			console.error("Error applying update:", err);
-		}
 	}
 
 	let unsubscribe;
@@ -132,17 +96,13 @@
 		if (!element) return;
 
 		try {
-			// Initialize Yjs and create document
-			const yjs = initYjs();
-			ydoc = yjs.ydoc;
-			type = yjs.type;
-			awareness = yjs.awareness;
+			const { type, awareness } = editorInstance.getYjsDoc();
 
 			// Create editor state
 			const state = createEditorState(type, awareness);
 
 			// Create editor view
-			view = createEditorView(element, state, ydoc);
+			view = createEditorView(element, state);
 
 			// Setup update listener
 			unsubscribe = await listen("sync-update-be", (event) => {
@@ -151,7 +111,7 @@
 					const parsed = JSON.parse(event.payload);
 					console.log("Parsed event payload:", parsed);
 					const { update, clientID: remoteClientID } = JSON.parse(parsed);
-					applyUpdate(update, remoteClientID);
+					editorInstance.applyUpdate(update, remoteClientID);
 				} catch (err) {
 					console.error("Error handling update:", err);
 				}
@@ -168,10 +128,11 @@
 		if (view) {
 			view.destroy();
 		}
-		if (ydoc) {
-			ydoc.destroy();
-		}
 	});
+
+	function handleChange(event) {
+		editorInstance.handleCollaborationUpdate(event.detail);
+	}
 </script>
 
 <style>
@@ -231,7 +192,7 @@
 
 <div class="editor-container">
 	{#if view}
-		<EditorToolbar editorView="{view}" />
+		<EditorToolbar editorView={view} />
 	{/if}
-	<div bind:this="{element}" class="editor"></div>
+	<div bind:this={element} class="editor"></div>
 </div>

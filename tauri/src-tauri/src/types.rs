@@ -34,6 +34,7 @@ pub enum CryptoResponse {
     FolderCreated(Folder),
     Success,
     UpdateCredentials,
+    CredentialCreateted(String),
 }
 
 #[derive(Deserialize)]
