@@ -33,6 +33,7 @@ pub enum CryptoResponse {
     Credentials(Vec<CredentialResponse>),
     FolderCreated(Folder),
     Success,
+    UpdateCredentials,
 }
 
 #[derive(Deserialize)]
@@ -154,4 +155,10 @@ pub struct CredentialResponse {
     pub favourite: bool,
     pub last_accessed: i64,
     pub folder_id: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateCredentials {
+    pub id: String,
+    pub data: String,
 }
