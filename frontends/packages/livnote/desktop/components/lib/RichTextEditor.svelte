@@ -97,38 +97,203 @@
 
 <style>
 	.editor-container {
-		height: 100%;
+		margin: 0 auto;
 		width: 100%;
-		max-width: 1200px;
-		display: flex;
-		flex-direction: column;
+		height: 100%;
+		background: #16171f;
+		color: white;
 	}
 
-	.editor {
-		flex-grow: 1;
-		background: white;
-		border: 1px solid #e2e8f0;
-		padding: 1rem;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	/* ProseMirror menubar styles for horizontal layout */
+	:global(.ProseMirror-menubar-wrapper) {
+		position: relative;
+	}
+
+	:global(.ProseMirror-menubar) {
+		height: 48px;
+		padding: 4px 8px;
+		white-space: nowrap;
+		overflow-x: auto;
+		background: #16171f;
+		display: flex;
+		align-items: center;
+		gap: 1px;
+		border-bottom: 1px solid #2a2b2f;
+	}
+	:global(.ProseMirror) {
+		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
+		color: white;
+		background: #16171f;
+	}
+
+	:global(.ProseMirror-menuitem) {
+		display: inline-flex;
+		align-items: center;
+		height: 24px;
+		margin-right: 1px;
+		cursor: pointer;
+	}
+
+	:global(.ProseMirror-menu-dropdown) {
+		vertical-align: middle;
+		padding: 2px 4px;
+		font-size: 14px;
+		color: white;
+	}
+
+	:global(.ProseMirror-menu-dropdown-wrap) {
+		position: relative;
+		display: inline-block;
+	}
+
+	:global(.ProseMirror-menu-dropdown-menu) {
+		position: fixed;
+		background: #16171f;
+		border: 1px solid #2a2b2f;
+		border-radius: 2px;
+		padding: 2px 0;
+		min-width: 67px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+	}
+
+	:global(.ProseMirror-menu-dropdown-item) {
+		padding: 2px 8px;
+		cursor: pointer;
+		font-size: 14px;
+		color: white;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-icon) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 2px;
+		cursor: pointer;
+		border: 1px solid transparent;
+		border-radius: 2px;
+		font-size: 16px;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon svg) {
+		fill: currentColor;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-menu-disabled) {
+		opacity: 0.3;
+	}
+
+	:global(.ProseMirror-icon span) {
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-icon) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 2px;
+		cursor: pointer;
+		border: 1px solid transparent;
+		border-radius: 2px;
+		font-size: 16px;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		background: #2a2b2f;
 	}
 
 	:global(.ProseMirror) {
 		position: relative;
-		word-wrap: break-word;
-		white-space: pre-wrap;
-		-webkit-font-variant-ligatures: none;
-		font-variant-ligatures: none;
-		padding: 4px 8px 4px 14px;
-		line-height: 1.2;
-		outline: none;
+		padding: 15px;
 		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
+		color: white;
 	}
 
 	:global(.ProseMirror p) {
-		margin: 0;
-		min-height: 1.2em;
+		margin: 0 0 1em 0;
 	}
 
+	:global(.ProseMirror h1) {
+		font-size: 2em;
+		margin: 0.67em 0;
+		color: white;
+	}
+
+	/* Cursor and selection styles */
+	:global(.ProseMirror-yjs-cursor) {
+		position: relative;
+		margin-left: -1px;
+		margin-right: -1px;
+		border-left: 1px solid white;
+		border-right: 1px solid white;
+		pointer-events: none;
+	}
+
+	:global(.ProseMirror-yjs-cursor > div) {
+		position: absolute;
+		top: -1.05em;
+		left: -1px;
+		font-size: 13px;
+		background-color: rgb(250, 129, 0);
+		font-family: serif;
+		font-style: normal;
+		font-weight: normal;
+		line-height: normal;
+		user-select: none;
+		color: white;
+		padding: 2px 6px;
+		border-radius: 3px;
+		white-space: nowrap;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		border-color: #ddd;
+		background: #e5e5e5;
+	}
+
+	:global(.ProseMirror) {
+		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
+	}
+
+	:global(.ProseMirror p) {
+		margin: 0 0 1em 0;
+	}
+
+	:global(.ProseMirror h1) {
+		font-size: 2em;
+		margin: 0.67em 0;
+	}
+
+	/* Cursor and selection styles */
 	:global(.ProseMirror-yjs-cursor) {
 		position: relative;
 		margin-left: -1px;
@@ -143,16 +308,22 @@
 		top: -1.05em;
 		left: -1px;
 		font-size: 13px;
-		background-color: inherit;
+		background-color: rgb(250, 129, 0);
+		font-family: serif;
+		font-style: normal;
+		font-weight: normal;
+		line-height: normal;
+		user-select: none;
 		color: white;
-		padding: 0 4px;
+		padding: 2px 6px;
+		border-radius: 3px;
 		white-space: nowrap;
+	}
+	:global(.ProseMirror-menu-dropdown-menu) {
+		z-index: 999;
 	}
 </style>
 
 <div class="editor-container">
-	{#if view}
-		<EditorToolbar editorView={view} />
-	{/if}
-	<div bind:this={element} class="editor"></div>
+	<div bind:this={element}></div>
 </div>

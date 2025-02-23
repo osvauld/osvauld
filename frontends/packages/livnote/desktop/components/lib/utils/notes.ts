@@ -7,6 +7,7 @@ import { Schema } from "prosemirror-model";
 import { schema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
+import { exampleSetup } from "prosemirror-example-setup"
 import {
   redo,
   undo,
@@ -49,21 +50,10 @@ export class Notes {
   }
 
   private initSchema() {
-    const nodes = addListNodes(schema.spec.nodes, "paragraph block*", "block");
-    const marks = {
-      ...schema.spec.marks,
-      textColor: {
-        attrs: { color: { default: "" } },
-        parseDOM: [
-          {
-            style: "color",
-            getAttrs: (value) => ({ color: value }),
-          },
-        ],
-        toDOM: (mark) => ["span", { style: `color: ${mark.attrs.color}` }, 0],
-      },
-    };
-    this.editorSchema = new Schema({ nodes, marks });
+    this.editorSchema = new Schema({
+      nodes: addListNodes(schema.spec.nodes, "paragraph block*", "block"),
+      marks: schema.spec.marks,
+    });
   }
 
   private initYjs() {
@@ -90,7 +80,7 @@ export class Notes {
     this.editorState = EditorState.create({
       schema: this.editorSchema,
       plugins: [
-        history(),
+        ...exampleSetup({ schema: this.editorSchema }),
         keymap(baseKeymap),
         ySyncPlugin(this.type),
         yCursorPlugin(this.awareness),
