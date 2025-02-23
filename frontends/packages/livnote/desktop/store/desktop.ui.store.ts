@@ -25,3 +25,4 @@ export let noteViewLayout = writable(false);
 export let showConnector = writable(false);
 
 export let wsConnector = writable(new WSConnection());
+export let noteId = writable("");

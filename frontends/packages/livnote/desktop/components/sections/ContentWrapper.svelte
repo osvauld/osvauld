@@ -7,6 +7,7 @@
 		noteViewLayout,
 		toastStore,
 		vaults,
+		noteId,
 	} from "../../store/desktop.ui.store";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
@@ -20,6 +21,7 @@
 	import { MobileHome } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { addCredentialHandler } from "@osvauld/password-manager-common";
+	import { notesInstance } from "../lib/utils/notes";
 
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;
@@ -29,7 +31,6 @@
 	// const handleDeleteBtn = () => {
 	// 	deleteConfirmationModal.set({ item: "folder", show: true });
 	// };
-
 	const handleAddNote = async () => {
 		if ($vaults.length <= 1 || $currentVault.id === "all") {
 			toastStore.set({
@@ -40,19 +41,34 @@
 			return;
 		}
 
-		await sendMessage("addCredential", {
-			credentialPayload: JSON.stringify({}),
-			folderId: $currentVault.id, /// Evide?
-			credentialType: "notes",
-		});
+		try {
+			// Step 1: Create empty credential and get ID
+			const note = await notesInstance.createEmptyCredential({
+				folderId: $currentVault.id,
+				clientId: "your-client-id", // Replace with actual client ID
+				resourceId: "your-resource-id", // Replace with actual resource ID
+			});
+			noteId.set(note);
 
-		// Fetch all credentials in this folder and show it
+			// Step 2: Initialize the editor state and update the credential
+			await notesInstance.initializeNoteState();
 
-		const getCredentialsCall = await sendMessage("getCredentialsForFolder", {
-			folderId: $currentVault.id,
-		});
-		console.log("getCredentialsCall", getCredentialsCall);
-		noteViewLayout.set(true);
+			// Update the view
+			noteViewLayout.set(true);
+
+			// Optionally refresh the credentials list
+			const getCredentialsCall = await sendMessage("getCredentialsForFolder", {
+				folderId: $currentVault.id,
+			});
+			console.log("getCredentialsCall", getCredentialsCall);
+		} catch (error) {
+			console.error("Error creating note:", error);
+			toastStore.set({
+				show: true,
+				message: "Failed to create note",
+				success: false,
+			});
+		}
 	};
 	const handleSectionChange = (section) => {
 		selectedSection = section;
@@ -68,7 +84,7 @@
 					aria-label="Switch Vault"
 					aria-controls="vaultSelector"
 					aria-expanded="false"
-					on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+					on:click={() => (vaultManagerActive = !vaultManagerActive)}>
 					<span class="flex-1 truncate text-left py-1"
 						>{$currentVault.id === "all"
 							? "All Vaults"
@@ -76,7 +92,7 @@
 					><span
 						class="shrink-0 transition-transform duration-300 {vaultManagerActive
 							? '-rotate-90'
-							: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
+							: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 					></button>
 				{#if vaultManagerActive}
 					<VaultManager bind:vaultManagerActive instance="content" />
@@ -90,13 +106,13 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => {
-						handleSectionChange('home');
-					}}"
-					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
+					on:click={() => {
+						handleSectionChange("home");
+					}}
+					aria-current={selectedSection === "home" ? "page" : undefined}>
 					<MobileHome
 						size="20"
-						color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
+						color={selectedSection === "home" ? "#BFC0CC" : "#85889C"} />
 					<span>Home</span>
 				</button>
 
@@ -105,14 +121,12 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => {
-						handleSectionChange('favourites');
-					}}"
-					aria-current="{selectedSection === 'favourites'
-						? 'page'
-						: undefined}">
+					on:click={() => {
+						handleSectionChange("favourites");
+					}}
+					aria-current={selectedSection === "favourites" ? "page" : undefined}>
 					<Star
-						color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
+						color={selectedSection === "favourites" ? "#BFC0CC" : "#85889C"}
 						size="20" />
 					<span>Favourites</span>
 				</button>
@@ -124,11 +138,11 @@
 			{#if $currentVault.id !== "all"}
 				<button
 					class="p-2"
-					on:click|stopPropagation="{() => {}}"
-					on:mouseenter="{() => (deleteBtnHoved = true)}"
-					on:mouseleave="{() => (deleteBtnHoved = false)}"
+					on:click|stopPropagation={() => {}}
+					on:mouseenter={() => (deleteBtnHoved = true)}
+					on:mouseleave={() => (deleteBtnHoved = false)}
 					aria-label="Delete Folder"
-					><Bin color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}" /></button>
+					><Bin color={deleteBtnHoved ? "#FF6A6A" : "#85889C"} /></button>
 			{/if}
 			<span><Menu /></span>
 			<button
@@ -139,11 +153,11 @@
 			</button>
 			<button
 				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center whitespace-nowrap border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-frameblack hover:bg-osvauld-carolinablue transition-colors"
-				on:mouseenter="{() => (addCredentialHovered = true)}"
-				on:mouseleave="{() => (addCredentialHovered = false)}"
-				on:click="{handleAddNote}">
+				on:mouseenter={() => (addCredentialHovered = true)}
+				on:mouseleave={() => (addCredentialHovered = false)}
+				on:click={handleAddNote}>
 				<span class="mr-2">Add new note</span>
-				<Add color="{addCredentialHovered ? '#000' : '#A3A4B5'}" />
+				<Add color={addCredentialHovered ? "#000" : "#A3A4B5"} />
 			</button>
 		</div>
 	</div>

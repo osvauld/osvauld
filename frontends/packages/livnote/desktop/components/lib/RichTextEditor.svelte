@@ -1,164 +1,88 @@
 <script>
 	import { onMount, onDestroy, createEventDispatcher } from "svelte";
-	import { EditorState } from "prosemirror-state";
 	import { EditorView } from "prosemirror-view";
-	import { Schema } from "prosemirror-model";
-	import { schema } from "prosemirror-schema-basic";
-	import { addListNodes } from "prosemirror-schema-list";
-	import { baseKeymap } from "prosemirror-commands";
-	import { keymap } from "prosemirror-keymap";
-	import { history } from "prosemirror-history";
-	import {
-		ySyncPlugin,
-		yCursorPlugin,
-		yUndoPlugin,
-		undo,
-		redo,
-	} from "y-prosemirror";
 	import * as Y from "yjs";
-	import { Awareness } from "y-protocols/awareness";
-	import EditorToolbar from "./EditorToolbar.svelte";
 	import { listen } from "@tauri-apps/api/event";
+	import EditorToolbar from "./EditorToolbar.svelte";
+	import { notesInstance } from "./utils/notes";
+	import { noteId } from "../../store/desktop.ui.store";
 
-	export let clientID = Math.floor(Math.random() * 0xffffffff);
 	const dispatch = createEventDispatcher();
 	let element;
 	let view;
-	let ydoc;
-	let type;
-	let awareness;
+	let autoSaveInterval;
 
-	// Define the schema
-	const nodes = addListNodes(schema.spec.nodes, "paragraph block*", "block");
-	const marks = {
-		...schema.spec.marks,
-		textColor: {
-			attrs: { color: { default: "" } },
-			parseDOM: [
-				{
-					style: "color",
-					getAttrs: (value) => ({ color: value }),
-				},
-			],
-			toDOM: (mark) => ["span", { style: `color: ${mark.attrs.color}` }, 0],
-		},
-	};
-	const editorSchema = new Schema({ nodes, marks });
+	async function initializeEditor() {
+		if (!element) return;
 
-	// Create initial doc if needed
-	const createDefaultDoc = () => {
-		return editorSchema.node("doc", null, [
-			editorSchema.node("paragraph", null, []),
-		]);
-	};
+		try {
+			let docInfo;
 
-	// Initialize Yjs document and awareness
-	function initYjs() {
-		const ydoc = new Y.Doc();
-		const type = ydoc.getXmlFragment("prosemirror");
-		const awareness = new Awareness(ydoc);
+			if ($noteId) {
+				// Load existing note
+				docInfo = await notesInstance.loadNote($noteId);
+			} else {
+				// Get fresh doc for new note
+				docInfo = notesInstance.getDoc();
+			}
 
-		awareness.setLocalState({
-			user: {
-				name: `User ${clientID}`,
-				color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-			},
-		});
+			const { editorState } = docInfo;
 
-		return { ydoc, type, awareness };
+			// Create editor view
+			view = createEditorView(element, editorState);
+
+			// Setup auto-save
+			autoSaveInterval = setInterval(() => {
+				notesInstance.saveNote().catch(console.error);
+			}, 30000); // Auto-save every 30 seconds
+		} catch (err) {
+			console.error("Error initializing editor:", err);
+		}
 	}
 
-	function createEditorState(ytype, awareness) {
-		return EditorState.create({
-			doc: createDefaultDoc(),
-			schema: editorSchema,
-			plugins: [
-				history(),
-				keymap(baseKeymap),
-				ySyncPlugin(ytype),
-				yCursorPlugin(awareness),
-				yUndoPlugin(),
-				keymap({
-					"Mod-z": undo,
-					"Mod-y": redo,
-					"Mod-Shift-z": redo,
-				}),
-			],
-		});
-	}
+	function createEditorView(element, state) {
+		const { ydoc } = notesInstance.getDoc();
 
-	function createEditorView(element, state, yDoc) {
-		let editorView;
+		const dispatchTransaction = async (tr) => {
+			if (!view) return;
 
-		const dispatchTransaction = (tr) => {
-			if (!editorView) return;
+			const newState = view.state.apply(tr);
+			view.updateState(newState);
 
-			const newState = editorView.state.apply(tr);
-			editorView.updateState(newState);
+			// Update the state in Notes instance
+			notesInstance.updateEditorState(newState);
 
-			if (tr.docChanged && yDoc) {
-				const update = Y.encodeStateAsUpdate(yDoc);
+			if (tr.docChanged && ydoc) {
+				const update = Y.encodeStateAsUpdate(ydoc);
+				await notesInstance.handleCollaborationUpdate(update);
+
 				dispatch("collaboration-update", {
 					update: Array.from(update),
-					clientID,
+					clientID: notesInstance.getDoc().clientID,
 				});
 			}
 		};
 
-		editorView = new EditorView(element, {
+		return new EditorView(element, {
 			state,
 			dispatchTransaction,
 		});
-
-		return editorView;
-	}
-
-	// Apply incoming updates from other clients
-	export function applyUpdate(update, sender) {
-		if (!ydoc || sender === clientID) return;
-
-		try {
-			const updateArray =
-				update instanceof Uint8Array ? update : new Uint8Array(update);
-			Y.applyUpdate(ydoc, updateArray);
-		} catch (err) {
-			console.error("Error applying update:", err);
-		}
 	}
 
 	let unsubscribe;
 
 	onMount(async () => {
-		if (!element) return;
+		await initializeEditor();
 
-		try {
-			// Initialize Yjs and create document
-			const yjs = initYjs();
-			ydoc = yjs.ydoc;
-			type = yjs.type;
-			awareness = yjs.awareness;
-
-			// Create editor state
-			const state = createEditorState(type, awareness);
-
-			// Create editor view
-			view = createEditorView(element, state, ydoc);
-
-			// Setup update listener
-			unsubscribe = await listen("sync-update-be", (event) => {
-				try {
-					console.log("Received event payload:", event.payload);
-					const parsed = JSON.parse(event.payload);
-					console.log("Parsed event payload:", parsed);
-					const { update, clientID: remoteClientID } = JSON.parse(parsed);
-					applyUpdate(update, remoteClientID);
-				} catch (err) {
-					console.error("Error handling update:", err);
-				}
-			});
-		} catch (err) {
-			console.error("Error during editor initialization:", err);
-		}
+		unsubscribe = await listen("sync-update-be", (event) => {
+			try {
+				const parsed = JSON.parse(event.payload);
+				const { update, clientID: remoteClientID } = JSON.parse(parsed);
+				notesInstance.applyUpdate(update, remoteClientID);
+			} catch (err) {
+				console.error("Error handling update:", err);
+			}
+		});
 	});
 
 	onDestroy(() => {
@@ -168,9 +92,11 @@
 		if (view) {
 			view.destroy();
 		}
-		if (ydoc) {
-			ydoc.destroy();
+		if (autoSaveInterval) {
+			clearInterval(autoSaveInterval);
 		}
+		// Save one final time on destroy
+		notesInstance.saveNote().catch(console.error);
 	});
 </script>
 
@@ -231,7 +157,7 @@
 
 <div class="editor-container">
 	{#if view}
-		<EditorToolbar editorView="{view}" />
+		<EditorToolbar editorView={view} />
 	{/if}
-	<div bind:this="{element}" class="editor"></div>
+	<div bind:this={element} class="editor"></div>
 </div>
