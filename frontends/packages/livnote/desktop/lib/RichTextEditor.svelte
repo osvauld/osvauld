@@ -231,7 +231,7 @@
 
 <div class="editor-container">
 	{#if view}
-		<EditorToolbar editorView="{view}" />
+		<EditorToolbar editorView={view} />
 	{/if}
-	<div bind:this="{element}" class="editor"></div>
+	<div bind:this={element} class="editor"></div>
 </div>
