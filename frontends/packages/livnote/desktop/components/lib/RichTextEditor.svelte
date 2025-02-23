@@ -75,6 +75,7 @@
 		await initializeEditor();
 
 		unsubscribe = await listen("sync-update-be", (event) => {
+			console.log("insidedsfasdfasdf");
 			try {
 				const parsed = JSON.parse(event.payload);
 				const { update, clientID: remoteClientID } = JSON.parse(parsed);

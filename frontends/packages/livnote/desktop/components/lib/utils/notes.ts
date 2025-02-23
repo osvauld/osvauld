@@ -71,10 +71,12 @@ export class Notes {
     this.type = this.ydoc.getXmlFragment('prosemirror');
     this.awareness = new Awareness(this.ydoc);
 
-    // Set up observer for document updates
-    this.ydoc.on('update', (update: Uint8Array) => {
-      console.log(update, 'sdfsdafsdaf')
-      void this.handleCollaborationUpdate(update);
+    // Set up observer for document updates with origin tracking
+    this.ydoc.on('update', (update: Uint8Array, origin: any) => {
+      // Only handle updates that originated locally (not from sync)
+      if (origin !== 'sync') {
+        void this.handleCollaborationUpdate(update);
+      }
     });
 
     this.awareness.setLocalState({
@@ -84,7 +86,6 @@ export class Notes {
       },
     });
   }
-
   private initEditorState() {
     this.editorState = EditorState.create({
       schema: this.editorSchema,
@@ -270,7 +271,6 @@ export class Notes {
       throw error;
     }
   }
-
   async handleCollaborationUpdate(update: Uint8Array) {
     try {
       if (update.length === 0) {
@@ -294,7 +294,6 @@ export class Notes {
       throw error;
     }
   }
-
   applyUpdate(update: Uint8Array | number[], sender: number) {
     if (sender === this.clientID) return;
 
@@ -306,8 +305,9 @@ export class Notes {
         return;
       }
 
-      console.log("Applying update:", Array.from(updateArray));
-      Y.applyUpdate(this.ydoc, updateArray);
+      console.log("Applying remote update:", Array.from(updateArray));
+      // Apply update with 'sync' origin to prevent loop
+      Y.applyUpdate(this.ydoc, updateArray, 'sync');
     } catch (error) {
       console.error("Error applying update:", error);
       throw error;
