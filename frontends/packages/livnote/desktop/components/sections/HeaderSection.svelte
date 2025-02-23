@@ -4,7 +4,10 @@
 	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
 	import Profile from "@osvauld/password-manager-common/icons/profile.svelte";
 	import Key from "@osvauld/password-manager-common/icons/key.svelte";
-	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
+	import {
+		sendMessage,
+		writeToClipboard,
+	} from "@osvauld/password-manager-common/utils/helper";
 
 	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
 	import { addDeviceModal, showConnector } from "../../store/desktop.ui.store";
@@ -17,6 +20,7 @@
 		showWelcome1,
 		language,
 		showSyncQr,
+		toastStore,
 	} from "../../store/desktop.ui.store";
 
 	let showDropdown = false;
@@ -24,23 +28,31 @@
 
 	const MENUITEMS = [
 		{ id: "connect", label: "Connect", icon: Sync },
+		{ id: "userid", label: "Copy UserID", icon: Key },
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
-		{ id: "ask", label: "Ask in Discord", icon: Discord },
 		{ id: "change", label: "Change Password", icon: Key },
 		{ id: "logout", label: "Logout", icon: Logout },
 	];
 
-	const handleDropDownClick = (id: string) => {
+	const handleDropDownClick = async (id: string) => {
 		if (id === "add") {
 			addDeviceModal.set(true);
 		} else if (id == "logout") {
-			sendMessage("logout");
+			await sendMessage("logout");
 			showWelcome1.set(true);
 		} else if (id == "sync") {
 			showSyncQr.set(true);
 		} else if (id === "connect") {
 			showConnector.set(true);
+		} else if (id === "userid") {
+			const userId = await sendMessage("getUserId");
+			await writeToClipboard(userId);
+			toastStore.set({
+				show: true,
+				message: "UserID copied to clipboard",
+				success: true,
+			});
 		}
 
 		showDropdown = false;

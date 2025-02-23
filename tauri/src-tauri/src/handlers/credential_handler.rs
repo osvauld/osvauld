@@ -24,10 +24,10 @@ pub async fn handle_add_credential(
         .await
         .map_err(|e| e.to_string())?;
     sync_service
-        .add_credential_to_sync(credential.clone())
+        .add_credential_to_sync(credential)
         .await
         .map_err(|e| e.to_string())?;
-    Ok(CryptoResponse::CredentialCreateted(credential.id))
+    Ok(CryptoResponse::Success)
 }
 
 #[tauri::command]

@@ -29,20 +29,19 @@
 			<div class="flex gap-3">
 				<button
 					class="flex-1 px-10 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium whitespace-nowrap"
-					on:click={() => handleSelection(false)}>
+					on:click="{() => handleSelection(false)}">
 					Sign Up
 				</button>
 				<button
 					class="flex-1 px-10 py-2.5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg font-medium whitespace-nowrap"
-					on:click={() => handleSelection(true)}>
+					on:click="{() => handleSelection(true)}">
 					Import Key
 				</button>
 			</div>
 		</div>
 	{:else if importPvtKeyFlag}
-		<svelte:component this={ImportComponent} on:login={handleSignedUp} />
+		<svelte:component this="{ImportComponent}" on:login="{handleSignedUp}" />
 	{:else}
-		<SetPassPhrase on:signedUp={handleSignedUp} />
+		<SetPassPhrase on:signedUp="{handleSignedUp}" />
 	{/if}
 </div>
-
