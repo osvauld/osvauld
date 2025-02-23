@@ -22,7 +22,8 @@
 			],
 			"@osvauld/password-manager-common/*": [
 				"../common/*"
-			]
+			],
+  "@osvauld/password-manager-common/components/*": ["../common/components/*"]
 		},
 		"allowJs": true,
 		"isolatedModules": true
