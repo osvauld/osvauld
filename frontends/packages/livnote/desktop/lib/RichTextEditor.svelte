@@ -147,9 +147,10 @@
 			// Setup update listener
 			unsubscribe = await listen("sync-update-be", (event) => {
 				try {
-					const { update, clientID: remoteClientID } = JSON.parse(
-						event.payload,
-					);
+					console.log("Received event payload:", event.payload);
+					const parsed = JSON.parse(event.payload);
+					console.log("Parsed event payload:", parsed);
+					const { update, clientID: remoteClientID } = JSON.parse(parsed);
 					applyUpdate(update, remoteClientID);
 				} catch (err) {
 					console.error("Error handling update:", err);
