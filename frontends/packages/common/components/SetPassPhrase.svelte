@@ -9,7 +9,7 @@
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
 	const dispatch = createEventDispatcher();
 
-	let username = "test";
+	let username = "";
 
 	let passphrase = "";
 	let confirmPassphrase = "";
@@ -26,7 +26,7 @@
 		passphrase.length === 0 || passphrase !== confirmPassphrase;
 
 	const handlePassPhraseSubmit = async () => {
-		if (passphrase.length === 0) {
+		if (passphrase.length === 0 || username.length < 4) {
 			passphraseEmpty = true;
 			isLoaderActive = false;
 			setTimeout(() => {
@@ -71,22 +71,24 @@
 
 <form
 	class="flex flex-col justify-center items-center"
-	on:submit|preventDefault={handlePassPhraseSubmit}>
+	on:submit|preventDefault="{handlePassPhraseSubmit}">
 	<label for="passphrase" class="font-normal mt-6">Enter Passphrase</label>
 
 	<div
 		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
 		<input
 			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 outline-0 p-2 w-full"
-			type={firstInputType}
+			type="{firstInputType}"
 			autocomplete="off"
+			autocapitalize="off"
+			autocorrect="off"
 			id="password"
-			on:input={(e) => onInput(e, "passphrase")} />
+			on:input="{(e) => onInput(e, 'passphrase')}" />
 
 		<button
 			type="button"
 			class="flex justify-center items-center"
-			on:click={() => togglePassword(true)}>
+			on:click="{() => togglePassword(true)}">
 			{#if showFirstPassword}
 				<ClosedEye />
 			{:else}
@@ -95,21 +97,23 @@
 		</button>
 	</div>
 	<PasswordStrengthValidator {passphrase} bind:isPassphraseAcceptable />
-	<label for="passphrase" class="font-normal mt-6">Confirm Passphrase</label>
+	<label for="passphrase" class="font-normal">Confirm Passphrase</label>
 
 	<div
 		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
 		<input
 			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 p-2 outline-0 w-full"
-			type={secondInputType}
+			type="{secondInputType}"
 			autocomplete="off"
+			autocapitalize="off"
+			autocorrect="off"
 			id="password"
-			on:input={(e) => onInput(e, "confirmPassphrase")} />
+			on:change="{(e) => onInput(e, 'confirmPassphrase')}" />
 
 		<button
 			type="button"
 			class="flex justify-center items-center"
-			on:click={() => togglePassword(false)}>
+			on:click="{() => togglePassword(false)}">
 			{#if showSecondPassword}
 				<ClosedEye />
 			{:else}
@@ -117,12 +121,25 @@
 			{/if}
 		</button>
 	</div>
+	<label for="username" class="font-normal mt-6">Enter Username</label>
+	<div
+		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
+		<input
+			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 p-2 outline-0 w-full"
+			type="text"
+			autocomplete="off"
+			autocapitalize="off"
+			autocorrect="off"
+			id="username"
+			disabled="{submitDisabled}"
+			bind:value="{username}" />
+	</div>
 
 	{#if passphraseEmpty}
 		<span
 			class="mt-2 text-xs text-red-400 font-light {passphraseEmpty
 				? 'visible'
-				: 'invisible'}">Passphrase Empty!</span>
+				: 'invisible'}">Username should have more than 4 letters</span>
 	{:else}
 		<span
 			class="mt-2 text-xs text-red-400 font-light {showPassphraseMismatchError
@@ -135,9 +152,9 @@
 			? 'border border-osvauld-iconblack text-osvauld-sheffieldgrey'
 			: 'bg-osvauld-carolinablue text-osvauld-ninjablack'} py-2 px-10 mt-8 rounded-lg font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
 		type="submit"
-		disabled={submitDisabled}>
+		disabled="{submitDisabled}">
 		{#if isLoaderActive}
-			<Loader size={24} color="#1F242A" duration={1} />
+			<Loader size="{24}" color="#1F242A" duration="{1}" />
 		{:else}
 			<span>Submit</span>
 		{/if}</button>
