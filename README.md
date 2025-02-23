@@ -38,7 +38,7 @@ p2p enabled with [Iroh](https://www.iroh.computer)
 
 Supported on - Android, iOS, Linux, Window and macOS
 
-## FOSS HACK 2025
+# FOSS HACK 2025
 LivNote - Collaborative document editor with server. Checkout here: [README](https://github.com/osvauld/osvauld/tree/dev/frontends/packages/livnote)
 
 
