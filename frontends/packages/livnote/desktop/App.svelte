@@ -16,7 +16,7 @@
 	let isLoading = true;
 	let showWelcome = false;
 	async function handleChange(event) {
-		console.log(event);
+		console.log(event.detail);
 		await emit("sync-update", JSON.stringify(event.detail));
 	}
 
