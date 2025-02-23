@@ -39,7 +39,6 @@
 			console.error("Error initializing editor:", err);
 		}
 	}
-
 	function createEditorView(element, state) {
 		const { ydoc } = notesInstance.getDoc();
 
@@ -48,18 +47,13 @@
 
 			const newState = view.state.apply(tr);
 			view.updateState(newState);
-
-			// Update the state in Notes instance
 			notesInstance.updateEditorState(newState);
 
+			// Only trigger Yjs update if document actually changed
 			if (tr.docChanged && ydoc) {
+				// This will trigger the 'update' event on ydoc with default (local) origin
 				const update = Y.encodeStateAsUpdate(ydoc);
 				await notesInstance.handleCollaborationUpdate(update);
-
-				dispatch("collaboration-update", {
-					update: Array.from(update),
-					clientID: notesInstance.getDoc().clientID,
-				});
 			}
 		};
 
@@ -75,17 +69,17 @@
 		await initializeEditor();
 
 		unsubscribe = await listen("sync-update-be", (event) => {
-			console.log("insidedsfasdfasdf");
+			console.log(event, "sdafsdaf");
 			try {
 				const parsed = JSON.parse(event.payload);
-				const { update, clientID: remoteClientID } = JSON.parse(parsed);
+				const { update, clientID: remoteClientID } = parsed;
+				// Remote update will be applied with 'sync' origin
 				notesInstance.applyUpdate(update, remoteClientID);
 			} catch (err) {
 				console.error("Error handling update:", err);
 			}
 		});
 	});
-
 	onDestroy(() => {
 		if (unsubscribe) {
 			unsubscribe();
