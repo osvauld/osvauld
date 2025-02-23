@@ -1,0 +1,18 @@
+[package]
+name = "rendezvous_server"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+axum = { version = "0.8.1", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3"
+sled = "0.34"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+[dependencies.uuid]
+version = "1.14.0"
+features = [
+    "v4",
+]
