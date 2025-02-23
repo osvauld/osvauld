@@ -23,7 +23,7 @@
 	let hoveredItem = "";
 
 	const MENUITEMS = [
-		{ id: "share", label: "Share", icon: Sync },
+		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
 		{ id: "ask", label: "Ask in Discord", icon: Discord },
@@ -39,7 +39,7 @@
 			showWelcome1.set(true);
 		} else if (id == "sync") {
 			showSyncQr.set(true);
-		} else if (id === "share") {
+		} else if (id === "connect") {
 			showConnector.set(true);
 		}
 

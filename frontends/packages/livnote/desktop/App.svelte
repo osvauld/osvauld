@@ -20,16 +20,22 @@
 		currentVault,
 		showWelcome1,
 		showConnector,
+		wsConnector,
 	} from "./store/desktop.ui.store";
+
 	import DesktopImportPvtKey from "./components/lib/DesktopImportPvtKey.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { onMount } from "svelte";
-	import DocumentEditor from "./components/lib/DocumentEditor.svelte";
 
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	let signedUp = false;
 	let isLoading = true;
 	let showWelcome = false;
+
+	let wsConnectorInstance;
+
+	wsConnectorInstance = $wsConnector;
+
 	function handleChange(event) {
 		const { getContent } = event.detail;
 		console.log("Content updated:", getContent());
@@ -42,6 +48,14 @@
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+
+		sendMessage("getUserId")
+			.then((userId) => {
+				wsConnectorInstance.sendRegisterMessage(userId);
+			})
+			.catch(() => {
+				console.error("UserId generation failed");
+			});
 	};
 
 	let syncRole = ""; // Add this to store the role

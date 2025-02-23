@@ -116,3 +116,12 @@ pub async fn handle_logout(
     auth_service.logout().await?;
     Ok(CryptoResponse::Success)
 }
+
+
+#[tauri::command]
+pub async fn get_user_id(
+    auth_service: State<'_, Arc<AuthService>>,
+) -> Result<CryptoResponse, String> {
+    let user_id = auth_service.get_user_id().await?;
+    Ok(CryptoResponse::UserId(user_id))
+}

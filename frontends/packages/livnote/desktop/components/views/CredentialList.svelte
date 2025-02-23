@@ -8,13 +8,15 @@
 		deleteConfirmationModal,
 		refreshCredentialList,
 		noteViewLayout,
+		wsConnector,
 	} from "../../store/desktop.ui.store";
+	import type { WSConnection } from "../lib/utils/wsConnector.ts";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import Import from "@osvauld/password-manager-common/icons/import.svelte";
 	import ImportModal from "./ImportModal.svelte";
 	import CredentialCard from "../ui/CredentialCard.svelte";
-	import LL from "@osvauld/password-manager-common//i18n/i18n-svelte";
-	import DocumentEditor from "../lib/DocumentEditor.svelte";
+	import { listen, emit } from "@tauri-apps/api/event";
+	import RichTextEditor from "../lib/RichTextEditor.svelte";
 
 	let clickTimer = null;
 	let clickDelay = 200;
@@ -38,6 +40,15 @@
 		{ id: 10, favourite: false },
 		{ id: 11, favourite: true },
 	];
+
+	async function handleChange(event) {
+		console.log(event.detail);
+		await emit("sync-update", JSON.stringify(event.detail));
+	}
+
+	let wsConnectorInstance: WSConnection;
+
+	wsConnectorInstance = $wsConnector;
 
 	// const fetchCredentials = async (vaultId: string) => {
 	// 	try {
@@ -181,7 +192,7 @@
 <div class="grow max-h-[85%] px-16 py-4 relative">
 	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
-			<DocumentEditor />
+			<RichTextEditor on:collaboration-update="{handleChange}" />
 		{:else}
 			{#key updatedCredentials}
 				<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
