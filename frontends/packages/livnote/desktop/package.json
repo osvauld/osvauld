@@ -28,9 +28,6 @@
 		"vite": "^6.1.0"
 	},
 	"dependencies": {
-		"@blocksuite/blocks": "0.15.0-canary-202406291027-8aed732",
-		"@blocksuite/presets": "0.15.0-canary-202406291027-8aed732",
-		"@blocksuite/store": "0.15.0-canary-202406291027-8aed732",
 		"@castlenine/svelte-qrcode": "^2.3.0",
 		"@osvauld/password-manager-common": "workspace:*",
 		"@tauri-apps/api": "^2.2.0",
