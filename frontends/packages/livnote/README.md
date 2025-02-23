@@ -133,4 +133,6 @@ All community interactions are guided by our Code of Conduct to ensure a respect
 
 ---
 
+Short demo for Livnote - [Youtube](https://youtu.be/H4hcDb3yQ7Y?si=lW8XT_DS8iemXARP)
+
 Start collaborating securely with **osvauld livnote** – where your documents remain yours, and every edit is protected.
