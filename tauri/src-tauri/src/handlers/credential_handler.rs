@@ -2,8 +2,8 @@ use crate::application::services::{CredentialService, SyncService};
 use crate::domains::models::sync_types::ResourceType;
 use crate::types::{
     AddCredentialInput, CredentialResponse, CryptoResponse, DeleteCredentialInput,
-    GetAllCredentials, GetCredentialForFolderInput, ToggleFavInput, UpdateCredentials,
-    UpdateLastAccessedInput,
+    GetAllCredentials, GetCredential, GetCredentialForFolderInput, ToggleFavInput,
+    UpdateCredentials, UpdateLastAccessedInput,
 };
 use log::info;
 use std::sync::Arc;
@@ -24,10 +24,10 @@ pub async fn handle_add_credential(
         .await
         .map_err(|e| e.to_string())?;
     sync_service
-        .add_credential_to_sync(credential)
+        .add_credential_to_sync(credential.clone())
         .await
         .map_err(|e| e.to_string())?;
-    Ok(CryptoResponse::Success)
+    Ok(CryptoResponse::CredentialCreateted(credential.id))
 }
 
 #[tauri::command]
@@ -128,4 +128,17 @@ pub async fn update_credential(
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::UpdateCredentials)
+}
+
+#[tauri::command]
+pub async fn get_credential(
+    input: GetCredential,
+    credential_service: State<'_, Arc<CredentialService>>,
+) -> Result<CryptoResponse, String> {
+    log::info!("input{:?}", input);
+    let credential = credential_service
+        .get_credential(input.credential_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(CryptoResponse::GetCredentialResponse(credential))
 }

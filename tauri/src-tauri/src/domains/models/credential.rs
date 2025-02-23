@@ -18,7 +18,7 @@ pub struct Credential {
     pub deleted_at: Option<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct DecryptedCredential {
     pub id: String,
     pub credential_type: String,
