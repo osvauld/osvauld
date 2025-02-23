@@ -157,20 +157,17 @@ impl CredentialRepository for SqliteCredentialRepository {
         Ok(CredentialModel::to_domain_credentials(credential_models))
     }
 
-    async fn update_credential(&self, credential: &Credential) -> Result<(), RepositoryError> {
+    async fn update_credential(
+        &self,
+        data: String,
+        credential_id: String,
+    ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let now = Local::now().timestamp_millis();
 
         diesel::update(credentials::table)
-            .filter(credentials::id.eq(&credential.id))
-            .set((
-                credentials::credential_type.eq(&credential.credential_type),
-                credentials::data.eq(&credential.data),
-                credentials::folder_id.eq(&credential.folder_id),
-                credentials::signature.eq(&credential.signature),
-                credentials::encrypted_key.eq(&credential.encrypted_key),
-                credentials::updated_at.eq(now),
-            ))
+            .filter(credentials::id.eq(credential_id))
+            .set((credentials::data.eq(data), credentials::updated_at.eq(now)))
             .execute(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,

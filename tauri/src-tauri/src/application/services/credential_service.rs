@@ -5,6 +5,7 @@ use crate::domains::models::sync_record::SyncRecord;
 use crate::domains::repositories::{CredentialRepository, RepositoryError, SyncRepository};
 use crate::types::UpdateCredentials;
 use crypto_utils::CryptoUtils;
+use log::info;
 use serde_json::Value;
 use std::result::Result::Ok;
 use std::sync::Arc;
@@ -204,30 +205,22 @@ impl CredentialService {
         &self,
         input: UpdateCredentials,
     ) -> Result<(), CredentialServiceError> {
-        let encrypted = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .add_credential(input.data)
-                .map_err(|e| CredentialServiceError::CryptoError(e.to_string()))?
-        };
         let old_credential = self
             .credential_repository
             .find_by_id(&input.id)
             .await
             .map_err(CredentialServiceError::RepositoryError)?;
 
-        let new_credential = Credential::new(
-            old_credential.credential_type,
-            encrypted.encrypted_data,
-            old_credential.folder_id,
-            encrypted.encrypted_key,
-            "signature".to_string(), // TODO: Implement proper signing
-        );
+        let encrypted = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .update_credential(input.data, old_credential.encrypted_key)
+                .map_err(|e| CredentialServiceError::CryptoError(e.to_string()))?
+        };
+        info!("encrypted data {:?}", encrypted);
         self.credential_repository
-            .update_credential(&new_credential)
-            .await
-            .map_err(CredentialServiceError::RepositoryError)?;
-
+            .update_credential(encrypted, old_credential.id)
+            .await?;
         Ok(())
     }
 }

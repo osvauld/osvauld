@@ -7,6 +7,7 @@
 		noteViewLayout,
 		toastStore,
 		vaults,
+		noteId,
 	} from "../../store/desktop.ui.store";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
@@ -20,6 +21,7 @@
 	import { MobileHome } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { addCredentialHandler } from "@osvauld/password-manager-common";
+	import { notesInstance } from "../lib/utils/notes";
 
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;
@@ -29,7 +31,6 @@
 	// const handleDeleteBtn = () => {
 	// 	deleteConfirmationModal.set({ item: "folder", show: true });
 	// };
-
 	const handleAddNote = async () => {
 		if ($vaults.length <= 1 || $currentVault.id === "all") {
 			toastStore.set({
@@ -40,20 +41,34 @@
 			return;
 		}
 
-		const response = await sendMessage("addCredential", {
-			credentialPayload: JSON.stringify({}),
-			folderId: $currentVault.id, /// Evide?
-			credentialType: "notes",
-		});
-		console.log(response);
+		try {
+			// Step 1: Create empty credential and get ID
+			const note = await notesInstance.createEmptyCredential({
+				folderId: $currentVault.id,
+				clientId: "your-client-id", // Replace with actual client ID
+				resourceId: "your-resource-id", // Replace with actual resource ID
+			});
+			noteId.set(note);
 
-		// Fetch all credentials in this folder and show it
+			// Step 2: Initialize the editor state and update the credential
+			await notesInstance.initializeNoteState();
 
-		const getCredentialsCall = await sendMessage("getCredentialsForFolder", {
-			folderId: $currentVault.id,
-		});
-		console.log("getCredentialsCall", getCredentialsCall);
-		noteViewLayout.set(true);
+			// Update the view
+			noteViewLayout.set(true);
+
+			// Optionally refresh the credentials list
+			const getCredentialsCall = await sendMessage("getCredentialsForFolder", {
+				folderId: $currentVault.id,
+			});
+			console.log("getCredentialsCall", getCredentialsCall);
+		} catch (error) {
+			console.error("Error creating note:", error);
+			toastStore.set({
+				show: true,
+				message: "Failed to create note",
+				success: false,
+			});
+		}
 	};
 	const handleSectionChange = (section) => {
 		selectedSection = section;

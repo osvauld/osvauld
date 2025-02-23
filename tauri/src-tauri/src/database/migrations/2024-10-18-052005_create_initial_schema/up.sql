@@ -2,6 +2,7 @@ CREATE TABLE users (
     id TEXT PRIMARY KEY NOT NULL,
     username TEXT NOT NULL UNIQUE,
     public_key TEXT NOT NULL,
+    owner BOOLEAN NOT NULL,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL 
 );

@@ -1,85 +1,64 @@
 <script>
 	import { onMount, onDestroy, createEventDispatcher } from "svelte";
-	import { EditorState } from "prosemirror-state";
 	import { EditorView } from "prosemirror-view";
-	import { Schema } from "prosemirror-model";
-	import { schema } from "prosemirror-schema-basic";
-	import { addListNodes } from "prosemirror-schema-list";
-	import { baseKeymap } from "prosemirror-commands";
-	import { keymap } from "prosemirror-keymap";
-	import { history } from "prosemirror-history";
-	import {
-		ySyncPlugin,
-		yCursorPlugin,
-		yUndoPlugin,
-		undo,
-		redo,
-	} from "y-prosemirror";
 	import * as Y from "yjs";
 	import { listen } from "@tauri-apps/api/event";
 	import EditorToolbar from "./EditorToolbar.svelte";
-	import { editorInstance } from "./utils/editor.ts";
+	import { notesInstance } from "./utils/notes";
+	import { noteId } from "../../store/desktop.ui.store";
 
 	const dispatch = createEventDispatcher();
 	let element;
 	let view;
+	let autoSaveInterval;
 
-	// Define the schema
-	const nodes = addListNodes(schema.spec.nodes, "paragraph block*", "block");
-	const marks = {
-		...schema.spec.marks,
-		textColor: {
-			attrs: { color: { default: "" } },
-			parseDOM: [
-				{
-					style: "color",
-					getAttrs: (value) => ({ color: value }),
-				},
-			],
-			toDOM: (mark) => ["span", { style: `color: ${mark.attrs.color}` }, 0],
-		},
-	};
-	const editorSchema = new Schema({ nodes, marks });
+	async function initializeEditor() {
+		if (!element) return;
 
-	function createDefaultDoc() {
-		return editorSchema.node("doc", null, [
-			editorSchema.node("paragraph", null, []),
-		]);
-	}
+		try {
+			let docInfo;
 
-	function createEditorState(ytype, awareness) {
-		return EditorState.create({
-			doc: createDefaultDoc(),
-			schema: editorSchema,
-			plugins: [
-				history(),
-				keymap(baseKeymap),
-				ySyncPlugin(ytype),
-				yCursorPlugin(awareness),
-				yUndoPlugin(),
-				keymap({
-					"Mod-z": undo,
-					"Mod-y": redo,
-					"Mod-Shift-z": redo,
-				}),
-			],
-		});
+			if ($noteId) {
+				// Load existing note
+				docInfo = await notesInstance.loadNote($noteId);
+			} else {
+				// Get fresh doc for new note
+				docInfo = notesInstance.getDoc();
+			}
+
+			const { editorState } = docInfo;
+
+			// Create editor view
+			view = createEditorView(element, editorState);
+
+			// Setup auto-save
+			autoSaveInterval = setInterval(() => {
+				notesInstance.saveNote().catch(console.error);
+			}, 30000); // Auto-save every 30 seconds
+		} catch (err) {
+			console.error("Error initializing editor:", err);
+		}
 	}
 
 	function createEditorView(element, state) {
-		const { ydoc } = editorInstance.getYjsDoc();
+		const { ydoc } = notesInstance.getDoc();
 
-		const dispatchTransaction = (tr) => {
+		const dispatchTransaction = async (tr) => {
 			if (!view) return;
 
 			const newState = view.state.apply(tr);
 			view.updateState(newState);
 
+			// Update the state in Notes instance
+			notesInstance.updateEditorState(newState);
+
 			if (tr.docChanged && ydoc) {
 				const update = Y.encodeStateAsUpdate(ydoc);
+				await notesInstance.handleCollaborationUpdate(update);
+
 				dispatch("collaboration-update", {
 					update: Array.from(update),
-					clientID: editorInstance.getYjsDoc().clientID,
+					clientID: notesInstance.getDoc().clientID,
 				});
 			}
 		};
@@ -93,32 +72,17 @@
 	let unsubscribe;
 
 	onMount(async () => {
-		if (!element) return;
+		await initializeEditor();
 
-		try {
-			const { type, awareness } = editorInstance.getYjsDoc();
-
-			// Create editor state
-			const state = createEditorState(type, awareness);
-
-			// Create editor view
-			view = createEditorView(element, state);
-
-			// Setup update listener
-			unsubscribe = await listen("sync-update-be", (event) => {
-				try {
-					console.log("Received event payload:", event.payload);
-					const parsed = JSON.parse(event.payload);
-					console.log("Parsed event payload:", parsed);
-					const { update, clientID: remoteClientID } = JSON.parse(parsed);
-					editorInstance.applyUpdate(update, remoteClientID);
-				} catch (err) {
-					console.error("Error handling update:", err);
-				}
-			});
-		} catch (err) {
-			console.error("Error during editor initialization:", err);
-		}
+		unsubscribe = await listen("sync-update-be", (event) => {
+			try {
+				const parsed = JSON.parse(event.payload);
+				const { update, clientID: remoteClientID } = JSON.parse(parsed);
+				notesInstance.applyUpdate(update, remoteClientID);
+			} catch (err) {
+				console.error("Error handling update:", err);
+			}
+		});
 	});
 
 	onDestroy(() => {
@@ -128,11 +92,12 @@
 		if (view) {
 			view.destroy();
 		}
+		if (autoSaveInterval) {
+			clearInterval(autoSaveInterval);
+		}
+		// Save one final time on destroy
+		notesInstance.saveNote().catch(console.error);
 	});
-
-	function handleChange(event) {
-		editorInstance.handleCollaborationUpdate(event.detail);
-	}
 </script>
 
 <style>

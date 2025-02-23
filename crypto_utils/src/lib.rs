@@ -13,6 +13,10 @@ pub use crate::types::{
     CredentialWithEncryptedKey, EncryptedCredential, EncryptedDataWithAccess, GeneratedKeys,
     UserAccess, UserPublicKey,
 };
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit},
+    Aes256Gcm, Key as Aes_Key, Nonce,
+};
 use anyhow::{Error as AnyhowError, Result};
 use argon2::password_hash::rand_core::OsRng;
 use base64::{decode, encode};
@@ -260,6 +264,36 @@ impl CryptoUtils {
 
     pub fn get_key_id(public_key: &str) -> Result<String, Box<dyn Error>> {
         generate_key_id(public_key)
+    }
+
+    pub fn update_credential(
+        &self,
+        data: String,
+        encrypted_key: String,
+    ) -> Result<String, Box<dyn Error>> {
+        // Get the policy for PGP operations
+        let policy = &StandardPolicy::new();
+
+        // Get the certificate or return error if not loaded
+        let cert = self.cert.as_ref().ok_or("No certificate loaded")?;
+
+        // Get the decryption key from the certificate
+        let decrypt_key = crypto_core::get_decryption_key(cert)?;
+
+        // Decrypt the encrypted AES key using PGP
+        let encrypted_key_bytes = encrypted_key.as_bytes();
+        let decrypted_key = decrypt_text_pgp(policy, &decrypt_key, encrypted_key_bytes)?;
+
+        // Convert the decrypted key from base64
+        let key_bytes = decode(&String::from_utf8(decrypted_key)?)?;
+
+        // Create an AES key from the bytes
+        let aes_key = Aes_Key::<Aes256Gcm>::from_slice(&key_bytes);
+
+        // Use the proper AES key type to encrypt the new data
+        let encrypted_data = encrypt_with_aes(aes_key, &data)?;
+
+        Ok(encrypted_data)
     }
 }
 
