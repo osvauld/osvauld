@@ -1,5 +1,4 @@
 <script lang="ts">
-	import DocumentEditor from "./lib/DocumentEditor.svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
 	import DesktopImportPvtKey from "./lib/DesktopImportPvtKey.svelte";
