@@ -217,10 +217,55 @@ impl CredentialService {
                 .update_credential(input.data, old_credential.encrypted_key)
                 .map_err(|e| CredentialServiceError::CryptoError(e.to_string()))?
         };
-        info!("encrypted data {:?}", encrypted);
         self.credential_repository
             .update_credential(encrypted, old_credential.id)
             .await?;
         Ok(())
+    }
+
+    pub async fn get_credential(
+        &self,
+        credential_id: String,
+    ) -> Result<DecryptedCredential, CredentialServiceError> {
+        // Get encrypted credential from repository
+        let encrypted_credential = self
+            .credential_repository
+            .find_by_id(&credential_id)
+            .await
+            .map_err(CredentialServiceError::RepositoryError)?;
+
+        // Convert to crypto utils format
+        let crypto_credential = crypto_utils::types::CredentialWithEncryptedKey {
+            id: encrypted_credential.id,
+            credential_type: encrypted_credential.credential_type,
+            data: encrypted_credential.data,
+            signature: encrypted_credential.signature,
+            encrypted_key: encrypted_credential.encrypted_key,
+            last_accessed: encrypted_credential.last_accessed,
+            favourite: encrypted_credential.favourite,
+            folder_id: encrypted_credential.folder_id,
+        };
+
+        // Decrypt credential
+        let decrypted_credential = {
+            let crypto = self.crypto_utils.lock().await;
+            let decrypted_credentials = crypto
+                .decrypt_credentials(vec![crypto_credential])
+                .map_err(|e| CredentialServiceError::CryptoError(e.to_string()))?;
+            decrypted_credentials.into_iter().next().unwrap()
+        };
+
+        // Parse and convert to domain model
+        let parsed_data: Value = serde_json::from_str(&decrypted_credential.data)
+            .unwrap_or_else(|_| serde_json::json!({"error": "Failed to parse credential data"}));
+
+        Ok(DecryptedCredential {
+            id: decrypted_credential.id,
+            credential_type: decrypted_credential.credential_type,
+            data: parsed_data,
+            last_accessed: decrypted_credential.last_accessed,
+            favourite: decrypted_credential.favourite,
+            folder_id: decrypted_credential.folder_id,
+        })
     }
 }

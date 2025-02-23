@@ -71,6 +71,12 @@ export class Notes {
     this.type = this.ydoc.getXmlFragment('prosemirror');
     this.awareness = new Awareness(this.ydoc);
 
+    // Set up observer for document updates
+    this.ydoc.on('update', (update: Uint8Array) => {
+      console.log(update, 'sdfsdafsdaf')
+      void this.handleCollaborationUpdate(update);
+    });
+
     this.awareness.setLocalState({
       user: {
         name: `User ${this.clientID}`,
@@ -97,57 +103,49 @@ export class Notes {
     });
   }
 
-  // Step 1: Create empty credential
   async createEmptyCredential({ folderId, clientId, resourceId }: CreateNoteParams): Promise<string> {
     try {
-      // Just create an empty credential first
       const response = await sendMessage("addCredential", {
         credentialPayload: JSON.stringify({}),
         folderId: folderId,
         credentialType: "notes"
       });
 
-      // Store the IDs
       this.currentNoteId = response;
       this.currentClientId = clientId;
       this.currentResourceId = resourceId;
 
-      return response.id;
+      return response;
     } catch (error) {
       console.error("Error creating empty credential:", error);
       throw error;
     }
   }
 
-  // Step 2: Initialize editor state and update credential
   async initializeNoteState() {
     if (!this.currentNoteId) {
       throw new Error("No note ID available");
     }
 
     try {
-      // Initialize fresh Yjs and editor state
       this.initYjs();
       this.initEditorState();
 
-      // Create initial content with all states
       const noteContent: NoteContent = {
         content: {},
-        yjs_state: Array.from(Y.encodeStateAsUpdate(this.ydoc)),
+        yjs_state: Y.encodeStateAsUpdate(this.ydoc),
         editor_state: this.editorState?.toJSON() || null,
         client_id: this.currentClientId || '',
         resource_id: this.currentResourceId || ''
       };
 
-      console.log(this.currentNoteId);
-      // Update the credential with initialized states
-      const response = await sendMessage("updateCredential", {
+      await sendMessage("updateCredential", {
         id: this.currentNoteId,
-        data: JSON.stringify(noteContent),
+        data: JSON.stringify({
+          ...noteContent,
+          yjs_state: Array.from(noteContent.yjs_state)
+        }),
       });
-
-      console.log(response)
-
 
       return this.getDoc();
     } catch (error) {
@@ -155,6 +153,7 @@ export class Notes {
       throw error;
     }
   }
+
   getDoc() {
     return {
       ydoc: this.ydoc,
@@ -183,7 +182,7 @@ export class Notes {
 
       const noteContent: NoteContent = {
         content,
-        yjs_state: Array.from(yjs_state),
+        yjs_state,
         editor_state: editorJSON,
         client_id: this.currentClientId || '',
         resource_id: this.currentResourceId || ''
@@ -191,7 +190,10 @@ export class Notes {
 
       await sendMessage("updateCredential", {
         id: this.currentNoteId,
-        data: JSON.stringify(noteContent),
+        data: JSON.stringify({
+          ...noteContent,
+          yjs_state: Array.from(yjs_state)
+        }),
       });
 
     } catch (error) {
@@ -199,7 +201,6 @@ export class Notes {
       throw error;
     }
   }
-
   async loadNote(noteId: string) {
     try {
       const response = await sendMessage("getCredential", {
@@ -211,35 +212,25 @@ export class Notes {
       }
 
       this.currentNoteId = noteId;
-
-      const noteContent: NoteContent = JSON.parse(response.data.credentialPayload);
+      const noteContent = response.data; // Using directly as it's already an object
 
       this.currentClientId = noteContent.client_id;
       this.currentResourceId = noteContent.resource_id;
 
-      // Clear and reinitialize Yjs document
+      // Initialize fresh Yjs document
       this.ydoc.destroy();
       this.initYjs();
 
-      // Apply saved Yjs state
-      if (noteContent.yjs_state) {
-        const yjs_state = new Uint8Array(noteContent.yjs_state);
-        Y.applyUpdate(this.ydoc, yjs_state);
+      // Initialize fresh editor state with plugins
+      this.initEditorState();
+
+      // Get current editor state to ensure plugins are set up
+      const currentState = this.editorState;
+      if (!currentState) {
+        throw new Error("Failed to initialize editor state");
       }
 
-      // Restore editor state if available
-      if (noteContent.editor_state) {
-        this.editorState = EditorState.fromJSON({
-          schema: this.editorSchema,
-          plugins: this.editorState?.plugins || []
-        }, noteContent.editor_state);
-      }
-
-      // If there's content but no states, initialize from content
-      if (noteContent.content && !noteContent.yjs_state && !noteContent.editor_state) {
-        this.type.applyDelta(noteContent.content);
-      }
-
+      // Return fresh state for new document
       return this.getDoc();
 
     } catch (error) {
@@ -247,28 +238,32 @@ export class Notes {
       throw error;
     }
   }
-
   async createNote({ folderId, clientId, resourceId }: CreateNoteParams): Promise<string> {
     try {
       this.currentClientId = clientId;
       this.currentResourceId = resourceId;
 
+      const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
+
       const initialContent: NoteContent = {
         content: {},
-        yjs_state: Array.from(Y.encodeStateAsUpdate(this.ydoc)),
+        yjs_state,
         editor_state: this.editorState?.toJSON() || null,
         client_id: clientId,
         resource_id: resourceId
       };
 
       const response = await sendMessage("addCredential", {
-        credentialPayload: JSON.stringify(initialContent),
+        credentialPayload: JSON.stringify({
+          ...initialContent,
+          yjs_state: Array.from(yjs_state)
+        }),
         folderId: folderId,
         credentialType: "notes"
       });
 
-      this.currentNoteId = response.id;
-      return response.id;
+      this.currentNoteId = response;
+      return response;
 
     } catch (error) {
       console.error("Error creating note:", error);
@@ -276,14 +271,22 @@ export class Notes {
     }
   }
 
-  async handleCollaborationUpdate(update: any) {
+  async handleCollaborationUpdate(update: Uint8Array) {
     try {
-      await emit("sync-update", JSON.stringify({
-        update: Array.from(update),
+      if (update.length === 0) {
+        console.warn("Received empty update");
+        return;
+      }
+
+      const updateArray = Array.from(update);
+      console.log("Sending update:", updateArray);
+
+      await emit("sync-update", {
+        update: updateArray,
         clientID: this.clientID,
         client_id: this.currentClientId,
         resource_id: this.currentResourceId
-      }));
+      });
 
       await this.saveNote();
     } catch (error) {
@@ -297,6 +300,13 @@ export class Notes {
 
     try {
       const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
+
+      if (updateArray.length === 0) {
+        console.warn("Received empty update to apply");
+        return;
+      }
+
+      console.log("Applying update:", Array.from(updateArray));
       Y.applyUpdate(this.ydoc, updateArray);
     } catch (error) {
       console.error("Error applying update:", error);

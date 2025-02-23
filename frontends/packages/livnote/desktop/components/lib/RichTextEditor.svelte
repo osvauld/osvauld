@@ -22,7 +22,7 @@
 				// Load existing note
 				docInfo = await notesInstance.loadNote($noteId);
 			} else {
-				// Get fresh doc for new note
+				//Get fresh doc for new note
 				docInfo = notesInstance.getDoc();
 			}
 
