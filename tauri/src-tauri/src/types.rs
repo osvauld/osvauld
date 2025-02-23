@@ -33,6 +33,7 @@ pub enum CryptoResponse {
     Credentials(Vec<CredentialResponse>),
     FolderCreated(Folder),
     Success,
+    CredentialCreateted(String),
 }
 
 #[derive(Deserialize)]
