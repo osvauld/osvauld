@@ -1,9 +1,6 @@
 <script>
 	import {
 		currentVault,
-		selectedCategory,
-		addCredentialModal,
-		deleteConfirmationModal,
 		noteViewLayout,
 		toastStore,
 		vaults,
@@ -22,7 +19,9 @@
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { addCredentialHandler } from "@osvauld/password-manager-common";
 	import { notesInstance } from "../lib/utils/notes";
+	import { onMount } from "svelte";
 
+	let userId;
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;
 	let vaultManagerActive = false;
@@ -42,25 +41,17 @@
 		}
 
 		try {
-			// Step 1: Create empty credential and get ID
-			const note = await notesInstance.createEmptyCredential({
+			// Create note with initialized state in a single operation
+			const note = await notesInstance.createNote({
 				folderId: $currentVault.id,
-				clientId: "your-client-id", // Replace with actual client ID
-				resourceId: "your-resource-id", // Replace with actual resource ID
+				userId,
 			});
+
+			// Set the note ID in the store
 			noteId.set(note);
 
-			// Step 2: Initialize the editor state and update the credential
-			await notesInstance.initializeNoteState();
-
-			// Update the view
+			// Update the view to show the editor
 			noteViewLayout.set(true);
-
-			// Optionally refresh the credentials list
-			const getCredentialsCall = await sendMessage("getCredentialsForFolder", {
-				folderId: $currentVault.id,
-			});
-			console.log("getCredentialsCall", getCredentialsCall);
 		} catch (error) {
 			console.error("Error creating note:", error);
 			toastStore.set({
@@ -73,6 +64,9 @@
 	const handleSectionChange = (section) => {
 		selectedSection = section;
 	};
+	onMount(async () => {
+		userId = await sendMessage("getUserId");
+	});
 </script>
 
 <div class="flex-1 flex flex-col overflow-hidden">

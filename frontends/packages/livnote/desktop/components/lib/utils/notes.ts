@@ -1,7 +1,7 @@
+
 import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 import { emit } from "@tauri-apps/api/event";
 import { baseKeymap } from "prosemirror-commands";
-import { history } from "prosemirror-history";
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
 import { schema } from "prosemirror-schema-basic";
@@ -14,22 +14,24 @@ import {
   yCursorPlugin,
   ySyncPlugin,
   yUndoPlugin,
+  yXmlFragmentToProsemirror,
+  prosemirrorToYXmlFragment,
+  initProseMirrorDoc
 } from "y-prosemirror";
 import { Awareness } from 'y-protocols/awareness';
 import * as Y from 'yjs';
 
 interface NoteContent {
   content: any;
-  yjs_state: Uint8Array;
+  yjs_state: Uint8Array | number[];
   editor_state: any;
   client_id: string;
   resource_id: string;
+  last_modified?: number;
 }
 
 interface CreateNoteParams {
   folderId: string;
-  clientId: string;
-  resourceId: string;
 }
 
 export class Notes {
@@ -38,8 +40,6 @@ export class Notes {
   private awareness: Awareness;
   private clientID: number;
   private currentNoteId: string | null = null;
-  private currentClientId: string | null = null;
-  private currentResourceId: string | null = null;
   private editorState: EditorState | null = null;
   private editorSchema: Schema;
 
@@ -76,71 +76,131 @@ export class Notes {
       },
     });
   }
+
   private initEditorState() {
-    this.editorState = EditorState.create({
-      schema: this.editorSchema,
-      plugins: [
-        ...exampleSetup({ schema: this.editorSchema }),
-        keymap(baseKeymap),
-        ySyncPlugin(this.type),
-        yCursorPlugin(this.awareness),
-        yUndoPlugin(),
-        keymap({
-          "Mod-z": undo,
-          "Mod-y": redo,
-          "Mod-Shift-z": redo,
-        }),
-      ],
-    });
+    // Create a synchronized editor state that works with our Yjs document
+    try {
+      // First create the sync plugin - it's critical this is done before the state is created
+      const syncPlugin = ySyncPlugin(this.type);
+
+      // Use the correct function to create a ProseMirror document from YXmlFragment
+      let prosemirrorDoc;
+      try {
+        // Try to initialize from the YJS content
+        prosemirrorDoc = yXmlFragmentToProsemirror(this.editorSchema, this.type);
+        console.log("Successfully created ProseMirror doc from YJS content");
+      } catch (err) {
+        console.error("Error creating ProseMirror doc from YJS:", err);
+        // If that fails, create a new empty document
+        prosemirrorDoc = initProseMirrorDoc(this.editorSchema);
+        console.log("Created empty ProseMirror doc instead");
+      }
+
+      // Create the editor state with the document
+      this.editorState = EditorState.create({
+        schema: this.editorSchema,
+        doc: prosemirrorDoc, // Use the document from Yjs
+        plugins: [
+          ...exampleSetup({ schema: this.editorSchema }),
+          keymap(baseKeymap),
+          syncPlugin, // Use the pre-initialized sync plugin
+          yCursorPlugin(this.awareness),
+          yUndoPlugin(),
+          keymap({
+            "Mod-z": undo,
+            "Mod-y": redo,
+            "Mod-Shift-z": redo,
+          }),
+        ],
+      });
+
+      console.log("Successfully initialized editor state with Yjs content");
+
+    } catch (error) {
+      console.error("Error initializing editor state:", error);
+      // Create a backup state without Yjs content
+      this.editorState = EditorState.create({
+        schema: this.editorSchema,
+        plugins: [
+          ...exampleSetup({ schema: this.editorSchema }),
+          keymap(baseKeymap),
+          ySyncPlugin(this.type),
+          yCursorPlugin(this.awareness),
+          yUndoPlugin(),
+          keymap({
+            "Mod-z": undo,
+            "Mod-y": redo,
+            "Mod-Shift-z": redo,
+          }),
+        ],
+      });
+    }
   }
 
-  async createEmptyCredential({ folderId, clientId, resourceId }: CreateNoteParams): Promise<string> {
+  /**
+   * Creates a new note with initialized state in a single operation
+   * @param params Parameters for note creation
+   * @returns The ID of the created note
+   */
+  async createNote({ folderId }: CreateNoteParams): Promise<string> {
     try {
-      const response = await sendMessage("addCredential", {
-        credentialPayload: JSON.stringify({}),
+      // Reset/initialize the Yjs document and editor state
+      this.ydoc.destroy();
+      this.initYjs();
+      this.initEditorState();
+
+      if (!this.editorState) {
+        throw new Error("Failed to initialize editor state");
+      }
+
+      // Generate a client ID 
+      const clientId = `client-${this.clientID}`;
+
+      // Serialize the initial state
+      const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
+      const editorJSON = this.editorState.toJSON();
+      const content = this.type.toJSON();
+      const timestamp = Date.now();
+
+      // Create note content with noteId as the resourceId (will be set after creation)
+      const initialContent: NoteContent = {
+        content,
+        yjs_state,
+        editor_state: editorJSON,
+        client_id: clientId,
+        resource_id: 'pending', // Will be updated after we get the note ID
+        last_modified: timestamp
+      };
+
+      // Create the note on the server
+      const noteId = await sendMessage("addCredential", {
+        credentialPayload: JSON.stringify({
+          ...initialContent,
+          yjs_state: Array.from(yjs_state)
+        }),
         folderId: folderId,
         credentialType: "notes"
       });
 
-      this.currentNoteId = response;
-      this.currentClientId = clientId;
-      this.currentResourceId = resourceId;
-
-      return response;
-    } catch (error) {
-      console.error("Error creating empty credential:", error);
-      throw error;
-    }
-  }
-
-  async initializeNoteState() {
-    if (!this.currentNoteId) {
-      throw new Error("No note ID available");
-    }
-
-    try {
-      this.initYjs();
-      this.initEditorState();
-
-      const noteContent: NoteContent = {
-        content: {},
-        yjs_state: Y.encodeStateAsUpdate(this.ydoc),
-        editor_state: this.editorState?.toJSON() || null,
-        client_id: this.currentClientId || '',
-        resource_id: this.currentResourceId || ''
+      // Now update the note with the correct resource_id (same as noteId)
+      const updatedContent: NoteContent = {
+        ...initialContent,
+        resource_id: noteId
       };
 
       await sendMessage("updateCredential", {
-        id: this.currentNoteId,
+        id: noteId,
         data: JSON.stringify({
-          ...noteContent,
-          yjs_state: Array.from(noteContent.yjs_state)
+          ...updatedContent,
+          yjs_state: Array.from(yjs_state)
         }),
       });
 
-      return this.getDoc();
+      // Set the current note ID and return it
+      this.currentNoteId = noteId;
+      return noteId;
     } catch (error) {
-      console.error("Error initializing note state:", error);
+      console.error("Error creating note:", error);
       throw error;
     }
   }
@@ -170,13 +230,15 @@ export class Notes {
       const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
       const editorJSON = this.editorState.toJSON();
       const content = this.type.toJSON();
+      const timestamp = Date.now();
 
       const noteContent: NoteContent = {
         content,
         yjs_state,
         editor_state: editorJSON,
-        client_id: this.currentClientId || '',
-        resource_id: this.currentResourceId || ''
+        client_id: `client-${this.clientID}`,
+        resource_id: this.currentNoteId, // Use the noteId as resourceId
+        last_modified: timestamp
       };
 
       await sendMessage("updateCredential", {
@@ -187,13 +249,18 @@ export class Notes {
         }),
       });
 
+      console.log(`Saved note ${this.currentNoteId} successfully`);
+
     } catch (error) {
       console.error("Error saving note:", error);
       throw error;
     }
   }
+
   async loadNote(noteId: string) {
     try {
+      console.log(`Loading note: ${noteId}`);
+
       const response = await sendMessage("getCredential", {
         credentialId: noteId
       });
@@ -203,25 +270,41 @@ export class Notes {
       }
 
       this.currentNoteId = noteId;
-      const noteContent = response.data; // Using directly as it's already an object
+      const noteContent = response.data;
 
-      this.currentClientId = noteContent.client_id;
-      this.currentResourceId = noteContent.resource_id;
+      console.log("Note data loaded:", noteContent);
 
-      // Initialize fresh Yjs document
+      // Reset the Yjs document
       this.ydoc.destroy();
       this.initYjs();
 
-      // Initialize fresh editor state with plugins
+      // Apply the saved Yjs state if available
+      if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
+        console.log(`Applying YJS state with length: ${noteContent.yjs_state.length}`);
+        try {
+          const yjs_state = new Uint8Array(noteContent.yjs_state);
+          Y.applyUpdate(this.ydoc, yjs_state);
+          console.log("YJS state applied successfully");
+
+          // Log the YJS document content after applying the update
+          console.log("YJS document content after update:", this.type.toJSON());
+        } catch (err) {
+          console.error("Error applying YJS state:", err);
+        }
+      } else {
+        console.warn("No YJS state to apply");
+      }
+
+      // Initialize the editor state AFTER applying the YJS state
       this.initEditorState();
 
-      // Get current editor state to ensure plugins are set up
-      const currentState = this.editorState;
-      if (!currentState) {
+      if (!this.editorState) {
         throw new Error("Failed to initialize editor state");
       }
 
-      // Return fresh state for new document
+      console.log("Editor state initialized successfully");
+
+      // Return the document information for the editor component
       return this.getDoc();
 
     } catch (error) {
@@ -229,63 +312,41 @@ export class Notes {
       throw error;
     }
   }
-  async createNote({ folderId, clientId, resourceId }: CreateNoteParams): Promise<string> {
-    try {
-      this.currentClientId = clientId;
-      this.currentResourceId = resourceId;
 
-      const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
-
-      const initialContent: NoteContent = {
-        content: {},
-        yjs_state,
-        editor_state: this.editorState?.toJSON() || null,
-        client_id: clientId,
-        resource_id: resourceId
-      };
-
-      const response = await sendMessage("addCredential", {
-        credentialPayload: JSON.stringify({
-          ...initialContent,
-          yjs_state: Array.from(yjs_state)
-        }),
-        folderId: folderId,
-        credentialType: "notes"
-      });
-
-      this.currentNoteId = response;
-      return response;
-
-    } catch (error) {
-      console.error("Error creating note:", error);
-      throw error;
-    }
-  }
   async handleCollaborationUpdate(update: Uint8Array) {
     try {
+      if (!this.currentNoteId) {
+        console.warn("No current note ID, skipping collaboration update");
+        return;
+      }
+
       if (update.length === 0) {
         console.warn("Received empty update");
         return;
       }
 
       const updateArray = Array.from(update);
-      console.log("Sending update:", updateArray);
+      console.log("Sending collaboration update:", updateArray.length, "bytes");
 
       await emit("sync-update", {
         update: updateArray,
         clientID: this.clientID,
-        client_id: this.currentClientId,
-        resource_id: this.currentResourceId
+        client_id: `client-${this.clientID}`,
+        resource_id: this.currentNoteId
       });
 
-      await this.saveNote();
+      // Don't auto-save here, it causes too many saves
+      // Let the auto-save interval handle it
     } catch (error) {
       console.error("Error handling collaboration update:", error);
-      throw error;
     }
   }
+
   applyUpdate(update: Uint8Array | number[], sender: number) {
-    if (sender === this.clientID) return;
+    if (sender === this.clientID) {
+      console.log("Ignoring own update");
+      return;
+    }
 
     try {
       const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
@@ -295,12 +356,13 @@ export class Notes {
         return;
       }
 
-      console.log("Applying remote update:", Array.from(updateArray));
+      console.log("Applying remote update:", updateArray.length, "bytes");
       // Apply update with 'sync' origin to prevent loop
       Y.applyUpdate(this.ydoc, updateArray, 'sync');
+
+      console.log("Remote update applied successfully");
     } catch (error) {
       console.error("Error applying update:", error);
-      throw error;
     }
   }
 
