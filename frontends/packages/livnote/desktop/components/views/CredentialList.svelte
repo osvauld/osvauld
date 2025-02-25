@@ -22,20 +22,6 @@
 	let isLoading = true;
 	let error = null;
 
-	// Function to extract a plain text preview from note content
-	function getTextPreview(content, maxLength = 100) {
-		// Simple HTML content stripping (basic approach)
-		const textContent = content
-			.replace(/<[^>]+>/g, " ") // Replace HTML tags with spaces
-			.replace(/\s+/g, " ") // Replace multiple spaces with a single space
-			.trim();
-
-		// Return truncated preview
-		return textContent.length > maxLength
-			? textContent.substring(0, maxLength) + "..."
-			: textContent;
-	}
-
 	// Function to get title from content (first heading or first line)
 	function extractTitle(content) {
 		// Try to find a heading tag
