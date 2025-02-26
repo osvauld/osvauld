@@ -3,66 +3,166 @@
 	import Home from "@osvauld/password-manager-common/icons/mobileHome.svelte";
 	import Star from "@osvauld/password-manager-common/icons/star.svelte";
 	import VaultManager from "../ui/VaultManager.svelte";
-	import { currentVault, selectedCategory } from "../../store/desktop.ui.store";
+	import {
+		currentVault,
+		noteViewLayout,
+		noteId,
+	} from "../../store/desktop.ui.store";
 	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import { LocalStorageService } from "@osvauld/password-manager-common";
 	import { StorageService } from "@osvauld/password-manager-common";
 	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
 	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
+	import { onMount } from "svelte";
 
 	let selectedSection = "home";
 	let localSelectedCredential = 0;
 	let vaultManagerActive = false;
 	let hoveredCredential = null;
 
-	let availablecredentials = [
-		{ id: 1, favourite: true },
-		{ id: 2, favourite: false },
-		{ id: 3, favourite: true },
-		{ id: 4, favourite: false },
-		{ id: 5, favourite: true },
-		{ id: 6, favourite: false },
-		{ id: 7, favourite: true },
-		{ id: 8, favourite: false },
-		{ id: 9, favourite: true },
-		{ id: 10, favourite: false },
-		{ id: 11, favourite: true },
-		{ id: 12, favourite: true },
-		{ id: 13, favourite: false },
-		{ id: 14, favourite: true },
-		{ id: 15, favourite: false },
-		{ id: 16, favourite: true },
-	];
+	let credentials = [];
+	let isLoading = false;
 
-	// const handleSectionChange = (section) => {
-	// 	localSelectedCredential = "";
-	// 	selectedSection = section;
-	// 	selectedCategory.set("");
-	// };
+	// Function to extract title from content
+	function extractTitle(content) {
+		if (!content) return "Untitled Note";
 
-	// const handleFavourite = (section) => {
-	// 	localSelectedCredential = "";
-	// 	selectedSection = section;
-	// 	selectedCategory.set("favourites");
-	// };
+		// Try to find a heading tag
+		const headingMatch = content.match(/<heading[^>]*>(.*?)<\/heading>/);
+		if (headingMatch && headingMatch[1]) {
+			return headingMatch[1].replace(/<[^>]+>/g, "").trim();
+		}
 
-	// const handleCategoryFilter = (type, id) => {
-	// 	selectedSection = "";
-	// 	localSelectedCredential = id;
-	// 	selectedCategory.set(type);
-	// };
+		// Otherwise, get the first paragraph or line
+		const firstParagraphMatch = content.match(
+			/<paragraph[^>]*>(.*?)<\/paragraph>/,
+		);
+		if (firstParagraphMatch && firstParagraphMatch[1]) {
+			const text = firstParagraphMatch[1].replace(/<[^>]+>/g, "").trim();
+			// Return first 30 chars if there's text
+			return text
+				? text.length > 30
+					? text.substring(0, 30) + "..."
+					: text
+				: "Untitled Note";
+		}
 
-	// $: if ($currentVault) {
-	// 	localSelectedCredential = "";
-	// 	selectedSection = "home";
-	// 	selectedCategory.set("");
-	// 	// Storing Current vault for persisting
-	// 	(async () => {
-	// 		const currentVaultString = JSON.stringify($currentVault);
-	// 		await StorageService.setCurrentVault(currentVaultString);
-	// 	})();
-	// }
+		return "Untitled Note";
+	}
+
+	// Async function to fetch credentials based on vault ID
+	async function fetchCredentials(vaultId) {
+		isLoading = true;
+		try {
+			let fetchedCredentials;
+			if (vaultId === "all") {
+				fetchedCredentials = await sendMessage("getAllCredentials", {
+					favourite: false,
+				});
+			} else {
+				fetchedCredentials = await sendMessage("getCredentialsForFolder", {
+					folderId: vaultId,
+				});
+			}
+
+			// Filter for notes only
+			credentials = fetchedCredentials.filter(
+				(cred) => cred.data && cred.data.content && cred.data.editor_state,
+			);
+
+			// Sort by last accessed/modified (most recent first)
+			credentials.sort((a, b) => {
+				const timeA = a.data.last_accessed || a.data.last_modified || 0;
+				const timeB = b.data.last_accessed || b.data.last_modified || 0;
+				return timeB - timeA;
+			});
+		} catch (error) {
+			console.error("Error fetching credentials:", error);
+			credentials = [];
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Function to handle note selection
+	function selectNote(id) {
+		console.log(`Selecting note: ${id}`);
+
+		// First reset the note view to ensure clean state
+		noteViewLayout.set(false);
+
+		// Wait for UI update to complete
+		setTimeout(() => {
+			// Then set the note ID
+			noteId.set(id);
+
+			// Finally switch to editor view
+			noteViewLayout.set(true);
+		}, 50);
+	}
+
+	// Watch for changes to currentVault
+	$: if ($currentVault && $currentVault.id) {
+		// Call the async function when vault changes
+		fetchCredentials($currentVault.id);
+
+		// Store Current vault for persisting
+		(async () => {
+			try {
+				const currentVaultString = JSON.stringify($currentVault);
+				await StorageService.setCurrentVault(currentVaultString);
+			} catch (error) {
+				console.error("Error storing vault:", error);
+			}
+		})();
+	}
+
+	// Handle section changes
+	function handleSectionChange(section) {
+		selectedSection = section;
+		// If you want to implement favorite filtering, you could do that here
+		if (section === "favourites") {
+			fetchFavorites();
+		} else {
+			fetchCredentials($currentVault.id);
+		}
+	}
+
+	// Function to fetch favorites
+	async function fetchFavorites() {
+		isLoading = true;
+		try {
+			const allCredentials = await sendMessage("getAllCredentials", {
+				favourite: true,
+			});
+
+			// Filter for notes only
+			credentials = allCredentials.filter(
+				(cred) => cred.data && cred.data.content && cred.data.editor_state,
+			);
+
+			// Sort by last accessed/modified (most recent first)
+			credentials.sort((a, b) => {
+				const timeA = a.data.last_accessed || a.data.last_modified || 0;
+				const timeB = b.data.last_accessed || b.data.last_modified || 0;
+				return timeB - timeA;
+			});
+		} catch (error) {
+			console.error("Error fetching favorites:", error);
+			credentials = [];
+		} finally {
+			isLoading = false;
+		}
+	}
+
+	// Load initial data
+	onMount(() => {
+		if ($currentVault && $currentVault.id) {
+			fetchCredentials($currentVault.id);
+		}
+	});
 </script>
 
 <nav
@@ -96,7 +196,7 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => {}}
+					on:click={() => handleSectionChange("home")}
 					aria-current={selectedSection === "home" ? "page" : undefined}>
 					<Home color={selectedSection === "home" ? "#F2F2F0" : "#85889C"} />
 					<span>Home</span>
@@ -108,7 +208,7 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => {}}
+					on:click={() => handleSectionChange("favourites")}
 					aria-current={selectedSection === "favourites" ? "page" : undefined}>
 					<Star
 						color={selectedSection === "favourites" ? "#F2F2F0" : "#85889C"} />
@@ -117,33 +217,45 @@
 			</li>
 		</ul>
 	</div>
-	<ul
-		class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
-		role="list">
-		{#each availablecredentials as credential}
-			<li>
-				<button
-					class="w-full flex items-center justify-start gap-3 p-3 rounded-lg
-                       transition-colors
-						  {hoveredCredential === credential.id
-						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-						: ''}"
-					on:mouseenter={() => (hoveredCredential = credential.id)}
-					on:mouseleave={() => (hoveredCredential = null)}
-					on:click={() => {}}>
-					<MobileNote
-						color={hoveredCredential === credential.id
-							? "#F2F2F0"
-							: "#85889C"} />
-					<span>{credential.id}</span>
-					<span class="ml-auto">
-						{#if credential.favourite}
-							<FavStar />
-						{:else}
-							<Star />
-						{/if}</span>
-				</button>
-			</li>
-		{/each}
-	</ul>
+
+	{#if isLoading}
+		<div class="text-osvauld-fieldText text-center p-4">Loading...</div>
+	{:else}
+		<ul
+			class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
+			role="list">
+			{#each credentials as credential (credential.id)}
+				<li>
+					<button
+						class="w-full flex items-center justify-between gap-3 p-3 rounded-lg
+							transition-colors
+							{hoveredCredential === credential.id
+							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
+							: ''}"
+						on:mouseenter={() => (hoveredCredential = credential.id)}
+						on:mouseleave={() => (hoveredCredential = null)}
+						on:click={() => selectNote(credential.id)}>
+						<div class="flex items-center gap-3 truncate">
+							<MobileNote
+								color={hoveredCredential === credential.id
+									? "#F2F2F0"
+									: "#85889C"} />
+							<span class="truncate">
+								{credential.data && credential.data.content
+									? extractTitle(credential.data.content)
+									: credential.id}
+							</span>
+						</div>
+						<span class="flex-shrink-0">
+							{#if credential.data && credential.data.favourite}
+								<FavStar />
+							{:else}
+								<Star color="#85889C" />
+							{/if}
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 </nav>
