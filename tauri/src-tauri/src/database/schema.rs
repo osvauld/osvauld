@@ -79,9 +79,11 @@ diesel::table! {
         id -> Text,
         username -> Text,
         public_key -> Text,
-        owner -> Bool,
         updated_at -> BigInt,
         created_at -> BigInt,
+        signature -> Text,
+        deleted -> Bool,
+        deleted_at -> Nullable<BigInt>,
     }
 }
 

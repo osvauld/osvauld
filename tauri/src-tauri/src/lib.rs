@@ -1,3 +1,4 @@
+use iroh_quinn::crypto;
 use log::{error, info};
 use tauri::Listener;
 use tauri::Manager;
@@ -13,6 +14,7 @@ use crate::application::services::CredentialService;
 use crate::application::services::FolderService;
 use crate::application::services::P2PService;
 use crate::application::services::SyncService;
+use crate::application::services::UserService;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_user_id, handle_add_device,
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
@@ -27,9 +29,10 @@ use crate::handlers::p2p_handlers::{
     connect_with_ticket, get_system_locale, get_ticket, send_message, send_snapshot,
     start_p2p_listener,
 };
+use crate::handlers::user_handler::add_known_user;
 use crate::persistence::repositories::{
     SqliteCredentialRepository, SqliteDeviceRepository, SqliteFolderRepository,
-    SqliteSyncRepository, TauriStoreRepository,
+    SqliteSyncRepository, SqliteUserRepository, TauriStoreRepository,
 };
 use crypto_utils::CryptoUtils;
 use log::LevelFilter;
@@ -101,6 +104,7 @@ pub fn run() {
                     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
                     // Initialize folder service with cloned repositories
                     let store_repository = Arc::new(TauriStoreRepository::new(handle.clone()));
+                    let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
                     let folder_service = Arc::new(FolderService::new(folder_repo.clone()));
 
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
@@ -124,8 +128,9 @@ pub fn run() {
                     ));
                     let credential_service = Arc::new(CredentialService::new(
                         credential_repo.clone(),
-                        crypto_utils,
+                        crypto_utils.clone(),
                     ));
+                    let user_service = Arc::new(UserService::new(user_repository, crypto_utils));
 
                     // Manage all services
                     app.manage(folder_service);
@@ -133,6 +138,7 @@ pub fn run() {
                     app.manage(credential_service);
                     app.manage(sync_service);
                     app.manage(p2p_service.clone());
+                    app.manage(user_service);
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);
@@ -178,7 +184,8 @@ pub fn run() {
             get_user_id,
             send_snapshot,
             update_credential,
-            get_credential
+            get_credential,
+            add_known_user,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -24,3 +24,4 @@ export let showConnector = writable(false);
 
 export let wsConnector = writable(new WSConnection());
 export let noteId = writable("");
+export let showAddUser = writable(false);

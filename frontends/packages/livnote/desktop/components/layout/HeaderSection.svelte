@@ -20,6 +20,7 @@
 		language,
 		showSyncQr,
 		toastStore,
+		showAddUser,
 	} from "../../store/desktop.ui.store";
 
 	let showDropdown = false;
@@ -32,6 +33,7 @@
 		{ id: "devices", label: "My Devices", icon: Devices },
 		{ id: "change", label: "Change Password", icon: Key },
 		{ id: "logout", label: "Logout", icon: Logout },
+		{ id: "addUser", label: "Add User", icon: Key },
 	];
 
 	const handleDropDownClick = async (id: string) => {
@@ -39,7 +41,7 @@
 			addDeviceModal.set(true);
 		} else if (id == "logout") {
 			await sendMessage("logout");
-			showWelcome1.set(true);
+			showWelcome.set(true);
 		} else if (id == "sync") {
 			showSyncQr.set(true);
 		} else if (id === "connect") {
@@ -52,6 +54,8 @@
 				message: "UserID copied to clipboard",
 				success: true,
 			});
+		} else if (id == "addUser") {
+			showAddUser.set(true);
 		}
 
 		showDropdown = false;

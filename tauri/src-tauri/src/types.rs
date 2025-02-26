@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domains::models::credential::DecryptedCredential;
 use crate::domains::models::folder::Folder;
+use crate::domains::models::user::User;
 #[derive(Serialize)]
 #[serde(untagged)]
 pub enum CryptoResponse {
@@ -37,6 +38,7 @@ pub enum CryptoResponse {
     UpdateCredentials,
     CredentialCreateted(String),
     GetCredentialResponse(DecryptedCredential),
+    CreatedKnownUser(User),
 }
 
 #[derive(Deserialize)]
@@ -170,4 +172,11 @@ pub struct UpdateCredentials {
 #[serde(rename_all = "camelCase")]
 pub struct GetCredential {
     pub credential_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddKnownUser {
+    pub nickname: String,
+    pub public_key: String,
 }
