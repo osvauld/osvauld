@@ -292,11 +292,11 @@ pub struct UserModel {
     pub id: String,
     pub username: String,
     pub public_key: String,
+    pub created_at: i64,
+    pub updated_at: i64,
     pub signature: String,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
-    pub created_at: i64,
-    pub updated_at: i64,
 }
 
 impl From<&DomainUser> for UserModel {
@@ -326,5 +326,10 @@ impl From<UserModel> for DomainUser {
             created_at: model.created_at,
             updated_at: model.updated_at,
         }
+    }
+}
+impl UserModel {
+    pub fn to_domain_users(models: Vec<UserModel>) -> Vec<DomainUser> {
+        models.into_iter().map(DomainUser::from).collect()
     }
 }

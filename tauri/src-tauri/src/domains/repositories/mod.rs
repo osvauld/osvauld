@@ -143,4 +143,5 @@ pub trait DeviceRecordStatusRepository: Send + Sync {
 #[async_trait]
 pub trait UserRepository: Send + Sync {
     async fn add_known_user(&self, user: User) -> Result<(), RepositoryError>;
+    async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
 }

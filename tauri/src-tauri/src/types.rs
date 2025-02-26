@@ -5,6 +5,7 @@ use crate::domains::models::folder::Folder;
 use crate::domains::models::user::User;
 #[derive(Serialize)]
 #[serde(untagged)]
+#[serde(rename_all = "camelCase")]
 pub enum CryptoResponse {
     IsSignedUp {
         isSignedUp: bool,
@@ -39,6 +40,7 @@ pub enum CryptoResponse {
     CredentialCreateted(String),
     GetCredentialResponse(DecryptedCredential),
     CreatedKnownUser(User),
+    GetKnownUsers(Vec<User>),
 }
 
 #[derive(Deserialize)]

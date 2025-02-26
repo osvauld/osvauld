@@ -15,3 +15,11 @@ pub async fn add_known_user(
         .await?;
     Ok(CryptoResponse::CreatedKnownUser(user))
 }
+
+#[tauri::command]
+pub async fn get_known_users(
+    user_service: State<'_, Arc<UserService>>,
+) -> Result<CryptoResponse, String> {
+    let known_users = user_service.get_known_users().await?;
+    Ok(CryptoResponse::GetKnownUsers(known_users))
+}
