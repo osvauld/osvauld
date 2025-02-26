@@ -169,12 +169,12 @@
 	});
 </script>
 
-<div class="grow max-h-[85%] px-16 py-4 relative">
+<div class="grow max-h-[85%] overflow-y-scroll px-16 py-4 relative">
 	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
 			<RichTextEditor
-				on:collaboration-update={(event) =>
-					emit("sync-update", JSON.stringify(event.detail))} />
+				on:collaboration-update="{(event) =>
+					emit('sync-update', JSON.stringify(event.detail))}" />
 		{:else if isLoading}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">Loading notes...</div>
@@ -196,7 +196,7 @@
 						{#each getColumnItems(credentials, colIndex) as note (note.id)}
 							<div
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
-								on:click={() => selectNote(note.id)}>
+								on:click="{() => selectNote(note.id)}">
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
@@ -205,8 +205,8 @@
 									</h3>
 									<button
 										class="flex items-center justify-center p-1"
-										on:click|stopPropagation={() =>
-											toggleFavorite(note.id, note.data.favourite)}>
+										on:click|stopPropagation="{() =>
+											toggleFavorite(note.id, note.data.favourite)}">
 										{#if note.data.favourite}
 											<Star />
 										{:else}
@@ -217,9 +217,9 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-										content={note.data.content}
-										editorState={note.data.editor_state}
-										yjsState={note.data.yjs_state}
+										content="{note.data.content}"
+										editorState="{note.data.editor_state}"
+										yjsState="{note.data.yjs_state}"
 										maxHeight="120px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">
 										Last modified: {getLastModifiedDate(

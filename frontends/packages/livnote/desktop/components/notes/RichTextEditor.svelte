@@ -167,6 +167,29 @@
 		}
 	});
 
+	// We need to do cleanup when noteId Changes
+
+	noteId.subscribe((value) => {
+		console.log(
+			"NotedId changed, RichTextEditor need to rerender ==============================>",
+		);
+		if (unsubscribeUpdate) {
+			unsubscribeUpdate();
+		}
+		if (view) {
+			view.destroy();
+			view = null;
+		}
+		if (autoSaveInterval) {
+			clearInterval(autoSaveInterval);
+		}
+		// Save one final time on destroy
+		notesInstance.saveNote().catch(console.error);
+
+		// Clear current note ID
+		currentlyLoadedNoteId = null;
+	});
+
 	// Clean up when component is destroyed
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
@@ -320,7 +343,7 @@
 
 <div class="editor-container">
 	<div class="editor-header">
-		<button class="back-button" on:click={handleBackButton}>
+		<button class="back-button" on:click="{handleBackButton}">
 			← Back to Notes
 		</button>
 		<h2 class="text-osvauld-fieldText">
@@ -337,6 +360,6 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this={element}></div>
+		<div bind:this="{element}"></div>
 	</div>
 </div>

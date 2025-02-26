@@ -44,7 +44,7 @@
 			// Return first 30 chars if there's text
 			return text
 				? text.length > 30
-					? text.substring(0, 30) + "..."
+					? text.substring(0, 30)
 					: text
 				: "Untitled Note";
 		}
@@ -88,19 +88,7 @@
 
 	// Function to handle note selection
 	function selectNote(id) {
-		console.log(`Selecting note: ${id}`);
-
-		// First reset the note view to ensure clean state
-		noteViewLayout.set(false);
-
-		// Wait for UI update to complete
-		setTimeout(() => {
-			// Then set the note ID
-			noteId.set(id);
-
-			// Finally switch to editor view
-			noteViewLayout.set(true);
-		}, 50);
+		noteId.set(id);
 	}
 
 	// Watch for changes to currentVault
@@ -174,13 +162,13 @@
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
 			aria-expanded="false"
-			on:click={() => (vaultManagerActive = !vaultManagerActive)}>
+			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
 			<span class="flex-1 truncate text-left py-1"
 				>{$currentVault.id === "all" ? "All Vaults" : $currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {vaultManagerActive
 					? '-rotate-90'
-					: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
+					: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
 			></button>
 		{#if vaultManagerActive}
 			<VaultManager bind:vaultManagerActive instance="nav" />
@@ -196,9 +184,9 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => handleSectionChange("home")}
-					aria-current={selectedSection === "home" ? "page" : undefined}>
-					<Home color={selectedSection === "home" ? "#F2F2F0" : "#85889C"} />
+					on:click="{() => handleSectionChange('home')}"
+					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
+					<Home color="{selectedSection === 'home' ? '#F2F2F0' : '#85889C'}" />
 					<span>Home</span>
 				</button>
 			</li>
@@ -208,10 +196,14 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => handleSectionChange("favourites")}
-					aria-current={selectedSection === "favourites" ? "page" : undefined}>
+					on:click="{() => handleSectionChange('favourites')}"
+					aria-current="{selectedSection === 'favourites'
+						? 'page'
+						: undefined}">
 					<Star
-						color={selectedSection === "favourites" ? "#F2F2F0" : "#85889C"} />
+						color="{selectedSection === 'favourites'
+							? '#F2F2F0'
+							: '#85889C'}" />
 					<span>Favourites</span>
 				</button>
 			</li>
@@ -225,21 +217,23 @@
 			class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
 			role="list">
 			{#each credentials as credential (credential.id)}
+				{@const hoveredOrSelected =
+					hoveredCredential === credential.id || $noteId === credential.id}
 				<li>
 					<button
 						class="w-full flex items-center justify-between gap-3 p-3 rounded-lg
 							transition-colors
-							{hoveredCredential === credential.id
+							{hoveredOrSelected
 							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:mouseenter={() => (hoveredCredential = credential.id)}
-						on:mouseleave={() => (hoveredCredential = null)}
-						on:click={() => selectNote(credential.id)}>
+						on:mouseenter="{() => (hoveredCredential = credential.id)}"
+						on:mouseleave="{() => (hoveredCredential = null)}"
+						on:click="{() => selectNote(credential.id)}">
 						<div class="flex items-center gap-3 truncate">
-							<MobileNote
-								color={hoveredCredential === credential.id
-									? "#F2F2F0"
-									: "#85889C"} />
+							<span class="shrink-0">
+								<MobileNote
+									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
+							</span>
 							<span class="truncate">
 								{credential.data && credential.data.content
 									? extractTitle(credential.data.content)
@@ -250,7 +244,7 @@
 							{#if credential.data && credential.data.favourite}
 								<FavStar />
 							{:else}
-								<Star color="#85889C" />
+								<Star color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
 							{/if}
 						</span>
 					</button>
