@@ -121,3 +121,11 @@ pub async fn get_user_id(
     let user_id = auth_service.get_user_id().await?;
     Ok(CryptoResponse::UserId(user_id))
 }
+
+#[tauri::command]
+pub async fn get_public_key(
+    auth_service: State<'_, Arc<AuthService>>,
+) -> Result<CryptoResponse, String> {
+    let public_key = auth_service.get_public_key().await?;
+    Ok(CryptoResponse::PublicKey(public_key))
+}

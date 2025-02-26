@@ -47,4 +47,11 @@ impl UserService {
             .map_err(|e| e.to_string())?;
         Ok(user)
     }
+
+    pub async fn get_known_users(&self) -> Result<Vec<User>, String> {
+        self.user_repository
+            .get_known_users()
+            .await
+            .map_err(|e| e.to_string())
+    }
 }

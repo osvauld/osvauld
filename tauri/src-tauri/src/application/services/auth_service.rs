@@ -312,4 +312,14 @@ impl AuthService {
 
         Ok(user_id)
     }
+
+    pub async fn get_public_key(&self) -> Result<String, String> {
+        let public_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .get_public_key()
+                .map_err(|e| format!("Failed to get public key: {}", e))?
+        };
+        Ok(public_key)
+    }
 }

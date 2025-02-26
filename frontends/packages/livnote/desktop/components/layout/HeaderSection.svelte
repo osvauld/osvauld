@@ -47,7 +47,7 @@
 		} else if (id === "connect") {
 			showConnector.set(true);
 		} else if (id === "userid") {
-			const userId = await sendMessage("getUserId");
+			const userId = await sendMessage("getPublicKey");
 			await writeToClipboard(userId);
 			toastStore.set({
 				show: true,
