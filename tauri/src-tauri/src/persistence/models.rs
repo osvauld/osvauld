@@ -1,5 +1,5 @@
 use crate::database::schema::{
-    credentials, device_record_status, device_records, devices, folders, sync_records,
+    credentials, device_record_status, device_records, devices, folders, sync_records, users,
 };
 use crate::domains::models::{
     credential::Credential as DomainCredential,
@@ -9,6 +9,7 @@ use crate::domains::models::{
     sync_record::DeviceRecordStatus as DomainDeviceRecordStatus,
     sync_record::SyncRecord as DomainSyncRecord,
     sync_types::{OperationType, ResourceType, SyncStatus},
+    user::User as DomainUser,
 };
 use diesel::prelude::*;
 
@@ -282,5 +283,48 @@ impl DeviceModel {
     // Convert Vec<DomainDevice> to Vec<DeviceModel>
     pub fn from_domain_devices(devices: Vec<DomainDevice>) -> Vec<DeviceModel> {
         devices.into_iter().map(|d| DeviceModel::from(&d)).collect()
+    }
+}
+
+#[derive(Queryable, Insertable)]
+#[diesel(table_name = users)]
+pub struct UserModel {
+    pub id: String,
+    pub username: String,
+    pub public_key: String,
+    pub signature: String,
+    pub deleted: bool,
+    pub deleted_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl From<&DomainUser> for UserModel {
+    fn from(user: &DomainUser) -> Self {
+        Self {
+            id: user.id.clone(),
+            username: user.username.clone(),
+            public_key: user.public_key.clone(),
+            deleted: user.deleted,
+            signature: user.signature.clone(),
+            deleted_at: user.deleted_at,
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+        }
+    }
+}
+
+impl From<UserModel> for DomainUser {
+    fn from(model: UserModel) -> Self {
+        Self {
+            id: model.id,
+            username: model.username,
+            public_key: model.public_key,
+            deleted: model.deleted,
+            signature: model.signature,
+            deleted_at: model.deleted_at,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        }
     }
 }

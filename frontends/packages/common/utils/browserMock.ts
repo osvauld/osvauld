@@ -81,7 +81,8 @@ const tauriBrowser = {
           'getUserId': () => invoke('get_user_id'),
           'sendSnapshot': (data) => invoke('send_snapshot', { snapshot: data }),
           'updateCredential': (data: any) => invoke('update_credential', { input: data }),
-          'getCredential': (data: any) => invoke('get_credential', { input: data })
+          'getCredential': (data: any) => invoke('get_credential', { input: data }),
+          'addKnownUser': (data: any) => invoke('add_known_user', { input: data })
         };
 
         const handler = handlerMap[action];

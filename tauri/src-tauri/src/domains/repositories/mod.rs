@@ -7,6 +7,7 @@ use crate::domains::models::{
         DeviceRecord, DeviceRecordSet, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet,
         SyncRecord, SyncRecordSet,
     },
+    user::User,
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -137,4 +138,9 @@ pub trait DeviceRecordRepository: Send + Sync {
 #[async_trait]
 pub trait DeviceRecordStatusRepository: Send + Sync {
     async fn add_device_records(&self, records: DeviceRecordStatus) -> Result<(), RepositoryError>;
+}
+
+#[async_trait]
+pub trait UserRepository: Send + Sync {
+    async fn add_known_user(&self, user: User) -> Result<(), RepositoryError>;
 }

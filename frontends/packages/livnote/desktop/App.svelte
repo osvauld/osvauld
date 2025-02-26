@@ -6,6 +6,7 @@
 	import Connector from "./components/connection/Connector.svelte";
 	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
+	import AddUserModal from "./components/modals/AddUserModal.svelte";
 
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { onMount } from "svelte";
@@ -15,6 +16,7 @@
 		showWelcome,
 		showConnector,
 		wsConnector,
+		showAddUser,
 	} from "./store/desktop.ui.store";
 
 	let signedUp = false;
@@ -27,6 +29,12 @@
 	const handleSignedUp = () => {
 		signedUp = true;
 		showWelcome.set(false);
+	};
+
+	const handleAddUser = async (event) => {
+		console.log(event.detail, "DETAIL");
+		const user = await sendMessage("addKnownUser", event.detail);
+		console.log(user);
 	};
 
 	const handleAuthenticated = async () => {
@@ -110,6 +118,13 @@
 	
 		
 		-->
+		{#if $showAddUser}
+			<AddUserModal
+				on:userAdd={handleAddUser}
+				on:close={() => {
+					showAddUser.set(false);
+				}} />
+		{/if}
 
 		{#if $showConnector}
 			<Connector on:close={handleConnectorClose} />

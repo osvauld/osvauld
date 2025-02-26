@@ -1,13 +1,10 @@
-// src/handlers/auth_handler.rs
 use crate::application::services::{AuthService, P2PService, SyncService};
-use crate::domains::models::device::Device;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
 };
 use std::sync::Arc;
-use tauri::{AppHandle, State};
-use tauri_plugin_store::StoreExt;
+use tauri::State;
 
 #[tauri::command]
 pub async fn check_signup_status(
@@ -116,7 +113,6 @@ pub async fn handle_logout(
     auth_service.logout().await?;
     Ok(CryptoResponse::Success)
 }
-
 
 #[tauri::command]
 pub async fn get_user_id(
