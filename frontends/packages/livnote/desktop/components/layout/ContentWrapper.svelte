@@ -11,14 +11,14 @@
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
 	import DownArrow from "@osvauld/password-manager-common/icons/downArrow.svelte";
 	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import CredentialList from "../views/CredentialList.svelte";
+	import CredentialList from "../notes/CredentialList.svelte";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
-	import VaultManager from "../views/VaultManager.svelte";
+	import VaultManager from "../ui/VaultManager.svelte";
 	import Star from "@osvauld/password-manager-common/icons/star.svelte";
 	import { MobileHome } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { addCredentialHandler } from "@osvauld/password-manager-common";
-	import { notesInstance } from "../lib/utils/notes";
+	import { notesInstance } from "../notes/notes";
 	import { onMount } from "svelte";
 
 	let userId;

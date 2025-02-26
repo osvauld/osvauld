@@ -13,11 +13,10 @@
 	import { addDeviceModal, showConnector } from "../../store/desktop.ui.store";
 	import Sync from "@osvauld/password-manager-common/icons/sync.svelte";
 	import Devices from "@osvauld/password-manager-common/icons/devices.svelte";
-	import Discord from "@osvauld/password-manager-common/icons/discord.svelte";
 	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
 	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
 	import {
-		showWelcome1,
+		showWelcome,
 		language,
 		showSyncQr,
 		toastStore,
@@ -81,12 +80,12 @@
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				on:click="{() => (showDropdown = !showDropdown)}">
+				on:click={() => (showDropdown = !showDropdown)}>
 				<Profile color="#4D4F60" />
 				<span class="ml-2">John Doe</span>
 				<span
 					class="ml-auto transition-transform ease-linear"
-					class:rotate-90="{showDropdown}">
+					class:rotate-90={showDropdown}>
 					<RightArrow />
 				</span>
 			</button>
@@ -95,7 +94,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation="{() => (showDropdown = false)}">
+					on:click|stopPropagation={() => (showDropdown = false)}>
 				</div>
 				<div
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -104,12 +103,12 @@
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							class="profileBtn"
-							on:mouseenter="{() => (hoveredItem = id)}"
-							on:mouseleave="{() => (hoveredItem = '')}"
-							on:click|stopPropagation="{() => handleDropDownClick(id)}">
+							on:mouseenter={() => (hoveredItem = id)}
+							on:mouseleave={() => (hoveredItem = "")}
+							on:click|stopPropagation={() => handleDropDownClick(id)}>
 							<Icon
-								color="{hoveredItem === id ? '#F2F2F0' : '#85889C'}"
-								size="{24}" />
+								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
+								size={24} />
 							{label}
 						</button>
 					{/each}

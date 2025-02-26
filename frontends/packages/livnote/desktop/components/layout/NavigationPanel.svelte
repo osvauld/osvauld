@@ -4,6 +4,10 @@
 	import Star from "@osvauld/password-manager-common/icons/star.svelte";
 	import VaultManager from "../ui/VaultManager.svelte";
 	import { currentVault, selectedCategory } from "../../store/desktop.ui.store";
+	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
+	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
+	import { LocalStorageService } from "@osvauld/password-manager-common";
+	import { StorageService } from "@osvauld/password-manager-common";
 	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
 	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 

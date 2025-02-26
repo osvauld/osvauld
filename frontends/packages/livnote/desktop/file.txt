@@ -1,20 +1,43 @@
 .
 ├── app.css
 ├── App.svelte
+├── components
+│   ├── layout
+│   │   └── DefaultLayout.svelte
+│   ├── lib
+│   │   ├── DesktopImportPvtKey.svelte
+│   │   ├── EditorToolbar.svelte
+│   │   ├── RichTextEditor.svelte
+│   │   └── utils
+│   │       ├── notes.ts
+│   │       └── wsConnector.ts
+│   ├── sections
+│   │   ├── ContentWrapper.svelte
+│   │   ├── HeaderSection.svelte
+│   │   └── NavigationPanel.svelte
+│   ├── ui
+│   │   ├── Connector.svelte
+│   │   ├── DesktopImportPvtKey.svelte
+│   │   ├── ImportLoader.svelte
+│   │   ├── ImportMessage.svelte
+│   │   ├── Initiator.svelte
+│   │   ├── Toast.svelte
+│   │   └── VaultSelector.svelte
+│   └── views
+│       ├── CredentialList.svelte
+│       ├── NotePreview.svelte
+│       ├── Qr.svelte
+│       └── VaultManager.svelte
 ├── desktop.ts
 ├── file.txt
 ├── index.html
-├── lib
-│   ├── DesktopImportPvtKey.svelte
-│   ├── DocumentEditor.svelte
-│   ├── EditorContrainer.svelte
-│   └── utils
-│       └── editor.ts
 ├── package.json
+├── store
+│   └── desktop.ui.store.ts
 ├── svelte.config.mjs
 ├── tailwind.config.js
 ├── tailwind.css
 ├── tsconfig.json
 └── vite.config.js
 
-3 directories, 15 files
+9 directories, 32 files
