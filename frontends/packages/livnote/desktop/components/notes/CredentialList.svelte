@@ -8,7 +8,7 @@
 	} from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { listen, emit } from "@tauri-apps/api/event";
-	import RichTextEditor from "../lib/RichTextEditor.svelte";
+	import RichTextEditor from "./RichTextEditor.svelte";
 	import NotePreview from "./NotePreview.svelte";
 	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";

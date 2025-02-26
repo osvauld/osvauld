@@ -1,53 +1,36 @@
 <script>
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
-	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import Toast from "./components/ui/Toast.svelte";
 	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
-	import AddDeviceView from "./components/views/AddDeviceView.svelte";
-	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
-	import Connector from "./components/ui/Connector.svelte";
-	import Initiator from "./components/ui/Initiator.svelte";
+	import Connector from "./components/connection/Connector.svelte";
+	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
+	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
+
+	import { sendMessage } from "@osvauld/password-manager-common";
+	import { onMount } from "svelte";
+
 	import {
-		addCredentialModal,
-		credentialEditorModal,
-		addDeviceModal,
-		viewCredentialModal,
-		deleteConfirmationModal,
 		toastStore,
-		showSyncQr,
-		language,
-		currentVault,
-		showWelcome1,
+		showWelcome,
 		showConnector,
 		wsConnector,
 	} from "./store/desktop.ui.store";
 
-	import DesktopImportPvtKey from "./components/lib/DesktopImportPvtKey.svelte";
-	import { sendMessage } from "@osvauld/password-manager-common";
-	import { onMount } from "svelte";
-
-	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	let signedUp = false;
 	let isLoading = true;
-	let showWelcome = false;
 
 	let wsConnectorInstance;
 
 	wsConnectorInstance = $wsConnector;
 
-	function handleChange(event) {
-		const { getContent } = event.detail;
-		console.log("Content updated:", getContent());
-	}
-
 	const handleSignedUp = () => {
 		signedUp = true;
-		showWelcome1.set(false);
+		showWelcome.set(false);
 	};
 
 	const handleAuthenticated = async () => {
-		showWelcome = false;
+		showWelcome.set(false);
 
 		sendMessage("getUserId")
 			.then((userId) => {
@@ -72,7 +55,7 @@
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
 			if (checkPvtLoad === false) {
-				showWelcome = true;
+				showWelcome.set(true);
 			} else {
 				// await vaultInitlization();
 			}
@@ -98,15 +81,15 @@
    w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">
-			<Loader size="{24}" color="#1F242A" duration="{1}" />
+			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
 		<Signup
-			ImportComponent="{DesktopImportPvtKey}"
-			on:signedUp="{handleSignedUp}" />
-	{:else if showWelcome}
+			ImportComponent={DesktopImportPvtKey}
+			on:signedUp={handleSignedUp} />
+	{:else if $showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
-			<Welcome on:authenticated="{handleAuthenticated}" />
+			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
 		<!-- <DocumentEditor /> -->
@@ -129,7 +112,7 @@
 		-->
 
 		{#if $showConnector}
-			<Connector on:close="{handleConnectorClose}" />
+			<Connector on:close={handleConnectorClose} />
 		{/if}
 
 		{#if $toastStore.show}

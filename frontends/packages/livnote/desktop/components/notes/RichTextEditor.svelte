@@ -1,9 +1,8 @@
 <script>
 	import { onMount, onDestroy, createEventDispatcher } from "svelte";
 	import { EditorView } from "prosemirror-view";
-	import * as Y from "yjs";
 	import { listen } from "@tauri-apps/api/event";
-	import { notesInstance } from "./utils/notes";
+	import { notesInstance } from "./notes";
 	import { noteId, noteViewLayout } from "../../store/desktop.ui.store";
 
 	const dispatch = createEventDispatcher();
