@@ -4,6 +4,6 @@ import "./tailwind.css";
 import "./app.css";
 
 const app = mount(App, {
-	target: document.body,
+	target: document.getElementById("app"),
 });
 export default app;
