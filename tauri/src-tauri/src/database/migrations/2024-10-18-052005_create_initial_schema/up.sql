@@ -5,6 +5,7 @@ CREATE TABLE users (
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     signature TEXT NOT NULL,
+    owner BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL,
     deleted_at BIGINT
 );
@@ -19,21 +20,6 @@ CREATE TABLE folders (
     created_at BIGINT NOT NULL 
 );
 
-CREATE TABLE credentials (
-    id TEXT PRIMARY KEY NOT NULL,
-    credential_type TEXT NOT NULL,
-    data TEXT NOT NULL,
-    folder_id TEXT NOT NULL,
-    signature TEXT NOT NULL,
-    encrypted_key TEXT NOT NULL,
-    favourite BOOLEAN NOT NULL DEFAULT FALSE,
-    last_accessed BIGINT NOT NULL,
-    deleted BOOLEAN NOT NULL DEFAULT FALSE,
-    deleted_at BIGINT,
-    updated_at BIGINT NOT NULL,
-    created_at BIGINT NOT NULL,
-    FOREIGN KEY (folder_id) REFERENCES folders (id)
-);
 
 CREATE TABLE devices (
     id TEXT PRIMARY KEY NOT NULL,
@@ -75,4 +61,49 @@ CREATE TABLE device_record_status (
     updated_at BIGINT NOT NULL,
     FOREIGN KEY (device_record_id) REFERENCES device_records (id),
     FOREIGN KEY (aware_device_id) REFERENCES devices (id)
+);
+
+CREATE TABLE resources (
+    id TEXT PRIMARY KEY NOT NULL,
+    resource_type TEXT NOT NULL,
+    data TEXT NOT NULL,
+    folder_id TEXT NOT NULL,
+    signature TEXT NOT NULL,
+    favourite BOOLEAN NOT NULL DEFAULT FALSE,
+    last_accessed BIGINT NOT NULL,
+    deleted BOOLEAN NOT NULL DEFAULT FALSE,
+    deleted_at BIGINT,
+    updated_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    FOREIGN KEY (folder_id) REFERENCES folders (id)
+);
+
+-- Resource keys table for per-user encryption keys
+CREATE TABLE resource_keys (
+    id TEXT PRIMARY KEY NOT NULL,
+    resource_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    encrypted_key TEXT NOT NULL,
+    is_owner BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    FOREIGN KEY (resource_id) REFERENCES resources(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE(resource_id, user_id)
+);
+
+-- Resource shares table for permissions tracking
+CREATE TABLE resource_shares (
+    id TEXT PRIMARY KEY NOT NULL,
+    resource_id TEXT NOT NULL,
+    shared_by_user_id TEXT NOT NULL,
+    shared_with_user_id TEXT NOT NULL,
+    permission_level TEXT NOT NULL,
+    share_status TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    FOREIGN KEY (resource_id) REFERENCES resources(id),
+    FOREIGN KEY (shared_by_user_id) REFERENCES users(id),
+    FOREIGN KEY (shared_with_user_id) REFERENCES users(id),
+    UNIQUE(resource_id, shared_with_user_id)
 );

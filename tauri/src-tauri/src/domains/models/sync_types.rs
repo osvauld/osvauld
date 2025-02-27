@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum ResourceType {
     Folder,
-    Credential,
+    Resource,
     Device,
 }
 
@@ -29,7 +29,7 @@ impl ToString for ResourceType {
     fn to_string(&self) -> String {
         match self {
             ResourceType::Folder => "folder".to_string(),
-            ResourceType::Credential => "credential".to_string(),
+            ResourceType::Resource => "resource".to_string(),
             ResourceType::Device => "device".to_string(),
         }
     }
@@ -59,7 +59,7 @@ impl From<String> for ResourceType {
     fn from(s: String) -> Self {
         match s.as_str() {
             "folder" => ResourceType::Folder,
-            "credential" => ResourceType::Credential,
+            "resource" => ResourceType::Resource,
             "device" => ResourceType::Device,
             _ => panic!("Invalid ResourceType string: {}", s),
         }

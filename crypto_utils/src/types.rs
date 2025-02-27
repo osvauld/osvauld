@@ -15,7 +15,6 @@ pub struct PasswordChangeInput {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-
 pub struct UserPublicKey {
     pub user_id: String,
     pub public_key: String,
@@ -36,9 +35,9 @@ pub struct EncryptedDataWithAccess {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct CredentialWithEncryptedKey {
+pub struct ResourceWithEncryptedKey {
     pub id: String,
-    pub credential_type: String,
+    pub resource_type: String,
     pub data: String,
     pub signature: String,
     pub encrypted_key: String,
@@ -48,8 +47,7 @@ pub struct CredentialWithEncryptedKey {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-
-pub struct EncryptedCredential {
+pub struct EncryptedResource {
     pub encrypted_data: String,
     pub encrypted_key: String,
 }

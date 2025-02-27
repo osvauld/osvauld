@@ -1,26 +1,24 @@
-use crate::database::schema::device_record_status;
 use crate::domains::models::device::Device;
-use crate::domains::models::p2p::{Message, SyncAckType, SyncData, SyncPayload};
+use crate::domains::models::p2p::{SyncAckType, SyncData, SyncPayload};
 use crate::domains::models::sync_record::DeviceRecordSet;
+use crate::domains::models::sync_types;
 use crate::domains::models::{
-    credential::Credential,
     folder::Folder,
-    sync_record::{DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet},
-    sync_types::{OperationType, ResourceType, SyncStatus},
+    resource::Resource,
+    sync_record::{StatusChangeSet, SyncRecord, SyncRecordSet},
 };
-use crate::domains::models::{sync_record, sync_types};
 use crate::domains::repositories::{
-    CredentialRepository, DeviceRepository, FolderRepository, RepositoryError, StoreRepository,
+    DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
     SyncRepository,
 };
-use log::{error, info};
+use log::info;
 
 use std::sync::Arc;
 
 pub struct SyncService {
     sync_repository: Arc<dyn SyncRepository>,
     folder_repository: Arc<dyn FolderRepository>,
-    credential_repository: Arc<dyn CredentialRepository>,
+    resource_repository: Arc<dyn ResourceRepository>,
     device_repository: Arc<dyn DeviceRepository>,
     store_repository: Arc<dyn StoreRepository>,
 }
@@ -29,14 +27,14 @@ impl SyncService {
     pub fn new(
         sync_repository: Arc<dyn SyncRepository>,
         folder_repository: Arc<dyn FolderRepository>,
-        credential_repository: Arc<dyn CredentialRepository>,
+        resource_repository: Arc<dyn ResourceRepository>,
         device_repository: Arc<dyn DeviceRepository>,
         store_repository: Arc<dyn StoreRepository>,
     ) -> Self {
         Self {
             sync_repository,
             folder_repository,
-            credential_repository,
+            resource_repository,
             device_repository,
             store_repository,
         }
@@ -128,14 +126,14 @@ impl SyncService {
             }));
         }
 
-        // Then credentials
+        // Then resources
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
-            .get_pending_sync_by_type(&device.id, "credential")
+            .get_pending_sync_by_type(&device.id, "resource")
             .await?
         {
-            let credential = self
-                .credential_repository
+            let resource = self
+                .resource_repository
                 .find_by_id(&sync_record.resource_id)
                 .await?;
 
@@ -143,7 +141,7 @@ impl SyncService {
                 sync_record: Some(sync_record),
                 device_records,
                 device_record_statuses: statuses,
-                data: Some(SyncData::Credential(credential)),
+                data: Some(SyncData::Resource(resource)),
             }));
         }
 
@@ -274,9 +272,7 @@ impl SyncService {
             if let Some(data) = &payload.data {
                 match data {
                     SyncData::Folder(folder) => self.folder_repository.save(folder).await?,
-                    SyncData::Credential(credential) => {
-                        self.credential_repository.save(credential).await?
-                    }
+                    SyncData::Resource(resource) => self.resource_repository.save(resource).await?,
                     SyncData::Device(device) => {
                         if device.id != current_device_id {
                             self.device_repository.save(device.clone()).await?
@@ -340,17 +336,14 @@ impl SyncService {
         Ok(())
     }
 
-    pub async fn add_credential_to_sync(
-        &self,
-        credential: Credential,
-    ) -> Result<(), RepositoryError> {
+    pub async fn add_resource_to_sync(&self, resource: Resource) -> Result<(), RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
             .device_repository
             .get_devices_except(vec![current_device_id.clone()].as_slice())
             .await?;
         let sync_record_set =
-            SyncRecord::create_credential_sync_record(credential.id, current_device_id, &devices);
+            SyncRecord::create_resource_sync_record(resource.id, current_device_id, &devices);
         self.sync_repository
             .add_sync_record_set(sync_record_set)
             .await?;
@@ -370,13 +363,13 @@ impl SyncService {
 
         match resource_type {
             sync_types::ResourceType::Folder => {
-                let credentials = self
-                    .credential_repository
+                let resources = self
+                    .resource_repository
                     .find_all_by_folder(&resource_id)
                     .await?;
                 let sync_sets = SyncRecord::create_soft_delete_folder_records(
                     resource_id,
-                    credentials,
+                    resources,
                     current_device_id,
                     &devices,
                 );
@@ -385,8 +378,8 @@ impl SyncService {
                     self.sync_repository.add_sync_record_set(sync_set).await?;
                 }
             }
-            sync_types::ResourceType::Credential => {
-                let sync_set = SyncRecord::create_soft_delete_credential_records(
+            sync_types::ResourceType::Resource => {
+                let sync_set = SyncRecord::create_soft_delete_resource_records(
                     resource_id,
                     current_device_id,
                     &devices,

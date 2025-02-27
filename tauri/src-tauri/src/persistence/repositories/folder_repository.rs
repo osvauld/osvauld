@@ -1,4 +1,4 @@
-use crate::database::schema::{credentials, folders};
+use crate::database::schema::{folders, resources};
 use crate::domains::models::folder::Folder;
 use crate::domains::repositories::{FolderRepository, RepositoryError};
 use crate::persistence::models::FolderModel;
@@ -62,13 +62,13 @@ impl FolderRepository for SqliteFolderRepository {
 
         // Start a transaction
         conn.transaction(|conn| -> Result<(), DieselError> {
-            // First soft delete all credentials in the folder
-            diesel::update(credentials::table)
-                .filter(credentials::folder_id.eq(folder_id))
+            // First soft delete all resources in the folder
+            diesel::update(resources::table)
+                .filter(resources::folder_id.eq(folder_id))
                 .set((
-                    credentials::deleted.eq(true),
-                    credentials::deleted_at.eq(Some(now)),
-                    credentials::updated_at.eq(now),
+                    resources::deleted.eq(true),
+                    resources::deleted_at.eq(Some(now)),
+                    resources::updated_at.eq(now),
                 ))
                 .execute(conn)?;
 

@@ -10,6 +10,7 @@ pub struct User {
     pub created_at: i64,
     pub signature: String,
     pub updated_at: i64,
+    pub owner: bool,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
 }
@@ -23,6 +24,7 @@ impl User {
             username,
             public_key,
             signature,
+            owner: false,
             created_at: now,
             updated_at: now,
             deleted: false,

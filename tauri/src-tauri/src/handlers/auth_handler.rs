@@ -11,9 +11,7 @@ pub async fn check_signup_status(
     auth_service: State<'_, Arc<AuthService>>,
 ) -> Result<CryptoResponse, String> {
     let is_signed_up = auth_service.is_signed_up().await?;
-    Ok(CryptoResponse::IsSignedUp {
-        isSignedUp: is_signed_up,
-    })
+    Ok(CryptoResponse::IsSignedUp { is_signed_up })
 }
 
 #[tauri::command]
@@ -27,8 +25,8 @@ pub async fn handle_sign_up(
 
     Ok(CryptoResponse::SavePassphrase {
         username: user.username,
-        deviceKey: user.certificate.public_key.clone(),
-        encryptionKey: user.certificate.public_key,
+        device_key: user.certificate.public_key.clone(),
+        encryption_key: user.certificate.public_key,
     })
 }
 

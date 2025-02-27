@@ -1,12 +1,12 @@
 mod auth_service;
-mod credential_service;
 mod folder_service;
 mod p2p_service;
+mod resource_service;
 mod sync_service;
 mod user_service;
 pub use auth_service::AuthService;
-pub use credential_service::CredentialService;
 pub use folder_service::FolderService;
 pub use p2p_service::P2PService;
+pub use resource_service::ResourceService;
 pub use sync_service::SyncService;
 pub use user_service::UserService;

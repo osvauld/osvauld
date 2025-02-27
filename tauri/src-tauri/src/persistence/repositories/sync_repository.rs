@@ -1,8 +1,7 @@
 use crate::database::schema::{device_record_status, device_records, sync_records};
 use crate::database::DbConnection;
 use crate::domains::models::sync_record::{
-    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet,
-    SyncRecord, SyncRecordSet,
+    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
 use crate::domains::repositories::{RepositoryError, SyncRepository};
 use crate::persistence::models::{DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};

@@ -1,20 +1,20 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domains::models::credential::DecryptedCredential;
 use crate::domains::models::folder::Folder;
+use crate::domains::models::resource::DecryptedResource;
 use crate::domains::models::user::User;
 #[derive(Serialize)]
 #[serde(untagged)]
 #[serde(rename_all = "camelCase")]
 pub enum CryptoResponse {
     IsSignedUp {
-        isSignedUp: bool,
+        is_signed_up: bool,
     },
     Error(String),
     SavePassphrase {
         username: String,
-        deviceKey: String,
-        encryptionKey: String,
+        device_key: String,
+        encryption_key: String,
     },
     CheckPvtKeyLoaded(bool),
     PublicKey(String),
@@ -26,19 +26,19 @@ pub enum CryptoResponse {
     DecryptedText(String),
     ImportedCertificate {
         certificate: String,
-        publicKey: String,
+        public_key: String,
         salt: String,
     },
     UserId(String),
     ChangedPassphrase(String),
     ExportedCertificate(String),
     Folders(Vec<FolderResponse>),
-    Credentials(Vec<CredentialResponse>),
+    Resources(Vec<ResourceResponse>),
     FolderCreated(Folder),
     Success,
-    UpdateCredentials,
-    CredentialCreateted(String),
-    GetCredentialResponse(DecryptedCredential),
+    UpdateResources,
+    ResourceCreateted(String),
+    GetResourceResponse(DecryptedResource),
     CreatedKnownUser(User),
     GetKnownUsers(Vec<User>),
 }
@@ -61,10 +61,10 @@ pub struct SignChallengeInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddCredentialInput {
-    pub credential_payload: String,
+pub struct AddResourceInput {
+    pub resource_payload: String,
     pub folder_id: String,
-    pub credential_type: String,
+    pub resource_type: String,
 }
 
 #[derive(Deserialize)]
@@ -74,19 +74,19 @@ pub struct HashAndSignInput {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DeleteCredentialInput {
-    pub credential_id: String,
+pub struct DeleteResourceInput {
+    pub resource_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToggleFavInput {
-    pub credential_id: String,
+    pub resource_id: String,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateLastAccessedInput {
-    pub credential_id: String,
+    pub resource_id: String,
 }
 #[derive(Deserialize, Debug)]
 pub struct AddDeviceInput {
@@ -100,7 +100,7 @@ pub struct ExportedCertificate {
     pub passphrase: String,
 }
 #[derive(Deserialize)]
-pub struct GetAllCredentials {
+pub struct GetAllResources {
     pub favourite: bool,
 }
 
@@ -112,9 +112,9 @@ pub struct PasswordChangeInput {
     pub new_password: String,
 }
 
-pub struct CredentialType {
-    pub credential_id: String,
-    pub credential_type: String,
+pub struct ResourceType {
+    pub resource_id: String,
+    pub resource_type: String,
     pub data: String,
     pub folder_id: String,
     pub signature: String,
@@ -142,7 +142,6 @@ pub struct SavePassphraseResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-
 pub struct FolderResponse {
     pub id: String,
     pub name: String,
@@ -151,12 +150,12 @@ pub struct FolderResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetCredentialForFolderInput {
+pub struct GetResourceForFolderInput {
     pub folder_id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CredentialResponse {
+pub struct ResourceResponse {
     pub id: String,
     pub data: serde_json::Value,
     pub favourite: bool,
@@ -165,15 +164,15 @@ pub struct CredentialResponse {
 }
 
 #[derive(Deserialize)]
-pub struct UpdateCredentials {
+pub struct UpdateResources {
     pub id: String,
     pub data: String,
 }
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct GetCredential {
-    pub credential_id: String,
+pub struct GetResource {
+    pub resource_id: String,
 }
 
 #[derive(Deserialize)]

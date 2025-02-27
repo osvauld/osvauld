@@ -1,23 +1,6 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    credentials (id) {
-        id -> Text,
-        credential_type -> Text,
-        data -> Text,
-        folder_id -> Text,
-        signature -> Text,
-        encrypted_key -> Text,
-        favourite -> Bool,
-        last_accessed -> BigInt,
-        deleted -> Bool,
-        deleted_at -> Nullable<BigInt>,
-        updated_at -> BigInt,
-        created_at -> BigInt,
-    }
-}
-
-diesel::table! {
     device_record_status (id) {
         id -> Text,
         device_record_id -> Text,
@@ -63,6 +46,47 @@ diesel::table! {
 }
 
 diesel::table! {
+    resource_keys (id) {
+        id -> Text,
+        resource_id -> Text,
+        user_id -> Text,
+        encrypted_key -> Text,
+        is_owner -> Bool,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    resource_shares (id) {
+        id -> Text,
+        resource_id -> Text,
+        shared_by_user_id -> Text,
+        shared_with_user_id -> Text,
+        permission_level -> Text,
+        share_status -> Text,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
+    resources (id) {
+        id -> Text,
+        resource_type -> Text,
+        data -> Text,
+        folder_id -> Text,
+        signature -> Text,
+        favourite -> Bool,
+        last_accessed -> BigInt,
+        deleted -> Bool,
+        deleted_at -> Nullable<BigInt>,
+        updated_at -> BigInt,
+        created_at -> BigInt,
+    }
+}
+
+diesel::table! {
     sync_records (id) {
         id -> Text,
         resource_id -> Text,
@@ -82,24 +106,30 @@ diesel::table! {
         updated_at -> BigInt,
         created_at -> BigInt,
         signature -> Text,
+        owner -> Bool,
         deleted -> Bool,
         deleted_at -> Nullable<BigInt>,
     }
 }
 
-diesel::joinable!(credentials -> folders (folder_id));
 diesel::joinable!(device_record_status -> device_records (device_record_id));
 diesel::joinable!(device_record_status -> devices (aware_device_id));
 diesel::joinable!(device_records -> devices (device_id));
 diesel::joinable!(device_records -> sync_records (sync_record_id));
+diesel::joinable!(resource_keys -> resources (resource_id));
+diesel::joinable!(resource_keys -> users (user_id));
+diesel::joinable!(resource_shares -> resources (resource_id));
+diesel::joinable!(resources -> folders (folder_id));
 diesel::joinable!(sync_records -> devices (source_device_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    credentials,
     device_record_status,
     device_records,
     devices,
     folders,
+    resource_keys,
+    resource_shares,
+    resources,
     sync_records,
     users,
 );

@@ -1,11 +1,11 @@
 use crate::domains::models::{
     auth::Certificate,
-    credential::Credential,
     device::Device,
     folder::Folder,
+    resource::Resource,
     sync_record::{
-        DeviceRecord, DeviceRecordSet, DeviceRecordStatus, InitialDeviceSyncSet, StatusChangeSet,
-        SyncRecord, SyncRecordSet,
+        DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
+        SyncRecordSet,
     },
     user::User,
 };
@@ -93,22 +93,21 @@ pub trait StoreRepository: Send + Sync {
 }
 
 #[async_trait]
-pub trait CredentialRepository: Send + Sync {
-    async fn save(&self, credential: &Credential) -> Result<(), RepositoryError>;
-    async fn find_by_folder(&self, folder_id: &str) -> Result<Vec<Credential>, RepositoryError>;
-    async fn find_all_by_folder(&self, folder_id: &str)
-        -> Result<Vec<Credential>, RepositoryError>;
-    async fn find_by_id(&self, id: &str) -> Result<Credential, RepositoryError>;
-    async fn delete_credential(&self, id: &str) -> Result<(), RepositoryError>;
-    async fn soft_delete_credential(&self, id: &str) -> Result<(), RepositoryError>;
+pub trait ResourceRepository: Send + Sync {
+    async fn save(&self, resource: &Resource) -> Result<(), RepositoryError>;
+    async fn find_by_folder(&self, folder_id: &str) -> Result<Vec<Resource>, RepositoryError>;
+    async fn find_all_by_folder(&self, folder_id: &str) -> Result<Vec<Resource>, RepositoryError>;
+    async fn find_by_id(&self, id: &str) -> Result<Resource, RepositoryError>;
+    async fn delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
+    async fn soft_delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
     async fn toggle_fav(&self, id: &str) -> Result<(), RepositoryError>;
     async fn update_last_accessed(&self, id: &str) -> Result<(), RepositoryError>;
-    async fn get_all_credentails(&self) -> Result<Vec<Credential>, RepositoryError>;
-    async fn get_favourites(&self) -> Result<Vec<Credential>, RepositoryError>;
-    async fn update_credential(
+    async fn get_all_resources(&self) -> Result<Vec<Resource>, RepositoryError>;
+    async fn get_favourites(&self) -> Result<Vec<Resource>, RepositoryError>;
+    async fn update_resource(
         &self,
         data: String,
-        credential_id: String,
+        resource_id: String,
     ) -> Result<(), RepositoryError>;
 }
 

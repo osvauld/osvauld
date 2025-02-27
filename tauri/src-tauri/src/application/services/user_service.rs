@@ -1,6 +1,6 @@
 use crate::domains::models::user::User;
 use crate::domains::repositories::{RepositoryError, UserRepository};
-use crypto_utils::CryptoUtils;
+use crypto_utils::{get_key_id, CryptoUtils};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -33,7 +33,7 @@ impl UserService {
         username: String,
         public_key: String,
     ) -> Result<User, String> {
-        let key_id = CryptoUtils::get_key_id(&public_key).map_err(|e| e.to_string())?;
+        let key_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
         let signature = {
             let crypto = self.crypto_utils.lock().await;
             crypto

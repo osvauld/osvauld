@@ -1,10 +1,13 @@
 use crate::domains::models::auth::{Certificate, User};
-use crate::domains::models::sync_record::{self, SyncRecordSet};
+use crate::domains::models::sync_record::SyncRecordSet;
 use crate::domains::models::{device::Device, sync_record::SyncRecord};
 use crate::domains::repositories::{
     DeviceRepository, RepositoryError, StoreRepository, SyncRepository,
 };
-use crypto_utils::CryptoUtils;
+use crypto_utils::{
+    change_certificate_password, export_certificate, generate_keys, get_key_id, import_certificate,
+    CryptoUtils,
+};
 use rand::{rngs::OsRng, RngCore};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -38,11 +41,8 @@ impl AuthService {
     ) -> Result<(Device, SyncRecordSet), String> {
         // Generate device keys and get device ID
         let (device_key, device_id) = {
-            let crypto = self.crypto_utils.lock().await;
-            let keys = crypto
-                .generate_keys(passphrase, username)
-                .map_err(|e| e.to_string())?;
-            let id = CryptoUtils::get_key_id(&keys.public_key).map_err(|e| e.to_string())?;
+            let keys = generate_keys(passphrase, username).map_err(|e| e.to_string())?;
+            let id = get_key_id(&keys.public_key).map_err(|e| e.to_string())?;
             (keys, id)
         };
 
@@ -92,12 +92,7 @@ impl AuthService {
 
     pub async fn handle_sign_up(&self, username: &str, passphrase: &str) -> Result<User, String> {
         // Generate primary keys for the user
-        let primary_key = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .generate_keys(passphrase, username)
-                .map_err(|e| e.to_string())?
-        };
+        let primary_key = generate_keys(passphrase, username).map_err(|e| e.to_string())?;
 
         // Create primary certificate
         let certificate = Certificate {
@@ -183,12 +178,8 @@ impl AuthService {
         certificate: String,
         passphrase: String,
     ) -> Result<(Device, SyncRecordSet), String> {
-        let result = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .import_certificate(certificate, passphrase.clone())
-                .map_err(|e| format!("Error importing certificate: {}", e))?
-        };
+        let result = import_certificate(&certificate, &passphrase)
+            .map_err(|e| format!("Error importing certificate: {}", e))?;
 
         let certificate = Certificate {
             private_key: result.private_key,
@@ -217,9 +208,7 @@ impl AuthService {
             .await
             .map_err(|e| e.to_string())?;
 
-        let crypto = self.crypto_utils.lock().await;
-        crypto
-            .export_certificate(&passphrase, &certificate.private_key, &certificate.salt)
+        export_certificate(&passphrase, &certificate.private_key, &certificate.salt)
             .map_err(|e| format!("Error exporting certificate: {}", e))
     }
 
@@ -235,15 +224,13 @@ impl AuthService {
             .map_err(|e| e.to_string())?;
 
         let new_private_key = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .change_certificate_password(
-                    &certificate.private_key,
-                    &certificate.salt,
-                    &old_password,
-                    &new_password,
-                )
-                .map_err(|e| format!("Error changing certificate password: {}", e))?
+            change_certificate_password(
+                &certificate.private_key,
+                &certificate.salt,
+                &old_password,
+                &new_password,
+            )
+            .map_err(|e| format!("Error changing certificate password: {}", e))?
         };
 
         let new_certificate = Certificate {
@@ -301,15 +288,7 @@ impl AuthService {
                 .get_public_key()
                 .map_err(|e| format!("Failed to get public key: {}", e))?
         };
-        let user_id = match CryptoUtils::get_key_id(&public_key.clone()).map_err(|e| e.to_string())
-        {
-            Ok(user_id) => user_id,
-            Err(err) => {
-                eprintln!("Error generating key ID: {}", err);
-                return Err(err);
-            }
-        };
-
+        let user_id = get_key_id(&public_key.clone()).map_err(|e| e.to_string())?;
         Ok(user_id)
     }
 
