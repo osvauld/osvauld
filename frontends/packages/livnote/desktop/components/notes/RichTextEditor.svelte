@@ -1,5 +1,10 @@
 <script>
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";
+	import {
+		onMount,
+		onDestroy,
+		createEventDispatcher,
+		getContext,
+	} from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { listen } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
@@ -14,6 +19,7 @@
 	let error = null;
 	let currentlyLoadedNoteId = null;
 	let loadingInProgress = false;
+	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
 
 	// Listen for noteId changes and load the corresponding note
 	$: if (
@@ -24,6 +30,18 @@
 	) {
 		loadNote($noteId);
 	}
+
+	saveNoteAndSwitch(() => {
+		if (view) {
+			notesInstance.saveNote().catch(console.error);
+		}
+
+		// Return to list view
+		noteViewLayout.set(false);
+
+		// Clear current note ID
+		currentlyLoadedNoteId = null;
+	});
 
 	async function loadNote(id) {
 		if (!element || loadingInProgress) return;
@@ -143,18 +161,23 @@
 		});
 	}
 
-	function handleBackButton() {
-		// Save before leaving
-		if (view) {
-			notesInstance.saveNote().catch(console.error);
+	const prosemirrorInstanceDestructionHandle = () => {
+		if (unsubscribeUpdate) {
+			unsubscribeUpdate();
 		}
-
-		// Return to list view
-		noteViewLayout.set(false);
+		if (view) {
+			view.destroy();
+			view = null;
+		}
+		if (autoSaveInterval) {
+			clearInterval(autoSaveInterval);
+		}
+		// Save one final time on destroy
+		notesInstance.saveNote().catch(console.error);
 
 		// Clear current note ID
 		currentlyLoadedNoteId = null;
-	}
+	};
 
 	// Initialize when component mounts
 	onMount(async () => {
@@ -169,45 +192,14 @@
 
 	// We need to do cleanup when noteId Changes
 
-	noteId.subscribe((value) => {
-		console.log(
-			"NotedId changed, RichTextEditor need to rerender ==============================>",
-		);
-		if (unsubscribeUpdate) {
-			unsubscribeUpdate();
-		}
-		if (view) {
-			view.destroy();
-			view = null;
-		}
-		if (autoSaveInterval) {
-			clearInterval(autoSaveInterval);
-		}
-		// Save one final time on destroy
-		notesInstance.saveNote().catch(console.error);
-
-		// Clear current note ID
-		currentlyLoadedNoteId = null;
+	noteId.subscribe((_) => {
+		prosemirrorInstanceDestructionHandle();
 	});
 
 	// Clean up when component is destroyed
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
-		if (unsubscribeUpdate) {
-			unsubscribeUpdate();
-		}
-		if (view) {
-			view.destroy();
-			view = null;
-		}
-		if (autoSaveInterval) {
-			clearInterval(autoSaveInterval);
-		}
-		// Save one final time on destroy
-		notesInstance.saveNote().catch(console.error);
-
-		// Clear current note ID
-		currentlyLoadedNoteId = null;
+		prosemirrorInstanceDestructionHandle();
 	});
 </script>
 
@@ -220,30 +212,6 @@
 		color: white;
 		display: flex;
 		flex-direction: column;
-	}
-
-	.editor-header {
-		display: flex;
-		align-items: center;
-		padding: 8px 16px;
-		border-bottom: 1px solid #2a2b2f;
-		background: #16171f;
-	}
-
-	.back-button {
-		background: transparent;
-		border: 1px solid #2a2b2f;
-		color: #bfc0cc;
-		padding: 6px 12px;
-		border-radius: 4px;
-		margin-right: 12px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.back-button:hover {
-		background: #2a2b2f;
-		color: #f2f2f0;
 	}
 
 	.editor-main {
@@ -342,15 +310,6 @@
 </style>
 
 <div class="editor-container">
-	<div class="editor-header">
-		<button class="back-button" on:click="{handleBackButton}">
-			← Back to Notes
-		</button>
-		<h2 class="text-osvauld-fieldText">
-			{currentlyLoadedNoteId ? "Edit Note" : "New Note"}
-		</h2>
-	</div>
-
 	<div class="editor-main">
 		{#if isLoading}
 			<div class="loading-overlay">
