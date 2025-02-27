@@ -202,7 +202,7 @@
 				{#each Array(getColumnCount()) as _, colIndex}
 					<div class="flex flex-col gap-6">
 						{#each getColumnItems(updatedCredentials, colIndex) as note (note.id)}
-							{@const noreData = console.log("noted =>>", note)}
+							<!-- {@const noreData = console.log("noted =>>", note)} -->
 							<div
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
 								on:click="{() => selectNote(note.id)}">

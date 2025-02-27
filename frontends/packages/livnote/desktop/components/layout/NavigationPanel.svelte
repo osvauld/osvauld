@@ -175,8 +175,8 @@
 		{/if}
 	</div>
 	<div
-		class="border-y border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1">
-		<ul class="space-y-1 font-light text-base text-" role="list">
+		class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1">
+		<!-- <ul class="space-y-1 font-light text-base text-" role="list">
 			<li>
 				<button
 					class="w-full flex items-center gap-3 p-3 rounded-lg
@@ -210,7 +210,7 @@
 					<span>Favourites</span>
 				</button>
 			</li>
-		</ul>
+		</ul> -->
 	</div>
 
 	{#if isLoading}
