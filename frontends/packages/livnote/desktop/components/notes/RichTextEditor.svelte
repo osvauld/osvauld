@@ -210,36 +210,25 @@
 		height: 100%;
 		background: #16171f;
 		color: white;
-		display: flex;
-		flex-direction: column;
 	}
 
-	.editor-main {
-		flex: 1;
-		overflow: auto;
+	/* ProseMirror menubar styles for horizontal layout */
+	:global(.ProseMirror-menubar-wrapper) {
 		position: relative;
 	}
 
-	.loading-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
+	:global(.ProseMirror-menubar) {
+		height: 48px;
+		padding: 4px 8px;
+		white-space: nowrap;
+		overflow-x: auto;
+		background: #16171f;
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		background: rgba(22, 23, 31, 0.7);
-		z-index: 10;
+		gap: 1px;
+		z-index: 900;
+		border-bottom: 1px solid #2a2b2f;
 	}
-
-	.error-message {
-		color: #ff6a6a;
-		padding: 16px;
-		text-align: center;
-	}
-
-	/* ProseMirror styles */
 	:global(.ProseMirror) {
 		position: relative;
 		padding: 15px;
@@ -248,6 +237,110 @@
 		line-height: 1.5;
 		color: white;
 		background: #16171f;
+	}
+
+	:global(.ProseMirror-menuitem) {
+		display: inline-flex;
+		align-items: center;
+		height: 24px;
+		margin-right: 1px;
+		cursor: pointer;
+	}
+
+	:global(.ProseMirror-menu-dropdown) {
+		vertical-align: middle;
+		padding: 2px 4px;
+		font-size: 14px;
+		color: white;
+	}
+
+	:global(.ProseMirror-menu-dropdown-wrap) {
+		position: relative;
+		display: inline-block;
+	}
+
+	:global(.ProseMirror-menu-dropdown-menu) {
+		position: fixed;
+		background: #16171f;
+		border: 1px solid #2a2b2f;
+		border-radius: 2px;
+		padding: 2px 0;
+		min-width: 67px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+	}
+
+	:global(.ProseMirror-menu-dropdown-item) {
+		padding: 2px 8px;
+		cursor: pointer;
+		font-size: 14px;
+		color: white;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-icon) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 2px;
+		cursor: pointer;
+		border: 1px solid transparent;
+		border-radius: 2px;
+		font-size: 16px;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon svg) {
+		fill: currentColor;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-menu-disabled) {
+		opacity: 0.3;
+	}
+
+	:global(.ProseMirror-icon span) {
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-icon) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 2px;
+		cursor: pointer;
+		border: 1px solid transparent;
+		border-radius: 2px;
+		font-size: 16px;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror) {
+		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
+		color: white;
 	}
 
 	:global(.ProseMirror p) {
@@ -287,32 +380,64 @@
 		white-space: nowrap;
 	}
 
-	/* Other ProseMirror styles from your original file */
-	:global(.ProseMirror-menubar-wrapper) {
+	:global(.ProseMirror-icon:hover) {
+		border-color: #ddd;
+		background: #e5e5e5;
+	}
+
+	:global(.ProseMirror) {
 		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
 	}
 
-	:global(.ProseMirror-menubar) {
-		height: 48px;
-		padding: 4px 8px;
+	:global(.ProseMirror p) {
+		margin: 0 0 1em 0;
+	}
+
+	:global(.ProseMirror h1) {
+		font-size: 2em;
+		margin: 0.67em 0;
+	}
+
+	/* Cursor and selection styles */
+	:global(.ProseMirror-yjs-cursor) {
+		position: relative;
+		margin-left: -1px;
+		margin-right: -1px;
+		border-left: 1px solid black;
+		border-right: 1px solid black;
+		pointer-events: none;
+	}
+
+	:global(.ProseMirror-yjs-cursor > div) {
+		position: absolute;
+		top: -1.05em;
+		left: -1px;
+		font-size: 13px;
+		background-color: rgb(250, 129, 0);
+		font-family: serif;
+		font-style: normal;
+		font-weight: normal;
+		line-height: normal;
+		user-select: none;
+		color: white;
+		padding: 2px 6px;
+		border-radius: 3px;
 		white-space: nowrap;
-		overflow-x: auto;
-		background: #16171f;
-		display: flex;
-		align-items: center;
-		gap: 1px;
-		border-bottom: 1px solid #2a2b2f;
 	}
-
 	:global(.ProseMirror-menu-dropdown-menu) {
 		z-index: 999;
 	}
 </style>
 
 <div class="editor-container">
-	<div class="editor-main">
+	<div class="editor-main h-full">
 		{#if isLoading}
-			<div class="loading-overlay">
+			<div
+				class="loading-overlay flex justify-center items-center h-full w-full">
 				<div class="text-osvauld-fieldText">Loading note...</div>
 			</div>
 		{:else if error}
