@@ -32,6 +32,7 @@
 	let shareUserList = [];
 	let hoveredItem = "";
 	let saveNoteAndSwitch = () => {};
+	let filterFavourites = () => {};
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
@@ -45,6 +46,12 @@
 	};
 
 	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
+	setContext("filterFavouritesFunction", (fn) => (filterFavourites = fn));
+
+	const handleFilterSelection = (section) => {
+		selectedSection = section;
+		filterFavourites();
+	};
 
 	const handleBackButton = () => {
 		saveNoteAndSwitch();
@@ -84,9 +91,7 @@
 			});
 		}
 	};
-	const handleSectionChange = (section) => {
-		selectedSection = section;
-	};
+
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
 	});
@@ -123,9 +128,7 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => {
-						handleSectionChange('home');
-					}}"
+					on:click="{() => handleFilterSelection('home')}"
 					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
 					<MobileHome
 						size="20"
@@ -138,9 +141,7 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => {
-						handleSectionChange('favourites');
-					}}"
+					on:click="{() => handleFilterSelection('favourites')}"
 					aria-current="{selectedSection === 'favourites'
 						? 'page'
 						: undefined}">
@@ -190,7 +191,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation="{() => (showShare = false)}">
+					on:click|stopPropagation="{() => {}}">
 				</div>
 				<div
 					class="absolute top-full right-0 mt-2 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"

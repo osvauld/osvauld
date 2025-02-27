@@ -1,4 +1,4 @@
-<script lang="ts">
+<script>
 	import {
 		selectedCategory,
 		currentVault,
@@ -7,23 +7,21 @@
 		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { listen, emit } from "@tauri-apps/api/event";
+	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
 	import NotePreview from "./NotePreview.svelte";
 	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
-	import { onMount, onDestroy } from "svelte";
-	import * as Y from "yjs";
-	import { schema } from "prosemirror-schema-basic";
-	import { addListNodes } from "prosemirror-schema-list";
-	import { Schema } from "prosemirror-model";
+	import { onMount, onDestroy, getContext } from "svelte";
 
 	let credentials = [];
+	let updatedCredentials = [];
 	let isLoading = true;
 	let error = null;
+	const filterFavourites = getContext("filterFavouritesFunction");
 
 	// Function to get title from content (first heading or first line)
-	function extractTitle(content) {
+	const extractTitle = (content) => {
 		// Try to find a heading tag
 		const headingMatch = content.match(/<heading[^>]*>(.*?)<\/heading>/);
 		if (headingMatch && headingMatch[1]) {
@@ -45,17 +43,17 @@
 		}
 
 		return "Untitled Note";
-	}
+	};
 
 	// Function to get last modified date in readable format
-	function getLastModifiedDate(timestamp) {
+	const getLastModifiedDate = (timestamp) => {
 		if (!timestamp) return "Never";
 		const date = new Date(timestamp);
 		return date.toLocaleDateString() + " " + date.toLocaleTimeString();
-	}
+	};
 
 	// Function to fetch notes based on the current vault
-	async function fetchNotes() {
+	const fetchNotes = async () => {
 		isLoading = true;
 		error = null;
 
@@ -81,6 +79,8 @@
 				const timeB = b.data.last_accessed || b.data.last_modified || 0;
 				return timeB - timeA;
 			});
+
+			updatedCredentials = credentials;
 		} catch (err) {
 			console.error("Error fetching notes:", err);
 			error = "Failed to load notes. Please try again.";
@@ -88,14 +88,22 @@
 		} finally {
 			isLoading = false;
 		}
-	}
+	};
+
+	filterFavourites(() => {
+		const isFavFilterOn = updatedCredentials.every((notes) => notes.favourite);
+		console.log("isFavFilterOn", isFavFilterOn);
+		updatedCredentials = isFavFilterOn
+			? credentials
+			: credentials.filter((note) => note.favourite);
+		console.log("updatedCredentials", updatedCredentials);
+	});
 
 	// Function to toggle favorite status
-	async function toggleFavorite(noteId, currentStatus) {
+	const toggleFavorite = async (noteId, currentStatus) => {
 		try {
-			await sendMessage("toggleFavorite", {
+			await sendMessage("toggleFav", {
 				credentialId: noteId,
-				favorite: !currentStatus,
 			});
 
 			// Update local state
@@ -114,10 +122,10 @@
 		} catch (err) {
 			console.error("Error toggling favorite:", err);
 		}
-	}
+	};
 
 	// Function to handle note selection
-	function selectNote(id) {
+	const selectNote = (id) => {
 		console.log(`Selecting note: ${id}`);
 
 		// First reset the note view to ensure clean state
@@ -131,7 +139,7 @@
 			// Finally switch to editor view
 			noteViewLayout.set(true);
 		}, 50);
-	}
+	};
 
 	// Watch for changes to currentVault
 	$: if ($currentVault) {
@@ -145,17 +153,17 @@
 	}
 
 	// Calculate grid layout
-	function getColumnCount() {
+	const getColumnCount = () => {
 		if (typeof window === "undefined") return 1;
 		if (window.innerWidth >= 1440) return 3;
 		if (window.innerWidth >= 1024) return 2;
 		return 1;
-	}
+	};
 
-	function getColumnItems(items, colIndex) {
+	const getColumnItems = (items, colIndex) => {
 		const colCount = getColumnCount();
 		return items.filter((_, index) => index % colCount === colIndex);
-	}
+	};
 
 	onMount(() => {
 		fetchNotes();
@@ -183,7 +191,7 @@
 			<div class="flex justify-center items-center h-full">
 				<div class="text-red-500">{error}</div>
 			</div>
-		{:else if credentials.length === 0}
+		{:else if updatedCredentials.length === 0}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">
 					No notes found. Create a new note to get started.
@@ -193,7 +201,8 @@
 			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 				{#each Array(getColumnCount()) as _, colIndex}
 					<div class="flex flex-col gap-6">
-						{#each getColumnItems(credentials, colIndex) as note (note.id)}
+						{#each getColumnItems(updatedCredentials, colIndex) as note (note.id)}
+							{@const noreData = console.log("noted =>>", note)}
 							<div
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
 								on:click="{() => selectNote(note.id)}">
@@ -206,8 +215,8 @@
 									<button
 										class="flex items-center justify-center p-1"
 										on:click|stopPropagation="{() =>
-											toggleFavorite(note.id, note.data.favourite)}">
-										{#if note.data.favourite}
+											toggleFavorite(note.id, note.favourite)}">
+										{#if note.favourite}
 											<Star />
 										{:else}
 											<EmptyStar color="#85889C" />
