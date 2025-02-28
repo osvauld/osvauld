@@ -1,11 +1,11 @@
 <br />
 <p align="center">
 <a href="https://osvauld.com">
-  <img src="https://raw.githubusercontent.com/tonyantony300/crispy-guacamole/master/assets/logo.png" alt="Osvauld Logo" width="70">
+  <img src="https://www.osvauld.com/assets/logo.png" alt="Osvauld Logo" width="300" height="300" >
 </a>
 </p>
 
-<p align="center"><b>Your Data, Your Rules</b></p>
+<p align="center"><b>Own Your Data, Leave No Footprint</b></p>
 
 
 Meet [osvauld](https://osvauld.com). A Peer-to-peer approach make sure you can sync data
