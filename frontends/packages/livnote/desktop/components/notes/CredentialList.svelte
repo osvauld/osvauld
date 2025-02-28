@@ -5,6 +5,7 @@
 		noteViewLayout,
 		noteId,
 		refreshCredentialList,
+		notes,
 	} from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { emit } from "@tauri-apps/api/event";
@@ -14,11 +15,12 @@
 	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
 	import { onMount, onDestroy, getContext } from "svelte";
 
-	let credentials = [];
-	let updatedCredentials = [];
+	export let favSelected;
+	let updatedNotes = [];
 	let isLoading = true;
 	let error = null;
-	const filterFavourites = getContext("filterFavouritesFunction");
+
+	$: updatedNotes = $notes;
 
 	// Function to get title from content (first heading or first line)
 	const extractTitle = (content) => {
@@ -56,48 +58,47 @@
 	const fetchNotes = async () => {
 		isLoading = true;
 		error = null;
+		let fetchedNotes = [];
 
 		try {
 			if ($currentVault.id === "all") {
-				credentials = await sendMessage("getAllCredentials", {
+				fetchedNotes = await sendMessage("getAllCredentials", {
 					favourite: false,
 				});
 			} else {
-				credentials = await sendMessage("getCredentialsForFolder", {
+				fetchedNotes = await sendMessage("getCredentialsForFolder", {
 					folderId: $currentVault.id,
 				});
 			}
 
-			// Filter for notes only
-			credentials = credentials.filter(
+			// Filter for valid notes only
+			fetchedNotes = fetchedNotes.filter(
 				(cred) => cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
-			credentials.sort((a, b) => {
+			fetchedNotes.sort((a, b) => {
 				const timeA = a.data.last_accessed || a.data.last_modified || 0;
 				const timeB = b.data.last_accessed || b.data.last_modified || 0;
 				return timeB - timeA;
 			});
 
-			updatedCredentials = credentials;
+			//updatedNotes = fetchedNotes;
+			notes.set(fetchedNotes);
 		} catch (err) {
 			console.error("Error fetching notes:", err);
 			error = "Failed to load notes. Please try again.";
-			credentials = [];
+			updatedNotes = [];
 		} finally {
 			isLoading = false;
 		}
 	};
 
-	filterFavourites(() => {
-		const isFavFilterOn = updatedCredentials.every((notes) => notes.favourite);
-		console.log("isFavFilterOn", isFavFilterOn);
-		updatedCredentials = isFavFilterOn
-			? credentials
-			: credentials.filter((note) => note.favourite);
-		console.log("updatedCredentials", updatedCredentials);
-	});
+	$: {
+		updatedNotes = favSelected
+			? $notes.filter((note) => note.favourite)
+			: $notes;
+	}
 
 	// Function to toggle favorite status
 	const toggleFavorite = async (noteId, currentStatus) => {
@@ -107,18 +108,20 @@
 			});
 
 			// Update local state
-			credentials = credentials.map((cred) => {
+			const notesWithFavToggleChange = $notes.map((cred) => {
 				if (cred.id === noteId) {
 					return {
 						...cred,
 						data: {
 							...cred.data,
-							favourite: !currentStatus,
 						},
+						favourite: !currentStatus,
 					};
 				}
 				return cred;
 			});
+			notes.set(notesWithFavToggleChange);
+			updatedNotes = notesWithFavToggleChange;
 		} catch (err) {
 			console.error("Error toggling favorite:", err);
 		}
@@ -191,7 +194,7 @@
 			<div class="flex justify-center items-center h-full">
 				<div class="text-red-500">{error}</div>
 			</div>
-		{:else if updatedCredentials.length === 0}
+		{:else if updatedNotes.length === 0}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">
 					No notes found. Create a new note to get started.
@@ -201,7 +204,7 @@
 			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 				{#each Array(getColumnCount()) as _, colIndex}
 					<div class="flex flex-col gap-6">
-						{#each getColumnItems(updatedCredentials, colIndex) as note (note.id)}
+						{#each getColumnItems(updatedNotes, colIndex) as note (note.id)}
 							<!-- {@const noreData = console.log("noted =>>", note)} -->
 							<div
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
@@ -213,7 +216,7 @@
 										{extractTitle(note.data.content)}
 									</h3>
 									<button
-										class="flex items-center justify-center p-1"
+										class="flex items-center justify-center p-1 cursor-pointer"
 										on:click|stopPropagation="{() =>
 											toggleFavorite(note.id, note.favourite)}">
 										{#if note.favourite}

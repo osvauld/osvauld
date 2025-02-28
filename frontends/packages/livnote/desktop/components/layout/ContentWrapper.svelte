@@ -31,6 +31,7 @@
 	let showShareList = false;
 	let shareUserList = [];
 	let hoveredItem = "";
+	let favSelected = false;
 	let saveNoteAndSwitch = () => {};
 	let filterFavourites = () => {};
 
@@ -50,7 +51,8 @@
 
 	const handleFilterSelection = (section) => {
 		selectedSection = section;
-		filterFavourites();
+		// filterFavourites();
+		favSelected = !favSelected;
 	};
 
 	const handleBackButton = () => {
@@ -220,5 +222,5 @@
 		</div>
 	</div>
 
-	<CredentialList />
+	<CredentialList {favSelected} />
 </div>

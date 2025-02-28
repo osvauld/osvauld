@@ -154,7 +154,7 @@
 </script>
 
 <nav
-	class="w-[360px] h-full py-10 px-4 whitespace-nowrap"
+	class="w-[360px] shrink-0 h-full py-10 px-4 whitespace-nowrap"
 	aria-label="Main Navigation">
 	<div class="relative">
 		<button
