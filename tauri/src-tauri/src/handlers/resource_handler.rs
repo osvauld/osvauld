@@ -61,10 +61,10 @@ pub async fn soft_delete_resource(
         .delete_resource(input.resource_id.clone())
         .await
         .map_err(|e| e.to_string())?;
-    sync_service
-        .add_soft_deletion_sync_record(input.resource_id, ResourceType::Resource)
-        .await
-        .map_err(|e| e.to_string())?;
+    // sync_service
+    //     .add_soft_deletion_sync_record(input.resource_id, ResourceType::Resource)
+    //     .await
+    //     .map_err(|e| e.to_string())?;
     Ok(())
 }
 

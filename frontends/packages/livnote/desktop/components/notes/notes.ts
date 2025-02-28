@@ -174,12 +174,12 @@ export class Notes {
 
       // Create the note on the server
       const noteId = await sendMessage("addCredential", {
-        credentialPayload: JSON.stringify({
+        resourcePayload: JSON.stringify({
           ...initialContent,
           yjs_state: Array.from(yjs_state)
         }),
         folderId: folderId,
-        credentialType: "notes"
+        resourceType: "notes"
       });
 
       // Now update the note with the correct resource_id (same as noteId)
@@ -262,7 +262,7 @@ export class Notes {
       console.log(`Loading note: ${noteId}`);
 
       const response = await sendMessage("getCredential", {
-        credentialId: noteId
+        resourceId: noteId
       });
 
       if (!response || !response.data) {

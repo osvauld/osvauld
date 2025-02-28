@@ -1,6 +1,6 @@
-use crate::domains::models::resource::{DecryptedResource, Resource};
-use crate::domains::models::resource_key::ResourceKey;
-use crate::domains::repositories::{RepositoryError, ResourceRepository};
+use crate::domains::models::resource::{DecryptedResource, Resource, ResourceWithKey};
+use crate::domains::models::resource_key::{self, ResourceKey};
+use crate::domains::repositories::{RepositoryError, ResourceKeyRepository, ResourceRepository};
 use crate::types::UpdateResources;
 use crypto_utils::{encrypt_data_for_users, get_key_id, types::UserPublicKey, CryptoUtils};
 use serde_json::Value;
@@ -22,16 +22,19 @@ pub enum ResourceServiceError {
 pub struct ResourceService {
     resource_repository: Arc<dyn ResourceRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
+    resource_key_repository: Arc<dyn ResourceKeyRepository>,
 }
 
 impl ResourceService {
     pub fn new(
         resource_repository: Arc<dyn ResourceRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
+        resource_key_repository: Arc<dyn ResourceKeyRepository>,
     ) -> Self {
         Self {
             resource_repository,
             crypto_utils,
+            resource_key_repository,
         }
     }
 
@@ -71,68 +74,16 @@ impl ResourceService {
             encrypted.access_list[0].encrypted_key.clone(),
             true, // Owner
         );
+        log::info!("resource_key{:?}", resource_key);
         self.resource_repository
             .save(&resource)
             .await
             .map_err(ResourceServiceError::RepositoryError)?;
-
-        Ok(resource)
-    }
-
-    pub async fn get_resources_for_folder(
-        &self,
-        folder_id: String,
-    ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
-        // Get encrypted resources
-        let encrypted_resources = self
-            .resource_repository
-            .find_by_folder(&folder_id)
+        self.resource_key_repository
+            .save(&resource_key)
             .await
             .map_err(ResourceServiceError::RepositoryError)?;
-
-        // Convert to crypto utils format
-        let crypto_resources = encrypted_resources
-            .into_iter()
-            .map(|cred| crypto_utils::types::ResourceWithEncryptedKey {
-                id: cred.id,
-                resource_type: cred.resource_type,
-                data: cred.data,
-                signature: cred.signature,
-                encrypted_key: cred.encrypted_key,
-                last_accessed: cred.last_accessed,
-                favourite: cred.favourite,
-                folder_id: cred.folder_id,
-            })
-            .collect();
-
-        // Decrypt resources
-        let decrypted_resources = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .decrypt_resources(crypto_resources)
-                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
-        };
-
-        // Parse and convert to domain model
-        let resources = decrypted_resources
-            .into_iter()
-            .map(|cred| {
-                let parsed_data: Value = serde_json::from_str(&cred.data).unwrap_or_else(
-                    |_| serde_json::json!({"error": "Failed to parse resource data"}),
-                );
-
-                DecryptedResource {
-                    id: cred.id,
-                    resource_type: cred.resource_type,
-                    data: parsed_data,
-                    last_accessed: cred.last_accessed,
-                    favourite: cred.favourite,
-                    folder_id: cred.folder_id,
-                }
-            })
-            .collect();
-
-        Ok(resources)
+        Ok(resource)
     }
 
     pub async fn delete_resource(&self, resource_id: String) -> Result<(), RepositoryError> {
@@ -151,83 +102,25 @@ impl ResourceService {
             .await
     }
 
-    pub async fn get_all_resources(
-        &self,
-        favourite: bool,
-    ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
-        let encrypted_resources = if favourite {
-            self.resource_repository
-                .get_favourites()
-                .await
-                .map_err(ResourceServiceError::RepositoryError)?
-        } else {
-            self.resource_repository
-                .get_all_resources()
-                .await
-                .map_err(ResourceServiceError::RepositoryError)?
-        };
-        // Convert to crypto utils format
-        let crypto_resources = encrypted_resources
-            .into_iter()
-            .map(|cred| crypto_utils::types::ResourceWithEncryptedKey {
-                id: cred.id,
-                resource_type: cred.resource_type,
-                data: cred.data,
-                signature: cred.signature,
-                last_accessed: cred.last_accessed,
-                favourite: cred.favourite,
-                folder_id: cred.folder_id,
-            })
-            .collect();
-
-        // Decrypt resources
-        let decrypted_resources = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .decrypt_resources(crypto_resources)
-                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
-        };
-
-        // Parse and convert to domain model
-        let resources = decrypted_resources
-            .into_iter()
-            .map(|cred| {
-                let parsed_data: Value = serde_json::from_str(&cred.data).unwrap_or_else(
-                    |_| serde_json::json!({"error": "Failed to parse resource data"}),
-                );
-
-                DecryptedResource {
-                    id: cred.id,
-                    resource_type: cred.resource_type,
-                    data: parsed_data,
-                    last_accessed: cred.last_accessed,
-                    favourite: cred.favourite,
-                    folder_id: cred.folder_id,
-                }
-            })
-            .collect();
-
-        Ok(resources)
-    }
-
     pub async fn update_resources(
         &self,
         input: UpdateResources,
     ) -> Result<(), ResourceServiceError> {
+        let user_id = self.get_current_user_id().await?;
         let old_resource = self
             .resource_repository
-            .find_by_id(&input.id)
+            .find_by_id(&input.id, &user_id)
             .await
             .map_err(ResourceServiceError::RepositoryError)?;
 
         let encrypted = {
             let crypto = self.crypto_utils.lock().await;
             crypto
-                .update_resource(input.data, old_resource.encrypted_key)
+                .update_resource(&input.data, &old_resource.encrypted_key)
                 .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
         };
         self.resource_repository
-            .update_resource(encrypted, old_resource.id)
+            .update_resource(encrypted, old_resource.resource.id)
             .await?;
         Ok(())
     }
@@ -237,43 +130,121 @@ impl ResourceService {
         resource_id: String,
     ) -> Result<DecryptedResource, ResourceServiceError> {
         // Get encrypted resource from repository
-        let encrypted_resource = self
+        let user_id = self.get_current_user_id().await?;
+        let resource_with_key = self
             .resource_repository
-            .find_by_id(&resource_id)
+            .find_by_id(&resource_id, &user_id)
             .await
             .map_err(ResourceServiceError::RepositoryError)?;
 
-        // Convert to crypto utils format
-        let crypto_resource = crypto_utils::types::ResourceWithEncryptedKey {
-            id: encrypted_resource.id,
-            resource_type: encrypted_resource.resource_type,
-            data: encrypted_resource.data,
-            signature: encrypted_resource.signature,
-            last_accessed: encrypted_resource.last_accessed,
-            favourite: encrypted_resource.favourite,
-            folder_id: encrypted_resource.folder_id,
-        };
+        // Use the helper function with a single-element vector
+        let decrypted_resources = self.decrypt_resources(vec![resource_with_key]).await?;
 
-        // Decrypt resource
-        let decrypted_resource = {
+        // Extract the single result (with proper error handling)
+        decrypted_resources
+            .into_iter()
+            .next()
+            .ok_or(ResourceServiceError::CryptoError(
+                "Failed to decrypt resource".to_string(),
+            ))
+    }
+
+    pub async fn get_resources_for_folder(
+        &self,
+        folder_id: String,
+    ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+        // Get current user's ID
+        let user_id = self.get_current_user_id().await?;
+
+        // Get resources with their keys in a single repository call
+        let resources_with_keys = self
+            .resource_repository
+            .find_by_folder(&folder_id, &user_id)
+            .await
+            .map_err(ResourceServiceError::RepositoryError)?;
+
+        // Decrypt and return the resources
+        self.decrypt_resources(resources_with_keys).await
+    }
+
+    pub async fn get_all_resources(
+        &self,
+        favourites_only: bool,
+    ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+        // Get current user's ID
+        let user_id = self.get_current_user_id().await?;
+
+        // Get resources with their keys
+        let resources_with_keys = if favourites_only {
+            self.resource_repository.get_favourites(&user_id).await
+        } else {
+            self.resource_repository.get_all_resources(&user_id).await
+        }
+        .map_err(ResourceServiceError::RepositoryError)?;
+
+        // Decrypt and return the resources
+        self.decrypt_resources(resources_with_keys).await
+    }
+
+    // Helper method to handle decryption (reduces duplication)
+    async fn decrypt_resources(
+        &self,
+        resources_with_keys: Vec<ResourceWithKey>,
+    ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+        // Convert to format needed for decryption
+        let crypto_resources: Vec<crypto_utils::types::ResourceWithEncryptedKey> =
+            resources_with_keys
+                .into_iter()
+                .map(|rk| crypto_utils::types::ResourceWithEncryptedKey {
+                    id: rk.resource.id,
+                    resource_type: rk.resource.resource_type,
+                    data: rk.resource.data,
+                    signature: rk.resource.signature,
+                    encrypted_key: rk.encrypted_key,
+                    last_accessed: rk.resource.last_accessed,
+                    favourite: rk.resource.favourite,
+                    folder_id: rk.resource.folder_id,
+                })
+                .collect();
+        // Decrypt and convert to domain model
+        let decrypted_resources = {
             let crypto = self.crypto_utils.lock().await;
-            let decrypted_resources = crypto
-                .decrypt_resources(vec![crypto_resource])
-                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
-            decrypted_resources.into_iter().next().unwrap()
+            crypto
+                .decrypt_resources(&crypto_resources)
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
         };
 
-        // Parse and convert to domain model
-        let parsed_data: Value = serde_json::from_str(&decrypted_resource.data)
-            .unwrap_or_else(|_| serde_json::json!({"error": "Failed to parse resource data"}));
+        // Convert to domain model
+        let resources = decrypted_resources
+            .into_iter()
+            .map(|res| {
+                let parsed_data: Value = serde_json::from_str(&res.data).unwrap_or_else(
+                    |_| serde_json::json!({"error": "Failed to parse resource data"}),
+                );
 
-        Ok(DecryptedResource {
-            id: decrypted_resource.id,
-            resource_type: decrypted_resource.resource_type,
-            data: parsed_data,
-            last_accessed: decrypted_resource.last_accessed,
-            favourite: decrypted_resource.favourite,
-            folder_id: decrypted_resource.folder_id,
-        })
+                DecryptedResource {
+                    id: res.id,
+                    resource_type: res.resource_type,
+                    data: parsed_data,
+                    last_accessed: res.last_accessed,
+                    favourite: res.favourite,
+                    folder_id: res.folder_id,
+                }
+            })
+            .collect();
+
+        Ok(resources)
+    }
+
+    // Helper to get current user ID
+    async fn get_current_user_id(&self) -> Result<String, ResourceServiceError> {
+        let public_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .get_public_key()
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        };
+
+        get_key_id(&public_key).map_err(|e| ResourceServiceError::CryptoError(e.to_string()))
     }
 }

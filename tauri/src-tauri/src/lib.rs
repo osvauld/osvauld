@@ -29,8 +29,8 @@ use crate::handlers::resource_handler::{
 };
 use crate::handlers::user_handler::{add_known_user, get_known_users};
 use crate::persistence::repositories::{
-    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceRepository, SqliteSyncRepository,
-    SqliteUserRepository, TauriStoreRepository,
+    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
+    SqliteResourceRepository, SqliteSyncRepository, SqliteUserRepository, TauriStoreRepository,
 };
 use crypto_utils::CryptoUtils;
 use std::fs;
@@ -98,6 +98,9 @@ pub fn run() {
                     let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
                     let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
                     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
+
+                    let resource_key_repo =
+                        Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
                     // Initialize folder service with cloned repositories
                     let store_repository = Arc::new(TauriStoreRepository::new(handle.clone()));
                     let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
@@ -116,6 +119,7 @@ pub fn run() {
                         resource_repo.clone(),
                         device_repo,
                         store_repository,
+                        crypto_utils.clone(),
                     ));
                     let p2p_service = Arc::new(P2PService::new(
                         handle.clone(),
@@ -125,6 +129,7 @@ pub fn run() {
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),
                         crypto_utils.clone(),
+                        resource_key_repo.clone(),
                     ));
                     let user_service = Arc::new(UserService::new(user_repository, crypto_utils));
 

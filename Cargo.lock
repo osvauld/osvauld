@@ -6548,17 +6548,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-wasm-bindgen"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3b4c031cd0d9014307d82b8abf653c0290fbdaeb4c02d00c63cf52f728628bf"
-dependencies = [
- "js-sys",
- "serde",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "serde_derive"
 version = "1.0.217"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8378,17 +8367,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26816d2e1a4a36a2940b96c5296ce403917633dff8f3440e9b236ed6f6bacad2"
 dependencies = [
  "wit-bindgen-rt",
-]
-
-[[package]]
-name = "wasm"
-version = "0.1.0"
-dependencies = [
- "crypto_utils",
- "once_cell",
- "serde-wasm-bindgen",
- "serde_json",
- "wasm-bindgen",
 ]
 
 [[package]]

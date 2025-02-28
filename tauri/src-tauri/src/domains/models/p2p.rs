@@ -1,6 +1,6 @@
 use crate::domains::models::device::Device;
 use crate::domains::models::folder::Folder;
-use crate::domains::models::resource::Resource;
+use crate::domains::models::resource::ResourceKeyPair;
 use crate::domains::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -18,7 +18,7 @@ pub struct SyncPayload {
 #[serde(tag = "type")]
 pub enum SyncData {
     Folder(Folder),
-    Resource(Resource),
+    Resource(ResourceKeyPair),
     Device(Device),
     SyncRecord(SyncRecord),
 }

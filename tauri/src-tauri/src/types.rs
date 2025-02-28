@@ -3,17 +3,20 @@ use serde::{Deserialize, Serialize};
 use crate::domains::models::folder::Folder;
 use crate::domains::models::resource::DecryptedResource;
 use crate::domains::models::user::User;
+
 #[derive(Serialize)]
 #[serde(untagged)]
-#[serde(rename_all = "camelCase")]
 pub enum CryptoResponse {
     IsSignedUp {
+        #[serde(rename = "isSignedUp")]
         is_signed_up: bool,
     },
     Error(String),
     SavePassphrase {
         username: String,
+        #[serde(rename = "deviceKey")]
         device_key: String,
+        #[serde(rename = "encryptionKey")]
         encryption_key: String,
     },
     CheckPvtKeyLoaded(bool),
@@ -26,6 +29,7 @@ pub enum CryptoResponse {
     DecryptedText(String),
     ImportedCertificate {
         certificate: String,
+        #[serde(rename = "publicKey")]
         public_key: String,
         salt: String,
     },

@@ -2,7 +2,9 @@ use crate::domains::models::{
     auth::Certificate,
     device::Device,
     folder::Folder,
-    resource::Resource,
+    resource::{Resource, ResourceKeyPair, ResourceWithKey},
+    resource_key::ResourceKey,
+    resource_share::{PermissionLevel, ResourceShare, ShareStatus},
     sync_record::{
         DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
         SyncRecordSet,
@@ -94,20 +96,43 @@ pub trait StoreRepository: Send + Sync {
 
 #[async_trait]
 pub trait ResourceRepository: Send + Sync {
+    //TODO: change fav and last accessed
     async fn save(&self, resource: &Resource) -> Result<(), RepositoryError>;
-    async fn find_by_folder(&self, folder_id: &str) -> Result<Vec<Resource>, RepositoryError>;
-    async fn find_all_by_folder(&self, folder_id: &str) -> Result<Vec<Resource>, RepositoryError>;
-    async fn find_by_id(&self, id: &str) -> Result<Resource, RepositoryError>;
+    async fn find_by_folder(
+        &self,
+        folder_id: &str,
+        user_id: &str,
+    ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
+    async fn find_all_by_folder(
+        &self,
+        folder_id: &str,
+        user_id: &str,
+    ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
+    async fn find_by_id(&self, id: &str, user_id: &str)
+        -> Result<ResourceWithKey, RepositoryError>;
     async fn delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
     async fn soft_delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
     async fn toggle_fav(&self, id: &str) -> Result<(), RepositoryError>;
     async fn update_last_accessed(&self, id: &str) -> Result<(), RepositoryError>;
-    async fn get_all_resources(&self) -> Result<Vec<Resource>, RepositoryError>;
-    async fn get_favourites(&self) -> Result<Vec<Resource>, RepositoryError>;
+    async fn get_all_resources(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
+    async fn get_favourites(&self, user_id: &str) -> Result<Vec<ResourceWithKey>, RepositoryError>;
     async fn update_resource(
         &self,
         data: String,
         resource_id: String,
+    ) -> Result<(), RepositoryError>;
+    async fn find_resource_with_key(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<ResourceKeyPair, RepositoryError>;
+    async fn save_resource_with_key(
+        &self,
+        resource: &Resource,
+        key: &ResourceKey,
     ) -> Result<(), RepositoryError>;
 }
 
@@ -143,4 +168,48 @@ pub trait DeviceRecordStatusRepository: Send + Sync {
 pub trait UserRepository: Send + Sync {
     async fn add_known_user(&self, user: User) -> Result<(), RepositoryError>;
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
+}
+
+#[async_trait]
+pub trait ResourceKeyRepository: Send + Sync {
+    async fn save(&self, key: &ResourceKey) -> Result<(), RepositoryError>;
+    async fn find_by_resource_id(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ResourceKey>, RepositoryError>;
+    async fn find_by_resource_and_user(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<ResourceKey, RepositoryError>;
+    async fn delete_by_resource_id(&self, resource_id: &str) -> Result<(), RepositoryError>;
+    async fn delete_by_resource_and_user(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<(), RepositoryError>;
+}
+
+#[async_trait]
+pub trait ResourceShareRepository: Send + Sync {
+    async fn save(&self, share: &ResourceShare) -> Result<(), RepositoryError>;
+    async fn find_by_resource_id(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ResourceShare>, RepositoryError>;
+    async fn find_by_shared_with_user(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ResourceShare>, RepositoryError>;
+    async fn update_status(
+        &self,
+        share_id: &str,
+        status: ShareStatus,
+    ) -> Result<(), RepositoryError>;
+    async fn update_permission(
+        &self,
+        share_id: &str,
+        permission: PermissionLevel,
+    ) -> Result<(), RepositoryError>;
+    async fn delete(&self, share_id: &str) -> Result<(), RepositoryError>;
 }

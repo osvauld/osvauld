@@ -30,7 +30,7 @@
 // 			}
 // 		},
 // 	);
-    
+
 // 	// Incase TOTP found, checking validity of it
 // 	if (totpPresence) {
 // 		const isTotpValid = totpValidator(totpPresence.fieldValue);
@@ -84,7 +84,7 @@
 // 	const fieldValidationResponse: { success: boolean; message: string } = totpUrlValidator(credentialFields);
 
 // 	if (!fieldValidationResponse.success) return fieldValidationResponse;
-    
+
 // 	// proceeding if nothing wrong found during validation
 // 	let addCredentialFields: Field[] = [];
 
@@ -136,9 +136,9 @@
 // 					continue;
 // 				}
 // 			} 
-		
+
 // 			addCredentialFields.push(baseField);
-			
+
 // 		}
 // 	}
 
@@ -181,19 +181,19 @@ import {
 
 
 const SANITIZATION_REGEX = {
-	CONTROL_CHARS: /[\x00-\x1F\x7F]/g,
-	MULTIPLE_SPACES: /\s{2,}/g,
-	NON_BASE32: /[^A-Z2-7]/g,
-	URL_PROTOCOL: /^(https?):/i,
-	HTML_TAGS: /<[^>]*>?/g
-  };
+  CONTROL_CHARS: /[\x00-\x1F\x7F]/g,
+  MULTIPLE_SPACES: /\s{2,}/g,
+  NON_BASE32: /[^A-Z2-7]/g,
+  URL_PROTOCOL: /^(https?):/i,
+  HTML_TAGS: /<[^>]*>?/g
+};
 
 
 // TOTP validation with Base32 check
 const isValidTOTP = (secret: string): boolean => {
-	if (!secret) return false;
-	return /^[A-Z2-7]{10,64}$/.test(secret);
-  };
+  if (!secret) return false;
+  return /^[A-Z2-7]{10,64}$/.test(secret);
+};
 
 // URL validation with protocol check and domain extraction
 const isValidURL = (url: string): { valid: boolean, domain?: string } => {
@@ -249,7 +249,7 @@ const processFields = (fields: CredentialFieldComponentProps[]): Field[] => {
     if (field.fieldName === "Domain") return acc;
 
     // Determine field type
-    const fieldType:  FieldType = field.fieldName === "TOTP" ? "totp" :
+    const fieldType: FieldType = field.fieldName === "TOTP" ? "totp" :
       field.sensitive ? "sensitive" : "meta";
 
     acc.push({
@@ -264,35 +264,35 @@ const processFields = (fields: CredentialFieldComponentProps[]): Field[] => {
 
 
 const sanitizeGeneralInput = (value: string): string => {
-	const trimmed = value.replace(SANITIZATION_REGEX.HTML_TAGS, '').trim();
-	return DOMPurify.sanitize(trimmed, { ALLOWED_TAGS: [] });
-  };
+  const trimmed = value.replace(SANITIZATION_REGEX.HTML_TAGS, '').trim();
+  return DOMPurify.sanitize(trimmed, { ALLOWED_TAGS: [] });
+};
 
 // Updated sanitization functions with proper regex references
 const sanitizeTOTP = (secret: string): string => {
-	return secret
-	  .replace(SANITIZATION_REGEX.CONTROL_CHARS, '')
-	  .replace(SANITIZATION_REGEX.MULTIPLE_SPACES, '')
-	  .toUpperCase()
-	  .replace(SANITIZATION_REGEX.NON_BASE32, '');
-  };
+  return secret
+    .replace(SANITIZATION_REGEX.CONTROL_CHARS, '')
+    .replace(SANITIZATION_REGEX.MULTIPLE_SPACES, '')
+    .toUpperCase()
+    .replace(SANITIZATION_REGEX.NON_BASE32, '');
+};
 
-  const sanitizeURL = (url: string): string => {
-	if (!url) return '';
-	try {
-	  const cleaned = DOMPurify.sanitize(url, {
-		ALLOWED_URI_REGEXP: SANITIZATION_REGEX.URL_PROTOCOL
-	  });
-	  if (!cleaned) throw new Error('Invalid URL');
-	  
-	  const parsed = new URL(cleaned);
-	  parsed.protocol = 'https:';
-	  return parsed.toString().replace(SANITIZATION_REGEX.CONTROL_CHARS, '');
-	} catch {
-	  // Better error handling
-	  throw new Error('Invalid URL format');
-	}
-  };
+const sanitizeURL = (url: string): string => {
+  if (!url) return '';
+  try {
+    const cleaned = DOMPurify.sanitize(url, {
+      ALLOWED_URI_REGEXP: SANITIZATION_REGEX.URL_PROTOCOL
+    });
+    if (!cleaned) throw new Error('Invalid URL');
+
+    const parsed = new URL(cleaned);
+    parsed.protocol = 'https:';
+    return parsed.toString().replace(SANITIZATION_REGEX.CONTROL_CHARS, '');
+  } catch {
+    // Better error handling
+    throw new Error('Invalid URL format');
+  }
+};
 
 // 2. Field-Specific Sanitizer --------------------------------------------------
 const sanitizeCredentialField = (
@@ -301,8 +301,8 @@ const sanitizeCredentialField = (
   ...field,
   fieldValue: (() => {
     const trimmed = field.fieldValue.trim();
-    
-    switch(field.fieldName) {
+
+    switch (field.fieldName) {
       case 'TOTP':
         return sanitizeTOTP(trimmed);
       case 'URL':
@@ -320,18 +320,18 @@ const sanitizeCredentialField = (
 
 // 3. Main Credential Sanitization ----------------------------------------------
 const sanitizeCredentialData = (
-	data: CredentialData
-  ): CredentialData => ({
-	...data,
-	name: sanitizeGeneralInput(data.name),
-	description: sanitizeGeneralInput(data.description),
-	credentialFields: data.credentialFields.map(sanitizeCredentialField)
-  });
+  data: CredentialData
+): CredentialData => ({
+  ...data,
+  name: sanitizeGeneralInput(data.name),
+  description: sanitizeGeneralInput(data.description),
+  credentialFields: data.credentialFields.map(sanitizeCredentialField)
+});
 
 
 
 export const addCredentialHandler = async (
-	rawCredentialData: {
+  rawCredentialData: {
     credentialFields: CredentialFieldComponentProps[];
     name: string;
     description: string;
@@ -351,7 +351,7 @@ export const addCredentialHandler = async (
 
   // Process and transform fields
   const processedFields = processFields(credentialFields);
-  
+
   if (processedFields.length === 0) {
     return { success: false, message: "Please add valid fields" };
   }
@@ -366,9 +366,9 @@ export const addCredentialHandler = async (
 
   try {
     await sendMessage("addCredential", {
-      credentialPayload: JSON.stringify(payload),
+      resourcePayload: JSON.stringify(payload),
       folderId,
-      credentialType
+      resourceType: credentialType
     });
     return { success: true, message: "Credential added successfully" };
   } catch (error) {

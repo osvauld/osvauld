@@ -1,3 +1,4 @@
+use crate::domains::models::resource_key::ResourceKey;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,4 +46,15 @@ pub struct DecryptedResource {
     pub last_accessed: i64,
     pub favourite: bool,
     pub folder_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResourceWithKey {
+    pub resource: Resource,
+    pub encrypted_key: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceKeyPair {
+    pub resource: Resource,
+    pub key: ResourceKey,
 }

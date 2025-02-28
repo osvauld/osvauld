@@ -11,7 +11,7 @@ pub async fn add_known_user(
     user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
     let user = user_service
-        .add_known_user(input.nickname, input.public_key)
+        .add_known_user(input.nickname, input.public_key, false)
         .await?;
     Ok(CryptoResponse::CreatedKnownUser(user))
 }

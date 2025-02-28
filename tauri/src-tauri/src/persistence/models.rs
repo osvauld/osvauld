@@ -1,10 +1,12 @@
 use crate::database::schema::{
-    device_record_status, device_records, devices, folders, resources, sync_records, users,
+    device_record_status, device_records, devices, folders, resource_keys, resources, sync_records,
+    users,
 };
 use crate::domains::models::{
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
     resource::Resource as DomainResource,
+    resource_key::ResourceKey as DomainResourceKey,
     sync_record::DeviceRecord as DomainDeviceRecord,
     sync_record::DeviceRecordStatus as DomainDeviceRecordStatus,
     sync_record::SyncRecord as DomainSyncRecord,
@@ -170,7 +172,7 @@ impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
     }
 }
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Selectable)]
 #[diesel(table_name = resources)]
 pub struct ResourceModel {
     pub id: String,
@@ -331,5 +333,50 @@ impl From<UserModel> for DomainUser {
 impl UserModel {
     pub fn to_domain_users(models: Vec<UserModel>) -> Vec<DomainUser> {
         models.into_iter().map(DomainUser::from).collect()
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable)]
+#[diesel(table_name = resource_keys)]
+pub struct ResourceKeyModel {
+    pub id: String,
+    pub resource_id: String,
+    pub user_id: String,
+    pub encrypted_key: String,
+    pub is_owner: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl From<&DomainResourceKey> for ResourceKeyModel {
+    fn from(resource_key: &DomainResourceKey) -> Self {
+        Self {
+            id: resource_key.id.clone(),
+            resource_id: resource_key.resource_id.clone(),
+            user_id: resource_key.user_id.clone(),
+            encrypted_key: resource_key.encrypted_key.clone(),
+            is_owner: resource_key.is_owner,
+            created_at: resource_key.created_at,
+            updated_at: resource_key.updated_at,
+        }
+    }
+}
+
+impl From<ResourceKeyModel> for DomainResourceKey {
+    fn from(model: ResourceKeyModel) -> Self {
+        Self {
+            id: model.id.clone(),
+            resource_id: model.resource_id.clone(),
+            user_id: model.user_id.clone(),
+            encrypted_key: model.encrypted_key.clone(),
+            is_owner: model.is_owner,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        }
+    }
+}
+impl ResourceKeyModel {
+    pub fn to_domain_resource(models: Vec<ResourceKeyModel>) -> Vec<DomainResourceKey> {
+        models.into_iter().map(DomainResourceKey::from).collect()
     }
 }
