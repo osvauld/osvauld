@@ -5,7 +5,7 @@
 </a>
 </p>
 
-<p align="center"><b>Own Your Data, Leave No Footprint</b></p>
+<h1 align="center"><b>Own Your Data, Leave No Footprint</b></h1>
 
 
 Meet [osvauld](https://osvauld.com). A Peer-to-peer approach make sure you can sync data
