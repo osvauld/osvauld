@@ -5,9 +5,24 @@ use tokio::sync::Mutex;
 use tokio::task::spawn_blocking;
 
 #[derive(Serialize, Deserialize, Debug)]
+pub enum ConnectionStatus {
+    Online,
+    Offline,
+}
+
+impl ConnectionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConnectionStatus::Online => "online",
+            ConnectionStatus::Offline => "offline",
+        }
+    }
+}
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ClientInfo {
     pub ws_connection_id: String,
     pub connection_string: Option<String>,
+    pub connection_status: ConnectionStatus,
 }
 
 pub struct Storage {
@@ -31,6 +46,7 @@ impl Storage {
         let client_info = ClientInfo {
             ws_connection_id: ws_connection_id_string.clone(),
             connection_string: None,
+            connection_status: ConnectionStatus::Online,
         };
 
         let serialized = serde_json::to_vec(&client_info)
@@ -145,5 +161,65 @@ impl Storage {
         .await
         .map_err(|e| sled::Error::ReportableBug(format!("JoinError: {}", e)))??;
         Ok(result)
+    }
+
+    pub async fn get_client_connection_status(
+        &self,
+        user_id: &str,
+    ) -> sled::Result<Option<ConnectionStatus>> {
+        let db = self.db.clone();
+        let user_id_string = user_id.to_string();
+
+        let result = spawn_blocking(move || -> sled::Result<Option<ConnectionStatus>> {
+            if let Some(value) = db.get(user_id_string.as_bytes())? {
+                let client_info: ClientInfo = serde_json::from_slice(&value).map_err(|e| {
+                    sled::Error::ReportableBug(format!("Deserialization error: {}", e))
+                })?;
+                Ok(Some(client_info.connection_status))
+            } else {
+                Ok(None)
+            }
+        })
+        .await
+        .map_err(|e| sled::Error::ReportableBug(format!("JoinError: {}", e)))??;
+        Ok(result)
+    }
+
+    pub async fn update_connection_status(
+        &self,
+        user_id: &str,
+        status: ConnectionStatus,
+    ) -> sled::Result<()> {
+        let db = self.db.clone();
+        let user_id_string = user_id.to_string();
+
+        let current = spawn_blocking({
+            let db = db.clone();
+            let user_id_string = user_id_string.clone();
+            move || db.get(user_id_string.as_bytes())
+        })
+        .await
+        .map_err(|e| sled::Error::ReportableBug(format!("JoinError: {}", e)))??;
+
+        let client_info = if let Some(value) = current {
+            let mut info: ClientInfo = serde_json::from_slice(&value)
+                .map_err(|e| sled::Error::ReportableBug(format!("Deserialization error: {}", e)))?;
+            info.connection_status = status;
+            info
+        } else {
+            return Err(sled::Error::ReportableBug("Client record not found".into()));
+        };
+
+        let serialized = serde_json::to_vec(&client_info)
+            .map_err(|e| sled::Error::ReportableBug(format!("Serialization error: {}", e)))?;
+
+        spawn_blocking(move || -> sled::Result<()> {
+            db.insert(user_id_string.as_bytes(), serialized)?;
+            Ok(())
+        })
+        .await
+        .map_err(|e| sled::Error::ReportableBug(format!("JoinError: {}", e)))??;
+
+        Ok(())
     }
 }
