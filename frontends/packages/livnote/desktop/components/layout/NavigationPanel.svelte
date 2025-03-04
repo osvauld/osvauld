@@ -154,7 +154,7 @@
 </script>
 
 <nav
-	class="w-[360px] h-full py-10 px-4 whitespace-nowrap"
+	class="w-[360px] shrink-0 h-full py-10 px-4 whitespace-nowrap"
 	aria-label="Main Navigation">
 	<div class="relative">
 		<button
@@ -175,25 +175,28 @@
 		{/if}
 	</div>
 	<div
-		class="border-y border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1">
-		<ul class="space-y-1 font-light text-base text-" role="list">
+		class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1">
+		<!-- <ul class="space-y-1 font-light text-base text-" role="list">
 			<li>
 				<button
 					class="w-full flex items-center gap-3 p-3 rounded-lg
                        transition-colors
-                       {selectedSection === 'home'
+                       {!$noteId && selectedSection === 'home'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
 					on:click="{() => handleSectionChange('home')}"
 					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
-					<Home color="{selectedSection === 'home' ? '#F2F2F0' : '#85889C'}" />
+					<Home
+						color="{!$noteId && selectedSection === 'home'
+							? '#F2F2F0'
+							: '#85889C'}" />
 					<span>Home</span>
 				</button>
 			</li>
 			<li>
 				<button
 					class="w-full flex items-center gap-3 p-3 rounded-lg
-                       {selectedSection === 'favourites'
+                       {!$noteId && selectedSection === 'favourites'
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
 					on:click="{() => handleSectionChange('favourites')}"
@@ -201,13 +204,13 @@
 						? 'page'
 						: undefined}">
 					<Star
-						color="{selectedSection === 'favourites'
+						color="{!$noteId && selectedSection === 'favourites'
 							? '#F2F2F0'
 							: '#85889C'}" />
 					<span>Favourites</span>
 				</button>
 			</li>
-		</ul>
+		</ul> -->
 	</div>
 
 	{#if isLoading}
@@ -216,9 +219,9 @@
 		<ul
 			class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
 			role="list">
-			{#each credentials as credential (credential.id)}
+			{#each credentials as note (note.id)}
 				{@const hoveredOrSelected =
-					hoveredCredential === credential.id || $noteId === credential.id}
+					hoveredCredential === note.id || $noteId === note.id}
 				<li>
 					<button
 						class="w-full flex items-center justify-between gap-3 p-3 rounded-lg
@@ -226,22 +229,22 @@
 							{hoveredOrSelected
 							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:mouseenter="{() => (hoveredCredential = credential.id)}"
+						on:mouseenter="{() => (hoveredCredential = note.id)}"
 						on:mouseleave="{() => (hoveredCredential = null)}"
-						on:click="{() => selectNote(credential.id)}">
+						on:click="{() => selectNote(note.id)}">
 						<div class="flex items-center gap-3 truncate">
 							<span class="shrink-0">
 								<MobileNote
 									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
 							</span>
 							<span class="truncate">
-								{credential.data && credential.data.content
-									? extractTitle(credential.data.content)
-									: credential.id}
+								{note.data && note.data.content
+									? extractTitle(note.data.content)
+									: note.id}
 							</span>
 						</div>
 						<span class="flex-shrink-0">
-							{#if credential.data && credential.data.favourite}
+							{#if note.favourite}
 								<FavStar />
 							{:else}
 								<Star color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />

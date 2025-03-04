@@ -1,9 +1,18 @@
 <script>
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";
+	import {
+		onMount,
+		onDestroy,
+		createEventDispatcher,
+		getContext,
+	} from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { listen } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
-	import { noteId, noteViewLayout } from "../../store/desktop.ui.store";
+	import {
+		noteId,
+		noteViewLayout,
+		refreshCredentialList,
+	} from "../../store/desktop.ui.store";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -14,6 +23,8 @@
 	let error = null;
 	let currentlyLoadedNoteId = null;
 	let loadingInProgress = false;
+	let saved = false;
+	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
 
 	// Listen for noteId changes and load the corresponding note
 	$: if (
@@ -23,6 +34,30 @@
 		!loadingInProgress
 	) {
 		loadNote($noteId);
+	}
+
+	saveNoteAndSwitch(() => {
+		if (view) {
+			notesInstance.saveNote().catch(console.error);
+		}
+
+		// Return to list view
+		noteViewLayout.set(false);
+
+		// Clear current note ID
+		currentlyLoadedNoteId = null;
+	});
+
+	async function saveNoteManual() {
+		saved = true;
+		notesInstance
+			.saveNote()
+			.catch(console.error)
+			.then(() => refreshCredentialList.set(true));
+
+		setTimeout(() => {
+			saved = false;
+		}, 1000);
 	}
 
 	async function loadNote(id) {
@@ -67,7 +102,13 @@
 			}
 
 			autoSaveInterval = setInterval(() => {
+				// Savign animation go
+
 				notesInstance.saveNote().catch(console.error);
+				saved = true;
+				setTimeout(() => {
+					saved = false;
+				}, 1000);
 			}, 30000); // Auto-save every 30 seconds
 
 			// Set up listener for sync updates from other peers
@@ -143,18 +184,26 @@
 		});
 	}
 
-	function handleBackButton() {
-		// Save before leaving
-		if (view) {
-			notesInstance.saveNote().catch(console.error);
+	const prosemirrorInstanceDestructionHandle = () => {
+		if (unsubscribeUpdate) {
+			unsubscribeUpdate();
 		}
-
-		// Return to list view
-		noteViewLayout.set(false);
+		if (view) {
+			view.destroy();
+			view = null;
+		}
+		if (autoSaveInterval) {
+			clearInterval(autoSaveInterval);
+		}
+		// Save one final time on destroy
+		notesInstance
+			.saveNote()
+			.catch(console.error)
+			.then(() => refreshCredentialList.set(true));
 
 		// Clear current note ID
 		currentlyLoadedNoteId = null;
-	}
+	};
 
 	// Initialize when component mounts
 	onMount(async () => {
@@ -169,45 +218,14 @@
 
 	// We need to do cleanup when noteId Changes
 
-	noteId.subscribe((value) => {
-		console.log(
-			"NotedId changed, RichTextEditor need to rerender ==============================>",
-		);
-		if (unsubscribeUpdate) {
-			unsubscribeUpdate();
-		}
-		if (view) {
-			view.destroy();
-			view = null;
-		}
-		if (autoSaveInterval) {
-			clearInterval(autoSaveInterval);
-		}
-		// Save one final time on destroy
-		notesInstance.saveNote().catch(console.error);
-
-		// Clear current note ID
-		currentlyLoadedNoteId = null;
+	noteId.subscribe((id) => {
+		if (id) prosemirrorInstanceDestructionHandle();
 	});
 
 	// Clean up when component is destroyed
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
-		if (unsubscribeUpdate) {
-			unsubscribeUpdate();
-		}
-		if (view) {
-			view.destroy();
-			view = null;
-		}
-		if (autoSaveInterval) {
-			clearInterval(autoSaveInterval);
-		}
-		// Save one final time on destroy
-		notesInstance.saveNote().catch(console.error);
-
-		// Clear current note ID
-		currentlyLoadedNoteId = null;
+		prosemirrorInstanceDestructionHandle();
 	});
 </script>
 
@@ -218,60 +236,25 @@
 		height: 100%;
 		background: #16171f;
 		color: white;
-		display: flex;
-		flex-direction: column;
 	}
 
-	.editor-header {
-		display: flex;
-		align-items: center;
-		padding: 8px 16px;
-		border-bottom: 1px solid #2a2b2f;
-		background: #16171f;
-	}
-
-	.back-button {
-		background: transparent;
-		border: 1px solid #2a2b2f;
-		color: #bfc0cc;
-		padding: 6px 12px;
-		border-radius: 4px;
-		margin-right: 12px;
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.back-button:hover {
-		background: #2a2b2f;
-		color: #f2f2f0;
-	}
-
-	.editor-main {
-		flex: 1;
-		overflow: auto;
+	/* ProseMirror menubar styles for horizontal layout */
+	:global(.ProseMirror-menubar-wrapper) {
 		position: relative;
 	}
 
-	.loading-overlay {
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
+	:global(.ProseMirror-menubar) {
+		height: 48px;
+		padding: 4px 8px;
+		white-space: nowrap;
+		overflow-x: auto;
+		background: #16171f;
 		display: flex;
 		align-items: center;
-		justify-content: center;
-		background: rgba(22, 23, 31, 0.7);
-		z-index: 10;
+		gap: 1px;
+		z-index: 900;
+		border-bottom: 1px solid #2a2b2f;
 	}
-
-	.error-message {
-		color: #ff6a6a;
-		padding: 16px;
-		text-align: center;
-	}
-
-	/* ProseMirror styles */
 	:global(.ProseMirror) {
 		position: relative;
 		padding: 15px;
@@ -280,6 +263,110 @@
 		line-height: 1.5;
 		color: white;
 		background: #16171f;
+	}
+
+	:global(.ProseMirror-menuitem) {
+		display: inline-flex;
+		align-items: center;
+		height: 24px;
+		margin-right: 1px;
+		cursor: pointer;
+	}
+
+	:global(.ProseMirror-menu-dropdown) {
+		vertical-align: middle;
+		padding: 2px 4px;
+		font-size: 14px;
+		color: white;
+	}
+
+	:global(.ProseMirror-menu-dropdown-wrap) {
+		position: relative;
+		display: inline-block;
+	}
+
+	:global(.ProseMirror-menu-dropdown-menu) {
+		position: fixed;
+		background: #16171f;
+		border: 1px solid #2a2b2f;
+		border-radius: 2px;
+		padding: 2px 0;
+		min-width: 67px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+	}
+
+	:global(.ProseMirror-menu-dropdown-item) {
+		padding: 2px 8px;
+		cursor: pointer;
+		font-size: 14px;
+		color: white;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-icon) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 2px;
+		cursor: pointer;
+		border: 1px solid transparent;
+		border-radius: 2px;
+		font-size: 16px;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon svg) {
+		fill: currentColor;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-menu-disabled) {
+		opacity: 0.3;
+	}
+
+	:global(.ProseMirror-icon span) {
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror-icon) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		padding: 2px;
+		cursor: pointer;
+		border: 1px solid transparent;
+		border-radius: 2px;
+		font-size: 16px;
+		color: white;
+	}
+
+	:global(.ProseMirror-icon:hover) {
+		background: #2a2b2f;
+	}
+
+	:global(.ProseMirror) {
+		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
+		color: white;
 	}
 
 	:global(.ProseMirror p) {
@@ -319,41 +406,64 @@
 		white-space: nowrap;
 	}
 
-	/* Other ProseMirror styles from your original file */
-	:global(.ProseMirror-menubar-wrapper) {
+	:global(.ProseMirror-icon:hover) {
+		border-color: #ddd;
+		background: #e5e5e5;
+	}
+
+	:global(.ProseMirror) {
 		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		outline: none;
+		line-height: 1.5;
 	}
 
-	:global(.ProseMirror-menubar) {
-		height: 48px;
-		padding: 4px 8px;
+	:global(.ProseMirror p) {
+		margin: 0 0 1em 0;
+	}
+
+	:global(.ProseMirror h1) {
+		font-size: 2em;
+		margin: 0.67em 0;
+	}
+
+	/* Cursor and selection styles */
+	:global(.ProseMirror-yjs-cursor) {
+		position: relative;
+		margin-left: -1px;
+		margin-right: -1px;
+		border-left: 1px solid black;
+		border-right: 1px solid black;
+		pointer-events: none;
+	}
+
+	:global(.ProseMirror-yjs-cursor > div) {
+		position: absolute;
+		top: -1.05em;
+		left: -1px;
+		font-size: 13px;
+		background-color: rgb(250, 129, 0);
+		font-family: serif;
+		font-style: normal;
+		font-weight: normal;
+		line-height: normal;
+		user-select: none;
+		color: white;
+		padding: 2px 6px;
+		border-radius: 3px;
 		white-space: nowrap;
-		overflow-x: auto;
-		background: #16171f;
-		display: flex;
-		align-items: center;
-		gap: 1px;
-		border-bottom: 1px solid #2a2b2f;
 	}
-
 	:global(.ProseMirror-menu-dropdown-menu) {
 		z-index: 999;
 	}
 </style>
 
 <div class="editor-container">
-	<div class="editor-header">
-		<button class="back-button" on:click="{handleBackButton}">
-			← Back to Notes
-		</button>
-		<h2 class="text-osvauld-fieldText">
-			{currentlyLoadedNoteId ? "Edit Note" : "New Note"}
-		</h2>
-	</div>
-
-	<div class="editor-main">
+	<div class="editor-main relative h-full">
 		{#if isLoading}
-			<div class="loading-overlay">
+			<div
+				class="loading-overlay flex justify-center items-center h-full w-full">
 				<div class="text-osvauld-fieldText">Loading note...</div>
 			</div>
 		{:else if error}
@@ -361,5 +471,9 @@
 		{/if}
 
 		<div bind:this="{element}"></div>
+		<button
+			on:click="{saveNoteManual}"
+			class="absolute w-20 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
+			>{saved ? "Saved" : "Save"}</button>
 	</div>
 </div>

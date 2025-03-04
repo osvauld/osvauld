@@ -5,6 +5,7 @@
 		toastStore,
 		vaults,
 		noteId,
+		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
 	import { slide } from "svelte/transition";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
@@ -21,6 +22,7 @@
 	import { addCredentialHandler } from "@osvauld/password-manager-common";
 	import { notesInstance } from "../notes/notes";
 	import { onMount } from "svelte";
+	import { setContext } from "svelte";
 
 	let userId;
 	let addCredentialHovered = false;
@@ -30,15 +32,31 @@
 	let showShareList = false;
 	let shareUserList = [];
 	let hoveredItem = "";
+	let favSelected = false;
+	let saveNoteAndSwitch = () => {};
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
 		console.log(shareUserList);
 		showShareList = true;
 	};
+
 	const handleDropDownClick = async (id: string, publicKey: string) => {
 		console.log(id, publicKey);
 		showShareList = false;
+	};
+
+	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
+
+	const handleFilterSelection = (section) => {
+		selectedSection = section;
+		// filterFavourites();
+		favSelected = !favSelected;
+	};
+
+	const handleBackButton = () => {
+		saveNoteAndSwitch();
+		noteId.set("");
 	};
 
 	// const handleDeleteBtn = () => {
@@ -75,9 +93,7 @@
 			});
 		}
 	};
-	const handleSectionChange = (section) => {
-		selectedSection = section;
-	};
+
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
 	});
@@ -92,7 +108,7 @@
 					aria-label="Switch Vault"
 					aria-controls="vaultSelector"
 					aria-expanded="false"
-					on:click={() => (vaultManagerActive = !vaultManagerActive)}>
+					on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
 					<span class="flex-1 truncate text-left py-1"
 						>{$currentVault.id === "all"
 							? "All Vaults"
@@ -100,7 +116,7 @@
 					><span
 						class="shrink-0 transition-transform duration-300 {vaultManagerActive
 							? '-rotate-90'
-							: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
+							: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
 					></button>
 				{#if vaultManagerActive}
 					<VaultManager bind:vaultManagerActive instance="content" />
@@ -114,13 +130,11 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => {
-						handleSectionChange("home");
-					}}
-					aria-current={selectedSection === "home" ? "page" : undefined}>
+					on:click="{() => handleFilterSelection('home')}"
+					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
 					<MobileHome
 						size="20"
-						color={selectedSection === "home" ? "#BFC0CC" : "#85889C"} />
+						color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
 					<span>Home</span>
 				</button>
 
@@ -129,16 +143,22 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => {
-						handleSectionChange("favourites");
-					}}
-					aria-current={selectedSection === "favourites" ? "page" : undefined}>
+					on:click="{() => handleFilterSelection('favourites')}"
+					aria-current="{selectedSection === 'favourites'
+						? 'page'
+						: undefined}">
 					<Star
-						color={selectedSection === "favourites" ? "#BFC0CC" : "#85889C"}
+						color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
 						size="20" />
 					<span>Favourites</span>
 				</button>
 			</div>
+		{:else}
+			<button
+				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive"
+				on:click="{handleBackButton}">
+				← Back to Notes
+			</button>
 		{/if}
 
 		<div
@@ -146,11 +166,11 @@
 			{#if $currentVault.id !== "all"}
 				<button
 					class="p-2"
-					on:click|stopPropagation={() => {}}
-					on:mouseenter={() => (deleteBtnHoved = true)}
-					on:mouseleave={() => (deleteBtnHoved = false)}
+					on:click|stopPropagation="{() => {}}"
+					on:mouseenter="{() => (deleteBtnHoved = true)}"
+					on:mouseleave="{() => (deleteBtnHoved = false)}"
 					aria-label="Delete Folder"
-					><Bin color={deleteBtnHoved ? "#FF6A6A" : "#85889C"} /></button>
+					><Bin color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}" /></button>
 			{/if}
 			<span><Menu /></span>
 			<button
@@ -160,20 +180,22 @@
 				<span><DownArrow type="common" /></span>
 			</button>
 
-			<button
-				on:click={handleShareList}
-				class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
-				aria-label="share with users">
-				<span class="mr-2 pl-2">Share</span>
-				<span><DownArrow type="common" /></span>
-			</button>
+			{#if $noteId}
+				<button
+					on:click="{handleShareList}"
+					class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
+					aria-label="share with users">
+					<span class="mr-2 pl-2">Share</span>
+					<span><DownArrow type="common" /></span>
+				</button>
+			{/if}
 
 			{#if showShareList}
 				<div
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation={() => (showShare = false)}>
+					on:click|stopPropagation="{() => {}}">
 				</div>
 				<div
 					class="absolute top-full right-0 mt-2 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -182,25 +204,25 @@
 					{#each shareUserList as { id, username, publicKey }}
 						<button
 							class="profileBtn"
-							on:mouseenter={() => (hoveredItem = id)}
-							on:mouseleave={() => (hoveredItem = "")}
-							on:click|stopPropagation={() =>
-								handleDropDownClick(id, publicKey)}>
+							on:mouseenter="{() => (hoveredItem = id)}"
+							on:mouseleave="{() => (hoveredItem = '')}"
+							on:click|stopPropagation="{() =>
+								handleDropDownClick(id, publicKey)}">
 							{username}
 						</button>
 					{/each}
 				</div>
 			{/if}
 			<button
-				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center whitespace-nowrap border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-frameblack hover:bg-osvauld-carolinablue transition-colors"
-				on:mouseenter={() => (addCredentialHovered = true)}
-				on:mouseleave={() => (addCredentialHovered = false)}
-				on:click={handleAddNote}>
+				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center whitespace-nowrap border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-frameblack hover:bg-osvauld-carolinablue transition-colors duration-200"
+				on:mouseenter="{() => (addCredentialHovered = true)}"
+				on:mouseleave="{() => (addCredentialHovered = false)}"
+				on:click="{handleAddNote}">
 				<span class="mr-2">Add new note</span>
-				<Add color={addCredentialHovered ? "#000" : "#A3A4B5"} />
+				<Add color="{addCredentialHovered ? '#000' : '#A3A4B5'}" />
 			</button>
 		</div>
 	</div>
 
-	<CredentialList />
+	<CredentialList {favSelected} />
 </div>
