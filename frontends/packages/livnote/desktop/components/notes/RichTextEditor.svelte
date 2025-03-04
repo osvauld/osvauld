@@ -23,6 +23,7 @@
 	let error = null;
 	let currentlyLoadedNoteId = null;
 	let loadingInProgress = false;
+	let saved = false;
 	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
 
 	// Listen for noteId changes and load the corresponding note
@@ -46,6 +47,18 @@
 		// Clear current note ID
 		currentlyLoadedNoteId = null;
 	});
+
+	async function saveNoteManual() {
+		saved = true;
+		notesInstance
+			.saveNote()
+			.catch(console.error)
+			.then(() => refreshCredentialList.set(true));
+
+		setTimeout(() => {
+			saved = false;
+		}, 1000);
+	}
 
 	async function loadNote(id) {
 		if (!element || loadingInProgress) return;
@@ -89,7 +102,13 @@
 			}
 
 			autoSaveInterval = setInterval(() => {
+				// Savign animation go
+
 				notesInstance.saveNote().catch(console.error);
+				saved = true;
+				setTimeout(() => {
+					saved = false;
+				}, 1000);
 			}, 30000); // Auto-save every 30 seconds
 
 			// Set up listener for sync updates from other peers
@@ -441,7 +460,7 @@
 </style>
 
 <div class="editor-container">
-	<div class="editor-main h-full">
+	<div class="editor-main relative h-full">
 		{#if isLoading}
 			<div
 				class="loading-overlay flex justify-center items-center h-full w-full">
@@ -452,5 +471,9 @@
 		{/if}
 
 		<div bind:this="{element}"></div>
+		<button
+			on:click="{saveNoteManual}"
+			class="absolute w-20 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
+			>{saved ? "Saved" : "Save"}</button>
 	</div>
 </div>
