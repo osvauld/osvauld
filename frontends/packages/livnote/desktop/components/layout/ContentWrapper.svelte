@@ -33,7 +33,6 @@
 	let hoveredItem = "";
 	let favSelected = false;
 	let saveNoteAndSwitch = () => {};
-	let filterFavourites = () => {};
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
@@ -47,7 +46,6 @@
 	};
 
 	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
-	setContext("filterFavouritesFunction", (fn) => (filterFavourites = fn));
 
 	const handleFilterSelection = (section) => {
 		selectedSection = section;
@@ -57,6 +55,7 @@
 
 	const handleBackButton = () => {
 		saveNoteAndSwitch();
+		noteId.set("");
 	};
 
 	// const handleDeleteBtn = () => {
@@ -180,13 +179,15 @@
 				<span><DownArrow type="common" /></span>
 			</button>
 
-			<button
-				on:click="{handleShareList}"
-				class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
-				aria-label="share with users">
-				<span class="mr-2 pl-2">Share</span>
-				<span><DownArrow type="common" /></span>
-			</button>
+			{#if $noteId}
+				<button
+					on:click="{handleShareList}"
+					class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
+					aria-label="share with users">
+					<span class="mr-2 pl-2">Share</span>
+					<span><DownArrow type="common" /></span>
+				</button>
+			{/if}
 
 			{#if showShareList}
 				<div

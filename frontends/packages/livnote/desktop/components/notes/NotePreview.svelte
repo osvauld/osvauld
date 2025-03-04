@@ -11,6 +11,7 @@
 	export let editorState = null;
 	export let yjsState = null;
 	export let maxHeight = "150px";
+	export let minHeight = "150px";
 
 	let element;
 	let view;
@@ -180,6 +181,8 @@
 	}
 </style>
 
-<div class="preview-container note-preview" style="max-height: {maxHeight}">
-	<div bind:this={element}></div>
+<div
+	class="preview-container note-preview"
+	style="max-height: {maxHeight}; min-height: {minHeight}">
+	<div bind:this="{element}"></div>
 </div>

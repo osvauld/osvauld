@@ -13,7 +13,7 @@
 	import NotePreview from "./NotePreview.svelte";
 	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
-	import { onMount, onDestroy, getContext } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 
 	export let favSelected;
 	let updatedNotes = [];
@@ -232,7 +232,8 @@
 										content="{note.data.content}"
 										editorState="{note.data.editor_state}"
 										yjsState="{note.data.yjs_state}"
-										maxHeight="120px" />
+										maxHeight="120px"
+										minHeight="120px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">
 										Last modified: {getLastModifiedDate(
 											note.data.last_modified || note.data.last_accessed,
