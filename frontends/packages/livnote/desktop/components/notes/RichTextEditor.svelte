@@ -8,7 +8,11 @@
 	import { EditorView } from "prosemirror-view";
 	import { listen } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
-	import { noteId, noteViewLayout } from "../../store/desktop.ui.store";
+	import {
+		noteId,
+		noteViewLayout,
+		refreshCredentialList,
+	} from "../../store/desktop.ui.store";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -173,7 +177,10 @@
 			clearInterval(autoSaveInterval);
 		}
 		// Save one final time on destroy
-		notesInstance.saveNote().catch(console.error);
+		notesInstance
+			.saveNote()
+			.catch(console.error)
+			.then(() => refreshCredentialList.set(true));
 
 		// Clear current note ID
 		currentlyLoadedNoteId = null;
@@ -192,8 +199,8 @@
 
 	// We need to do cleanup when noteId Changes
 
-	noteId.subscribe((_) => {
-		prosemirrorInstanceDestructionHandle();
+	noteId.subscribe((id) => {
+		if (id) prosemirrorInstanceDestructionHandle();
 	});
 
 	// Clean up when component is destroyed

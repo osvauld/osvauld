@@ -5,6 +5,7 @@
 		toastStore,
 		vaults,
 		noteId,
+		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
 	import { slide } from "svelte/transition";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
