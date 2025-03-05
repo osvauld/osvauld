@@ -3,7 +3,7 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit},
     Aes256Gcm, Key as Aes_Key, Nonce,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use argon2::Argon2;
 use base64::{decode, encode};
 use openpgp::{
@@ -23,14 +23,12 @@ use openpgp::{
         stream::{Message, *},
         Marshal,
     },
-    types::{HashAlgorithm, KeyFlags, SymmetricAlgorithm},
+    types::{HashAlgorithm, KeyFlags},
     Cert,
 };
 use rand::rngs::OsRng;
-use sequoia_openpgp::parse::stream::Decryptor;
 use sequoia_openpgp::serialize::stream::Encryptor2;
 use sequoia_openpgp::{self as openpgp};
-use sequoia_openpgp::{cert::prelude::*, policy};
 use std::error::Error;
 use std::io::Write;
 use std::io::{self};

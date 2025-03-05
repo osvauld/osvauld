@@ -1,10 +1,12 @@
 use crate::database::schema::{
-    credentials, device_record_status, device_records, devices, folders, sync_records, users,
+    device_record_status, device_records, devices, folders, resource_keys, resources, sync_records,
+    users,
 };
 use crate::domains::models::{
-    credential::Credential as DomainCredential,
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
+    resource::Resource as DomainResource,
+    resource_key::ResourceKey as DomainResourceKey,
     sync_record::DeviceRecord as DomainDeviceRecord,
     sync_record::DeviceRecordStatus as DomainDeviceRecordStatus,
     sync_record::SyncRecord as DomainSyncRecord,
@@ -170,15 +172,14 @@ impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
     }
 }
 
-#[derive(Queryable, Insertable)]
-#[diesel(table_name = credentials)]
-pub struct CredentialModel {
+#[derive(Queryable, Insertable, Selectable)]
+#[diesel(table_name = resources)]
+pub struct ResourceModel {
     pub id: String,
-    pub credential_type: String,
+    pub resource_type: String,
     pub data: String,
     pub folder_id: String,
     pub signature: String,
-    pub encrypted_key: String,
     pub favourite: bool,
     pub last_accessed: i64,
     pub deleted: bool,
@@ -187,34 +188,32 @@ pub struct CredentialModel {
     pub created_at: i64,
 }
 
-impl From<&DomainCredential> for CredentialModel {
-    fn from(credential: &DomainCredential) -> Self {
+impl From<&DomainResource> for ResourceModel {
+    fn from(resource: &DomainResource) -> Self {
         Self {
-            id: credential.id.clone(),
-            credential_type: credential.credential_type.clone(),
-            data: credential.data.clone(),
-            folder_id: credential.folder_id.clone(),
-            signature: credential.signature.clone(),
-            encrypted_key: credential.encrypted_key.clone(),
-            favourite: credential.favourite,
-            last_accessed: credential.last_accessed,
-            deleted: credential.deleted,
-            deleted_at: credential.deleted_at,
-            created_at: credential.created_at,
-            updated_at: credential.updated_at,
+            id: resource.id.clone(),
+            resource_type: resource.resource_type.clone(),
+            data: resource.data.clone(),
+            folder_id: resource.folder_id.clone(),
+            signature: resource.signature.clone(),
+            favourite: resource.favourite,
+            last_accessed: resource.last_accessed,
+            deleted: resource.deleted,
+            deleted_at: resource.deleted_at,
+            created_at: resource.created_at,
+            updated_at: resource.updated_at,
         }
     }
 }
 
-impl From<CredentialModel> for DomainCredential {
-    fn from(model: CredentialModel) -> Self {
+impl From<ResourceModel> for DomainResource {
+    fn from(model: ResourceModel) -> Self {
         Self {
             id: model.id,
-            credential_type: model.credential_type,
+            resource_type: model.resource_type,
             data: model.data,
             folder_id: model.folder_id,
             signature: model.signature,
-            encrypted_key: model.encrypted_key,
             created_at: model.created_at,
             updated_at: model.updated_at,
             last_accessed: model.last_accessed,
@@ -225,17 +224,17 @@ impl From<CredentialModel> for DomainCredential {
     }
 }
 
-impl CredentialModel {
-    // Convert Vec<CredentialModel> to Vec<DomainCredential>
-    pub fn to_domain_credentials(models: Vec<CredentialModel>) -> Vec<DomainCredential> {
-        models.into_iter().map(DomainCredential::from).collect()
+impl ResourceModel {
+    // Convert Vec<DomainModel> to Vec<DomainDomain>
+    pub fn to_domain_resources(models: Vec<ResourceModel>) -> Vec<DomainResource> {
+        models.into_iter().map(DomainResource::from).collect()
     }
 
-    // Convert Vec<DomainCredential> to Vec<CredentialModel>
-    pub fn from_domain_credentials(credentials: Vec<DomainCredential>) -> Vec<CredentialModel> {
-        credentials
+    // Convert Vec<DomainDomain> to Vec<DomainModel>
+    pub fn from_domain_resources(resources: Vec<DomainResource>) -> Vec<ResourceModel> {
+        resources
             .into_iter()
-            .map(|c| CredentialModel::from(&c))
+            .map(|c| ResourceModel::from(&c))
             .collect()
     }
 }
@@ -295,6 +294,7 @@ pub struct UserModel {
     pub created_at: i64,
     pub updated_at: i64,
     pub signature: String,
+    pub owner: bool,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
 }
@@ -307,6 +307,7 @@ impl From<&DomainUser> for UserModel {
             public_key: user.public_key.clone(),
             deleted: user.deleted,
             signature: user.signature.clone(),
+            owner: user.owner,
             deleted_at: user.deleted_at,
             created_at: user.created_at,
             updated_at: user.updated_at,
@@ -322,6 +323,7 @@ impl From<UserModel> for DomainUser {
             public_key: model.public_key,
             deleted: model.deleted,
             signature: model.signature,
+            owner: model.owner,
             deleted_at: model.deleted_at,
             created_at: model.created_at,
             updated_at: model.updated_at,
@@ -331,5 +333,50 @@ impl From<UserModel> for DomainUser {
 impl UserModel {
     pub fn to_domain_users(models: Vec<UserModel>) -> Vec<DomainUser> {
         models.into_iter().map(DomainUser::from).collect()
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable)]
+#[diesel(table_name = resource_keys)]
+pub struct ResourceKeyModel {
+    pub id: String,
+    pub resource_id: String,
+    pub user_id: String,
+    pub encrypted_key: String,
+    pub is_owner: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl From<&DomainResourceKey> for ResourceKeyModel {
+    fn from(resource_key: &DomainResourceKey) -> Self {
+        Self {
+            id: resource_key.id.clone(),
+            resource_id: resource_key.resource_id.clone(),
+            user_id: resource_key.user_id.clone(),
+            encrypted_key: resource_key.encrypted_key.clone(),
+            is_owner: resource_key.is_owner,
+            created_at: resource_key.created_at,
+            updated_at: resource_key.updated_at,
+        }
+    }
+}
+
+impl From<ResourceKeyModel> for DomainResourceKey {
+    fn from(model: ResourceKeyModel) -> Self {
+        Self {
+            id: model.id.clone(),
+            resource_id: model.resource_id.clone(),
+            user_id: model.user_id.clone(),
+            encrypted_key: model.encrypted_key.clone(),
+            is_owner: model.is_owner,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        }
+    }
+}
+impl ResourceKeyModel {
+    pub fn to_domain_resource(models: Vec<ResourceKeyModel>) -> Vec<DomainResourceKey> {
+        models.into_iter().map(DomainResourceKey::from).collect()
     }
 }

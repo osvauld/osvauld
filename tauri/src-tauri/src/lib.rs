@@ -1,6 +1,4 @@
-use iroh_quinn::crypto;
-use log::{error, info};
-use tauri::Listener;
+use log::error;
 use tauri::Manager;
 pub mod application;
 mod database;
@@ -10,9 +8,9 @@ use database::{initialize_database, DbConnection};
 pub mod handlers;
 mod types;
 use crate::application::services::AuthService;
-use crate::application::services::CredentialService;
 use crate::application::services::FolderService;
 use crate::application::services::P2PService;
+use crate::application::services::ResourceService;
 use crate::application::services::SyncService;
 use crate::application::services::UserService;
 use crate::handlers::auth_handler::{
@@ -20,22 +18,21 @@ use crate::handlers::auth_handler::{
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
     handle_sign_challenge, handle_sign_up, login,
 };
-use crate::handlers::credential_handler::{
-    get_all_credentials, get_credential, handle_add_credential, handle_get_credentials_for_folder,
-    soft_delete_credential, toggle_fav, update_credential, update_last_accessed,
-};
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
     connect_with_ticket, get_system_locale, get_ticket, send_message, send_snapshot,
     start_p2p_listener,
 };
+use crate::handlers::resource_handler::{
+    get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
+    soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
+};
 use crate::handlers::user_handler::{add_known_user, get_known_users};
 use crate::persistence::repositories::{
-    SqliteCredentialRepository, SqliteDeviceRepository, SqliteFolderRepository,
-    SqliteSyncRepository, SqliteUserRepository, TauriStoreRepository,
+    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
+    SqliteResourceRepository, SqliteSyncRepository, SqliteUserRepository, TauriStoreRepository,
 };
 use crypto_utils::CryptoUtils;
-use log::LevelFilter;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -99,9 +96,11 @@ pub fn run() {
 
                     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
                     let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
-                    let credential_repo =
-                        Arc::new(SqliteCredentialRepository::new(connection.clone()));
+                    let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
                     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
+
+                    let resource_key_repo =
+                        Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
                     // Initialize folder service with cloned repositories
                     let store_repository = Arc::new(TauriStoreRepository::new(handle.clone()));
                     let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
@@ -117,25 +116,27 @@ pub fn run() {
                     let sync_service = Arc::new(SyncService::new(
                         sync_repo.clone(),
                         folder_repo.clone(),
-                        credential_repo.clone(),
+                        resource_repo.clone(),
                         device_repo,
                         store_repository,
+                        crypto_utils.clone(),
                     ));
                     let p2p_service = Arc::new(P2PService::new(
                         handle.clone(),
                         sync_service.clone(),
                         auth_service.clone(),
                     ));
-                    let credential_service = Arc::new(CredentialService::new(
-                        credential_repo.clone(),
+                    let resource_service = Arc::new(ResourceService::new(
+                        resource_repo.clone(),
                         crypto_utils.clone(),
+                        resource_key_repo.clone(),
                     ));
                     let user_service = Arc::new(UserService::new(user_repository, crypto_utils));
 
                     // Manage all services
                     app.manage(folder_service);
                     app.manage(auth_service);
-                    app.manage(credential_service);
+                    app.manage(resource_service);
                     app.manage(sync_service);
                     app.manage(p2p_service.clone());
                     app.manage(user_service);
@@ -164,27 +165,27 @@ pub fn run() {
             check_private_key_loaded,
             login,
             handle_sign_challenge,
-            handle_add_credential,
+            handle_add_resource,
             handle_hash_and_sign,
             handle_add_device,
             handle_export_certificate,
             handle_change_passphrase,
             handle_add_folder,
             handle_get_folders,
-            handle_get_credentials_for_folder,
+            handle_get_resources_for_folder,
             send_message,
             get_ticket,
             connect_with_ticket,
             start_p2p_listener,
-            soft_delete_credential,
+            soft_delete_resource,
             soft_delete_folder,
             toggle_fav,
             update_last_accessed,
-            get_all_credentials,
+            get_all_resources,
             get_user_id,
             send_snapshot,
-            update_credential,
-            get_credential,
+            update_resource,
+            get_resource,
             add_known_user,
             get_known_users,
             get_public_key,

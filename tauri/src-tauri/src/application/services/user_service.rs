@@ -1,6 +1,6 @@
 use crate::domains::models::user::User;
 use crate::domains::repositories::{RepositoryError, UserRepository};
-use crypto_utils::CryptoUtils;
+use crypto_utils::{get_key_id, CryptoUtils};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -16,7 +16,6 @@ pub struct UserService {
     user_repository: Arc<dyn UserRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
 }
-
 impl UserService {
     pub fn new(
         user_repository: Arc<dyn UserRepository>,
@@ -32,15 +31,19 @@ impl UserService {
         &self,
         username: String,
         public_key: String,
+        owner: bool,
     ) -> Result<User, String> {
-        let key_id = CryptoUtils::get_key_id(&public_key).map_err(|e| e.to_string())?;
+        log::info!("input {:?}, {:?}, ", username, public_key);
+        let key_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
         let signature = {
             let crypto = self.crypto_utils.lock().await;
             crypto
                 .sign_message(&public_key)
                 .map_err(|e| e.to_string())?
         };
-        let user = User::new(username, key_id, public_key, signature);
+        let user = User::new(username, key_id, public_key, signature, owner);
+
+        log::info!("adding to users table {:?}", user);
         self.user_repository
             .add_known_user(user.clone())
             .await

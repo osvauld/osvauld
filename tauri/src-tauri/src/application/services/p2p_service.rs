@@ -2,19 +2,17 @@ use crate::application::services::auth_service::AuthService;
 use crate::application::services::sync_service::SyncService;
 use crate::domains::models::device::Device;
 use crate::domains::models::p2p::{
-    ConnectionTicket, HandshakeError, HandshakeMessage, Message, SyncAckDeviceRecord, SyncAckType,
-    SyncPayload,
+    ConnectionTicket, HandshakeError, HandshakeMessage, Message, SyncAckType, SyncPayload,
 };
-use crate::domains::models::sync_record::SyncRecordSet;
 use crate::types::CryptoResponse;
 use iroh::endpoint::Connection;
 const MAX_HANDSHAKE_SIZE: usize = 8192; // 8KB max size for handshake messages
 use iroh::{
-    endpoint::{DirectAddrType, RecvStream, SendStream},
+    endpoint::{RecvStream, SendStream},
     Endpoint, NodeAddr, RelayMode, SecretKey,
 };
-use iroh_blobs::store::mem::Store;
-use log::{debug, error, info, warn};
+// use iroh_blobs::store::mem::Store;
+use log::{error, info};
 use std::sync::Arc;
 use tauri::Emitter;
 use tauri::Manager;
@@ -22,7 +20,6 @@ use tauri::{AppHandle, Listener};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
-use url::Url;
 
 const ALPN_PROTOCOL: &[u8] = b"n0/iroh/examples/magic/0";
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -212,7 +209,7 @@ impl P2PService {
             }
         });
         let sync_update_clone = self.clone();
-        let listener = self.app_handle.listen("sync-update", move |data| {
+        let _listener = self.app_handle.listen("sync-update", move |data| {
             let self_clone = sync_update_clone.clone();
             tokio::spawn(async move {
                 log::info!("got something from sync-update");
@@ -254,7 +251,7 @@ impl P2PService {
         info!("Starting sync process");
         let connection = self.get_active_connection().await?;
         // Send sync request
-        let (mut send, mut recv) = connection
+        let (mut send, _recv) = connection
             .open_bi()
             .await
             .map_err(|e| format!("Failed to open bi-directional stream: {}", e))?;
@@ -641,7 +638,7 @@ impl P2PService {
             match self.get_active_connection().await {
                 Ok(connection) => {
                     match connection.accept_bi().await {
-                        Ok((mut send, mut recv)) => {
+                        Ok((_send, mut recv)) => {
                             // Use a dynamic buffer that can grow as needed
                             let mut buffer = Vec::new();
                             let mut temp_buffer = vec![0u8; 8192]; // Larger temp buffer for reading chunks
@@ -988,7 +985,7 @@ impl P2PService {
         let connect_result = endpoint.connect(node_addr.clone(), ALPN_PROTOCOL).await;
 
         match &connect_result {
-            Ok(conn) => {
+            Ok(_conn) => {
                 info!("Connection successful!");
             }
             Err(e) => {
@@ -1064,3 +1061,4 @@ impl P2PService {
         }
     }
 }
+

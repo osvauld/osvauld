@@ -60,6 +60,7 @@
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
+			console.log("is signedup response", response);
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
 			if (checkPvtLoad === false) {

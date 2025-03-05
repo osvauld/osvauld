@@ -1,15 +1,15 @@
+use crate::domains::models::resource_key::ResourceKey;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Credential {
+pub struct Resource {
     pub id: String,
-    pub credential_type: String,
+    pub resource_type: String,
     pub data: String,
     pub folder_id: String,
     pub signature: String,
-    pub encrypted_key: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub favourite: bool,
@@ -18,33 +18,16 @@ pub struct Credential {
     pub deleted_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct DecryptedCredential {
-    pub id: String,
-    pub credential_type: String,
-    pub data: Value,
-    pub last_accessed: i64,
-    pub favourite: bool,
-    pub folder_id: String,
-}
-
-impl Credential {
-    pub fn new(
-        credential_type: String,
-        data: String,
-        folder_id: String,
-        encrypted_key: String,
-        signature: String,
-    ) -> Self {
+impl Resource {
+    pub fn new(resource_type: String, data: String, folder_id: String, signature: String) -> Self {
         let now = Local::now().timestamp_millis();
 
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            credential_type,
+            resource_type,
             data,
             folder_id,
             signature,
-            encrypted_key,
             created_at: now,
             updated_at: now,
             favourite: false,
@@ -53,4 +36,25 @@ impl Credential {
             deleted_at: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DecryptedResource {
+    pub id: String,
+    pub resource_type: String,
+    pub data: Value,
+    pub last_accessed: i64,
+    pub favourite: bool,
+    pub folder_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResourceWithKey {
+    pub resource: Resource,
+    pub encrypted_key: String,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceKeyPair {
+    pub resource: Resource,
+    pub key: ResourceKey,
 }

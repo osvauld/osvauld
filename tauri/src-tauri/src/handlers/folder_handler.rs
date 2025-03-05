@@ -51,9 +51,9 @@ pub async fn soft_delete_folder(
         .soft_delete_folder(&input.folder_id)
         .await
         .map_err(|e| e.to_string())?;
-    sync_service
-        .add_soft_deletion_sync_record(input.folder_id, ResourceType::Folder)
-        .await
-        .map_err(|e| e.to_string())?;
+    // sync_service
+    //     .add_soft_deletion_sync_record(input.folder_id, ResourceType::Folder)
+    //     .await
+    //     .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }

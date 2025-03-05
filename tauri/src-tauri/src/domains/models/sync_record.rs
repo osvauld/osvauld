@@ -1,7 +1,5 @@
-use std::clone;
-
-use crate::domains::models::credential::Credential;
 use crate::domains::models::device::Device;
+use crate::domains::models::resource::Resource;
 use crate::domains::models::sync_types::{OperationType, ResourceType, SyncStatus};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
@@ -77,28 +75,28 @@ impl SyncRecord {
         )
     }
 
-    pub fn create_credential_sync_record(
+    pub fn create_resource_sync_record(
         resource_id: String,
         current_device_id: String,
         other_devices: &[Device],
     ) -> SyncRecordSet {
         SyncRecord::create_sync_records(
             resource_id,
-            ResourceType::Credential,
+            ResourceType::Resource,
             OperationType::Create,
             current_device_id,
             other_devices,
         )
     }
 
-    pub fn create_soft_delete_credential_records(
-        credential_id: String,
+    pub fn create_soft_delete_resource_records(
+        resource_id: String,
         current_device_id: String,
         devices: &[Device],
     ) -> SyncRecordSet {
         Self::create_sync_records(
-            credential_id,
-            ResourceType::Credential,
+            resource_id,
+            ResourceType::Resource,
             OperationType::SoftDelete,
             current_device_id,
             devices,
@@ -116,20 +114,20 @@ impl SyncRecord {
 
     pub fn create_soft_delete_folder_records(
         folder_id: String,
-        credentials: Vec<Credential>,
+        resources: Vec<Resource>,
         current_device_id: String,
         devices: &[Device],
     ) -> Vec<SyncRecordSet> {
         let mut sync_sets = Vec::new();
 
-        // Create sync records for credentials first
-        for credential in credentials {
-            let credential_sync_set = Self::create_soft_delete_credential_records(
-                credential.id,
+        // Create sync records for resources first
+        for resource in resources {
+            let resource_sync_set = Self::create_soft_delete_resource_records(
+                resource.id,
                 current_device_id.clone(),
                 devices,
             );
-            sync_sets.push(credential_sync_set);
+            sync_sets.push(resource_sync_set);
         }
 
         // Create sync record for folder

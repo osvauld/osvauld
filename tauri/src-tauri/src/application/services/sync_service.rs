@@ -1,44 +1,48 @@
-use crate::database::schema::device_record_status;
 use crate::domains::models::device::Device;
-use crate::domains::models::p2p::{Message, SyncAckType, SyncData, SyncPayload};
+use crate::domains::models::p2p::{SyncAckType, SyncData, SyncPayload};
 use crate::domains::models::sync_record::DeviceRecordSet;
 use crate::domains::models::{
-    credential::Credential,
     folder::Folder,
-    sync_record::{DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet},
-    sync_types::{OperationType, ResourceType, SyncStatus},
+    resource::Resource,
+    sync_record::{StatusChangeSet, SyncRecord, SyncRecordSet},
 };
-use crate::domains::models::{sync_record, sync_types};
+
 use crate::domains::repositories::{
-    CredentialRepository, DeviceRepository, FolderRepository, RepositoryError, StoreRepository,
+    DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
     SyncRepository,
 };
-use log::{error, info};
+use crypto_utils::{get_key_id, CryptoUtils};
+
+use log::info;
+use tokio::sync::Mutex;
 
 use std::sync::Arc;
 
 pub struct SyncService {
     sync_repository: Arc<dyn SyncRepository>,
     folder_repository: Arc<dyn FolderRepository>,
-    credential_repository: Arc<dyn CredentialRepository>,
+    resource_repository: Arc<dyn ResourceRepository>,
     device_repository: Arc<dyn DeviceRepository>,
     store_repository: Arc<dyn StoreRepository>,
+    crypto_utils: Arc<Mutex<CryptoUtils>>,
 }
 
 impl SyncService {
     pub fn new(
         sync_repository: Arc<dyn SyncRepository>,
         folder_repository: Arc<dyn FolderRepository>,
-        credential_repository: Arc<dyn CredentialRepository>,
+        resource_repository: Arc<dyn ResourceRepository>,
         device_repository: Arc<dyn DeviceRepository>,
         store_repository: Arc<dyn StoreRepository>,
+        crypto_utils: Arc<Mutex<CryptoUtils>>,
     ) -> Self {
         Self {
             sync_repository,
             folder_repository,
-            credential_repository,
+            resource_repository,
             device_repository,
             store_repository,
+            crypto_utils,
         }
     }
 
@@ -90,6 +94,10 @@ impl SyncService {
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
         // Try device syncs first
+        let user_id = self
+            .get_current_user_id()
+            .await
+            .map_err(|e| RepositoryError::CustomError(e.to_string()))?;
         info!("getting records for********* {}", device.id);
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
@@ -128,22 +136,21 @@ impl SyncService {
             }));
         }
 
-        // Then credentials
+        // Then resources
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
-            .get_pending_sync_by_type(&device.id, "credential")
+            .get_pending_sync_by_type(&device.id, "resource")
             .await?
         {
-            let credential = self
-                .credential_repository
-                .find_by_id(&sync_record.resource_id)
+            let resource = self
+                .resource_repository
+                .find_resource_with_key(&sync_record.resource_id, &user_id)
                 .await?;
-
             return Ok(Some(SyncPayload {
                 sync_record: Some(sync_record),
                 device_records,
                 device_record_statuses: statuses,
-                data: Some(SyncData::Credential(credential)),
+                data: Some(SyncData::Resource(resource)),
             }));
         }
 
@@ -274,8 +281,13 @@ impl SyncService {
             if let Some(data) = &payload.data {
                 match data {
                     SyncData::Folder(folder) => self.folder_repository.save(folder).await?,
-                    SyncData::Credential(credential) => {
-                        self.credential_repository.save(credential).await?
+                    SyncData::Resource(resource_key_pair) => {
+                        self.resource_repository
+                            .save_resource_with_key(
+                                &resource_key_pair.resource,
+                                &resource_key_pair.key,
+                            )
+                            .await?
                     }
                     SyncData::Device(device) => {
                         if device.id != current_device_id {
@@ -340,68 +352,66 @@ impl SyncService {
         Ok(())
     }
 
-    pub async fn add_credential_to_sync(
-        &self,
-        credential: Credential,
-    ) -> Result<(), RepositoryError> {
+    pub async fn add_resource_to_sync(&self, resource: Resource) -> Result<(), RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
             .device_repository
             .get_devices_except(vec![current_device_id.clone()].as_slice())
             .await?;
         let sync_record_set =
-            SyncRecord::create_credential_sync_record(credential.id, current_device_id, &devices);
+            SyncRecord::create_resource_sync_record(resource.id, current_device_id, &devices);
         self.sync_repository
             .add_sync_record_set(sync_record_set)
             .await?;
         Ok(())
     }
 
-    pub async fn add_soft_deletion_sync_record(
-        &self,
-        resource_id: String,
-        resource_type: sync_types::ResourceType,
-    ) -> Result<(), RepositoryError> {
-        // Get current device ID
-        let current_device_id = self.store_repository.get_device_key().await?;
-
-        // Get all devices to sync with
-        let devices = self.device_repository.get_all_devices().await?;
-
-        match resource_type {
-            sync_types::ResourceType::Folder => {
-                let credentials = self
-                    .credential_repository
-                    .find_all_by_folder(&resource_id)
-                    .await?;
-                let sync_sets = SyncRecord::create_soft_delete_folder_records(
-                    resource_id,
-                    credentials,
-                    current_device_id,
-                    &devices,
-                );
-                //TODO: make this into a single transaction
-                for sync_set in sync_sets {
-                    self.sync_repository.add_sync_record_set(sync_set).await?;
-                }
-            }
-            sync_types::ResourceType::Credential => {
-                let sync_set = SyncRecord::create_soft_delete_credential_records(
-                    resource_id,
-                    current_device_id,
-                    &devices,
-                );
-                self.sync_repository.add_sync_record_set(sync_set).await?;
-            }
-            _ => {
-                return Err(RepositoryError::DatabaseError(
-                    "Unsupported resource type for deletion".to_string(),
-                ))
-            }
-        }
-
-        Ok(())
-    }
+    // pub async fn add_soft_deletion_sync_record(
+    //     &self,
+    //     resource_id: String,
+    //     resource_type: sync_types::ResourceType,
+    // ) -> Result<(), RepositoryError> {
+    //     // Get current device ID
+    //     let user_id = self.get_current_user_id().await?;
+    //     let current_device_id = self.store_repository.get_device_key().await?;
+    //
+    //     // Get all devices to sync with
+    //     let devices = self.device_repository.get_all_devices().await?;
+    //
+    //     match resource_type {
+    //         sync_types::ResourceType::Folder => {
+    //             let resources = self
+    //                 .resource_repository
+    //                 .find_all_by_folder(&resource_id, &user_id)
+    //                 .await?;
+    //             let sync_sets = SyncRecord::create_soft_delete_folder_records(
+    //                 resource_id,
+    //                 resources,
+    //                 current_device_id,
+    //                 &devices,
+    //             );
+    //             //TODO: make this into a single transaction
+    //             for sync_set in sync_sets {
+    //                 self.sync_repository.add_sync_record_set(sync_set).await?;
+    //             }
+    //         }
+    //         sync_types::ResourceType::Resource => {
+    //             let sync_set = SyncRecord::create_soft_delete_resource_records(
+    //                 resource_id,
+    //                 current_device_id,
+    //                 &devices,
+    //             );
+    //             self.sync_repository.add_sync_record_set(sync_set).await?;
+    //         }
+    //         _ => {
+    //             return Err(RepositoryError::DatabaseError(
+    //                 "Unsupported resource type for deletion".to_string(),
+    //             ))
+    //         }
+    //     }
+    //
+    //     Ok(())
+    // }
 
     //TODO: change these types of function to syncpayload domain
     pub fn generate_add_device_payload(
@@ -431,5 +441,14 @@ impl SyncService {
             .update_device_sync_record_status(device_sync_record_id)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    async fn get_current_user_id(&self) -> Result<String, String> {
+        let public_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto.get_public_key().map_err(|e| e.to_string())?
+        };
+
+        get_key_id(&public_key).map_err(|e| e.to_string())
     }
 }

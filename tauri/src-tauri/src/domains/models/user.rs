@@ -10,12 +10,19 @@ pub struct User {
     pub created_at: i64,
     pub signature: String,
     pub updated_at: i64,
+    pub owner: bool,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
 }
 
 impl User {
-    pub fn new(username: String, id: String, public_key: String, signature: String) -> Self {
+    pub fn new(
+        username: String,
+        id: String,
+        public_key: String,
+        signature: String,
+        owner: bool,
+    ) -> Self {
         let now = Local::now().timestamp_millis();
 
         Self {
@@ -23,6 +30,7 @@ impl User {
             username,
             public_key,
             signature,
+            owner,
             created_at: now,
             updated_at: now,
             deleted: false,

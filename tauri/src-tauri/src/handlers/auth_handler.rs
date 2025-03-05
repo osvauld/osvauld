@@ -1,4 +1,4 @@
-use crate::application::services::{AuthService, P2PService, SyncService};
+use crate::application::services::{AuthService, P2PService, SyncService, UserService};
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
@@ -11,24 +11,31 @@ pub async fn check_signup_status(
     auth_service: State<'_, Arc<AuthService>>,
 ) -> Result<CryptoResponse, String> {
     let is_signed_up = auth_service.is_signed_up().await?;
-    Ok(CryptoResponse::IsSignedUp {
-        isSignedUp: is_signed_up,
-    })
+    Ok(CryptoResponse::IsSignedUp { is_signed_up })
 }
 
 #[tauri::command]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
+    user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
     let user = auth_service
         .handle_sign_up(&input.username, &input.passphrase)
         .await?;
 
+    auth_service.load_certificate(&input.passphrase).await?;
+    user_service
+        .add_known_user(
+            user.username.clone(),
+            user.certificate.public_key.clone(),
+            true,
+        )
+        .await?;
     Ok(CryptoResponse::SavePassphrase {
         username: user.username,
-        deviceKey: user.certificate.public_key.clone(),
-        encryptionKey: user.certificate.public_key,
+        device_key: user.certificate.public_key.clone(),
+        encryption_key: user.certificate.public_key,
     })
 }
 
