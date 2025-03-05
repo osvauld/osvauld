@@ -96,6 +96,32 @@
 			// Mark this note as loaded
 			currentlyLoadedNoteId = id;
 
+			setTimeout(() => {
+				if (view) {
+					try {
+						// Force focus on the editor
+						view.focus();
+
+						// Create a transaction to position the cursor at the end
+						const tr = view.state.tr;
+
+						// Get the end position of the document
+						const endPosition = tr.doc.content.size;
+
+						// Set the selection at the end position
+						tr.setSelection(
+							view.state.selection.constructor.near(
+								tr.doc.resolve(Math.max(0, endPosition)),
+							),
+						);
+
+						// Dispatch the transaction with a custom "cursorPlacement" metadata
+						view.dispatch(tr.setMeta("cursorPlacement", true));
+					} catch (err) {
+						console.error("Error positioning cursor:", err);
+					}
+				}
+			}, 100);
 			// Setup auto-save
 			if (autoSaveInterval) {
 				clearInterval(autoSaveInterval);
@@ -160,6 +186,12 @@
 			try {
 				const newState = view.state.apply(tr);
 				view.updateState(newState);
+
+				// Skip the update cycle for cursor placement transactions
+				if (tr.getMeta("cursorPlacement")) {
+					return;
+				}
+
 				notesInstance.updateEditorState(newState);
 
 				// Only trigger Yjs update if document actually changed
