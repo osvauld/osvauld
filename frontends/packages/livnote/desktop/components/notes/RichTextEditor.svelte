@@ -301,7 +301,7 @@
 		display: inline-flex;
 		align-items: center;
 		height: 24px;
-		margin-right: 1px;
+		margin-right: 4px;
 		cursor: pointer;
 	}
 
@@ -332,12 +332,24 @@
 		cursor: pointer;
 		font-size: 14px;
 		color: white;
+		position: relative;
 	}
 
 	:global(.ProseMirror-menu-dropdown-item:hover) {
 		background: #2a2b2f;
 	}
 
+	:global(.ProseMirror-menu-submenu) {
+		position: absolute;
+		right: -70px;
+		top: 0;
+		background: #16171f;
+		border: 1px solid #2a2b2f;
+		border-radius: 2px;
+		padding: 2px 0;
+		min-width: 67px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+	}
 	:global(.ProseMirror-icon) {
 		display: inline-flex;
 		align-items: center;
