@@ -317,4 +317,37 @@ impl SyncRepository for SqliteSyncRepository {
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
+
+    async fn get_sync_records_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+    ) -> Result<Vec<SyncRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let models = sync_records::table
+            .filter(sync_records::resource_id.eq(resource_id))
+            .filter(sync_records::operation_type.eq(operation_type))
+            .order_by(sync_records::created_at.desc())
+            .select(SyncRecordModel::as_select())
+            .load::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(models.iter().map(|m| m.to_domain()).collect())
+    }
+
+    async fn get_device_records_by_sync_id(
+        &self,
+        sync_id: &str,
+    ) -> Result<Vec<DeviceRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let models = device_records::table
+            .filter(device_records::sync_record_id.eq(sync_id))
+            .select(DeviceRecordModel::as_select())
+            .load::<DeviceRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(models.iter().map(|dr| dr.to_domain()).collect())
+    }
 }

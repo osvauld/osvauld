@@ -1,7 +1,7 @@
 use tokio::sync::Mutex;
 
-use crate::domains::models::share_record::{ShareRecord, ShareRecordSet};
-use crate::domains::models::share_types::ShareOperation;
+use crate::domains::models::share_record::{self, ShareRecord, ShareRecordSet, UserRecordSet};
+use crate::domains::models::share_types::{ShareOperation, ShareStatus};
 use crate::domains::repositories::{
     RepositoryError, ShareRepository, StoreRepository, UserRepository,
 };
@@ -72,5 +72,110 @@ impl ShareService {
         );
 
         Ok(share_record_set)
+    }
+    pub async fn prepare_content_update_records(
+        &self,
+        resource_id: String,
+    ) -> Result<Option<UserRecordSet>, ShareServiceError> {
+        // Get the current user ID
+        let current_user_id = self
+            .get_current_user_id()
+            .await
+            .map_err(|e| ShareServiceError::CryptoError(e))?;
+
+        // Find effective share records for this resource (only active shares, not revoked)
+        let share_records = self
+            .share_repository
+            .get_effective_share_records(&resource_id)
+            .await
+            .map_err(ShareServiceError::RepositoryError)?;
+
+        // If no effective share records exist, we're done
+        if share_records.is_empty() {
+            return Ok(None);
+        }
+
+        // Get the first share record - we only need one to work with
+        let share_record = &share_records[0];
+
+        // Get all user records for just this one share record
+        let user_records = self
+            .share_repository
+            .get_user_records_by_share_id(&share_record.id)
+            .await
+            .map_err(ShareServiceError::RepositoryError)?;
+
+        // If there's only one user record and it's for the current user, no updates needed
+        if user_records.len() == 1 && user_records[0].user_id == current_user_id {
+            return Ok(None);
+        }
+
+        // Process the user records to get all involved users
+        let mut all_involved_users = Vec::new();
+        let mut users_needing_updates = Vec::new();
+
+        for user_record in &user_records {
+            // Get the user associated with this record
+            let user = self
+                .user_repository
+                .get_user_by_id(&user_record.user_id)
+                .await
+                .map_err(ShareServiceError::RepositoryError)?;
+
+            // Add to the list of all involved users
+            all_involved_users.push(user.clone());
+
+            // If the user record is completed and not for the current user,
+            // this user needs an update record
+            if user_record.status == ShareStatus::Completed
+                && user_record.user_id != current_user_id
+            {
+                users_needing_updates.push(user.clone());
+            }
+        }
+
+        // If no users need updates, we're done
+        if users_needing_updates.is_empty() {
+            return Ok(None);
+        }
+
+        // Create the user record set for content update
+        let user_record_set = ShareRecord::create_user_update_records(
+            share_record.id.clone(),
+            &users_needing_updates,
+            current_user_id,
+            &all_involved_users,
+        );
+
+        Ok(Some(user_record_set))
+    }
+
+    pub async fn prepare_share_records(
+        &self,
+        resource_id: String,
+        recipient_public_key: String,
+    ) -> Result<UserRecordSet, ShareServiceError> {
+        let current_user_id = self
+            .get_current_user_id()
+            .await
+            .map_err(|e| ShareServiceError::CryptoError(e))?;
+        let recipient_id = get_key_id(&recipient_public_key)
+            .map_err(|e| ShareServiceError::CryptoError(e.to_string()))?;
+        let recipient_user = self.user_repository.get_user_by_id(&recipient_id).await?;
+        let share_records = self
+            .share_repository
+            .get_effective_share_records(&resource_id)
+            .await?;
+        let share_record = &share_records[0];
+        let existing_user_records = self
+            .share_repository
+            .get_user_records_by_share_id(&share_record.id)
+            .await?;
+        let user_record_set = ShareRecord::generate_share_user_records(
+            recipient_user,
+            current_user_id,
+            &existing_user_records,
+        );
+        Ok(user_record_set)
     }
 }

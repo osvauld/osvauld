@@ -3,6 +3,7 @@ use crate::database::DbConnection;
 use crate::domains::models::share_record::{
     ShareRecord, ShareRecordSet, ShareStatusChangeSet, UserRecord, UserRecordSet, UserRecordStatus,
 };
+use crate::domains::models::share_types::ShareOperation;
 use crate::domains::repositories::{RepositoryError, ShareRepository};
 use crate::persistence::models::{ShareRecordModel, UserRecordModel, UserRecordStatusModel};
 use async_trait::async_trait;
@@ -324,5 +325,38 @@ impl ShareRepository for SqliteShareRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(models.iter().map(|m| m.to_domain()).collect())
+    }
+    async fn get_effective_share_records(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let models = share_records::table
+            .filter(share_records::resource_id.eq(resource_id))
+            .filter(share_records::operation_type.eq(ShareOperation::Share.to_string()))
+            .order_by(share_records::created_at.desc())
+            .limit(1) // Start with just one record for our optimization
+            .select(ShareRecordModel::as_select())
+            .load::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(models.iter().map(|m| m.to_domain()).collect())
+    }
+
+    async fn get_user_records_by_share_id(
+        &self,
+        share_id: &str,
+    ) -> Result<Vec<UserRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Get all user records for this share record
+        let models = user_records::table
+            .filter(user_records::share_record_id.eq(share_id))
+            .select(UserRecordModel::as_select())
+            .load::<UserRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(models.iter().map(|ur| ur.to_domain()).collect())
     }
 }

@@ -166,7 +166,7 @@ pub struct ResourceResponse {
     pub folder_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct UpdateResources {
     pub id: String,
     pub data: String,

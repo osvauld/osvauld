@@ -242,8 +242,8 @@ impl ResourceService {
     pub async fn share_resource(
         &self,
         resource_id: String,
-        public_key: String,
-    ) -> Result<(), ResourceServiceError> {
+        recipient_public_key: String,
+    ) -> Result<ResourceKey, ResourceServiceError> {
         let current_user = self.get_current_user_id().await?;
 
         let resource_key = self
@@ -253,15 +253,14 @@ impl ResourceService {
         let new_encryption_key = {
             let crypto = self.crypto_utils.lock().await;
             crypto
-                .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &public_key)
+                .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_public_key)
                 .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
         };
-        let shared_user_id = get_key_id(&public_key)
+        let shared_user_id = get_key_id(&recipient_public_key)
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
         let new_resource_key =
             ResourceKey::new(resource_id, shared_user_id, new_encryption_key, false);
-        self.resource_key_repository.save(&new_resource_key).await?;
-        Ok(())
+        Ok(new_resource_key)
     }
 }
