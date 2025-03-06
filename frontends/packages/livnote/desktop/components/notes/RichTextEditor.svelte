@@ -416,26 +416,28 @@
 		position: relative;
 		margin-left: -1px;
 		margin-right: -1px;
-		border-left: 1px solid white;
-		border-right: 1px solid white;
+		border-left: 2px solid black; /* Slightly thicker */
+		border-right: 2px solid black;
 		pointer-events: none;
+		z-index: 20;
 	}
 
+	/* Username tooltip */
 	:global(.ProseMirror-yjs-cursor > div) {
 		position: absolute;
-		top: -1.05em;
+		top: -1.8em;
 		left: -1px;
-		font-size: 13px;
-		background-color: rgb(250, 129, 0);
-		font-family: serif;
-		font-style: normal;
-		font-weight: normal;
+		font-size: 12px;
+		background-color: inherit; /* Will inherit from the cursor */
+		font-family: "Inter", "Segoe UI", sans-serif;
+		font-weight: 500;
 		line-height: normal;
 		user-select: none;
 		color: white;
-		padding: 2px 6px;
-		border-radius: 3px;
+		padding: 3px 8px;
+		border-radius: 4px;
 		white-space: nowrap;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 	}
 
 	:global(.ProseMirror-icon:hover) {
