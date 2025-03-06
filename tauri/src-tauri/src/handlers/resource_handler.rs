@@ -1,9 +1,10 @@
-use crate::application::services::{ResourceService, SyncService};
-use crate::domains::models::sync_types::ResourceType;
+use crate::application::services::{
+    ResourceService, ShareService, SyncService, TransactionService,
+};
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetAllResources, GetResource,
-    GetResourceForFolderInput, ResourceResponse, ToggleFavInput, UpdateLastAccessedInput,
-    UpdateResources,
+    GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
+    UpdateLastAccessedInput, UpdateResources,
 };
 use log::info;
 use std::sync::Arc;
@@ -14,15 +15,31 @@ pub async fn handle_add_resource(
     input: AddResourceInput,
     resource_service: State<'_, Arc<ResourceService>>,
     sync_service: State<'_, Arc<SyncService>>,
+    share_service: State<'_, Arc<ShareService>>,
+    transaction_service: State<'_, Arc<TransactionService>>,
 ) -> Result<CryptoResponse, String> {
-    let resource = resource_service
+    let (resource, resource_key) = resource_service
         .add_resource(input.resource_payload, input.resource_type, input.folder_id)
         .await
         .map_err(|e| e.to_string())?;
-    sync_service
-        .add_resource_to_sync(resource.clone())
+    let sync_record_set = sync_service
+        .prepare_resource_to_sync(resource.clone())
         .await
         .map_err(|e| e.to_string())?;
+    let share_record_set = share_service
+        .prepare_owner_share_record(resource.id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = transaction_service
+        .create_resource_with_sync(
+            resource.clone(),
+            resource_key,
+            sync_record_set,
+            share_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string());
+
     Ok(CryptoResponse::ResourceCreateted(resource.id))
 }
 
@@ -54,7 +71,7 @@ pub async fn handle_get_resources_for_folder(
 pub async fn soft_delete_resource(
     input: DeleteResourceInput,
     resource_service: State<'_, Arc<ResourceService>>,
-    sync_service: State<'_, Arc<SyncService>>,
+    // sync_service: State<'_, Arc<SyncService>>,
 ) -> Result<(), String> {
     info!("deleting resource {}", input.resource_id);
     resource_service
@@ -119,7 +136,7 @@ pub async fn update_resource(
     resource_service: State<'_, Arc<ResourceService>>,
     input: UpdateResources,
 ) -> Result<CryptoResponse, String> {
-    resource_service
+    let (encrypted_data, current_user) = resource_service
         .update_resources(input)
         .await
         .map_err(|e| e.to_string())?;
@@ -131,10 +148,21 @@ pub async fn get_resource(
     input: GetResource,
     resource_service: State<'_, Arc<ResourceService>>,
 ) -> Result<CryptoResponse, String> {
-    log::info!("input{:?}", input);
     let resource = resource_service
         .get_resource(input.resource_id)
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::GetResourceResponse(resource))
+}
+
+#[tauri::command]
+pub async fn share_resource(
+    input: ShareResource,
+    resource_service: State<'_, Arc<ResourceService>>,
+) -> Result<CryptoResponse, String> {
+    resource_service
+        .share_resource(input.resource_id, input.public_key)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(CryptoResponse::Success)
 }

@@ -110,20 +110,19 @@ pub struct GetAllResources {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-
 pub struct PasswordChangeInput {
     pub old_password: String,
     pub new_password: String,
 }
 
-pub struct ResourceType {
-    pub resource_id: String,
-    pub resource_type: String,
-    pub data: String,
-    pub folder_id: String,
-    pub signature: String,
-    pub permission: String,
-}
+// pub struct ResourceType {
+//     pub resource_id: String,
+//     pub resource_type: String,
+//     pub data: String,
+//     pub folder_id: String,
+//     pub signature: String,
+//     pub permission: String,
+// }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddFolderInput {
@@ -184,4 +183,11 @@ pub struct GetResource {
 pub struct AddKnownUser {
     pub nickname: String,
     pub public_key: String,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareResource {
+    pub public_key: String,
+    pub resource_id: String,
 }

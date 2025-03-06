@@ -82,7 +82,7 @@
 				const timeB = b.data.last_accessed || b.data.last_modified || 0;
 				return timeB - timeA;
 			});
-
+			console.log("fetched notest", fetchedNotes);
 			//updatedNotes = fetchedNotes;
 			notes.set(fetchedNotes);
 		} catch (err) {
@@ -184,8 +184,8 @@
 	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
 			<RichTextEditor
-				on:collaboration-update="{(event) =>
-					emit('sync-update', JSON.stringify(event.detail))}" />
+				on:collaboration-update={(event) =>
+					emit("sync-update", JSON.stringify(event.detail))} />
 		{:else if isLoading}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">Loading notes...</div>
@@ -208,7 +208,7 @@
 							<!-- {@const noreData = console.log("noted =>>", note)} -->
 							<div
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
-								on:click="{() => selectNote(note.id)}">
+								on:click={() => selectNote(note.id)}>
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
@@ -217,8 +217,8 @@
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
-										on:click|stopPropagation="{() =>
-											toggleFavorite(note.id, note.favourite)}">
+										on:click|stopPropagation={() =>
+											toggleFavorite(note.id, note.favourite)}>
 										{#if note.favourite}
 											<Star />
 										{:else}
@@ -229,9 +229,9 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-										content="{note.data.content}"
-										editorState="{note.data.editor_state}"
-										yjsState="{note.data.yjs_state}"
+										content={note.data.content}
+										editorState={note.data.editor_state}
+										yjsState={note.data.yjs_state}
 										maxHeight="120px"
 										minHeight="120px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

@@ -1,12 +1,17 @@
 use crate::database::schema::{
-    device_record_status, device_records, devices, folders, resource_keys, resources, sync_records,
-    users,
+    device_record_status, device_records, devices, folders, resource_keys, resources,
+    share_records, sync_records, user_record_status, user_records, users,
 };
 use crate::domains::models::{
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
     resource::Resource as DomainResource,
     resource_key::ResourceKey as DomainResourceKey,
+    share_record::{
+        ShareRecord as DomainShareRecord, UserRecord as DomainUserRecord,
+        UserRecordStatus as DomainUserRecordStatus,
+    },
+    share_types::{ShareOperation, ShareStatus},
     sync_record::DeviceRecord as DomainDeviceRecord,
     sync_record::DeviceRecordStatus as DomainDeviceRecordStatus,
     sync_record::SyncRecord as DomainSyncRecord,
@@ -378,5 +383,119 @@ impl From<ResourceKeyModel> for DomainResourceKey {
 impl ResourceKeyModel {
     pub fn to_domain_resource(models: Vec<ResourceKeyModel>) -> Vec<DomainResourceKey> {
         models.into_iter().map(DomainResourceKey::from).collect()
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = share_records)]
+pub struct ShareRecordModel {
+    pub id: String,
+    pub resource_id: String,
+    pub shared_by_user_id: String,
+    pub operation_type: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl ShareRecordModel {
+    pub fn to_domain(&self) -> DomainShareRecord {
+        DomainShareRecord {
+            id: self.id.clone(),
+            resource_id: self.resource_id.clone(),
+            shared_by_user_id: self.shared_by_user_id.clone(),
+            operation_type: ShareOperation::from(self.operation_type.clone()),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+impl From<&DomainShareRecord> for ShareRecordModel {
+    fn from(record: &DomainShareRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            resource_id: record.resource_id.clone(),
+            shared_by_user_id: record.shared_by_user_id.clone(),
+            operation_type: record.operation_type.to_string(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = user_records)]
+pub struct UserRecordModel {
+    pub id: String,
+    pub share_record_id: String,
+    pub user_id: String,
+    pub status: String,
+    pub synced: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl UserRecordModel {
+    pub fn to_domain(&self) -> DomainUserRecord {
+        DomainUserRecord {
+            id: self.id.clone(),
+            share_record_id: self.share_record_id.clone(),
+            user_id: self.user_id.clone(),
+            status: ShareStatus::from(self.status.clone()),
+            synced: self.synced,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+impl From<&DomainUserRecord> for UserRecordModel {
+    fn from(record: &DomainUserRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            share_record_id: record.share_record_id.clone(),
+            user_id: record.user_id.clone(),
+            status: record.status.to_string(),
+            synced: record.synced,
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = user_record_status)]
+pub struct UserRecordStatusModel {
+    pub id: String,
+    pub user_record_id: String,
+    pub aware_user_id: String,
+    pub synced: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl UserRecordStatusModel {
+    pub fn to_domain(&self) -> DomainUserRecordStatus {
+        DomainUserRecordStatus {
+            id: self.id.clone(),
+            user_record_id: self.user_record_id.clone(),
+            aware_user_id: self.aware_user_id.clone(),
+            synced: self.synced,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+impl From<&DomainUserRecordStatus> for UserRecordStatusModel {
+    fn from(status: &DomainUserRecordStatus) -> Self {
+        Self {
+            id: status.id.clone(),
+            user_record_id: status.user_record_id.clone(),
+            aware_user_id: status.aware_user_id.clone(),
+            synced: status.synced,
+            created_at: status.created_at,
+            updated_at: status.updated_at,
+        }
     }
 }

@@ -11,7 +11,9 @@ use crate::application::services::AuthService;
 use crate::application::services::FolderService;
 use crate::application::services::P2PService;
 use crate::application::services::ResourceService;
+use crate::application::services::ShareService;
 use crate::application::services::SyncService;
+use crate::application::services::TransactionService;
 use crate::application::services::UserService;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
@@ -30,7 +32,8 @@ use crate::handlers::resource_handler::{
 use crate::handlers::user_handler::{add_known_user, get_known_users};
 use crate::persistence::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteSyncRepository, SqliteUserRepository, TauriStoreRepository,
+    SqliteResourceRepository, SqliteShareRepository, SqliteSyncRepository, SqliteUserRepository,
+    TauriStoreRepository,
 };
 use crypto_utils::CryptoUtils;
 use std::fs;
@@ -98,7 +101,7 @@ pub fn run() {
                     let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
                     let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
                     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
-
+                    let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
                     let resource_key_repo =
                         Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
                     // Initialize folder service with cloned repositories
@@ -118,7 +121,7 @@ pub fn run() {
                         folder_repo.clone(),
                         resource_repo.clone(),
                         device_repo,
-                        store_repository,
+                        store_repository.clone(),
                         crypto_utils.clone(),
                     ));
                     let p2p_service = Arc::new(P2PService::new(
@@ -131,7 +134,22 @@ pub fn run() {
                         crypto_utils.clone(),
                         resource_key_repo.clone(),
                     ));
-                    let user_service = Arc::new(UserService::new(user_repository, crypto_utils));
+                    let user_service = Arc::new(UserService::new(
+                        user_repository.clone(),
+                        crypto_utils.clone(),
+                    ));
+                    let share_service = Arc::new(ShareService::new(
+                        share_repo.clone(),
+                        store_repository.clone(),
+                        user_repository.clone(),
+                        crypto_utils.clone(),
+                    ));
+                    let transaction_service = Arc::new(TransactionService::new(
+                        resource_repo.clone(),
+                        resource_key_repo.clone(),
+                        sync_repo.clone(),
+                        share_repo.clone(),
+                    ));
 
                     // Manage all services
                     app.manage(folder_service);
@@ -140,6 +158,8 @@ pub fn run() {
                     app.manage(sync_service);
                     app.manage(p2p_service.clone());
                     app.manage(user_service);
+                    app.manage(share_service);
+                    app.manage(transaction_service);
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);

@@ -8,8 +8,8 @@ use tokio::sync::Mutex;
 pub enum UserServiceError {
     #[error("Repository error: {0}")]
     RepositoryError(#[from] RepositoryError),
-    #[error("Invalid input: {0}")]
-    ValidationError(String),
+    // #[error("Invalid input: {0}")]
+    // ValidationError(String),
 }
 
 pub struct UserService {

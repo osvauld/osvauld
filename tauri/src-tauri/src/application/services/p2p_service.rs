@@ -15,7 +15,6 @@ use iroh::{
 use log::{error, info};
 use std::sync::Arc;
 use tauri::Emitter;
-use tauri::Manager;
 use tauri::{AppHandle, Listener};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
@@ -716,8 +715,7 @@ impl P2PService {
                                                                 event,
                                                                 payload.clone(),
                                                             )
-                                                            .await;
-                                                            Ok(())
+                                                            .await
                                                         }
                                                         _ => Ok(()),
                                                     };
@@ -850,38 +848,38 @@ impl P2PService {
         }
     }
 
-    async fn handle_add_device_ack(&self, device: Device) -> Result<(), String> {
-        self.sync_service
-            .add_device_entry(device)
-            .await
-            .map_err(|e| e.to_string())
-    }
+    // async fn handle_add_device_ack(&self, device: Device) -> Result<(), String> {
+    //     self.sync_service
+    //         .add_device_entry(device)
+    //         .await
+    //         .map_err(|e| e.to_string())
+    // }
 
-    async fn handle_file_receive(&self, name: String, data: Vec<u8>) -> Result<(), String> {
-        // Get app data directory and create downloads folder within it
-        let app_data_dir = self.app_handle.path().app_data_dir().unwrap();
-        let downloads_dir = app_data_dir.join("downloads");
-
-        // Create downloads directory
-        tokio::fs::create_dir_all(&downloads_dir)
-            .await
-            .map_err(|e| format!("Failed to create downloads directory: {}", e))?;
-
-        // Write file to downloads directory
-        let file_path = downloads_dir.join(&name);
-        tokio::fs::write(&file_path, data)
-            .await
-            .map_err(|e| format!("Failed to write file: {}", e))?;
-
-        info!("File saved to: {}", file_path.display());
-
-        // Emit event to notify UI
-        if let Err(e) = self.app_handle.emit("file-received", name) {
-            error!("Failed to emit file received event: {}", e);
-        }
-
-        Ok(())
-    }
+    // async fn handle_file_receive(&self, name: String, data: Vec<u8>) -> Result<(), String> {
+    //     // Get app data directory and create downloads folder within it
+    //     let app_data_dir = self.app_handle.path().app_data_dir().unwrap();
+    //     let downloads_dir = app_data_dir.join("downloads");
+    //
+    //     // Create downloads directory
+    //     tokio::fs::create_dir_all(&downloads_dir)
+    //         .await
+    //         .map_err(|e| format!("Failed to create downloads directory: {}", e))?;
+    //
+    //     // Write file to downloads directory
+    //     let file_path = downloads_dir.join(&name);
+    //     tokio::fs::write(&file_path, data)
+    //         .await
+    //         .map_err(|e| format!("Failed to write file: {}", e))?;
+    //
+    //     info!("File saved to: {}", file_path.display());
+    //
+    //     // Emit event to notify UI
+    //     if let Err(e) = self.app_handle.emit("file-received", name) {
+    //         error!("Failed to emit file received event: {}", e);
+    //     }
+    //
+    //     Ok(())
+    // }
     pub async fn send_chat_message(&self, message: String) -> Result<CryptoResponse, String> {
         let msg = Message::Chat(message);
         let serialized = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
@@ -1025,7 +1023,7 @@ impl P2PService {
         };
         let serialized = serde_json::to_string(&msg)
             .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
-        self.send_message(serialized).await;
+        self.send_message(serialized).await?;
         Ok(())
     }
     pub async fn handle_sync_event(&self, event_name: &str, payload: String) -> Result<(), String> {
@@ -1061,4 +1059,3 @@ impl P2PService {
         }
     }
 }
-

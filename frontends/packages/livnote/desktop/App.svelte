@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
 	import Toast from "./components/ui/Toast.svelte";

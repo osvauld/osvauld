@@ -37,4 +37,17 @@ impl UserRepository for SqliteUserRepository {
 
         Ok(UserModel::to_domain_users(user_models))
     }
+
+    async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let user_model = users::table
+            .filter(users::id.eq(user_id))
+            .first::<UserModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+        let user: User = user_model.into();
+        Ok(user)
+    }
 }

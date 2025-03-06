@@ -21,7 +21,7 @@ impl Folder {
             id: Uuid::new_v4().to_string(),
             name,
             description,
-            created_at: now.clone(),
+            created_at: now,
             updated_at: now,
             deleted: false,
             deleted_at: None,

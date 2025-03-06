@@ -4,7 +4,10 @@ use crate::domains::models::{
     folder::Folder,
     resource::{Resource, ResourceKeyPair, ResourceWithKey},
     resource_key::ResourceKey,
-    resource_share::{PermissionLevel, ResourceShare, ShareStatus},
+    share_record::{
+        ShareRecord, ShareRecordSet, ShareStatusChangeSet, UserRecord, UserRecordSet,
+        UserRecordStatus,
+    },
     sync_record::{
         DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
         SyncRecordSet,
@@ -168,6 +171,7 @@ pub trait DeviceRecordStatusRepository: Send + Sync {
 pub trait UserRepository: Send + Sync {
     async fn add_known_user(&self, user: User) -> Result<(), RepositoryError>;
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
+    async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
 }
 
 #[async_trait]
@@ -191,25 +195,52 @@ pub trait ResourceKeyRepository: Send + Sync {
 }
 
 #[async_trait]
-pub trait ResourceShareRepository: Send + Sync {
-    async fn save(&self, share: &ResourceShare) -> Result<(), RepositoryError>;
-    async fn find_by_resource_id(
+pub trait ShareRepository: Send + Sync {
+    async fn add_share_record_set(&self, record_set: ShareRecordSet)
+        -> Result<(), RepositoryError>;
+
+    async fn add_status_change_set(
         &self,
-        resource_id: &str,
-    ) -> Result<Vec<ResourceShare>, RepositoryError>;
-    async fn find_by_shared_with_user(
+        status_set: ShareStatusChangeSet,
+    ) -> Result<(), RepositoryError>;
+
+    async fn update_user_record(
+        &self,
+        user_id: String,
+        share_id: String,
+    ) -> Result<(), RepositoryError>;
+
+    async fn update_user_record_set(
+        &self,
+        record_set: UserRecordSet,
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_pending_share_by_user(
         &self,
         user_id: &str,
-    ) -> Result<Vec<ResourceShare>, RepositoryError>;
-    async fn update_status(
+    ) -> Result<Option<(ShareRecord, Vec<UserRecord>, Vec<UserRecordStatus>)>, RepositoryError>;
+
+    async fn get_unsynced_user_share_records(
         &self,
-        share_id: &str,
-        status: ShareStatus,
-    ) -> Result<(), RepositoryError>;
-    async fn update_permission(
+        user_id: &str,
+    ) -> Result<Vec<(UserRecord, Vec<UserRecordStatus>)>, RepositoryError>;
+
+    async fn update_user_sync_record_status(
         &self,
-        share_id: &str,
-        permission: PermissionLevel,
+        user_sync_record_id: String,
     ) -> Result<(), RepositoryError>;
-    async fn delete(&self, share_id: &str) -> Result<(), RepositoryError>;
+
+    async fn update_share_status(
+        &self,
+        user_record_ids: Vec<String>,
+        status_record_ids: Vec<String>,
+    ) -> Result<(), RepositoryError>;
+
+    async fn update_user_sync_record_by_user_id(
+        &self,
+        user_record_ids: Vec<String>,
+        synced_user_id: String,
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_all_share_records(&self) -> Result<Vec<ShareRecord>, RepositoryError>;
 }

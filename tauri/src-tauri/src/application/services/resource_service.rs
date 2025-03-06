@@ -1,6 +1,8 @@
 use crate::domains::models::resource::{DecryptedResource, Resource, ResourceWithKey};
-use crate::domains::models::resource_key::{self, ResourceKey};
-use crate::domains::repositories::{RepositoryError, ResourceKeyRepository, ResourceRepository};
+use crate::domains::models::resource_key::ResourceKey;
+use crate::domains::repositories::{
+    RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
+};
 use crate::types::UpdateResources;
 use crypto_utils::{encrypt_data_for_users, get_key_id, types::UserPublicKey, CryptoUtils};
 use serde_json::Value;
@@ -43,7 +45,7 @@ impl ResourceService {
         resource_payload: String,
         resource_type: String,
         folder_id: String,
-    ) -> Result<Resource, ResourceServiceError> {
+    ) -> Result<(Resource, ResourceKey), ResourceServiceError> {
         // Encrypt the resource
         let public_key = {
             let crypto = self.crypto_utils.lock().await;
@@ -75,15 +77,7 @@ impl ResourceService {
             true, // Owner
         );
         log::info!("resource_key{:?}", resource_key);
-        self.resource_repository
-            .save(&resource)
-            .await
-            .map_err(ResourceServiceError::RepositoryError)?;
-        self.resource_key_repository
-            .save(&resource_key)
-            .await
-            .map_err(ResourceServiceError::RepositoryError)?;
-        Ok(resource)
+        Ok((resource, resource_key))
     }
 
     pub async fn delete_resource(&self, resource_id: String) -> Result<(), RepositoryError> {
@@ -105,7 +99,7 @@ impl ResourceService {
     pub async fn update_resources(
         &self,
         input: UpdateResources,
-    ) -> Result<(), ResourceServiceError> {
+    ) -> Result<(String, String), ResourceServiceError> {
         let user_id = self.get_current_user_id().await?;
         let old_resource = self
             .resource_repository
@@ -119,10 +113,7 @@ impl ResourceService {
                 .update_resource(&input.data, &old_resource.encrypted_key)
                 .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
         };
-        self.resource_repository
-            .update_resource(encrypted, old_resource.resource.id)
-            .await?;
-        Ok(())
+        Ok((encrypted, user_id))
     }
 
     pub async fn get_resource(
@@ -246,5 +237,31 @@ impl ResourceService {
         };
 
         get_key_id(&public_key).map_err(|e| ResourceServiceError::CryptoError(e.to_string()))
+    }
+
+    pub async fn share_resource(
+        &self,
+        resource_id: String,
+        public_key: String,
+    ) -> Result<(), ResourceServiceError> {
+        let current_user = self.get_current_user_id().await?;
+
+        let resource_key = self
+            .resource_key_repository
+            .find_by_resource_and_user(&resource_id, &current_user)
+            .await?;
+        let new_encryption_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &public_key)
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        };
+        let shared_user_id = get_key_id(&public_key)
+            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+
+        let new_resource_key =
+            ResourceKey::new(resource_id, shared_user_id, new_encryption_key, false);
+        self.resource_key_repository.save(&new_resource_key).await?;
+        Ok(())
     }
 }

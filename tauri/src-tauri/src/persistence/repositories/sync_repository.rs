@@ -86,7 +86,7 @@ impl SyncRepository for SqliteSyncRepository {
                 device_records::updated_at.eq(chrono::Local::now().timestamp_millis()),
             ))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         diesel::update(device_record_status::table)
             .filter(device_record_status::device_record_id.eq(&device_record_id))
             .filter(device_record_status::aware_device_id.eq(&device_id))
@@ -95,7 +95,7 @@ impl SyncRepository for SqliteSyncRepository {
                 device_record_status::updated_at.eq(chrono::Local::now().timestamp_millis()),
             ))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(())
     }
     async fn update_device_sync_record_status(
@@ -107,7 +107,7 @@ impl SyncRepository for SqliteSyncRepository {
             .filter(device_record_status::id.eq(device_sync_record_id))
             .set(device_record_status::synced.eq(true))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()));
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(())
     }
     async fn add_status_change_set(

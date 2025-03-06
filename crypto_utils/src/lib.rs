@@ -390,37 +390,63 @@ impl CryptoUtils {
 
     /// Update an existing resource using its encrypted key
     pub fn update_resource(&self, data: &str, encrypted_key: &str) -> Result<String, CryptoError> {
+        // Decrypt the AES key using our helper function
+        let key_bytes = self.decrypt_aes_key(encrypted_key)?;
+
+        // Create an AES key from the bytes
+        let aes_key = Aes_Key::<Aes256Gcm>::from_slice(&key_bytes);
+
+        // Use the AES key to encrypt the new data
+        let encrypted_data =
+            crypto_core::encrypt_with_aes(aes_key, data).map_err(|e| CryptoError::AesError(e))?;
+
+        Ok(encrypted_data)
+    }
+
+    fn decrypt_aes_key(&self, encrypted_key: &str) -> Result<Vec<u8>, CryptoError> {
         let policy = &StandardPolicy::new();
 
-        // Convert CryptoUtilsError
+        // Get the certificate
         let cert = self
             .get_cert()
             .map_err(|e| CryptoError::CryptoUtilsError(e))?;
 
-        // Convert PgpError
+        // Get the decryption key from the certificate
         let decrypt_key =
             crypto_core::get_decryption_key(cert).map_err(|e| CryptoError::PgpError(e))?;
 
-        // Decrypt the encrypted AES key using PGP - Convert PgpError
+        // Decrypt the encrypted AES key using PGP
         let encrypted_key_bytes = encrypted_key.as_bytes();
         let decrypted_key =
             crypto_core::decrypt_text_pgp(policy, &decrypt_key, encrypted_key_bytes)
                 .map_err(|e| CryptoError::PgpError(e))?;
 
-        // Convert UTF-8 error
+        // Convert to UTF-8 string
         let utf8_key = String::from_utf8(decrypted_key)?;
 
-        // Convert base64 decode error
+        // Decode from base64
         let key_bytes = decode(&utf8_key)?;
 
-        // Create an AES key from the bytes
-        let aes_key = Aes_Key::<Aes256Gcm>::from_slice(&key_bytes);
+        Ok(key_bytes)
+    }
 
-        // Use the proper AES key type to encrypt the new data - Convert AesError
-        let encrypted_data =
-            crypto_core::encrypt_with_aes(aes_key, data).map_err(|e| CryptoError::AesError(e))?;
+    pub fn encrypt_key_with_new_pub_key(
+        &self,
+        encrypted_key: &str,
+        public_key: &str,
+    ) -> Result<String, CryptoError> {
+        // Decrypt the existing AES key using the loaded certificate
+        let key_bytes = self.decrypt_aes_key(encrypted_key)?;
 
-        Ok(encrypted_data)
+        // Get a recipient from the new public key
+        let recipient =
+            crypto_core::get_recipient(public_key).map_err(|e| CryptoError::PgpError(e))?;
+
+        // Re-encrypt the AES key with the new public key
+        let newly_encrypted_key = crypto_core::encrypt_text_pgp(&recipient, &encode(&key_bytes))
+            .map_err(|e| CryptoError::Other(e.to_string()))?;
+
+        Ok(newly_encrypted_key)
     }
 }
 
