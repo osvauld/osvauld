@@ -1,5 +1,7 @@
 use crate::application::services::P2PService;
+use crate::application::services::UserService;
 use crate::types::CryptoResponse;
+use crate::types::InitiateFirstConnectionInput;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
@@ -48,4 +50,18 @@ pub async fn send_snapshot(
         .await
         .map_err(|e| CryptoResponse::Error(e));
     Ok(())
+}
+
+#[tauri::command]
+pub async fn initiate_first_connection(
+    input: InitiateFirstConnectionInput,
+    p2p_service: State<'_, Arc<P2PService>>,
+    user_service: State<'_, Arc<UserService>>,
+) -> Result<CryptoResponse, String> {
+    p2p_service.connect_with_ticket(&input.ticket).await?;
+    let user = user_service.get_current_user().await?;
+    p2p_service
+        .initiate_first_user_connection(&user, &input.ticket)
+        .await?;
+    Ok(CryptoResponse::Success)
 }

@@ -85,6 +85,7 @@ const tauriBrowser = {
           'addKnownUser': (data: any) => invoke('add_known_user', { input: data }),
           'getKnownUsers': () => invoke('get_known_users'),
           'getPublicKey': () => invoke('get_public_key'),
+          'initiateFirstConnection': (data: any) => invoke('initiate_first_connection', { input: data })
         };
 
         const handler = handlerMap[action];

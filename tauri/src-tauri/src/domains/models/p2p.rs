@@ -2,6 +2,7 @@ use crate::domains::models::device::Device;
 use crate::domains::models::folder::Folder;
 use crate::domains::models::resource::ResourceKeyPair;
 use crate::domains::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
+use crate::domains::models::user::User;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::time;
@@ -37,6 +38,8 @@ pub enum Message {
     FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
+    FirstUserConnection(User),
+    UserAddAck(String),
 }
 
 #[derive(Serialize, Deserialize)]

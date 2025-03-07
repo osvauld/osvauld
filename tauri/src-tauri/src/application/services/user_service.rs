@@ -33,8 +33,8 @@ impl UserService {
         public_key: String,
         owner: bool,
     ) -> Result<User, String> {
-        log::info!("input {:?}, {:?}, ", username, public_key);
-        let key_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
+        log::info!("public key {:?}", public_key);
+        let key_id = get_key_id(&public_key.clone()).map_err(|e| e.to_string())?;
         let signature = {
             let crypto = self.crypto_utils.lock().await;
             crypto
@@ -56,5 +56,22 @@ impl UserService {
             .get_known_users()
             .await
             .map_err(|e| e.to_string())
+    }
+
+    pub async fn get_user_by_id(&self, user_id: &str) -> Result<User, String> {
+        self.user_repository
+            .get_user_by_id(user_id)
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn get_current_user(&self) -> Result<User, String> {
+        let public_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto.get_public_key().map_err(|e| e.to_string())?
+        };
+
+        let user_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
+        self.get_user_by_id(&user_id).await
     }
 }

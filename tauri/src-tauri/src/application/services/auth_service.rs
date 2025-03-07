@@ -4,6 +4,8 @@ use crate::domains::models::{device::Device, sync_record::SyncRecord};
 use crate::domains::repositories::{
     DeviceRepository, RepositoryError, StoreRepository, SyncRepository,
 };
+
+use base64::encode;
 use crypto_utils::{
     change_certificate_password, export_certificate, generate_keys, get_key_id, import_certificate,
     CryptoUtils,
@@ -299,6 +301,8 @@ impl AuthService {
                 .get_public_key()
                 .map_err(|e| format!("Failed to get public key: {}", e))?
         };
-        Ok(public_key)
+        let encoded_public_key = encode(public_key);
+
+        Ok(encoded_public_key)
     }
 }

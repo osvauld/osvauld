@@ -4,6 +4,7 @@ use crate::domains::models::device::Device;
 use crate::domains::models::p2p::{
     ConnectionTicket, HandshakeError, HandshakeMessage, Message, SyncAckType, SyncPayload,
 };
+use crate::domains::models::user::User;
 use crate::types::CryptoResponse;
 use iroh::endpoint::Connection;
 const MAX_HANDSHAKE_SIZE: usize = 8192; // 8KB max size for handshake messages
@@ -19,6 +20,8 @@ use tauri::{AppHandle, Listener};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
+
+use super::{user_service, UserService};
 
 const ALPN_PROTOCOL: &[u8] = b"n0/iroh/examples/magic/0";
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -37,6 +40,7 @@ pub struct P2PService {
     app_handle: AppHandle,
     sync_service: Arc<SyncService>,
     auth_service: Arc<AuthService>,
+    user_service: Arc<UserService>,
 }
 
 impl P2PService {
@@ -44,6 +48,7 @@ impl P2PService {
         app_handle: AppHandle,
         sync_service: Arc<SyncService>,
         auth_service: Arc<AuthService>,
+        user_service: Arc<UserService>,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(None)),
@@ -52,6 +57,7 @@ impl P2PService {
             app_handle,
             sync_service,
             auth_service,
+            user_service,
         }
     }
     async fn ensure_initialized(&self) -> Result<(), String> {
@@ -717,6 +723,14 @@ impl P2PService {
                                                             )
                                                             .await
                                                         }
+                                                        Message::FirstUserConnection(user) => {
+                                                            self.handle_first_user_connection(user)
+                                                                .await
+                                                        }
+                                                        Message::UserAddAck(user_id) => {
+                                                            self.handle_user_add_ack(user_id).await;
+                                                            Ok(())
+                                                        }
                                                         _ => Ok(()),
                                                     };
 
@@ -1057,5 +1071,37 @@ impl P2PService {
                 Err(err)
             }
         }
+    }
+
+    pub async fn initiate_first_user_connection(
+        &self,
+        user: &User,
+        ticket: &str,
+    ) -> Result<(), String> {
+        let message = Message::FirstUserConnection(user.clone());
+        self.connect_with_ticket(&ticket).await?;
+        let serialized = serde_json::to_string(&message)
+            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
+        self.send_message(serialized).await?;
+        Ok(())
+    }
+
+    pub async fn handle_first_user_connection(&self, user: &User) -> Result<(), String> {
+        self.user_service
+            .add_known_user(user.username.clone(), user.public_key.clone(), false)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let message = Message::UserAddAck(user.id.clone());
+        let serialized = serde_json::to_string(&message)
+            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
+        self.send_message(serialized).await?;
+        Ok(())
+    }
+
+    pub async fn handle_user_add_ack(&self, user_id: &str) -> Result<(), String> {
+        //TODO: make it so that user addtion is complete only after reciving ack
+        info!("recived acknowledgment {}", user_id);
+        Ok(())
     }
 }

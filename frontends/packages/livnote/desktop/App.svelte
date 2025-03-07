@@ -26,27 +26,31 @@
 
 	wsConnectorInstance = $wsConnector;
 
-	const handleSignedUp = () => {
+	const handleSignedUp = async () => {
 		signedUp = true;
 		showWelcome.set(false);
+		const userId = await sendMessage("getUserId");
+		const response = await wsConnectorInstance.sendRegisterMessage(userId);
 	};
 
 	const handleAddUser = async (event) => {
-		console.log(event.detail, "DETAIL");
+		console.log(JSON.stringify(event.detail));
 		const user = await sendMessage("addKnownUser", event.detail);
-		console.log(user);
+		const response = await wsConnectorInstance.sendConnectionStringRequest(
+			user.id,
+		);
+		await sendMessage("initiateFirstConnection", {
+			ticket: response,
+			userId: user.id,
+		});
 	};
 
 	const handleAuthenticated = async () => {
 		showWelcome.set(false);
 
-		sendMessage("getUserId")
-			.then((userId) => {
-				wsConnectorInstance.sendRegisterMessage(userId);
-			})
-			.catch(() => {
-				console.error("UserId generation failed");
-			});
+		const userId = await sendMessage("getUserId");
+		const response = await wsConnectorInstance.sendRegisterMessage(userId);
+		console.log(response);
 	};
 
 	let syncRole = ""; // Add this to store the role
