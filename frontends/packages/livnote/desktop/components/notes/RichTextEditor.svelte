@@ -268,18 +268,19 @@
 		height: 100%;
 		background: #16171f;
 		color: white;
+		position: relative;
 	}
 
 	/* ProseMirror menubar styles for horizontal layout */
 	:global(.ProseMirror-menubar-wrapper) {
-		position: relative;
+		height: 100%;
 	}
 
 	:global(.ProseMirror-menubar) {
 		height: 48px;
 		padding: 4px 8px;
 		white-space: nowrap;
-		overflow-x: auto;
+		overflow-y: hidden;
 		background: #16171f;
 		display: flex;
 		align-items: center;
@@ -574,6 +575,26 @@
 	:global(.ProseMirror-menu-dropdown-menu) {
 		z-index: 999;
 	}
+
+	:global(.ProseMirror-example-setup-style) {
+		overflow-y: scroll;
+		max-height: 92%;
+		padding-bottom: 1rem;
+	}
+
+	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
+		width: 4px;
+		height: 130px;
+	}
+
+	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+
+	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-thumb) {
+		background-color: #2f303e;
+		border-radius: 4px;
+	}
 </style>
 
 <div class="editor-container">
@@ -587,10 +608,10 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this="{element}"></div>
+		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
 			on:click="{saveNoteManual}"
-			class="absolute w-20 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
+			class="absolute w-20 z-1000 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
 			>{saved ? "Saved" : "Save"}</button>
 	</div>
 </div>
