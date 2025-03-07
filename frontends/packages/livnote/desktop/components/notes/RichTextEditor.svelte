@@ -423,6 +423,77 @@
 		color: white;
 	}
 
+	:global(.ProseMirror h1) {
+		font-size: 2em;
+		margin: 0.67em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h2) {
+		font-size: 1.5em;
+		margin: 0.83em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h3) {
+		font-size: 1.17em;
+		margin: 1em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h4) {
+		font-size: 1em;
+		margin: 1.33em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h5) {
+		font-size: 0.83em;
+		margin: 1.67em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h6) {
+		font-size: 0.67em;
+		margin: 2.33em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	/* Improve menu styling for better visibility of heading options */
+	:global(.ProseMirror-menu-dropdown-item[title*="Heading"]) {
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 1"]) {
+		font-size: 1.2em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 2"]) {
+		font-size: 1.1em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 3"]) {
+		font-size: 1em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 4"]) {
+		font-size: 0.95em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 5"]) {
+		font-size: 0.9em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 6"]) {
+		font-size: 0.85em;
+	}
+
 	/* Cursor and selection styles */
 	:global(.ProseMirror-yjs-cursor) {
 		position: relative;
