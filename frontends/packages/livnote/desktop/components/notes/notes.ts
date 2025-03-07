@@ -1,12 +1,13 @@
 import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 import { emit } from "@tauri-apps/api/event";
-import { baseKeymap } from "prosemirror-commands";
+import { baseKeymap, setBlockType } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
 import { schema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
 import { exampleSetup } from "prosemirror-example-setup";
+
 import {
 	redo,
 	undo,
@@ -146,6 +147,45 @@ export class Notes {
 					this.type,
 				);
 				console.log("Successfully created ProseMirror doc from YJS content");
+
+				// ADD THIS CODE: Check if the entire document is a single heading node
+				if (
+					prosemirrorDoc.childCount === 1 &&
+					prosemirrorDoc.firstChild &&
+					prosemirrorDoc.firstChild.type.name === "heading"
+				) {
+					console.log(
+						"Fixing document structure - converting from single heading to multiple paragraphs",
+					);
+
+					// Get the text content from the heading
+					const headingContent = prosemirrorDoc.firstChild.textContent;
+
+					// Create an array of paragraphs from the content
+					// Split by double newlines or hard breaks
+					const paragraphTexts = headingContent.split(/\n\n|\r\n\r\n/);
+
+					// Create paragraph nodes for each piece of content
+					const paragraphNodes = paragraphTexts.map((text) =>
+						this.editorSchema.node("paragraph", {}, [
+							this.editorSchema.text(text.trim()),
+						]),
+					);
+
+					// If no paragraphs were created (empty content), create one empty paragraph
+					if (paragraphNodes.length === 0) {
+						paragraphNodes.push(this.editorSchema.node("paragraph", {}, []));
+					}
+
+					// Create a new document with proper paragraph structure
+					prosemirrorDoc = this.editorSchema.node("doc", {}, paragraphNodes);
+
+					console.log(
+						"Document structure fixed with " +
+							paragraphNodes.length +
+							" paragraphs",
+					);
+				}
 			} catch (err) {
 				console.error("Error creating ProseMirror doc from YJS:", err);
 				// If that fails, create a new empty document
@@ -196,7 +236,6 @@ export class Notes {
 			});
 		}
 	}
-
 	/**
 	 * Creates a new note with initialized state in a single operation
 	 * @param params Parameters for note creation
