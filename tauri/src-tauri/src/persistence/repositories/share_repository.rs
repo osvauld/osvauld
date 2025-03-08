@@ -359,4 +359,21 @@ impl ShareRepository for SqliteShareRepository {
 
         Ok(models.iter().map(|ur| ur.to_domain()).collect())
     }
+
+    async fn get_share_record_by_id(&self, share_id: &str) -> Result<ShareRecord, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Query for a specific share record by its ID
+        let share_model = share_records::table
+            .find(share_id)
+            .select(ShareRecordModel::as_select())
+            .first::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        // Convert the model to domain object
+        Ok(share_model.to_domain())
+    }
 }

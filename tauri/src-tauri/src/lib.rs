@@ -129,12 +129,6 @@ pub fn run() {
                         user_repository.clone(),
                         crypto_utils.clone(),
                     ));
-                    let p2p_service = Arc::new(P2PService::new(
-                        handle.clone(),
-                        sync_service.clone(),
-                        auth_service.clone(),
-                        user_service.clone(),
-                    ));
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),
                         crypto_utils.clone(),
@@ -145,12 +139,21 @@ pub fn run() {
                         store_repository.clone(),
                         user_repository.clone(),
                         crypto_utils.clone(),
+                        resource_repo.clone(),
                     ));
                     let transaction_service = Arc::new(TransactionService::new(
                         resource_repo.clone(),
                         resource_key_repo.clone(),
                         sync_repo.clone(),
                         share_repo.clone(),
+                    ));
+
+                    let p2p_service = Arc::new(P2PService::new(
+                        handle.clone(),
+                        sync_service.clone(),
+                        auth_service.clone(),
+                        user_service.clone(),
+                        share_service.clone(),
                     ));
 
                     // Manage all services

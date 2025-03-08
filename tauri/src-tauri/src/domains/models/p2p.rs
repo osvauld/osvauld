@@ -1,6 +1,7 @@
 use crate::domains::models::device::Device;
 use crate::domains::models::folder::Folder;
 use crate::domains::models::resource::ResourceKeyPair;
+use crate::domains::models::share_record::{ShareRecord, UserRecord, UserRecordStatus};
 use crate::domains::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
 use crate::domains::models::user::User;
 use serde::{Deserialize, Serialize};
@@ -40,6 +41,8 @@ pub enum Message {
     SyncEvent { event: String, payload: String },
     FirstUserConnection(User),
     UserAddAck(String),
+    SharePayload(SharePayload),
+    ShareComplete,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -104,4 +107,12 @@ pub enum SyncAckType {
     },
     DeviceRecords(Vec<String>), // list of device_record_ids
     DeviceSyncRecord(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SharePayload {
+    pub share_record: Option<ShareRecord>,
+    pub user_records: Vec<UserRecord>,
+    pub user_record_statuses: Vec<UserRecordStatus>,
+    pub data: Option<ResourceKeyPair>,
 }

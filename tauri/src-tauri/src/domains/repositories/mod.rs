@@ -262,4 +262,6 @@ pub trait ShareRepository: Send + Sync {
         &self,
         share_id: &str,
     ) -> Result<Vec<UserRecord>, RepositoryError>;
+
+    async fn get_share_record_by_id(&self, share_id: &str) -> Result<ShareRecord, RepositoryError>;
 }

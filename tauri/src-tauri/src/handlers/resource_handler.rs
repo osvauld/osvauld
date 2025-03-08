@@ -140,6 +140,7 @@ pub async fn update_resource(
     transaction_service: State<'_, Arc<TransactionService>>,
     input: UpdateResources,
 ) -> Result<CryptoResponse, String> {
+    //TODO: migrate obsolete user records to another table.
     let (encrypted_data, current_user) = resource_service
         .update_resources(input.clone())
         .await

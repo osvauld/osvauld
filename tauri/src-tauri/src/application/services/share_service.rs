@@ -1,9 +1,14 @@
+use log::info;
 use tokio::sync::Mutex;
 
-use crate::domains::models::share_record::{self, ShareRecord, ShareRecordSet, UserRecordSet};
+use crate::domains::models::p2p::SharePayload;
+use crate::domains::models::resource::ResourceKeyPair;
+use crate::domains::models::share_record::{
+    SharePayloadResult, ShareRecord, ShareRecordSet, UserRecordSet,
+};
 use crate::domains::models::share_types::{ShareOperation, ShareStatus};
 use crate::domains::repositories::{
-    RepositoryError, ShareRepository, StoreRepository, UserRepository,
+    RepositoryError, ResourceRepository, ShareRepository, StoreRepository, UserRepository,
 };
 use crypto_utils::{get_key_id, CryptoUtils};
 use std::sync::Arc;
@@ -12,6 +17,7 @@ pub struct ShareService {
     store_repository: Arc<dyn StoreRepository>,
     user_repository: Arc<dyn UserRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
+    resource_repo: Arc<dyn ResourceRepository>,
 }
 
 use thiserror::Error;
@@ -32,12 +38,14 @@ impl ShareService {
         store_repository: Arc<dyn StoreRepository>,
         user_repository: Arc<dyn UserRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
+        resource_repo: Arc<dyn ResourceRepository>,
     ) -> Self {
         Self {
             share_repository,
             store_repository,
             user_repository,
             crypto_utils,
+            resource_repo,
         }
     }
 
@@ -177,5 +185,136 @@ impl ShareService {
             &existing_user_records,
         );
         Ok(user_record_set)
+    }
+    pub async fn get_pending_shares(
+        &self,
+        user_id: &str,
+    ) -> Result<Option<SharePayload>, ShareServiceError> {
+        // Try to get pending share records first
+        let pending_share = self
+            .share_repository
+            .get_pending_share_by_user(user_id)
+            .await
+            .map_err(ShareServiceError::RepositoryError)?;
+
+        if let Some((share_record, user_records, user_record_statuses)) = pending_share {
+            // Only process "share" operations (not revoke or update operations)
+            if share_record.operation_type == ShareOperation::Share {
+                // Get the associated resource and key for this user
+                let resource_key_pair = self
+                    .resource_repo
+                    .find_resource_with_key(&share_record.resource_id, user_id)
+                    .await
+                    .map_err(ShareServiceError::RepositoryError)?;
+
+                // Create the payload with resource data
+                return Ok(Some(SharePayload {
+                    share_record: Some(share_record),
+                    user_records,
+                    user_record_statuses,
+                    data: Some(resource_key_pair),
+                }));
+            }
+
+            // For other operation types, just return the records without the resource
+            return Ok(Some(SharePayload {
+                share_record: Some(share_record),
+                user_records,
+                user_record_statuses,
+                data: None,
+            }));
+        }
+
+        // Check for any unsynced user records if there are no pending share records
+        let unsynced_records = self
+            .share_repository
+            .get_unsynced_user_share_records(user_id)
+            .await
+            .map_err(ShareServiceError::RepositoryError)?;
+
+        if !unsynced_records.is_empty() {
+            // Collect all user records and their statuses
+            let mut all_user_records = Vec::new();
+            let mut all_statuses = Vec::new();
+
+            for (user_record, statuses) in unsynced_records {
+                all_user_records.push(user_record);
+                all_statuses.extend(statuses);
+            }
+
+            return Ok(Some(SharePayload {
+                share_record: None,
+                user_records: all_user_records,
+                user_record_statuses: all_statuses,
+                data: None,
+            }));
+        }
+
+        // No pending shares or unsynced records found
+        Ok(None)
+    }
+
+    pub async fn process_incoming_payload(
+        &self,
+        payload: SharePayload,
+    ) -> Result<SharePayloadResult, String> {
+        let current_user_id = self.get_current_user_id().await?;
+        let mut result = SharePayloadResult {
+            data: None,
+            user_records: vec![],
+            user_record_statuses: vec![],
+            share_record: None,
+        };
+
+        if let Some(share_record) = &payload.share_record {
+            //TODO: handle case where share record only and no resource_pair
+            if let Some(resource_pair) = &payload.data {
+                let resource_exists = match self
+                    .resource_repo
+                    .find_by_id(&resource_pair.resource.id, &current_user_id)
+                    .await
+                {
+                    Ok(_) => true,
+                    Err(RepositoryError::NotFound) => {
+                        let (updated_user_records, updated_statuses) =
+                            ShareRecord::process_payload_for_new_resource(
+                                &payload.user_records,
+                                &payload.user_record_statuses,
+                                &current_user_id,
+                            );
+                        result.data = payload.data.clone();
+                        result.share_record = payload.share_record.clone();
+                        result.user_records = updated_user_records;
+                        result.user_record_statuses = updated_statuses;
+                        return Ok(result);
+                    }
+                    Err(e) => return Err(format!("Error checking resource: {}", e)),
+                };
+                if resource_exists {
+                    let share_record_exists = match self
+                        .share_repository
+                        .get_share_record_by_id(&share_record.id)
+                        .await
+                    {
+                        Ok(_) => true,
+                        Err(RepositoryError::NotFound) => {
+                            let (updated_user_records, updated_statuses) =
+                                ShareRecord::process_payload_for_new_resource(
+                                    &payload.user_records,
+                                    &payload.user_record_statuses,
+                                    &current_user_id,
+                                );
+                            result.share_record = payload.share_record.clone();
+                            result.user_records = updated_user_records;
+                            result.user_record_statuses = updated_statuses;
+                            result.data = Some(resource_pair.clone());
+                            return Ok(result);
+                        }
+                        Err(e) => return Err(format!("Error checking resource: {}", e)),
+                    };
+                }
+            }
+        }
+        todo!()
     }
 }

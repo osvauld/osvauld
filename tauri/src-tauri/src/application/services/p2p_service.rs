@@ -1,9 +1,7 @@
-use crate::application::services::auth_service::AuthService;
-use crate::application::services::sync_service::SyncService;
 use crate::domains::models::device::Device;
 use crate::domains::models::p2p::{
-    ConnectionTicket, ConnectionType, HandshakeError, HandshakeMessage, Message, SyncAckType,
-    SyncPayload,
+    ConnectionTicket, ConnectionType, HandshakeError, HandshakeMessage, Message, SharePayload,
+    SyncAckType, SyncPayload,
 };
 use crate::domains::models::user::User;
 use crate::types::CryptoResponse;
@@ -22,7 +20,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
 
-use super::{user_service, UserService};
+use super::{AuthService, ShareService, SyncService, UserService};
 
 const ALPN_PROTOCOL: &[u8] = b"n0/iroh/examples/magic/0";
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -44,6 +42,7 @@ pub struct P2PService {
     sync_service: Arc<SyncService>,
     auth_service: Arc<AuthService>,
     user_service: Arc<UserService>,
+    share_service: Arc<ShareService>,
 }
 
 impl P2PService {
@@ -52,6 +51,7 @@ impl P2PService {
         sync_service: Arc<SyncService>,
         auth_service: Arc<AuthService>,
         user_service: Arc<UserService>,
+        share_service: Arc<ShareService>,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(None)),
@@ -62,6 +62,7 @@ impl P2PService {
             sync_service,
             auth_service,
             user_service,
+            share_service,
         }
     }
     async fn ensure_initialized(&self) -> Result<(), String> {
@@ -801,6 +802,10 @@ impl P2PService {
                                                             self.handle_user_add_ack(user_id).await;
                                                             Ok(())
                                                         }
+
+                                                        Message::SharePayload(payload) => {
+                                                            self.handle_share_payload(payload).await
+                                                        }
                                                         _ => Ok(()),
                                                     };
 
@@ -1185,6 +1190,42 @@ impl P2PService {
     }
 
     pub async fn start_user_sync(&self, user: &User) -> Result<(), String> {
-        todo!()
+        let connected_user_id = {
+            let user_guard = self.user.lock().await;
+            match &*user_guard {
+                Some(connected_user) => connected_user.id.clone(),
+                None => return Err("No user connected".to_string()),
+            }
+        };
+
+        let pending_shares = self
+            .share_service
+            .get_pending_shares(&connected_user_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(share_payload) = pending_shares {
+            // Create a ShareResponse message
+            let message = Message::SharePayload(share_payload);
+            let serialized = serde_json::to_string(&message)
+                .map_err(|e| format!("Failed to serialize ShareResponse: {}", e))?;
+
+            // Send the share payload
+            self.send_message(serialized).await?;
+            info!("Sent share payload to peer");
+        } else {
+            // No pending shares, send completion
+            let message = Message::ShareComplete;
+            let serialized = serde_json::to_string(&message)
+                .map_err(|e| format!("Failed to serialize ShareComplete: {}", e))?;
+
+            self.send_message(serialized).await?;
+            info!("No pending shares, sent completion message");
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_share_payload(&self, payload: SharePayload) -> Result<(), String> {
+        self.share_service.process_incoming_payload(payload).await?;
     }
 }

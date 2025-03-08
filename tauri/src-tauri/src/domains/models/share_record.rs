@@ -1,3 +1,4 @@
+use crate::domains::models::resource::ResourceKeyPair;
 use crate::domains::models::share_types::{ShareOperation, ShareStatus};
 use crate::domains::models::user::User;
 use chrono::Local;
@@ -12,6 +13,12 @@ pub struct ShareRecord {
     pub operation_type: ShareOperation,
     pub created_at: i64,
     pub updated_at: i64,
+}
+pub struct SharePayloadResult {
+    pub data: Option<ResourceKeyPair>,
+    pub user_records: Vec<UserRecord>,
+    pub user_record_statuses: Vec<UserRecordStatus>,
+    pub share_record: Option<ShareRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,18 +133,6 @@ impl ShareRecord {
             user_records,
             user_record_statuses,
         }
-    }
-    pub fn create_completion_records(
-        share_id: String,
-        current_user_id: String,
-        other_users: &[User],
-    ) -> ShareStatusChangeSet {
-        Self::create_status_change_records(
-            share_id,
-            current_user_id,
-            other_users,
-            ShareStatus::Completed,
-        )
     }
 
     fn create_status_change_records(
@@ -332,5 +327,37 @@ impl ShareRecord {
             user_records: vec![user_record],
             user_record_statuses,
         }
+    }
+
+    //function to process payload when resoucrce doesn't exist locally
+    pub fn process_payload_for_new_resource(
+        user_records: &Vec<UserRecord>,
+        user_record_statuses: &Vec<UserRecordStatus>,
+        current_user_id: &str,
+    ) -> (Vec<UserRecord>, Vec<UserRecordStatus>) {
+        // Create copies of the records to modify
+        let mut updated_user_records = user_records.clone();
+        let mut updated_status_records = user_record_statuses.clone();
+
+        // Find and update the current user's record
+        for user_record in &mut updated_user_records {
+            if user_record.user_id == current_user_id {
+                // Mark as synced and completed
+                user_record.synced = true;
+                user_record.status = ShareStatus::Completed;
+                user_record.updated_at = chrono::Local::now().timestamp_millis();
+            }
+        }
+
+        // Find and update status records for the current user
+        for status in &mut updated_status_records {
+            if status.aware_user_id == current_user_id {
+                // Mark as synced
+                status.synced = true;
+                status.updated_at = chrono::Local::now().timestamp_millis();
+            }
+        }
+
+        (updated_user_records, updated_status_records)
     }
 }
