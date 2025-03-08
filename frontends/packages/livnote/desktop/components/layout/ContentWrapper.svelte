@@ -9,10 +9,13 @@
 	} from "../../store/desktop.ui.store";
 	import { slide } from "svelte/transition";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
-	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
+	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
 	import DownArrow from "@osvauld/password-manager-common/icons/downArrow.svelte";
 	import Star from "@osvauld/password-manager-common/icons/star.svelte";
+	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
+	import DownloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
+	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
 	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
 	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
@@ -160,7 +163,7 @@
 		{:else}
 			<div class="mx-2 flex justify-between items-center max-w-[38rem]">
 				<button
-					class=" bg-osvauld-frameblack rounded-lg p-2.5 flex justify-center items-center hover:bg-osvauld-fieldActive shrink-0"
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					on:click="{handleBackButton}">
 					<BackArrow />
 				</button>
@@ -169,7 +172,7 @@
 					>note
 				</span>
 				<button
-					class=" bg-osvauld-frameblack rounded-lg p-2.5 flex justify-center items-center hover:bg-osvauld-fieldActive shrink-0">
+					class="  rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0">
 					<Star />
 				</button>
 			</div>
@@ -186,21 +189,39 @@
 					aria-label="Delete Folder"
 					><Bin color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}" /></button>
 			{/if}
-			<span><Menu /></span>
 			<button
-				class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
-				aria-label="Sort by latest">
-				<span class="mr-2 pl-2">Latest</span>
-				<span><DownArrow type="common" /></span>
+				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+				<CopyIcon />
+			</button>
+			<button
+				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+				<Bin size="24" />
+			</button>
+
+			<button
+				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+				<DownloadIcon />
+			</button>
+			<button
+				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+				<Menu />
+			</button>
+
+			<button
+				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
+				on:mouseenter="{() => (addCredentialHovered = true)}"
+				on:mouseleave="{() => (addCredentialHovered = false)}"
+				on:click="{handleAddNote}">
+				<Add color="#85889C" size="24" />
 			</button>
 
 			{#if $noteId}
 				<button
 					on:click="{handleShareList}"
-					class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
+					class=" text-osvauld-textPassive font-medium flex justify-center items-center p-2.5 rounded-lg bg-osvauld-fieldActive border border-osvauld-iconblack"
 					aria-label="share with users">
-					<span class="mr-2 pl-2">Share</span>
-					<span><DownArrow type="common" /></span>
+					<span class="mr-2 pl-2">Invite to edit</span>
+					<UserPlus color="#85889C" />
 				</button>
 			{/if}
 
@@ -227,14 +248,6 @@
 					{/each}
 				</div>
 			{/if}
-			<button
-				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center whitespace-nowrap border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-frameblack hover:bg-osvauld-carolinablue transition-colors duration-200"
-				on:mouseenter="{() => (addCredentialHovered = true)}"
-				on:mouseleave="{() => (addCredentialHovered = false)}"
-				on:click="{handleAddNote}">
-				<span class="mr-2">Add new note</span>
-				<Add color="{addCredentialHovered ? '#000' : '#A3A4B5'}" />
-			</button>
 		</div>
 	</div>
 
