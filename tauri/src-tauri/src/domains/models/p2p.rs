@@ -47,6 +47,12 @@ pub struct ConnectionTicket {
     pub node_id: String,
     pub addresses: Vec<String>,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ConnectionType {
+    Device,
+    User,
+}
 #[derive(Error, Debug, Serialize, Deserialize)]
 pub enum HandshakeError {
     #[error("Invalid signature: {0}")]
@@ -80,6 +86,8 @@ pub struct HandshakeMessage {
     pub challenge: String,
     pub signature: String,
     pub device: Device,
+    pub connection_type: ConnectionType,
+    pub user: Option<User>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

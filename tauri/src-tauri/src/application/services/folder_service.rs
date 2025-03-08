@@ -34,7 +34,7 @@ impl FolderService {
         }
 
         // Create folder
-        let folder = Folder::new(name, description);
+        let folder = Folder::new(name, description, false);
 
         // Save folder and sync record in a transaction
         self.folder_repository.save(&folder).await?;
@@ -51,5 +51,11 @@ impl FolderService {
 
     pub async fn soft_delete_folder(&self, folder_id: &str) -> Result<(), RepositoryError> {
         self.folder_repository.soft_delete(folder_id).await
+    }
+
+    pub async fn create_default_folder(&self) -> Result<Folder, FolderServiceError> {
+        let folder = Folder::new("default".to_string(), None, true);
+        self.folder_repository.save(&folder).await?;
+        Ok(folder)
     }
 }

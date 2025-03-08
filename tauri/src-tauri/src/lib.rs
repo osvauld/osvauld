@@ -22,12 +22,12 @@ use crate::handlers::auth_handler::{
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
-    connect_with_ticket, get_system_locale, get_ticket, initiate_first_connection, send_message,
+    connect_with_device, get_system_locale, get_ticket, initiate_first_connection, send_message,
     send_snapshot, start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
     get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
-    soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
+    share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
 };
 use crate::handlers::user_handler::{add_known_user, get_known_users};
 use crate::persistence::repositories::{
@@ -197,7 +197,7 @@ pub fn run() {
             handle_get_resources_for_folder,
             send_message,
             get_ticket,
-            connect_with_ticket,
+            connect_with_device,
             start_p2p_listener,
             soft_delete_resource,
             soft_delete_folder,
@@ -211,7 +211,8 @@ pub fn run() {
             add_known_user,
             get_known_users,
             get_public_key,
-            initiate_first_connection
+            initiate_first_connection,
+            share_resource
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

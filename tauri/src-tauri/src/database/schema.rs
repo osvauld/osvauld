@@ -38,6 +38,7 @@ diesel::table! {
         id -> Text,
         name -> Text,
         description -> Nullable<Text>,
+        default_folder -> Bool,
         deleted -> Bool,
         deleted_at -> Nullable<BigInt>,
         updated_at -> BigInt,

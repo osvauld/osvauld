@@ -183,6 +183,7 @@ pub async fn share_resource(
     share_service: State<'_, Arc<ShareService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
 ) -> Result<CryptoResponse, String> {
+    //TODO: change from public key to user_id?
     let resource_key = resource_service
         .share_resource(input.resource_id.clone(), input.public_key.clone())
         .await

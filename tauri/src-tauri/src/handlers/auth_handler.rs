@@ -1,4 +1,6 @@
-use crate::application::services::{AuthService, P2PService, SyncService, UserService};
+use crate::application::services::{
+    AuthService, FolderService, P2PService, SyncService, UserService,
+};
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
@@ -19,6 +21,8 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
     user_service: State<'_, Arc<UserService>>,
+    folder_service: State<'_, Arc<FolderService>>,
+    sync_service: State<'_, Arc<SyncService>>,
 ) -> Result<CryptoResponse, String> {
     let user = auth_service
         .handle_sign_up(&input.username, &input.passphrase)
@@ -32,6 +36,12 @@ pub async fn handle_sign_up(
             true,
         )
         .await?;
+
+    let folder = folder_service
+        .create_default_folder()
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = sync_service.add_folder_to_sync(folder.clone()).await;
     Ok(CryptoResponse::SavePassphrase {
         username: user.username,
         device_key: user.certificate.public_key.clone(),

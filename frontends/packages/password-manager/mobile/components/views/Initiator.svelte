@@ -44,7 +44,7 @@
 			status = "Initiating connection...";
 			error = "";
 			connecting = true;
-			await invoke("connect_with_ticket", { ticket: ticket.trim() });
+			await invoke("connect_with_device", { ticket: ticket.trim() });
 		} catch (err) {
 			error = err.toString();
 			status = "Connection failed";
@@ -101,26 +101,26 @@
 		<div class="flex flex-col gap-3">
 			<input
 				type="text"
-				bind:value="{ticket}"
+				bind:value={ticket}
 				placeholder="Enter connection ticket"
 				class="w-full bg-mobile-bgPrimary border rounded-lg text-mobile-textPrimary border-mobile-bgHighlight p-3 focus:border-mobile-borderActive focus:ring-0" />
 			<div class="flex gap-2">
 				<button
-					on:click="{pasteTicket}"
+					on:click={pasteTicket}
 					class="px-4 py-2.5 bg-mobile-bgHighlight text-mobile-textPrimary rounded-lg font-medium"
-					disabled="{connecting || scanning}">
+					disabled={connecting || scanning}>
 					Paste
 				</button>
 				<button
-					on:click="{scanQRCode}"
+					on:click={scanQRCode}
 					class="px-4 py-2.5 bg-mobile-bgHighlight text-mobile-textPrimary rounded-lg font-medium"
-					disabled="{connecting || scanning}">
+					disabled={connecting || scanning}>
 					{scanning ? "Scanning..." : "Scan QR"}
 				</button>
 				<button
-					on:click="{connect}"
+					on:click={connect}
 					class="flex-1 px-4 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium"
-					disabled="{connecting || scanning || !ticket.trim()}">
+					disabled={connecting || scanning || !ticket.trim()}>
 					{connecting ? "Connecting..." : "Connect"}
 				</button>
 			</div>

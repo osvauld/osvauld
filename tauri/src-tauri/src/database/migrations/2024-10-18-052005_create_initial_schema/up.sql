@@ -14,6 +14,7 @@ CREATE TABLE folders (
     id TEXT PRIMARY KEY NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
+    default_folder BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,

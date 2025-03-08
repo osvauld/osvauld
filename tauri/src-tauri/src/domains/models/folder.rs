@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct Folder {
     pub id: String,
     pub name: String,
+    pub default_folder: bool,
     pub description: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -14,7 +15,7 @@ pub struct Folder {
 }
 
 impl Folder {
-    pub fn new(name: String, description: Option<String>) -> Self {
+    pub fn new(name: String, description: Option<String>, default_folder: bool) -> Self {
         let now = Local::now().timestamp_millis();
 
         Self {
@@ -23,6 +24,7 @@ impl Folder {
             description,
             created_at: now,
             updated_at: now,
+            default_folder,
             deleted: false,
             deleted_at: None,
         }
