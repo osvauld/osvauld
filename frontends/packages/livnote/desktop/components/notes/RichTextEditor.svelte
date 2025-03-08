@@ -580,11 +580,12 @@
 		overflow-y: scroll;
 		max-height: 92%;
 		padding-bottom: 1rem;
+		overflow-x: scroll;
 	}
 
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
 		width: 4px;
-		height: 130px;
+		height: 4px;
 	}
 
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-track) {
@@ -611,7 +612,7 @@
 		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
 			on:click="{saveNoteManual}"
-			class="absolute w-20 z-1000 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
+			class="absolute w-20 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
 			>{saved ? "Saved" : "Save"}</button>
 	</div>
 </div>
