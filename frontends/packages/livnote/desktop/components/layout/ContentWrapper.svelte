@@ -12,11 +12,14 @@
 	import Menu from "@osvauld/password-manager-common/icons/Menu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
 	import DownArrow from "@osvauld/password-manager-common/icons/downArrow.svelte";
+	import Star from "@osvauld/password-manager-common/icons/star.svelte";
+	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
+	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
 	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
 	import CredentialList from "../notes/CredentialList.svelte";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import VaultManager from "../ui/VaultManager.svelte";
-	import Star from "@osvauld/password-manager-common/icons/star.svelte";
+
 	import { MobileHome } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { addCredentialHandler } from "@osvauld/password-manager-common";
@@ -101,7 +104,7 @@
 </script>
 
 <div class="grow flex flex-col overflow-hidden">
-	<div class="py-5 px-16 flex items-center justify-start shrink-0">
+	<div class="py-10 px-16 flex items-center justify-start shrink-0">
 		{#if !$noteViewLayout}
 			<div class="relative shrink-0">
 				<button
@@ -109,7 +112,7 @@
 					aria-label="Switch Vault"
 					aria-controls="vaultSelector"
 					aria-expanded="false"
-					on:click={() => (vaultManagerActive = !vaultManagerActive)}>
+					on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
 					<span class="flex-1 truncate text-left py-1"
 						>{$currentVault.id === "all"
 							? "All Vaults"
@@ -117,7 +120,7 @@
 					><span
 						class="shrink-0 transition-transform duration-300 {vaultManagerActive
 							? '-rotate-90'
-							: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
+							: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
 					></button>
 				{#if vaultManagerActive}
 					<VaultManager bind:vaultManagerActive instance="content" />
@@ -131,11 +134,11 @@
                        {selectedSection === 'home'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => handleFilterSelection("home")}
-					aria-current={selectedSection === "home" ? "page" : undefined}>
+					on:click="{() => handleFilterSelection('home')}"
+					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
 					<MobileHome
 						size="20"
-						color={selectedSection === "home" ? "#BFC0CC" : "#85889C"} />
+						color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
 					<span>Home</span>
 				</button>
 
@@ -144,20 +147,32 @@
                        {selectedSection === 'favourites'
 						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click={() => handleFilterSelection("favourites")}
-					aria-current={selectedSection === "favourites" ? "page" : undefined}>
+					on:click="{() => handleFilterSelection('favourites')}"
+					aria-current="{selectedSection === 'favourites'
+						? 'page'
+						: undefined}">
 					<Star
-						color={selectedSection === "favourites" ? "#BFC0CC" : "#85889C"}
+						color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
 						size="20" />
 					<span>Favourites</span>
 				</button>
 			</div>
 		{:else}
-			<button
-				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive"
-				on:click={handleBackButton}>
-				← Back to Notes
-			</button>
+			<div class="mx-2 flex justify-between items-center max-w-[38rem]">
+				<button
+					class=" bg-osvauld-frameblack rounded-lg p-2.5 flex justify-center items-center hover:bg-osvauld-fieldActive shrink-0"
+					on:click="{handleBackButton}">
+					<BackArrow />
+				</button>
+				<span
+					class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
+					>note
+				</span>
+				<button
+					class=" bg-osvauld-frameblack rounded-lg p-2.5 flex justify-center items-center hover:bg-osvauld-fieldActive shrink-0">
+					<Star />
+				</button>
+			</div>
 		{/if}
 
 		<div
@@ -165,11 +180,11 @@
 			{#if $currentVault.id !== "all"}
 				<button
 					class="p-2"
-					on:click|stopPropagation={() => {}}
-					on:mouseenter={() => (deleteBtnHoved = true)}
-					on:mouseleave={() => (deleteBtnHoved = false)}
+					on:click|stopPropagation="{() => {}}"
+					on:mouseenter="{() => (deleteBtnHoved = true)}"
+					on:mouseleave="{() => (deleteBtnHoved = false)}"
 					aria-label="Delete Folder"
-					><Bin color={deleteBtnHoved ? "#FF6A6A" : "#85889C"} /></button>
+					><Bin color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}" /></button>
 			{/if}
 			<span><Menu /></span>
 			<button
@@ -181,7 +196,7 @@
 
 			{#if $noteId}
 				<button
-					on:click={handleShareList}
+					on:click="{handleShareList}"
 					class="bg-osvauld-frameblack text-osvauld-textPassive flex justify-center items-center py-3 px-3 rounded-md ml-4"
 					aria-label="share with users">
 					<span class="mr-2 pl-2">Share</span>
@@ -194,7 +209,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation={() => {}}>
+					on:click|stopPropagation="{() => {}}">
 				</div>
 				<div
 					class="absolute top-full right-0 mt-2 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -203,10 +218,10 @@
 					{#each shareUserList as { id, username, publicKey }}
 						<button
 							class="profileBtn"
-							on:mouseenter={() => (hoveredItem = id)}
-							on:mouseleave={() => (hoveredItem = "")}
-							on:click|stopPropagation={() =>
-								handleDropDownClick(id, publicKey)}>
+							on:mouseenter="{() => (hoveredItem = id)}"
+							on:mouseleave="{() => (hoveredItem = '')}"
+							on:click|stopPropagation="{() =>
+								handleDropDownClick(id, publicKey)}">
 							{username}
 						</button>
 					{/each}
@@ -214,11 +229,11 @@
 			{/if}
 			<button
 				class="rounded-md py-3 px-4 mx-2 flex justify-center items-center whitespace-nowrap border text-osvauld-textActive border-osvauld-iconblack hover:text-osvauld-frameblack hover:bg-osvauld-carolinablue transition-colors duration-200"
-				on:mouseenter={() => (addCredentialHovered = true)}
-				on:mouseleave={() => (addCredentialHovered = false)}
-				on:click={handleAddNote}>
+				on:mouseenter="{() => (addCredentialHovered = true)}"
+				on:mouseleave="{() => (addCredentialHovered = false)}"
+				on:click="{handleAddNote}">
 				<span class="mr-2">Add new note</span>
-				<Add color={addCredentialHovered ? "#000" : "#A3A4B5"} />
+				<Add color="{addCredentialHovered ? '#000' : '#A3A4B5'}" />
 			</button>
 		</div>
 	</div>
