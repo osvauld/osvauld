@@ -13,6 +13,7 @@
 		noteViewLayout,
 		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
+	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -612,7 +613,14 @@
 		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
 			on:click="{saveNoteManual}"
-			class="absolute w-20 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
-			>{saved ? "Saved" : "Save"}</button>
+			class="absolute top-1.5 right-2 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			{#if saved}
+				<span class="whitespace-nowrap flex items-center justify-center"
+					><span class="text-[#9DD062] mr-2">Saved...</span>
+					<span><SavedTick /></span></span>
+			{:else}
+				<span>Save Changes</span>
+			{/if}
+		</button>
 	</div>
 </div>
