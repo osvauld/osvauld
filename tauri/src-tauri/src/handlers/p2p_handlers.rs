@@ -1,7 +1,7 @@
 use crate::application::services::AuthService;
 use crate::application::services::P2PService;
 use crate::application::services::UserService;
-use crate::domains::models::p2p::{ConnectionType}
+use crate::domains::models::p2p::ConnectionType;
 use crate::types::CryptoResponse;
 use crate::types::InitiateFirstConnectionInput;
 use std::sync::Arc;
@@ -26,7 +26,9 @@ pub async fn connect_with_device(
     ticket: String,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<(), String> {
-    p2p_service.connect_with_ticket(&ticket, ConnectionType::Device).await?;
+    p2p_service
+        .connect_with_ticket(&ticket, ConnectionType::Device)
+        .await?;
     p2p_service.start_device_sync().await
 }
 
@@ -61,7 +63,9 @@ pub async fn initiate_first_connection(
     p2p_service: State<'_, Arc<P2PService>>,
     user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
-    p2p_service.connect_with_ticket(&input.ticket, ConnectionType::User).await?;
+    p2p_service
+        .connect_with_ticket(&input.ticket, ConnectionType::User)
+        .await?;
     let user = user_service.get_current_user().await?;
     p2p_service
         .initiate_first_user_connection(&user, &input.ticket)
@@ -76,7 +80,9 @@ pub async fn connect_with_user(
     user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
     let user = user_service.get_current_user().await?;
-    p2p_service.connect_with_ticket(&ticket, ConnectionType::User).await?;
+    p2p_service
+        .connect_with_ticket(&ticket, ConnectionType::User)
+        .await?;
     p2p_service.start_user_sync(&user).await?;
     todo!()
 }

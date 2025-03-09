@@ -1225,7 +1225,10 @@ impl P2PService {
         Ok(())
     }
 
-    pub async fn handle_share_payload(&self, payload: SharePayload) -> Result<(), String> {
-        self.share_service.process_incoming_payload(payload).await?;
+    pub async fn handle_share_payload(&self, payload: &SharePayload) -> Result<(), String> {
+        self.share_service
+            .process_incoming_payload(payload.clone())
+            .await?;
+        todo!();
     }
 }
