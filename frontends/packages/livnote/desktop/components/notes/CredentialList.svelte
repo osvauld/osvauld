@@ -181,7 +181,7 @@
 </script>
 
 <div class="grow max-h-[85%] overflow-y-scroll px-16 py-4 relative">
-	<div class="h-full overflow-y-auto overflow-x-hidden pr-1 scrollbar-none">
+	<div class="h-full overflow-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
 			<RichTextEditor
 				on:collaboration-update={(event) =>

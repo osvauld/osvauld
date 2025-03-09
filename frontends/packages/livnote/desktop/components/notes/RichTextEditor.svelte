@@ -96,6 +96,32 @@
 			// Mark this note as loaded
 			currentlyLoadedNoteId = id;
 
+			setTimeout(() => {
+				if (view) {
+					try {
+						// Force focus on the editor
+						view.focus();
+
+						// Create a transaction to position the cursor at the end
+						const tr = view.state.tr;
+
+						// Get the end position of the document
+						const endPosition = tr.doc.content.size;
+
+						// Set the selection at the end position
+						tr.setSelection(
+							view.state.selection.constructor.near(
+								tr.doc.resolve(Math.max(0, endPosition)),
+							),
+						);
+
+						// Dispatch the transaction with a custom "cursorPlacement" metadata
+						view.dispatch(tr.setMeta("cursorPlacement", true));
+					} catch (err) {
+						console.error("Error positioning cursor:", err);
+					}
+				}
+			}, 100);
 			// Setup auto-save
 			if (autoSaveInterval) {
 				clearInterval(autoSaveInterval);
@@ -160,6 +186,12 @@
 			try {
 				const newState = view.state.apply(tr);
 				view.updateState(newState);
+
+				// Skip the update cycle for cursor placement transactions
+				if (tr.getMeta("cursorPlacement")) {
+					return;
+				}
+
 				notesInstance.updateEditorState(newState);
 
 				// Only trigger Yjs update if document actually changed
@@ -236,18 +268,19 @@
 		height: 100%;
 		background: #16171f;
 		color: white;
+		position: relative;
 	}
 
 	/* ProseMirror menubar styles for horizontal layout */
 	:global(.ProseMirror-menubar-wrapper) {
-		position: relative;
+		height: 100%;
 	}
 
 	:global(.ProseMirror-menubar) {
 		height: 48px;
 		padding: 4px 8px;
 		white-space: nowrap;
-		overflow-x: auto;
+		overflow-y: hidden;
 		background: #16171f;
 		display: flex;
 		align-items: center;
@@ -269,7 +302,7 @@
 		display: inline-flex;
 		align-items: center;
 		height: 24px;
-		margin-right: 1px;
+		margin-right: 4px;
 		cursor: pointer;
 	}
 
@@ -300,12 +333,24 @@
 		cursor: pointer;
 		font-size: 14px;
 		color: white;
+		position: relative;
 	}
 
 	:global(.ProseMirror-menu-dropdown-item:hover) {
 		background: #2a2b2f;
 	}
 
+	:global(.ProseMirror-menu-submenu) {
+		position: absolute;
+		right: -70px;
+		top: 0;
+		background: #16171f;
+		border: 1px solid #2a2b2f;
+		border-radius: 2px;
+		padding: 2px 0;
+		min-width: 67px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+	}
 	:global(.ProseMirror-icon) {
 		display: inline-flex;
 		align-items: center;
@@ -379,31 +424,104 @@
 		color: white;
 	}
 
+	:global(.ProseMirror h1) {
+		font-size: 2em;
+		margin: 0.67em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h2) {
+		font-size: 1.5em;
+		margin: 0.83em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h3) {
+		font-size: 1.17em;
+		margin: 1em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h4) {
+		font-size: 1em;
+		margin: 1.33em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h5) {
+		font-size: 0.83em;
+		margin: 1.67em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror h6) {
+		font-size: 0.67em;
+		margin: 2.33em 0;
+		color: white;
+		font-weight: bold;
+	}
+
+	/* Improve menu styling for better visibility of heading options */
+	:global(.ProseMirror-menu-dropdown-item[title*="Heading"]) {
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 1"]) {
+		font-size: 1.2em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 2"]) {
+		font-size: 1.1em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 3"]) {
+		font-size: 1em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 4"]) {
+		font-size: 0.95em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 5"]) {
+		font-size: 0.9em;
+	}
+
+	:global(.ProseMirror-menu-dropdown-item[title="Heading 6"]) {
+		font-size: 0.85em;
+	}
+
 	/* Cursor and selection styles */
 	:global(.ProseMirror-yjs-cursor) {
 		position: relative;
 		margin-left: -1px;
 		margin-right: -1px;
-		border-left: 1px solid white;
-		border-right: 1px solid white;
+		border-left: 2px solid black; /* Slightly thicker */
+		border-right: 2px solid black;
 		pointer-events: none;
+		z-index: 20;
 	}
 
+	/* Username tooltip */
 	:global(.ProseMirror-yjs-cursor > div) {
 		position: absolute;
-		top: -1.05em;
+		top: -1.8em;
 		left: -1px;
-		font-size: 13px;
-		background-color: rgb(250, 129, 0);
-		font-family: serif;
-		font-style: normal;
-		font-weight: normal;
+		font-size: 12px;
+		background-color: inherit; /* Will inherit from the cursor */
+		font-family: "Inter", "Segoe UI", sans-serif;
+		font-weight: 500;
 		line-height: normal;
 		user-select: none;
 		color: white;
-		padding: 2px 6px;
-		border-radius: 3px;
+		padding: 3px 8px;
+		border-radius: 4px;
 		white-space: nowrap;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 	}
 
 	:global(.ProseMirror-icon:hover) {
@@ -457,6 +575,27 @@
 	:global(.ProseMirror-menu-dropdown-menu) {
 		z-index: 999;
 	}
+
+	:global(.ProseMirror-example-setup-style) {
+		overflow-y: scroll;
+		max-height: 92%;
+		padding-bottom: 1rem;
+		overflow-x: scroll;
+	}
+
+	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
+		width: 4px;
+		height: 4px;
+	}
+
+	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+
+	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-thumb) {
+		background-color: #2f303e;
+		border-radius: 4px;
+	}
 </style>
 
 <div class="editor-container">
@@ -470,7 +609,7 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this="{element}"></div>
+		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
 			on:click="{saveNoteManual}"
 			class="absolute w-20 top-1.5 right-2 bg-osvauld-carolinablue text-osvauld-fieldActive px-2.5 py-1 rounded-md cursor-pointer"
