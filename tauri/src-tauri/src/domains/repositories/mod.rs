@@ -13,6 +13,7 @@ use crate::domains::models::{
         SyncRecordSet,
     },
     user::User,
+    vectorClock::VectorClock,
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -146,6 +147,14 @@ pub trait ResourceRepository: Send + Sync {
         resource: &Resource,
         key: &ResourceKey,
     ) -> Result<(), RepositoryError>;
+
+    async fn update_resource_vector_clock(
+        &self,
+        resource_id: &str,
+        vector_clock: &VectorClock,
+    ) -> Result<(), RepositoryError>;
+
+    async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError>;
 }
 
 #[async_trait]

@@ -1,6 +1,7 @@
 use crate::database::schema::{resource_keys, resources};
 use crate::domains::models::resource::{Resource, ResourceKeyPair, ResourceWithKey};
 use crate::domains::models::resource_key::ResourceKey;
+use crate::domains::models::vectorClock::VectorClock;
 use crate::domains::repositories::{RepositoryError, ResourceRepository};
 use crate::persistence::models::{ResourceKeyModel, ResourceModel};
 use crate::DbConnection;
@@ -291,5 +292,42 @@ impl ResourceRepository for SqliteResourceRepository {
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(())
+    }
+
+    async fn update_resource_vector_clock(
+        &self,
+        resource_id: &str,
+        vector_clock: &VectorClock,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let now = Local::now().timestamp_millis();
+
+        let vector_clock_json = serde_json::to_string(vector_clock)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        diesel::update(resources::table)
+            .filter(resources::id.eq(resource_id))
+            .set((
+                resources::vector_clock.eq(vector_clock_json),
+                resources::updated_at.eq(now),
+            ))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let resource_model = resources::table
+            .filter(resources::id.eq(id))
+            .first::<ResourceModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(resource_model.into())
     }
 }

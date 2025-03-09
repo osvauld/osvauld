@@ -1,5 +1,6 @@
 use crate::domains::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use crate::domains::models::resource_key::ResourceKey;
+use crate::domains::models::vectorClock::VectorClock;
 use crate::domains::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
 };
@@ -63,12 +64,12 @@ impl ResourceService {
         let encrypted = encrypt_data_for_users(&resource_payload, &[user_pub_key])
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
-        // Create and save the resource
-        let resource = Resource::new(
+        let resource = Resource::new_with_user(
             resource_type,
             encrypted.encrypted_data,
             folder_id,
             "signature".to_string(), // TODO: Implement proper signing
+            &user_id,
         );
         let resource_key = ResourceKey::new(
             resource.id.clone(),
@@ -243,24 +244,56 @@ impl ResourceService {
         &self,
         resource_id: String,
         recipient_public_key: String,
-    ) -> Result<ResourceKey, ResourceServiceError> {
-        let current_user = self.get_current_user_id().await?;
+    ) -> Result<(ResourceKey, VectorClock), ResourceServiceError> {
+        // Get current user ID
+        let current_user_id = self.get_current_user_id().await?;
 
+        // Find the resource key for the current user
         let resource_key = self
             .resource_key_repository
-            .find_by_resource_and_user(&resource_id, &current_user)
+            .find_by_resource_and_user(&resource_id, &current_user_id)
             .await?;
+
+        // Encrypt the key for the recipient
         let new_encryption_key = {
             let crypto = self.crypto_utils.lock().await;
             crypto
                 .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_public_key)
                 .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
         };
-        let shared_user_id = get_key_id(&recipient_public_key)
+
+        // Get recipient's user ID from their public key
+        let recipient_user_id = get_key_id(&recipient_public_key)
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
-        let new_resource_key =
-            ResourceKey::new(resource_id, shared_user_id, new_encryption_key, false);
-        Ok(new_resource_key)
+        // Create a new resource key for the recipient
+        let new_resource_key = ResourceKey::new(
+            resource_id.clone(),
+            recipient_user_id.clone(),
+            new_encryption_key,
+            false,
+        );
+
+        // Update the resource's vector clock
+        // 1. Get the current resource with its vector clock
+        let resource = self
+            .resource_repository
+            .find_by_id_raw(&resource_id)
+            .await
+            .map_err(ResourceServiceError::RepositoryError)?;
+
+        // 2. Increment the current user's counter in the vector clock
+        let mut updated_vector_clock = resource.vector_clock.clone();
+        updated_vector_clock.increment(&current_user_id);
+
+        // 3. Ensure the recipient has an entry in the vector clock (initialized to 0)
+        // This is important so they're included in future causality tracking
+        updated_vector_clock
+            .clock
+            .entry(recipient_user_id)
+            .or_insert(0);
+
+        // Return the new resource key and vector clock
+        Ok((new_resource_key, updated_vector_clock))
     }
 }

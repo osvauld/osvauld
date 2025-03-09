@@ -71,6 +71,7 @@ diesel::table! {
         deleted_at -> Nullable<BigInt>,
         updated_at -> BigInt,
         created_at -> BigInt,
+        vector_clock -> Text,
     }
 }
 
