@@ -77,6 +77,15 @@ pub trait SyncRepository: Send + Sync {
         device_record_ids: Vec<String>,
         synced_device_id: String,
     ) -> Result<(), RepositoryError>;
+    async fn get_sync_records_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+    ) -> Result<Vec<SyncRecord>, RepositoryError>;
+    async fn get_device_records_by_sync_id(
+        &self,
+        sync_id: &str,
+    ) -> Result<Vec<DeviceRecord>, RepositoryError>;
 }
 
 #[async_trait]
@@ -243,4 +252,16 @@ pub trait ShareRepository: Send + Sync {
     ) -> Result<(), RepositoryError>;
 
     async fn get_all_share_records(&self) -> Result<Vec<ShareRecord>, RepositoryError>;
+
+    async fn get_effective_share_records(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError>;
+
+    async fn get_user_records_by_share_id(
+        &self,
+        share_id: &str,
+    ) -> Result<Vec<UserRecord>, RepositoryError>;
+
+    async fn get_share_record_by_id(&self, share_id: &str) -> Result<ShareRecord, RepositoryError>;
 }

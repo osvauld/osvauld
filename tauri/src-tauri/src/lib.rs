@@ -22,12 +22,12 @@ use crate::handlers::auth_handler::{
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
-    connect_with_ticket, get_system_locale, get_ticket, send_message, send_snapshot,
-    start_p2p_listener,
+    connect_with_device, get_system_locale, get_ticket, initiate_first_connection, send_message,
+    send_snapshot, start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
     get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
-    soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
+    share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
 };
 use crate::handlers::user_handler::{add_known_user, get_known_users};
 use crate::persistence::repositories::{
@@ -124,31 +124,36 @@ pub fn run() {
                         store_repository.clone(),
                         crypto_utils.clone(),
                     ));
-                    let p2p_service = Arc::new(P2PService::new(
-                        handle.clone(),
-                        sync_service.clone(),
-                        auth_service.clone(),
+
+                    let user_service = Arc::new(UserService::new(
+                        user_repository.clone(),
+                        crypto_utils.clone(),
                     ));
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),
                         crypto_utils.clone(),
                         resource_key_repo.clone(),
                     ));
-                    let user_service = Arc::new(UserService::new(
-                        user_repository.clone(),
-                        crypto_utils.clone(),
-                    ));
                     let share_service = Arc::new(ShareService::new(
                         share_repo.clone(),
                         store_repository.clone(),
                         user_repository.clone(),
                         crypto_utils.clone(),
+                        resource_repo.clone(),
                     ));
                     let transaction_service = Arc::new(TransactionService::new(
                         resource_repo.clone(),
                         resource_key_repo.clone(),
                         sync_repo.clone(),
                         share_repo.clone(),
+                    ));
+
+                    let p2p_service = Arc::new(P2PService::new(
+                        handle.clone(),
+                        sync_service.clone(),
+                        auth_service.clone(),
+                        user_service.clone(),
+                        share_service.clone(),
                     ));
 
                     // Manage all services
@@ -195,7 +200,7 @@ pub fn run() {
             handle_get_resources_for_folder,
             send_message,
             get_ticket,
-            connect_with_ticket,
+            connect_with_device,
             start_p2p_listener,
             soft_delete_resource,
             soft_delete_folder,
@@ -209,6 +214,8 @@ pub fn run() {
             add_known_user,
             get_known_users,
             get_public_key,
+            initiate_first_connection,
+            share_resource
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

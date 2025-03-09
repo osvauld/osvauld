@@ -1,8 +1,8 @@
 use crate::application::services::UserService;
 use crate::types::AddKnownUser;
 use crate::types::CryptoResponse;
+use base64::decode;
 use std::sync::Arc;
-
 use tauri::State;
 
 #[tauri::command]
@@ -10,8 +10,10 @@ pub async fn add_known_user(
     input: AddKnownUser,
     user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
+    let public_key_bytes = decode(input.public_key).map_err(|e| e.to_string())?;
+    let public_key = String::from_utf8(public_key_bytes).map_err(|e| e.to_string())?;
     let user = user_service
-        .add_known_user(input.nickname, input.public_key, false)
+        .add_known_user(input.nickname, public_key, false)
         .await?;
     Ok(CryptoResponse::CreatedKnownUser(user))
 }

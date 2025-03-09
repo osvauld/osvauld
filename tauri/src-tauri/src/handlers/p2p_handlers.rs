@@ -1,5 +1,9 @@
+use crate::application::services::AuthService;
 use crate::application::services::P2PService;
+use crate::application::services::UserService;
+use crate::domains::models::p2p::ConnectionType;
 use crate::types::CryptoResponse;
+use crate::types::InitiateFirstConnectionInput;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
@@ -18,18 +22,21 @@ pub async fn get_ticket(state: State<'_, Arc<P2PService>>) -> Result<String, Str
 }
 
 #[tauri::command]
-pub async fn connect_with_ticket(
+pub async fn connect_with_device(
     ticket: String,
-    state: State<'_, Arc<P2PService>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<(), String> {
-    state.connect_with_ticket(&ticket).await
+    p2p_service
+        .connect_with_ticket(&ticket, ConnectionType::Device)
+        .await?;
+    p2p_service.start_device_sync().await
 }
 
 #[tauri::command]
 pub async fn start_p2p_listener(
-    state: State<'_, Arc<P2PService>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    state.start_listening().await
+    p2p_service.start_listening().await
 }
 
 #[tauri::command]
@@ -40,12 +47,42 @@ pub fn get_system_locale() -> String {
 #[tauri::command]
 pub async fn send_snapshot(
     snapshot: String,
-    state: State<'_, Arc<P2PService>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<(), CryptoResponse> {
     log::info!("snapshot recived {:?}", snapshot);
-    let _ = state
+    let _ = p2p_service
         .send_snapshot(snapshot)
         .await
         .map_err(|e| CryptoResponse::Error(e));
     Ok(())
+}
+
+#[tauri::command]
+pub async fn initiate_first_connection(
+    input: InitiateFirstConnectionInput,
+    p2p_service: State<'_, Arc<P2PService>>,
+    user_service: State<'_, Arc<UserService>>,
+) -> Result<CryptoResponse, String> {
+    p2p_service
+        .connect_with_ticket(&input.ticket, ConnectionType::User)
+        .await?;
+    let user = user_service.get_current_user().await?;
+    p2p_service
+        .initiate_first_user_connection(&user, &input.ticket)
+        .await?;
+    Ok(CryptoResponse::Success)
+}
+
+#[tauri::command]
+pub async fn connect_with_user(
+    ticket: String,
+    p2p_service: State<'_, Arc<P2PService>>,
+    user_service: State<'_, Arc<UserService>>,
+) -> Result<CryptoResponse, String> {
+    let user = user_service.get_current_user().await?;
+    p2p_service
+        .connect_with_ticket(&ticket, ConnectionType::User)
+        .await?;
+    p2p_service.start_user_sync(&user).await?;
+    todo!()
 }

@@ -166,7 +166,7 @@ pub struct ResourceResponse {
     pub folder_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct UpdateResources {
     pub id: String,
     pub data: String,
@@ -190,4 +190,10 @@ pub struct AddKnownUser {
 pub struct ShareResource {
     pub public_key: String,
     pub resource_id: String,
+}
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InitiateFirstConnectionInput {
+    pub ticket: String,
+    pub user_id: String,
 }

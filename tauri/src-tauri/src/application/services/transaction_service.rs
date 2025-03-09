@@ -2,10 +2,10 @@ use crate::domains::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, SyncRepository,
 };
 
-use crate::domains::models::resource::{Resource, ResourceWithKey};
+use crate::domains::models::resource::Resource;
 use crate::domains::models::resource_key::ResourceKey;
-use crate::domains::models::share_record::ShareRecordSet;
-use crate::domains::models::sync_record::SyncRecordSet;
+use crate::domains::models::share_record::{ShareRecordSet, UserRecordSet};
+use crate::domains::models::sync_record::{SyncRecordSet, SyncUpdateData};
 use std::sync::Arc;
 
 pub struct TransactionService {
@@ -37,9 +37,6 @@ impl TransactionService {
         sync_record_set: SyncRecordSet,
         share_record_set: ShareRecordSet,
     ) -> Result<(), RepositoryError> {
-        // This could use a database transaction if supported
-        // For now, we'll do separate writes
-
         // Save resource and its key
         self.resource_repository.save(&resource).await?;
         self.resource_key_repository.save(&resource_key).await?;
@@ -54,6 +51,61 @@ impl TransactionService {
             .add_share_record_set(share_record_set)
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn update_resource_with_sync_and_share(
+        &self,
+        resource_id: String,
+        encrypted_data: String,
+        sync_data: Option<SyncUpdateData>,
+        share_data: Option<UserRecordSet>,
+    ) -> Result<(), RepositoryError> {
+        // Use diesel transaction if your database supports it
+        // For SQLite, you might need to implement your own transaction mechanism
+
+        // 1. Update the resource data
+        self.resource_repository
+            .update_resource(encrypted_data, resource_id)
+            .await?;
+
+        // 2. Handle sync records if present
+        if let Some(sync_update) = sync_data {
+            match sync_update {
+                SyncUpdateData::FullSyncSet(sync_record_set) => {
+                    // Write a full sync record set
+                    self.sync_repository
+                        .add_sync_record_set(sync_record_set)
+                        .await?;
+                }
+                SyncUpdateData::DeviceRecordSet(device_record_set) => {
+                    // Write only device record set
+                    self.sync_repository
+                        .update_device_record_set(device_record_set)
+                        .await?;
+                }
+            }
+        }
+
+        // 3. Handle share records if present
+        if let Some(user_record_set) = share_data {
+            self.share_repository
+                .update_user_record_set(user_record_set)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    pub async fn share_resource(
+        &self,
+        resource_key: ResourceKey,
+        user_record: UserRecordSet,
+    ) -> Result<(), RepositoryError> {
+        self.resource_key_repository.save(&resource_key).await?;
+        self.share_repository
+            .update_user_record_set(user_record)
+            .await?;
         Ok(())
     }
 }

@@ -3,8 +3,8 @@ use crate::domains::models::p2p::{SyncAckType, SyncData, SyncPayload};
 use crate::domains::models::{
     folder::Folder,
     resource::Resource,
-    sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecord, SyncRecordSet},
-    sync_types::{OperationType, ResourceType},
+    sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecord, SyncRecordSet, SyncUpdateData},
+    sync_types::{OperationType, SyncStatus},
 };
 
 use crate::domains::repositories::{
@@ -26,7 +26,6 @@ pub struct SyncService {
     store_repository: Arc<dyn StoreRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
 }
-
 impl SyncService {
     pub fn new(
         sync_repository: Arc<dyn SyncRepository>,
@@ -451,57 +450,70 @@ impl SyncService {
 
         get_key_id(&public_key).map_err(|e| e.to_string())
     }
-
-    pub async fn add_resource_update_to_sync(
+    pub async fn prepare_resource_update_sync(
         &self,
         resource_id: String,
-    ) -> Result<Option<SyncRecordSet>, RepositoryError> {
+    ) -> Result<Option<SyncUpdateData>, RepositoryError> {
         // Get current device ID
         let current_device_id = self.store_repository.get_device_key().await?;
 
-        // Get all devices
-        let all_devices = self.device_repository.get_all_devices().await?;
-
-        // Get devices that already have pending sync records for this resource
-        let devices_with_pending = self
-            .sync_repository
-            .get_devices_with_pending_sync(&resource_id, "update")
+        // Get all devices except current
+        let other_devices = self
+            .device_repository
+            .get_devices_except(&[current_device_id.clone()])
             .await?;
 
-        // Create a set of device IDs with pending sync for efficient lookup
-        let pending_device_ids: std::collections::HashSet<String> =
-            devices_with_pending.into_iter().collect();
-
-        // Find devices that need new sync records
-        let mut devices_needing_update = Vec::new();
-
-        for device in &all_devices {
-            // Skip current device - we don't need a sync record for it
-            if device.id == current_device_id {
-                continue;
-            }
-
-            // Check if this device already has a pending sync record
-            if !pending_device_ids.contains(&device.id) {
-                // This device needs a new update record
-                devices_needing_update.push(device.clone());
-            }
-        }
-
-        // If no devices need updates, return None
-        if devices_needing_update.is_empty() {
+        if other_devices.is_empty() {
+            // No other devices to sync with, so no need for sync records
             return Ok(None);
         }
 
-        // Create sync records for devices that need updates
-        let sync_record_set = SyncRecord::create_update_record(
-            resource_id,
-            ResourceType::Resource,
-            OperationType::Update,
+        // Find existing update sync records for this resource
+        let existing_sync_records = self
+            .sync_repository
+            .get_sync_records_by_resource_and_operation(
+                &resource_id,
+                &OperationType::Update.to_string(),
+            )
+            .await?;
+
+        if existing_sync_records.is_empty() {
+            // No existing update records, create a new one
+            let sync_record_set =
+                SyncRecord::create_update_records(&resource_id, &current_device_id, &other_devices);
+
+            return Ok(Some(SyncUpdateData::FullSyncSet(sync_record_set)));
+        }
+
+        // Get the latest sync record (they are sorted by created_at desc)
+        let latest_sync = &existing_sync_records[0];
+
+        // Get device records for this sync record
+        let device_records = self
+            .sync_repository
+            .get_device_records_by_sync_id(&latest_sync.id)
+            .await?;
+
+        // Find devices that have completed the previous update
+        let completed_devices: Vec<Device> = device_records
+            .iter()
+            .filter(|dr| dr.device_id != current_device_id && dr.status == SyncStatus::Completed)
+            .filter_map(|dr| other_devices.iter().find(|d| d.id == dr.device_id).cloned())
+            .collect();
+
+        if completed_devices.is_empty() {
+            // All other devices are still pending, no need for new records
+            return Ok(None);
+        }
+
+        // Some devices have completed the previous update, create device records
+        // so they receive the latest changes
+        let device_record_set = SyncRecord::create_device_sync_records(
+            latest_sync.id.clone(),
+            &completed_devices,
             current_device_id,
-            &devices_needing_update,
         );
 
-        Ok(Some(sync_record_set))
+        Ok(Some(SyncUpdateData::DeviceRecordSet(device_record_set)))
     }
 }

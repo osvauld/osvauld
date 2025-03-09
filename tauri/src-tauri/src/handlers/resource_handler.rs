@@ -1,6 +1,7 @@
 use crate::application::services::{
     ResourceService, ShareService, SyncService, TransactionService,
 };
+use crate::domains::models::resource_key;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetAllResources, GetResource,
     GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
@@ -134,10 +135,31 @@ pub async fn get_all_resources(
 #[tauri::command]
 pub async fn update_resource(
     resource_service: State<'_, Arc<ResourceService>>,
+    sync_service: State<'_, Arc<SyncService>>,
+    share_service: State<'_, Arc<ShareService>>,
+    transaction_service: State<'_, Arc<TransactionService>>,
     input: UpdateResources,
 ) -> Result<CryptoResponse, String> {
+    //TODO: migrate obsolete user records to another table.
     let (encrypted_data, current_user) = resource_service
-        .update_resources(input)
+        .update_resources(input.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let sync_data = sync_service
+        .prepare_resource_update_sync(input.id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let share_data = share_service
+        .prepare_content_update_records(input.id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    transaction_service
+        .update_resource_with_sync_and_share(
+            input.id.clone(),
+            encrypted_data,
+            sync_data,
+            share_data,
+        )
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::UpdateResources)
@@ -159,10 +181,23 @@ pub async fn get_resource(
 pub async fn share_resource(
     input: ShareResource,
     resource_service: State<'_, Arc<ResourceService>>,
+    share_service: State<'_, Arc<ShareService>>,
+    transaction_service: State<'_, Arc<TransactionService>>,
 ) -> Result<CryptoResponse, String> {
-    resource_service
-        .share_resource(input.resource_id, input.public_key)
+    //TODO: change from public key to user_id?
+    let resource_key = resource_service
+        .share_resource(input.resource_id.clone(), input.public_key.clone())
         .await
         .map_err(|e| e.to_string())?;
+    //TODO: add sync record for share
+    let share_service_set = share_service
+        .prepare_share_records(input.resource_id, input.public_key)
+        .await
+        .map_err(|e| e.to_string())?;
+    transaction_service
+        .share_resource(resource_key, share_service_set)
+        .await
+        .map_err(|e| e.to_string())?;
+
     Ok(CryptoResponse::Success)
 }

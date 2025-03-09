@@ -1,9 +1,9 @@
-use crate::application::services::auth_service::AuthService;
-use crate::application::services::sync_service::SyncService;
 use crate::domains::models::device::Device;
 use crate::domains::models::p2p::{
-    ConnectionTicket, HandshakeError, HandshakeMessage, Message, SyncAckType, SyncPayload,
+    ConnectionTicket, ConnectionType, HandshakeError, HandshakeMessage, Message, SharePayload,
+    SyncAckType, SyncPayload,
 };
+use crate::domains::models::user::User;
 use crate::types::CryptoResponse;
 use iroh::endpoint::Connection;
 const MAX_HANDSHAKE_SIZE: usize = 8192; // 8KB max size for handshake messages
@@ -20,6 +20,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{timeout, Duration};
 
+use super::{AuthService, ShareService, SyncService, UserService};
+
 const ALPN_PROTOCOL: &[u8] = b"n0/iroh/examples/magic/0";
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -27,6 +29,7 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(60);
 struct P2PState {
     endpoint: Arc<Endpoint>,
     active_connection: Arc<Mutex<Option<Arc<Connection>>>>,
+    connection_type: Arc<Mutex<Option<ConnectionType>>>,
 }
 
 #[derive(Clone)]
@@ -34,9 +37,12 @@ pub struct P2PService {
     state: Arc<Mutex<Option<P2PState>>>,
     is_initiator: Arc<Mutex<Option<bool>>>,
     device: Arc<Mutex<Option<Device>>>,
+    user: Arc<Mutex<Option<User>>>,
     app_handle: AppHandle,
     sync_service: Arc<SyncService>,
     auth_service: Arc<AuthService>,
+    user_service: Arc<UserService>,
+    share_service: Arc<ShareService>,
 }
 
 impl P2PService {
@@ -44,14 +50,19 @@ impl P2PService {
         app_handle: AppHandle,
         sync_service: Arc<SyncService>,
         auth_service: Arc<AuthService>,
+        user_service: Arc<UserService>,
+        share_service: Arc<ShareService>,
     ) -> Self {
         Self {
             state: Arc::new(Mutex::new(None)),
             is_initiator: Arc::new(Mutex::new(None)),
             device: Arc::new(Mutex::new(None)),
+            user: Arc::new(Mutex::new(None)),
             app_handle,
             sync_service,
             auth_service,
+            user_service,
+            share_service,
         }
     }
     async fn ensure_initialized(&self) -> Result<(), String> {
@@ -74,6 +85,7 @@ impl P2PService {
         *state = Some(P2PState {
             endpoint: Arc::new(endpoint),
             active_connection: Arc::new(Mutex::new(None)),
+            connection_type: Arc::new(Mutex::new(None)),
         });
 
         info!("P2P initialization successful");
@@ -82,7 +94,8 @@ impl P2PService {
 
     pub async fn add_device(&self, records: SyncPayload, ticket: String) -> Result<(), String> {
         // First establish connection with the target device using the ticket
-        self.connect_with_ticket(&ticket).await?;
+        self.connect_with_ticket(&ticket, ConnectionType::Device)
+            .await?;
 
         // Once connected, send the AddDevice message
         info!("Connection established, sending AddDevice message");
@@ -246,7 +259,7 @@ impl P2PService {
         Ok(())
     }
 
-    pub async fn start_sync(&self) -> Result<(), String> {
+    pub async fn start_device_sync(&self) -> Result<(), String> {
         info!("Starting sync process");
         let connection = self.get_active_connection().await?;
         // Send sync request
@@ -327,10 +340,27 @@ impl P2PService {
             .await
             .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
 
+        let connection_type = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard
+                .as_ref()
+                .ok_or(HandshakeError::Connection("P2P not initialized".into()))?;
+            let conn_type_guard = state.connection_type.lock().await;
+            conn_type_guard.clone().unwrap_or(ConnectionType::Device) // Default to Device if not set
+        };
+        let user = match connection_type {
+            ConnectionType::User => match self.user_service.get_current_user().await {
+                Ok(user) => Some(user),
+                Err(_) => None,
+            },
+            ConnectionType::Device => None,
+        };
         let handshake_message = HandshakeMessage {
+            connection_type,
             challenge,
             signature,
             device,
+            user,
         };
 
         let serialized = serde_json::to_string(&handshake_message)
@@ -349,9 +379,24 @@ impl P2PService {
 
         let response: HandshakeMessage = serde_json::from_str(&message_str)?;
 
-        {
-            let mut device = self.device.lock().await;
-            *device = Some(response.device.clone());
+        match response.connection_type {
+            ConnectionType::Device => {
+                let mut device = self.device.lock().await;
+                *device = Some(response.device.clone());
+            }
+            ConnectionType::User => {
+                // Store device info if provided
+                let mut device = self.device.lock().await;
+                *device = Some(response.device.clone());
+
+                // User info is required for user connections
+                if let Some(user_info) = response.user {
+                    let mut user = self.user.lock().await;
+                    *user = Some(user_info);
+                } else {
+                    return Err(HandshakeError::Connection("Missing user info".into()));
+                }
+            }
         }
 
         info!("Initiator: Handshake completed successfully");
@@ -421,13 +466,35 @@ impl P2PService {
                     return Err(HandshakeError::Connection(e.to_string()));
                 }
             };
+        // Store connection type in state
+        {
+            let state_guard = self.state.lock().await;
+            if let Some(state) = state_guard.as_ref() {
+                let mut conn_type_guard = state.connection_type.lock().await;
+                *conn_type_guard = Some(handshake_message.connection_type.clone());
+            }
+        }
 
         info!("Successfully received and parsed handshake message");
 
-        // Store the device information
-        {
-            let mut device = self.device.lock().await;
-            *device = Some(handshake_message.device.clone());
+        match handshake_message.connection_type {
+            ConnectionType::Device => {
+                let mut device = self.device.lock().await;
+                *device = Some(handshake_message.device);
+            }
+            ConnectionType::User => {
+                // Store device info if provided
+                let mut device = self.device.lock().await;
+                *device = Some(handshake_message.device);
+
+                // User info is required for user connections
+                if let Some(user_info) = handshake_message.user {
+                    let mut user = self.user.lock().await;
+                    *user = Some(user_info);
+                } else {
+                    return Err(HandshakeError::Connection("Missing user info".into()));
+                }
+            }
         }
 
         // Get our device and create response
@@ -437,6 +504,14 @@ impl P2PService {
                 error!("Failed to get current device: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
             }
+        };
+
+        let user = match handshake_message.connection_type {
+            ConnectionType::User => match self.user_service.get_current_user().await {
+                Ok(user) => Some(user),
+                Err(_) => None,
+            },
+            ConnectionType::Device => None,
         };
 
         let (challenge, signature) = match self.auth_service.sign_random_challenge().await {
@@ -451,6 +526,8 @@ impl P2PService {
             challenge,
             signature,
             device,
+            user,
+            connection_type: handshake_message.connection_type,
         };
 
         info!("Created handshake response message");
@@ -672,7 +749,7 @@ impl P2PService {
                                                         Message::AddDeviceAck => {
                                                             //let _ =
                                                             // self.handle_add_device_ack().await;
-                                                            let _ = self.start_sync().await;
+                                                            let _ = self.start_device_sync().await;
                                                             Ok(())
                                                         }
                                                         Message::SyncResponse(payload) => {
@@ -716,6 +793,18 @@ impl P2PService {
                                                                 payload.clone(),
                                                             )
                                                             .await
+                                                        }
+                                                        Message::FirstUserConnection(user) => {
+                                                            self.handle_first_user_connection(user)
+                                                                .await
+                                                        }
+                                                        Message::UserAddAck(user_id) => {
+                                                            self.handle_user_add_ack(user_id).await;
+                                                            Ok(())
+                                                        }
+
+                                                        Message::SharePayload(payload) => {
+                                                            self.handle_share_payload(payload).await
                                                         }
                                                         _ => Ok(()),
                                                     };
@@ -939,7 +1028,11 @@ impl P2PService {
 
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
     }
-    pub async fn connect_with_ticket(&self, ticket_str: &str) -> Result<(), String> {
+    pub async fn connect_with_ticket(
+        &self,
+        ticket_str: &str,
+        conn_type: ConnectionType,
+    ) -> Result<(), String> {
         self.ensure_initialized().await?;
 
         println!("Starting connection process with ticket: {}", ticket_str);
@@ -947,6 +1040,10 @@ impl P2PService {
         let (endpoint, node_addr) = {
             let state_guard = self.state.lock().await;
             let state = state_guard.as_ref().ok_or("P2P not initialized")?;
+            if let Some(state) = state_guard.as_ref() {
+                let mut conn_type_guard = state.connection_type.lock().await;
+                *conn_type_guard = Some(conn_type);
+            }
 
             let ticket: ConnectionTicket = serde_json::from_str(ticket_str)
                 .map_err(|e| format!("Invalid ticket format: {}", e))?;
@@ -1057,5 +1154,81 @@ impl P2PService {
                 Err(err)
             }
         }
+    }
+
+    pub async fn initiate_first_user_connection(
+        &self,
+        user: &User,
+        ticket: &str,
+    ) -> Result<(), String> {
+        let message = Message::FirstUserConnection(user.clone());
+        self.connect_with_ticket(&ticket, ConnectionType::User)
+            .await?;
+        let serialized = serde_json::to_string(&message)
+            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
+        self.send_message(serialized).await?;
+        Ok(())
+    }
+
+    pub async fn handle_first_user_connection(&self, user: &User) -> Result<(), String> {
+        self.user_service
+            .add_known_user(user.username.clone(), user.public_key.clone(), false)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let message = Message::UserAddAck(user.id.clone());
+        let serialized = serde_json::to_string(&message)
+            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
+        self.send_message(serialized).await?;
+        Ok(())
+    }
+
+    pub async fn handle_user_add_ack(&self, user_id: &str) -> Result<(), String> {
+        //TODO: make it so that user addtion is complete only after reciving ack
+        info!("recived acknowledgment {}", user_id);
+        Ok(())
+    }
+
+    pub async fn start_user_sync(&self, user: &User) -> Result<(), String> {
+        let connected_user_id = {
+            let user_guard = self.user.lock().await;
+            match &*user_guard {
+                Some(connected_user) => connected_user.id.clone(),
+                None => return Err("No user connected".to_string()),
+            }
+        };
+
+        let pending_shares = self
+            .share_service
+            .get_pending_shares(&connected_user_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(share_payload) = pending_shares {
+            // Create a ShareResponse message
+            let message = Message::SharePayload(share_payload);
+            let serialized = serde_json::to_string(&message)
+                .map_err(|e| format!("Failed to serialize ShareResponse: {}", e))?;
+
+            // Send the share payload
+            self.send_message(serialized).await?;
+            info!("Sent share payload to peer");
+        } else {
+            // No pending shares, send completion
+            let message = Message::ShareComplete;
+            let serialized = serde_json::to_string(&message)
+                .map_err(|e| format!("Failed to serialize ShareComplete: {}", e))?;
+
+            self.send_message(serialized).await?;
+            info!("No pending shares, sent completion message");
+        }
+
+        Ok(())
+    }
+
+    pub async fn handle_share_payload(&self, payload: &SharePayload) -> Result<(), String> {
+        self.share_service
+            .process_incoming_payload(payload.clone())
+            .await?;
+        todo!();
     }
 }

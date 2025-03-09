@@ -5,6 +5,10 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub enum SyncUpdateData {
+    FullSyncSet(SyncRecordSet),
+    DeviceRecordSet(DeviceRecordSet),
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRecord {
     pub id: String,
@@ -407,5 +411,71 @@ impl SyncRecord {
             .collect();
 
         (updated_records, updated_statuses)
+    }
+
+    pub fn create_update_records(
+        resource_id: &str,
+        current_device_id: &str,
+        other_devices: &[Device],
+    ) -> SyncRecordSet {
+        SyncRecord::create_sync_records(
+            resource_id.to_string(),
+            ResourceType::Resource,
+            OperationType::Update,
+            current_device_id.to_string(),
+            other_devices,
+        )
+    }
+
+    pub fn create_device_sync_records(
+        sync_record_id: String,
+        target_devices: &[Device],
+        current_device_id: String,
+    ) -> DeviceRecordSet {
+        let now = Local::now().timestamp_millis();
+        let mut device_records = Vec::new();
+        let mut device_record_statuses = Vec::new();
+
+        // Create device records for all target devices that need to sync again
+        for device in target_devices {
+            let device_record = DeviceRecord {
+                id: Uuid::new_v4().to_string(),
+                sync_record_id: sync_record_id.clone(),
+                device_id: device.id.clone(),
+                status: SyncStatus::Pending,
+                synced: false,
+                created_at: now,
+                updated_at: now,
+            };
+
+            // Create status records for each device record
+            // Current device knows about these records
+            device_record_statuses.push(DeviceRecordStatus {
+                id: Uuid::new_v4().to_string(),
+                device_record_id: device_record.id.clone(),
+                aware_device_id: current_device_id.clone(),
+                synced: true,
+                created_at: now,
+                updated_at: now,
+            });
+
+            // Each target device also needs a status record (starts unaware)
+            device_record_statuses.push(DeviceRecordStatus {
+                id: Uuid::new_v4().to_string(),
+                device_record_id: device_record.id.clone(),
+                aware_device_id: device.id.clone(),
+                synced: false,
+                created_at: now,
+                updated_at: now,
+            });
+
+            // Add the device record to our collection
+            device_records.push(device_record);
+        }
+
+        DeviceRecordSet {
+            device_records,
+            device_record_statuses,
+        }
     }
 }
