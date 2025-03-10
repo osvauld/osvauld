@@ -6,14 +6,17 @@
 		vaults,
 		noteId,
 		refreshCredentialList,
-		noteTitle,
+		currentNote,
+		notes,
 	} from "../../store/desktop.ui.store";
+	import { extractTitle } from "../utils/helper";
 	import { slide } from "svelte/transition";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
 	import DownArrow from "@osvauld/password-manager-common/icons/downArrow.svelte";
-	import Star from "@osvauld/password-manager-common/icons/star.svelte";
+	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
+	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
 	import DownloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
 	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
@@ -41,6 +44,7 @@
 	let hoveredItem = "";
 	let favSelected = false;
 	let saveNoteAndSwitch = () => {};
+	$: isFavourite = $currentNote.favourite;
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
@@ -65,6 +69,7 @@
 	const handleBackButton = () => {
 		saveNoteAndSwitch();
 		noteId.set("");
+		currentNote.set({});
 	};
 
 	// const handleDeleteBtn = () => {
@@ -99,6 +104,30 @@
 				message: "Failed to create note",
 				success: false,
 			});
+		}
+	};
+
+	const toggleFav = async () => {
+		isFavourite = !isFavourite;
+		try {
+			await sendMessage("toggleFav", {
+				resourceId: $currentNote.id,
+			});
+			const notesWithFavToggleChange = $notes.map((cred) => {
+				if (cred.id === $currentNote.id) {
+					return {
+						...cred,
+						data: {
+							...cred.data,
+						},
+						favourite: isFavourite,
+					};
+				}
+				return cred;
+			});
+			notes.set(notesWithFavToggleChange);
+		} catch (err) {
+			console.error("Error toggling favorite:", err);
 		}
 	};
 
@@ -155,7 +184,7 @@
 					aria-current="{selectedSection === 'favourites'
 						? 'page'
 						: undefined}">
-					<Star
+					<EmptyStar
 						color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
 						size="20" />
 					<span>Favourites</span>
@@ -191,11 +220,17 @@
 				</button>
 				<span
 					class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-					>{$noteTitle}
+					>{extractTitle($currentNote.data.content)}
 				</span>
+
 				<button
-					class="  rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0">
-					<Star />
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+					on:click|stopPropagation="{toggleFav}">
+					{#if isFavourite}
+						<Star />
+					{:else}
+						<EmptyStar color="#85889C" />
+					{/if}
 				</button>
 			</div>
 

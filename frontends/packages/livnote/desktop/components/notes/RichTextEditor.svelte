@@ -9,6 +9,7 @@
 	import { listen } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
 	import {
+		currentNote,
 		noteId,
 		noteViewLayout,
 		refreshCredentialList,
