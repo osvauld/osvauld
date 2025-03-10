@@ -6,6 +6,7 @@
 		noteId,
 		refreshCredentialList,
 		notes,
+		noteTitle,
 	} from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { emit } from "@tauri-apps/api/event";
@@ -128,8 +129,9 @@
 	};
 
 	// Function to handle note selection
-	const selectNote = (id) => {
+	const selectNote = (id, content) => {
 		console.log(`Selecting note: ${id}`);
+		noteTitle.set(extractTitle(content));
 
 		// First reset the note view to ensure clean state
 		noteViewLayout.set(false);
@@ -184,8 +186,8 @@
 	<div class="h-full overflow-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
 			<RichTextEditor
-				on:collaboration-update={(event) =>
-					emit("sync-update", JSON.stringify(event.detail))} />
+				on:collaboration-update="{(event) =>
+					emit('sync-update', JSON.stringify(event.detail))}" />
 		{:else if isLoading}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">Loading notes...</div>
@@ -208,7 +210,7 @@
 							<!-- {@const noreData = console.log("noted =>>", note)} -->
 							<div
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
-								on:click={() => selectNote(note.id)}>
+								on:click="{() => selectNote(note.id, note.data.content)}">
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
@@ -217,8 +219,8 @@
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
-										on:click|stopPropagation={() =>
-											toggleFavorite(note.id, note.favourite)}>
+										on:click|stopPropagation="{() =>
+											toggleFavorite(note.id, note.favourite)}">
 										{#if note.favourite}
 											<Star />
 										{:else}
@@ -229,9 +231,9 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-										content={note.data.content}
-										editorState={note.data.editor_state}
-										yjsState={note.data.yjs_state}
+										content="{note.data.content}"
+										editorState="{note.data.editor_state}"
+										yjsState="{note.data.yjs_state}"
 										maxHeight="120px"
 										minHeight="120px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

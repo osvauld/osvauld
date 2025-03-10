@@ -7,6 +7,7 @@
 		currentVault,
 		noteViewLayout,
 		noteId,
+		noteTitle,
 	} from "../../store/desktop.ui.store";
 	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
@@ -87,7 +88,8 @@
 	}
 
 	// Function to handle note selection
-	function selectNote(id) {
+	function selectNote(id, title) {
+		noteTitle.set(title);
 		noteId.set(id);
 	}
 
@@ -231,7 +233,8 @@
 							: ''}"
 						on:mouseenter="{() => (hoveredCredential = note.id)}"
 						on:mouseleave="{() => (hoveredCredential = null)}"
-						on:click="{() => selectNote(note.id)}">
+						on:click="{() =>
+							selectNote(note.id, extractTitle(note.data.content))}">
 						<div class="flex items-center gap-3 truncate">
 							<span class="shrink-0">
 								<MobileNote

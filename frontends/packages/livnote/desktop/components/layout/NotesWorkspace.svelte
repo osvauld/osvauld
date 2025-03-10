@@ -6,6 +6,7 @@
 		vaults,
 		noteId,
 		refreshCredentialList,
+		noteTitle,
 	} from "../../store/desktop.ui.store";
 	import { slide } from "svelte/transition";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
@@ -182,7 +183,7 @@
 				</button>
 			</div>
 		{:else}
-			<div class="mx-2 flex justify-between items-center max-w-[38rem]">
+			<div class="mx-2 flex justify-between items-center max-w-[34rem]">
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					on:click="{handleBackButton}">
@@ -190,7 +191,7 @@
 				</button>
 				<span
 					class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-					>note
+					>{$noteTitle}
 				</span>
 				<button
 					class="  rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0">

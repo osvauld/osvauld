@@ -6,6 +6,7 @@ export let currentView = writable("all");
 export let vaults = writable([]);
 export let currentVault = writable({ id: "all", name: "all vaults" });
 export let notes = writable([]);
+export let noteTitle = writable("Note");
 export let selectedCategory = writable("");
 export let addCredentialModal = writable(false);
 export let selectedVaultForInput = writable({});
