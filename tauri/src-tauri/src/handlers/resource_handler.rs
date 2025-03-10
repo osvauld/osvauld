@@ -185,17 +185,22 @@ pub async fn share_resource(
     transaction_service: State<'_, Arc<TransactionService>>,
 ) -> Result<CryptoResponse, String> {
     //TODO: change from public key to user_id?
-    let resource_key = resource_service
+    let (resource_key, vector_clock) = resource_service
         .share_resource(input.resource_id.clone(), input.public_key.clone())
         .await
         .map_err(|e| e.to_string())?;
     //TODO: add sync record for share
     let share_service_set = share_service
-        .prepare_share_records(input.resource_id, input.public_key)
+        .prepare_share_records(input.resource_id.clone(), input.public_key)
         .await
         .map_err(|e| e.to_string())?;
     transaction_service
-        .share_resource(resource_key, share_service_set)
+        .share_resource(
+            resource_key,
+            vector_clock,
+            share_service_set,
+            input.resource_id.clone(),
+        )
         .await
         .map_err(|e| e.to_string())?;
 

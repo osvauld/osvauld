@@ -9,3 +9,4 @@ pub mod share_types;
 pub mod sync_record;
 pub mod sync_types;
 pub mod user;
+pub mod vectorClock;

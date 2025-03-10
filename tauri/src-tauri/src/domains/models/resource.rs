@@ -3,6 +3,8 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::vectorClock::VectorClock;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {
     pub id: String,
@@ -16,6 +18,7 @@ pub struct Resource {
     pub last_accessed: i64,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
+    pub vector_clock: VectorClock,
 }
 
 impl Resource {
@@ -34,7 +37,20 @@ impl Resource {
             last_accessed: now,
             deleted: false,
             deleted_at: None,
+            vector_clock: VectorClock::new(),
         }
+    }
+
+    pub fn new_with_user(
+        resource_type: String,
+        data: String,
+        folder_id: String,
+        signature: String,
+        user_id: &str,
+    ) -> Self {
+        let mut resource = Self::new(resource_type, data, folder_id, signature);
+        resource.vector_clock.increment(user_id);
+        resource
     }
 }
 

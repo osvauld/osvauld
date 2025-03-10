@@ -76,6 +76,7 @@ CREATE TABLE resources (
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
+        vector_clock TEXT NOT NULL DEFAULT '{"clock":{}}',
     FOREIGN KEY (folder_id) REFERENCES folders (id)
 );
 

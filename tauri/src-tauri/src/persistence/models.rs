@@ -17,6 +17,7 @@ use crate::domains::models::{
     sync_record::SyncRecord as DomainSyncRecord,
     sync_types::{OperationType, ResourceType, SyncStatus},
     user::User as DomainUser,
+    vectorClock::VectorClock,
 };
 use diesel::prelude::*;
 
@@ -194,6 +195,7 @@ pub struct ResourceModel {
     pub deleted_at: Option<i64>,
     pub updated_at: i64,
     pub created_at: i64,
+    pub vector_clock: String,
 }
 
 impl From<&DomainResource> for ResourceModel {
@@ -210,6 +212,8 @@ impl From<&DomainResource> for ResourceModel {
             deleted_at: resource.deleted_at,
             created_at: resource.created_at,
             updated_at: resource.updated_at,
+            vector_clock: serde_json::to_string(&resource.vector_clock)
+                .unwrap_or_else(|_| "{\"clock\":{}}".to_string()),
         }
     }
 }
@@ -228,6 +232,8 @@ impl From<ResourceModel> for DomainResource {
             favourite: model.favourite,
             deleted: model.deleted,
             deleted_at: model.deleted_at,
+            vector_clock: serde_json::from_str(&model.vector_clock)
+                .unwrap_or_else(|_| VectorClock::new()),
         }
     }
 }

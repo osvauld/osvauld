@@ -1,3 +1,4 @@
+use crate::domains::models::vectorClock::VectorClock;
 use crate::domains::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, SyncRepository,
 };
@@ -100,11 +101,18 @@ impl TransactionService {
     pub async fn share_resource(
         &self,
         resource_key: ResourceKey,
+        vector_clock: VectorClock,
         user_record: UserRecordSet,
+        resource_id: String,
     ) -> Result<(), RepositoryError> {
+        log::info!("vecoor {:?}", vector_clock);
         self.resource_key_repository.save(&resource_key).await?;
         self.share_repository
             .update_user_record_set(user_record)
+            .await?;
+        // Update the resource's vector clock
+        self.resource_repository
+            .update_resource_vector_clock(&resource_id, &vector_clock)
             .await?;
         Ok(())
     }
