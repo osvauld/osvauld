@@ -19,7 +19,7 @@
 	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
 	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import CredentialList from "../notes/CredentialList.svelte";
+	import NotesListView from "../notes/NotesListView.svelte";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import VaultManager from "../ui/VaultManager.svelte";
 
@@ -160,6 +160,27 @@
 					<span>Favourites</span>
 				</button>
 			</div>
+			<div
+				class="relative ml-auto shrink-0 gap-4 flex justify-end items-center text-base">
+				{#if $currentVault.id !== "all"}
+					<button
+						class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
+						on:click|stopPropagation="{() => {}}"
+						on:mouseenter="{() => (deleteBtnHoved = true)}"
+						on:mouseleave="{() => (deleteBtnHoved = false)}"
+						aria-label="Delete Folder"
+						><Bin
+							color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}"
+							size="24" /></button>
+				{/if}
+				<button
+					class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
+					on:mouseenter="{() => (addCredentialHovered = true)}"
+					on:mouseleave="{() => (addCredentialHovered = false)}"
+					on:click="{handleAddNote}">
+					<Add color="#85889C" size="24" />
+				</button>
+			</div>
 		{:else}
 			<div class="mx-2 flex justify-between items-center max-w-[38rem]">
 				<button
@@ -176,80 +197,73 @@
 					<Star />
 				</button>
 			</div>
-		{/if}
 
-		<div
-			class="relative ml-auto shrink-0 gap-4 flex justify-between items-center text-base">
-			{#if $currentVault.id !== "all"}
+			<div
+				class="relative ml-auto shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
-					class="p-2"
-					on:click|stopPropagation="{() => {}}"
-					on:mouseenter="{() => (deleteBtnHoved = true)}"
-					on:mouseleave="{() => (deleteBtnHoved = false)}"
-					aria-label="Delete Folder"
-					><Bin color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}" /></button>
-			{/if}
-			<button
-				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-				<CopyIcon />
-			</button>
-			<button
-				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-				<Bin size="24" />
-			</button>
-
-			<button
-				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-				<DownloadIcon />
-			</button>
-			<button
-				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-				<Menu />
-			</button>
-
-			<button
-				class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
-				on:mouseenter="{() => (addCredentialHovered = true)}"
-				on:mouseleave="{() => (addCredentialHovered = false)}"
-				on:click="{handleAddNote}">
-				<Add color="#85889C" size="24" />
-			</button>
-
-			{#if $noteId}
-				<button
-					on:click="{handleShareList}"
-					class=" text-osvauld-textPassive font-medium flex justify-center items-center p-2.5 rounded-lg bg-osvauld-fieldActive border border-osvauld-iconblack"
-					aria-label="share with users">
-					<span class="mr-2 pl-2">Invite to edit</span>
-					<UserPlus color="#85889C" />
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+					<CopyIcon />
 				</button>
-			{/if}
+				<button
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+					<Bin size="24" />
+				</button>
 
-			{#if showShareList}
-				<div
-					class="bg-transparent fixed inset-0 z-40"
-					role="presentation"
-					aria-hidden="true"
-					on:click|stopPropagation="{() => {}}">
-				</div>
-				<div
-					class="absolute top-full right-0 mt-2 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
-					in:slide
-					out:slide>
-					{#each shareUserList as { id, username, publicKey }}
-						<button
-							class="profileBtn"
-							on:mouseenter="{() => (hoveredItem = id)}"
-							on:mouseleave="{() => (hoveredItem = '')}"
-							on:click|stopPropagation="{() =>
-								handleDropDownClick(id, publicKey)}">
-							{username}
-						</button>
-					{/each}
-				</div>
-			{/if}
-		</div>
+				<button
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+					<DownloadIcon />
+				</button>
+				<button
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+					<Menu />
+				</button>
+
+				<button
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+					on:mouseenter="{() => (addCredentialHovered = true)}"
+					on:mouseleave="{() => (addCredentialHovered = false)}"
+					on:click="{handleAddNote}">
+					<Add color="#85889C" size="24" />
+				</button>
+
+				{#if $noteId}
+					<button
+						on:click="{handleShareList}"
+						class=" text-osvauld-textPassive font-medium flex justify-center items-center p-2.5 rounded-lg bg-osvauld-fieldActive border border-osvauld-iconblack cursor-pointer"
+						aria-label="share with users">
+						<span class="mr-2 pl-2">Invite to edit</span>
+						<UserPlus color="#85889C" />
+					</button>
+				{/if}
+
+				{#if showShareList}
+					<div
+						class="bg-transparent fixed inset-0 z-40"
+						role="presentation"
+						aria-hidden="true"
+						on:click|stopPropagation="{() => {
+							showShareList = false;
+						}}">
+					</div>
+					<div
+						class="absolute top-full right-0 mt-2 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
+						in:slide
+						out:slide>
+						{#each shareUserList as { id, username, publicKey }}
+							<button
+								class="profileBtn"
+								on:mouseenter="{() => (hoveredItem = id)}"
+								on:mouseleave="{() => (hoveredItem = '')}"
+								on:click|stopPropagation="{() =>
+									handleDropDownClick(id, publicKey)}">
+								{username}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
-	<CredentialList {favSelected} />
+	<NotesListView {favSelected} />
 </div>

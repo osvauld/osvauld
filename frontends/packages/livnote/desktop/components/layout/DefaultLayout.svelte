@@ -1,5 +1,5 @@
 <script lang="ts">
-	import ContentWrapper from "../layout/ContentWrapper.svelte";
+	import NotesWorkspace from "./NotesWorkspace.svelte";
 	import HeaderSection from "../layout/HeaderSection.svelte";
 	import NavigationPanel from "../layout/NavigationPanel.svelte";
 	import { onMount } from "svelte";
@@ -26,6 +26,6 @@
 		{#if $noteViewLayout}
 			<NavigationPanel />
 		{/if}
-		<ContentWrapper />
+		<NotesWorkspace />
 	</div>
 </div>
