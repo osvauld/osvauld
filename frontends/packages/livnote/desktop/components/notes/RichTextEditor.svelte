@@ -270,6 +270,8 @@
 		background: #16171f;
 		color: white;
 		position: relative;
+		border-top-left-radius: 20px;
+		border-top-right-radius: 20px;
 	}
 
 	/* ProseMirror menubar styles for horizontal layout */
@@ -278,8 +280,8 @@
 	}
 
 	:global(.ProseMirror-menubar) {
-		height: 48px;
-		padding: 4px 8px;
+		height: 92px;
+		padding: 4px 24px;
 		white-space: nowrap;
 		overflow-y: hidden;
 		background: #16171f;
@@ -288,6 +290,8 @@
 		gap: 1px;
 		z-index: 900;
 		border-bottom: 1px solid #2a2b2f;
+		border-top-left-radius: 20px;
+		border-top-right-radius: 20px;
 	}
 	:global(.ProseMirror) {
 		position: relative;
@@ -613,7 +617,7 @@
 		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
 			on:click="{saveNoteManual}"
-			class="absolute top-1.5 right-2 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			class="absolute top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
 					><span class="text-[#9DD062] mr-2">Saved...</span>
