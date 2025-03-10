@@ -149,12 +149,12 @@
 		fetchNotes();
 
 		// Listen for window resize to update columns
-		window.addEventListener("resize", fetchNotes);
+		// window.addEventListener("resize", fetchNotes);
 	});
 
-	onDestroy(() => {
-		window.removeEventListener("resize", fetchNotes);
-	});
+	// onDestroy(() => {
+	// 	window.removeEventListener("resize", fetchNotes);
+	// });
 </script>
 
 <div class="grow max-h-[85%] overflow-y-scroll px-16 py-4 relative">

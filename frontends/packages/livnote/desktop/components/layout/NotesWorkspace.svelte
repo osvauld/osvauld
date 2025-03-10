@@ -220,7 +220,9 @@
 				</button>
 				<span
 					class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-					>{extractTitle($currentNote.data.content)}
+					>{$currentNote?.data
+						? extractTitle($currentNote?.data?.content)
+						: "New note"}
 				</span>
 
 				<button
