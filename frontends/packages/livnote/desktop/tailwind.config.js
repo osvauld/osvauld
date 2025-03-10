@@ -96,6 +96,7 @@ export default {
 					cancelBackground: "#21222C",
 					tickGreen: "#00FF00",
 					cardBorder: "#373946",
+					savedGreen: "#9DD062",
 				},
 
 				mobile: {

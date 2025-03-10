@@ -6,7 +6,9 @@
 		noteId,
 		refreshCredentialList,
 		notes,
+		currentNote,
 	} from "../../store/desktop.ui.store";
+	import { extractTitle } from "../utils/helper";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
@@ -21,31 +23,6 @@
 	let error = null;
 
 	$: updatedNotes = $notes;
-
-	// Function to get title from content (first heading or first line)
-	const extractTitle = (content) => {
-		// Try to find a heading tag
-		const headingMatch = content.match(/<heading[^>]*>(.*?)<\/heading>/);
-		if (headingMatch && headingMatch[1]) {
-			return headingMatch[1].replace(/<[^>]+>/g, "").trim();
-		}
-
-		// Otherwise, get the first paragraph or line
-		const firstParagraphMatch = content.match(
-			/<paragraph[^>]*>(.*?)<\/paragraph>/,
-		);
-		if (firstParagraphMatch && firstParagraphMatch[1]) {
-			const text = firstParagraphMatch[1].replace(/<[^>]+>/g, "").trim();
-			// Return first 30 chars if there's text
-			return text
-				? text.length > 30
-					? text.substring(0, 30) + "..."
-					: text
-				: "Untitled Note";
-		}
-
-		return "Untitled Note";
-	};
 
 	// Function to get last modified date in readable format
 	const getLastModifiedDate = (timestamp) => {
@@ -104,7 +81,7 @@
 	const toggleFavorite = async (noteId, currentStatus) => {
 		try {
 			await sendMessage("toggleFav", {
-				credentialId: noteId,
+				resourceId: noteId,
 			});
 
 			// Update local state
@@ -128,8 +105,8 @@
 	};
 
 	// Function to handle note selection
-	const selectNote = (id) => {
-		console.log(`Selecting note: ${id}`);
+	const selectNote = (note) => {
+		currentNote.set(note);
 
 		// First reset the note view to ensure clean state
 		noteViewLayout.set(false);
@@ -137,7 +114,7 @@
 		// Wait for UI update to complete
 		setTimeout(() => {
 			// Then set the note ID
-			noteId.set(id);
+			noteId.set(note.id);
 
 			// Finally switch to editor view
 			noteViewLayout.set(true);
@@ -172,20 +149,20 @@
 		fetchNotes();
 
 		// Listen for window resize to update columns
-		window.addEventListener("resize", fetchNotes);
+		// window.addEventListener("resize", fetchNotes);
 	});
 
-	onDestroy(() => {
-		window.removeEventListener("resize", fetchNotes);
-	});
+	// onDestroy(() => {
+	// 	window.removeEventListener("resize", fetchNotes);
+	// });
 </script>
 
 <div class="grow max-h-[85%] overflow-y-scroll px-16 py-4 relative">
 	<div class="h-full overflow-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
 			<RichTextEditor
-				on:collaboration-update={(event) =>
-					emit("sync-update", JSON.stringify(event.detail))} />
+				on:collaboration-update="{(event) =>
+					emit('sync-update', JSON.stringify(event.detail))}" />
 		{:else if isLoading}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">Loading notes...</div>
@@ -205,10 +182,10 @@
 				{#each Array(getColumnCount()) as _, colIndex}
 					<div class="flex flex-col gap-6">
 						{#each getColumnItems(updatedNotes, colIndex) as note (note.id)}
-							<!-- {@const noreData = console.log("noted =>>", note)} -->
 							<div
+								role="presentation"
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
-								on:click={() => selectNote(note.id)}>
+								on:click="{() => selectNote(note)}">
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
@@ -217,8 +194,8 @@
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
-										on:click|stopPropagation={() =>
-											toggleFavorite(note.id, note.favourite)}>
+										on:click|stopPropagation="{() =>
+											toggleFavorite(note.id, note.favourite)}">
 										{#if note.favourite}
 											<Star />
 										{:else}
@@ -229,9 +206,9 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-										content={note.data.content}
-										editorState={note.data.editor_state}
-										yjsState={note.data.yjs_state}
+										content="{note.data.content}"
+										editorState="{note.data.editor_state}"
+										yjsState="{note.data.yjs_state}"
 										maxHeight="120px"
 										minHeight="120px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

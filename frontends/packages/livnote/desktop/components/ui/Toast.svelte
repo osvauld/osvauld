@@ -8,7 +8,7 @@
 	onMount(() => {
 		setTimeout(() => {
 			triggerCloseEvent();
-		}, 2000);
+		}, 3000);
 	});
 </script>
 

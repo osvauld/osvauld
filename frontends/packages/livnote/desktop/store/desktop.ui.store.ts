@@ -10,7 +10,7 @@ export let selectedCategory = writable("");
 export let addCredentialModal = writable(false);
 export let selectedVaultForInput = writable({});
 export let viewCredentialModal = writable(false);
-export let currentCredential = writable({});
+export let currentNote = writable({});
 export let addDeviceModal = writable(false);
 export let refreshCredentialList = writable(false);
 

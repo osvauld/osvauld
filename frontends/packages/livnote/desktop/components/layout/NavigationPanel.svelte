@@ -7,13 +7,14 @@
 		currentVault,
 		noteViewLayout,
 		noteId,
+		currentNote,
+		notes,
 	} from "../../store/desktop.ui.store";
-	import { CATEGORIES } from "@osvauld/password-manager-common/utils/credentialUtils";
+	import { extractTitle } from "../utils/helper";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import { LocalStorageService } from "@osvauld/password-manager-common";
 	import { StorageService } from "@osvauld/password-manager-common";
 	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
-	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { onMount } from "svelte";
 
@@ -24,33 +25,6 @@
 
 	let credentials = [];
 	let isLoading = false;
-
-	// Function to extract title from content
-	function extractTitle(content) {
-		if (!content) return "Untitled Note";
-
-		// Try to find a heading tag
-		const headingMatch = content.match(/<heading[^>]*>(.*?)<\/heading>/);
-		if (headingMatch && headingMatch[1]) {
-			return headingMatch[1].replace(/<[^>]+>/g, "").trim();
-		}
-
-		// Otherwise, get the first paragraph or line
-		const firstParagraphMatch = content.match(
-			/<paragraph[^>]*>(.*?)<\/paragraph>/,
-		);
-		if (firstParagraphMatch && firstParagraphMatch[1]) {
-			const text = firstParagraphMatch[1].replace(/<[^>]+>/g, "").trim();
-			// Return first 30 chars if there's text
-			return text
-				? text.length > 30
-					? text.substring(0, 30)
-					: text
-				: "Untitled Note";
-		}
-
-		return "Untitled Note";
-	}
 
 	// Async function to fetch credentials based on vault ID
 	async function fetchCredentials(vaultId) {
@@ -87,8 +61,9 @@
 	}
 
 	// Function to handle note selection
-	function selectNote(id) {
-		noteId.set(id);
+	function selectNote(note) {
+		currentNote.set(note);
+		noteId.set(note.id);
 	}
 
 	// Watch for changes to currentVault
@@ -231,7 +206,7 @@
 							: ''}"
 						on:mouseenter="{() => (hoveredCredential = note.id)}"
 						on:mouseleave="{() => (hoveredCredential = null)}"
-						on:click="{() => selectNote(note.id)}">
+						on:click="{() => selectNote(note)}">
 						<div class="flex items-center gap-3 truncate">
 							<span class="shrink-0">
 								<MobileNote
@@ -243,13 +218,6 @@
 									: note.id}
 							</span>
 						</div>
-						<span class="flex-shrink-0">
-							{#if note.favourite}
-								<FavStar />
-							{:else}
-								<Star color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
-							{/if}
-						</span>
 					</button>
 				</li>
 			{/each}
