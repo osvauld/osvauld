@@ -5,5 +5,7 @@ members = [
   "tauri/src-tauri",
   "rendezvous_server",
   "rendezvous_client",
-  "core", "osvauld-db",
+  "core",
+  "osvauld-db",
+  "osvauld-services",
 ]

@@ -4769,6 +4769,7 @@ dependencies = [
  "once_cell",
  "osvauld_core",
  "osvauld_db",
+ "osvauld_services",
  "rand 0.8.5",
  "rcgen 0.10.0",
  "rendezvous_client",
@@ -4816,6 +4817,22 @@ dependencies = [
  "thiserror 2.0.12",
  "tokio",
  "uuid",
+]
+
+[[package]]
+name = "osvauld_services"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "crypto_utils",
+ "log",
+ "osvauld_core",
+ "osvauld_db",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
 ]
 
 [[package]]

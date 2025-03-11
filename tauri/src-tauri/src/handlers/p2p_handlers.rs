@@ -1,10 +1,9 @@
-use crate::application::services::P2PService;
-use crate::application::services::RendezvousService;
-use crate::application::services::UserService;
+use crate::application::services::{P2PService, RendezvousService};
 use crate::types::CryptoResponse;
 use crate::types::InitiateFirstConnectionInput;
 use log::info;
 use osvauld_core::models::p2p::ConnectionType;
+use osvauld_services::UserService;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;

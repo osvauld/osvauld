@@ -4,15 +4,7 @@ pub mod application;
 use osvauld_db::{DbConnection, initialize_database};
 pub mod handlers;
 mod types;
-use crate::application::services::AuthService;
-use crate::application::services::FolderService;
-use crate::application::services::P2PService;
-use crate::application::services::RendezvousService;
-use crate::application::services::ResourceService;
-use crate::application::services::ShareService;
-use crate::application::services::SyncService;
-use crate::application::services::TransactionService;
-use crate::application::services::UserService;
+use crate::application::services::{P2PService, RendezvousService};
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
@@ -33,6 +25,10 @@ use osvauld_db::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
     SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
     SqliteUserRepository,
+};
+use osvauld_services::{
+    AuthService, FolderService, ResourceService, ShareService, SyncService, TransactionService,
+    UserService,
 };
 use std::fs;
 use std::sync::Arc;

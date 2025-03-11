@@ -1,7 +1,7 @@
-use crate::application::services::UserService;
 use crate::types::AddKnownUser;
 use crate::types::CryptoResponse;
 use base64::decode;
+use osvauld_services::UserService;
 use std::sync::Arc;
 use tauri::State;
 

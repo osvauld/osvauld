@@ -1,13 +1,10 @@
-use crate::application::services::{
-    ResourceService, ShareService, SyncService, TransactionService,
-};
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetAllResources, GetResource,
     GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
     UpdateLastAccessedInput, UpdateResources,
 };
 use log::info;
-use osvauld_core::models::resource_key;
+use osvauld_services::{ResourceService, ShareService, SyncService, TransactionService};
 use std::sync::Arc;
 use tauri::State;
 
@@ -142,7 +139,7 @@ pub async fn update_resource(
 ) -> Result<CryptoResponse, String> {
     //TODO: migrate obsolete user records to another table.
     let (encrypted_data, current_user) = resource_service
-        .update_resources(input.clone())
+        .update_resources(input.id.clone(), input.data)
         .await
         .map_err(|e| e.to_string())?;
     let sync_data = sync_service

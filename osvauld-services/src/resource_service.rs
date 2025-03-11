@@ -1,4 +1,3 @@
-use crate::types::UpdateResources;
 use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
@@ -99,19 +98,20 @@ impl ResourceService {
 
     pub async fn update_resources(
         &self,
-        input: UpdateResources,
+        resource_id: String,
+        data: String,
     ) -> Result<(String, String), ResourceServiceError> {
         let user_id = self.get_current_user_id().await?;
         let old_resource = self
             .resource_repository
-            .find_by_id(&input.id, &user_id)
+            .find_by_id(&resource_id, &user_id)
             .await
             .map_err(ResourceServiceError::RepositoryError)?;
 
         let encrypted = {
             let crypto = self.crypto_utils.lock().await;
             crypto
-                .update_resource(&input.data, &old_resource.encrypted_key)
+                .update_resource(&data, &old_resource.encrypted_key)
                 .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
         };
         Ok((encrypted, user_id))

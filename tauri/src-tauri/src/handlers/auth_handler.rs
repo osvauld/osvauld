@@ -1,11 +1,10 @@
-use crate::application::services::{
-    AuthService, FolderService, P2PService, RendezvousService, SyncService, UserService,
-};
+use crate::application::services::{P2PService, RendezvousService};
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
 };
 use log::{error, info};
+use osvauld_services::{AuthService, FolderService, SyncService, UserService};
 use std::sync::Arc;
 use tauri::State;
 

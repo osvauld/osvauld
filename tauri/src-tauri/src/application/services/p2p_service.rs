@@ -20,7 +20,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::time::{Duration, timeout};
 
-use super::{AuthService, ShareService, SyncService, UserService};
+use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 
 const ALPN_PROTOCOL: &[u8] = b"n0/iroh/examples/magic/0";
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(60);
