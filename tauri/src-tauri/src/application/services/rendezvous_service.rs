@@ -1,7 +1,7 @@
 use crate::application::services::P2PService;
-use crate::domains::models::p2p::ConnectionType;
-use crate::domains::models::user::User; // Import the User model
 use log::{debug, error, info};
+use osvauld_core::models::p2p::ConnectionType;
+use osvauld_core::models::user::User; // Import the User model
 use rendezvous_client::{WsClient, WsMessage};
 use std::collections::HashSet;
 use std::sync::Arc;

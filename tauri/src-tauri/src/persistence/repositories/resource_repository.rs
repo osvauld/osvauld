@@ -1,14 +1,14 @@
-use crate::database::schema::{resource_keys, resources};
-use crate::domains::models::resource::{Resource, ResourceKeyPair, ResourceWithKey};
-use crate::domains::models::resource_key::ResourceKey;
-use crate::domains::models::vectorClock::VectorClock;
-use crate::domains::repositories::{RepositoryError, ResourceRepository};
-use crate::persistence::models::{ResourceKeyModel, ResourceModel};
 use crate::DbConnection;
+use crate::database::schema::{resource_keys, resources};
+use crate::persistence::models::{ResourceKeyModel, ResourceModel};
 use async_trait::async_trait;
 use chrono::Local;
-use diesel::prelude::*;
 use diesel::QueryDsl;
+use diesel::prelude::*;
+use osvauld_core::models::resource::{Resource, ResourceKeyPair, ResourceWithKey};
+use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::vectorClock::VectorClock;
+use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 
 pub struct SqliteResourceRepository {
     connection: DbConnection,

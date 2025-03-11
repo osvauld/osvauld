@@ -1,12 +1,12 @@
-use crate::database::schema::{folders, resources};
-use crate::domains::models::folder::Folder;
-use crate::domains::repositories::{FolderRepository, RepositoryError};
-use crate::persistence::models::FolderModel;
 use crate::DbConnection;
+use crate::database::schema::{folders, resources};
+use crate::persistence::models::FolderModel;
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
+use osvauld_core::models::folder::Folder;
+use osvauld_core::repositories::{FolderRepository, RepositoryError};
 pub struct SqliteFolderRepository {
     connection: DbConnection,
 }

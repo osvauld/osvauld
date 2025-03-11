@@ -1,13 +1,13 @@
-use crate::database::schema::{share_records, user_record_status, user_records};
 use crate::database::DbConnection;
-use crate::domains::models::share_record::{
-    ShareRecord, ShareRecordSet, ShareStatusChangeSet, UserRecord, UserRecordSet, UserRecordStatus,
-};
-use crate::domains::models::share_types::ShareOperation;
-use crate::domains::repositories::{RepositoryError, ShareRepository};
+use crate::database::schema::{share_records, user_record_status, user_records};
 use crate::persistence::models::{ShareRecordModel, UserRecordModel, UserRecordStatusModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
+use osvauld_core::models::share_record::{
+    ShareRecord, ShareRecordSet, ShareStatusChangeSet, UserRecord, UserRecordSet, UserRecordStatus,
+};
+use osvauld_core::models::share_types::ShareOperation;
+use osvauld_core::repositories::{RepositoryError, ShareRepository};
 
 pub struct SqliteShareRepository {
     connection: DbConnection,

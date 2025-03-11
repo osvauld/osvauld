@@ -1,11 +1,11 @@
-use crate::database::schema::devices;
 use crate::database::DbConnection;
-use crate::domains::models::device::Device;
-use crate::domains::repositories::{DeviceRepository, RepositoryError};
+use crate::database::schema::devices;
 use crate::persistence::models::DeviceModel;
 use async_trait::async_trait;
-use diesel::prelude::*;
 use diesel::ExpressionMethods;
+use diesel::prelude::*;
+use osvauld_core::models::device::Device;
+use osvauld_core::repositories::{DeviceRepository, RepositoryError};
 
 pub struct SqliteDeviceRepository {
     connection: DbConnection,

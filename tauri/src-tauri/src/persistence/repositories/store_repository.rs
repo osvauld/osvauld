@@ -1,6 +1,6 @@
-use crate::domains::models::auth::Certificate;
-use crate::domains::repositories::{RepositoryError, StoreRepository};
 use async_trait::async_trait;
+use osvauld_core::models::auth::Certificate;
+use osvauld_core::repositories::{RepositoryError, StoreRepository};
 use std::sync::Arc;
 use tauri::{AppHandle, Wry};
 use tauri_plugin_store::Store;

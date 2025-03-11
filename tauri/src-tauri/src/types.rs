@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domains::models::folder::Folder;
-use crate::domains::models::resource::DecryptedResource;
-use crate::domains::models::user::User;
+use osvauld_core::models::folder::Folder;
+use osvauld_core::models::resource::DecryptedResource;
+use osvauld_core::models::user::User;
 
 #[derive(Serialize)]
 #[serde(untagged)]

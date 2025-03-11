@@ -1,6 +1,6 @@
-use crate::domains::models::resource::ResourceKeyPair;
-use crate::domains::models::share_types::{ShareOperation, ShareStatus};
-use crate::domains::models::user::User;
+use crate::models::resource::ResourceKeyPair;
+use crate::models::share_types::{ShareOperation, ShareStatus};
+use crate::models::user::User;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

@@ -1,7 +1,7 @@
-use crate::domains::models::auth::{Certificate, User};
-use crate::domains::models::sync_record::SyncRecordSet;
-use crate::domains::models::{device::Device, sync_record::SyncRecord};
-use crate::domains::repositories::{
+use osvauld_core::models::auth::{Certificate, User};
+use osvauld_core::models::sync_record::SyncRecordSet;
+use osvauld_core::models::{device::Device, sync_record::SyncRecord};
+use osvauld_core::repositories::{
     DeviceRepository, RepositoryError, StoreRepository, SyncRepository,
 };
 

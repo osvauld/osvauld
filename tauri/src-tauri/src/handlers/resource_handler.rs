@@ -1,13 +1,13 @@
 use crate::application::services::{
     ResourceService, ShareService, SyncService, TransactionService,
 };
-use crate::domains::models::resource_key;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetAllResources, GetResource,
     GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
     UpdateLastAccessedInput, UpdateResources,
 };
 use log::info;
+use osvauld_core::models::resource_key;
 use std::sync::Arc;
 use tauri::State;
 

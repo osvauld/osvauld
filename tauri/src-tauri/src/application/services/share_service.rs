@@ -1,16 +1,16 @@
 use log::info;
 use tokio::sync::Mutex;
 
-use crate::domains::models::p2p::SharePayload;
-use crate::domains::models::resource::ResourceKeyPair;
-use crate::domains::models::share_record::{
+use crypto_utils::{CryptoUtils, get_key_id};
+use osvauld_core::models::p2p::SharePayload;
+use osvauld_core::models::resource::ResourceKeyPair;
+use osvauld_core::models::share_record::{
     SharePayloadResult, ShareRecord, ShareRecordSet, UserRecordSet,
 };
-use crate::domains::models::share_types::{ShareOperation, ShareStatus};
-use crate::domains::repositories::{
+use osvauld_core::models::share_types::{ShareOperation, ShareStatus};
+use osvauld_core::repositories::{
     RepositoryError, ResourceRepository, ShareRepository, StoreRepository, UserRepository,
 };
-use crypto_utils::{get_key_id, CryptoUtils};
 use std::sync::Arc;
 pub struct ShareService {
     share_repository: Arc<dyn ShareRepository>,

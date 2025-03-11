@@ -1,11 +1,11 @@
-use crate::domains::models::device::Device;
-use crate::domains::models::p2p::{
+use crate::types::CryptoResponse;
+use iroh::endpoint::Connection;
+use osvauld_core::models::device::Device;
+use osvauld_core::models::p2p::{
     ConnectionTicket, ConnectionType, HandshakeError, HandshakeMessage, Message, SharePayload,
     SyncAckType, SyncPayload,
 };
-use crate::domains::models::user::User;
-use crate::types::CryptoResponse;
-use iroh::endpoint::Connection;
+use osvauld_core::models::user::User;
 const MAX_HANDSHAKE_SIZE: usize = 32768; // 8KB max size for handshake messages
 use iroh::{
     Endpoint, NodeAddr, RelayMode, SecretKey,

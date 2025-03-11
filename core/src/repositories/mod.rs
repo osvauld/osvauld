@@ -1,4 +1,4 @@
-use crate::domains::models::{
+use crate::models::{
     auth::Certificate,
     device::Device,
     folder::Folder,
@@ -122,7 +122,7 @@ pub trait ResourceRepository: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
     async fn find_by_id(&self, id: &str, user_id: &str)
-        -> Result<ResourceWithKey, RepositoryError>;
+    -> Result<ResourceWithKey, RepositoryError>;
     async fn delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
     async fn soft_delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
     async fn toggle_fav(&self, id: &str) -> Result<(), RepositoryError>;
@@ -215,7 +215,7 @@ pub trait ResourceKeyRepository: Send + Sync {
 #[async_trait]
 pub trait ShareRepository: Send + Sync {
     async fn add_share_record_set(&self, record_set: ShareRecordSet)
-        -> Result<(), RepositoryError>;
+    -> Result<(), RepositoryError>;
 
     async fn add_status_change_set(
         &self,

@@ -1,5 +1,5 @@
-use crate::domains::models::auth::Certificate;
-use crate::domains::repositories::{AuthRepository, RepositoryError};
+use osvauld_core::modelc::auth::Certificate;
+useosvauld_core::repositories::{AuthRepository, RepositoryError};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tauri::{AppHandle, Wry};

@@ -1,6 +1,6 @@
-use crate::domains::models::device::Device;
-use crate::domains::models::resource::Resource;
-use crate::domains::models::sync_types::{OperationType, ResourceType, SyncStatus};
+use crate::models::device::Device;
+use crate::models::resource::Resource;
+use crate::models::sync_types::{OperationType, ResourceType, SyncStatus};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;

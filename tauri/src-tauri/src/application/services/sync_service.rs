@@ -1,17 +1,17 @@
-use crate::domains::models::device::Device;
-use crate::domains::models::p2p::{SyncAckType, SyncData, SyncPayload};
-use crate::domains::models::{
+use osvauld_core::models::device::Device;
+use osvauld_core::models::p2p::{SyncAckType, SyncData, SyncPayload};
+use osvauld_core::models::{
     folder::Folder,
     resource::Resource,
     sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecord, SyncRecordSet, SyncUpdateData},
     sync_types::{OperationType, SyncStatus},
 };
 
-use crate::domains::repositories::{
+use crypto_utils::{CryptoUtils, get_key_id};
+use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
     SyncRepository,
 };
-use crypto_utils::{get_key_id, CryptoUtils};
 
 use log::info;
 use tokio::sync::Mutex;
@@ -54,7 +54,7 @@ impl SyncService {
             _ => {
                 return Err(RepositoryError::DatabaseError(
                     "Invalid sync payload: expected device data".to_string(),
-                ))
+                ));
             }
         };
         let sync_record_set = match &sync_payload.sync_record {
@@ -66,7 +66,7 @@ impl SyncService {
             None => {
                 return Err(RepositoryError::DatabaseError(
                     "Invalid sync payload: missing sync record for device addition".to_string(),
-                ))
+                ));
             }
         };
 

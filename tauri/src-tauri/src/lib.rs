@@ -2,7 +2,6 @@ use log::error;
 use tauri::Manager;
 pub mod application;
 mod database;
-pub mod domains;
 pub mod persistence;
 use database::{DbConnection, initialize_database};
 pub mod handlers;

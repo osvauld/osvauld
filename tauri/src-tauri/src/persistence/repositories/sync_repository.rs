@@ -1,12 +1,12 @@
-use crate::database::schema::{device_record_status, device_records, sync_records};
 use crate::database::DbConnection;
-use crate::domains::models::sync_record::{
-    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
-};
-use crate::domains::repositories::{RepositoryError, SyncRepository};
+use crate::database::schema::{device_record_status, device_records, sync_records};
 use crate::persistence::models::{DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
+use osvauld_core::models::sync_record::{
+    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
+};
+use osvauld_core::repositories::{RepositoryError, SyncRepository};
 
 pub struct SqliteSyncRepository {
     connection: DbConnection,

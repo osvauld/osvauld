@@ -1,11 +1,11 @@
-use crate::domains::models::resource::{DecryptedResource, Resource, ResourceWithKey};
-use crate::domains::models::resource_key::ResourceKey;
-use crate::domains::models::vectorClock::VectorClock;
-use crate::domains::repositories::{
+use crate::types::UpdateResources;
+use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
+use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
+use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::vectorClock::VectorClock;
+use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
 };
-use crate::types::UpdateResources;
-use crypto_utils::{encrypt_data_for_users, get_key_id, types::UserPublicKey, CryptoUtils};
 use serde_json::Value;
 use std::result::Result::Ok;
 use std::sync::Arc;

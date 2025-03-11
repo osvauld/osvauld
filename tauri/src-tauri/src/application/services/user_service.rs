@@ -1,6 +1,6 @@
-use crate::domains::models::user::User;
-use crate::domains::repositories::{RepositoryError, UserRepository};
-use crypto_utils::{get_key_id, CryptoUtils};
+use crypto_utils::{CryptoUtils, get_key_id};
+use osvauld_core::models::user::User;
+use osvauld_core::repositories::{RepositoryError, UserRepository};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;

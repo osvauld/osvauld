@@ -2,7 +2,8 @@ use crate::database::schema::{
     device_record_status, device_records, devices, folders, resource_keys, resources,
     share_records, sync_records, user_record_status, user_records, users,
 };
-use crate::domains::models::{
+use diesel::prelude::*;
+use osvauld_core::models::{
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
     resource::Resource as DomainResource,
@@ -19,7 +20,6 @@ use crate::domains::models::{
     user::User as DomainUser,
     vectorClock::VectorClock,
 };
-use diesel::prelude::*;
 
 #[derive(Queryable, Insertable)]
 #[diesel(table_name = folders)]

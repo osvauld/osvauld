@@ -1,12 +1,11 @@
-use crate::domains::models::device::Device;
-use crate::domains::models::folder::Folder;
-use crate::domains::models::resource::ResourceKeyPair;
-use crate::domains::models::share_record::{ShareRecord, UserRecord, UserRecordStatus};
-use crate::domains::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
-use crate::domains::models::user::User;
+use crate::models::device::Device;
+use crate::models::folder::Folder;
+use crate::models::resource::ResourceKeyPair;
+use crate::models::share_record::{ShareRecord, UserRecord, UserRecordStatus};
+use crate::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
+use crate::models::user::User;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::time;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SyncPayload {
@@ -74,12 +73,6 @@ pub enum HandshakeError {
 impl From<serde_json::Error> for HandshakeError {
     fn from(err: serde_json::Error) -> Self {
         HandshakeError::Serialization(err.to_string())
-    }
-}
-
-impl From<time::error::Elapsed> for HandshakeError {
-    fn from(err: time::error::Elapsed) -> Self {
-        HandshakeError::Timeout(err.to_string())
     }
 }
 

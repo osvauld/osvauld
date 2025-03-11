@@ -1,10 +1,10 @@
-use crate::database::schema::resource_keys;
 use crate::database::DbConnection;
-use crate::domains::models::resource_key::ResourceKey;
-use crate::domains::repositories::{RepositoryError, ResourceKeyRepository};
+use crate::database::schema::resource_keys;
 use crate::persistence::models::ResourceKeyModel;
 use async_trait::async_trait;
 use diesel::prelude::*;
+use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::repositories::{RepositoryError, ResourceKeyRepository};
 
 pub struct SqliteResourceKeyRepository {
     connection: DbConnection,

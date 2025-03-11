@@ -1,12 +1,12 @@
-use crate::domains::models::vectorClock::VectorClock;
-use crate::domains::repositories::{
+use osvauld_core::models::vectorClock::VectorClock;
+use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, SyncRepository,
 };
 
-use crate::domains::models::resource::Resource;
-use crate::domains::models::resource_key::ResourceKey;
-use crate::domains::models::share_record::{ShareRecordSet, UserRecordSet};
-use crate::domains::models::sync_record::{SyncRecordSet, SyncUpdateData};
+use osvauld_core::models::resource::Resource;
+use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::share_record::{ShareRecordSet, UserRecordSet};
+use osvauld_core::models::sync_record::{SyncRecordSet, SyncUpdateData};
 use std::sync::Arc;
 
 pub struct TransactionService {

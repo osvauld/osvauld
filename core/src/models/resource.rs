@@ -1,4 +1,4 @@
-use crate::domains::models::resource_key::ResourceKey;
+use crate::models::resource_key::ResourceKey;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -1,6 +1,6 @@
 // src/application/services/folder_service.rs
-use crate::domains::models::folder::Folder;
-use crate::domains::repositories::{FolderRepository, RepositoryError};
+use osvauld_core::models::folder::Folder;
+use osvauld_core::repositories::{FolderRepository, RepositoryError};
 use std::sync::Arc;
 use thiserror::Error;
 

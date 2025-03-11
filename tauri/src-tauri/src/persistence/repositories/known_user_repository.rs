@@ -1,7 +1,7 @@
 use crate::database::schema::users;
-use crate::domains::models::user::User;
-use crate::domains::repositories::{RepositoryError, UserRepository};
 use crate::persistence::models::UserModel;
+use osvauld_core::models::user::User;
+use osvauld_core::repositories::{RepositoryError, UserRepository};
 
 use crate::DbConnection;
 use async_trait::async_trait;
