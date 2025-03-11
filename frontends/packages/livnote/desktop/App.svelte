@@ -15,42 +15,32 @@
 		toastStore,
 		showWelcome,
 		showConnector,
-		wsConnector,
 		showAddUser,
 	} from "./store/desktop.ui.store";
 
 	let signedUp = false;
 	let isLoading = true;
 
-	let wsConnectorInstance;
-
-	wsConnectorInstance = $wsConnector;
-
 	const handleSignedUp = async () => {
 		signedUp = true;
 		showWelcome.set(false);
 		const userId = await sendMessage("getUserId");
-		const response = await wsConnectorInstance.sendRegisterMessage(userId);
 	};
 
 	const handleAddUser = async (event) => {
 		console.log(JSON.stringify(event.detail));
 		const user = await sendMessage("addKnownUser", event.detail);
-		const response = await wsConnectorInstance.sendConnectionStringRequest(
-			user.id,
-		);
-		await sendMessage("initiateFirstConnection", {
-			ticket: response,
+		console.log("initiating first connection");
+		const response = await sendMessage("initiateFirstConnection", {
 			userId: user.id,
 		});
+		console.log(response);
 	};
 
 	const handleAuthenticated = async () => {
 		showWelcome.set(false);
 
 		const userId = await sendMessage("getUserId");
-		const response = await wsConnectorInstance.sendRegisterMessage(userId);
-		console.log(response);
 	};
 
 	let syncRole = ""; // Add this to store the role

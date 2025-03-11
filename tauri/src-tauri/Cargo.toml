@@ -1,9 +1,9 @@
 [package]
 name = "osvauld"
 version = "0.1.0"
-description = "A Tauri App"
+description = "FOSS: p2p applications"
 authors = ["you"]
-edition = "2021"
+edition = "2024"
 
 
 [profile.dev]
@@ -61,6 +61,7 @@ iroh-blobs = "0.32.0"
 url = "2.5.4"
 rand = "0.8.5"
 base64 = "0.22.1"
+rendezvous_client = { path = "../../rendezvous_client" }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.0.0-rc"

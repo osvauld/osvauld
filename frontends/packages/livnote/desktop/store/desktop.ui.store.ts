@@ -1,5 +1,4 @@
 import { writable } from "svelte/store";
-import { WSConnection } from "../components/connection/wsConnector.ts";
 
 export let language = writable("en");
 export let currentView = writable("all");
@@ -23,6 +22,5 @@ export let noteViewLayout = writable(false);
 
 export let showConnector = writable(false);
 
-export let wsConnector = writable(new WSConnection());
 export let noteId = writable("");
 export let showAddUser = writable(false);

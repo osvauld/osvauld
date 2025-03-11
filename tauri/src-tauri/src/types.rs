@@ -194,6 +194,5 @@ pub struct ShareResource {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct InitiateFirstConnectionInput {
-    pub ticket: String,
     pub user_id: String,
 }

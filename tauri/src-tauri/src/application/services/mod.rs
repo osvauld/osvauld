@@ -1,6 +1,7 @@
 mod auth_service;
 mod folder_service;
 mod p2p_service;
+mod rendezvous_service;
 mod resource_service;
 mod share_service;
 mod sync_service;
@@ -9,6 +10,7 @@ mod user_service;
 pub use auth_service::AuthService;
 pub use folder_service::FolderService;
 pub use p2p_service::P2PService;
+pub use rendezvous_service::RendezvousService;
 pub use resource_service::ResourceService;
 pub use share_service::ShareService;
 pub use sync_service::SyncService;

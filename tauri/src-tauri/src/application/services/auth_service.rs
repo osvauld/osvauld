@@ -7,10 +7,10 @@ use crate::domains::repositories::{
 
 use base64::encode;
 use crypto_utils::{
-    change_certificate_password, export_certificate, generate_keys, get_key_id, import_certificate,
-    CryptoUtils,
+    CryptoUtils, change_certificate_password, export_certificate, generate_keys, get_key_id,
+    import_certificate,
 };
-use rand::{rngs::OsRng, RngCore};
+use rand::{RngCore, rngs::OsRng};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -122,7 +122,7 @@ impl AuthService {
         })
     }
 
-    pub async fn load_certificate(&self, passphrase: &str) -> Result<String, String> {
+    pub async fn load_certificate(&self, passphrase: &str) -> Result<(String, String), String> {
         let certificate = self
             .store_repository
             .get_certificate("primary_key".to_string(), "primary_key_salt".to_string())
@@ -146,7 +146,9 @@ impl AuthService {
                 .map_err(|e| format!("Failed to get public key: {}", e))?
         };
 
-        Ok(public_key)
+        let user_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
+
+        Ok((public_key, user_id))
     }
 
     pub async fn is_signed_up(&self) -> Result<bool, String> {

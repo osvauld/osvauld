@@ -4,12 +4,13 @@ pub mod application;
 mod database;
 pub mod domains;
 pub mod persistence;
-use database::{initialize_database, DbConnection};
+use database::{DbConnection, initialize_database};
 pub mod handlers;
 mod types;
 use crate::application::services::AuthService;
 use crate::application::services::FolderService;
 use crate::application::services::P2PService;
+use crate::application::services::RendezvousService;
 use crate::application::services::ResourceService;
 use crate::application::services::ShareService;
 use crate::application::services::SyncService;
@@ -80,7 +81,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -156,6 +157,12 @@ pub fn run() {
                         share_service.clone(),
                     ));
 
+                    let p2p_service_clone = p2p_service.clone();
+                    let rendezvous_service = Arc::new(RendezvousService::new(
+                        p2p_service_clone,
+                        "wss://osvauld-tscs.onrender.com/ws",
+                    ));
+
                     // Manage all services
                     app.manage(folder_service);
                     app.manage(auth_service);
@@ -165,6 +172,7 @@ pub fn run() {
                     app.manage(user_service);
                     app.manage(share_service);
                     app.manage(transaction_service);
+                    app.manage(rendezvous_service);
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);

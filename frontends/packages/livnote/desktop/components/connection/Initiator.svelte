@@ -2,7 +2,6 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { onMount, onDestroy } from "svelte";
 	import { listen } from "@tauri-apps/api/event";
-	import { wsConnector } from "../../store/desktop.ui.store";
 
 	let ticket = "";
 	let status = "Ready to connect";
@@ -41,9 +40,7 @@
 			error = "";
 			connecting = true;
 			//TODO: handle live and sync connection
-			const response = await $wsConnector.sendConnectionStringRequest(ticket);
-			console.log(response);
-			await invoke("connect_with_device", { ticket: response.trim() });
+			// await invoke("connect_with_device", { ticket: response.trim() });
 		} catch (err) {
 			error = err.toString();
 			status = "Connection failed";
