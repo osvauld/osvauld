@@ -1,6 +1,6 @@
 use crate::DbConnection;
 use crate::database::schema::{resource_keys, resources};
-use crate::persistence::models::{ResourceKeyModel, ResourceModel};
+use crate::models::{ResourceKeyModel, ResourceModel};
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::QueryDsl;

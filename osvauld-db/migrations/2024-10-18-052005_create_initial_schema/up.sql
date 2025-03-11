@@ -127,3 +127,8 @@ CREATE TABLE user_record_status (
     FOREIGN KEY (user_record_id) REFERENCES user_records (id),
     FOREIGN KEY (aware_user_id) REFERENCES users (id)
 );
+CREATE TABLE store_items (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL,
+    updated_at BIGINT NOT NULL
+);

@@ -1,5 +1,5 @@
 use crate::database::schema::users;
-use crate::persistence::models::UserModel;
+use crate::models::UserModel;
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::{RepositoryError, UserRepository};
 

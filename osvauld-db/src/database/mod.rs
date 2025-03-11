@@ -1,6 +1,6 @@
-use diesel::sqlite::SqliteConnection;
 use diesel::Connection;
-use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use diesel::sqlite::SqliteConnection;
+use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::info;
 use std::path::Path;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ pub mod schema;
 
 pub type DbConnection = Arc<Mutex<SqliteConnection>>;
 
-pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("src/database/migrations");
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 pub async fn connect_database(db_path: &str) -> Result<DbConnection, diesel::result::Error> {
     let path = Path::new(db_path);

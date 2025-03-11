@@ -1,6 +1,6 @@
 use crate::DbConnection;
 use crate::database::schema::{folders, resources};
-use crate::persistence::models::FolderModel;
+use crate::models::FolderModel;
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::prelude::*;

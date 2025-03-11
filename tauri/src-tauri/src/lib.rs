@@ -1,9 +1,7 @@
 use log::error;
 use tauri::Manager;
 pub mod application;
-mod database;
-pub mod persistence;
-use database::{DbConnection, initialize_database};
+use osvauld_db::{DbConnection, initialize_database};
 pub mod handlers;
 mod types;
 use crate::application::services::AuthService;
@@ -30,12 +28,12 @@ use crate::handlers::resource_handler::{
     share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
 };
 use crate::handlers::user_handler::{add_known_user, get_known_users};
-use crate::persistence::repositories::{
-    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteSyncRepository, SqliteUserRepository,
-    TauriStoreRepository,
-};
 use crypto_utils::CryptoUtils;
+use osvauld_db::repositories::{
+    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
+    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
+    SqliteUserRepository,
+};
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -105,7 +103,7 @@ pub fn run() {
                     let resource_key_repo =
                         Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
                     // Initialize folder service with cloned repositories
-                    let store_repository = Arc::new(TauriStoreRepository::new(handle.clone()));
+                    let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
                     let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
                     let folder_service = Arc::new(FolderService::new(folder_repo.clone()));
 

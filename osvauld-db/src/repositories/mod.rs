@@ -13,5 +13,5 @@ pub use known_user_repository::SqliteUserRepository;
 pub use resource_key_repository::SqliteResourceKeyRepository;
 pub use resource_repository::SqliteResourceRepository;
 pub use share_repository::SqliteShareRepository;
-pub use store_repository::TauriStoreRepository;
+pub use store_repository::SqliteStoreRepository;
 pub use sync_repository::SqliteSyncRepository;

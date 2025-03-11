@@ -4768,6 +4768,7 @@ dependencies = [
  "log",
  "once_cell",
  "osvauld_core",
+ "osvauld_db",
  "rand 0.8.5",
  "rcgen 0.10.0",
  "rendezvous_client",
@@ -4796,6 +4797,24 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.12",
+ "uuid",
+]
+
+[[package]]
+name = "osvauld_db"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "diesel",
+ "diesel_migrations",
+ "libsqlite3-sys",
+ "log",
+ "osvauld_core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
  "uuid",
 ]
 

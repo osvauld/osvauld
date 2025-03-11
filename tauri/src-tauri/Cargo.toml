@@ -63,6 +63,7 @@ rand = "0.8.5"
 base64 = "0.22.1"
 rendezvous_client = { path = "../../rendezvous_client" }
 osvauld_core = { path = "../../core" }
+osvauld_db = { path = "../../osvauld-db/" }
 
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.0.0-rc"

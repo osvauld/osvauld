@@ -1,6 +1,6 @@
 use crate::database::DbConnection;
 use crate::database::schema::{share_records, user_record_status, user_records};
-use crate::persistence::models::{ShareRecordModel, UserRecordModel, UserRecordStatusModel};
+use crate::models::{ShareRecordModel, UserRecordModel, UserRecordStatusModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::share_record::{

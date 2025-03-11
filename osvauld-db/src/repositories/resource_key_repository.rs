@@ -1,6 +1,6 @@
 use crate::database::DbConnection;
 use crate::database::schema::resource_keys;
-use crate::persistence::models::ResourceKeyModel;
+use crate::models::ResourceKeyModel;
 use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::resource_key::ResourceKey;

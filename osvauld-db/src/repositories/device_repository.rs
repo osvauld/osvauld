@@ -1,6 +1,6 @@
 use crate::database::DbConnection;
 use crate::database::schema::devices;
-use crate::persistence::models::DeviceModel;
+use crate::models::DeviceModel;
 use async_trait::async_trait;
 use diesel::ExpressionMethods;
 use diesel::prelude::*;

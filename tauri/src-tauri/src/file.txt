@@ -1,0 +1,48 @@
+.
+├── application
+│   ├── mod.rs
+│   └── services
+│       ├── auth_service.rs
+│       ├── folder_service.rs
+│       ├── mod.rs
+│       ├── p2p_service.rs
+│       ├── rendezvous_service.rs
+│       ├── resource_service.rs
+│       ├── share_service.rs
+│       ├── sync_service.rs
+│       ├── transaction_service.rs
+│       └── user_service.rs
+├── database
+│   ├── migrations
+│   │   └── 2024-10-18-052005_create_initial_schema
+│   │       ├── down.sql
+│   │       └── up.sql
+│   ├── mod.rs
+│   └── schema.rs
+├── file.txt
+├── handlers
+│   ├── auth_handler.rs
+│   ├── folder_handler.rs
+│   ├── mod.rs
+│   ├── p2p_handlers.rs
+│   ├── resource_handler.rs
+│   └── user_handler.rs
+├── lib.rs
+├── main.rs
+├── persistence
+│   ├── models.rs
+│   ├── mod.rs
+│   └── repositories
+│       ├── auth_repository.rs
+│       ├── device_repository.rs
+│       ├── folder_repository.rs
+│       ├── known_user_repository.rs
+│       ├── mod.rs
+│       ├── resource_key_repository.rs
+│       ├── resource_repository.rs
+│       ├── share_repository.rs
+│       ├── store_repository.rs
+│       └── sync_repository.rs
+└── types.rs
+
+9 directories, 37 files

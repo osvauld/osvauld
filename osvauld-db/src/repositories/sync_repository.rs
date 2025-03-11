@@ -1,6 +1,6 @@
 use crate::database::DbConnection;
 use crate::database::schema::{device_record_status, device_records, sync_records};
-use crate::persistence::models::{DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};
+use crate::models::{DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::sync_record::{

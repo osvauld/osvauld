@@ -87,6 +87,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    store_items (key) {
+        key -> Text,
+        value -> Text,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
     sync_records (id) {
         id -> Text,
         resource_id -> Text,
@@ -158,6 +166,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     resource_keys,
     resources,
     share_records,
+    store_items,
     sync_records,
     user_record_status,
     user_records,
