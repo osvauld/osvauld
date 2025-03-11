@@ -1,3 +1,8 @@
 [workspace]
 resolver = "2"
-members = ["crypto_utils", "tauri/src-tauri", "rendezvous_server"]
+members = [
+  "crypto_utils",
+  "tauri/src-tauri",
+  "rendezvous_server",
+  "rendezvous_client",
+]

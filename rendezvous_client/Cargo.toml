@@ -1,0 +1,21 @@
+[package]
+name = "rendezvous_client"
+version = "0.1.0"
+edition = "2024"
+description = "Simple WebSocket connector for Osvauld"
+authors = ["Osvauld Team"]
+
+[dependencies]
+futures-lite = "2.6.0"
+futures-util = "0.3.31"
+log = "0.4.26"
+serde = "1.0.219"
+serde_json = "1.0.140"
+tokio = { version = "1.44.0", features = ["rt", "sync", "macros", "time"] }
+tokio-tungstenite = { version = "0.26.2", features = ["native-tls"] }
+url = "2.5.4"
+
+[lib]
+name = "rendezvous_client"
+path = "src/lib.rs"
+crate-type = ["lib"]

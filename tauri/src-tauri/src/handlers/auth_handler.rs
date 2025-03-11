@@ -1,10 +1,11 @@
 use crate::application::services::{
-    AuthService, FolderService, P2PService, SyncService, UserService,
+    AuthService, FolderService, P2PService, RendezvousService, SyncService, UserService,
 };
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
 };
+use log::{error, info};
 use std::sync::Arc;
 use tauri::State;
 
@@ -23,13 +24,14 @@ pub async fn handle_sign_up(
     user_service: State<'_, Arc<UserService>>,
     folder_service: State<'_, Arc<FolderService>>,
     sync_service: State<'_, Arc<SyncService>>,
+    rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
     let user = auth_service
         .handle_sign_up(&input.username, &input.passphrase)
         .await?;
 
-    auth_service.load_certificate(&input.passphrase).await?;
-    user_service
+    let (_, user_id) = auth_service.load_certificate(&input.passphrase).await?;
+    let added_user = user_service
         .add_known_user(
             user.username.clone(),
             user.certificate.public_key.clone(),
@@ -42,6 +44,24 @@ pub async fn handle_sign_up(
         .await
         .map_err(|e| e.to_string())?;
     let _ = sync_service.add_folder_to_sync(folder.clone()).await;
+    let rendezvous_clone = rendezvous_service.inner().clone();
+    // Spawn a background task to handle WebSocket connection
+    tokio::spawn(async move {
+        match rendezvous_clone.initialize(added_user).await {
+            Ok(_) => {
+                info!(
+                    "Successfully connected to rendezvous server with user ID: {}",
+                    user_id
+                );
+            }
+            Err(e) => {
+                error!("Failed to connect to rendezvous server: {}", e);
+                // Connection failed, but we'll still let the login succeed
+                // The application can try to reconnect later if needed
+            }
+        }
+    });
+
     Ok(CryptoResponse::SavePassphrase {
         username: user.username,
         device_key: user.certificate.public_key.clone(),
@@ -61,8 +81,30 @@ pub async fn check_private_key_loaded(
 pub async fn login(
     input: LoadPvtKeyInput,
     auth_service: State<'_, Arc<AuthService>>,
+    user_service: State<'_, Arc<UserService>>,
+    rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
-    let public_key = auth_service.load_certificate(&input.passphrase).await?;
+    let (public_key, user_id) = auth_service.load_certificate(&input.passphrase).await?;
+    let rendezvous_clone = rendezvous_service.inner().clone();
+    let user = user_service.get_user_by_id(&user_id).await?;
+
+    // Spawn a background task to handle WebSocket connection
+    tokio::spawn(async move {
+        match rendezvous_clone.initialize(user).await {
+            Ok(_) => {
+                info!(
+                    "Successfully connected to rendezvous server with user ID: {}",
+                    user_id
+                );
+            }
+            Err(e) => {
+                error!("Failed to connect to rendezvous server: {}", e);
+                // Connection failed, but we'll still let the login succeed
+                // The application can try to reconnect later if needed
+            }
+        }
+    });
+
     Ok(CryptoResponse::PublicKey(public_key))
 }
 

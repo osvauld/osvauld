@@ -6,10 +6,10 @@ use crate::domains::models::p2p::{
 use crate::domains::models::user::User;
 use crate::types::CryptoResponse;
 use iroh::endpoint::Connection;
-const MAX_HANDSHAKE_SIZE: usize = 8192; // 8KB max size for handshake messages
+const MAX_HANDSHAKE_SIZE: usize = 32768; // 8KB max size for handshake messages
 use iroh::{
-    endpoint::{RecvStream, SendStream},
     Endpoint, NodeAddr, RelayMode, SecretKey,
+    endpoint::{RecvStream, SendStream},
 };
 // use iroh_blobs::store::mem::Store;
 use log::{error, info};
@@ -18,7 +18,7 @@ use tauri::Emitter;
 use tauri::{AppHandle, Listener};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 use super::{AuthService, ShareService, SyncService, UserService};
 
@@ -292,35 +292,114 @@ impl P2PService {
             .ok_or_else(|| "No active connection".to_string())
     }
     async fn read_complete_message(&self, recv: &mut RecvStream) -> Result<String, HandshakeError> {
-        let mut buffer = Vec::new();
+        info!("Reading complete message (potentially fragmented)");
+        let mut buffer = Vec::with_capacity(MAX_HANDSHAKE_SIZE);
         let mut temp_buf = [0u8; 8192];
+        let mut total_read = 0;
+        let mut read_attempts = 0;
 
+        // Continue reading until we get a complete JSON object or error out
         loop {
+            read_attempts += 1;
+
             match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut temp_buf)).await {
                 Ok(Ok(Some(n))) => {
                     if n == 0 {
+                        // End of stream
+                        info!("End of stream reached after reading {} bytes", total_read);
                         break;
                     }
+
+                    total_read += n;
+                    info!(
+                        "Read chunk {}: {} bytes (total: {} bytes)",
+                        read_attempts, n, total_read
+                    );
+
+                    // Add the new chunk to our buffer
                     buffer.extend_from_slice(&temp_buf[..n]);
 
-                    // Try to parse what we have so far
+                    // Check if we've exceeded max size
+                    if buffer.len() > MAX_HANDSHAKE_SIZE {
+                        error!(
+                            "Message too large: {} bytes (max: {})",
+                            buffer.len(),
+                            MAX_HANDSHAKE_SIZE
+                        );
+                        return Err(HandshakeError::Connection(format!(
+                            "Message too large: {} bytes",
+                            buffer.len()
+                        )));
+                    }
+
+                    // Check if we now have a valid UTF-8 string that can be parsed as valid JSON
                     if let Ok(message_str) = String::from_utf8(buffer.clone()) {
-                        if let Ok(_) = serde_json::from_str::<HandshakeMessage>(&message_str) {
-                            return Ok(message_str);
+                        match serde_json::from_str::<HandshakeMessage>(&message_str) {
+                            Ok(_) => {
+                                // Success! We have a complete JSON message
+                                info!(
+                                    "Successfully parsed complete JSON message ({} bytes)",
+                                    message_str.len()
+                                );
+                                return Ok(message_str);
+                            }
+                            Err(e) if e.is_eof() || e.is_data() => {
+                                // JSON is incomplete or invalid, continue reading
+                                info!("JSON parsing incomplete, continuing to read: {}", e);
+                            }
+                            Err(e) => {
+                                // Other JSON error, log but continue trying
+                                info!("JSON parsing error (continuing): {}", e);
+                            }
                         }
                     }
                 }
-                Ok(Ok(None)) => break,
-                Ok(Err(e)) => return Err(HandshakeError::Connection(e.to_string())),
-                Err(e) => return Err(HandshakeError::Connection(format!("Timeout: {}", e))),
+                Ok(Ok(None)) => {
+                    // End of stream reached
+                    info!("End of stream reached after reading {} bytes", total_read);
+                    break;
+                }
+                Ok(Err(e)) => {
+                    error!("Error reading from stream: {}", e);
+                    return Err(HandshakeError::Connection(e.to_string()));
+                }
+                Err(e) => {
+                    error!(
+                        "Timeout while reading from stream after {} attempts: {}",
+                        read_attempts, e
+                    );
+                    return Err(HandshakeError::Connection(format!("Timeout: {}", e)));
+                }
             }
         }
 
-        Err(HandshakeError::Connection(
-            "Incomplete message received".into(),
-        ))
-    }
+        // If we got here, the stream ended before we got a complete message
+        if buffer.is_empty() {
+            return Err(HandshakeError::Connection("Empty message received".into()));
+        }
 
+        // Try to convert to a string for better error reporting
+        match String::from_utf8(buffer) {
+            Ok(s) => {
+                error!(
+                    "Incomplete JSON after reading {} bytes. Preview: {}...",
+                    total_read,
+                    if s.len() > 100 { &s[..100] } else { &s }
+                );
+                Err(HandshakeError::Connection(format!(
+                    "Incomplete message: {} bytes read but no valid JSON",
+                    total_read
+                )))
+            }
+            Err(_) => {
+                error!("Invalid UTF-8 in message ({} bytes read)", total_read);
+                Err(HandshakeError::Connection(format!(
+                    "Invalid UTF-8 in message ({} bytes read)",
+                    total_read
+                )))
+            }
+        }
+    }
     // Modified initiate_handshake function
     async fn initiate_handshake(
         &self,
@@ -365,7 +444,10 @@ impl P2PService {
 
         let serialized = serde_json::to_string(&handshake_message)
             .map_err(|e| HandshakeError::Serialization(e.to_string()))?;
-
+        info!(
+            "DIAGNOSTIC: Handshake message size is {} bytes",
+            serialized.len()
+        );
         send.write_all(serialized.as_bytes())
             .await
             .map_err(|e| HandshakeError::Connection(e.to_string()))?;
@@ -409,63 +491,25 @@ impl P2PService {
         recv: &mut RecvStream,
     ) -> Result<(), HandshakeError> {
         info!("Receiver: Waiting for handshake message");
-        let mut buffer = [0u8; MAX_HANDSHAKE_SIZE];
 
-        // First receive and validate the incoming handshake
-        let handshake_message: HandshakeMessage =
-            match timeout(HANDSHAKE_TIMEOUT, recv.read(&mut buffer)).await? {
-                Ok(Some(n)) => {
-                    info!("Received {} bytes during handshake", n);
+        // Use the read_complete_message helper to get the entire message
+        let message_str = self.read_complete_message(recv).await?;
 
-                    if n >= MAX_HANDSHAKE_SIZE {
-                        error!("Handshake message too large: {} bytes", n);
-                        return Err(HandshakeError::Connection(
-                            "Handshake message too large".into(),
-                        ));
-                    }
+        // Parse the JSON once we have the complete message
+        let handshake_message: HandshakeMessage = match serde_json::from_str(&message_str) {
+            Ok(msg) => {
+                info!("Successfully parsed handshake message");
+                msg
+            }
+            Err(e) => {
+                error!(
+                    "Failed to parse handshake JSON: {}. Message was: {}",
+                    e, &message_str
+                );
+                return Err(HandshakeError::Serialization(e.to_string()));
+            }
+        };
 
-                    // First convert to string and log it
-                    let message_str = match String::from_utf8(buffer[..n].to_vec()) {
-                        Ok(str) => {
-                            info!(
-                                "Successfully converted handshake to string, length: {}",
-                                str.len()
-                            );
-                            info!("Handshake message preview: {}", &str[..str.len().min(100)]);
-                            str
-                        }
-                        Err(e) => {
-                            error!("Invalid UTF-8 in handshake response: {}", e);
-                            return Err(HandshakeError::Connection(
-                                "Invalid UTF-8 in response".into(),
-                            ));
-                        }
-                    };
-
-                    // Then try to parse the JSON
-                    match serde_json::from_str(&message_str) {
-                        Ok(msg) => {
-                            info!("Successfully parsed handshake message");
-                            msg
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to parse handshake JSON: {}. Message was: {}",
-                                e, &message_str
-                            );
-                            return Err(HandshakeError::Serialization(e.to_string()));
-                        }
-                    }
-                }
-                Ok(None) => {
-                    error!("Connection closed during handshake");
-                    return Err(HandshakeError::Connection("Connection closed".into()));
-                }
-                Err(e) => {
-                    error!("Error reading from connection during handshake: {}", e);
-                    return Err(HandshakeError::Connection(e.to_string()));
-                }
-            };
         // Store connection type in state
         {
             let state_guard = self.state.lock().await;
@@ -554,6 +598,7 @@ impl P2PService {
         info!("Receiver: Handshake completed successfully");
         Ok(())
     }
+
     pub async fn ack_complete(&self, device_record_status_id: String) -> Result<(), String> {
         self.sync_service
             .handle_ack_complete(device_record_status_id)
