@@ -8,32 +8,6 @@
 	--breakpoint-xl: 1280px;
 	--breakpoint-2xl: 1536px;
 	--breakpoint-3xl: 1920px;
-	--color-macchiato-rosewater: #f5e0dc;
-	--color-macchiato-flamingo: #f2cdcd;
-	--color-macchiato-pink: #f5c2e7;
-	--color-macchiato-mauve: #cba6f7;
-	--color-macchiato-red: #f38ba8;
-	--color-macchiato-maroon: #eba0ac;
-	--color-macchiato-peach: #fab387;
-	--color-macchiato-yellow: #f9e2af;
-	--color-macchiato-green: #a6e3a1;
-	--color-macchiato-teal: #94e2d5;
-	--color-macchiato-sky: #89dceb;
-	--color-macchiato-sapphire: #74c7ec;
-	--color-macchiato-blue: #89b4fa;
-	--color-macchiato-lavender: #b4befe;
-	--color-macchiato-text: #cdd6f4;
-	--color-macchiato-subtext1: #bac2de;
-	--color-macchiato-subtext0: #a6adc8;
-	--color-macchiato-overlay2: #9399b2;
-	--color-macchiato-overlay1: #7f849c;
-	--color-macchiato-overlay0: #6c7086;
-	--color-macchiato-surface2: #585b70;
-	--color-macchiato-surface1: #45475a;
-	--color-macchiato-surface0: #313244;
-	--color-macchiato-base: #1e1e2e;
-	--color-macchiato-mantle: #181825;
-	--color-macchiato-crust: #11111b;
 
 	/* Osvauld Colors */
 	--color-osvauld-frameblack: #0d0e13;
@@ -93,6 +67,7 @@
 	--color-osvauld-tickGreen: #00ff00;
 	--color-osvauld-cardBorder: #373946;
 	--color-livnotelavender: #8a86e5;
+	--color-primarydark: #010109;
 
 	/* Mobile Colors */
 	--color-mobile-bgPrimary: #000000;

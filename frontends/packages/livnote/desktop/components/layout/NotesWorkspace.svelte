@@ -267,10 +267,10 @@
 				{#if $noteId}
 					<button
 						on:click="{handleShareList}"
-						class=" text-osvauld-textPassive font-medium flex justify-center items-center p-2.5 rounded-lg bg-livnotelavender border border-osvauld-iconblack cursor-pointer"
+						class=" text-primarydark font-medium flex justify-center items-center p-2.5 rounded-lg bg-livnotelavender border border-osvauld-iconblack cursor-pointer"
 						aria-label="share with users">
 						<span class="mr-2 pl-2">Invite to edit</span>
-						<UserPlus color="#85889C" />
+						<UserPlus color="#010109" />
 					</button>
 				{/if}
 
