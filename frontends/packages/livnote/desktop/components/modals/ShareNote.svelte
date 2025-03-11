@@ -12,10 +12,70 @@
 	let hoveredItem;
 	let inputRef;
 
+	const EXISTING_COLLABORATORS = [
+		{
+			username: "fusernames",
+			online: true,
+		},
+		{
+			username: "rusername",
+			online: false,
+		},
+	];
+
+	const AVAILABLE_COLLABORATORS = [
+		{
+			username: "gusername",
+			online: true,
+		},
+		{
+			username: "vusername",
+			online: false,
+		},
+		{
+			username: "dusername",
+			online: false,
+		},
+		{
+			username: "yusername",
+			online: false,
+		},
+		{
+			username: "xusername",
+			online: true,
+		},
+		{
+			username: "zusername",
+			online: true,
+		},
+		{
+			username: "lusername",
+			online: false,
+		},
+		{
+			username: "musername",
+			online: true,
+		},
+		{
+			username: "nusername",
+			online: true,
+		},
+	];
+
 	const handleUserIdSelection = async (id: string, publicKey: string) => {
 		console.log(id, publicKey);
 		// await sendMessage("shareResource", { publicKey, resourceId: $noteId });
 		showShareList = false;
+	};
+
+	const extractIconLetter = (username) => {
+		return username.trim().split("")[0];
+	};
+
+	const sortOnlineCollaborators = (availableCollaborators) => {
+		return availableCollaborators.sort(
+			(a, b) => Number(b.online) - Number(a.online),
+		);
 	};
 
 	const autofocus = () => {
@@ -73,6 +133,30 @@
 				bind:value="{query}"
 				on:keyup="{handleKeyDown}" -->
 	</div>
+
+	{#if EXISTING_COLLABORATORS.length >= 1}
+		<div class="max-h-[6.75rem] overflow-y-auto scrollbar-thin">
+			{#each sortOnlineCollaborators(EXISTING_COLLABORATORS) as collaborator}
+				<div
+					class="flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3">
+					<span
+						class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
+						>{extractIconLetter(collaborator.username)}</span>
+					<span class="font-normal text-base max-w-[16rem] truncate"
+						>{collaborator.username}</span>
+					{#if collaborator.online}
+						<span
+							class="border border-osvauld-sideListHighlight rounded-lg flex justify-start items-center gap-1 px-2 py-0.5 text-sm text-liveGreen"
+							>Online</span>
+					{/if}
+					<span
+						class="ml-auto px-3 py-1.5 rounded-lg bg-lavenderLight text-lavenderText text-sm"
+						>Editor</span>
+				</div>
+			{/each}
+		</div>
+		<div class="border-b border-b-mobile-bgHighlight my-4"></div>
+	{/if}
 
 	<!-- {#each shareUserList as { id, username, publicKey }}
 		<button
