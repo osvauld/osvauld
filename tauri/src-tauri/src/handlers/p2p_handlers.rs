@@ -1,9 +1,10 @@
-use crate::application::services::{P2PService, RendezvousService};
+use crate::application::services::RendezvousService;
 use crate::types::CryptoResponse;
 use crate::types::InitiateFirstConnectionInput;
 use log::info;
 use osvauld_core::models::p2p::ConnectionType;
 use osvauld_services::UserService;
+use p2p_service::service::P2PService;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
@@ -11,9 +12,12 @@ use tauri::State;
 #[tauri::command]
 pub async fn send_message(
     message: String,
-    state: State<'_, Arc<P2PService>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    state.send_chat_message(message).await
+    match p2p_service.send_chat_message(message).await {
+        Ok(_) => Ok(CryptoResponse::Success),
+        Err(e) => Err(format!("{}", e)), // Use format! to convert any error to String
+    }
 }
 
 #[tauri::command]
@@ -36,7 +40,10 @@ pub async fn connect_with_device(
 pub async fn start_p2p_listener(
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    p2p_service.start_listening().await
+    match p2p_service.start_listening().await {
+        Ok(_) => Ok(CryptoResponse::Success),
+        Err(e) => Err(format!("{}", e)), // Use format! to convert any error to String
+    }
 }
 
 #[tauri::command]

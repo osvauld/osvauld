@@ -1,10 +1,11 @@
-use crate::application::services::{P2PService, RendezvousService};
+use crate::application::services::RendezvousService;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
 };
 use log::{error, info};
 use osvauld_services::{AuthService, FolderService, SyncService, UserService};
+use p2p_service::service::P2PService;
 use std::sync::Arc;
 use tauri::State;
 

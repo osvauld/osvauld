@@ -1,0 +1,30 @@
+[package]
+name = "p2p_service"
+version = "0.1.0"
+edition = "2021"
+description = "P2P communication library for Osvauld"
+authors = ["Osvauld Team"]
+license = "MIT"
+repository = "https://github.com/osvauld/osvauld"
+
+[dependencies]
+# Core dependencies
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8"
+thiserror = "1.0"
+tokio = { version = "1.40.0", features = ["full"] }
+iroh-quinn = "0.13.0"
+iroh-blobs = "0.32.0"
+iroh = "0.32.1"
+anyhow = "1.0.91"
+futures-lite = "2.3.0"
+iroh-base = "0.32.0"
+
+# Osvauld core dependencies
+osvauld_core = { version = "0.1.0", path = "../core" }
+osvauld_services = { version = "0.1.0", path = "../osvauld-services" }
+
+[features]
+default = []

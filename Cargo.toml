@@ -8,4 +8,5 @@ members = [
   "core",
   "osvauld-db",
   "osvauld-services",
+  "p2p-service",
 ]

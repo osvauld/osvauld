@@ -4,7 +4,7 @@ pub mod application;
 use osvauld_db::{DbConnection, initialize_database};
 pub mod handlers;
 mod types;
-use crate::application::services::{P2PService, RendezvousService};
+use crate::application::services::RendezvousService;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
@@ -30,6 +30,7 @@ use osvauld_services::{
     AuthService, FolderService, ResourceService, ShareService, SyncService, TransactionService,
     UserService,
 };
+use p2p_service::service::P2PService;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -74,7 +75,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -143,7 +144,6 @@ pub fn run() {
                     ));
 
                     let p2p_service = Arc::new(P2PService::new(
-                        handle.clone(),
                         sync_service.clone(),
                         auth_service.clone(),
                         user_service.clone(),
