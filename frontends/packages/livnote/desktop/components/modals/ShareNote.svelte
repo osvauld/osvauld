@@ -226,10 +226,10 @@
 
 	{#if AVAILABLE_COLLABORATORS.length >= 1}
 		<div
-			class="max-h-[14.25rem] overflow-y-auto scrollbar-thin p-1 pr-4 select-none cursor-pointer">
+			class="max-h-[14.25rem] overflow-y-auto scrollbar-thin p-1 pr-4 select-none">
 			{#each sortOnlineCollaborators(AVAILABLE_COLLABORATORS) as collaborator}
 				<div
-					class="group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 hover:shadow-[0_0_0_1px_#292A36] hover:rounded-lg hover:bg-osvauld-fieldActive transition-colors ease-in duration-150"
+					class="group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer hover:shadow-[0_0_0_1px_#292A36] hover:rounded-lg hover:bg-osvauld-fieldActive transition-colors ease-in duration-150"
 					role="button"
 					tabindex="0"
 					on:click|stopPropagation="{() => toggleCheck(collaborator.username)}">
@@ -265,4 +265,13 @@
 			{username}
 		</button>
 	{/each} -->
+
+	<div class="flex justify-between items-center gap-6 font-medium">
+		<button class="flex-1 cursor-pointer">Cancel</button>
+		<button
+			class="flex-1 border border-osvauld-activeBorder rounded-lg py-2.5 cursor-pointer {selectedUsername
+				? 'text-osvauld-ninjablack bg-livnotelavender'
+				: 'text-mobile-textActive'}">
+			Confirm</button>
+	</div>
 </div>
