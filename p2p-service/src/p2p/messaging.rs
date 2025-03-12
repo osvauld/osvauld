@@ -1,4 +1,4 @@
-use crate::p2p::service::P2PService;
+use crate::p2p::{service::P2PService, P2PEvent};
 use iroh::endpoint::Connection;
 use log::{error, info};
 use osvauld_core::models::p2p::Message;
@@ -201,6 +201,7 @@ impl P2PService {
         match event_name {
             "sync-update" | "sync-snapshot" => {
                 log::info!("Received sync event: {}", event_name);
+                self.event_emitter.emit(P2PEvent::EditingEvent { payload });
                 Ok(())
             }
             _ => {

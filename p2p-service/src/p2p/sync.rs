@@ -191,4 +191,9 @@ impl P2PService {
             .handle_ack_complete(device_record_status_id)
             .await
     }
+
+    pub async fn send_update(&self, payload: String) -> Result<(), String> {
+        log::info!("got update...");
+        Ok(())
+    }
 }

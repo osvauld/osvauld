@@ -1,3 +1,5 @@
+use crate::p2p::constants::*;
+use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use iroh::{endpoint::Connection, Endpoint, NodeAddr, RelayMode, SecretKey};
 use log::{error, info};
 use osvauld_core::models::device::Device;
@@ -5,10 +7,8 @@ use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{mpsc, Mutex};
 use tokio::time::timeout;
-
-use crate::p2p::constants::*;
 
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
@@ -18,14 +18,15 @@ pub struct P2PState {
 
 #[derive(Clone)]
 pub struct P2PService {
-    pub(crate) state: Arc<Mutex<Option<P2PState>>>,
-    pub(crate) is_initiator: Arc<Mutex<Option<bool>>>,
-    pub(crate) device: Arc<Mutex<Option<Device>>>,
-    pub(crate) user: Arc<Mutex<Option<User>>>,
-    pub(crate) sync_service: Arc<SyncService>,
-    pub(crate) auth_service: Arc<AuthService>,
-    pub(crate) user_service: Arc<UserService>,
-    pub(crate) share_service: Arc<ShareService>,
+    pub state: Arc<Mutex<Option<P2PState>>>,
+    pub is_initiator: Arc<Mutex<Option<bool>>>,
+    pub device: Arc<Mutex<Option<Device>>>,
+    pub user: Arc<Mutex<Option<User>>>,
+    pub sync_service: Arc<SyncService>,
+    pub auth_service: Arc<AuthService>,
+    pub user_service: Arc<UserService>,
+    pub share_service: Arc<ShareService>,
+    pub event_emitter: P2PEventEmitter,
 }
 
 impl P2PService {
@@ -34,8 +35,9 @@ impl P2PService {
         auth_service: Arc<AuthService>,
         user_service: Arc<UserService>,
         share_service: Arc<ShareService>,
-    ) -> Self {
-        Self {
+    ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>) {
+        let (emitter, receiver) = P2PEventEmitter::new();
+        let service = Self {
             state: Arc::new(Mutex::new(None)),
             is_initiator: Arc::new(Mutex::new(None)),
             device: Arc::new(Mutex::new(None)),
@@ -44,7 +46,9 @@ impl P2PService {
             auth_service,
             user_service,
             share_service,
-        }
+            event_emitter: emitter,
+        };
+        (service, receiver)
     }
 
     pub async fn ensure_initialized(&self) -> Result<(), String> {
@@ -155,4 +159,3 @@ impl P2PService {
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
     }
 }
-

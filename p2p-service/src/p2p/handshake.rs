@@ -1,5 +1,6 @@
 use crate::p2p::constants::*;
 use crate::p2p::service::P2PService;
+use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::NodeAddr;
 use log::{error, info};
@@ -65,6 +66,7 @@ impl P2PService {
         match &connect_result {
             Ok(_conn) => {
                 info!("Connection successful!");
+                self.event_emitter.emit(P2PEvent::Connected)
             }
             Err(e) => {
                 println!("Connection failed. Error details:");
@@ -459,4 +461,3 @@ impl P2PService {
         Ok(())
     }
 }
-

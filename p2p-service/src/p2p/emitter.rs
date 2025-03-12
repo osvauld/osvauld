@@ -1,15 +1,12 @@
 use log::{error, info};
-use osvauld_core::models::p2p::{ConnectionType, Message};
 use tokio::sync::mpsc;
 
 /// Enum representing various P2P events that can be emitted
 #[derive(Debug, Clone)]
 pub enum P2PEvent {
     /// Emitted when a connection is established
-    Connected {
-        /// Type of connection established (user or device)
-        connection_type: ConnectionType,
-    },
+    Connected,
+    /// Type of connection established (user or device)
     /// Emitted when a connection is terminated
     Disconnected,
     /// Emitted when a handshake is completed successfully
@@ -32,11 +29,6 @@ pub enum P2PEvent {
     SnapshotEvent {
         /// Content of the snapshot
         payload: String,
-    },
-    /// Emitted when a message is received
-    MessageReceived {
-        /// The message that was received
-        message: Message,
     },
     /// Emitted when an error occurs
     Error {
@@ -70,6 +62,3 @@ impl P2PEventEmitter {
         }
     }
 }
-
-
-

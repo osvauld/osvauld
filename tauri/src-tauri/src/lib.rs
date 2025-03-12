@@ -3,6 +3,7 @@ use tauri::Manager;
 pub mod application;
 use osvauld_db::{DbConnection, initialize_database};
 pub mod handlers;
+pub mod listners;
 mod types;
 use crate::application::services::RendezvousService;
 use crate::handlers::auth_handler::{
@@ -31,6 +32,8 @@ use osvauld_services::{
     UserService,
 };
 use p2p_service::P2PService;
+
+use listners::EventManager;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -75,7 +78,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -142,17 +145,22 @@ pub fn run() {
                         sync_repo.clone(),
                         share_repo.clone(),
                     ));
-
-                    let p2p_service = Arc::new(P2PService::new(
+                    let (p2p_service, p2p_receiver) = P2PService::new(
                         sync_service.clone(),
                         auth_service.clone(),
                         user_service.clone(),
                         share_service.clone(),
-                    ));
+                    );
+                    let p2p_service = Arc::new(p2p_service);
 
-                    let p2p_service_clone = p2p_service.clone();
+                    // Initialize event manager and start listening
+                    let event_manager =
+                        EventManager::new(handle.clone(), p2p_service.clone(), p2p_receiver);
+                    rt.spawn(async move {
+                        event_manager.start_listening();
+                    });
                     let rendezvous_service = Arc::new(RendezvousService::new(
-                        p2p_service_clone,
+                        p2p_service.clone(),
                         "wss://osvauld-tscs.onrender.com/ws",
                     ));
 
