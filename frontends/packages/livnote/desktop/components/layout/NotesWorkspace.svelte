@@ -49,7 +49,15 @@
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
-		showShareList = true;
+		if (shareUserList.length !== 0) {
+			showShareList = true;
+		} else {
+			toastStore.set({
+				show: true,
+				message: "Please add users to enable collaboration",
+				success: false,
+			});
+		}
 	};
 
 	const handleDropDownClick = async (id: string, publicKey: string) => {
@@ -269,7 +277,7 @@
 						on:click="{handleShareList}"
 						class=" text-primarydark font-medium flex justify-center items-center p-2.5 rounded-lg bg-livnotelavender border border-osvauld-iconblack cursor-pointer"
 						aria-label="share with users">
-						<span class="mr-2 pl-2">Invite to edit</span>
+						<span class="mr-2 pl-2">Add collaborators</span>
 						<UserPlus color="#010109" />
 					</button>
 				{/if}
@@ -283,7 +291,7 @@
 							showShareList = false;
 						}}">
 					</div>
-					<ShareNote bind:showShareList noteId="{$noteId}" />
+					<ShareNote bind:showShareList {shareUserList} noteId="{$noteId}" />
 				{/if}
 			</div>
 		{/if}
