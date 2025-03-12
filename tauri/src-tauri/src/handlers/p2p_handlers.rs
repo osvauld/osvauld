@@ -4,7 +4,7 @@ use crate::types::InitiateFirstConnectionInput;
 use log::info;
 use osvauld_core::models::p2p::ConnectionType;
 use osvauld_services::UserService;
-use p2p_service::service::P2PService;
+use p2p_service::P2PService;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;

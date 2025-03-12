@@ -1,3 +1,3 @@
-pub mod service;
+pub mod p2p;
 
-use service::P2PService;
+pub use p2p::P2PService;

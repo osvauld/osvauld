@@ -5,7 +5,7 @@ use crate::types::{
 };
 use log::{error, info};
 use osvauld_services::{AuthService, FolderService, SyncService, UserService};
-use p2p_service::service::P2PService;
+use p2p_service::P2PService;
 use std::sync::Arc;
 use tauri::State;
 

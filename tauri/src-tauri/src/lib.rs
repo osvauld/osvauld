@@ -30,7 +30,7 @@ use osvauld_services::{
     AuthService, FolderService, ResourceService, ShareService, SyncService, TransactionService,
     UserService,
 };
-use p2p_service::service::P2PService;
+use p2p_service::P2PService;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -75,7 +75,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
