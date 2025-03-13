@@ -33,6 +33,7 @@
 	import { notesInstance } from "../notes/notes";
 	import { onMount } from "svelte";
 	import { setContext } from "svelte";
+	import ShareNote from "../modals/ShareNote.svelte";
 
 	let userId;
 	let addCredentialHovered = false;
@@ -48,8 +49,15 @@
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
-		console.log(shareUserList);
-		showShareList = true;
+		if (shareUserList.length !== 0) {
+			showShareList = true;
+		} else {
+			toastStore.set({
+				show: true,
+				message: "Please add users to enable collaboration",
+				success: false,
+			});
+		}
 	};
 
 	const handleDropDownClick = async (id: string, publicKey: string) => {
@@ -267,10 +275,10 @@
 				{#if $noteId}
 					<button
 						on:click="{handleShareList}"
-						class=" text-osvauld-textPassive font-medium flex justify-center items-center p-2.5 rounded-lg bg-osvauld-fieldActive border border-osvauld-iconblack cursor-pointer"
+						class=" text-primarydark font-medium flex justify-center items-center p-2.5 rounded-lg bg-livnotelavender border border-osvauld-iconblack cursor-pointer"
 						aria-label="share with users">
-						<span class="mr-2 pl-2">Invite to edit</span>
-						<UserPlus color="#85889C" />
+						<span class="mr-2 pl-2">Add collaborators</span>
+						<UserPlus color="#010109" />
 					</button>
 				{/if}
 
@@ -283,21 +291,7 @@
 							showShareList = false;
 						}}">
 					</div>
-					<div
-						class="absolute top-full right-0 mt-2 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
-						in:slide
-						out:slide>
-						{#each shareUserList as { id, username, publicKey }}
-							<button
-								class="profileBtn"
-								on:mouseenter="{() => (hoveredItem = id)}"
-								on:mouseleave="{() => (hoveredItem = '')}"
-								on:click|stopPropagation="{() =>
-									handleDropDownClick(id, publicKey)}">
-								{username}
-							</button>
-						{/each}
-					</div>
+					<ShareNote bind:showShareList {shareUserList} noteId="{$noteId}" />
 				{/if}
 			</div>
 		{/if}
