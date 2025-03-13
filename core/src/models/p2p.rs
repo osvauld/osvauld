@@ -35,14 +35,14 @@ pub enum Message {
     SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
-    FileTransfer { name: String, data: Vec<u8> },
+    // FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
     FirstUserConnection(User),
     UserAddAck(String),
     SharePayload(SharePayload),
     ShareComplete,
-    HandshakeMessage(HandshakeMessage),
+    // HandshakeMessage(HandshakeMessage),
 }
 
 #[derive(Serialize, Deserialize)]

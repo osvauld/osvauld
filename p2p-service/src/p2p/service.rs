@@ -1,6 +1,7 @@
-use crate::p2p::connection_manager::{ConnectionManager, PeerConnection};
+use crate::p2p::connection_manager::ConnectionManager;
 use crate::p2p::constants::*;
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
+use crate::p2p::peer_connection::ServiceContext;
 use iroh::{Endpoint, RelayMode, SecretKey};
 use log::{error, info};
 use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType};
@@ -13,6 +14,7 @@ pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
     // HashMap of connections with user:device as the key
     pub connections: ConnectionManager,
+    pub service_context: Arc<ServiceContext>,
 }
 #[derive(Clone)]
 pub struct P2PService {
@@ -59,10 +61,16 @@ impl P2PService {
             .bind()
             .await
             .map_err(|e| format!("Failed to bind endpoint: {}", e))?;
-
+        let service_context = Arc::new(ServiceContext {
+            auth_service: self.auth_service.clone(),
+            user_service: self.user_service.clone(),
+            sync_service: self.sync_service.clone(),
+            share_service: self.share_service.clone(),
+        });
         *state = Some(P2PState {
             endpoint: Arc::new(endpoint),
             connections: ConnectionManager::new(),
+            service_context,
         });
 
         info!("P2P initialization successful");
@@ -90,7 +98,9 @@ impl P2PService {
                                 Ok(Ok(conn)) => {
                                     info!("Connection established, initiating handshake");
                                     // Perform handshake as the receiver (non-initiator)
-                                    self_clone.perform_handshake(&conn, false, None).await;
+                                    let _ = self_clone
+                                        .perform_handshake_and_create_peer(&conn, false, None)
+                                        .await;
                                 }
                                 Ok(Err(e)) => error!("Connection failed: {}", e),
                                 Err(e) => error!("Connection timeout: {}", e),
@@ -125,5 +135,117 @@ impl P2PService {
         };
 
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
+    }
+
+    pub async fn start_user_sync(&self, user: &User) -> Result<(), String> {
+        info!("Starting user sync with user: {}", user.id);
+
+        // Find all connections for this user
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or("P2P not initialized")?;
+        let connections = state.connections.get_connections_by_user(&user.id).await;
+
+        if connections.is_empty() {
+            return Err(format!("No connections found for user: {}", user.id));
+        }
+
+        // For now, just use the first connection
+        let connection = &connections[0];
+
+        // Start the sync process
+        connection.start_user_sync().await?;
+
+        info!("User sync initiated successfully");
+        Ok(())
+    }
+
+    // Method to establish first connection with a user
+    pub async fn initiate_first_user_connection(
+        &self,
+        user: &User,
+        ticket: &str,
+    ) -> Result<Arc<PeerConnection>, String> {
+        info!("Initiating first connection with user: {}", user.id);
+
+        // Connect using the ticket
+        let peer_connection = self
+            .connect_with_ticket(ticket, ConnectionType::User)
+            .await?;
+
+        // Send the FirstUserConnection message
+        peer_connection
+            .send_message(Message::FirstUserConnection(user.clone()))
+            .await?;
+
+        info!("First user connection established successfully");
+        Ok(peer_connection)
+    }
+
+    // Method to add a device
+    pub async fn add_device(
+        &self,
+        records: SyncPayload,
+        ticket: String,
+    ) -> Result<Arc<PeerConnection>, String> {
+        info!("Adding device using ticket");
+
+        // First establish connection with the target device
+        let peer_connection = self
+            .connect_with_ticket(&ticket, ConnectionType::Device)
+            .await?;
+
+        // Once connected, send the AddDevice message
+        info!("Connection established, sending AddDevice message");
+        peer_connection
+            .send_message(Message::AddDevice(records))
+            .await?;
+
+        info!("Device addition initiated successfully");
+        Ok(peer_connection)
+    }
+
+    // Method to start device sync
+    pub async fn start_device_sync(&self, connection_id: &str) -> Result<(), String> {
+        info!("Starting device sync with connection: {}", connection_id);
+
+        // Get the connection
+        let connection = self.get_connection_by_id(connection_id).await?;
+
+        // Start the sync process
+        connection.start_device_sync().await?;
+
+        info!("Device sync initiated successfully");
+        Ok(())
+    }
+
+    // Overload for starting device sync with all devices of a user
+    pub async fn start_device_sync_for_user(&self, user_id: &str) -> Result<(), String> {
+        info!("Starting device sync for user: {}", user_id);
+
+        // Find all connections for this user
+        let connections = self.get_connections_by_user(user_id).await?;
+
+        if connections.is_empty() {
+            return Err(format!("No connections found for user: {}", user_id));
+        }
+
+        // Start sync on all devices
+        let mut errors = Vec::new();
+        for connection in connections {
+            if let Err(e) = connection.start_device_sync().await {
+                errors.push(format!(
+                    "Failed to sync device {}: {}",
+                    connection.get_id(),
+                    e
+                ));
+            }
+        }
+
+        if errors.is_empty() {
+            info!("Device sync initiated successfully for all devices");
+            Ok(())
+        } else {
+            Err(format!("Sync errors: {}", errors.join(", ")))
+        }
     }
 }

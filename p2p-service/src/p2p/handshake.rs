@@ -1,5 +1,5 @@
-use crate::p2p::connection_manager::PeerConnection;
 use crate::p2p::constants::*;
+use crate::p2p::peer_connection::PeerConnection;
 use crate::p2p::service::P2PService;
 use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
@@ -17,10 +17,10 @@ impl P2PService {
         &self,
         ticket_str: &str,
         conn_type: ConnectionType,
-    ) -> Result<(), String> {
+    ) -> Result<Arc<PeerConnection>, String> {
         self.ensure_initialized().await?;
 
-        println!("Starting connection process with ticket: {}", ticket_str);
+        info!("Starting connection process with ticket: {}", ticket_str);
 
         let (endpoint, node_addr) = {
             let state_guard = self.state.lock().await;
@@ -47,9 +47,9 @@ impl P2PService {
                     .collect::<Vec<_>>(),
             );
 
-            println!("Created NodeAddr: {:?}", node_addr);
-            println!("Our endpoint ID: {}", state.endpoint.node_id());
-            println!(
+            info!("Created NodeAddr: {:?}", node_addr);
+            info!("Our endpoint ID: {}", state.endpoint.node_id());
+            info!(
                 "ALPN Protocol being used: {}",
                 String::from_utf8_lossy(ALPN_PROTOCOL)
             );
@@ -63,42 +63,34 @@ impl P2PService {
         match &connect_result {
             Ok(_conn) => {
                 info!("Connection successful!");
-                self.event_emitter.emit(P2PEvent::Connected)
             }
             Err(e) => {
-                println!("Connection failed. Error details:");
-                println!("Error: {}", e);
+                error!("Connection failed: {}", e);
                 error!("Node addr used: {:?}", node_addr);
-                // Try to get any additional endpoint state that might be helpful
                 info!("Endpoint bound sockets: {:?}", endpoint.bound_sockets());
                 if let Ok(cur_addr) = endpoint.node_addr().await {
                     info!("Current endpoint addr: {:?}", cur_addr);
                 }
+                return Err(format!("Connection failed: {}", e));
             }
         }
 
-        let conn = connect_result.map_err(|e| format!("Connection failed: {e}"))?;
+        let conn = connect_result.unwrap();
 
         info!("Starting handshake process...");
-        let handshake_result = self.perform_handshake(&conn, true, Some(conn_type)).await;
+        let peer_connection = self
+            .perform_handshake_and_create_peer(&conn, true, Some(conn_type))
+            .await?;
 
-        match &handshake_result {
-            Ok(_) => info!("Handshake completed successfully"),
-            Err(e) => error!("Handshake failed: {}", e),
-        }
-
-        handshake_result?;
-
-        Ok(())
+        info!("Handshake completed successfully");
+        Ok(peer_connection)
     }
-
-    pub async fn perform_handshake(
+    pub async fn perform_handshake_and_create_peer(
         &self,
         conn: &Connection,
         is_initiator: bool,
         connection_type: Option<ConnectionType>,
-    ) -> Result<(), String> {
-        let handshake_message;
+    ) -> Result<Arc<PeerConnection>, String> {
         let (mut send, mut recv) = match timeout(CONNECTION_TIMEOUT, async {
             if is_initiator {
                 info!("Initiator: Opening bi-directional stream");
@@ -114,6 +106,8 @@ impl P2PService {
             Ok(stream) => stream,
             Err(e) => return Err(format!("Stream establishment failed: {}", e)),
         };
+
+        let handshake_message;
         if is_initiator {
             let conn_type = connection_type.unwrap_or(ConnectionType::Device);
             handshake_message = self
@@ -126,38 +120,37 @@ impl P2PService {
                 .await
                 .map_err(|e| e.to_string())?;
         }
-        let self_clone = self.clone();
-        let connection_arc = Arc::new(conn.clone());
-        let task_connection = connection_arc.clone();
-        let task_handle = tokio::spawn(async move {
-            info!(
-                "Starting message listener for {}",
-                if is_initiator {
-                    "initiator"
-                } else {
-                    "receiver"
-                }
-            );
-            self_clone.handle_messages(task_connection).await;
-        });
 
-        let p2p_connection = PeerConnection {
-            connection_type: handshake_message.connection_type,
-            user: handshake_message.user,
-            device: handshake_message.device,
-            connection: connection_arc,
-            task_handle,
-            is_initiator,
-        };
+        // Get the state once to access what we need
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or("P2P not initialized")?;
+
+        // Create the PeerConnection object with the new design
+        let connection_arc = Arc::new(conn.clone());
+
+        let peer_connection = PeerConnection::new(
+            connection_arc,
+            handshake_message.connection_type.clone(),
+            handshake_message.device.clone(),
+            handshake_message.user.clone(),
+            is_initiator,
+            state.service_context.clone(),
+            self.event_emitter.clone(),
+        );
+
+        let peer_connection_arc = Arc::new(peer_connection);
 
         // Insert the connection into the connection manager
         state
             .connections
-            .insert_connection(Arc::new(p2p_connection))
+            .insert_connection(peer_connection_arc.clone())
             .await?;
-        Ok(())
+
+        // Emit connected event
+        self.event_emitter.emit(P2PEvent::Connected);
+        self.event_emitter.emit(P2PEvent::HandshakeCompleted);
+
+        Ok(peer_connection_arc)
     }
 
     async fn read_complete_message(&self, recv: &mut RecvStream) -> Result<String, HandshakeError> {

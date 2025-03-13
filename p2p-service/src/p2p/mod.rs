@@ -2,7 +2,7 @@ pub mod connection_manager;
 pub mod constants;
 pub mod emitter;
 pub mod handshake;
-pub mod messaging;
+pub mod peer_connection;
 pub mod service;
 pub mod share;
 pub mod sync;
