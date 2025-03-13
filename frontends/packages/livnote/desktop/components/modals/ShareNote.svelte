@@ -5,6 +5,7 @@
 	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
 	import InfoIcon from "@osvauld/password-manager-common/icons/infoIcon.svelte";
 	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
+	import { toastStore } from "../../store/desktop.ui.store";
 
 	export let showShareList = false;
 	export let shareUserList;
@@ -67,6 +68,15 @@
 		console.log(id, publicKey);
 		// await sendMessage("shareResource", { publicKey, resourceId: $noteId });
 		showShareList = false;
+	};
+
+	const handleCollaboratorSelection = () => {
+		showShareList = false;
+		toastStore.set({
+			show: true,
+			message: `${selectedUsers[0]} added as collaborator`,
+			success: true,
+		});
 	};
 
 	const extractIconLetter = (username) => {
@@ -197,8 +207,6 @@
 	class="absolute top-full right-0 mt-2 z-50 w-[35rem] {isFocused
 		? 'h-[26.125rem] '
 		: 'h-auto'} rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col"
-	in:fade
-	out:fade
 	role="dialog"
 	aria-labelledby="dialog-title">
 	<div class="flex justify-between items-center">
@@ -214,18 +222,18 @@
 
 	<!-- Improve the search input accessibility -->
 	<div
-		class="h-[2.75rem] w-full mt-4 mb-1.5 px-3 py-2.5 gap-1 flex justify-start items-center border border-osvauld-iconblack focus-within:border-osvauld-activeBorder rounded-lg cursor-pointer"
+		class="h-[2.75rem] w-full mt-4 mb-1.5 px-3 py-2 gap-1 flex justify-start items-center border border-osvauld-iconblack focus-within:border-osvauld-activeBorder rounded-lg cursor-pointer"
 		on:click|stopPropagation="{autofocus}"
 		role="search">
 		<span class="shrink-0 mr-2">
-			<Lens />
+			<Lens color="{isFocused ? '#67697C' : '#30363D'}" />
 		</span>
 		<label for="search-collaborators" class="sr-only"
 			>Search collaborators</label>
 		{#if selectedUsers.length !== 0}
 			{#each selectedUsers as user}
 				<span
-					class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-lg px-3 py-1"
+					class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-lg px-3 py-1 text-base"
 					>{user}</span>
 			{/each}
 		{/if}
@@ -265,6 +273,8 @@
 			aria-label="Current collaborators">
 			{#if EXISTING_COLLABORATORS.length === 0}
 				<div class="p-3">No existing collaborators found!</div>
+			{:else if isFocused}
+				<div class="p-3">Select collaborator</div>
 			{:else}
 				{#each sortOnlineCollaborators(EXISTING_COLLABORATORS) as collaborator}
 					<div
@@ -308,7 +318,7 @@
 						class=" max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
 						role="listbox"
 						aria-label="Available collaborators">
-						{#each filterSelectedUsers(AVAILABLE_COLLABORATORS) as collaborator, index}
+						{#each sortOnlineCollaborators(filterSelectedUsers(AVAILABLE_COLLABORATORS)) as collaborator, index}
 							<div
 								class="group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer {focusedIndex ===
 								index
@@ -362,7 +372,7 @@
 			{#if selectedUsers.length !== 0}
 				<button
 					class="absolute bottom-5 left-0 mt-2 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
-					on:click|stopPropagation="{() => console.log('Send Invite')}"
+					on:mousedown="{handleCollaboratorSelection}"
 					>Add to collaborate</button>
 			{/if}
 		{/if}
