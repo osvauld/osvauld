@@ -1,3 +1,4 @@
+pub mod connection_manager;
 pub mod constants;
 pub mod emitter;
 pub mod handshake;

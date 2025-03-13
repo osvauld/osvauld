@@ -8,14 +8,14 @@ use tokio::io::AsyncWriteExt;
 impl P2PService {
     pub async fn send_chat_message(&self, message: String) -> Result<(), String> {
         let msg = Message::Chat(message);
-        let serialized = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
-        self.send_message(serialized).await?;
+        self.send_message(msg).await?;
         Ok(())
     }
 
-    pub async fn send_message(&self, message: String) -> Result<(), String> {
+    pub async fn send_message(&self, message: Message) -> Result<(), String> {
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or("P2P not initialized")?;
+        let serialized_message = serde_json::to_string(&message).map_err(|e| e.to_string())?;
         let connection: Arc<Connection> = {
             let active_conn = state.active_connection.lock().await;
             match &*active_conn {
@@ -31,7 +31,7 @@ impl P2PService {
 
         // Write the message in chunks to handle large payloads
         const CHUNK_SIZE: usize = 8192;
-        let bytes = message.as_bytes();
+        let bytes = serialized_message.as_bytes();
 
         for chunk in bytes.chunks(CHUNK_SIZE) {
             send.write_all(chunk)
@@ -45,132 +45,105 @@ impl P2PService {
         Ok(())
     }
 
-    pub async fn handle_messages(&self) {
+    pub async fn handle_messages(&self, connection: Arc<Connection>) {
         info!("Starting message listener");
         loop {
-            match self.get_active_connection().await {
-                Ok(connection) => {
-                    match connection.accept_bi().await {
-                        Ok((_send, mut recv)) => {
-                            // Use a dynamic buffer that can grow as needed
-                            let mut buffer = Vec::new();
-                            let mut temp_buffer = vec![0u8; 8192]; // Larger temp buffer for reading chunks
+            match connection.accept_bi().await {
+                Ok((_send, mut recv)) => {
+                    // Use a dynamic buffer that can grow as needed
+                    let mut buffer = Vec::new();
+                    let mut temp_buffer = vec![0u8; 8192]; // Larger temp buffer for reading chunks
 
-                            // Read the entire message
-                            loop {
-                                match recv.read(&mut temp_buffer).await {
-                                    Ok(Some(n)) if n > 0 => {
-                                        buffer.extend_from_slice(&temp_buffer[..n]);
+                    // Read the entire message
+                    loop {
+                        match recv.read(&mut temp_buffer).await {
+                            Ok(Some(n)) if n > 0 => {
+                                buffer.extend_from_slice(&temp_buffer[..n]);
 
-                                        // Try to parse what we have so far
-                                        if let Ok(message_str) = String::from_utf8(buffer.clone()) {
-                                            match serde_json::from_str::<Message>(&message_str) {
-                                                Ok(message) => {
-                                                    info!("Successfully deserialized message");
-                                                    let result = match &message {
-                                                        Message::SyncRequest => {
-                                                            self.handle_sync_request().await
-                                                        }
-                                                        Message::SyncAck(updated_data) => {
-                                                            self.handle_sync_ack(
-                                                                updated_data.clone(),
-                                                            )
-                                                            .await
-                                                        }
-                                                        Message::AddDevice(records) => {
-                                                            self.handle_add_device_request(
-                                                                records.clone(),
-                                                            )
-                                                            .await
-                                                        }
-                                                        Message::AddDeviceAck => {
-                                                            let _ = self.start_device_sync().await;
-                                                            Ok(())
-                                                        }
-                                                        Message::SyncResponse(payload) => {
-                                                            info!(
-                                                                "Received sync payload: {:?}",
-                                                                payload
-                                                            );
-                                                            self.handle_sync_response(
-                                                                payload.clone(),
-                                                            )
-                                                            .await
-                                                        }
-                                                        Message::SyncComplete => {
-                                                            self.handle_sync_complete().await
-                                                        }
-                                                        Message::Chat(_)
-                                                        | Message::Ping
-                                                        | Message::Pong => {
-                                                            // Message was previously emitted
-                                                            Ok(())
-                                                        }
-                                                        Message::AckComplete(
-                                                            device_sync_record_id,
-                                                        ) => {
-                                                            self.ack_complete(
-                                                                device_sync_record_id.clone(),
-                                                            )
-                                                            .await
-                                                        }
-                                                        Message::SyncEvent { event, payload } => {
-                                                            self.handle_sync_event(
-                                                                event,
-                                                                payload.clone(),
-                                                            )
-                                                            .await
-                                                        }
-                                                        Message::FirstUserConnection(user) => {
-                                                            self.handle_first_user_connection(user)
-                                                                .await
-                                                        }
-                                                        Message::UserAddAck(user_id) => {
-                                                            self.handle_user_add_ack(user_id).await;
-                                                            Ok(())
-                                                        }
-                                                        Message::SharePayload(payload) => {
-                                                            self.handle_share_payload(payload).await
-                                                        }
-                                                        _ => Ok(()),
-                                                    };
+                                // Try to parse what we have so far
+                                if let Ok(message_str) = String::from_utf8(buffer.clone()) {
+                                    match serde_json::from_str::<Message>(&message_str) {
+                                        Ok(message) => {
+                                            info!("Successfully deserialized message");
+                                            let result = match &message {
+                                                Message::SyncRequest => {
+                                                    self.handle_sync_request().await
+                                                }
+                                                Message::SyncAck(updated_data) => {
+                                                    self.handle_sync_ack(updated_data.clone()).await
+                                                }
+                                                Message::AddDevice(records) => {
+                                                    self.handle_add_device_request(records.clone())
+                                                        .await
+                                                }
+                                                Message::AddDeviceAck => {
+                                                    let _ = self.start_device_sync().await;
+                                                    Ok(())
+                                                }
+                                                Message::SyncResponse(payload) => {
+                                                    info!("Received sync payload: {:?}", payload);
+                                                    self.handle_sync_response(payload.clone()).await
+                                                }
+                                                Message::SyncComplete => {
+                                                    self.handle_sync_complete().await
+                                                }
+                                                Message::Chat(_)
+                                                | Message::Ping
+                                                | Message::Pong => {
+                                                    // Message was previously emitted
+                                                    Ok(())
+                                                }
+                                                Message::AckComplete(device_sync_record_id) => {
+                                                    self.ack_complete(device_sync_record_id.clone())
+                                                        .await
+                                                }
+                                                Message::SyncEvent { event, payload } => {
+                                                    self.handle_sync_event(event, payload.clone())
+                                                        .await
+                                                }
+                                                Message::FirstUserConnection(user) => {
+                                                    self.handle_first_user_connection(user).await
+                                                }
+                                                Message::UserAddAck(user_id) => {
+                                                    self.handle_user_add_ack(user_id).await;
+                                                    Ok(())
+                                                }
+                                                Message::SharePayload(payload) => {
+                                                    self.handle_share_payload(payload).await
+                                                }
+                                                _ => Ok(()),
+                                            };
 
-                                                    if let Err(e) = result {
-                                                        error!("Error handling message: {}", e);
-                                                    }
-                                                    break;
-                                                }
-                                                Err(e) if e.is_eof() => {
-                                                    // Need more data, continue reading
-                                                    continue;
-                                                }
-                                                Err(e) => {
-                                                    error!("Failed to deserialize message: {}", e);
-                                                    break;
-                                                }
+                                            if let Err(e) = result {
+                                                error!("Error handling message: {}", e);
                                             }
+                                            break;
                                         }
-                                    }
-                                    Ok(Some(_)) => continue, // Got some data, but need more
-                                    Ok(None) => {
-                                        info!("Connection closed by peer");
-                                        break;
-                                    }
-                                    Err(e) => {
-                                        error!("Error reading from connection: {}", e);
-                                        break;
+                                        Err(e) if e.is_eof() => {
+                                            // Need more data, continue reading
+                                            continue;
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to deserialize message: {}", e);
+                                            break;
+                                        }
                                     }
                                 }
                             }
-                        }
-                        Err(e) => {
-                            error!("Failed to accept bi-directional stream: {}", e);
-                            break;
+                            Ok(Some(_)) => continue, // Got some data, but need more
+                            Ok(None) => {
+                                info!("Connection closed by peer");
+                                break;
+                            }
+                            Err(e) => {
+                                error!("Error reading from connection: {}", e);
+                                break;
+                            }
                         }
                     }
                 }
                 Err(e) => {
-                    error!("Failed to get active connection: {}", e);
+                    error!("Failed to accept bi-directional stream: {}", e);
                     break;
                 }
             }
@@ -183,9 +156,7 @@ impl P2PService {
             event: "sync-snapshot".to_string(),
             payload: snapshot,
         };
-        let serialized = serde_json::to_string(&msg)
-            .map_err(|e| format!("Failed to serialize AddDevice message: {}", e))?;
-        self.send_message(serialized).await?;
+        self.send_message(msg).await?;
         Ok(())
     }
 

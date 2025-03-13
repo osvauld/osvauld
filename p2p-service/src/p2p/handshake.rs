@@ -1,3 +1,4 @@
+use crate::p2p::connection_manager::PeerConnection;
 use crate::p2p::constants::*;
 use crate::p2p::service::P2PService;
 use crate::p2p::P2PEvent;
@@ -24,10 +25,6 @@ impl P2PService {
         let (endpoint, node_addr) = {
             let state_guard = self.state.lock().await;
             let state = state_guard.as_ref().ok_or("P2P not initialized")?;
-            if let Some(state) = state_guard.as_ref() {
-                let mut conn_type_guard = state.connection_type.lock().await;
-                *conn_type_guard = Some(conn_type);
-            }
 
             let ticket: ConnectionTicket = serde_json::from_str(ticket_str)
                 .map_err(|e| format!("Invalid ticket format: {}", e))?;
@@ -83,7 +80,7 @@ impl P2PService {
         let conn = connect_result.map_err(|e| format!("Connection failed: {e}"))?;
 
         info!("Starting handshake process...");
-        let handshake_result = self.perform_handshake(&conn, true).await;
+        let handshake_result = self.perform_handshake(&conn, true, Some(conn_type)).await;
 
         match &handshake_result {
             Ok(_) => info!("Handshake completed successfully"),
@@ -99,12 +96,10 @@ impl P2PService {
         &self,
         conn: &Connection,
         is_initiator: bool,
+        connection_type: Option<ConnectionType>,
     ) -> Result<(), String> {
+        let handshake_message;
         let (mut send, mut recv) = match timeout(CONNECTION_TIMEOUT, async {
-            {
-                let mut initiator = self.is_initiator.lock().await;
-                *initiator = Some(is_initiator);
-            }
             if is_initiator {
                 info!("Initiator: Opening bi-directional stream");
                 conn.open_bi().await
@@ -119,26 +114,22 @@ impl P2PService {
             Ok(stream) => stream,
             Err(e) => return Err(format!("Stream establishment failed: {}", e)),
         };
-
         if is_initiator {
-            self.initiate_handshake(&mut send, &mut recv)
+            let conn_type = connection_type.unwrap_or(ConnectionType::Device);
+            handshake_message = self
+                .initiate_handshake(&mut send, &mut recv, conn_type)
                 .await
                 .map_err(|e| e.to_string())?;
         } else {
-            self.accept_handshake(&mut send, &mut recv)
+            handshake_message = self
+                .accept_handshake(&mut send, &mut recv)
                 .await
                 .map_err(|e| e.to_string())?;
         }
-
-        {
-            let state_guard = self.state.lock().await;
-            let state = state_guard.as_ref().unwrap();
-            let mut active_conn = state.active_connection.lock().await;
-            *active_conn = Some(Arc::new(conn.clone()));
-        }
-
         let self_clone = self.clone();
-        tokio::spawn(async move {
+        let connection_arc = Arc::new(conn.clone());
+        let task_connection = connection_arc.clone();
+        let task_handle = tokio::spawn(async move {
             info!(
                 "Starting message listener for {}",
                 if is_initiator {
@@ -147,9 +138,25 @@ impl P2PService {
                     "receiver"
                 }
             );
-            self_clone.handle_messages().await;
+            self_clone.handle_messages(task_connection).await;
         });
 
+        let p2p_connection = PeerConnection {
+            connection_type: handshake_message.connection_type,
+            user: handshake_message.user,
+            device: handshake_message.device,
+            connection: connection_arc,
+            task_handle,
+            is_initiator,
+        };
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or("P2P not initialized")?;
+
+        // Insert the connection into the connection manager
+        state
+            .connections
+            .insert_connection(Arc::new(p2p_connection))
+            .await?;
         Ok(())
     }
 
@@ -267,7 +274,8 @@ impl P2PService {
         &self,
         send: &mut SendStream,
         recv: &mut RecvStream,
-    ) -> Result<(), HandshakeError> {
+        connection_type: ConnectionType,
+    ) -> Result<HandshakeMessage, HandshakeError> {
         info!("Initiator: Sending hello");
         let device = self
             .auth_service
@@ -281,21 +289,11 @@ impl P2PService {
             .await
             .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
 
-        let connection_type = {
-            let state_guard = self.state.lock().await;
-            let state = state_guard
-                .as_ref()
-                .ok_or(HandshakeError::Connection("P2P not initialized".into()))?;
-            let conn_type_guard = state.connection_type.lock().await;
-            conn_type_guard.clone().unwrap_or(ConnectionType::Device) // Default to Device if not set
-        };
-        let user = match connection_type {
-            ConnectionType::User => match self.user_service.get_current_user().await {
-                Ok(user) => Some(user),
-                Err(_) => None,
-            },
-            ConnectionType::Device => None,
-        };
+        let user = self
+            .user_service
+            .get_current_user()
+            .await
+            .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
         let handshake_message = HandshakeMessage {
             connection_type,
             challenge,
@@ -323,35 +321,15 @@ impl P2PService {
 
         let response: HandshakeMessage = serde_json::from_str(&message_str)?;
 
-        match response.connection_type {
-            ConnectionType::Device => {
-                let mut device = self.device.lock().await;
-                *device = Some(response.device.clone());
-            }
-            ConnectionType::User => {
-                // Store device info if provided
-                let mut device = self.device.lock().await;
-                *device = Some(response.device.clone());
-
-                // User info is required for user connections
-                if let Some(user_info) = response.user {
-                    let mut user = self.user.lock().await;
-                    *user = Some(user_info);
-                } else {
-                    return Err(HandshakeError::Connection("Missing user info".into()));
-                }
-            }
-        }
-
         info!("Initiator: Handshake completed successfully");
-        Ok(())
+        Ok(response)
     }
 
     async fn accept_handshake(
         &self,
         send: &mut SendStream,
         recv: &mut RecvStream,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<HandshakeMessage, HandshakeError> {
         info!("Receiver: Waiting for handshake message");
 
         // Use the read_complete_message helper to get the entire message
@@ -372,36 +350,7 @@ impl P2PService {
             }
         };
 
-        // Store connection type in state
-        {
-            let state_guard = self.state.lock().await;
-            if let Some(state) = state_guard.as_ref() {
-                let mut conn_type_guard = state.connection_type.lock().await;
-                *conn_type_guard = Some(handshake_message.connection_type.clone());
-            }
-        }
-
         info!("Successfully received and parsed handshake message");
-
-        match handshake_message.connection_type {
-            ConnectionType::Device => {
-                let mut device = self.device.lock().await;
-                *device = Some(handshake_message.device);
-            }
-            ConnectionType::User => {
-                // Store device info if provided
-                let mut device = self.device.lock().await;
-                *device = Some(handshake_message.device);
-
-                // User info is required for user connections
-                if let Some(user_info) = handshake_message.user {
-                    let mut user = self.user.lock().await;
-                    *user = Some(user_info);
-                } else {
-                    return Err(HandshakeError::Connection("Missing user info".into()));
-                }
-            }
-        }
 
         // Get our device and create response
         let device = match self.auth_service.get_current_device().await {
@@ -412,13 +361,11 @@ impl P2PService {
             }
         };
 
-        let user = match handshake_message.connection_type {
-            ConnectionType::User => match self.user_service.get_current_user().await {
-                Ok(user) => Some(user),
-                Err(_) => None,
-            },
-            ConnectionType::Device => None,
-        };
+        let user = self
+            .user_service
+            .get_current_user()
+            .await
+            .map_err(|e| HandshakeError::AuthService(e.to_string()))?;
 
         let (challenge, signature) = match self.auth_service.sign_random_challenge().await {
             Ok(cs) => cs,
@@ -433,7 +380,7 @@ impl P2PService {
             signature,
             device,
             user,
-            connection_type: handshake_message.connection_type,
+            connection_type: handshake_message.connection_type.clone(),
         };
 
         info!("Created handshake response message");
@@ -458,6 +405,6 @@ impl P2PService {
         }
 
         info!("Receiver: Handshake completed successfully");
-        Ok(())
+        Ok(handshake_message)
     }
 }

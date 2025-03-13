@@ -42,6 +42,7 @@ pub enum Message {
     UserAddAck(String),
     SharePayload(SharePayload),
     ShareComplete,
+    HandshakeMessage(HandshakeMessage),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -83,7 +84,7 @@ pub struct HandshakeMessage {
     pub signature: String,
     pub device: Device,
     pub connection_type: ConnectionType,
-    pub user: Option<User>,
+    pub user: User,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
