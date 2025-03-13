@@ -194,7 +194,9 @@
 
 <!-- Add these ARIA attributes to the main component -->
 <div
-	class="absolute top-full right-0 mt-2 z-50 w-[35rem] h-[26.125rem] rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col"
+	class="absolute top-full right-0 mt-2 z-50 w-[35rem] {isFocused
+		? 'h-[26.125rem] '
+		: 'h-auto'} rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col"
 	in:fade
 	out:fade
 	role="dialog"
@@ -256,7 +258,9 @@
 	<!-- Make the existing collaborators list accessible -->
 	<div class="relative p-4">
 		<div
-			class="h-[16.25rem] max-h-[16.25rem] overflow-y-auto scrollbar-thin select-none cursor-default"
+			class="{isFocused
+				? 'h-[16.25rem]'
+				: 'h-auto'} max-h-[16.25rem] overflow-y-auto scrollbar-thin select-none cursor-default"
 			role="region"
 			aria-label="Current collaborators">
 			{#if EXISTING_COLLABORATORS.length === 0}
@@ -291,7 +295,9 @@
 		<!-- Make the available collaborators dropdown accessible -->
 		{#if isFocused}
 			<div
-				class="absolute top-0 left-0 w-full h-[95%] flex flex-col rounded-2xl p-3 border border-osvauld-activeBorder bg-osvauld-frameblack"
+				class="absolute top-0 left-0 w-full {selectedUsers.length !== 0
+					? 'h-[72%]'
+					: 'h-[95%]'}  rounded-2xl p-3 border border-osvauld-activeBorder bg-osvauld-frameblack"
 				role="dialog"
 				aria-label="Available collaborators">
 				{#if AVAILABLE_COLLABORATORS.length === 0 || filterSelectedUsers(AVAILABLE_COLLABORATORS).length === 0}
@@ -299,7 +305,7 @@
 				{:else}
 					<div
 						id="collaborators-listbox"
-						class="grow max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
+						class=" max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
 						role="listbox"
 						aria-label="Available collaborators">
 						{#each filterSelectedUsers(AVAILABLE_COLLABORATORS) as collaborator, index}
@@ -351,13 +357,14 @@
 							</div>
 						{/each}
 					</div>
-					{#if selectedUsers.length !== 0}
-						<button
-							class="py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
-							>Add to collaborate</button>
-					{/if}
 				{/if}
 			</div>
+			{#if selectedUsers.length !== 0}
+				<button
+					class="absolute bottom-5 left-0 mt-2 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
+					on:click|stopPropagation="{() => console.log('Send Invite')}"
+					>Add to collaborate</button>
+			{/if}
 		{/if}
 	</div>
 </div>
