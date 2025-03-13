@@ -1,9 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from "svelte";
-	import { fade, slide } from "svelte/transition";
-	import { sendMessage } from "@osvauld/password-manager-common";
+	import { onMount } from "svelte";
 	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
-	import InfoIcon from "@osvauld/password-manager-common/icons/infoIcon.svelte";
 	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
 	import { toastStore } from "../../store/desktop.ui.store";
 
@@ -17,6 +14,7 @@
 	let query = "";
 	let focusedIndex = -1;
 	let items: HTMLDivElement[] = [];
+	let availableCollaboratorsFiltered = [];
 
 	const EXISTING_COLLABORATORS = [
 		{
@@ -46,23 +44,100 @@
 			username: "yusername",
 			online: false,
 		},
-		{
-			username: "xusername",
-			online: true,
-		},
-		{
-			username: "zusername",
-			online: true,
-		},
-		{
-			username: "lusername",
-			online: false,
-		},
 	];
 
-	// const toggleCheck = (username) => {
-	// 	selectedUsername = selectedUsername === username ? null : username;
-	// };
+	$: availableCollaboratorsFiltered = query
+		? AVAILABLE_COLLABORATORS.filter((c) =>
+				c.username.toLowerCase().includes(query.toLowerCase()),
+			)
+		: AVAILABLE_COLLABORATORS;
+
+	const handleKeyDown = (event: KeyboardEvent) => {
+		const collaboratorsLength = AVAILABLE_COLLABORATORS.length;
+		switch (event.key) {
+			case "Enter":
+			case " ":
+				event.preventDefault(); // Prevent space from scrolling
+				if (focusedIndex === -1) {
+					autofocus();
+				} else if (
+					collaboratorsLength > 0 &&
+					focusedIndex >= 0 &&
+					focusedIndex < collaboratorsLength &&
+					selectedUsers.length < MAX_ALLOWED_USERS
+				) {
+					// Actually select the collaborator when Enter/Space is pressed
+					query = "";
+					selectedUsers = [
+						...selectedUsers,
+						availableCollaboratorsFiltered[focusedIndex].username,
+					];
+					focusedIndex = -1;
+					console.log("Selected collaborator:", selectedUsers);
+				}
+				break;
+
+			case "Escape":
+				// Add escape key handling to close dropdown
+				isFocused = false;
+				unfocus();
+				break;
+
+			case "Backspace":
+				const isQueryEmpty = query.trim().length === 0;
+				const hasSelectedUsers = selectedUsers.length > 0;
+
+				if (hasSelectedUsers && !isQueryEmpty) {
+					// Do the regular backspace on input
+				} else if (hasSelectedUsers) {
+					selectedUsers = selectedUsers.slice(0, -1);
+				} else if (isQueryEmpty) {
+					isFocused = false;
+					unfocus();
+					focusedIndex = -1;
+				}
+				break;
+
+			case "ArrowDown":
+				event.preventDefault(); // Prevent scrolling
+				if (collaboratorsLength > 0) {
+					focusedIndex =
+						focusedIndex === -1 ? 0 : (focusedIndex + 1) % collaboratorsLength;
+					if (items[focusedIndex]) {
+						items[focusedIndex].scrollIntoView({
+							block: "center",
+							behavior: "smooth",
+						});
+					}
+				}
+
+				break;
+
+			case "ArrowUp":
+				event.preventDefault(); // Prevent scrolling
+				if (collaboratorsLength > 0) {
+					if (focusedIndex === -1) {
+						focusedIndex = collaboratorsLength - 1;
+					} else {
+						focusedIndex =
+							(focusedIndex - 1 + collaboratorsLength) % collaboratorsLength;
+					}
+					if (items[focusedIndex]) {
+						items[focusedIndex].scrollIntoView({
+							block: "center",
+							behavior: "smooth",
+						});
+					}
+				}
+
+				break;
+
+			case "Tab":
+				// Let Tab work normally for focus navigation but reset the selection
+				focusedIndex = -1;
+				break;
+		}
+	};
 
 	const handleUserIdSelection = async (id: string, publicKey: string) => {
 		console.log(id, publicKey);
@@ -103,98 +178,6 @@
 		inputRef.blur();
 	};
 
-	const handleKeyDown = (event: KeyboardEvent) => {
-		// Only process keyboard navigation when we have collaborators
-		// const filteredCollaborators = query
-		// 	? AVAILABLE_COLLABORATORS.filter((c) =>
-		// 			c.username.toLowerCase().includes(query.toLowerCase()),
-		// 		)
-		// 	: AVAILABLE_COLLABORATORS;
-
-		const collaboratorsLength = AVAILABLE_COLLABORATORS.length;
-		switch (event.key) {
-			case "Enter":
-			case " ":
-				event.preventDefault(); // Prevent space from scrolling
-				if (focusedIndex === -1) {
-					autofocus();
-				} else if (
-					collaboratorsLength > 0 &&
-					focusedIndex >= 0 &&
-					focusedIndex < collaboratorsLength &&
-					selectedUsers.length < MAX_ALLOWED_USERS
-				) {
-					// Actually select the collaborator when Enter/Space is pressed
-					selectedUsers = [
-						...selectedUsers,
-						AVAILABLE_COLLABORATORS[focusedIndex].username,
-					];
-					focusedIndex = -1;
-					console.log("Selected collaborator:", selectedUsers);
-					// Here you would add your actual selection logic, e.g.:
-					// handleUserIdSelection(selectedCollaborator.id, selectedCollaborator.publicKey);
-
-					// Important: Keep focus on the input after selection
-				}
-				break;
-
-			case "Escape":
-				// Add escape key handling to close dropdown
-				isFocused = false;
-				unfocus();
-				break;
-
-			case "Backspace":
-				if (selectedUsers.length !== 0 && query.trim()) {
-					//do the regular backspace on input
-					break;
-				} else if (selectedUsers.length !== 0) {
-					selectedUsers = selectedUsers.slice(0, -1);
-				} else if (!query.trim()) {
-					isFocused = false;
-					unfocus();
-					focusedIndex = -1; // Reset selection when unfocusing
-				}
-				break;
-
-			case "ArrowDown":
-				event.preventDefault(); // Prevent scrolling
-				if (collaboratorsLength > 0) {
-					focusedIndex =
-						focusedIndex === -1 ? 0 : (focusedIndex + 1) % collaboratorsLength;
-					if (items[focusedIndex]) {
-						items[focusedIndex].scrollIntoView({
-							block: "center",
-							behavior: "smooth",
-						});
-					}
-				}
-				break;
-
-			case "ArrowUp":
-				event.preventDefault(); // Prevent scrolling
-				if (collaboratorsLength > 0) {
-					if (focusedIndex === -1) {
-						focusedIndex = collaboratorsLength - 1;
-					} else {
-						focusedIndex =
-							(focusedIndex - 1 + collaboratorsLength) % collaboratorsLength;
-					}
-					if (items[focusedIndex]) {
-						items[focusedIndex].scrollIntoView({
-							block: "center",
-							behavior: "smooth",
-						});
-					}
-				}
-				break;
-
-			case "Tab":
-				// Let Tab work normally for focus navigation but reset the selection
-				focusedIndex = -1;
-				break;
-		}
-	};
 	onMount(() => {
 		if (EXISTING_COLLABORATORS.length === 0) {
 			autofocus();
@@ -310,15 +293,15 @@
 					: 'h-[95%]'}  rounded-2xl p-3 border border-osvauld-activeBorder bg-osvauld-frameblack"
 				role="dialog"
 				aria-label="Available collaborators">
-				{#if AVAILABLE_COLLABORATORS.length === 0 || filterSelectedUsers(AVAILABLE_COLLABORATORS).length === 0}
-					<div class="p-3">Additional users not found!</div>
+				{#if availableCollaboratorsFiltered.length === 0 || filterSelectedUsers(availableCollaboratorsFiltered).length === 0}
+					<div class="p-3">Users not found!</div>
 				{:else}
 					<div
 						id="collaborators-listbox"
 						class=" max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
 						role="listbox"
 						aria-label="Available collaborators">
-						{#each sortOnlineCollaborators(filterSelectedUsers(AVAILABLE_COLLABORATORS)) as collaborator, index}
+						{#each sortOnlineCollaborators(filterSelectedUsers(availableCollaboratorsFiltered)) as collaborator, index}
 							<div
 								class="group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer {focusedIndex ===
 								index
@@ -334,6 +317,7 @@
 									// Keep focus on the input element after mouse selection
 									console.log('Selected collab==>', collaborator.username);
 									if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
+									query = '';
 									selectedUsers = [...selectedUsers, collaborator.username];
 									focusedIndex = -1;
 								}}"
@@ -344,6 +328,7 @@
 										// Add your selection logic here
 										if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
 										console.log('Selected collab==>', collaborator.username);
+										query = '';
 										selectedUsers = [...selectedUsers, collaborator.username];
 										focusedIndex = -1;
 									}
