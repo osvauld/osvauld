@@ -37,27 +37,12 @@ tauri-plugin-clipboard-manager = "2.0.2"
 tokio = { version = "1.40.0", features = ["full"] }
 uuid = { version = "1.3.0", features = ["v4"] }
 rcgen = "0.10"
-diesel_migrations = "2.0.0"
-diesel = { version = "2.2.0", features = [
-  "sqlite",
-  "returning_clauses_for_sqlite_3_35",
-  "r2d2",
-] }
-libsqlite3-sys = { version = "0.25.2", features = [
-  "bundled",
-  "unlock_notify",
-  "min_sqlite_version_3_7_16",
-] }
-iroh = "0.32.1"
 anyhow = "1.0.91"
 futures-lite = "2.3.0"
-iroh-base = "0.32.0"
 sys-locale = "0.3.1"
 chrono = "0.4.38"
 async-trait = "0.1.83"
 thiserror = "2.0.0"
-iroh-quinn = "0.13.0"
-iroh-blobs = "0.32.0"
 url = "2.5.4"
 rand = "0.8.5"
 base64 = "0.22.1"

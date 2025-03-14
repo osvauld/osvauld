@@ -1,11 +1,9 @@
 use log::error;
-use tauri::Manager;
-pub mod application;
 use osvauld_db::{DbConnection, initialize_database};
+use tauri::Manager;
 pub mod handlers;
 pub mod listners;
 mod types;
-use crate::application::services::RendezvousService;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
@@ -32,6 +30,7 @@ use osvauld_services::{
     UserService,
 };
 use p2p_service::P2PService;
+use rendezvous_client::rendezvous_service::RendezvousService;
 
 use listners::EventManager;
 use std::fs;

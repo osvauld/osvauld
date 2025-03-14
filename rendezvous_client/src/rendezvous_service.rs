@@ -1,8 +1,8 @@
+use crate::ws::{WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::ConnectionType;
 use osvauld_core::models::user::User; // Import the User model
 use p2p_service::P2PService;
-use rendezvous_client::{WsClient, WsMessage};
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
