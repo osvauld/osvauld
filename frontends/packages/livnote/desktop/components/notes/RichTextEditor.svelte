@@ -15,6 +15,7 @@
 		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
+	import { slashCommandPlugin } from "./slashCommandPlugin.ts";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -602,6 +603,49 @@
 		background-color: #2f303e;
 		border-radius: 4px;
 	}
+
+	:global(.slash-command-menu) {
+		max-height: 300px;
+		overflow-y: auto;
+		border-radius: 8px;
+		animation: fadeIn 0.1s ease-in-out;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar) {
+		width: 4px;
+		height: 4px;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar-thumb) {
+		background-color: #2f303e;
+		border-radius: 4px;
+	}
+
+	:global(.slash-command-item) {
+		transition: background-color 0.15s ease;
+		border-radius: 4px;
+		margin: 4px;
+	}
+
+	:global(.slash-command-item:first-child) {
+		margin-top: 4px;
+	}
+
+	:global(.slash-command-item:last-child) {
+		margin-bottom: 4px;
+	}
+
+	:global(.slash-command-icon) {
+		background: #2f303e;
+		border-radius: 4px;
+		width: 28px !important;
+		height: 28px !important;
+		color: #bfc0cc;
+	}
 </style>
 
 <div class="editor-container">
@@ -615,9 +659,9 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
+		<div bind:this={element} class="h-full scrollbar-thin"></div>
 		<button
-			on:click="{saveNoteManual}"
+			on:click={saveNoteManual}
 			class="absolute top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"

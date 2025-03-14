@@ -1,0 +1,435 @@
+import { Plugin, PluginKey, EditorState, Selection, TextSelection } from "prosemirror-state";
+import { EditorView } from "prosemirror-view";
+import { setBlockType, wrapIn, toggleMark } from "prosemirror-commands";
+import { Schema } from "prosemirror-model";
+import { wrapInList } from "prosemirror-schema-list";
+
+// Structure for command items
+export interface SlashCommandItem {
+  title: string;
+  description?: string;
+  icon?: string;
+  command: (state: EditorState, dispatch: any, view: EditorView) => boolean;
+}
+
+// Plugin key for external access
+export const slashCommandKey = new PluginKey("slash-command");
+
+const OPEN_REGEX = /(?:^|\s)\/$/;
+const CLOSE_REGEX = /(?:^|\s)(?:\/(\w+))$/;
+
+// Helper to check if selection is a cursor
+function isCursorSelection(selection: Selection): selection is TextSelection {
+  return selection instanceof TextSelection && selection.empty;
+}
+
+export function slashCommandPlugin(schema: Schema) {
+  // Command menu element reference
+  let menu: HTMLElement | null = null;
+  let lastState: EditorState | null = null;
+
+  // Get all commands based on schema
+  const commands = getCommands(schema);
+
+  // Track if the menu is currently open
+  let isMenuOpen = false;
+
+  // Filter commands by search query
+  function filterCommands(query: string = "") {
+    return commands.filter(cmd =>
+      cmd.title.toLowerCase().includes(query.toLowerCase())
+    );
+  }
+
+  // Create the menu element
+  function createMenu() {
+    if (menu) return menu;
+
+    menu = document.createElement("div");
+    menu.className = "slash-command-menu";
+    menu.style.position = "absolute";
+    menu.style.zIndex = "999";
+    menu.style.background = "#16171f";
+    menu.style.border = "1px solid #2a2b2f";
+    menu.style.borderRadius = "4px";
+    menu.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.25)";
+    menu.style.color = "white";
+    menu.style.overflow = "hidden";
+    menu.style.maxHeight = "300px";
+    menu.style.overflowY = "auto";
+    menu.style.width = "240px";
+
+    return menu;
+  }
+
+  // Render menu with items
+  function renderMenu(view: EditorView, filteredCommands: SlashCommandItem[], query: string = "") {
+    const menu = createMenu();
+    menu.innerHTML = "";
+
+    if (filteredCommands.length === 0) {
+      const noResults = document.createElement("div");
+      noResults.className = "slash-command-item no-results";
+      noResults.textContent = "No commands found";
+      noResults.style.padding = "8px 12px";
+      noResults.style.color = "#85889C";
+      menu.appendChild(noResults);
+      return menu;
+    }
+
+    filteredCommands.forEach((cmd, index) => {
+      const item = document.createElement("div");
+      item.className = "slash-command-item";
+      item.style.padding = "8px 12px";
+      item.style.cursor = "pointer";
+      item.style.display = "flex";
+      item.style.alignItems = "center";
+      item.style.gap = "8px";
+
+      // Hover state
+      item.addEventListener("mouseenter", () => {
+        item.style.background = "#2a2b2f";
+      });
+
+      item.addEventListener("mouseleave", () => {
+        item.style.background = "transparent";
+      });
+
+      // Handle click to execute command
+      item.addEventListener("click", () => {
+        // Delete the slash command text
+        const { state, dispatch } = view;
+        const tr = state.tr;
+
+        // Check if selection is a cursor position
+        if (isCursorSelection(state.selection)) {
+          const $cursor = state.selection.$cursor;
+
+          if ($cursor && $cursor.nodeBefore) {
+            const text = $cursor.nodeBefore.text;
+            if (text) {
+              const slashPos = text.lastIndexOf('/');
+              if (slashPos > -1) {
+                const from = $cursor.pos - ($cursor.nodeBefore.text.length - slashPos);
+                tr.delete(from, $cursor.pos);
+              }
+            }
+          }
+        }
+
+        // Apply the command
+        dispatch(tr);
+        cmd.command(view.state, view.dispatch, view);
+
+        // Close the menu
+        closeMenu();
+        view.focus();
+      });
+
+      // Icon (if available)
+      if (cmd.icon) {
+        const icon = document.createElement("span");
+        icon.className = "slash-command-icon";
+        icon.innerHTML = cmd.icon;
+        icon.style.width = "20px";
+        icon.style.height = "20px";
+        icon.style.display = "flex";
+        icon.style.alignItems = "center";
+        icon.style.justifyContent = "center";
+        item.appendChild(icon);
+      }
+
+      // Title & description
+      const content = document.createElement("div");
+      content.style.display = "flex";
+      content.style.flexDirection = "column";
+
+      const title = document.createElement("div");
+      title.className = "slash-command-title";
+      title.textContent = cmd.title;
+      title.style.fontWeight = "500";
+      content.appendChild(title);
+
+      if (cmd.description) {
+        const desc = document.createElement("div");
+        desc.className = "slash-command-description";
+        desc.textContent = cmd.description;
+        desc.style.fontSize = "12px";
+        desc.style.color = "#85889C";
+        content.appendChild(desc);
+      }
+
+      item.appendChild(content);
+      menu.appendChild(item);
+    });
+
+    return menu;
+  }
+
+  // Position menu at cursor
+  function positionMenu(view: EditorView) {
+    if (!menu) return;
+
+    const { state } = view;
+    const { selection } = state;
+
+    // Get coordinates from the editor
+    const coords = view.coordsAtPos(selection.from);
+
+    // Position below the cursor
+    menu.style.top = `${coords.bottom + 8}px`;
+    menu.style.left = `${coords.left}px`;
+  }
+
+  // Close and clean up menu
+  function closeMenu() {
+    if (menu && menu.parentNode) {
+      menu.parentNode.removeChild(menu);
+    }
+    isMenuOpen = false;
+  }
+
+  return new Plugin({
+    key: slashCommandKey,
+
+    view(editorView) {
+      return {
+        update: (view, prevState) => {
+          lastState = view.state;
+
+          // Get current cursor position and check for slash command
+          const { selection } = view.state;
+          if (!selection.empty) {
+            closeMenu();
+            return;
+          }
+
+          // Check if we have a cursor (collapsed text selection)
+          if (!isCursorSelection(selection)) {
+            closeMenu();
+            return;
+          }
+
+          const $cursor = selection.$cursor;
+          if (!$cursor) {
+            closeMenu();
+            return;
+          }
+
+          const textBefore = $cursor.nodeBefore?.text || '';
+
+          // Check for "/", but avoid matching in the middle of words
+          if (OPEN_REGEX.test(textBefore)) {
+            const filteredCommands = filterCommands();
+
+            if (!isMenuOpen) {
+              // Create and append menu
+              menu = renderMenu(view, filteredCommands);
+              editorView.dom.parentNode?.appendChild(menu);
+              positionMenu(view);
+              isMenuOpen = true;
+            } else {
+              // Update existing menu
+              menu = renderMenu(view, filteredCommands);
+              if (menu.parentNode) {
+                menu.parentNode.replaceChild(menu, menu);
+              } else {
+                editorView.dom.parentNode?.appendChild(menu);
+              }
+              positionMenu(view);
+            }
+          }
+          // Check for "/sometext" to filter commands
+          else if (isMenuOpen && CLOSE_REGEX.test(textBefore)) {
+            const match = CLOSE_REGEX.exec(textBefore);
+            const query = match ? match[1] : "";
+
+            // Filter commands by query
+            const filteredCommands = filterCommands(query);
+            renderMenu(view, filteredCommands, query);
+            positionMenu(view);
+          }
+          // Close menu if we don't match any patterns
+          else if (isMenuOpen) {
+            closeMenu();
+          }
+        },
+
+        destroy: () => {
+          closeMenu();
+        }
+      };
+    },
+
+    // Handle keyboard events for menu navigation
+
+    props: {
+      handleKeyDown(view, event) {
+        if (!isMenuOpen) return false;
+
+        // Allow arrow navigation
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault(); // Prevent cursor movement in editor
+
+          const items = menu?.querySelectorAll(".slash-command-item") || [];
+          if (items.length === 0) return false;
+
+          // Find currently focused/hovered item
+          const currentIndex = Array.from(items).findIndex(
+            item => item === document.activeElement ||
+              (item as HTMLElement).matches(':hover')
+          );
+
+          let nextIndex;
+          if (event.key === "ArrowDown") {
+            nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
+          } else {
+            nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
+          }
+
+          // Focus the next/previous item
+          const nextItem = items[nextIndex] as HTMLElement;
+          if (nextItem) {
+            nextItem.focus();
+
+            // Add hover styling
+            items.forEach(item => {
+              (item as HTMLElement).style.background = 'transparent';
+            });
+            nextItem.style.background = '#2a2b2f';
+          }
+          return true;
+        }
+
+        // Handle Enter to apply command
+        if (event.key === "Enter") {
+          const activeItem = menu?.querySelector(".slash-command-item:hover");
+          if (activeItem) {
+            (activeItem as HTMLElement).click();
+            return true;
+          }
+        }
+
+        // Handle Escape to close menu
+        if (event.key === "Escape") {
+          closeMenu();
+          return true;
+        }
+
+        return false;
+      }
+    }
+  });
+}
+
+// Generate commands based on schema
+function getCommands(schema: Schema): SlashCommandItem[] {
+  const commands: SlashCommandItem[] = [];
+
+  // Heading commands
+  if (schema.nodes.heading) {
+    for (let i = 1; i <= 6; i++) {
+      commands.push({
+        title: `Heading ${i}`,
+        description: `Level ${i} heading`,
+        icon: `<strong>H${i}</strong>`,
+        command: (state, dispatch, view) => {
+          return setBlockType(schema.nodes.heading, { level: i })(state, dispatch, view);
+        }
+      });
+    }
+  }
+
+  // Paragraph command
+  if (schema.nodes.paragraph) {
+    commands.push({
+      title: "Paragraph",
+      description: "Normal text",
+      icon: `<span>¶</span>`,
+      command: (state, dispatch, view) => {
+        return setBlockType(schema.nodes.paragraph)(state, dispatch, view);
+      }
+    });
+  }
+
+  // List commands
+  if (schema.nodes.bullet_list) {
+    commands.push({
+      title: "Bullet List",
+      description: "Create a bulleted list",
+      icon: `<span>•</span>`,
+      command: (state, dispatch, view) => {
+        return wrapInList(schema.nodes.bullet_list)(state, dispatch, view);
+      }
+    });
+  }
+
+  if (schema.nodes.ordered_list) {
+    commands.push({
+      title: "Numbered List",
+      description: "Create a numbered list",
+      icon: `<span>1.</span>`,
+      command: (state, dispatch, view) => {
+        return wrapInList(schema.nodes.ordered_list)(state, dispatch, view);
+      }
+    });
+  }
+
+  // Blockquote command
+  if (schema.nodes.blockquote) {
+    commands.push({
+      title: "Blockquote",
+      description: "Create a blockquote",
+      icon: `<span>"</span>`,
+      command: (state, dispatch, view) => {
+        return wrapIn(schema.nodes.blockquote)(state, dispatch, view);
+      }
+    });
+  }
+
+  // Code block command
+  if (schema.nodes.code_block) {
+    commands.push({
+      title: "Code Block",
+      description: "Create a code block",
+      icon: `<span>{}</span>`,
+      command: (state, dispatch, view) => {
+        return setBlockType(schema.nodes.code_block)(state, dispatch, view);
+      }
+    });
+  }
+
+  // Text formatting commands
+  if (schema.marks.strong) {
+    commands.push({
+      title: "Bold",
+      description: "Make text bold",
+      icon: `<strong>B</strong>`,
+      command: (state, dispatch, view) => {
+        return toggleMark(schema.marks.strong)(state, dispatch, view);
+      }
+    });
+  }
+
+  if (schema.marks.em) {
+    commands.push({
+      title: "Italic",
+      description: "Make text italic",
+      icon: `<em>I</em>`,
+      command: (state, dispatch, view) => {
+        return toggleMark(schema.marks.em)(state, dispatch, view);
+      }
+    });
+  }
+  if (schema.marks.code) {
+    commands.push({
+      title: "Inline Code",
+      description: "Format as inline code",
+      icon: `<span>{\`code\`}</span>`,
+      command: (state, dispatch, view) => {
+        return toggleMark(schema.marks.code)(state, dispatch, view);
+      }
+    });
+
+    return commands;
+  }
