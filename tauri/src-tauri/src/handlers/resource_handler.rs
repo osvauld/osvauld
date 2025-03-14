@@ -1,13 +1,12 @@
-use crate::application::services::{
-    ResourceService, ShareService, SyncService, TransactionService,
-};
-use crate::domains::models::resource_key;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetAllResources, GetResource,
     GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
     UpdateLastAccessedInput, UpdateResources,
 };
+use crypto_utils::get_key_id;
 use log::info;
+use osvauld_services::{ResourceService, ShareService, SyncService, TransactionService};
+use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use tauri::State;
 
@@ -142,7 +141,7 @@ pub async fn update_resource(
 ) -> Result<CryptoResponse, String> {
     //TODO: migrate obsolete user records to another table.
     let (encrypted_data, current_user) = resource_service
-        .update_resources(input.clone())
+        .update_resources(input.id.clone(), input.data)
         .await
         .map_err(|e| e.to_string())?;
     let sync_data = sync_service
@@ -183,6 +182,7 @@ pub async fn share_resource(
     resource_service: State<'_, Arc<ResourceService>>,
     share_service: State<'_, Arc<ShareService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
+    rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
     //TODO: change from public key to user_id?
     let (resource_key, vector_clock) = resource_service
@@ -191,7 +191,7 @@ pub async fn share_resource(
         .map_err(|e| e.to_string())?;
     //TODO: add sync record for share
     let share_service_set = share_service
-        .prepare_share_records(input.resource_id.clone(), input.public_key)
+        .prepare_share_records(input.resource_id.clone(), input.public_key.clone())
         .await
         .map_err(|e| e.to_string())?;
     transaction_service
@@ -203,6 +203,28 @@ pub async fn share_resource(
         )
         .await
         .map_err(|e| e.to_string())?;
+    let shared_by_user_id = get_key_id(&input.public_key).map_err(|e| e.to_string())?;
+    match rendezvous_service
+        .get_connection_status(vec![shared_by_user_id.clone()])
+        .await
+    {
+        Ok(status_list) => {
+            if let Some(status) = status_list.into_iter().next() {
+                // Log the status but continue regardless
+                log::info!(
+                    "User {} connection status: {}",
+                    shared_by_user_id,
+                    status.connection_status
+                );
+            } else {
+                log::warn!("No connection status found for user {}", shared_by_user_id);
+            }
+        }
+        Err(e) => {
+            // Log the error but continue anyway
+            log::warn!("Failed to get connection status: {}", e);
+        }
+    }
 
     Ok(CryptoResponse::Success)
 }

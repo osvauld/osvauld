@@ -1,21 +1,9 @@
 use log::error;
+use osvauld_db::{DbConnection, initialize_database};
 use tauri::Manager;
-pub mod application;
-mod database;
-pub mod domains;
-pub mod persistence;
-use database::{DbConnection, initialize_database};
 pub mod handlers;
+pub mod listners;
 mod types;
-use crate::application::services::AuthService;
-use crate::application::services::FolderService;
-use crate::application::services::P2PService;
-use crate::application::services::RendezvousService;
-use crate::application::services::ResourceService;
-use crate::application::services::ShareService;
-use crate::application::services::SyncService;
-use crate::application::services::TransactionService;
-use crate::application::services::UserService;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
@@ -31,12 +19,20 @@ use crate::handlers::resource_handler::{
     share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
 };
 use crate::handlers::user_handler::{add_known_user, get_known_users};
-use crate::persistence::repositories::{
-    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteSyncRepository, SqliteUserRepository,
-    TauriStoreRepository,
-};
 use crypto_utils::CryptoUtils;
+use osvauld_db::repositories::{
+    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
+    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
+    SqliteUserRepository,
+};
+use osvauld_services::{
+    AuthService, FolderService, ResourceService, ShareService, SyncService, TransactionService,
+    UserService,
+};
+use p2p_service::P2PService;
+use rendezvous_client::rendezvous_service::RendezvousService;
+
+use listners::EventManager;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -106,7 +102,7 @@ pub fn run() {
                     let resource_key_repo =
                         Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
                     // Initialize folder service with cloned repositories
-                    let store_repository = Arc::new(TauriStoreRepository::new(handle.clone()));
+                    let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
                     let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
                     let folder_service = Arc::new(FolderService::new(folder_repo.clone()));
 
@@ -137,7 +133,6 @@ pub fn run() {
                     ));
                     let share_service = Arc::new(ShareService::new(
                         share_repo.clone(),
-                        store_repository.clone(),
                         user_repository.clone(),
                         crypto_utils.clone(),
                         resource_repo.clone(),
@@ -148,18 +143,22 @@ pub fn run() {
                         sync_repo.clone(),
                         share_repo.clone(),
                     ));
-
-                    let p2p_service = Arc::new(P2PService::new(
-                        handle.clone(),
+                    let (p2p_service, p2p_receiver) = P2PService::new(
                         sync_service.clone(),
                         auth_service.clone(),
                         user_service.clone(),
                         share_service.clone(),
-                    ));
+                    );
+                    let p2p_service = Arc::new(p2p_service);
 
-                    let p2p_service_clone = p2p_service.clone();
+                    // Initialize event manager and start listening
+                    let event_manager =
+                        EventManager::new(handle.clone(), p2p_service.clone(), p2p_receiver);
+                    rt.spawn(async move {
+                        event_manager.start_listening();
+                    });
                     let rendezvous_service = Arc::new(RendezvousService::new(
-                        p2p_service_clone,
+                        p2p_service.clone(),
                         "wss://osvauld-tscs.onrender.com/ws",
                     ));
 
