@@ -25,6 +25,14 @@ pub struct ClientInfo {
     pub connection_status: ConnectionStatus,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct DB_Clients {
+    pub user_id: String,
+    pub ws_connection_id: String,
+    pub connection_string: Option<String>,
+    pub connection_status: ConnectionStatus,
+}
+
 pub struct Storage {
     db: Arc<Db>,
     client_id: Arc<Mutex<Option<String>>>,
@@ -67,16 +75,24 @@ impl Storage {
         Ok(())
     }
 
-    pub async fn get_all_clients(&self) -> sled::Result<Vec<ClientInfo>> {
+    pub async fn get_all_clients(&self) -> sled::Result<Vec<DB_Clients>> {
         let db = self.db.clone();
-        let clients = spawn_blocking(move || -> sled::Result<Vec<ClientInfo>> {
+        let clients = spawn_blocking(move || -> sled::Result<Vec<DB_Clients>> {
             let mut result = Vec::new();
             for item in db.iter() {
                 let (_key, value) = item?;
                 let client_info: ClientInfo = serde_json::from_slice(&value).map_err(|e| {
                     sled::Error::ReportableBug(format!("Deserialization error: {}", e))
                 })?;
-                result.push(client_info);
+                let key = String::from_utf8(_key.to_vec())
+                    .expect("The IVec does not contain valid UTF-8 data");
+                let db_client: DB_Clients = DB_Clients {
+                    user_id: key,
+                    connection_status: client_info.connection_status,
+                    connection_string: client_info.connection_string,
+                    ws_connection_id: client_info.ws_connection_id,
+                };
+                result.push(db_client);
             }
             Ok(result)
         })

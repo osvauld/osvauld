@@ -20,6 +20,11 @@ pub struct UserClientMapping {
     user_id: String,
     client_id: String,
 }
+#[derive(Serialize, Debug, Deserialize)]
+struct ClientStatus {
+    user_id: String,
+    connection_status: String,
+}
 type UserClientMappings = Arc<Mutex<Vec<UserClientMapping>>>;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -43,6 +48,13 @@ enum WsMessage {
         user_id: String,
         connection_string: Option<String>,
         connection_status: String,
+    },
+    GetAllClients,
+    GetConnectionStatus {
+        user_ids: Vec<String>,
+    },
+    GetConnectionStatusResponse {
+        data: Vec<ClientStatus>,
     },
 }
 
@@ -231,37 +243,6 @@ async fn handle_socket(
                                     }
                                 };
 
-                            // Define send_offline_response using an async closure
-                            async fn send_offline_response(
-                                target_user_id: String,
-                                recv_client_id: String,
-                                recv_clients: Arc<Mutex<HashMap<String, ClientInfo>>>,
-                            ) {
-                                let response = WsMessage::UserConnectionStringResponse {
-                                    user_id: target_user_id.clone(),
-                                    connection_string: None,
-                                    connection_status: ConnectionStatus::Offline
-                                        .as_str()
-                                        .to_string(),
-                                };
-
-                                if let Ok(err_json) = serde_json::to_string(&response) {
-                                    if let Some((err_tx, _)) =
-                                        recv_clients.lock().await.get(&recv_client_id)
-                                    {
-                                        if let Err(e) = err_tx.send(Message::Text(err_json.into()))
-                                        {
-                                            eprintln!("Error sending offline response: {}", e);
-                                        } else {
-                                            println!(
-                                                "Sent offline status for user: {}",
-                                                target_user_id
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-
                             match source_ws_connection_id {
                                 Some(connection_id) => {
                                     let get_connection_string_request =
@@ -272,20 +253,14 @@ async fn handle_socket(
                                     if let Ok(json) =
                                         serde_json::to_string(&get_connection_string_request)
                                     {
-                                        print!("Here----> 1");
                                         match recv_clients.lock().await.get(&connection_id) {
                                             Some((tx, _)) => {
-                                                print!("Here----> 2");
-
                                                 if let Err(e) = tx.send(Message::Text(json.into()))
                                                 {
-                                                    print!("Here----> 3");
-
                                                     eprintln!(
                                                         "Error sending connection request: {}",
                                                         e
                                                     );
-                                                    print!("Here----> 4");
 
                                                     send_offline_response(
                                                         target_user_id.clone(),
@@ -294,8 +269,6 @@ async fn handle_socket(
                                                     )
                                                     .await;
                                                 } else {
-                                                    print!("Here----> 5");
-
                                                     println!(
                                                         "Connection request sent to user: {}",
                                                         target_user_id
@@ -303,8 +276,6 @@ async fn handle_socket(
                                                 }
                                             }
                                             None => {
-                                                print!("Here----> 6");
-
                                                 println!("Client {} exists in database but not in active clients map", connection_id);
                                                 send_offline_response(
                                                     target_user_id.clone(),
@@ -315,8 +286,6 @@ async fn handle_socket(
                                             }
                                         }
                                     } else {
-                                        print!("Here----> 7");
-
                                         eprintln!("Error serializing connection request");
                                         send_offline_response(
                                             target_user_id.clone(),
@@ -327,8 +296,6 @@ async fn handle_socket(
                                     }
                                 }
                                 None => {
-                                    print!("Here----> 8");
-
                                     // User not found or error retrieving connection ID
                                     println!(
                                         "No active connection found for user: {}",
@@ -343,6 +310,87 @@ async fn handle_socket(
                                 }
                             }
                         }
+                        WsMessage::GetAllClients => {
+                            let db_clients = match recv_storage.get_all_clients().await {
+                                Ok(client_info) => Some(client_info),
+
+                                Err(e) => {
+                                    eprintln!("Error fetching connection string: {}", e);
+                                    None
+                                }
+                            };
+                            match db_clients {
+                                Some(clients) => {
+                                    println!("Clients: {:#?}", clients)
+                                }
+                                None => {
+                                    println!("No values or error")
+                                }
+                            }
+                        }
+                        WsMessage::GetConnectionStatus { user_ids } => {
+                            let db_clients = match recv_storage.get_all_clients().await {
+                                Ok(client_info) => Some(client_info),
+
+                                Err(e) => {
+                                    eprintln!("Error fetching connection string: {}", e);
+                                    None
+                                }
+                            };
+                            let mut connection_statuses: Vec<ClientStatus> = Vec::new();
+                            match db_clients {
+                                Some(clients) => {
+                                    for id in user_ids {
+                                        if let Some(cl) = clients.iter().find(|c| &c.user_id == &id)
+                                        {
+                                            connection_statuses.push(ClientStatus {
+                                                user_id: id,
+                                                connection_status: cl
+                                                    .connection_status
+                                                    .as_str()
+                                                    .to_string(),
+                                            });
+                                        } else {
+                                            connection_statuses.push(ClientStatus {
+                                                user_id: id,
+                                                connection_status: ConnectionStatus::Offline
+                                                    .as_str()
+                                                    .to_string(),
+                                            });
+                                        }
+                                    }
+                                }
+                                None => {
+                                    for id in user_ids {
+                                        connection_statuses.push(ClientStatus {
+                                            user_id: id,
+                                            connection_status: ConnectionStatus::Offline
+                                                .as_str()
+                                                .to_string(),
+                                        });
+                                    }
+                                }
+                            }
+
+                            let response = WsMessage::GetConnectionStatusResponse {
+                                data: connection_statuses,
+                            };
+
+                            if let Ok(json) = serde_json::to_string(&response) {
+                                if let Some((tx, _)) =
+                                    recv_clients.lock().await.get(&recv_client_id)
+                                {
+                                    if let Err(e) = tx.send(Message::Text(json.into())) {
+                                        eprintln!(
+                                            "Error sending connection status response: {}",
+                                            e
+                                        );
+                                    } else {
+                                        println!("Sent connection status response");
+                                    }
+                                }
+                            }
+                        }
                         WsMessage::RequestConnection { .. } => {
                             println!(
                                 "Received GetConnectionRequest - this is a server-side message"
@@ -351,6 +399,11 @@ async fn handle_socket(
                         WsMessage::UserConnectionStringResponse { .. } => {
                             println!(
                                 "Received ConnectionStringResponse - this is a server-side message"
+                            );
+                        }
+                        WsMessage::GetConnectionStatusResponse { .. } => {
+                            println!(
+                                "Received GetConnectionStatusResponse - this is a server-side message"
                             );
                         }
                     },
@@ -376,6 +429,29 @@ async fn handle_socket(
             .await
         {
             eprintln!("Error updating connection status on disconnect: {}", e);
+        }
+    }
+}
+
+// Define send_offline_response using an async closure
+async fn send_offline_response(
+    target_user_id: String,
+    recv_client_id: String,
+    recv_clients: Arc<Mutex<HashMap<String, ClientInfo>>>,
+) {
+    let response = WsMessage::UserConnectionStringResponse {
+        user_id: target_user_id.clone(),
+        connection_string: None,
+        connection_status: ConnectionStatus::Offline.as_str().to_string(),
+    };
+
+    if let Ok(err_json) = serde_json::to_string(&response) {
+        if let Some((err_tx, _)) = recv_clients.lock().await.get(&recv_client_id) {
+            if let Err(e) = err_tx.send(Message::Text(err_json.into())) {
+                eprintln!("Error sending offline response: {}", e);
+            } else {
+                println!("Sent offline status for user: {}", target_user_id);
+            }
         }
     }
 }
