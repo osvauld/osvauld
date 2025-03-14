@@ -1,4 +1,4 @@
-use osvauld_core::models::vectorClock::VectorClock;
+use osvauld_core::models::vector_clock::VectorClock;
 use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, SyncRepository,
 };

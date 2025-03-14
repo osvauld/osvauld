@@ -1,6 +1,6 @@
 use crate::p2p::constants::*;
+use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
-use crate::p2p::service::P2PService;
 use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::NodeAddr;
@@ -18,6 +18,7 @@ impl P2PService {
         ticket_str: &str,
         conn_type: ConnectionType,
     ) -> Result<Arc<PeerConnection>, String> {
+        //TODO: check if connection already exists.
         self.ensure_initialized().await?;
 
         info!("Starting connection process with ticket: {}", ticket_str);

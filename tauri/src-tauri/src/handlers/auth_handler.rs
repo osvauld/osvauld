@@ -1,4 +1,3 @@
-use crate::application::services::RendezvousService;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
@@ -6,6 +5,7 @@ use crate::types::{
 use log::{error, info};
 use osvauld_services::{AuthService, FolderService, SyncService, UserService};
 use p2p_service::P2PService;
+use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use tauri::State;
 

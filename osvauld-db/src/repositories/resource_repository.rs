@@ -7,7 +7,7 @@ use diesel::QueryDsl;
 use diesel::prelude::*;
 use osvauld_core::models::resource::{Resource, ResourceKeyPair, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::vectorClock::VectorClock;
+use osvauld_core::models::vector_clock::VectorClock;
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 
 pub struct SqliteResourceRepository {

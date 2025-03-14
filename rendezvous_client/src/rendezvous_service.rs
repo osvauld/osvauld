@@ -1,4 +1,4 @@
-use crate::ws::{WsClient, WsMessage};
+use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::ConnectionType;
 use osvauld_core::models::user::User; // Import the User model
@@ -308,5 +308,13 @@ impl RendezvousService {
         client_lock
             .send_connection_response(&user_id, target_connection_id, &ticket)
             .await
+    }
+
+    pub async fn get_connection_status(
+        &self,
+        user_ids: Vec<String>,
+    ) -> Result<Vec<UserConnectionStatus>, String> {
+        let client = self.client.lock().await;
+        client.get_connection_status(user_ids).await
     }
 }

@@ -18,7 +18,7 @@ use osvauld_core::models::{
     sync_record::SyncRecord as DomainSyncRecord,
     sync_types::{OperationType, ResourceType, SyncStatus},
     user::User as DomainUser,
-    vectorClock::VectorClock,
+    vector_clock::VectorClock,
 };
 
 #[derive(Queryable, Insertable)]

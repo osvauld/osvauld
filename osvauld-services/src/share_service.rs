@@ -1,9 +1,7 @@
-use log::info;
 use tokio::sync::Mutex;
 
 use crypto_utils::{CryptoUtils, get_key_id};
 use osvauld_core::models::p2p::SharePayload;
-use osvauld_core::models::resource::ResourceKeyPair;
 use osvauld_core::models::share_record::{
     SharePayloadResult, ShareRecord, ShareRecordSet, UserRecordSet,
 };
@@ -14,7 +12,6 @@ use osvauld_core::repositories::{
 use std::sync::Arc;
 pub struct ShareService {
     share_repository: Arc<dyn ShareRepository>,
-    store_repository: Arc<dyn StoreRepository>,
     user_repository: Arc<dyn UserRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
     resource_repo: Arc<dyn ResourceRepository>,
@@ -35,14 +32,12 @@ pub enum ShareServiceError {
 impl ShareService {
     pub fn new(
         share_repository: Arc<dyn ShareRepository>,
-        store_repository: Arc<dyn StoreRepository>,
         user_repository: Arc<dyn UserRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         resource_repo: Arc<dyn ResourceRepository>,
     ) -> Self {
         Self {
             share_repository,
-            store_repository,
             user_repository,
             crypto_utils,
             resource_repo,

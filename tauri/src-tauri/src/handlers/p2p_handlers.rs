@@ -14,10 +14,11 @@ pub async fn send_message(
     message: String,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    match p2p_service.send_chat_message(message).await {
-        Ok(_) => Ok(CryptoResponse::Success),
-        Err(e) => Err(format!("{}", e)), // Use format! to convert any error to String
-    }
+    // match p2p_service.send_chat_message(message).await {
+    //     Ok(_) => Ok(CryptoResponse::Success),
+    //     Err(e) => Err(format!("{}", e)), // Use format! to convert any error to String
+    // }
+    Ok(CryptoResponse::Success)
 }
 
 #[tauri::command]
@@ -33,7 +34,8 @@ pub async fn connect_with_device(
     p2p_service
         .connect_with_ticket(&ticket, ConnectionType::Device)
         .await?;
-    p2p_service.start_device_sync().await
+    // p2p_service.start_device_sync().await
+    Ok(())
 }
 
 #[tauri::command]
@@ -57,10 +59,10 @@ pub async fn send_snapshot(
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<(), CryptoResponse> {
     log::info!("snapshot recived {:?}", snapshot);
-    let _ = p2p_service
-        .send_snapshot(snapshot)
-        .await
-        .map_err(|e| CryptoResponse::Error(e));
+    // let _ = p2p_service
+    //     .send_snapshot(snapshot)
+    //     .await
+    //     .map_err(|e| CryptoResponse::Error(e));
     Ok(())
 }
 
@@ -86,10 +88,10 @@ pub async fn connect_with_user(
     p2p_service: State<'_, Arc<P2PService>>,
     user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
-    let user = user_service.get_current_user().await?;
-    p2p_service
-        .connect_with_ticket(&ticket, ConnectionType::User)
-        .await?;
-    p2p_service.start_user_sync(&user).await?;
+    // let user = user_service.get_current_user().await?;
+    // p2p_service
+    //     .connect_with_ticket(&ticket, ConnectionType::User)
+    //     .await?;
+    // p2p_service.start_user_sync(&user.id).await?;
     todo!()
 }

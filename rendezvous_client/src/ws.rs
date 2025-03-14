@@ -46,6 +46,17 @@ pub enum WsMessage {
         connection_string: Option<String>,
         connection_status: String,
     },
+    GetConnectionStatus {
+        user_ids: Vec<String>,
+    },
+    GetConnectionStatusResponse {
+        data: Vec<UserConnectionStatus>,
+    },
+}
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UserConnectionStatus {
+    pub user_id: String,
+    pub connection_status: String,
 }
 
 impl WsClient {
@@ -232,56 +243,44 @@ impl WsClient {
         self.tx.clone()
     }
 
-    /// Message handler loop
-    async fn handle_messages(
-        ws_stream: Arc<Mutex<Option<WsStream>>>,
-        tx: broadcast::Sender<WsMessage>,
-    ) {
-        loop {
-            // Get stream reference
-            let mut stream_lock = ws_stream.lock().await;
-            let stream = match stream_lock.as_mut() {
-                Some(s) => s,
-                None => {
-                    // Connection closed
-                    break;
-                }
-            };
+    /// Request connection status for a list of users and wait for the response
+    pub async fn get_connection_status(
+        &self,
+        user_ids: Vec<String>,
+    ) -> Result<Vec<UserConnectionStatus>, String> {
+        // Create the request message
+        let message = WsMessage::GetConnectionStatus { user_ids };
 
-            // Wait for a message
-            match stream.next().await {
-                Some(Ok(msg)) => {
-                    // Process text message
-                    if let Message::Text(text) = msg {
-                        match serde_json::from_str::<WsMessage>(&text) {
-                            Ok(ws_message) => {
-                                debug!("Received message: {:?}", ws_message);
+        // Send the request
+        self.send_message(message).await?;
 
-                                // Send message to the channel
-                                if let Err(e) = tx.send(ws_message) {
-                                    error!("Failed to forward message to channel: {}", e);
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to parse WebSocket message: {}", e);
-                            }
-                        }
+        // Create a temporary subscriber
+        let mut rx = self.tx.subscribe();
+
+        // Wait for the response
+        // We'll wait for up to 10 seconds for a response
+        let timeout = tokio::time::Duration::from_secs(10);
+
+        match tokio::time::timeout(timeout, async {
+            loop {
+                match rx.recv().await {
+                    Ok(WsMessage::GetConnectionStatusResponse { data }) => {
+                        return Ok(data);
+                    }
+                    Ok(_) => {
+                        // Not the response we're looking for, continue waiting
+                        continue;
+                    }
+                    Err(e) => {
+                        return Err(format!("Error receiving response: {}", e));
                     }
                 }
-                Some(Err(e)) => {
-                    error!("WebSocket error: {}", e);
-                    break;
-                }
-                None => {
-                    // Connection closed
-                    break;
-                }
             }
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err("Timed out waiting for connection status response".to_string()),
         }
-
-        // Clean up connection
-        let mut stream_lock = ws_stream.lock().await;
-        *stream_lock = None;
-        info!("WebSocket connection closed");
     }
 }

@@ -138,16 +138,16 @@ impl P2PService {
         serde_json::to_string(&ticket).map_err(|e| e.to_string())
     }
 
-    pub async fn start_user_sync(&self, user: &User) -> Result<(), String> {
-        info!("Starting user sync with user: {}", user.id);
+    pub async fn start_user_sync(&self, user_id: &str) -> Result<(), String> {
+        info!("Starting user sync with user: {}", user_id);
 
         // Find all connections for this user
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or("P2P not initialized")?;
-        let connections = state.connections.get_connections_by_user(&user.id).await;
+        let connections = state.connections.get_connections_by_user(user_id).await;
 
         if connections.is_empty() {
-            return Err(format!("No connections found for user: {}", user.id));
+            return Err(format!("No connections found for user: {}", user_id));
         }
 
         // For now, just use the first connection

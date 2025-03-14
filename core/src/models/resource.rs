@@ -3,7 +3,7 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::vectorClock::VectorClock;
+use super::vector_clock::VectorClock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {

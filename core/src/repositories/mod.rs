@@ -13,7 +13,7 @@ use crate::models::{
         SyncRecordSet,
     },
     user::User,
-    vectorClock::VectorClock,
+    vector_clock::VectorClock,
 };
 use async_trait::async_trait;
 use thiserror::Error;
