@@ -1,7 +1,7 @@
 use crate::p2p::peer_connection::PeerConnection;
 
 use log::{error, info};
-use osvauld_core::models::p2p::{ConnectionType, Message, SyncAckType, SyncPayload};
+use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload};
 
 impl PeerConnection {
     pub async fn add_device(&self, records: SyncPayload, ticket: String) -> Result<(), String> {
@@ -23,24 +23,10 @@ impl PeerConnection {
 
     pub async fn start_device_sync(&self) -> Result<(), String> {
         // info!("Starting sync process");
-        // let connection = self.get_active_connection().await?;
-        // // Send sync request
-        // let (mut send, _recv) = connection
-        //     .open_bi()
-        //     .await
-        //     .map_err(|e| format!("Failed to open bi-directional stream: {}", e))?;
-        //
-        // let sync_request = Message::SyncRequest;
-        // let serialized = serde_json::to_string(&sync_request)
-        //     .map_err(|e| format!("Serialization error: {}", e))?;
-        //
-        // send.write_all(serialized.as_bytes())
-        //     .await
-        //     .map_err(|e| format!("Failed to send sync request: {}", e))?;
-        // send.flush()
-        //     .await
-        //     .map_err(|e| format!("Failed to flush sync request: {}", e))?;
-        // info!("Sync process started");
+
+        let sync_request = Message::SyncRequest;
+        self.send_message(sync_request).await?;
+        info!("Sync process started");
         Ok(())
     }
 

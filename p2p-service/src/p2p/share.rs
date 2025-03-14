@@ -10,7 +10,7 @@ impl PeerConnection {
         user: &User,
         ticket: &str,
     ) -> Result<(), String> {
-        // let message = Message::FirstUserConnection(user.clone()); self.context
+        // let message = Message::FirstUserializedserConnection(user.clone()); self.context
         //     .connect_with_ticket(&ticket, ConnectionType::User)
         //     .await?;
         // let serialized = serde_json::to_string(&message)
@@ -37,38 +37,26 @@ impl PeerConnection {
         Ok(())
     }
 
-    pub async fn start_user_sync(&self, _user: &User) -> Result<(), String> {
-        // let connected_user_id = {
-        //     let user_guard = self.user.lock().await;
-        //     match &*user_guard {
-        //         Some(connected_user) => connected_user.id.clone(),
-        //         None => return Err("No user connected".to_string()),
-        //     }
-        // };
-        //
-        // let pending_shares = self
-        //     .share_service
-        //     .get_pending_shares(&connected_user_id)
-        //     .await
-        //     .map_err(|e| e.to_string())?;
-        // if let Some(share_payload) = pending_shares {
-        //     // Create a ShareResponse message
-        //     let message = Message::SharePayload(share_payload);
-        //     let serialized = serde_json::to_string(&message)
-        //         .map_err(|e| format!("Failed to serialize ShareResponse: {}", e))?;
-        //
-        //     // Send the share payload
-        //     self.send_message(serialized).await?;
-        //     info!("Sent share payload to peer");
-        // } else {
-        //     // No pending shares, send completion
-        //     let message = Message::ShareComplete;
-        //     let serialized = serde_json::to_string(&message)
-        //         .map_err(|e| format!("Failed to serialize ShareComplete: {}", e))?;
-        //
-        //     self.send_message(serialized).await?;
-        //     info!("No pending shares, sent completion message");
-        // }
+    pub async fn start_user_sync(&self) -> Result<(), String> {
+        let pending_shares = self
+            .context
+            .share_service
+            .get_pending_shares(&self.user.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(share_payload) = pending_shares {
+            // Create a ShareResponse message
+            let message = Message::SharePayload(share_payload);
+
+            self.send_message(message).await?;
+            info!("Sent share payload to peer");
+        } else {
+            // No pending shares, send completion
+            let message = Message::ShareComplete;
+
+            self.send_message(message).await?;
+            info!("No pending shares, sent completion message");
+        }
 
         Ok(())
     }

@@ -56,9 +56,9 @@ impl EventManager {
                 match serde_json::to_string(&msg) {
                     Ok(serialized) => {
                         info!("Sending sync update message to peer");
-                        if let Err(e) = p2p_service.send_message(serialized).await {
-                            error!("Failed to send sync event: {}", e);
-                        }
+                        // if let Err(e) = p2p_service.send_message(serialized).await {
+                        //     error!("Failed to send sync event: {}", e);
+                        // }
                     }
                     Err(e) => {
                         error!("Failed to serialize message: {}", e);
@@ -75,9 +75,9 @@ impl EventManager {
 
             tokio::spawn(async move {
                 info!("Received sync-snapshot event from frontend");
-                if let Err(e) = p2p_service.send_snapshot(payload_str).await {
-                    error!("Failed to send snapshot: {}", e);
-                }
+                // if let Err(e) = p2p_service.send_snapshot(payload_str).await {
+                //     error!("Failed to send snapshot: {}", e);
+                // }
             });
         });
     }

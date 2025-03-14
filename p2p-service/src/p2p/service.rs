@@ -1,10 +1,11 @@
 use crate::p2p::connection_manager::ConnectionManager;
 use crate::p2p::constants::*;
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
-use crate::p2p::peer_connection::ServiceContext;
+use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use log::{error, info};
-use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType};
+use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload};
+use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
@@ -207,9 +208,10 @@ impl P2PService {
     // Method to start device sync
     pub async fn start_device_sync(&self, connection_id: &str) -> Result<(), String> {
         info!("Starting device sync with connection: {}", connection_id);
-
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or("P2P not initialized")?;
+        let connection = state.connections.get_peer_connection(connection_id).await?;
         // Get the connection
-        let connection = self.get_connection_by_id(connection_id).await?;
 
         // Start the sync process
         connection.start_device_sync().await?;
@@ -222,8 +224,10 @@ impl P2PService {
     pub async fn start_device_sync_for_user(&self, user_id: &str) -> Result<(), String> {
         info!("Starting device sync for user: {}", user_id);
 
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or("P2P not initialized")?;
         // Find all connections for this user
-        let connections = self.get_connections_by_user(user_id).await?;
+        let connections = state.connections.get_connections_by_user(user_id).await;
 
         if connections.is_empty() {
             return Err(format!("No connections found for user: {}", user_id));
