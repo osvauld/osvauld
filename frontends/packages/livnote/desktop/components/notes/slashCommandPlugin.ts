@@ -58,7 +58,7 @@ export function slashCommandPlugin(schema: Schema) {
     menu.style.maxHeight = "300px";
     menu.style.overflowY = "auto";
     menu.style.width = "240px";
-
+    menu.setAttribute("tabindex", "-1");
     return menu;
   }
 
@@ -85,7 +85,8 @@ export function slashCommandPlugin(schema: Schema) {
       item.style.display = "flex";
       item.style.alignItems = "center";
       item.style.gap = "8px";
-
+      item.setAttribute("tabindex", "0");
+      item.setAttribute("data-command-index", index.toString());
       // Hover state
       item.addEventListener("mouseenter", () => {
         item.style.background = "#2a2b2f";
@@ -125,6 +126,13 @@ export function slashCommandPlugin(schema: Schema) {
         closeMenu();
         view.focus();
       });
+      if (filteredCommands.length > 0) {
+        const firstItem = menu.querySelector(".slash-command-item") as HTMLElement;
+        if (firstItem) {
+          firstItem.setAttribute('data-selected', 'true');
+          firstItem.style.background = '#2a2b2f';
+        }
+      }
 
       // Icon (if available)
       if (cmd.icon) {
@@ -166,7 +174,7 @@ export function slashCommandPlugin(schema: Schema) {
     return menu;
   }
 
-  // Position menu at cursor
+
   function positionMenu(view: EditorView) {
     if (!menu) return;
 
@@ -176,9 +184,17 @@ export function slashCommandPlugin(schema: Schema) {
     // Get coordinates from the editor
     const coords = view.coordsAtPos(selection.from);
 
-    // Position below the cursor
-    menu.style.top = `${coords.bottom + 8}px`;
-    menu.style.left = `${coords.left}px`;
+    // Get editor element's position
+    const editorRect = view.dom.getBoundingClientRect();
+
+    // Calculate position relative to the editor
+    const top = coords.top - editorRect.top;
+    const left = coords.left - editorRect.left;
+
+    // Set position with a slight offset so it doesn't cover the cursor
+    menu.style.position = "absolute";
+    menu.style.top = `${top + 20}px`;  // Position below cursor
+    menu.style.left = `${left}px`;
   }
 
   // Close and clean up menu
@@ -227,6 +243,7 @@ export function slashCommandPlugin(schema: Schema) {
               menu = renderMenu(view, filteredCommands);
               editorView.dom.parentNode?.appendChild(menu);
               positionMenu(view);
+              view.focus();
               isMenuOpen = true;
             } else {
               // Update existing menu
@@ -262,24 +279,32 @@ export function slashCommandPlugin(schema: Schema) {
     },
 
     // Handle keyboard events for menu navigation
-
     props: {
       handleKeyDown(view, event) {
+        console.log('Key pressed:', event.key, 'Menu open:', isMenuOpen);
+
         if (!isMenuOpen) return false;
 
-        // Allow arrow navigation
+        // For arrow navigation
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-          event.preventDefault(); // Prevent cursor movement in editor
+          event.preventDefault();
 
           const items = menu?.querySelectorAll(".slash-command-item") || [];
           if (items.length === 0) return false;
 
-          // Find currently focused/hovered item
-          const currentIndex = Array.from(items).findIndex(
-            item => item === document.activeElement ||
-              (item as HTMLElement).matches(':hover')
+          // Find currently selected item using data attribute
+          let currentIndex = Array.from(items).findIndex(
+            item => item.hasAttribute('data-selected')
           );
 
+          console.log("Current selected index:", currentIndex);
+
+          // If no item is selected, start from beginning or end
+          if (currentIndex === -1) {
+            currentIndex = event.key === "ArrowDown" ? -1 : items.length;
+          }
+
+          // Calculate next index
           let nextIndex;
           if (event.key === "ArrowDown") {
             nextIndex = currentIndex < items.length - 1 ? currentIndex + 1 : 0;
@@ -287,31 +312,41 @@ export function slashCommandPlugin(schema: Schema) {
             nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
           }
 
-          // Focus the next/previous item
+          console.log("Next index:", nextIndex);
+
+          // Clear selection from all items
+          items.forEach(item => {
+            item.removeAttribute('data-selected');
+            (item as HTMLElement).style.background = 'transparent';
+          });
+
+          // Select the next item
           const nextItem = items[nextIndex] as HTMLElement;
           if (nextItem) {
-            nextItem.focus();
-
-            // Add hover styling
-            items.forEach(item => {
-              (item as HTMLElement).style.background = 'transparent';
-            });
+            nextItem.setAttribute('data-selected', 'true');
             nextItem.style.background = '#2a2b2f';
           }
           return true;
         }
+        else if (event.key === "Enter") {
+          event.preventDefault(); // Prevent default Enter behavior
+          event.stopPropagation();
+          const selectedItem = menu?.querySelector(".slash-command-item[data-selected='true']") as HTMLElement;
+          if (selectedItem && view) {
+            console.log("Executing command via Enter key");
 
-        // Handle Enter to apply command
-        if (event.key === "Enter") {
-          const activeItem = menu?.querySelector(".slash-command-item:hover");
-          if (activeItem) {
-            (activeItem as HTMLElement).click();
-            return true;
+            // Get the command index and retrieve the command
+            const commandIndex = selectedItem.getAttribute('data-command-index');
+            const commandItem = selectedItem; // Use the element itself to trigger the click
+
+            // Simulate the click event that works
+            if (commandItem) {
+              commandItem.click();
+              return true;
+            }
           }
-        }
-
-        // Handle Escape to close menu
-        if (event.key === "Escape") {
+          return false;
+        } else if (event.key === "Escape") {
           closeMenu();
           return true;
         }
@@ -321,6 +356,7 @@ export function slashCommandPlugin(schema: Schema) {
     }
   });
 }
+
 
 // Generate commands based on schema
 function getCommands(schema: Schema): SlashCommandItem[] {
@@ -433,3 +469,5 @@ function getCommands(schema: Schema): SlashCommandItem[] {
 
     return commands;
   }
+}
+

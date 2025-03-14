@@ -199,6 +199,7 @@ export class Notes {
         schema: this.editorSchema,
         doc: prosemirrorDoc, // Use the document from Yjs
         plugins: [
+          slashCommandPlugin(this.editorSchema),
           ...exampleSetup({ schema: this.editorSchema }),
           keymap(baseKeymap),
           syncPlugin, // Use the pre-initialized sync plugin
@@ -211,7 +212,6 @@ export class Notes {
             "Mod-y": redo,
             "Mod-Shift-z": redo,
           }),
-          slashCommandPlugin(this.editorSchema)
         ],
       });
 
