@@ -54,7 +54,7 @@ export function slashCommandPlugin(schema: Schema) {
 		menu = document.createElement("div");
 		menu.className = "slash-command-menu";
 		menu.style.position = "absolute";
-		menu.style.zIndex = "999";
+		menu.style.zIndex = "0";
 		menu.style.background = "#16171f";
 		menu.style.border = "1px solid #2a2b2f";
 		menu.style.borderRadius = "4px";
@@ -107,8 +107,11 @@ export function slashCommandPlugin(schema: Schema) {
 			});
 
 			// Handle click to execute command
-			item.addEventListener("click", () => {
+			item.addEventListener("mousedown", (event) => {
 				// Delete the slash command text
+				event.preventDefault();
+				event.stopPropagation();
+
 				const { state, dispatch } = view;
 				const tr = state.tr;
 
@@ -300,6 +303,8 @@ export function slashCommandPlugin(schema: Schema) {
 				// For arrow navigation
 				if (event.key === "ArrowDown" || event.key === "ArrowUp") {
 					event.preventDefault();
+
+					event.stopPropagation();
 
 					const items = menu?.querySelectorAll(".slash-command-item") || [];
 					if (items.length === 0) return false;
