@@ -337,6 +337,10 @@ export function slashCommandPlugin(schema: Schema) {
 					if (nextItem) {
 						nextItem.setAttribute("data-selected", "true");
 						nextItem.style.background = "#2a2b2f";
+						nextItem.scrollIntoView({
+							block: "center",
+							behavior: "smooth",
+						});
 					}
 					return true;
 				} else if (event.key === "Enter") {

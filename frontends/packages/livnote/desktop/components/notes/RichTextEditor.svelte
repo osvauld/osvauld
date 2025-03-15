@@ -587,7 +587,6 @@
 		overflow-y: scroll;
 		max-height: 92%;
 		padding-bottom: 1rem;
-		overflow-x: scroll;
 	}
 
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
@@ -659,9 +658,9 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this={element} class="h-full scrollbar-thin"></div>
+		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
-			on:click={saveNoteManual}
+			on:click="{saveNoteManual}"
 			class="absolute top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
