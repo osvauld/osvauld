@@ -178,7 +178,7 @@
 					on:click="{() => handleFilterSelection('home')}"
 					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
 					<MobileHome
-						size="20"
+						size="{20}"
 						color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
 					<span>Home</span>
 				</button>
@@ -194,7 +194,7 @@
 						: undefined}">
 					<EmptyStar
 						color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
-						size="20" />
+						size="{20}" />
 					<span>Favourites</span>
 				</button>
 			</div>
@@ -209,14 +209,14 @@
 						aria-label="Delete Folder"
 						><Bin
 							color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}"
-							size="24" /></button>
+							size="{24}" /></button>
 				{/if}
 				<button
 					class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
 					on:mouseenter="{() => (addCredentialHovered = true)}"
 					on:mouseleave="{() => (addCredentialHovered = false)}"
 					on:click="{handleAddNote}">
-					<Add color="#85889C" size="24" />
+					<Add color="#85889C" size="{24}" />
 				</button>
 			</div>
 		{:else}
@@ -252,7 +252,7 @@
 				</button>
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<Bin size="24" />
+					<Bin size="{24}" />
 				</button>
 
 				<button
@@ -269,7 +269,8 @@
 					on:mouseenter="{() => (addCredentialHovered = true)}"
 					on:mouseleave="{() => (addCredentialHovered = false)}"
 					on:click="{handleAddNote}">
-					<Add color="#85889C" size="24" />
+					<span class="mr-2 pl-2 text-osvauld-fieldText">New Note</span>
+					<Add color="#85889C" size="{24}" />
 				</button>
 
 				{#if $noteId}
