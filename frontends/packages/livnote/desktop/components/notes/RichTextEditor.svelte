@@ -15,6 +15,7 @@
 		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
+	import { slashCommandPlugin } from "./slashCommandPlugin.ts";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -586,7 +587,6 @@
 		overflow-y: scroll;
 		max-height: 92%;
 		padding-bottom: 1rem;
-		overflow-x: scroll;
 	}
 
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
@@ -601,6 +601,49 @@
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-thumb) {
 		background-color: #2f303e;
 		border-radius: 4px;
+	}
+
+	:global(.slash-command-menu) {
+		max-height: 300px;
+		overflow-y: auto;
+		border-radius: 8px;
+		animation: fadeIn 0.1s ease-in-out;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar) {
+		width: 4px;
+		height: 4px;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar-thumb) {
+		background-color: #2f303e;
+		border-radius: 4px;
+	}
+
+	:global(.slash-command-item) {
+		transition: background-color 0.15s ease;
+		border-radius: 4px;
+		margin: 4px;
+	}
+
+	:global(.slash-command-item:first-child) {
+		margin-top: 4px;
+	}
+
+	:global(.slash-command-item:last-child) {
+		margin-bottom: 4px;
+	}
+
+	:global(.slash-command-icon) {
+		background: #2f303e;
+		border-radius: 4px;
+		width: 28px !important;
+		height: 28px !important;
+		color: #bfc0cc;
 	}
 </style>
 

@@ -209,8 +209,8 @@
 										content="{note.data.content}"
 										editorState="{note.data.editor_state}"
 										yjsState="{note.data.yjs_state}"
-										maxHeight="120px"
-										minHeight="120px" />
+										maxHeight="180px"
+										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">
 										Last modified: {getLastModifiedDate(
 											note.data.last_modified || note.data.last_accessed,
