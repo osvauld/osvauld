@@ -644,6 +644,7 @@
 		width: 28px !important;
 		height: 28px !important;
 		color: #bfc0cc;
+	}
 	:global(.ProseMirror ul) {
 		padding-left: 1.5em;
 		margin: 0.5em 0;
