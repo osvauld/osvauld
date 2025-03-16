@@ -162,15 +162,15 @@ pub trait ResourceRepository: Send + Sync {
 pub trait DeviceRepository: Send + Sync {
     async fn save(&self, device: Device) -> Result<(), RepositoryError>;
     async fn find_by_id(&self, device_id: &str) -> Result<Device, RepositoryError>;
-    async fn get_all_devices(&self) -> Result<Vec<Device>, RepositoryError>;
     async fn udpate_last_synced_at(
         &self,
         device_id: &str,
         timestamp: i64,
     ) -> Result<(), RepositoryError>;
-
-    async fn get_devices_except(
+    async fn get_devices_by_user_id(&self, user_id: &str) -> Result<Vec<Device>, RepositoryError>;
+    async fn get_devices_by_user_except(
         &self,
+        user_id: &str,
         exclude_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
 }

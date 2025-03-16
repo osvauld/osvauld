@@ -13,7 +13,7 @@ pub struct RendezvousService {
     p2p_service: Arc<P2PService>,
     ws_url: String,
     pending_first_connections: Arc<Mutex<HashSet<String>>>,
-    user: Arc<Mutex<Option<User>>>, // Store the entire User object
+    user: Arc<Mutex<Option<String>>>, // Store the entire User object
 }
 
 impl RendezvousService {
@@ -29,17 +29,15 @@ impl RendezvousService {
     }
 
     /// Initialize the service with the provided user
-    pub async fn initialize(&self, user: User) -> Result<(), String> {
-        let user_id = user.id.clone(); // Get user_id from the User object
-
+    pub async fn initialize(&self, user: String) -> Result<(), String> {
         // Store the user in the service state
         {
             let mut user_lock = self.user.lock().await;
-            *user_lock = Some(user);
+            *user_lock = Some(user.clone());
         }
 
         // Connect to the rendezvous server with the user_id
-        self.connect_and_register(&user_id).await?;
+        self.connect_and_register(&user).await?;
 
         // Create clones of the fields we need in the async task
         let client = self.client.clone();
@@ -114,7 +112,7 @@ impl RendezvousService {
         client: Arc<Mutex<WsClient>>,
         p2p_service: Arc<P2PService>,
         pending_first_connections: Arc<Mutex<HashSet<String>>>,
-        user: Arc<Mutex<Option<User>>>, // Replace user_service with user
+        user: Arc<Mutex<Option<String>>>, // Replace user_service with user
     ) {
         let mut receiver = {
             let client_lock = client.lock().await;
@@ -187,26 +185,7 @@ impl RendezvousService {
                                                 {
                                                     Ok(_) => {
                                                         // Initiate first connection
-                                                        match p2p_service_clone
-                                                            .initiate_first_user_connection(
-                                                                &user_clone,
-                                                                &ticket,
-                                                            )
-                                                            .await
-                                                        {
-                                                            Ok(_) => {
-                                                                info!(
-                                                                    "Successfully initiated first connection with user: {}",
-                                                                    response_user_id
-                                                                );
-                                                            }
-                                                            Err(e) => {
-                                                                error!(
-                                                                    "Failed to initiate first user connection: {}",
-                                                                    e
-                                                                );
-                                                            }
-                                                        }
+                                                        info!("connection established");
                                                     }
                                                     Err(e) => {
                                                         error!(
@@ -282,7 +261,7 @@ impl RendezvousService {
         client: &Arc<Mutex<WsClient>>,
         p2p_service: &Arc<P2PService>,
         target_connection_id: &str,
-        user: &Arc<Mutex<Option<User>>>,
+        user: &Arc<Mutex<Option<String>>>,
     ) -> Result<(), String> {
         // Start P2P listener
         if let Err(e) = p2p_service.start_listening().await {
@@ -298,7 +277,7 @@ impl RendezvousService {
         let user_id = {
             let user_lock = user.lock().await;
             match &*user_lock {
-                Some(user) => user.id.clone(),
+                Some(user) => user.clone(),
                 None => return Err("User not initialized".to_string()),
             }
         };

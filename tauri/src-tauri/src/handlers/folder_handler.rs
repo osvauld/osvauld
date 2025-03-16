@@ -1,4 +1,5 @@
 use crate::types::{AddFolderInput, CryptoResponse, FolderResponse, SoftDeleteFolder};
+use crate::user_state::UserState;
 use osvauld_services::{FolderService, SyncService};
 use std::sync::Arc;
 use tauri::State;
@@ -8,15 +9,23 @@ pub async fn handle_add_folder(
     input: AddFolderInput,
     folder_service: State<'_, Arc<FolderService>>,
     sync_service: State<'_, Arc<SyncService>>,
+    user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     log::info!("Adding folder: ");
-    let folder = folder_service
-        .create_folder(input.name, Some(input.description))
-        .await
-        .map_err(|e| e.to_string())?;
-    let _ = sync_service.add_folder_to_sync(folder.clone()).await;
+    let user_option = user_state.get_user().await;
+    if let Some(user) = user_option {
+        let folder = folder_service
+            .create_folder(input.name, Some(input.description))
+            .await
+            .map_err(|e| e.to_string())?;
+        let _ = sync_service
+            .add_folder_to_sync(folder.clone(), &user.id)
+            .await;
 
-    Ok(CryptoResponse::FolderCreated(folder))
+        Ok(CryptoResponse::FolderCreated(folder))
+    } else {
+        Err("No user found in state. Please log in.".to_string())
+    }
 }
 
 #[tauri::command]

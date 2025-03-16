@@ -25,6 +25,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let device_model = DeviceModel {
             id: device.id,
             device_key: device.device_key,
+            user_id: device.user_id,
             created_at: device.created_at,
             updated_at: device.updated_at,
             last_synced_at: device.last_synced_at,
@@ -51,10 +52,11 @@ impl DeviceRepository for SqliteDeviceRepository {
 
         Ok(device.into())
     }
-    async fn get_all_devices(&self) -> Result<Vec<Device>, RepositoryError> {
+    async fn get_devices_by_user_id(&self, user_id: &str) -> Result<Vec<Device>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         let device_models = devices::table
+            .filter(devices::user_id.eq(user_id))
             .order_by(devices::created_at.desc())
             .load::<DeviceModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
@@ -75,14 +77,16 @@ impl DeviceRepository for SqliteDeviceRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(())
     }
-    async fn get_devices_except(
+    async fn get_devices_by_user_except(
         &self,
+        user_id: &str,
         exclude_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         let device_models = devices::table
             .filter(devices::id.ne_all(exclude_ids))
+            .filter(devices::user_id.eq(user_id))
             .order_by(devices::created_at.desc())
             .load::<DeviceModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;

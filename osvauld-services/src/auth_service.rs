@@ -1,5 +1,7 @@
-use osvauld_core::models::auth::{Certificate, User};
+use log::info;
+use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::sync_record::SyncRecordSet;
+use osvauld_core::models::user::User;
 use osvauld_core::models::{device::Device, sync_record::SyncRecord};
 use osvauld_core::repositories::{
     DeviceRepository, RepositoryError, StoreRepository, SyncRepository,
@@ -7,8 +9,8 @@ use osvauld_core::repositories::{
 
 use base64::encode;
 use crypto_utils::{
-    CryptoUtils, change_certificate_password, export_certificate, generate_keys, get_key_id,
-    import_certificate,
+    CryptoUtils, change_certificate_password, export_certificate, generate_keys,
+    generate_keys_without_password, get_key_id, import_certificate,
 };
 use rand::{RngCore, rngs::OsRng};
 use std::sync::Arc;
@@ -36,14 +38,14 @@ impl AuthService {
         }
     }
 
-    async fn create_device(
+    pub async fn create_device_objects(
         &self,
-        passphrase: &str,
+        user_id: &str,
         username: &str,
-    ) -> Result<(Device, SyncRecordSet), String> {
+    ) -> Result<(Device, Certificate, SyncRecordSet), String> {
         // Generate device keys and get device ID
         let (device_key, device_id) = {
-            let keys = generate_keys(passphrase, username).map_err(|e| e.to_string())?;
+            let keys = generate_keys_without_password(username).map_err(|e| e.to_string())?;
             let id = get_key_id(&keys.public_key).map_err(|e| e.to_string())?;
             (keys, id)
         };
@@ -55,35 +57,15 @@ impl AuthService {
             salt: device_key.salt.clone(),
         };
 
-        let device = Device::new(device_id.clone(), device_key.public_key);
+        let device = Device::new(
+            device_id.clone(),
+            device_key.public_key,
+            user_id.to_string(),
+        );
 
         let sync_record = SyncRecord::create_signup_device(device.clone());
 
-        // Save device information to repository
-        self.device_repository
-            .save(device.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        self.sync_repository
-            .add_sync_record_set(sync_record.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // Store device certificate
-        self.store_repository
-            .store_certificate(
-                &device_certificate,
-                "device_key".to_string(),
-                "device_key_salt".to_string(),
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-        self.store_repository
-            .store_device_key(&device_id)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok((device, sync_record))
+        Ok((device, device_certificate, sync_record))
     }
 
     pub async fn get_current_device(&self) -> Result<Device, RepositoryError> {
@@ -92,7 +74,34 @@ impl AuthService {
         Ok(device)
     }
 
-    pub async fn handle_sign_up(&self, username: &str, passphrase: &str) -> Result<User, String> {
+    pub async fn import_user(
+        &self,
+        certificate: &str,
+        passphrase: &str,
+        username: &str,
+    ) -> Result<(User, Certificate), String> {
+        let result = import_certificate(certificate, passphrase).map_err(|e| e.to_string())?;
+        let user_id = get_key_id(&result.public_key).map_err(|e| e.to_string())?;
+        let certificate = Certificate {
+            private_key: result.private_key,
+            public_key: result.public_key,
+            salt: result.salt,
+        };
+        let user = User::new(
+            username.to_string(),
+            user_id,
+            certificate.public_key.clone(),
+            "signature".to_string(),
+            true,
+        );
+        Ok((user, certificate))
+    }
+
+    pub async fn handle_sign_up(
+        &self,
+        username: &str,
+        passphrase: &str,
+    ) -> Result<(User, Certificate), String> {
         // Generate primary keys for the user
         let primary_key = generate_keys(passphrase, username).map_err(|e| e.to_string())?;
 
@@ -103,23 +112,16 @@ impl AuthService {
             salt: primary_key.salt.clone(),
         };
 
-        // Create device and get device certificate
-        let _device_id = self.create_device(passphrase, username).await?;
+        let user_id = get_key_id(&certificate.public_key).map_err(|e| e.to_string())?;
+        let user = User::new(
+            username.to_string(),
+            user_id,
+            certificate.public_key.clone(),
+            "signature".to_string(),
+            true,
+        );
 
-        // Store primary certificate
-        self.store_repository
-            .store_certificate(
-                &certificate,
-                "primary_key".to_string(),
-                "primary_key_salt".to_string(),
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-
-        Ok(User {
-            username: username.to_string(),
-            certificate,
-        })
+        Ok((user, certificate))
     }
 
     pub async fn load_certificate(&self, passphrase: &str) -> Result<(String, String), String> {
@@ -175,34 +177,6 @@ impl AuthService {
         crypto
             .sign_message(message)
             .map_err(|e| format!("Hash and sign error: {}", e))
-    }
-
-    pub async fn add_device(
-        &self,
-        certificate: String,
-        passphrase: String,
-    ) -> Result<(Device, SyncRecordSet), String> {
-        let result = import_certificate(&certificate, &passphrase)
-            .map_err(|e| format!("Error importing certificate: {}", e))?;
-
-        let certificate = Certificate {
-            private_key: result.private_key,
-            public_key: result.public_key,
-            salt: result.salt,
-        };
-        let device_sync_data = self.create_device(&passphrase, "test").await?;
-
-        self.store_repository
-            .store_certificate(
-                &certificate,
-                "primary_key".to_string(),
-                "primary_key_salt".to_string(),
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-        self.load_certificate(&passphrase).await?;
-
-        Ok(device_sync_data)
     }
 
     pub async fn export_certificate(&self, passphrase: String) -> Result<String, String> {

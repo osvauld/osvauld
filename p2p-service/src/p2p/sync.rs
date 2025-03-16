@@ -22,8 +22,6 @@ impl PeerConnection {
     }
 
     pub async fn start_device_sync(&self) -> Result<(), String> {
-        // info!("Starting sync process");
-
         let sync_request = Message::SyncRequest;
         self.send_message(sync_request).await?;
         info!("Sync process started");
@@ -35,7 +33,7 @@ impl PeerConnection {
         match self
             .context
             .sync_service
-            .get_next_pending_sync(&self.device)
+            .get_next_pending_sync(&self.device, &self.user)
             .await
         {
             Ok(Some(payload)) => {
@@ -58,7 +56,7 @@ impl PeerConnection {
     pub async fn handle_add_device_request(&self, records: SyncPayload) -> Result<(), String> {
         self.context
             .sync_service
-            .add_new_device_sync(records)
+            .add_new_device_sync(records, self.user.id.clone())
             .await
             .map_err(|e| e.to_string())?;
         // Create and send acknowledgment message
@@ -86,7 +84,7 @@ impl PeerConnection {
         match self
             .context
             .sync_service
-            .get_next_pending_sync(&self.device)
+            .get_next_pending_sync(&self.device, &self.user)
             .await
         {
             Ok(Some(payload)) => {
@@ -109,10 +107,11 @@ impl PeerConnection {
     }
 
     pub async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
+        let user_id = self.user.id.clone();
         let ack_message = match self
             .context
             .sync_service
-            .process_sync_payload(&payload)
+            .process_sync_payload(&payload, user_id)
             .await
         {
             Ok(sync_ack) => Message::SyncAck(sync_ack),
@@ -131,7 +130,7 @@ impl PeerConnection {
             match self
                 .context
                 .sync_service
-                .get_next_pending_sync(&self.device)
+                .get_next_pending_sync(&self.device, &self.user)
                 .await
             {
                 Ok(Some(payload)) => {

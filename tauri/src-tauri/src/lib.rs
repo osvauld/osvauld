@@ -4,6 +4,7 @@ use tauri::Manager;
 pub mod handlers;
 pub mod listners;
 mod types;
+pub mod user_state;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
     handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
@@ -19,6 +20,7 @@ use crate::handlers::resource_handler::{
     share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
 };
 use crate::handlers::user_handler::{add_known_user, get_known_users};
+use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use osvauld_db::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
@@ -117,7 +119,7 @@ pub fn run() {
                         sync_repo.clone(),
                         folder_repo.clone(),
                         resource_repo.clone(),
-                        device_repo,
+                        device_repo.clone(),
                         store_repository.clone(),
                         crypto_utils.clone(),
                     ));
@@ -142,6 +144,10 @@ pub fn run() {
                         resource_key_repo.clone(),
                         sync_repo.clone(),
                         share_repo.clone(),
+                        store_repository.clone(),
+                        user_repository.clone(),
+                        device_repo.clone(),
+                        folder_repo.clone(),
                     ));
                     let (p2p_service, p2p_receiver) = P2PService::new(
                         sync_service.clone(),
@@ -161,8 +167,11 @@ pub fn run() {
                         p2p_service.clone(),
                         "wss://osvauld-tscs.onrender.com/ws",
                     ));
+                    let user_state = UserState::new();
 
                     // Manage all services
+
+                    app.manage(user_state);
                     app.manage(folder_service);
                     app.manage(auth_service);
                     app.manage(resource_service);

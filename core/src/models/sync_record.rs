@@ -290,7 +290,7 @@ impl SyncRecord {
     }
 
     pub fn create_initial_device_sync_records(
-        new_device_id: String,
+        new_device: Device,
         current_device_id: String,
         existing_sync_records: &[SyncRecord],
         all_devices: &[Device],
@@ -328,10 +328,7 @@ impl SyncRecord {
 
             // Create status records for this device record
             // Both the current device and all existing devices need to be aware
-            for aware_device in all_devices.iter().chain(std::iter::once(&Device::new(
-                new_device_id.clone(),
-                String::new(),
-            ))) {
+            for aware_device in all_devices.iter().chain(std::iter::once(&new_device)) {
                 device_record_statuses.push(DeviceRecordStatus {
                     id: Uuid::new_v4().to_string(),
                     device_record_id: device_record.id.clone(),
@@ -350,7 +347,7 @@ impl SyncRecord {
             let device_record = DeviceRecord {
                 id: Uuid::new_v4().to_string(),
                 sync_record_id: existing_sync.id.clone(),
-                device_id: new_device_id.clone(),
+                device_id: new_device.id.clone(),
                 status: SyncStatus::Pending,
                 synced: false,
                 created_at: now,
@@ -359,10 +356,7 @@ impl SyncRecord {
 
             // Create status records for the existing sync records
             // Both current device and all existing devices need to be aware
-            for device in all_devices.iter().chain(std::iter::once(&Device::new(
-                new_device_id.clone(),
-                String::new(),
-            ))) {
+            for device in all_devices.iter().chain(std::iter::once(&new_device)) {
                 device_record_statuses.push(DeviceRecordStatus {
                     id: Uuid::new_v4().to_string(),
                     device_record_id: device_record.id.clone(),
@@ -411,20 +405,6 @@ impl SyncRecord {
             .collect();
 
         (updated_records, updated_statuses)
-    }
-
-    pub fn create_update_records(
-        resource_id: &str,
-        current_device_id: &str,
-        other_devices: &[Device],
-    ) -> SyncRecordSet {
-        SyncRecord::create_sync_records(
-            resource_id.to_string(),
-            ResourceType::Resource,
-            OperationType::Update,
-            current_device_id.to_string(),
-            other_devices,
-        )
     }
 
     pub fn create_device_sync_records(

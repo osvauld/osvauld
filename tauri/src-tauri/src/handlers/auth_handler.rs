@@ -2,8 +2,9 @@ use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
     PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
 };
+use crate::user_state::UserState;
 use log::{error, info};
-use osvauld_services::{AuthService, FolderService, SyncService, UserService};
+use osvauld_services::{AuthService, FolderService, SyncService, TransactionService, UserService};
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
@@ -21,33 +22,64 @@ pub async fn check_signup_status(
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
-    user_service: State<'_, Arc<UserService>>,
     folder_service: State<'_, Arc<FolderService>>,
     sync_service: State<'_, Arc<SyncService>>,
     rendezvous_service: State<'_, Arc<RendezvousService>>,
+    user_state: State<'_, UserState>,
+    transaction_service: State<'_, Arc<TransactionService>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    let user = auth_service
+    let (user, certificate) = auth_service
         .handle_sign_up(&input.username, &input.passphrase)
         .await?;
-
-    let (_, user_id) = auth_service.load_certificate(&input.passphrase).await?;
-    let added_user = user_service
-        .add_known_user(
-            user.username.clone(),
-            user.certificate.public_key.clone(),
-            true,
-        )
+    let (device, device_certificate, sync_record_set) = auth_service
+        .create_device_objects(&user.id, &input.username)
         .await?;
+
+    transaction_service
+        .handle_sign_up_transaction(
+            &user,
+            &certificate,
+            &device,
+            &device_certificate,
+            &sync_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
     let folder = folder_service
         .create_default_folder()
         .await
         .map_err(|e| e.to_string())?;
-    let _ = sync_service.add_folder_to_sync(folder.clone()).await;
+    info!("folder {:?}", folder);
+    let folder_sync_record_set = sync_service
+        .add_folder_to_sync(folder.clone(), &user.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    transaction_service
+        .handle_add_folder_transaction(&folder, &folder_sync_record_set)
+        .await
+        .map_err(|e| e.to_string())?;
+    let (_, user_id) = auth_service.load_certificate(&input.passphrase).await?;
     let rendezvous_clone = rendezvous_service.inner().clone();
+    //update the user state
+    let current_device = auth_service
+        .get_current_device()
+        .await
+        .map_err(|e| e.to_string())?;
+    {
+        let mut current_user_state = user_state.current_user.write().await;
+        current_user_state.user = Some(user.clone());
+        current_user_state.device = Some(current_device.clone());
+    }
+    p2p_service.set_current_user(user.clone()).await;
+    p2p_service.set_current_device(device.clone()).await;
     // Spawn a background task to handle WebSocket connection
     tokio::spawn(async move {
-        match rendezvous_clone.initialize(added_user).await {
+        match rendezvous_clone
+            .initialize(format!("{}:{}", user.id, device.id))
+            .await
+        {
             Ok(_) => {
                 info!(
                     "Successfully connected to rendezvous server with user ID: {}",
@@ -64,8 +96,8 @@ pub async fn handle_sign_up(
 
     Ok(CryptoResponse::SavePassphrase {
         username: user.username,
-        device_key: user.certificate.public_key.clone(),
-        encryption_key: user.certificate.public_key,
+        device_key: user.public_key.clone(),
+        encryption_key: user.public_key,
     })
 }
 
@@ -83,14 +115,31 @@ pub async fn login(
     auth_service: State<'_, Arc<AuthService>>,
     user_service: State<'_, Arc<UserService>>,
     rendezvous_service: State<'_, Arc<RendezvousService>>,
+    user_state: State<'_, UserState>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     let (public_key, user_id) = auth_service.load_certificate(&input.passphrase).await?;
     let rendezvous_clone = rendezvous_service.inner().clone();
     let user = user_service.get_user_by_id(&user_id).await?;
+    let current_device = auth_service
+        .get_current_device()
+        .await
+        .map_err(|e| e.to_string())?;
+    {
+        let mut current_user_state = user_state.current_user.write().await;
+        current_user_state.user = Some(user.clone());
+        current_user_state.device = Some(current_device.clone());
+    }
+
+    p2p_service.set_current_user(user.clone()).await;
+    p2p_service.set_current_device(current_device.clone()).await;
 
     // Spawn a background task to handle WebSocket connection
     tokio::spawn(async move {
-        match rendezvous_clone.initialize(user).await {
+        match rendezvous_clone
+            .initialize(format!("{}:{}", user.id, current_device.id))
+            .await
+        {
             Ok(_) => {
                 info!(
                     "Successfully connected to rendezvous server with user ID: {}",
@@ -132,11 +181,26 @@ pub async fn handle_add_device(
     auth_service: State<'_, Arc<AuthService>>,
     p2p_service: State<'_, Arc<P2PService>>,
     sync_service: State<'_, Arc<SyncService>>,
+    transaction_service: State<'_, Arc<TransactionService>>,
 ) -> Result<CryptoResponse, String> {
-    println!("adding device");
-    let (device, sync_record_set) = auth_service
-        .add_device(input.certificate, input.passphrase)
+    let (user, certificate) = auth_service
+        .import_user(&input.certificate, &input.passphrase, "username")
         .await?;
+    let (device, device_certificate, sync_record_set) = auth_service
+        .create_device_objects(&user.id, &user.username)
+        .await?;
+    transaction_service
+        .handle_sign_up_transaction(
+            &user,
+            &certificate,
+            &device,
+            &device_certificate,
+            &sync_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let (_, user_id) = auth_service.load_certificate(&input.passphrase).await?;
     let sync_payload = sync_service.generate_add_device_payload(device, sync_record_set);
     p2p_service.add_device(sync_payload, input.ticket).await?;
     Ok(CryptoResponse::Success)

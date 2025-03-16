@@ -27,6 +27,7 @@ diesel::table! {
     devices (id) {
         id -> Text,
         device_key -> Text,
+        user_id -> Text,
         updated_at -> BigInt,
         created_at -> BigInt,
         last_synced_at -> Nullable<BigInt>,
@@ -147,6 +148,7 @@ diesel::joinable!(device_record_status -> device_records (device_record_id));
 diesel::joinable!(device_record_status -> devices (aware_device_id));
 diesel::joinable!(device_records -> devices (device_id));
 diesel::joinable!(device_records -> sync_records (sync_record_id));
+diesel::joinable!(devices -> users (user_id));
 diesel::joinable!(resource_keys -> resources (resource_id));
 diesel::joinable!(resource_keys -> users (user_id));
 diesel::joinable!(resources -> folders (folder_id));

@@ -25,9 +25,11 @@ CREATE TABLE folders (
 CREATE TABLE devices (
     id TEXT PRIMARY KEY NOT NULL,
     device_key TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
-    last_synced_at BIGINT
+    last_synced_at BIGINT,
+    FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
 CREATE TABLE sync_records (

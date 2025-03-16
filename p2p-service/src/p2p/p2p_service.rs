@@ -4,10 +4,12 @@ use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use log::{error, info};
+use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 use std::sync::Arc;
+use tokio::sync::RwLock;
 use tokio::sync::{mpsc, Mutex};
 use tokio::time::timeout;
 
@@ -25,6 +27,8 @@ pub struct P2PService {
     pub user_service: Arc<UserService>,
     pub share_service: Arc<ShareService>,
     pub event_emitter: P2PEventEmitter,
+    pub current_user: Arc<RwLock<Option<User>>>,
+    pub current_device: Arc<RwLock<Option<Device>>>,
 }
 
 impl P2PService {
@@ -42,8 +46,37 @@ impl P2PService {
             user_service,
             share_service,
             event_emitter: emitter,
+            current_user: Arc::new(RwLock::new(None)),
+            current_device: Arc::new(RwLock::new(None)),
         };
         (service, receiver)
+    }
+
+    pub async fn set_current_user(&self, user: User) {
+        let mut user_guard = self.current_user.write().await;
+        *user_guard = Some(user);
+    }
+
+    pub async fn set_current_device(&self, device: Device) {
+        let mut device_guard = self.current_device.write().await;
+        *device_guard = Some(device);
+    }
+
+    pub async fn clear_current_session(&self) {
+        let mut user_guard = self.current_user.write().await;
+        *user_guard = None;
+        let mut device_guard = self.current_device.write().await;
+        *device_guard = None;
+    }
+
+    pub async fn get_current_user(&self) -> Option<User> {
+        let user_guard = self.current_user.read().await;
+        user_guard.clone()
+    }
+
+    pub async fn get_current_device(&self) -> Option<Device> {
+        let device_guard = self.current_device.read().await;
+        device_guard.clone()
     }
 
     pub async fn ensure_initialized(&self) -> Result<(), String> {
@@ -192,7 +225,7 @@ impl P2PService {
 
         // First establish connection with the target device
         let peer_connection = self
-            .connect_with_ticket(&ticket, ConnectionType::Device)
+            .connect_with_ticket(&ticket, ConnectionType::User)
             .await?;
 
         // Once connected, send the AddDevice message

@@ -258,6 +258,7 @@ impl ResourceModel {
 pub struct DeviceModel {
     pub id: String,
     pub device_key: String,
+    pub user_id: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub last_synced_at: Option<i64>,
@@ -268,6 +269,7 @@ impl From<&DomainDevice> for DeviceModel {
         Self {
             id: device.id.clone(),
             device_key: device.device_key.clone(),
+            user_id: device.user_id.clone(),
             created_at: device.created_at,
             updated_at: device.updated_at,
             last_synced_at: device.last_synced_at,
@@ -280,6 +282,7 @@ impl From<DeviceModel> for DomainDevice {
         Self {
             id: model.id,
             device_key: model.device_key,
+            user_id: model.user_id,
             created_at: model.created_at,
             updated_at: model.updated_at,
             last_synced_at: model.last_synced_at,

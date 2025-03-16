@@ -177,81 +177,93 @@ impl SyncRepository for SqliteSyncRepository {
     {
         let mut conn = self.connection.lock().await;
 
-        // Start by finding unsynced device record status
-        let unsynced_status = device_record_status::table
-            .inner_join(device_records::table.inner_join(sync_records::table))
-            .filter(device_record_status::aware_device_id.eq(device_id))
-            .filter(device_record_status::synced.eq(false))
+        // Find a device record where:
+        // 1. It's for the specified device
+        // 2. It's not synced yet
+        // 3. It's associated with a sync record of the specified resource type
+        // Order by creation time to get the oldest first
+        let pending_device_record = device_records::table
+            .inner_join(sync_records::table)
+            .filter(device_records::device_id.eq(device_id))
             .filter(device_records::synced.eq(false))
             .filter(sync_records::resource_type.eq(resource_type))
             .order_by(sync_records::created_at.asc())
-            .select(DeviceRecordStatusModel::as_select())
-            .first::<DeviceRecordStatusModel>(&mut *conn)
+            .select(DeviceRecordModel::as_select())
+            .first::<DeviceRecordModel>(&mut *conn)
             .optional()
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-        match unsynced_status {
-            Some(status) => {
-                // Get the device record
-                let device_record = device_records::table
-                    .find(&status.device_record_id)
-                    .first::<DeviceRecordModel>(&mut *conn)
-                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        if let Some(device_record) = pending_device_record {
+            // Get the associated sync record
+            let sync_record = sync_records::table
+                .find(&device_record.sync_record_id)
+                .first::<SyncRecordModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-                // Get the sync record
-                let sync_record = sync_records::table
-                    .find(&device_record.sync_record_id)
-                    .first::<SyncRecordModel>(&mut *conn)
-                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            // Get all device records for this sync
+            let all_device_records = device_records::table
+                .filter(device_records::sync_record_id.eq(&sync_record.id))
+                .select(DeviceRecordModel::as_select())
+                .load::<DeviceRecordModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-                // Get all device records for this sync
-                let device_records = device_records::table
-                    .filter(device_records::sync_record_id.eq(&sync_record.id))
-                    .select(DeviceRecordModel::as_select())
-                    .load::<DeviceRecordModel>(&mut *conn)
-                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            // Get all device record statuses
+            let device_record_ids: Vec<String> =
+                all_device_records.iter().map(|dr| dr.id.clone()).collect();
 
-                // Get all device record statuses
-                let device_record_ids: Vec<String> =
-                    device_records.iter().map(|dr| dr.id.clone()).collect();
-                let status_records = device_record_status::table
-                    .filter(device_record_status::device_record_id.eq_any(device_record_ids))
-                    .select(DeviceRecordStatusModel::as_select())
-                    .load::<DeviceRecordStatusModel>(&mut *conn)
-                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            let all_statuses = device_record_status::table
+                .filter(device_record_status::device_record_id.eq_any(device_record_ids))
+                .select(DeviceRecordStatusModel::as_select())
+                .load::<DeviceRecordStatusModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-                Ok(Some((
-                    sync_record.to_domain(),
-                    device_records.iter().map(|dr| dr.to_domain()).collect(),
-                    status_records.iter().map(|sr| sr.to_domain()).collect(),
-                )))
-            }
-            None => Ok(None),
+            return Ok(Some((
+                sync_record.to_domain(),
+                all_device_records.iter().map(|dr| dr.to_domain()).collect(),
+                all_statuses.iter().map(|sr| sr.to_domain()).collect(),
+            )));
         }
+
+        Ok(None)
     }
+
     async fn get_unsynced_device_sync_records(
         &self,
         device_id: &str,
     ) -> Result<Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        // Get device records that have unsynced status for the target device
-        let unsynced_records = device_records::table
-            .inner_join(device_record_status::table)
+        // Find device record statuses that:
+        // 1. Are for this device to be aware of
+        // 2. Are not synced yet
+        let unsynced_statuses = device_record_status::table
             .filter(device_record_status::aware_device_id.eq(device_id))
             .filter(device_record_status::synced.eq(false))
-            .order_by(device_records::created_at.asc())
-            .select(DeviceRecordModel::as_select())
-            .distinct() // Add distinct to avoid duplicate device records
-            .load::<DeviceRecordModel>(&mut *conn)
+            .order_by(device_record_status::created_at.asc())
+            .select(DeviceRecordStatusModel::as_select())
+            .load::<DeviceRecordStatusModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Group by device_record_id to avoid duplicates
+        let device_record_ids: Vec<String> = unsynced_statuses
+            .iter()
+            .map(|status| status.device_record_id.clone())
+            .collect::<std::collections::HashSet<String>>()
+            .into_iter()
+            .collect();
 
         let mut result = Vec::new();
 
-        // For each unsynced record, get all its statuses
-        for device_record in unsynced_records {
+        for device_record_id in device_record_ids {
+            // Get the device record
+            let device_record = device_records::table
+                .find(&device_record_id)
+                .first::<DeviceRecordModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+            // Get all statuses for this device record
             let statuses = device_record_status::table
-                .filter(device_record_status::device_record_id.eq(&device_record.id))
+                .filter(device_record_status::device_record_id.eq(&device_record_id))
                 .select(DeviceRecordStatusModel::as_select())
                 .load::<DeviceRecordStatusModel>(&mut *conn)
                 .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;

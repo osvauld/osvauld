@@ -14,6 +14,20 @@
 			const resp = await sendMessage("getFolder");
 			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
 			vaults.set(updatedVaults);
+			let connectionTicket = "";
+			let certificate = "";
+			let recoveryString = "";
+			await sendMessage("startP2PListner");
+			connectionTicket = await sendMessage("getTicket");
+			// TODO: change the passphrase to the actual password
+			certificate = await sendMessage("exportCertificate", {
+				passphrase: "test",
+			});
+			recoveryString = JSON.stringify({
+				ticket: connectionTicket,
+				certificate: certificate,
+			});
+			console.log(recoveryString);
 		} catch (e) {
 			console.log("Error received ===>", e);
 		}

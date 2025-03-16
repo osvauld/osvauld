@@ -1,5 +1,6 @@
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{SyncAckType, SyncData, SyncPayload};
+use osvauld_core::models::user::User;
 use osvauld_core::models::{
     folder::Folder,
     resource::Resource,
@@ -48,6 +49,7 @@ impl SyncService {
     pub async fn add_new_device_sync(
         &self,
         sync_payload: SyncPayload,
+        user_id: String,
     ) -> Result<(), RepositoryError> {
         let device = match &sync_payload.data {
             Some(SyncData::Device(device)) => device.clone(),
@@ -72,10 +74,13 @@ impl SyncService {
 
         let current_device_id = self.store_repository.get_device_key().await?;
         let all_sync_records = self.sync_repository.get_all_sync_records().await?;
-        let all_devices = self.device_repository.get_all_devices().await?;
+        let all_devices = self
+            .device_repository
+            .get_devices_by_user_id(&user_id)
+            .await?;
 
         let sync_set = SyncRecord::create_initial_device_sync_records(
-            device.id.clone(),
+            device.clone(),
             current_device_id,
             &all_sync_records,
             &all_devices,
@@ -91,18 +96,45 @@ impl SyncService {
     pub async fn get_next_pending_sync(
         &self,
         device: &Device,
+        user: &User,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
-        // Try device syncs first
-        let user_id = self
-            .get_current_user_id()
-            .await
-            .map_err(|e| RepositoryError::CustomError(e.to_string()))?;
-        info!("getting records for********* {}", device.id);
+        info!("Getting pending syncs for device: {}", device.id);
+
+        // Try each type in priority order
+
+        // 1. Device syncs (highest priority)
+        if let Some(payload) = self.get_device_sync_for_device(device).await? {
+            return Ok(Some(payload));
+        }
+
+        // 2. Folder syncs
+        if let Some(payload) = self.get_folder_sync_for_device(device).await? {
+            return Ok(Some(payload));
+        }
+
+        // 3. Resource syncs
+        if let Some(payload) = self.get_resource_sync_for_device(device, user).await? {
+            return Ok(Some(payload));
+        }
+
+        // 4. Device record status updates
+        if let Some(payload) = self.get_unsynced_device_records(device).await? {
+            return Ok(Some(payload));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_device_sync_for_device(
+        &self,
+        device: &Device,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
             .get_pending_sync_by_type(&device.id, "device")
             .await?
         {
+            // Get the device data
             let device_data = self
                 .device_repository
                 .find_by_id(&sync_record.resource_id)
@@ -116,12 +148,19 @@ impl SyncService {
             }));
         }
 
-        // Then folders
+        Ok(None)
+    }
+
+    async fn get_folder_sync_for_device(
+        &self,
+        device: &Device,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
             .get_pending_sync_by_type(&device.id, "folder")
             .await?
         {
+            // Get the folder data
             let folder = self
                 .folder_repository
                 .find_by_id(&sync_record.resource_id)
@@ -135,16 +174,25 @@ impl SyncService {
             }));
         }
 
-        // Then resources
+        Ok(None)
+    }
+
+    async fn get_resource_sync_for_device(
+        &self,
+        device: &Device,
+        user: &User,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
         if let Some((sync_record, device_records, statuses)) = self
             .sync_repository
             .get_pending_sync_by_type(&device.id, "resource")
             .await?
         {
+            // Get the resource with key
             let resource = self
                 .resource_repository
-                .find_resource_with_key(&sync_record.resource_id, &user_id)
+                .find_resource_with_key(&sync_record.resource_id, &user.id)
                 .await?;
+
             return Ok(Some(SyncPayload {
                 sync_record: Some(sync_record),
                 device_records,
@@ -153,18 +201,23 @@ impl SyncService {
             }));
         }
 
-        // Check for unsynced device records
+        Ok(None)
+    }
 
-        let unsynced_device_records = self
+    async fn get_unsynced_device_records(
+        &self,
+        device: &Device,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
+        let unsynced_records = self
             .sync_repository
             .get_unsynced_device_sync_records(&device.id)
             .await?;
-        if !unsynced_device_records.is_empty() {
-            // Collect all device records and their statuses
+
+        if !unsynced_records.is_empty() {
             let mut all_device_records = Vec::new();
             let mut all_statuses = Vec::new();
 
-            for (device_record, statuses) in unsynced_device_records {
+            for (device_record, statuses) in unsynced_records {
                 all_device_records.push(device_record);
                 all_statuses.extend(statuses);
             }
@@ -179,6 +232,7 @@ impl SyncService {
 
         Ok(None)
     }
+
     pub async fn add_device_entry(&self, device: Device) -> Result<(), RepositoryError> {
         //TODO: handle check for device alreay here.
         self.device_repository.save(device).await
@@ -268,6 +322,7 @@ impl SyncService {
     pub async fn process_sync_payload(
         &self,
         payload: &SyncPayload,
+        user_id: String,
     ) -> Result<SyncAckType, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         let (mut device_records, mut device_record_statuses) = SyncRecord::process_device_records(
@@ -297,9 +352,10 @@ impl SyncService {
                 }
             }
 
+            let excluded_devices = vec![current_device_id.clone()];
             let devices = self
                 .device_repository
-                .get_devices_except(vec![current_device_id.clone()].as_slice())
+                .get_devices_by_user_except(&user_id, &excluded_devices)
                 .await?;
             let status_change_records = SyncRecord::create_completion_records(
                 sync_record.id.clone(),
@@ -336,29 +392,31 @@ impl SyncService {
         }
     }
 
-    pub async fn add_folder_to_sync(&self, folder: Folder) -> Result<(), RepositoryError> {
+    pub async fn add_folder_to_sync(
+        &self,
+        folder: Folder,
+        user_id: &str,
+    ) -> Result<SyncRecordSet, RepositoryError> {
+        //TODO: move to transaction
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
             .device_repository
-            .get_devices_except(vec![current_device_id.clone()].as_slice())
+            .get_devices_by_user_except(user_id, vec![current_device_id.clone()].as_slice())
             .await?;
         let sync_record_set =
             SyncRecord::create_folder_sync_record(folder.id, current_device_id, &devices);
-        self.sync_repository
-            .add_sync_record_set(sync_record_set)
-            .await?;
-
-        Ok(())
+        Ok(sync_record_set)
     }
 
     pub async fn prepare_resource_to_sync(
         &self,
         resource: Resource,
+        user_id: &str,
     ) -> Result<SyncRecordSet, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
             .device_repository
-            .get_devices_except(vec![current_device_id.clone()].as_slice())
+            .get_devices_by_user_except(user_id, vec![current_device_id.clone()].as_slice())
             .await?;
         let sync_record_set =
             SyncRecord::create_resource_sync_record(resource.id, current_device_id, &devices);
@@ -449,71 +507,5 @@ impl SyncService {
         };
 
         get_key_id(&public_key).map_err(|e| e.to_string())
-    }
-    pub async fn prepare_resource_update_sync(
-        &self,
-        resource_id: String,
-    ) -> Result<Option<SyncUpdateData>, RepositoryError> {
-        // Get current device ID
-        let current_device_id = self.store_repository.get_device_key().await?;
-
-        // Get all devices except current
-        let other_devices = self
-            .device_repository
-            .get_devices_except(&[current_device_id.clone()])
-            .await?;
-
-        if other_devices.is_empty() {
-            // No other devices to sync with, so no need for sync records
-            return Ok(None);
-        }
-
-        // Find existing update sync records for this resource
-        let existing_sync_records = self
-            .sync_repository
-            .get_sync_records_by_resource_and_operation(
-                &resource_id,
-                &OperationType::Update.to_string(),
-            )
-            .await?;
-
-        if existing_sync_records.is_empty() {
-            // No existing update records, create a new one
-            let sync_record_set =
-                SyncRecord::create_update_records(&resource_id, &current_device_id, &other_devices);
-
-            return Ok(Some(SyncUpdateData::FullSyncSet(sync_record_set)));
-        }
-
-        // Get the latest sync record (they are sorted by created_at desc)
-        let latest_sync = &existing_sync_records[0];
-
-        // Get device records for this sync record
-        let device_records = self
-            .sync_repository
-            .get_device_records_by_sync_id(&latest_sync.id)
-            .await?;
-
-        // Find devices that have completed the previous update
-        let completed_devices: Vec<Device> = device_records
-            .iter()
-            .filter(|dr| dr.device_id != current_device_id && dr.status == SyncStatus::Completed)
-            .filter_map(|dr| other_devices.iter().find(|d| d.id == dr.device_id).cloned())
-            .collect();
-
-        if completed_devices.is_empty() {
-            // All other devices are still pending, no need for new records
-            return Ok(None);
-        }
-
-        // Some devices have completed the previous update, create device records
-        // so they receive the latest changes
-        let device_record_set = SyncRecord::create_device_sync_records(
-            latest_sync.id.clone(),
-            &completed_devices,
-            current_device_id,
-        );
-
-        Ok(Some(SyncUpdateData::DeviceRecordSet(device_record_set)))
     }
 }

@@ -6,9 +6,3 @@ pub struct Certificate {
     pub public_key: String,
     pub salt: String,
 }
-
-#[derive(Debug, Clone)]
-pub struct User {
-    pub username: String,
-    pub certificate: Certificate,
-}
