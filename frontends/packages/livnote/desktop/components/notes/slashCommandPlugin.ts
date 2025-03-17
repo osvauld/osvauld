@@ -199,20 +199,36 @@ export function slashCommandPlugin(schema: Schema) {
 		// Get coordinates from the editor
 		const coords = view.coordsAtPos(selection.from);
 
-		// Get editor element's position
+		// Get editor element's position and dimensions
 		const editorRect = view.dom.getBoundingClientRect();
+		const menuRect = menu.getBoundingClientRect();
 
-		// Calculate position relative to the editor
-		const top = coords.top - editorRect.top;
-		const left = coords.left - editorRect.left;
+		// Calculate initial position
+		let top = coords.top - editorRect.top + 130; // Default position below cursor
+		let left = coords.left - editorRect.left;
 
-		// Set position with a slight offset so it doesn't cover the cursor
+		// Check bottom overflow
+		const bottomOverflow = top + menuRect.height > editorRect.height;
+		if (bottomOverflow) {
+			// Position above cursor instead
+			top = coords.top - editorRect.top - menuRect.height + 80;
+		}
+
+		// Check right overflow
+		const rightOverflow = left + menuRect.width > editorRect.width;
+		if (rightOverflow) {
+			// Align right edge of menu with cursor
+			left = left - menuRect.width + 20;
+			// Ensure it doesn't go too far left
+			left = Math.max(10, left);
+		}
+
+		// Set position
 		menu.style.position = "absolute";
-		menu.style.top = `${top + 120}px`; // Position below cursor
+		menu.style.top = `${top}px`;
 		menu.style.left = `${left}px`;
 	}
 
-	// Close and clean up menu
 	function closeMenu() {
 		if (menu && menu.parentNode) {
 			menu.parentNode.removeChild(menu);
