@@ -710,6 +710,26 @@
 		margin-right: 5px;
 		font-weight: bold;
 	}
+
+	:global(.ProseMirror blockquote) {
+		border-left: 3px solid #4a4b53;
+		margin-left: 0;
+		margin-right: 0;
+		padding-left: 1em;
+		font-style: italic;
+		color: #bfc0cc;
+	}
+
+	:global(.ProseMirror blockquote p) {
+		margin: 0.5em 0;
+	}
+
+	/* Add a subtle background for better visibility in dark mode */
+	:global(.ProseMirror blockquote) {
+		background-color: rgba(255, 255, 255, 0.03);
+		border-radius: 4px;
+		padding: 8px 16px 8px 12px;
+	}
 </style>
 
 <div class="editor-container">
