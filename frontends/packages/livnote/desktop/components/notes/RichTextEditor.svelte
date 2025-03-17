@@ -645,6 +645,91 @@
 		height: 28px !important;
 		color: #bfc0cc;
 	}
+	:global(.ProseMirror ul) {
+		padding-left: 1.5em;
+		margin: 0.5em 0;
+		list-style-type: disc;
+	}
+
+	:global(.ProseMirror ul li) {
+		margin: 0.2em 0;
+		position: relative;
+	}
+
+	:global(.ProseMirror ul li p) {
+		margin: 0;
+	}
+
+	/* Numbered List Styles */
+	:global(.ProseMirror ol) {
+		padding-left: 1.5em;
+		margin: 0.5em 0;
+		list-style-type: decimal;
+	}
+
+	:global(.ProseMirror ol li) {
+		margin: 0.2em 0;
+		position: relative;
+	}
+
+	:global(.ProseMirror ol li p) {
+		margin: 0;
+	}
+
+	/* Nested List Styles */
+	:global(.ProseMirror li > ul, .ProseMirror li > ol) {
+		margin: 0.2em 0 0.2em 1em;
+	}
+
+	/* List item active state */
+	:global(.ProseMirror li.ProseMirror-selectednode) {
+		outline: 2px solid #2a2b2f;
+	}
+
+	/* Make sure list buttons in the menu are properly visible */
+	:global(
+		.ProseMirror-menu-dropdown-item[title="Wrap in bullet list"],
+		.ProseMirror-menu-dropdown-item[title="Wrap in ordered list"]
+	) {
+		display: flex;
+		align-items: center;
+	}
+
+	:global(
+		.ProseMirror-menu-dropdown-item[title="Wrap in bullet list"]::before
+	) {
+		content: "•";
+		margin-right: 5px;
+		font-size: 1.2em;
+	}
+
+	:global(
+		.ProseMirror-menu-dropdown-item[title="Wrap in ordered list"]::before
+	) {
+		content: "1.";
+		margin-right: 5px;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror blockquote) {
+		border-left: 3px solid #4a4b53;
+		margin-left: 0;
+		margin-right: 0;
+		padding-left: 1em;
+		font-style: italic;
+		color: #bfc0cc;
+	}
+
+	:global(.ProseMirror blockquote p) {
+		margin: 0.5em 0;
+	}
+
+	/* Add a subtle background for better visibility in dark mode */
+	:global(.ProseMirror blockquote) {
+		background-color: rgba(255, 255, 255, 0.03);
+		border-radius: 4px;
+		padding: 8px 16px 8px 12px;
+	}
 </style>
 
 <div class="editor-container">
