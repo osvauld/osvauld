@@ -265,6 +265,13 @@
 </script>
 
 <style>
+	/* ProseMirror menubar styles for horizontal layout */
+	:global(.ProseMirror-menubar-wrapper) {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+
 	.editor-container {
 		margin: 0 auto;
 		width: 100%;
@@ -272,17 +279,26 @@
 		background: #16171f;
 		color: white;
 		position: relative;
-		border-top-left-radius: 20px;
-		border-top-right-radius: 20px;
+		border-radius: 20px;
 	}
 
-	/* ProseMirror menubar styles for horizontal layout */
-	:global(.ProseMirror-menubar-wrapper) {
-		height: 100%;
+	:global(.ProseMirror-example-setup-style) {
+		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		max-width: 96%;
+		outline: none;
+		line-height: 1.5;
+		color: white;
+		background: #16171f;
+		border-radius: 20px;
+		overflow-y: scroll;
+		flex-grow: 1;
+		margin: 5px auto 5px auto;
 	}
 
 	:global(.ProseMirror-menubar) {
-		height: 92px;
+		min-height: 92px;
 		padding: 4px 24px;
 		white-space: nowrap;
 		overflow-y: hidden;
@@ -294,15 +310,6 @@
 		border-bottom: 1px solid #2a2b2f;
 		border-top-left-radius: 20px;
 		border-top-right-radius: 20px;
-	}
-	:global(.ProseMirror) {
-		position: relative;
-		padding: 15px;
-		min-height: 100px;
-		outline: none;
-		line-height: 1.5;
-		color: white;
-		background: #16171f;
 	}
 
 	:global(.ProseMirror-menuitem) {
@@ -583,12 +590,6 @@
 		z-index: 999;
 	}
 
-	:global(.ProseMirror-example-setup-style) {
-		overflow-y: scroll;
-		max-height: 92%;
-		padding-bottom: 1rem;
-	}
-
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
 		width: 4px;
 		height: 4px;
@@ -744,9 +745,9 @@
 		{/if}
 
 		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
-		<button
+		<!-- <button
 			on:click="{saveNoteManual}"
-			class="absolute top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			class="absolute z-2 top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
 					><span class="text-[#9DD062] mr-2">Saved...</span>
@@ -754,6 +755,6 @@
 			{:else}
 				<span>Save Changes</span>
 			{/if}
-		</button>
+		</button> -->
 	</div>
 </div>
