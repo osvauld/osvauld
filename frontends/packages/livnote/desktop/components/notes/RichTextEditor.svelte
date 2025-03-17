@@ -306,7 +306,6 @@
 		display: flex;
 		align-items: center;
 		gap: 1px;
-		z-index: 900;
 		border-bottom: 1px solid #2a2b2f;
 		border-top-left-radius: 20px;
 		border-top-right-radius: 20px;
@@ -745,9 +744,9 @@
 		{/if}
 
 		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
-		<!-- <button
+		<button
 			on:click="{saveNoteManual}"
-			class="absolute z-2 top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			class="absolute z-10 top-6 right-5 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
 					><span class="text-[#9DD062] mr-2">Saved...</span>
@@ -755,6 +754,6 @@
 			{:else}
 				<span>Save Changes</span>
 			{/if}
-		</button> -->
+		</button>
 	</div>
 </div>
