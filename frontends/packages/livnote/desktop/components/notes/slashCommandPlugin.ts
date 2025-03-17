@@ -296,7 +296,7 @@ export function slashCommandPlugin(schema: Schema) {
 		// Handle keyboard events for menu navigation
 		props: {
 			handleKeyDown(view, event) {
-				console.log("Key pressed:", event.key, "Menu open:", isMenuOpen);
+				// console.log("Key pressed:", event.key, "Menu open:", isMenuOpen);
 
 				if (!isMenuOpen) return false;
 
@@ -314,7 +314,7 @@ export function slashCommandPlugin(schema: Schema) {
 						item.hasAttribute("data-selected"),
 					);
 
-					console.log("Current selected index:", currentIndex);
+					// console.log("Current selected index:", currentIndex);
 
 					// If no item is selected, start from beginning or end
 					if (currentIndex === -1) {
@@ -329,7 +329,7 @@ export function slashCommandPlugin(schema: Schema) {
 						nextIndex = currentIndex > 0 ? currentIndex - 1 : items.length - 1;
 					}
 
-					console.log("Next index:", nextIndex);
+					// console.log("Next index:", nextIndex);
 
 					// Clear selection from all items
 					items.forEach((item) => {
@@ -358,13 +358,17 @@ export function slashCommandPlugin(schema: Schema) {
 						console.log("Executing command via Enter key");
 
 						// Get the command index and retrieve the command
-						const commandIndex =
-							selectedItem.getAttribute("data-command-index");
+						// const commandIndex =
+						// 	selectedItem.getAttribute("data-command-index");
 						const commandItem = selectedItem; // Use the element itself to trigger the click
-
+						const mouseDownEvent = new MouseEvent("mousedown", {
+							bubbles: true,
+							cancelable: true,
+							view: window,
+						});
 						// Simulate the click event that works
 						if (commandItem) {
-							commandItem.click();
+							commandItem.dispatchEvent(mouseDownEvent);
 							return true;
 						}
 					}
@@ -421,7 +425,11 @@ function getCommands(schema: Schema): SlashCommandItem[] {
 			description: "Create a bulleted list",
 			icon: `<span>•</span>`,
 			command: (state, dispatch, view) => {
-				return wrapInList(schema.nodes.bullet_list)(state, dispatch, view);
+				if (dispatch && wrapInList(schema.nodes.bullet_list)(state, dispatch)) {
+					if (view) view.focus();
+					return true;
+				}
+				return false;
 			},
 		});
 	}
@@ -432,7 +440,15 @@ function getCommands(schema: Schema): SlashCommandItem[] {
 			description: "Create a numbered list",
 			icon: `<span>1.</span>`,
 			command: (state, dispatch, view) => {
-				return wrapInList(schema.nodes.ordered_list)(state, dispatch, view);
+				if (
+					dispatch &&
+					wrapInList(schema.nodes.ordered_list)(state, dispatch)
+				) {
+					// Focus the editor after executing command if view is available
+					if (view) view.focus();
+					return true;
+				}
+				return false;
 			},
 		});
 	}
