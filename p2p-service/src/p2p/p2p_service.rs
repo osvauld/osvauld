@@ -225,7 +225,7 @@ impl P2PService {
 
         // First establish connection with the target device
         let peer_connection = self
-            .connect_with_ticket(&ticket, ConnectionType::User)
+            .connect_with_ticket(&ticket, ConnectionType::Device)
             .await?;
 
         // Once connected, send the AddDevice message

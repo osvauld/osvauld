@@ -1,7 +1,9 @@
 use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::ConnectionType;
-use osvauld_core::models::user::User; // Import the User model
+use osvauld_core::models::user::User;
+use osvauld_services::UserService;
+// Import the User model
 use p2p_service::P2PService;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -13,18 +15,20 @@ pub struct RendezvousService {
     p2p_service: Arc<P2PService>,
     ws_url: String,
     pending_first_connections: Arc<Mutex<HashSet<String>>>,
-    user: Arc<Mutex<Option<String>>>, // Store the entire User object
+    connection_id: Arc<Mutex<Option<String>>>, // Store the entire User object
+    user_service: Arc<UserService>,
 }
 
 impl RendezvousService {
     /// Create a new RendezvousService instance
-    pub fn new(p2p_service: Arc<P2PService>, ws_url: &str) -> Self {
+    pub fn new(p2p_service: Arc<P2PService>, ws_url: &str, user_service: Arc<UserService>) -> Self {
         Self {
             client: Arc::new(Mutex::new(WsClient::new())),
             p2p_service,
             ws_url: ws_url.to_string(),
             pending_first_connections: Arc::new(Mutex::new(HashSet::new())),
-            user: Arc::new(Mutex::new(None)), // Initialize with None
+            connection_id: Arc::new(Mutex::new(None)), // Initialize with None
+            user_service,
         }
     }
 
@@ -32,7 +36,7 @@ impl RendezvousService {
     pub async fn initialize(&self, user: String) -> Result<(), String> {
         // Store the user in the service state
         {
-            let mut user_lock = self.user.lock().await;
+            let mut user_lock = self.connection_id.lock().await;
             *user_lock = Some(user.clone());
         }
 
@@ -43,7 +47,7 @@ impl RendezvousService {
         let client = self.client.clone();
         let p2p_service = self.p2p_service.clone();
         let pending_first_connections = self.pending_first_connections.clone();
-        let user_arc = self.user.clone(); // Pass the stored user
+        let user_arc = self.connection_id.clone(); // Pass the stored user
 
         // Start message handler in a separate task
         tokio::spawn(async move {
@@ -55,6 +59,7 @@ impl RendezvousService {
             )
             .await;
         });
+        self.initialize_sync_with_pending_devices().await?;
 
         Ok(())
     }
@@ -185,7 +190,26 @@ impl RendezvousService {
                                                 {
                                                     Ok(_) => {
                                                         // Initiate first connection
-                                                        info!("connection established");
+                                                        // match p2p_service_clone
+                                                        //     .initiate_first_user_connection(
+                                                        //         &user_clone,
+                                                        //         &ticket,
+                                                        //     )
+                                                        //     .await
+                                                        // {
+                                                        //     Ok(_) => {
+                                                        //         info!(
+                                                        //             "Successfully initiated first connection with user: {}",
+                                                        //             response_user_id
+                                                        //         );
+                                                        //     }
+                                                        //     Err(e) => {
+                                                        //         error!(
+                                                        //             "Failed to initiate first user connection: {}",
+                                                        //             e
+                                                        //         );
+                                                        //     }
+                                                        // }
                                                     }
                                                     Err(e) => {
                                                         error!(
@@ -255,7 +279,6 @@ impl RendezvousService {
             }
         }
     }
-
     /// Handle incoming connection request
     async fn handle_connection_request(
         client: &Arc<Mutex<WsClient>>,
@@ -295,5 +318,71 @@ impl RendezvousService {
     ) -> Result<Vec<UserConnectionStatus>, String> {
         let client = self.client.lock().await;
         client.get_connection_status(user_ids).await
+    }
+
+    pub async fn initialize_sync_with_pending_devices(&self) -> Result<(), String> {
+        info!("Checking for devices with pending syncs...");
+
+        // Get devices with pending syncs
+        match self.user_service.get_users_with_pending_syncs().await {
+            Ok(users_with_devices) => {
+                info!(
+                    "Found {} users with devices that have pending syncs",
+                    users_with_devices.len()
+                );
+
+                // Process each user's devices
+                for (sync_user_id, devices) in users_with_devices {
+                    if !devices.is_empty() {
+                        info!(
+                            "User {} has {} devices with pending syncs",
+                            sync_user_id,
+                            devices.len()
+                        );
+
+                        // Create list of connection IDs to check
+                        let device_connection_ids: Vec<String> = devices
+                            .iter()
+                            .map(|device| format!("{}:{}", sync_user_id, device.id))
+                            .collect();
+
+                        // Check which devices are online
+                        match self.get_connection_status(device_connection_ids).await {
+                            Ok(statuses) => {
+                                for status in statuses {
+                                    if status.connection_status == "online" {
+                                        info!(
+                                            "Device {} is online, requesting connection",
+                                            status.user_id
+                                        );
+                                        if let Err(e) =
+                                            self.request_connection(&status.user_id).await
+                                        {
+                                            error!(
+                                                "Failed to request connection to {}: {}",
+                                                status.user_id, e
+                                            );
+                                        }
+                                    } else {
+                                        info!(
+                                            "Device {} is offline, skipping sync",
+                                            status.user_id
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!("Failed to get connection status: {}", e);
+                            }
+                        }
+                    }
+                }
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to get devices with pending syncs: {}", e);
+                Err(e)
+            }
+        }
     }
 }

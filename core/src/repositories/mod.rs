@@ -87,6 +87,7 @@ pub trait SyncRepository: Send + Sync {
         &self,
         sync_id: &str,
     ) -> Result<Vec<DeviceRecord>, RepositoryError>;
+    async fn get_users_with_unsynced_devices(&self) -> Result<Vec<Device>, RepositoryError>;
 }
 
 #[async_trait]

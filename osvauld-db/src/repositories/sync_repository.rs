@@ -1,12 +1,14 @@
 use crate::database::DbConnection;
-use crate::database::schema::{device_record_status, device_records, sync_records};
-use crate::models::{DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};
+use crate::database::schema::{device_record_status, device_records, devices, sync_records};
+use crate::models::{DeviceModel, DeviceRecordModel, DeviceRecordStatusModel, SyncRecordModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
+use osvauld_core::models::device::Device;
 use osvauld_core::models::sync_record::{
     DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
 use osvauld_core::repositories::{RepositoryError, SyncRepository};
+use std::collections::HashMap;
 
 pub struct SqliteSyncRepository {
     connection: DbConnection,
@@ -361,5 +363,26 @@ impl SyncRepository for SqliteSyncRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(models.iter().map(|dr| dr.to_domain()).collect())
+    }
+
+    async fn get_users_with_unsynced_devices(&self) -> Result<Vec<Device>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // This query gets all device IDs that have unsynced records
+        let device_ids: Vec<String> = device_record_status::table
+            .filter(device_record_status::synced.eq(false))
+            .inner_join(devices::table.on(device_record_status::aware_device_id.eq(devices::id)))
+            .select(devices::id)
+            .distinct()
+            .load::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Get the full device objects for these IDs
+        let device_models = devices::table
+            .filter(devices::id.eq_any(device_ids))
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(DeviceModel::to_domain_devices(device_models))
     }
 }

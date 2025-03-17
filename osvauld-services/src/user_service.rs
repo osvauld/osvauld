@@ -1,6 +1,10 @@
 use crypto_utils::{CryptoUtils, get_key_id};
+use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
-use osvauld_core::repositories::{RepositoryError, UserRepository};
+use osvauld_core::repositories::{
+    DeviceRepository, RepositoryError, SyncRepository, UserRepository,
+};
+use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -15,15 +19,18 @@ pub enum UserServiceError {
 pub struct UserService {
     user_repository: Arc<dyn UserRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
+    sync_repository: Arc<dyn SyncRepository>,
 }
 impl UserService {
     pub fn new(
         user_repository: Arc<dyn UserRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
+        sync_repository: Arc<dyn SyncRepository>,
     ) -> Self {
         Self {
             user_repository,
             crypto_utils,
+            sync_repository,
         }
     }
 
@@ -73,5 +80,29 @@ impl UserService {
 
         let user_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
         self.get_user_by_id(&user_id).await
+    }
+
+    pub async fn get_users_with_pending_syncs(
+        &self,
+    ) -> Result<HashMap<String, Vec<Device>>, String> {
+        // Get all devices with unsynced records
+        let devices_with_unsynced_records = self
+            .sync_repository
+            .get_users_with_unsynced_devices()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Group devices by user ID
+        let mut result: HashMap<String, Vec<Device>> = HashMap::new();
+
+        for device in devices_with_unsynced_records {
+            // Add the device to the map under its user's ID
+            result
+                .entry(device.user_id.clone())
+                .or_insert_with(Vec::new)
+                .push(device);
+        }
+
+        Ok(result)
     }
 }

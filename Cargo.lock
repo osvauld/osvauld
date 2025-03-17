@@ -6098,6 +6098,7 @@ dependencies = [
  "futures-util",
  "log",
  "osvauld_core",
+ "osvauld_services",
  "p2p_service",
  "serde",
  "serde_json",
