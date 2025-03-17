@@ -33,6 +33,7 @@ export function slashCommandPlugin(schema: Schema) {
 	// Command menu element reference
 	let menu: HTMLElement | null = null;
 	let lastState: EditorState | null = null;
+	let scrollHandler: (() => void) | null = null;
 
 	// Get all commands based on schema
 	const commands = getCommands(schema);
@@ -199,24 +200,62 @@ export function slashCommandPlugin(schema: Schema) {
 		// Get coordinates from the editor
 		const coords = view.coordsAtPos(selection.from);
 
-		// Get editor element's position
+		// Get editor element's position and dimensions
 		const editorRect = view.dom.getBoundingClientRect();
+		const menuRect = menu.getBoundingClientRect();
 
-		// Calculate position relative to the editor
-		const top = coords.top - editorRect.top;
-		const left = coords.left - editorRect.left;
+		// Calculate initial position
+		let top = coords.top - editorRect.top + 130; // Default position below cursor
+		let left = coords.left - editorRect.left;
 
-		// Set position with a slight offset so it doesn't cover the cursor
+		// Check bottom overflow
+		const bottomOverflow = top + menuRect.height > editorRect.height;
+		if (bottomOverflow) {
+			// Position above cursor instead
+			top = coords.top - editorRect.top - menuRect.height + 80;
+		}
+
+		// Check right overflow
+		const rightOverflow = left + menuRect.width > editorRect.width;
+		if (rightOverflow) {
+			// Align right edge of menu with cursor
+			left = left - menuRect.width + 20;
+			// Ensure it doesn't go too far left
+			left = Math.max(10, left);
+		}
+
+		// Set position
 		menu.style.position = "absolute";
-		menu.style.top = `${top + 120}px`; // Position below cursor
+		menu.style.top = `${top}px`;
 		menu.style.left = `${left}px`;
 	}
 
-	// Close and clean up menu
-	function closeMenu() {
+	// Close menu and clean up
+	function closeMenu(view?: EditorView) {
 		if (menu && menu.parentNode) {
 			menu.parentNode.removeChild(menu);
 		}
+
+		// Also clean up the slash command if view is provided
+		if (view && isCursorSelection(view.state.selection)) {
+			const { state, dispatch } = view;
+			const tr = state.tr;
+			const $cursor = state.selection.$cursor;
+
+			if ($cursor && $cursor.nodeBefore) {
+				const text = $cursor.nodeBefore.text;
+				if (text) {
+					const slashPos = text.lastIndexOf("/");
+					if (slashPos > -1) {
+						const from =
+							$cursor.pos - ($cursor.nodeBefore.text.length - slashPos);
+						tr.delete(from, $cursor.pos);
+						dispatch(tr);
+					}
+				}
+			}
+		}
+
 		isMenuOpen = false;
 	}
 
@@ -224,6 +263,22 @@ export function slashCommandPlugin(schema: Schema) {
 		key: slashCommandKey,
 
 		view(editorView) {
+			// Find the scrollable container - might be the editor or a parent element
+			const editorDom = editorView.dom;
+			const scrollableContainer =
+				editorDom.closest(".ProseMirror-example-setup-style") ||
+				editorDom.closest(".editor-container") ||
+				editorDom;
+
+			// Setup scroll handler
+			scrollHandler = () => {
+				if (isMenuOpen) {
+					closeMenu(editorView);
+				}
+			};
+
+			// Add scroll event listener
+			scrollableContainer.addEventListener("scroll", scrollHandler);
 			return {
 				update: (view, prevState) => {
 					lastState = view.state;
@@ -288,6 +343,11 @@ export function slashCommandPlugin(schema: Schema) {
 				},
 
 				destroy: () => {
+					// Remove scroll event listener
+					if (scrollHandler && scrollableContainer) {
+						scrollableContainer.removeEventListener("scroll", scrollHandler);
+						scrollHandler = null;
+					}
 					closeMenu();
 				},
 			};
