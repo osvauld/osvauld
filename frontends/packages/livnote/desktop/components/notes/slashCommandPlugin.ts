@@ -33,6 +33,7 @@ export function slashCommandPlugin(schema: Schema) {
 	// Command menu element reference
 	let menu: HTMLElement | null = null;
 	let lastState: EditorState | null = null;
+	let scrollHandler: (() => void) | null = null;
 
 	// Get all commands based on schema
 	const commands = getCommands(schema);
@@ -229,10 +230,32 @@ export function slashCommandPlugin(schema: Schema) {
 		menu.style.left = `${left}px`;
 	}
 
-	function closeMenu() {
+	// Close menu and clean up
+	function closeMenu(view?: EditorView) {
 		if (menu && menu.parentNode) {
 			menu.parentNode.removeChild(menu);
 		}
+
+		// Also clean up the slash command if view is provided
+		if (view && isCursorSelection(view.state.selection)) {
+			const { state, dispatch } = view;
+			const tr = state.tr;
+			const $cursor = state.selection.$cursor;
+
+			if ($cursor && $cursor.nodeBefore) {
+				const text = $cursor.nodeBefore.text;
+				if (text) {
+					const slashPos = text.lastIndexOf("/");
+					if (slashPos > -1) {
+						const from =
+							$cursor.pos - ($cursor.nodeBefore.text.length - slashPos);
+						tr.delete(from, $cursor.pos);
+						dispatch(tr);
+					}
+				}
+			}
+		}
+
 		isMenuOpen = false;
 	}
 
@@ -240,6 +263,22 @@ export function slashCommandPlugin(schema: Schema) {
 		key: slashCommandKey,
 
 		view(editorView) {
+			// Find the scrollable container - might be the editor or a parent element
+			const editorDom = editorView.dom;
+			const scrollableContainer =
+				editorDom.closest(".ProseMirror-example-setup-style") ||
+				editorDom.closest(".editor-container") ||
+				editorDom;
+
+			// Setup scroll handler
+			scrollHandler = () => {
+				if (isMenuOpen) {
+					closeMenu(editorView);
+				}
+			};
+
+			// Add scroll event listener
+			scrollableContainer.addEventListener("scroll", scrollHandler);
 			return {
 				update: (view, prevState) => {
 					lastState = view.state;
@@ -304,6 +343,11 @@ export function slashCommandPlugin(schema: Schema) {
 				},
 
 				destroy: () => {
+					// Remove scroll event listener
+					if (scrollHandler && scrollableContainer) {
+						scrollableContainer.removeEventListener("scroll", scrollHandler);
+						scrollHandler = null;
+					}
 					closeMenu();
 				},
 			};
