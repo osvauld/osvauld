@@ -5,22 +5,19 @@
 		toastStore,
 		vaults,
 		noteId,
-		refreshCredentialList,
 		currentNote,
 		notes,
 	} from "../../store/desktop.ui.store";
 	import { extractTitle } from "../utils/helper";
-	import { slide } from "svelte/transition";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
-	import DownArrow from "@osvauld/password-manager-common/icons/downArrow.svelte";
 	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
 	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
 	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
 	import DownloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
 	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
-	import FavStar from "@osvauld/password-manager-common/icons/favStar.svelte";
+	import Tick from "@osvauld/password-manager-common/icons/tick.svelte";
 	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
 	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
 	import NotesListView from "../notes/NotesListView.svelte";
@@ -29,7 +26,6 @@
 
 	import { MobileHome } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
-	import { addCredentialHandler } from "@osvauld/password-manager-common";
 	import { notesInstance } from "../notes/notes";
 	import { onMount } from "svelte";
 	import { setContext } from "svelte";
@@ -42,8 +38,8 @@
 	let selectedSection = "home";
 	let showShareList = false;
 	let shareUserList = [];
-	let hoveredItem = "";
 	let favSelected = false;
+	let noteCopied = false;
 	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
 
@@ -110,6 +106,37 @@
 			toastStore.set({
 				show: true,
 				message: "Failed to create note",
+				success: false,
+			});
+		}
+	};
+
+	// Add this function to NotesWorkspace.svelte
+	const handleCopyNote = async () => {
+		if (!$currentNote || !$currentNote?.data) {
+			toastStore.set({
+				show: true,
+				message: "No note content to copy",
+				success: false,
+			});
+			return;
+		}
+
+		try {
+			// Get editor content as HTML by communicating with RichTextEditor component
+			// Using a custom event to get content
+			const copyEvent = new CustomEvent("request-editor-content");
+			document.dispatchEvent(copyEvent);
+			noteCopied = true;
+			setTimeout(() => {
+				noteCopied = false;
+			}, 1000);
+			// The response will come via a different event handler we'll add next
+		} catch (error) {
+			console.error("Error copying note:", error);
+			toastStore.set({
+				show: true,
+				message: "Failed to copy note content",
 				success: false,
 			});
 		}
@@ -247,8 +274,13 @@
 			<div
 				class="relative ml-auto shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<CopyIcon />
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+					on:click="{handleCopyNote}">
+					{#if noteCopied}
+						<Tick color="#a6e3a1" />
+					{:else}
+						<CopyIcon color="#85889C" />
+					{/if}
 				</button>
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
