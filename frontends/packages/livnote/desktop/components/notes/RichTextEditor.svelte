@@ -313,6 +313,14 @@
 		currentlyLoadedNoteId = null;
 	};
 
+	noteId.subscribe((id) => {
+		// Only destroy and save if we had a previously loaded note
+		if (id && currentlyLoadedNoteId && id !== currentlyLoadedNoteId) {
+			prosemirrorInstanceDestructionHandle();
+		}
+		// If it's the first note or same note being reloaded, don't trigger destruction
+	});
+
 	// Initialize when component mounts
 	onMount(async () => {
 		console.log("RichTextEditor mounted");
@@ -324,12 +332,6 @@
 		}
 
 		document.addEventListener("request-editor-content", copyContentListener);
-	});
-
-	// We need to do cleanup when noteId Changes
-
-	noteId.subscribe((id) => {
-		if (id) prosemirrorInstanceDestructionHandle();
 	});
 
 	// Clean up when component is destroyed
@@ -363,6 +365,7 @@
 		padding: 15px;
 		min-height: 100px;
 		max-width: 96%;
+		width: 96%;
 		outline: none;
 		line-height: 1.5;
 		color: white;
