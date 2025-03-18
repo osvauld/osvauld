@@ -115,6 +115,34 @@
 		}
 	};
 
+	// Add this function to NotesWorkspace.svelte
+	const handleCopyNote = async () => {
+		if (!$currentNote || !$currentNote?.data) {
+			toastStore.set({
+				show: true,
+				message: "No note content to copy",
+				success: false,
+			});
+			return;
+		}
+
+		try {
+			// Get editor content as HTML by communicating with RichTextEditor component
+			// Using a custom event to get content
+			const copyEvent = new CustomEvent("request-editor-content");
+			document.dispatchEvent(copyEvent);
+
+			// The response will come via a different event handler we'll add next
+		} catch (error) {
+			console.error("Error copying note:", error);
+			toastStore.set({
+				show: true,
+				message: "Failed to copy note content",
+				success: false,
+			});
+		}
+	};
+
 	const toggleFav = async () => {
 		isFavourite = !isFavourite;
 		try {
@@ -247,7 +275,8 @@
 			<div
 				class="relative ml-auto shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+					on:click="{handleCopyNote}">
 					<CopyIcon />
 				</button>
 				<button

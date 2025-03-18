@@ -15,7 +15,7 @@
 		refreshCredentialList,
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
-	import { slashCommandPlugin } from "./slashCommandPlugin.ts";
+	import { DOMSerializer } from "prosemirror-model";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -62,6 +62,79 @@
 			saved = false;
 		}, 1000);
 	}
+
+	const fallbackCopy = (html) => {
+		const tempElement = document.createElement("div");
+		tempElement.innerHTML = html;
+		tempElement.style.position = "absolute";
+		tempElement.style.left = "-9999px";
+		document.body.appendChild(tempElement);
+
+		// Select the temp element
+		const selection = window.getSelection();
+		const range = document.createRange();
+		range.selectNodeContents(tempElement);
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+
+		// Execute copy
+		document.execCommand("copy");
+
+		// Clean up
+		selection?.removeAllRanges();
+		document.body.removeChild(tempElement);
+
+		console.log("Note copied using fallback method");
+	};
+
+	const copyContentListener = (event) => {
+		if (!view) return;
+
+		try {
+			// Get the schema from the document
+			const { schema } = notesInstance.getDoc();
+
+			// Create a serializer with this schema
+			const serializer = DOMSerializer.fromSchema(schema);
+
+			// Create a document fragment
+			const fragment = view.state.doc.content;
+
+			// Create a container for the HTML
+			const domFragment = document.createElement("div");
+
+			// Serialize the fragment to HTML
+			serializer.serializeFragment(fragment, { document }, domFragment);
+
+			// Get both HTML and plain text versions
+			const html = domFragment.innerHTML;
+			const text = domFragment.textContent || "";
+
+			// Use the Clipboard API to copy with formatting
+			if (navigator.clipboard && window.ClipboardItem) {
+				navigator.clipboard
+					.write([
+						new ClipboardItem({
+							"text/html": new Blob([html], { type: "text/html" }),
+							"text/plain": new Blob([text], { type: "text/plain" }),
+						}),
+					])
+					.then(() => {
+						console.log("Note copied with formatting");
+					})
+					.catch((err) => {
+						console.error("Clipboard API error:", err);
+						// Fallback to the execCommand method
+						fallbackCopy(html);
+					});
+			} else {
+				// Use fallback method
+				fallbackCopy(html);
+			}
+		} catch (error) {
+			console.error("Error during copy:", error);
+		}
+	};
 
 	async function loadNote(id) {
 		if (!element || loadingInProgress) return;
@@ -249,6 +322,8 @@
 		if ($noteId) {
 			await loadNote($noteId);
 		}
+
+		document.addEventListener("request-editor-content", copyContentListener);
 	});
 
 	// We need to do cleanup when noteId Changes
@@ -261,6 +336,7 @@
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
 		prosemirrorInstanceDestructionHandle();
+		document.removeEventListener("request-editor-content", copyContentListener);
 	});
 </script>
 
