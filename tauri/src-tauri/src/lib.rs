@@ -81,6 +81,7 @@ pub fn run() {
             }
 
             let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
 
@@ -121,7 +122,6 @@ pub fn run() {
                         resource_repo.clone(),
                         device_repo.clone(),
                         store_repository.clone(),
-                        crypto_utils.clone(),
                     ));
 
                     let user_service = Arc::new(UserService::new(
@@ -166,7 +166,7 @@ pub fn run() {
                     });
                     let rendezvous_service = Arc::new(RendezvousService::new(
                         p2p_service.clone(),
-                        "wss://osvauld-tscs.onrender.com/ws",
+                        "ws://0.0.0.0:3030/ws",
                         user_service.clone(),
                     ));
                     let user_state = UserState::new();

@@ -141,7 +141,7 @@ impl PeerConnection {
                                 if let Ok(message_str) = String::from_utf8(buffer.clone()) {
                                     match serde_json::from_str::<Message>(&message_str) {
                                         Ok(message) => {
-                                            debug!("Successfully deserialized message: {:?}", message);
+                                            info!("Successfully deserialized message: {:?}", message);
 
                                             // Process the message in a separate span
                                             let process_span = info_span!("process_message", 
@@ -297,6 +297,7 @@ impl PeerConnection {
     /// Sends a message to the peer
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(&message)), level = "debug")]
     pub async fn send_message(&self, message: Message) -> Result<(), String> {
+        info!("sending message {:?}", message);
         debug!("Preparing to send message");
         
         let serialized_message = match serde_json::to_string(&message) {

@@ -88,6 +88,11 @@ pub trait SyncRepository: Send + Sync {
         sync_id: &str,
     ) -> Result<Vec<DeviceRecord>, RepositoryError>;
     async fn get_users_with_unsynced_devices(&self) -> Result<Vec<Device>, RepositoryError>;
+    async fn update_device_record_statuses_for_sync(
+        &self,
+        sync_record_id: String,
+        device_id: String,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

@@ -5,17 +5,14 @@ use osvauld_core::models::{
     folder::Folder,
     resource::Resource,
     sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecord, SyncRecordSet, SyncUpdateData},
-    sync_types::{OperationType, SyncStatus},
 };
 
-use crypto_utils::{CryptoUtils, get_key_id};
 use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
     SyncRepository,
 };
 
 use log::info;
-use tokio::sync::Mutex;
 
 use std::sync::Arc;
 
@@ -25,7 +22,6 @@ pub struct SyncService {
     resource_repository: Arc<dyn ResourceRepository>,
     device_repository: Arc<dyn DeviceRepository>,
     store_repository: Arc<dyn StoreRepository>,
-    crypto_utils: Arc<Mutex<CryptoUtils>>,
 }
 impl SyncService {
     pub fn new(
@@ -34,7 +30,6 @@ impl SyncService {
         resource_repository: Arc<dyn ResourceRepository>,
         device_repository: Arc<dyn DeviceRepository>,
         store_repository: Arc<dyn StoreRepository>,
-        crypto_utils: Arc<Mutex<CryptoUtils>>,
     ) -> Self {
         Self {
             sync_repository,
@@ -42,7 +37,6 @@ impl SyncService {
             resource_repository,
             device_repository,
             store_repository,
-            crypto_utils,
         }
     }
 
@@ -302,7 +296,13 @@ impl SyncService {
                     })
                     .await?;
                 self.sync_repository
-                    .update_device_record(device.id, sync_record_id)
+                    .update_device_record(device.id.clone(), sync_record_id.clone())
+                    .await?;
+                self.sync_repository
+                    .update_device_record_statuses_for_sync(
+                        sync_record_id.clone(),
+                        device.id.clone(),
+                    )
                     .await?;
                 Ok(Some(synced_device_record_id))
             }
@@ -494,18 +494,13 @@ impl SyncService {
             .await
     }
     pub async fn handle_ack_complete(&self, device_sync_record_id: String) -> Result<(), String> {
+        info!(
+            "updating device sync record status {:?}",
+            device_sync_record_id
+        );
         self.sync_repository
             .update_device_sync_record_status(device_sync_record_id)
             .await
             .map_err(|e| e.to_string())
-    }
-
-    async fn get_current_user_id(&self) -> Result<String, String> {
-        let public_key = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto.get_public_key().map_err(|e| e.to_string())?
-        };
-
-        get_key_id(&public_key).map_err(|e| e.to_string())
     }
 }

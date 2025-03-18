@@ -385,4 +385,33 @@ impl SyncRepository for SqliteSyncRepository {
 
         Ok(DeviceModel::to_domain_devices(device_models))
     }
+
+    async fn update_device_record_statuses_for_sync(
+        &self,
+        sync_record_id: String,
+        device_id: String,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // First, get all device records for this sync_record
+        let device_record_ids: Vec<String> = device_records::table
+            .filter(device_records::sync_record_id.eq(&sync_record_id))
+            .select(device_records::id)
+            .load::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Then update all device record statuses where aware_device_id matches
+        // and device_record_id is in the list of device_record_ids for this sync
+        diesel::update(device_record_status::table)
+            .filter(device_record_status::device_record_id.eq_any(device_record_ids))
+            .filter(device_record_status::aware_device_id.eq(&device_id))
+            .set((
+                device_record_status::synced.eq(true),
+                device_record_status::updated_at.eq(chrono::Local::now().timestamp_millis()),
+            ))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
 }
