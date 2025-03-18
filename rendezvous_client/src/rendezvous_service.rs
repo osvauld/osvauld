@@ -117,154 +117,60 @@ impl RendezvousService {
         client: Arc<Mutex<WsClient>>,
         p2p_service: Arc<P2PService>,
         pending_first_connections: Arc<Mutex<HashSet<String>>>,
-        user: Arc<Mutex<Option<String>>>, // Replace user_service with user
+        user: Arc<Mutex<Option<String>>>,
     ) {
         let mut receiver = {
             let client_lock = client.lock().await;
             client_lock.subscribe()
         };
+
         loop {
             match receiver.recv().await {
-                // Process message based on its type
-                Ok(msg) => {
-                    match msg {
-                        WsMessage::RequestConnection {
-                            target_connection_id,
-                        } => {
-                            info!("Received connection request from: {}", target_connection_id);
-
-                            // Handle connection request
-                            if let Err(e) = Self::handle_connection_request(
-                                &client,
-                                &p2p_service,
-                                &target_connection_id,
-                                &user, // Pass the user reference
-                            )
-                            .await
-                            {
-                                error!("Failed to handle connection request: {}", e);
-                            }
-                        }
-                        WsMessage::UserConnectionStringResponse {
-                            user_id: response_user_id,
-                            connection_string,
-                            connection_status,
-                        } => {
-                            info!(
-                                "Received connection string response from user {}, status: {}",
-                                response_user_id, connection_status
-                            );
-
-                            // Process connection string if available
-                            if let Some(conn_string) = connection_string {
-                                if !conn_string.is_empty() {
-                                    // Check if this is a first connection
-                                    let mut pending = pending_first_connections.lock().await;
-                                    let is_first_connection = pending.contains(&response_user_id);
-
-                                    if is_first_connection {
-                                        // Remove from pending set
-                                        pending.remove(&response_user_id);
-
-                                        // Get current user for first connection process
-                                        let maybe_user = {
-                                            let user_lock = user.lock().await;
-                                            user_lock.clone()
-                                        };
-
-                                        // Handle first connection process
-                                        if let Some(current_user) = maybe_user {
-                                            let p2p_service_clone = p2p_service.clone();
-                                            let ticket = conn_string.clone();
-                                            let response_user_id = response_user_id.clone();
-                                            let user_clone = current_user.clone();
-
-                                            tokio::spawn(async move {
-                                                // Connect with the ticket
-                                                match p2p_service_clone
-                                                    .connect_with_ticket(
-                                                        &ticket,
-                                                        ConnectionType::User,
-                                                    )
-                                                    .await
-                                                {
-                                                    Ok(_) => {
-                                                        // Initiate first connection
-                                                        // match p2p_service_clone
-                                                        //     .initiate_first_user_connection(
-                                                        //         &user_clone,
-                                                        //         &ticket,
-                                                        //     )
-                                                        //     .await
-                                                        // {
-                                                        //     Ok(_) => {
-                                                        //         info!(
-                                                        //             "Successfully initiated first connection with user: {}",
-                                                        //             response_user_id
-                                                        //         );
-                                                        //     }
-                                                        //     Err(e) => {
-                                                        //         error!(
-                                                        //             "Failed to initiate first user connection: {}",
-                                                        //             e
-                                                        //         );
-                                                        //     }
-                                                        // }
-                                                    }
-                                                    Err(e) => {
-                                                        error!(
-                                                            "Failed to connect with ticket: {}",
-                                                            e
-                                                        );
-                                                    }
-                                                }
-                                            });
-                                        } else {
-                                            error!(
-                                                "User not available for first connection process"
-                                            );
-                                        }
-                                    } else {
-                                        // Regular connection
-                                        info!(
-                                            "Handling regular connection with ticket: {}",
-                                            conn_string
-                                        );
-
-                                        // Connect using the connection string
-                                        tokio::spawn({
-                                            let p2p_service = p2p_service.clone();
-                                            let ticket = conn_string.clone();
-
-                                            async move {
-                                                if let Err(e) = p2p_service
-                                                    .connect_with_ticket(
-                                                        &ticket,
-                                                        ConnectionType::User,
-                                                    )
-                                                    .await
-                                                {
-                                                    error!("Failed to connect with ticket: {}", e);
-                                                } else {
-                                                    info!(
-                                                        "Successfully connected to peer using ticket"
-                                                    );
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        // Handle other message types
-                        _ => {
-                            debug!("Received other message: {:?}", msg);
+                Ok(msg) => match msg {
+                    WsMessage::RequestConnection {
+                        target_connection_id,
+                    } => {
+                        info!("Received connection request from: {}", target_connection_id);
+                        if let Err(e) = Self::handle_connection_request(
+                            &client,
+                            &p2p_service,
+                            &target_connection_id,
+                            &user,
+                        )
+                        .await
+                        {
+                            error!("Failed to handle connection request: {}", e);
                         }
                     }
-                }
+                    WsMessage::UserConnectionStringResponse {
+                        user_id,
+                        connection_string,
+                        connection_status,
+                    } => {
+                        info!(
+                            "Received connection response from user {}, status: {}",
+                            user_id, connection_status
+                        );
+
+                        if let Some(conn_string) = connection_string {
+                            if !conn_string.is_empty() {
+                                Self::process_connection_string(
+                                    &p2p_service,
+                                    &pending_first_connections,
+                                    &user,
+                                    &user_id,
+                                    conn_string,
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    _ => {
+                        debug!("Received other message: {:?}", msg);
+                    }
+                },
                 Err(e) => {
                     error!("Error receiving message: {}", e);
-                    // Check if it's a lagged error or connection closed
                     match e {
                         tokio::sync::broadcast::error::RecvError::Closed => {
                             info!("WebSocket connection closed, stopping message handler");
@@ -272,12 +178,85 @@ impl RendezvousService {
                         }
                         tokio::sync::broadcast::error::RecvError::Lagged(n) => {
                             info!("Receiver lagged behind by {} messages", n);
-                            // Continue receiving
                         }
                     }
                 }
             }
         }
+    }
+
+    // Extract connection string processing into a separate function
+    async fn process_connection_string(
+        p2p_service: &Arc<P2PService>,
+        pending_first_connections: &Arc<Mutex<HashSet<String>>>,
+        user: &Arc<Mutex<Option<String>>>,
+        response_user_id: &str,
+        conn_string: String,
+    ) {
+        // Check if this is a first connection
+        let is_first_connection = {
+            let mut pending = pending_first_connections.lock().await;
+            let is_first = pending.contains(response_user_id);
+            if is_first {
+                pending.remove(response_user_id);
+            }
+            is_first
+        };
+
+        let connection_type = ConnectionType::User;
+        let p2p_service_clone = p2p_service.clone();
+        let ticket = conn_string.clone();
+        let user_id = response_user_id.to_string();
+
+        tokio::spawn(async move {
+            match p2p_service_clone
+                .connect_with_ticket(&ticket, connection_type)
+                .await
+            {
+                Ok(connection) => {
+                    if is_first_connection {
+                        // Get current user for first connection process
+                        // if let Some(current_user) = user.lock().await.clone() {
+                        // Send FirstUserConnection message
+                        // match connection
+                        //     .send_message(Message::FirstUserConnection(current_user.clone()))
+                        //     .await
+                        // {
+                        //     Ok(_) => {
+                        //         info!(
+                        //             "Successfully initiated first connection with user: {}",
+                        //             user_id
+                        //         );
+                        //         // Initialize sync with the newly connected user's devices
+                        //         if let Err(e) =
+                        //             p2p_service_clone.start_device_sync_for_user(&user_id).await
+                        //         {
+                        //             error!(
+                        //                 "Failed to initialize sync with user devices: {}",
+                        //                 e
+                        //             );
+                        //         }
+                        //     }
+                        //     Err(e) => {
+                        //         error!("Failed to send FirstUserConnection message: {}", e);
+                        //     }
+                        // }
+                        // } else {
+                        //     error!("User not available for first connection process");
+                        // }
+                    } else {
+                        info!("Successfully connected to peer using ticket");
+                        // For regular connections, start device sync as well
+                        if let Err(e) = connection.start_device_sync().await {
+                            error!("Failed to initialize sync with user devices: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to connect with ticket: {}", e);
+                }
+            }
+        });
     }
     /// Handle incoming connection request
     async fn handle_connection_request(
@@ -356,7 +335,7 @@ impl RendezvousService {
                                             status.user_id
                                         );
                                         if let Err(e) =
-                                            self.request_connection(&status.user_id).await
+                                            self.request_user_connection(&status.user_id).await
                                         {
                                             error!(
                                                 "Failed to request connection to {}: {}",

@@ -53,6 +53,8 @@ pub fn run() {
             tauri_plugin_log::Builder::new()
                 .filter(|metadata| {
                     !metadata.target().contains("tracing::span")
+                        && !metadata.target().contains("tokio_tungstenite")
+                        && !metadata.target().contains("tungstenite")
                         && !metadata.target().contains("iroh")
                         && !metadata.target().contains("hyper_util")
                         && !metadata.target().contains("netwatch")
@@ -67,7 +69,6 @@ pub fn run() {
                 })
                 .build(),
         )
-        .plugin(tauri_plugin_store::Builder::default().build())
         .setup(|app| {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();

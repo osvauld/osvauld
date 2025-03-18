@@ -56,26 +56,6 @@ pub enum ConnectionType {
     Device,
     User,
 }
-#[derive(Error, Debug, Serialize, Deserialize)]
-pub enum HandshakeError {
-    #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
-    #[error("Invalid challenge: {0}")]
-    InvalidChallenge(String),
-    #[error("Serialization error: {0}")]
-    Serialization(String), // Changed from serde_json::Error
-    #[error("Auth service error: {0}")]
-    AuthService(String),
-    #[error("Connection error: {0}")]
-    Connection(String),
-    #[error("Timeout error: {0}")]
-    Timeout(String), // Changed from time::error::Elapsed
-}
-impl From<serde_json::Error> for HandshakeError {
-    fn from(err: serde_json::Error) -> Self {
-        HandshakeError::Serialization(err.to_string())
-    }
-}
 
 // The HandshakeMessage type remains the same
 #[derive(Clone, Debug, Serialize, Deserialize)]

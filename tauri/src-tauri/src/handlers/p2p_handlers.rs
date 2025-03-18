@@ -23,7 +23,10 @@ pub async fn send_message(
 
 #[tauri::command]
 pub async fn get_ticket(state: State<'_, Arc<P2PService>>) -> Result<String, String> {
-    state.get_connection_ticket().await
+    state
+        .get_connection_ticket()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
