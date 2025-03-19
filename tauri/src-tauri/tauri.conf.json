@@ -32,14 +32,5 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
-  },
-  "plugins": {
-    "fs": {
-      "all": true,
-      "readFile": true,
-      "writeFile": true,
-      "readDir": true,
-      "scope": ["$DOCUMENT/*", "$DOCUMENT/**/*"]
-    }
   }
 }

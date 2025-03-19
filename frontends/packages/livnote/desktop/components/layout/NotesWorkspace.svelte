@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { jsPDF } from "jspdf";
-	import { writeBinaryFile, BaseDirectory } from "@tauri-apps/api/fs";
+	import { open, BaseDirectory } from "@tauri-apps/plugin-fs";
 	import {
 		currentVault,
 		noteViewLayout,
@@ -168,7 +168,6 @@
 			console.error("Error toggling favorite:", err);
 		}
 	};
-
 	const handleDownloadPdf = async () => {
 		if (!$currentNote || !$currentNote?.data) {
 			toastStore.set({
@@ -178,6 +177,9 @@
 			});
 			return;
 		}
+
+		// Add loading indicator state
+		let isPdfGenerating = true;
 
 		try {
 			// Get the document title for the filename
@@ -199,18 +201,13 @@
       </div>
     `;
 
-			// Set container styles to ensure proper PDF rendering
-			container.style.width = "210mm";
-			container.style.padding = "15mm";
-			container.style.backgroundColor = "white";
-
 			// Apply styling fixes for the PDF
 			const allElements = container.querySelectorAll("*");
 			allElements.forEach((el) => {
 				// Ensure all text is visible on white background
 				el.style.color = "black";
 
-				// Fix background colors for code blocks
+				// Fix styling for various elements
 				if (el.tagName === "PRE" || el.tagName === "CODE") {
 					el.style.backgroundColor = "#f0f0f0";
 					el.style.padding = "2px 4px";
@@ -218,7 +215,6 @@
 					el.style.fontFamily = "monospace";
 				}
 
-				// Fix blockquote styling
 				if (el.tagName === "BLOCKQUOTE") {
 					el.style.borderLeft = "3px solid #ccc";
 					el.style.paddingLeft = "10px";
@@ -226,13 +222,6 @@
 					el.style.color = "#555";
 				}
 
-				// Add borders to table cells if any
-				if (el.tagName === "TD" || el.tagName === "TH") {
-					el.style.border = "1px solid #ddd";
-					el.style.padding = "4px";
-				}
-
-				// Fix list styling
 				if (el.tagName === "UL" || el.tagName === "OL") {
 					el.style.paddingLeft = "20px";
 					el.style.marginTop = "5px";
@@ -243,16 +232,32 @@
 			// Initialize jsPDF
 			const pdf = new jsPDF("p", "mm", "a4");
 
-			// Use html method to render the content
+			// Generate PDF from HTML content
 			pdf.html(container, {
 				callback: async function (pdf) {
 					try {
-						// Write the PDF file to the Documents directory
-						await writeBinaryFile(
-							`${safeTitle}.pdf`,
-							pdf.output("arraybuffer"),
-							{ dir: BaseDirectory.Document },
-						);
+						// Get PDF data as array buffer
+						const pdfData = pdf.output("arraybuffer");
+
+						// Convert to Uint8Array for file writing
+						const pdfBuffer = new Uint8Array(pdfData);
+
+						// Determine file path in Documents directory
+						const filePath = `${safeTitle}.pdf`;
+
+						// Open the file for writing
+						const file = await open(filePath, {
+							write: true,
+							create: true,
+							truncate: true,
+							baseDir: BaseDirectory.Document,
+						});
+
+						// Write the PDF data to the file
+						await file.write(pdfBuffer);
+
+						// Close the file
+						await file.close();
 
 						toastStore.set({
 							show: true,
@@ -266,12 +271,14 @@
 							message: `Failed to save PDF file: ${error.message}`,
 							success: false,
 						});
+					} finally {
+						isPdfGenerating = false;
 					}
 				},
 				x: 0,
 				y: 0,
 				width: 170, // A4 width minus margins
-				windowWidth: 1000, // Adjust this based on your content
+				windowWidth: 1000, // Adjust based on your content
 			});
 		} catch (error) {
 			console.error("Error creating PDF:", error);
@@ -280,9 +287,9 @@
 				message: `Failed to create PDF: ${error.message}`,
 				success: false,
 			});
+			isPdfGenerating = false;
 		}
 	};
-
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
 	});
@@ -298,7 +305,7 @@
 						aria-label="Switch Vault"
 						aria-controls="vaultSelector"
 						aria-expanded="false"
-						on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+						on:click={() => (vaultManagerActive = !vaultManagerActive)}>
 						<span class="flex-1 truncate text-left py-1"
 							>{$currentVault.id === "all"
 								? "All Vaults"
@@ -306,7 +313,7 @@
 						><span
 							class="shrink-0 transition-transform duration-300 {vaultManagerActive
 								? '-rotate-90'
-								: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
+								: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 						></button>
 					{#if vaultManagerActive}
 						<VaultManager bind:vaultManagerActive instance="content" />
@@ -320,11 +327,11 @@
                        {selectedSection === 'home'
 							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:click="{() => handleFilterSelection('home')}"
-						aria-current="{selectedSection === 'home' ? 'page' : undefined}">
+						on:click={() => handleFilterSelection("home")}
+						aria-current={selectedSection === "home" ? "page" : undefined}>
 						<MobileHome
-							size="{20}"
-							color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
+							size={20}
+							color={selectedSection === "home" ? "#BFC0CC" : "#85889C"} />
 						<span>Home</span>
 					</button>
 
@@ -333,13 +340,13 @@
                        {selectedSection === 'favourites'
 							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:click="{() => handleFilterSelection('favourites')}"
-						aria-current="{selectedSection === 'favourites'
-							? 'page'
-							: undefined}">
+						on:click={() => handleFilterSelection("favourites")}
+						aria-current={selectedSection === "favourites"
+							? "page"
+							: undefined}>
 						<EmptyStar
-							color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
-							size="{20}" />
+							color={selectedSection === "favourites" ? "#BFC0CC" : "#85889C"}
+							size={20} />
 						<span>Favourites</span>
 					</button>
 				</div>
@@ -348,32 +355,32 @@
 					{#if $currentVault.id !== "all"}
 						<button
 							class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
-							on:click|stopPropagation="{() => {}}"
-							on:mouseenter="{() => (deleteBtnHoved = true)}"
-							on:mouseleave="{() => (deleteBtnHoved = false)}"
+							on:click|stopPropagation={() => {}}
+							on:mouseenter={() => (deleteBtnHoved = true)}
+							on:mouseleave={() => (deleteBtnHoved = false)}
 							aria-label="Delete Folder"
 							><Bin
-								color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}"
-								size="{24}" /></button>
+								color={deleteBtnHoved ? "#FF6A6A" : "#85889C"}
+								size={24} /></button>
 					{/if}
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center cursor-pointer {addCredentialHovered
 							? 'bg-livnotelavender text-primarydark'
 							: 'bg-osvauld-fieldActive text-osvauld-fieldText'}"
-						on:mouseenter="{() => (addCredentialHovered = true)}"
-						on:mouseleave="{() => (addCredentialHovered = false)}"
-						on:click="{handleAddNote}">
+						on:mouseenter={() => (addCredentialHovered = true)}
+						on:mouseleave={() => (addCredentialHovered = false)}
+						on:click={handleAddNote}>
 						<span class="mr-2 pl-2">New Note</span>
 						<Add
-							color="{addCredentialHovered ? '#010109' : '#85889C'}"
-							size="{24}" />
+							color={addCredentialHovered ? "#010109" : "#85889C"}
+							size={24} />
 					</button>
 				</div>
 			{:else}
 				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click="{handleBackButton}">
+						on:click={handleBackButton}>
 						<BackArrow />
 					</button>
 					<span
@@ -385,7 +392,7 @@
 
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click|stopPropagation="{toggleFav}">
+						on:click|stopPropagation={toggleFav}>
 						{#if isFavourite}
 							<Star />
 						{:else}
@@ -403,7 +410,7 @@
 			<div class=" shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-					on:click="{handleCopyNote}">
+					on:click={handleCopyNote}>
 					{#if noteCopied}
 						<Tick color="#a6e3a1" />
 					{:else}
@@ -412,15 +419,15 @@
 				</button>
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<Bin size="{24}" />
+					<Bin size={24} />
 				</button>
 
 				<div class="relative flex justify-center items-center">
 					<button
 						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-						on:mouseenter="{() => (showDownloadTooltip = true)}"
-						on:mouseleave="{() => (showDownloadTooltip = false)}"
-						on:click="{handleDownloadPdf}"
+						on:mouseenter={() => (showDownloadTooltip = true)}
+						on:mouseleave={() => (showDownloadTooltip = false)}
+						on:click={handleDownloadPdf}
 						aria-label="Download as PDF">
 						<DownloadIcon />
 					</button>
@@ -441,22 +448,22 @@
 			<div class="flex-1 w-full">
 				<div class="relative">
 					<button
-						on:click="{handleShareList}"
+						on:click={handleShareList}
 						class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 						aria-label="share with users">
 						<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
-						<UserPlus color="#010109" size="{24}" />
+						<UserPlus color="#010109" size={24} />
 					</button>
 					{#if showShareList}
 						<div
 							class="bg-transparent fixed inset-0 z-40"
 							role="presentation"
 							aria-hidden="true"
-							on:click|stopPropagation="{() => {
+							on:click|stopPropagation={() => {
 								showShareList = false;
-							}}">
+							}}>
 						</div>
-						<ShareNote bind:showShareList {shareUserList} noteId="{$noteId}" />
+						<ShareNote bind:showShareList {shareUserList} noteId={$noteId} />
 					{/if}
 				</div>
 			</div>
