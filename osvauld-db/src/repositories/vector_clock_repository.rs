@@ -1,0 +1,129 @@
+use crate::database::DbConnection;
+use crate::database::schema::resource_vector_clocks;
+use crate::models::ResourceVectorClockModel;
+use async_trait::async_trait;
+use chrono::Local;
+use diesel::prelude::*;
+use osvauld_core::models::vector_clock::ResourceVectorClock;
+use osvauld_core::repositories::{RepositoryError, VectorClockRepository};
+
+pub struct SqliteVectorClockRepository {
+    connection: DbConnection,
+}
+
+impl SqliteVectorClockRepository {
+    pub fn new(connection: DbConnection) -> Self {
+        Self { connection }
+    }
+}
+
+#[async_trait]
+impl VectorClockRepository for SqliteVectorClockRepository {
+    async fn save_vector_clocks(
+        &self,
+        vector_clocks: Vec<ResourceVectorClock>,
+    ) -> Result<(), RepositoryError> {
+        if vector_clocks.is_empty() {
+            return Ok(());
+        }
+
+        let vector_clock_models =
+            ResourceVectorClockModel::from_domain_vector_clocks(vector_clocks);
+        let mut conn = self.connection.lock().await;
+
+        diesel::insert_into(resource_vector_clocks::table)
+            .values(&vector_clock_models)
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn increment_vector_clock(
+        &self,
+        resource_id: &str,
+        device_id: &str,
+    ) -> Result<ResourceVectorClock, RepositoryError> {
+        let now = Local::now().timestamp_millis();
+        let mut conn = self.connection.lock().await;
+
+        // Start a transaction
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // Get the current vector clock
+            let result = resource_vector_clocks::table
+                .filter(resource_vector_clocks::resource_id.eq(resource_id))
+                .filter(resource_vector_clocks::device_id.eq(device_id))
+                .first::<ResourceVectorClockModel>(conn)
+                .optional()?;
+
+            match result {
+                Some(mut model) => {
+                    // Increment existing clock
+                    model.clock_value += 1;
+                    model.updated_at = now;
+
+                    diesel::update(resource_vector_clocks::table)
+                        .filter(resource_vector_clocks::id.eq(&model.id))
+                        .set((
+                            resource_vector_clocks::clock_value.eq(model.clock_value),
+                            resource_vector_clocks::updated_at.eq(now),
+                        ))
+                        .execute(conn)?;
+
+                    Ok(model)
+                }
+                None => {
+                    // Create new clock entry with value 1
+                    let new_clock = ResourceVectorClock::initialize(resource_id, device_id);
+                    let model = ResourceVectorClockModel::from(&new_clock);
+
+                    diesel::insert_into(resource_vector_clocks::table)
+                        .values(&model)
+                        .execute(conn)?;
+
+                    Ok(model)
+                }
+            }
+        })
+        .map_err(|e| match e {
+            diesel::result::Error::NotFound => RepositoryError::NotFound,
+            _ => RepositoryError::DatabaseError(e.to_string()),
+        })
+        .map(ResourceVectorClockModel::into)
+    }
+
+    async fn get_vector_clocks_for_resource(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ResourceVectorClock>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let models = resource_vector_clocks::table
+            .filter(resource_vector_clocks::resource_id.eq(resource_id))
+            .select(ResourceVectorClockModel::as_select())
+            .load::<ResourceVectorClockModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(ResourceVectorClockModel::to_domain_vector_clocks(models))
+    }
+
+    async fn get_vector_clock(
+        &self,
+        resource_id: &str,
+        device_id: &str,
+    ) -> Result<ResourceVectorClock, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let model = resource_vector_clocks::table
+            .filter(resource_vector_clocks::resource_id.eq(resource_id))
+            .filter(resource_vector_clocks::device_id.eq(device_id))
+            .select(ResourceVectorClockModel::as_select())
+            .first::<ResourceVectorClockModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(model.into())
+    }
+}

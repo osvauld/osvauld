@@ -13,7 +13,7 @@ use crate::models::{
         SyncRecordSet,
     },
     user::User,
-    vector_clock::VectorClock,
+    vector_clock::ResourceVectorClock,
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -138,11 +138,8 @@ pub trait ResourceRepository: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
     async fn get_favourites(&self, user_id: &str) -> Result<Vec<ResourceWithKey>, RepositoryError>;
-    async fn update_resource(
-        &self,
-        data: String,
-        resource_id: String,
-    ) -> Result<(), RepositoryError>;
+    async fn update_resource(&self, data: String, resource_id: &str)
+    -> Result<(), RepositoryError>;
     async fn find_resource_with_key(
         &self,
         resource_id: &str,
@@ -153,13 +150,6 @@ pub trait ResourceRepository: Send + Sync {
         resource: &Resource,
         key: &ResourceKey,
     ) -> Result<(), RepositoryError>;
-
-    async fn update_resource_vector_clock(
-        &self,
-        resource_id: &str,
-        vector_clock: &VectorClock,
-    ) -> Result<(), RepositoryError>;
-
     async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError>;
 }
 
@@ -275,4 +265,33 @@ pub trait ShareRepository: Send + Sync {
     ) -> Result<Vec<UserRecord>, RepositoryError>;
 
     async fn get_share_record_by_id(&self, share_id: &str) -> Result<ShareRecord, RepositoryError>;
+}
+
+#[async_trait]
+pub trait VectorClockRepository: Send + Sync {
+    /// Save multiple vector clock entries
+    async fn save_vector_clocks(
+        &self,
+        vector_clocks: Vec<ResourceVectorClock>,
+    ) -> Result<(), RepositoryError>;
+
+    /// Increment a vector clock for a specific resource and device
+    async fn increment_vector_clock(
+        &self,
+        resource_id: &str,
+        device_id: &str,
+    ) -> Result<ResourceVectorClock, RepositoryError>;
+
+    /// Get all vector clock entries for a resource
+    async fn get_vector_clocks_for_resource(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ResourceVectorClock>, RepositoryError>;
+
+    /// Get a specific vector clock entry
+    async fn get_vector_clock(
+        &self,
+        resource_id: &str,
+        device_id: &str,
+    ) -> Result<ResourceVectorClock, RepositoryError>;
 }

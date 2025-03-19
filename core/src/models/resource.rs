@@ -3,8 +3,6 @@ use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::vector_clock::VectorClock;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {
     pub id: String,
@@ -37,17 +35,6 @@ impl Resource {
             deleted: false,
             deleted_at: None,
         }
-    }
-
-    pub fn new_with_device(
-        resource_type: String,
-        data: String,
-        folder_id: String,
-        signature: String,
-        device_id: &str,
-    ) -> Self {
-        let mut resource = Self::new(resource_type, data, folder_id, signature);
-        resource
     }
 }
 

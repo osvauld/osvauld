@@ -1,67 +1,144 @@
+use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct VectorClock {
-    // Maps user_id to their logical clock value
-    pub clock: HashMap<String, u64>,
+// Single vector clock entry in the database (one row per device/resource)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceVectorClock {
+    pub id: String,
+    pub resource_id: String,
+    pub device_id: String,
+    pub clock_value: u64,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
-impl VectorClock {
-    pub fn new() -> Self {
+impl ResourceVectorClock {
+    // Create a new vector clock entry
+    pub fn new(resource_id: String, device_id: String, clock_value: u64) -> Self {
+        let now = Local::now().timestamp_millis();
+
         Self {
-            clock: HashMap::new(),
+            id: Uuid::new_v4().to_string(),
+            resource_id,
+            device_id,
+            clock_value,
+            created_at: now,
+            updated_at: now,
         }
     }
 
-    // Initialize with a single user's first update
-    pub fn initialize(user_id: &str) -> Self {
-        let mut clock = HashMap::new();
-        clock.insert(user_id.to_string(), 1);
-        Self { clock }
+    // Create a new entry with clock value 1
+    pub fn initialize(resource_id: &str, device_id: &str) -> Self {
+        Self::new(resource_id.to_string(), device_id.to_string(), 1)
     }
 
-    // Increment a user's counter
-    pub fn increment(&mut self, user_id: &str) {
-        let counter = self.clock.entry(user_id.to_string()).or_insert(0);
-        *counter += 1;
+    // Create vector clock entries for a new resource with multiple devices
+    // The source device gets clock value 1, others get 0
+    pub fn create_initial_entries(
+        resource_id: &str,
+        device_ids: &[String],
+        source_device_id: &str,
+    ) -> Vec<ResourceVectorClock> {
+        let mut entries = Vec::new();
+
+        for device_id in device_ids {
+            let clock_value = if device_id == source_device_id { 1 } else { 0 };
+            entries.push(ResourceVectorClock::new(
+                resource_id.to_string(),
+                device_id.clone(),
+                clock_value,
+            ));
+        }
+
+        entries
     }
 
-    // Merge with another vector clock (take maximum of each entry)
-    pub fn merge(&mut self, other: &VectorClock) {
-        for (user_id, &counter) in &other.clock {
-            let entry = self.clock.entry(user_id.clone()).or_insert(0);
-            *entry = std::cmp::max(*entry, counter);
+    // Create vector clock entries for newly added devices
+    pub fn create_entries_for_new_devices(
+        resource_id: &str,
+        device_ids: &[String],
+    ) -> Vec<ResourceVectorClock> {
+        device_ids
+            .iter()
+            .map(|device_id| {
+                ResourceVectorClock::new(resource_id.to_string(), device_id.clone(), 0)
+            })
+            .collect()
+    }
+
+    // Merge two sets of vector clock entries
+    // Returns a complete analysis of what needs to be updated where
+    pub fn merge(
+        local_entries: &[ResourceVectorClock],
+        remote_entries: &[ResourceVectorClock],
+    ) -> MergeResult {
+        let mut update_local = Vec::new();
+        let mut add_local = Vec::new();
+        let mut update_remote = Vec::new();
+        let mut add_remote = Vec::new();
+
+        let mut local_needs_update = false;
+        let mut remote_needs_update = false;
+
+        // Process entries from remote
+        for remote in remote_entries {
+            let local_entry = local_entries
+                .iter()
+                .find(|e| e.device_id == remote.device_id);
+
+            match local_entry {
+                Some(local) => {
+                    // Entry exists on both sides
+                    if remote.clock_value > local.clock_value {
+                        // Remote has higher value - update local
+                        update_local.push(remote.clone());
+                        local_needs_update = true;
+                    } else if local.clock_value > remote.clock_value {
+                        // Local has higher value - update remote
+                        update_remote.push(local.clone());
+                        remote_needs_update = true;
+                    }
+                }
+                None => {
+                    // Entry only in remote - add to local
+                    add_local.push(remote.clone());
+                    local_needs_update = true;
+                }
+            }
+        }
+
+        // Check for entries only in local
+        for local in local_entries {
+            let remote_has_entry = remote_entries
+                .iter()
+                .any(|e| e.device_id == local.device_id);
+
+            if !remote_has_entry {
+                // Entry only in local - add to remote
+                add_remote.push(local.clone());
+                remote_needs_update = true;
+            }
+        }
+
+        MergeResult {
+            update_local,
+            add_local,
+            update_remote,
+            add_remote,
+            local_needs_update,
+            remote_needs_update,
         }
     }
+}
 
-    // Returns true if self happens-before other
-    pub fn happens_before(&self, other: &VectorClock) -> bool {
-        // At least one entry in other is greater than in self
-        let has_greater = other.clock.iter().any(|(user_id, &counter)| {
-            self.clock
-                .get(user_id)
-                .map_or(true, |&self_counter| self_counter < counter)
-        });
-
-        // No entry in self is greater than in other
-        let no_greater = !self.clock.iter().any(|(user_id, &counter)| {
-            other
-                .clock
-                .get(user_id)
-                .map_or(true, |&other_counter| counter > other_counter)
-        });
-
-        has_greater && no_greater
-    }
-
-    // Returns true if other happens-before self
-    pub fn happens_after(&self, other: &VectorClock) -> bool {
-        other.happens_before(self)
-    }
-
-    // Returns true if self and other are concurrent
-    pub fn is_concurrent_with(&self, other: &VectorClock) -> bool {
-        !self.happens_before(other) && !other.happens_before(self)
-    }
+// Result of merging vector clocks
+#[derive(Debug, Clone)]
+pub struct MergeResult {
+    pub update_local: Vec<ResourceVectorClock>, // Entries to update locally
+    pub add_local: Vec<ResourceVectorClock>,    // New entries to add locally
+    pub update_remote: Vec<ResourceVectorClock>, // Entries to update remotely
+    pub add_remote: Vec<ResourceVectorClock>,   // New entries to add remotely
+    pub local_needs_update: bool,               // Does local need resource data update
+    pub remote_needs_update: bool,              // Does remote need resource data update
 }

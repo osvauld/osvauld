@@ -1,6 +1,7 @@
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{SyncAckType, SyncData, SyncPayload};
 use osvauld_core::models::user::User;
+use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::models::{
     folder::Folder,
     resource::Resource,
@@ -410,17 +411,28 @@ impl SyncService {
 
     pub async fn prepare_resource_to_sync(
         &self,
-        resource: Resource,
+        resource: &Resource,
         user_id: &str,
-    ) -> Result<SyncRecordSet, RepositoryError> {
+        device: &Device,
+    ) -> Result<(SyncRecordSet, Vec<ResourceVectorClock>), RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
             .device_repository
             .get_devices_by_user_except(user_id, vec![current_device_id.clone()].as_slice())
             .await?;
-        let sync_record_set =
-            SyncRecord::create_resource_sync_record(resource.id, current_device_id, &devices);
-        Ok(sync_record_set)
+        let sync_record_set = SyncRecord::create_resource_sync_record(
+            resource.id.clone(),
+            current_device_id,
+            &devices,
+        );
+        let device_ids: Vec<String> = devices
+            .iter()
+            .map(|d| d.id.clone())
+            .chain(std::iter::once(device.id.clone()))
+            .collect();
+        let vector_clocks =
+            ResourceVectorClock::create_initial_entries(&resource.id, &device_ids, &device.id);
+        Ok((sync_record_set, vector_clocks))
     }
 
     // pub async fn add_soft_deletion_sync_record(

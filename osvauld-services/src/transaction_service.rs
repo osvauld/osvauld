@@ -1,12 +1,11 @@
-use log::info;
 use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
 use osvauld_core::models::user::User;
-use osvauld_core::models::vector_clock::VectorClock;
+use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, RepositoryError, ResourceKeyRepository, ResourceRepository,
-    ShareRepository, StoreRepository, SyncRepository, UserRepository,
+    ShareRepository, StoreRepository, SyncRepository, UserRepository, VectorClockRepository,
 };
 
 use osvauld_core::models::resource::Resource;
@@ -23,6 +22,7 @@ pub struct TransactionService {
     user_repository: Arc<dyn UserRepository>,
     device_repository: Arc<dyn DeviceRepository>,
     folder_repository: Arc<dyn FolderRepository>,
+    vector_clock_repository: Arc<dyn VectorClockRepository>,
 }
 
 impl TransactionService {
@@ -35,6 +35,7 @@ impl TransactionService {
         user_repository: Arc<dyn UserRepository>,
         device_repository: Arc<dyn DeviceRepository>,
         folder_repository: Arc<dyn FolderRepository>,
+        vector_clock_repository: Arc<dyn VectorClockRepository>,
     ) -> Self {
         Self {
             resource_repository,
@@ -45,6 +46,7 @@ impl TransactionService {
             user_repository,
             device_repository,
             folder_repository,
+            vector_clock_repository,
         }
     }
 
@@ -54,6 +56,7 @@ impl TransactionService {
         resource_key: ResourceKey,
         sync_record_set: SyncRecordSet,
         share_record_set: ShareRecordSet,
+        vector_clocks: Vec<ResourceVectorClock>,
     ) -> Result<(), RepositoryError> {
         // Save resource and its key
         self.resource_repository.save(&resource).await?;
@@ -68,14 +71,17 @@ impl TransactionService {
         self.share_repository
             .add_share_record_set(share_record_set)
             .await?;
-
+        self.vector_clock_repository
+            .save_vector_clocks(vector_clocks)
+            .await?;
         Ok(())
     }
 
     pub async fn update_resource_with_sync_and_share(
         &self,
-        resource_id: String,
+        resource_id: &str,
         encrypted_data: String,
+        current_device: &Device,
     ) -> Result<(), RepositoryError> {
         // Use diesel transaction if your database supports it
         // For SQLite, you might need to implement your own transaction mechanism
@@ -84,6 +90,9 @@ impl TransactionService {
         self.resource_repository
             .update_resource(encrypted_data, resource_id)
             .await?;
+        self.vector_clock_repository
+            .increment_vector_clock(&resource_id, &current_device.id)
+            .await?;
 
         Ok(())
     }
@@ -91,7 +100,7 @@ impl TransactionService {
     pub async fn share_resource(
         &self,
         resource_key: ResourceKey,
-        vector_clock: VectorClock,
+        vector_clock: ResourceVectorClock,
         user_record: UserRecordSet,
         resource_id: String,
     ) -> Result<(), RepositoryError> {
@@ -101,9 +110,9 @@ impl TransactionService {
             .update_user_record_set(user_record)
             .await?;
         // Update the resource's vector clock
-        self.resource_repository
-            .update_resource_vector_clock(&resource_id, &vector_clock)
-            .await?;
+        // self.resource_repository
+        //     .update_resource_vector_clock(&resource_id, &vector_clock)
+        //     .await?;
         Ok(())
     }
     pub async fn handle_add_folder_transaction(

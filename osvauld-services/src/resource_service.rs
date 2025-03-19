@@ -2,7 +2,6 @@ use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserP
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
 use osvauld_core::models::user::User;
-use osvauld_core::models::vector_clock::VectorClock;
 use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
 };
@@ -47,7 +46,6 @@ impl ResourceService {
         resource_type: String,
         folder_id: String,
         user: &User,
-        device_id: &str,
     ) -> Result<(Resource, ResourceKey), ResourceServiceError> {
         // Encrypt the resource
         let user_pub_key = UserPublicKey {
@@ -58,12 +56,11 @@ impl ResourceService {
         let encrypted = encrypt_data_for_users(&resource_payload, &[user_pub_key])
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
-        let resource = Resource::new_with_device(
+        let resource = Resource::new(
             resource_type,
             encrypted.encrypted_data,
             folder_id,
             "signature".to_string(), // TODO: Implement proper signing
-            device_id,
         );
         let resource_key = ResourceKey::new(
             resource.id.clone(),
@@ -235,60 +232,60 @@ impl ResourceService {
         get_key_id(&public_key).map_err(|e| ResourceServiceError::CryptoError(e.to_string()))
     }
 
-    pub async fn share_resource(
-        &self,
-        resource_id: String,
-        recipient_public_key: String,
-    ) -> Result<(ResourceKey, VectorClock), ResourceServiceError> {
-        // Get current user ID
-        let current_user_id = self.get_current_user_id().await?;
-
-        // Find the resource key for the current user
-        let resource_key = self
-            .resource_key_repository
-            .find_by_resource_and_user(&resource_id, &current_user_id)
-            .await?;
-
-        // Encrypt the key for the recipient
-        let new_encryption_key = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_public_key)
-                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
-        };
-
-        // Get recipient's user ID from their public key
-        let recipient_user_id = get_key_id(&recipient_public_key)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
-
-        // Create a new resource key for the recipient
-        let new_resource_key = ResourceKey::new(
-            resource_id.clone(),
-            recipient_user_id.clone(),
-            new_encryption_key,
-            false,
-        );
-
-        // Update the resource's vector clock
-        // 1. Get the current resource with its vector clock
-        let resource = self
-            .resource_repository
-            .find_by_id_raw(&resource_id)
-            .await
-            .map_err(ResourceServiceError::RepositoryError)?;
-
-        // 2. Increment the current user's counter in the vector clock
-        let mut updated_vector_clock = resource.vector_clock.clone();
-        updated_vector_clock.increment(&current_user_id);
-
-        // 3. Ensure the recipient has an entry in the vector clock (initialized to 0)
-        // This is important so they're included in future causality tracking
-        updated_vector_clock
-            .clock
-            .entry(recipient_user_id)
-            .or_insert(0);
-
-        // Return the new resource key and vector clock
-        Ok((new_resource_key, updated_vector_clock))
-    }
+    // pub async fn share_resource(
+    //     &self,
+    //     resource_id: String,
+    //     recipient_public_key: String,
+    // ) -> Result<(ResourceKey, VectorClock), ResourceServiceError> {
+    //     // Get current user ID
+    //     let current_user_id = self.get_current_user_id().await?;
+    //
+    //     // Find the resource key for the current user
+    //     let resource_key = self
+    //         .resource_key_repository
+    //         .find_by_resource_and_user(&resource_id, &current_user_id)
+    //         .await?;
+    //
+    //     // Encrypt the key for the recipient
+    //     let new_encryption_key = {
+    //         let crypto = self.crypto_utils.lock().await;
+    //         crypto
+    //             .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_public_key)
+    //             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+    //     };
+    //
+    //     // Get recipient's user ID from their public key
+    //     let recipient_user_id = get_key_id(&recipient_public_key)
+    //         .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+    //
+    //     // Create a new resource key for the recipient
+    //     let new_resource_key = ResourceKey::new(
+    //         resource_id.clone(),
+    //         recipient_user_id.clone(),
+    //         new_encryption_key,
+    //         false,
+    //     );
+    //
+    //     // Update the resource's vector clock
+    //     // 1. Get the current resource with its vector clock
+    //     let resource = self
+    //         .resource_repository
+    //         .find_by_id_raw(&resource_id)
+    //         .await
+    //         .map_err(ResourceServiceError::RepositoryError)?;
+    //
+    //     // 2. Increment the current user's counter in the vector clock
+    //     let mut updated_vector_clock = resource.vector_clock.clone();
+    //     updated_vector_clock.increment(&current_user_id);
+    //
+    //     // 3. Ensure the recipient has an entry in the vector clock (initialized to 0)
+    //     // This is important so they're included in future causality tracking
+    //     updated_vector_clock
+    //         .clock
+    //         .entry(recipient_user_id)
+    //         .or_insert(0);
+    //
+    //     // Return the new resource key and vector clock
+    //     Ok((new_resource_key, updated_vector_clock))
+    // }
 }

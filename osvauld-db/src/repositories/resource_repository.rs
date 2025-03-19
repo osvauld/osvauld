@@ -7,7 +7,6 @@ use diesel::QueryDsl;
 use diesel::prelude::*;
 use osvauld_core::models::resource::{Resource, ResourceKeyPair, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::vector_clock::VectorClock;
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 
 pub struct SqliteResourceRepository {
@@ -155,7 +154,7 @@ impl ResourceRepository for SqliteResourceRepository {
     async fn update_resource(
         &self,
         data: String,
-        resource_id: String,
+        resource_id: &str,
     ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let now = Local::now().timestamp_millis();
@@ -290,29 +289,6 @@ impl ResourceRepository for SqliteResourceRepository {
             Ok(())
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
-        Ok(())
-    }
-
-    async fn update_resource_vector_clock(
-        &self,
-        resource_id: &str,
-        vector_clock: &VectorClock,
-    ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
-        let now = Local::now().timestamp_millis();
-
-        let vector_clock_json = serde_json::to_string(vector_clock)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
-        diesel::update(resources::table)
-            .filter(resources::id.eq(resource_id))
-            .set((
-                resources::vector_clock.eq(vector_clock_json),
-                resources::updated_at.eq(now),
-            ))
-            .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }

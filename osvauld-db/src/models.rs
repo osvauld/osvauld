@@ -1,6 +1,6 @@
 use crate::database::schema::{
-    device_record_status, device_records, devices, folders, resource_keys, resources,
-    share_records, sync_records, user_record_status, user_records, users,
+    device_record_status, device_records, devices, folders, resource_keys, resource_vector_clocks,
+    resources, share_records, sync_records, user_record_status, user_records, users,
 };
 use diesel::prelude::*;
 use osvauld_core::models::{
@@ -18,7 +18,7 @@ use osvauld_core::models::{
     sync_record::SyncRecord as DomainSyncRecord,
     sync_types::{OperationType, ResourceType, SyncStatus},
     user::User as DomainUser,
-    vector_clock::VectorClock,
+    vector_clock::ResourceVectorClock as DomainResourceVectorClock,
 };
 
 #[derive(Queryable, Insertable)]
@@ -195,7 +195,6 @@ pub struct ResourceModel {
     pub deleted_at: Option<i64>,
     pub updated_at: i64,
     pub created_at: i64,
-    pub vector_clock: String,
 }
 
 impl From<&DomainResource> for ResourceModel {
@@ -212,8 +211,6 @@ impl From<&DomainResource> for ResourceModel {
             deleted_at: resource.deleted_at,
             created_at: resource.created_at,
             updated_at: resource.updated_at,
-            vector_clock: serde_json::to_string(&resource.vector_clock)
-                .unwrap_or_else(|_| "{\"clock\":{}}".to_string()),
         }
     }
 }
@@ -232,8 +229,6 @@ impl From<ResourceModel> for DomainResource {
             favourite: model.favourite,
             deleted: model.deleted,
             deleted_at: model.deleted_at,
-            vector_clock: serde_json::from_str(&model.vector_clock)
-                .unwrap_or_else(|_| VectorClock::new()),
         }
     }
 }
@@ -509,5 +504,64 @@ impl From<&DomainUserRecordStatus> for UserRecordStatusModel {
             created_at: status.created_at,
             updated_at: status.updated_at,
         }
+    }
+}
+
+#[derive(Queryable, Insertable, Selectable, Debug)]
+#[diesel(table_name = resource_vector_clocks)]
+pub struct ResourceVectorClockModel {
+    pub id: String,
+    pub resource_id: String,
+    pub device_id: String,
+    pub clock_value: i32,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl From<&DomainResourceVectorClock> for ResourceVectorClockModel {
+    fn from(clock: &DomainResourceVectorClock) -> Self {
+        Self {
+            id: clock.id.clone(),
+            resource_id: clock.resource_id.clone(),
+            device_id: clock.device_id.clone(),
+            clock_value: clock.clock_value as i32, // Convert u64 to i32
+            created_at: clock.created_at,
+            updated_at: clock.updated_at,
+        }
+    }
+}
+
+impl From<ResourceVectorClockModel> for DomainResourceVectorClock {
+    fn from(model: ResourceVectorClockModel) -> Self {
+        Self {
+            id: model.id,
+            resource_id: model.resource_id,
+            device_id: model.device_id,
+            clock_value: model.clock_value as u64, // Convert i32 to u64
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        }
+    }
+}
+
+impl ResourceVectorClockModel {
+    // Helper to convert a collection of models to domain objects
+    pub fn to_domain_vector_clocks(
+        models: Vec<ResourceVectorClockModel>,
+    ) -> Vec<DomainResourceVectorClock> {
+        models
+            .into_iter()
+            .map(DomainResourceVectorClock::from)
+            .collect()
+    }
+
+    // Helper to convert a collection of domain objects to models
+    pub fn from_domain_vector_clocks(
+        clocks: Vec<DomainResourceVectorClock>,
+    ) -> Vec<ResourceVectorClockModel> {
+        clocks
+            .iter()
+            .map(|clock| ResourceVectorClockModel::from(clock))
+            .collect()
     }
 }

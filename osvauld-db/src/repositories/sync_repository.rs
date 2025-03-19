@@ -8,7 +8,6 @@ use osvauld_core::models::sync_record::{
     DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
 use osvauld_core::repositories::{RepositoryError, SyncRepository};
-use std::collections::HashMap;
 
 pub struct SqliteSyncRepository {
     connection: DbConnection,

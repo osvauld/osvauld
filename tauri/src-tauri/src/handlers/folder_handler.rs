@@ -12,20 +12,16 @@ pub async fn handle_add_folder(
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     log::info!("Adding folder: ");
-    let user_option = user_state.get_user().await;
-    if let Some(user) = user_option {
-        let folder = folder_service
-            .create_folder(input.name, Some(input.description))
-            .await
-            .map_err(|e| e.to_string())?;
-        let _ = sync_service
-            .add_folder_to_sync(folder.clone(), &user.id)
-            .await;
+    let user = user_state.get_user().await?;
+    let folder = folder_service
+        .create_folder(input.name, Some(input.description))
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = sync_service
+        .add_folder_to_sync(folder.clone(), &user.id)
+        .await;
 
-        Ok(CryptoResponse::FolderCreated(folder))
-    } else {
-        Err("No user found in state. Please log in.".to_string())
-    }
+    Ok(CryptoResponse::FolderCreated(folder))
 }
 
 #[tauri::command]

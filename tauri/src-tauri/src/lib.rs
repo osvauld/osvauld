@@ -25,7 +25,7 @@ use crypto_utils::CryptoUtils;
 use osvauld_db::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
     SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
-    SqliteUserRepository,
+    SqliteUserRepository, SqliteVectorClockRepository,
 };
 use osvauld_services::{
     AuthService, FolderService, ResourceService, ShareService, SyncService, TransactionService,
@@ -107,8 +107,10 @@ pub fn run() {
                     // Initialize folder service with cloned repositories
                     let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
                     let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
-                    let folder_service = Arc::new(FolderService::new(folder_repo.clone()));
+                    let vector_clock_repo =
+                        Arc::new(SqliteVectorClockRepository::new(connection.clone()));
 
+                    let folder_service = Arc::new(FolderService::new(folder_repo.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
                     let auth_service = Arc::new(AuthService::new(
                         store_repository.clone(),
@@ -150,6 +152,7 @@ pub fn run() {
                         user_repository.clone(),
                         device_repo.clone(),
                         folder_repo.clone(),
+                        vector_clock_repo.clone(),
                     ));
                     let (p2p_service, p2p_receiver) = P2PService::new(
                         sync_service.clone(),
