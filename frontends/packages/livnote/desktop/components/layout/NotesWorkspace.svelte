@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { jsPDF } from "jspdf";
+	import { writeBinaryFile, BaseDirectory } from "@tauri-apps/api/fs";
 	import {
 		currentVault,
 		noteViewLayout,
@@ -167,6 +169,120 @@
 		}
 	};
 
+	const handleDownloadPdf = async () => {
+		if (!$currentNote || !$currentNote?.data) {
+			toastStore.set({
+				show: true,
+				message: "No note content to download",
+				success: false,
+			});
+			return;
+		}
+
+		try {
+			// Get the document title for the filename
+			const title = extractTitle($currentNote?.data?.content) || "note";
+			const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+
+			// Get the editor content
+			const editorEl = document.querySelector(".ProseMirror");
+			if (!editorEl) {
+				throw new Error("Editor content not found");
+			}
+
+			// Create a container for the content with proper styling
+			const container = document.createElement("div");
+			container.innerHTML = `
+      <h1 style="font-size: 24px; margin-bottom: 16px; color: black;">${title}</h1>
+      <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black;">
+        ${editorEl.innerHTML}
+      </div>
+    `;
+
+			// Set container styles to ensure proper PDF rendering
+			container.style.width = "210mm";
+			container.style.padding = "15mm";
+			container.style.backgroundColor = "white";
+
+			// Apply styling fixes for the PDF
+			const allElements = container.querySelectorAll("*");
+			allElements.forEach((el) => {
+				// Ensure all text is visible on white background
+				el.style.color = "black";
+
+				// Fix background colors for code blocks
+				if (el.tagName === "PRE" || el.tagName === "CODE") {
+					el.style.backgroundColor = "#f0f0f0";
+					el.style.padding = "2px 4px";
+					el.style.borderRadius = "3px";
+					el.style.fontFamily = "monospace";
+				}
+
+				// Fix blockquote styling
+				if (el.tagName === "BLOCKQUOTE") {
+					el.style.borderLeft = "3px solid #ccc";
+					el.style.paddingLeft = "10px";
+					el.style.margin = "10px 0";
+					el.style.color = "#555";
+				}
+
+				// Add borders to table cells if any
+				if (el.tagName === "TD" || el.tagName === "TH") {
+					el.style.border = "1px solid #ddd";
+					el.style.padding = "4px";
+				}
+
+				// Fix list styling
+				if (el.tagName === "UL" || el.tagName === "OL") {
+					el.style.paddingLeft = "20px";
+					el.style.marginTop = "5px";
+					el.style.marginBottom = "5px";
+				}
+			});
+
+			// Initialize jsPDF
+			const pdf = new jsPDF("p", "mm", "a4");
+
+			// Use html method to render the content
+			pdf.html(container, {
+				callback: async function (pdf) {
+					try {
+						// Write the PDF file to the Documents directory
+						await writeBinaryFile(
+							`${safeTitle}.pdf`,
+							pdf.output("arraybuffer"),
+							{ dir: BaseDirectory.Document },
+						);
+
+						toastStore.set({
+							show: true,
+							message: `Note exported as PDF to Documents folder: ${safeTitle}.pdf`,
+							success: true,
+						});
+					} catch (error) {
+						console.error("Error saving PDF file:", error);
+						toastStore.set({
+							show: true,
+							message: `Failed to save PDF file: ${error.message}`,
+							success: false,
+						});
+					}
+				},
+				x: 0,
+				y: 0,
+				width: 170, // A4 width minus margins
+				windowWidth: 1000, // Adjust this based on your content
+			});
+		} catch (error) {
+			console.error("Error creating PDF:", error);
+			toastStore.set({
+				show: true,
+				message: `Failed to create PDF: ${error.message}`,
+				success: false,
+			});
+		}
+	};
+
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
 	});
@@ -303,7 +419,9 @@
 					<button
 						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 						on:mouseenter="{() => (showDownloadTooltip = true)}"
-						on:mouseleave="{() => (showDownloadTooltip = false)}">
+						on:mouseleave="{() => (showDownloadTooltip = false)}"
+						on:click="{handleDownloadPdf}"
+						aria-label="Download as PDF">
 						<DownloadIcon />
 					</button>
 

@@ -1,5 +1,4 @@
-
-  {
+{
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
   "productName": "osvauld",
   "version": "0.1.0",
@@ -33,5 +32,14 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "fs": {
+      "all": true,
+      "readFile": true,
+      "writeFile": true,
+      "readDir": true,
+      "scope": ["$DOCUMENT/*", "$DOCUMENT/**/*"]
+    }
   }
 }
