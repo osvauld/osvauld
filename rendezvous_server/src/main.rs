@@ -1,21 +1,32 @@
-use crate::storage::Storage;
-use axum::{extract::ws::Message, routing::get, Router};
+use axum::{routing::get, Router};
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
-use std::{collections::HashMap, sync::Arc, time::Instant};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
+
+// Import modules
+mod error;
+mod handlers;
+mod models;
+mod services;
 mod storage;
-mod websocket;
 
-// Import the types from websocket.rs or define them again
-type ClientInfo = (mpsc::UnboundedSender<Message>, Instant);
-type Clients = Arc<Mutex<HashMap<String, ClientInfo>>>;
-
-// Define the user client mapping type
-type UserClientMappings = Arc<Mutex<Vec<websocket::UserClientMapping>>>;
+use handlers::ws_handler::{simple_ws_handler, ws_handler};
+use models::{Clients, UserClientMappings};
+use services::connection_monitor::start_connection_monitor;
+use storage::Storage;
 
 #[tokio::main]
 async fn main() {
+    // Initialize tracing for better logging
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
+    // Initialize storage
     let storage = Arc::new(Storage::new("clients_db").unwrap());
+
+    // Initialize shared state
     let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
     let user_mappings: UserClientMappings = Arc::new(Mutex::new(Vec::new()));
 
@@ -23,23 +34,35 @@ async fn main() {
     let check_interval = Duration::from_secs(60); // Check every minute
     let timeout = Duration::from_secs(300); // 5 minute timeout
 
-    // Start the connection monitor
-    tokio::spawn(websocket::start_connection_monitor(
-        clients.clone(),
-        storage.clone(),
-        user_mappings.clone(),
-        check_interval,
-        timeout,
-    ));
+    // Start the connection monitor as a background task
+    let monitor_storage = storage.clone();
+    let monitor_clients = clients.clone();
+    let monitor_mappings = user_mappings.clone();
 
+    tokio::spawn(async move {
+        start_connection_monitor(
+            monitor_clients,
+            monitor_storage,
+            monitor_mappings,
+            check_interval,
+            timeout,
+        )
+        .await;
+    });
+
+    // Build application with routes and extensions
     let app = Router::new()
-        .route("/ws", get(websocket::ws_handler))
+        .route("/ws", get(ws_handler))
+        .route("/simple-ws", get(simple_ws_handler))
         .layer(axum::Extension(storage.clone()))
         .layer(axum::Extension(clients.clone()))
-        .layer(axum::Extension(user_mappings.clone())); // Add user_mappings to the extensions
+        .layer(axum::Extension(user_mappings.clone()));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3030").await.unwrap();
-    println!("WebSocket server running at ws://0.0.0.0:3030/ws");
+    // Start the server
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:3030")
+        .await
+        .unwrap();
+    tracing::info!("WebSocket server running at ws://127.0.0.1:3030/ws");
 
     axum::serve(listener, app).await.unwrap();
 }
