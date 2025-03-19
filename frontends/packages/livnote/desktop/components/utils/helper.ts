@@ -22,3 +22,9 @@ export const extractTitle = (content) => {
 
 	return "Untitled Note";
 };
+
+export const getLastModifiedDate = (timestamp) => {
+	if (!timestamp) return "Never";
+	const date = new Date(timestamp);
+	return date.toLocaleDateString() + " " + date.toLocaleTimeString();
+};

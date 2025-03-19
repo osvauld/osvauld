@@ -8,7 +8,7 @@
 		notes,
 		currentNote,
 	} from "../../store/desktop.ui.store";
-	import { extractTitle } from "../utils/helper";
+	import { extractTitle, getLastModifiedDate } from "../utils/helper";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
@@ -23,13 +23,6 @@
 	let error = null;
 
 	$: updatedNotes = $notes;
-
-	// Function to get last modified date in readable format
-	const getLastModifiedDate = (timestamp) => {
-		if (!timestamp) return "Never";
-		const date = new Date(timestamp);
-		return date.toLocaleDateString() + " " + date.toLocaleTimeString();
-	};
 
 	// Function to fetch notes based on the current vault
 	const fetchNotes = async () => {
@@ -157,7 +150,7 @@
 	// });
 </script>
 
-<div class="grow max-h-[85%] overflow-y-scroll px-16 py-4 relative">
+<div class="grow max-h-full overflow-y-scroll px-11 py-4 relative">
 	<div class="h-full overflow-hidden pr-1 scrollbar-none">
 		{#if $noteViewLayout}
 			<RichTextEditor
