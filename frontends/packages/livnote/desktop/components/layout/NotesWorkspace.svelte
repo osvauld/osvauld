@@ -32,6 +32,7 @@
 	import { onMount } from "svelte";
 	import { setContext } from "svelte";
 	import ShareNote from "../modals/ShareNote.svelte";
+	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 
 	let userId;
 	let addCredentialHovered = false;
@@ -43,6 +44,7 @@
 	let favSelected = false;
 	let noteCopied = false;
 	let showDownloadTooltip = false;
+	let isPdfGenerating = false;
 	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
 
@@ -179,7 +181,7 @@
 		}
 
 		// Add loading indicator state
-		let isPdfGenerating = true;
+		isPdfGenerating = true;
 
 		try {
 			// Get the document title for the filename
@@ -195,14 +197,12 @@
 			// Create a container for the content with proper styling
 			const container = document.createElement("div");
 			container.innerHTML = `
-        <div style="width: 100%; padding: 36px;">
-        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black;">
+         <div style="width: 100%; padding: 96px;">
+        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black; ">
           ${editorEl.innerHTML}
         </div>
       </div>
     `;
-
-			console.log(container);
 
 			// Apply styling fixes for the PDF
 			const allElements = container.querySelectorAll("*");
@@ -241,6 +241,21 @@
 			// Generate PDF from HTML content
 			pdf.html(container, {
 				callback: async function (pdf) {
+					// Add page numbers to all pages
+					const totalPages = pdf.internal.getNumberOfPages();
+					for (let i = 1; i <= totalPages; i++) {
+						pdf.setPage(i);
+						pdf.setFontSize(10);
+						pdf.setTextColor(100, 100, 100);
+						const pageText = `Page ${i} of ${totalPages}`;
+						const pageTextWidth =
+							(pdf.getStringUnitWidth(pageText) * 10) /
+							pdf.internal.scaleFactor;
+						const pageTextX = (pageWidth - pageTextWidth) / 2;
+						const pageNumberY = 285; // Approximately 12mm from bottom edge
+						pdf.text(pageText, pageTextX, pageNumberY);
+					}
+
 					try {
 						// Get PDF data as array buffer
 						const pdfData = pdf.output("arraybuffer");
@@ -435,7 +450,11 @@
 						on:mouseleave="{() => (showDownloadTooltip = false)}"
 						on:click="{handleDownloadPdf}"
 						aria-label="Download as PDF">
-						<DownloadIcon />
+						{#if isPdfGenerating}
+							<Loader color="#85889C" />
+						{:else}
+							<DownloadIcon />
+						{/if}
 					</button>
 
 					{#if showDownloadTooltip}
