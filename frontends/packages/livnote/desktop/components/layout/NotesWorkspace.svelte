@@ -40,6 +40,7 @@
 	let shareUserList = [];
 	let favSelected = false;
 	let noteCopied = false;
+	let showDownloadTooltip = false;
 	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
 
@@ -298,10 +299,21 @@
 					<Bin size="{24}" />
 				</button>
 
-				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<DownloadIcon />
-				</button>
+				<div class="relative flex justify-center items-center">
+					<button
+						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+						on:mouseenter="{() => (showDownloadTooltip = true)}"
+						on:mouseleave="{() => (showDownloadTooltip = false)}">
+						<DownloadIcon />
+					</button>
+
+					{#if showDownloadTooltip}
+						<div
+							class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-osvauld-defaultBorder text-toolTipText text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+							Download as PDF
+						</div>
+					{/if}
+				</div>
 				<!-- <button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
 					<Menu />
@@ -333,9 +345,12 @@
 			<div
 				class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
 				<p class="text-statusColor">
-					Last edited : {getLastModifiedDate(
-						$currentNote.data.last_modified || $currentNote.data.last_accessed,
-					)}
+					Last edited : {$currentNote?.data
+						? getLastModifiedDate(
+								$currentNote.data.last_modified ||
+									$currentNote.data.last_accessed,
+							)
+						: "1s Ago"}
 				</p>
 			</div>
 		</div>
