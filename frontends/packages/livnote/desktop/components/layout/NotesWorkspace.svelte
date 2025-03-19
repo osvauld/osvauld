@@ -195,11 +195,14 @@
 			// Create a container for the content with proper styling
 			const container = document.createElement("div");
 			container.innerHTML = `
-      <h1 style="font-size: 24px; margin-bottom: 16px; color: black;">${title}</h1>
-      <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black;">
-        ${editorEl.innerHTML}
+        <div style="width: 100%; padding: 36px;">
+        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black;">
+          ${editorEl.innerHTML}
+        </div>
       </div>
     `;
+
+			console.log(container);
 
 			// Apply styling fixes for the PDF
 			const allElements = container.querySelectorAll("*");
@@ -231,6 +234,9 @@
 
 			// Initialize jsPDF
 			const pdf = new jsPDF("p", "mm", "a4");
+			const pageWidth = 210; // A4 width in mm
+			const contentWidth = 170; // Your content width
+			const leftMargin = (pageWidth - contentWidth) / 2; // Center on x-axis
 
 			// Generate PDF from HTML content
 			pdf.html(container, {
@@ -275,9 +281,9 @@
 						isPdfGenerating = false;
 					}
 				},
-				x: 0,
+				x: leftMargin,
 				y: 0,
-				width: 170, // A4 width minus margins
+				width: contentWidth, // A4 width minus margins
 				windowWidth: 1000, // Adjust based on your content
 			});
 		} catch (error) {
@@ -305,7 +311,7 @@
 						aria-label="Switch Vault"
 						aria-controls="vaultSelector"
 						aria-expanded="false"
-						on:click={() => (vaultManagerActive = !vaultManagerActive)}>
+						on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
 						<span class="flex-1 truncate text-left py-1"
 							>{$currentVault.id === "all"
 								? "All Vaults"
@@ -313,7 +319,7 @@
 						><span
 							class="shrink-0 transition-transform duration-300 {vaultManagerActive
 								? '-rotate-90'
-								: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
+								: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
 						></button>
 					{#if vaultManagerActive}
 						<VaultManager bind:vaultManagerActive instance="content" />
@@ -327,11 +333,11 @@
                        {selectedSection === 'home'
 							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:click={() => handleFilterSelection("home")}
-						aria-current={selectedSection === "home" ? "page" : undefined}>
+						on:click="{() => handleFilterSelection('home')}"
+						aria-current="{selectedSection === 'home' ? 'page' : undefined}">
 						<MobileHome
-							size={20}
-							color={selectedSection === "home" ? "#BFC0CC" : "#85889C"} />
+							size="{20}"
+							color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
 						<span>Home</span>
 					</button>
 
@@ -340,13 +346,13 @@
                        {selectedSection === 'favourites'
 							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:click={() => handleFilterSelection("favourites")}
-						aria-current={selectedSection === "favourites"
-							? "page"
-							: undefined}>
+						on:click="{() => handleFilterSelection('favourites')}"
+						aria-current="{selectedSection === 'favourites'
+							? 'page'
+							: undefined}">
 						<EmptyStar
-							color={selectedSection === "favourites" ? "#BFC0CC" : "#85889C"}
-							size={20} />
+							color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
+							size="{20}" />
 						<span>Favourites</span>
 					</button>
 				</div>
@@ -355,32 +361,32 @@
 					{#if $currentVault.id !== "all"}
 						<button
 							class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
-							on:click|stopPropagation={() => {}}
-							on:mouseenter={() => (deleteBtnHoved = true)}
-							on:mouseleave={() => (deleteBtnHoved = false)}
+							on:click|stopPropagation="{() => {}}"
+							on:mouseenter="{() => (deleteBtnHoved = true)}"
+							on:mouseleave="{() => (deleteBtnHoved = false)}"
 							aria-label="Delete Folder"
 							><Bin
-								color={deleteBtnHoved ? "#FF6A6A" : "#85889C"}
-								size={24} /></button>
+								color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}"
+								size="{24}" /></button>
 					{/if}
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center cursor-pointer {addCredentialHovered
 							? 'bg-livnotelavender text-primarydark'
 							: 'bg-osvauld-fieldActive text-osvauld-fieldText'}"
-						on:mouseenter={() => (addCredentialHovered = true)}
-						on:mouseleave={() => (addCredentialHovered = false)}
-						on:click={handleAddNote}>
+						on:mouseenter="{() => (addCredentialHovered = true)}"
+						on:mouseleave="{() => (addCredentialHovered = false)}"
+						on:click="{handleAddNote}">
 						<span class="mr-2 pl-2">New Note</span>
 						<Add
-							color={addCredentialHovered ? "#010109" : "#85889C"}
-							size={24} />
+							color="{addCredentialHovered ? '#010109' : '#85889C'}"
+							size="{24}" />
 					</button>
 				</div>
 			{:else}
 				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click={handleBackButton}>
+						on:click="{handleBackButton}">
 						<BackArrow />
 					</button>
 					<span
@@ -392,7 +398,7 @@
 
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click|stopPropagation={toggleFav}>
+						on:click|stopPropagation="{toggleFav}">
 						{#if isFavourite}
 							<Star />
 						{:else}
@@ -410,7 +416,7 @@
 			<div class=" shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-					on:click={handleCopyNote}>
+					on:click="{handleCopyNote}">
 					{#if noteCopied}
 						<Tick color="#a6e3a1" />
 					{:else}
@@ -419,15 +425,15 @@
 				</button>
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<Bin size={24} />
+					<Bin size="{24}" />
 				</button>
 
 				<div class="relative flex justify-center items-center">
 					<button
 						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-						on:mouseenter={() => (showDownloadTooltip = true)}
-						on:mouseleave={() => (showDownloadTooltip = false)}
-						on:click={handleDownloadPdf}
+						on:mouseenter="{() => (showDownloadTooltip = true)}"
+						on:mouseleave="{() => (showDownloadTooltip = false)}"
+						on:click="{handleDownloadPdf}"
 						aria-label="Download as PDF">
 						<DownloadIcon />
 					</button>
@@ -448,22 +454,22 @@
 			<div class="flex-1 w-full">
 				<div class="relative">
 					<button
-						on:click={handleShareList}
+						on:click="{handleShareList}"
 						class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 						aria-label="share with users">
 						<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
-						<UserPlus color="#010109" size={24} />
+						<UserPlus color="#010109" size="{24}" />
 					</button>
 					{#if showShareList}
 						<div
 							class="bg-transparent fixed inset-0 z-40"
 							role="presentation"
 							aria-hidden="true"
-							on:click|stopPropagation={() => {
+							on:click|stopPropagation="{() => {
 								showShareList = false;
-							}}>
+							}}">
 						</div>
-						<ShareNote bind:showShareList {shareUserList} noteId={$noteId} />
+						<ShareNote bind:showShareList {shareUserList} noteId="{$noteId}" />
 					{/if}
 				</div>
 			</div>
