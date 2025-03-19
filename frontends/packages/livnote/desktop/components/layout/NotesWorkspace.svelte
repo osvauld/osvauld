@@ -8,7 +8,7 @@
 		currentNote,
 		notes,
 	} from "../../store/desktop.ui.store";
-	import { extractTitle } from "../utils/helper";
+	import { extractTitle, getLastModifiedDate } from "../utils/helper";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
@@ -171,108 +171,119 @@
 	});
 </script>
 
-<div class="grow flex flex-col overflow-hidden">
-	<div class="py-10 px-16 flex items-center justify-start shrink-0">
-		{#if !$noteViewLayout}
-			<div class="relative shrink-0">
-				<button
-					class="min-w-[20.25rem] text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
-					aria-label="Switch Vault"
-					aria-controls="vaultSelector"
-					aria-expanded="false"
-					on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
-					<span class="flex-1 truncate text-left py-1"
-						>{$currentVault.id === "all"
-							? "All Vaults"
-							: $currentVault.name}</span
-					><span
-						class="shrink-0 transition-transform duration-300 {vaultManagerActive
-							? '-rotate-90'
-							: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
-					></button>
-				{#if vaultManagerActive}
-					<VaultManager bind:vaultManagerActive instance="content" />
-				{/if}
-			</div>
-			<div
-				class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base">
-				<button
-					class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
+<div class="flex grow max-h-[60rem]">
+	<div class="flex-1 flex flex-col overflow-hidden">
+		<div class="py-10 px-11 flex items-center justify-start shrink-0">
+			{#if !$noteViewLayout}
+				<div class="relative shrink-0">
+					<button
+						class="min-w-[20.25rem] text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
+						aria-label="Switch Vault"
+						aria-controls="vaultSelector"
+						aria-expanded="false"
+						on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+						<span class="flex-1 truncate text-left py-1"
+							>{$currentVault.id === "all"
+								? "All Vaults"
+								: $currentVault.name}</span
+						><span
+							class="shrink-0 transition-transform duration-300 {vaultManagerActive
+								? '-rotate-90'
+								: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
+						></button>
+					{#if vaultManagerActive}
+						<VaultManager bind:vaultManagerActive instance="content" />
+					{/if}
+				</div>
+				<div
+					class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base">
+					<button
+						class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
                        transition-colors
                        {selectedSection === 'home'
-						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
-						: ''}"
-					on:click="{() => handleFilterSelection('home')}"
-					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
-					<MobileHome
-						size="{20}"
-						color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
-					<span>Home</span>
-				</button>
+							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
+							: ''}"
+						on:click="{() => handleFilterSelection('home')}"
+						aria-current="{selectedSection === 'home' ? 'page' : undefined}">
+						<MobileHome
+							size="{20}"
+							color="{selectedSection === 'home' ? '#BFC0CC' : '#85889C'}" />
+						<span>Home</span>
+					</button>
 
-				<button
-					class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
-                       {selectedSection === 'favourites'
-						? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
-						: ''}"
-					on:click="{() => handleFilterSelection('favourites')}"
-					aria-current="{selectedSection === 'favourites'
-						? 'page'
-						: undefined}">
-					<EmptyStar
-						color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
-						size="{20}" />
-					<span>Favourites</span>
-				</button>
-			</div>
-			<div
-				class="relative ml-auto shrink-0 gap-4 flex justify-end items-center text-base">
-				{#if $currentVault.id !== "all"}
 					<button
-						class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
-						on:click|stopPropagation="{() => {}}"
-						on:mouseenter="{() => (deleteBtnHoved = true)}"
-						on:mouseleave="{() => (deleteBtnHoved = false)}"
-						aria-label="Delete Folder"
-						><Bin
-							color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}"
-							size="{24}" /></button>
-				{/if}
-				<button
-					class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
-					on:mouseenter="{() => (addCredentialHovered = true)}"
-					on:mouseleave="{() => (addCredentialHovered = false)}"
-					on:click="{handleAddNote}">
-					<Add color="#85889C" size="{24}" />
-				</button>
-			</div>
-		{:else}
-			<div class="mx-2 flex justify-between items-center max-w-[34rem]">
-				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-					on:click="{handleBackButton}">
-					<BackArrow />
-				</button>
-				<span
-					class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-					>{$currentNote?.data
-						? extractTitle($currentNote?.data?.content)
-						: "New note"}
-				</span>
-
-				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-					on:click|stopPropagation="{toggleFav}">
-					{#if isFavourite}
-						<Star />
-					{:else}
-						<EmptyStar color="#85889C" />
+						class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
+                       {selectedSection === 'favourites'
+							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
+							: ''}"
+						on:click="{() => handleFilterSelection('favourites')}"
+						aria-current="{selectedSection === 'favourites'
+							? 'page'
+							: undefined}">
+						<EmptyStar
+							color="{selectedSection === 'favourites' ? '#BFC0CC' : '#85889C'}"
+							size="{20}" />
+						<span>Favourites</span>
+					</button>
+				</div>
+				<div
+					class="relative ml-auto shrink-0 gap-4 flex justify-end items-center text-base">
+					{#if $currentVault.id !== "all"}
+						<button
+							class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
+							on:click|stopPropagation="{() => {}}"
+							on:mouseenter="{() => (deleteBtnHoved = true)}"
+							on:mouseleave="{() => (deleteBtnHoved = false)}"
+							aria-label="Delete Folder"
+							><Bin
+								color="{deleteBtnHoved ? '#FF6A6A' : '#85889C'}"
+								size="{24}" /></button>
 					{/if}
-				</button>
-			</div>
+					<button
+						class=" rounded-lg p-2.5 flex justify-center items-center cursor-pointer {addCredentialHovered
+							? 'bg-livnotelavender text-primarydark'
+							: 'bg-osvauld-fieldActive text-osvauld-fieldText'}"
+						on:mouseenter="{() => (addCredentialHovered = true)}"
+						on:mouseleave="{() => (addCredentialHovered = false)}"
+						on:click="{handleAddNote}">
+						<span class="mr-2 pl-2">New Note</span>
+						<Add
+							color="{addCredentialHovered ? '#010109' : '#85889C'}"
+							size="{24}" />
+					</button>
+				</div>
+			{:else}
+				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
+					<button
+						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						on:click="{handleBackButton}">
+						<BackArrow />
+					</button>
+					<span
+						class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
+						>{$currentNote?.data
+							? extractTitle($currentNote?.data?.content)
+							: "New note"}
+					</span>
 
-			<div
-				class="relative ml-auto shrink-0 gap-4 flex justify-between items-center text-base">
+					<button
+						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						on:click|stopPropagation="{toggleFav}">
+						{#if isFavourite}
+							<Star />
+						{:else}
+							<EmptyStar color="#85889C" />
+						{/if}
+					</button>
+				</div>
+			{/if}
+		</div>
+
+		<NotesListView {favSelected} />
+	</div>
+	{#if $noteViewLayout}
+		<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start">
+			<div class=" shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 					on:click="{handleCopyNote}">
@@ -291,44 +302,42 @@
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
 					<DownloadIcon />
 				</button>
-				<button
+				<!-- <button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
 					<Menu />
-				</button>
+				</button> -->
+			</div>
 
-				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-					on:mouseenter="{() => (addCredentialHovered = true)}"
-					on:mouseleave="{() => (addCredentialHovered = false)}"
-					on:click="{handleAddNote}">
-					<span class="mr-2 pl-2 text-osvauld-fieldText">New Note</span>
-					<Add color="#85889C" size="{24}" />
-				</button>
-
-				{#if $noteId}
+			<div class="flex-1 w-full">
+				<div class="relative">
 					<button
 						on:click="{handleShareList}"
-						class=" text-primarydark font-medium flex justify-center items-center p-2.5 rounded-lg bg-livnotelavender border border-osvauld-iconblack cursor-pointer"
+						class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 						aria-label="share with users">
-						<span class="mr-2 pl-2">Add collaborators</span>
-						<UserPlus color="#010109" />
+						<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
+						<UserPlus color="#010109" size="{24}" />
 					</button>
-				{/if}
-
-				{#if showShareList}
-					<div
-						class="bg-transparent fixed inset-0 z-40"
-						role="presentation"
-						aria-hidden="true"
-						on:click|stopPropagation="{() => {
-							showShareList = false;
-						}}">
-					</div>
-					<ShareNote bind:showShareList {shareUserList} noteId="{$noteId}" />
-				{/if}
+					{#if showShareList}
+						<div
+							class="bg-transparent fixed inset-0 z-40"
+							role="presentation"
+							aria-hidden="true"
+							on:click|stopPropagation="{() => {
+								showShareList = false;
+							}}">
+						</div>
+						<ShareNote bind:showShareList {shareUserList} noteId="{$noteId}" />
+					{/if}
+				</div>
 			</div>
-		{/if}
-	</div>
-
-	<NotesListView {favSelected} />
+			<div
+				class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
+				<p class="text-statusColor">
+					Last edited : {getLastModifiedDate(
+						$currentNote.data.last_modified || $currentNote.data.last_accessed,
+					)}
+				</p>
+			</div>
+		</div>
+	{/if}
 </div>
