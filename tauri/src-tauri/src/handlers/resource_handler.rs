@@ -44,7 +44,7 @@ pub async fn handle_add_resource(
             resource_key,
             sync_record_set,
             share_record_set,
-            vector_clocks,
+            &vector_clocks,
         )
         .await
         .map_err(|e| e.to_string());

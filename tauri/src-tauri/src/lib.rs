@@ -1,4 +1,5 @@
 use log::error;
+use osvauld_core::models::vector_clock;
 use osvauld_db::{DbConnection, initialize_database};
 use tauri::Manager;
 pub mod handlers;
@@ -80,7 +81,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -124,6 +125,7 @@ pub fn run() {
                         resource_repo.clone(),
                         device_repo.clone(),
                         store_repository.clone(),
+                        vector_clock_repo.clone(),
                     ));
 
                     let user_service = Arc::new(UserService::new(
@@ -131,6 +133,7 @@ pub fn run() {
                         crypto_utils.clone(),
                         sync_repo.clone(),
                         device_repo.clone(),
+                        vector_clock_repo.clone(),
                     ));
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),

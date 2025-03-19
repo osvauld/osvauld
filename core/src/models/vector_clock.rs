@@ -54,19 +54,23 @@ impl ResourceVectorClock {
         entries
     }
 
-    // Create vector clock entries for newly added devices
-    pub fn create_entries_for_new_devices(
-        resource_id: &str,
-        device_ids: &[String],
+    //function to create vector clocks for resource when a new device imported by user
+    pub fn create_entires_for_new_device(
+        resource_ids: &[String],
+        device_id: &str,
     ) -> Vec<ResourceVectorClock> {
-        device_ids
-            .iter()
-            .map(|device_id| {
-                ResourceVectorClock::new(resource_id.to_string(), device_id.clone(), 0)
-            })
-            .collect()
-    }
+        let mut vector_clocks = Vec::new();
 
+        for resource_id in resource_ids {
+            vector_clocks.push(ResourceVectorClock::new(
+                resource_id.clone(),
+                device_id.to_string(),
+                0, // Initialize with 0 since the new device doesn't have the resource yet
+            ));
+        }
+
+        vector_clocks
+    }
     // Merge two sets of vector clock entries
     // Returns a complete analysis of what needs to be updated where
     pub fn merge(

@@ -4,8 +4,8 @@ use crate::models::resource::ResourceKeyPair;
 use crate::models::share_record::{ShareRecord, UserRecord, UserRecordStatus};
 use crate::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
 use crate::models::user::User;
+use crate::models::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SyncPayload {
@@ -13,6 +13,7 @@ pub struct SyncPayload {
     pub device_records: Vec<DeviceRecord>,
     pub device_record_statuses: Vec<DeviceRecordStatus>,
     pub data: Option<SyncData>, // The actual folder/resource/device data
+    pub vector_clocks: Option<Vec<ResourceVectorClock>>, // vector clocks if its a resource
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

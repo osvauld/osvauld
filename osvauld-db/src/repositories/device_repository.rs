@@ -65,7 +65,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(DeviceModel::to_domain_devices(device_models))
     }
 
-    async fn udpate_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError> {
+    async fn update_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let timestamp = Local::now().timestamp_millis();
         diesel::update(devices::table)
@@ -86,6 +86,18 @@ impl DeviceRepository for SqliteDeviceRepository {
             .filter(devices::id.ne_all(exclude_ids))
             .filter(devices::user_id.eq(user_id))
             .order_by(devices::created_at.desc())
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        Ok(DeviceModel::to_domain_devices(device_models))
+    }
+
+    async fn get_all_devices_except(
+        &self,
+        except_devices: &[String],
+    ) -> Result<Vec<Device>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let device_models = devices::table
+            .filter(devices::id.ne_all(except_devices))
             .load::<DeviceModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(DeviceModel::to_domain_devices(device_models))

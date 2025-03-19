@@ -413,4 +413,23 @@ impl SyncRepository for SqliteSyncRepository {
 
         Ok(())
     }
+    async fn get_resource_ids_for_device(
+        &self,
+        device_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Query for resource IDs through the device_records -> sync_records path
+        // Filter for resource_type = "resource"
+        let resource_ids: Vec<String> = device_records::table
+            .inner_join(sync_records::table)
+            .filter(device_records::device_id.eq(device_id))
+            .filter(sync_records::resource_type.eq("resource"))
+            .select(sync_records::resource_id)
+            .distinct()
+            .load::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(resource_ids)
+    }
 }

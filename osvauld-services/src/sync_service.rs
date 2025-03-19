@@ -1,5 +1,6 @@
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{SyncAckType, SyncData, SyncPayload};
+use osvauld_core::models::sync_types::ResourceType;
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::models::{
@@ -7,10 +8,11 @@ use osvauld_core::models::{
     resource::Resource,
     sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecord, SyncRecordSet, SyncUpdateData},
 };
+use osvauld_core::models::{sync_record, vector_clock};
 
 use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
-    SyncRepository,
+    SyncRepository, VectorClockRepository,
 };
 
 use log::info;
@@ -23,6 +25,7 @@ pub struct SyncService {
     resource_repository: Arc<dyn ResourceRepository>,
     device_repository: Arc<dyn DeviceRepository>,
     store_repository: Arc<dyn StoreRepository>,
+    vector_clock_repository: Arc<dyn VectorClockRepository>,
 }
 impl SyncService {
     pub fn new(
@@ -31,6 +34,7 @@ impl SyncService {
         resource_repository: Arc<dyn ResourceRepository>,
         device_repository: Arc<dyn DeviceRepository>,
         store_repository: Arc<dyn StoreRepository>,
+        vector_clock_repository: Arc<dyn VectorClockRepository>,
     ) -> Self {
         Self {
             sync_repository,
@@ -38,6 +42,7 @@ impl SyncService {
             resource_repository,
             device_repository,
             store_repository,
+            vector_clock_repository,
         }
     }
 
@@ -81,10 +86,24 @@ impl SyncService {
             &all_devices,
             sync_record_set,
         );
+        let resource_ids: Vec<String> = all_sync_records
+            .iter()
+            .filter(|record| record.resource_type == ResourceType::Resource)
+            .map(|record| record.resource_id.clone())
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        // Create vector clocks for the new device for all resources
+        let vector_clocks =
+            ResourceVectorClock::create_entires_for_new_device(&resource_ids, &device.id);
         // Save the device first
         let _ = self.device_repository.save(device.clone()).await?;
         // Add the sync record set
         self.sync_repository.add_sync_record_set(sync_set).await?;
+        self.vector_clock_repository
+            .save_vector_clocks(&vector_clocks)
+            .await?;
         Ok(())
     }
 
@@ -140,6 +159,7 @@ impl SyncService {
                 device_records,
                 device_record_statuses: statuses,
                 data: Some(SyncData::Device(device_data)),
+                vector_clocks: None,
             }));
         }
 
@@ -166,6 +186,7 @@ impl SyncService {
                 device_records,
                 device_record_statuses: statuses,
                 data: Some(SyncData::Folder(folder)),
+                vector_clocks: None,
             }));
         }
 
@@ -187,12 +208,17 @@ impl SyncService {
                 .resource_repository
                 .find_resource_with_key(&sync_record.resource_id, &user.id)
                 .await?;
+            let vector_clocks = self
+                .vector_clock_repository
+                .get_vector_clocks_for_resource(&sync_record.resource_id)
+                .await?;
 
             return Ok(Some(SyncPayload {
                 sync_record: Some(sync_record),
                 device_records,
                 device_record_statuses: statuses,
                 data: Some(SyncData::Resource(resource)),
+                vector_clocks: Some(vector_clocks),
             }));
         }
 
@@ -222,6 +248,7 @@ impl SyncService {
                 device_records: all_device_records,
                 device_record_statuses: all_statuses,
                 data: None,
+                vector_clocks: None,
             }));
         }
 
@@ -342,7 +369,12 @@ impl SyncService {
                                 &resource_key_pair.resource,
                                 &resource_key_pair.key,
                             )
-                            .await?
+                            .await?;
+                        if let Some(vector_clocks) = &payload.vector_clocks {
+                            self.vector_clock_repository
+                                .save_vector_clocks(vector_clocks)
+                                .await?;
+                        }
                     }
                     SyncData::Device(device) => {
                         if device.id != current_device_id {
@@ -493,6 +525,7 @@ impl SyncService {
             sync_record: Some(records.sync_record),
             device_records: records.device_records,
             device_record_statuses: records.device_record_statuses,
+            vector_clocks: None,
         }
     }
 

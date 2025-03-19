@@ -21,7 +21,7 @@ impl SqliteVectorClockRepository {
 impl VectorClockRepository for SqliteVectorClockRepository {
     async fn save_vector_clocks(
         &self,
-        vector_clocks: Vec<ResourceVectorClock>,
+        vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
         if vector_clocks.is_empty() {
             return Ok(());
@@ -125,5 +125,25 @@ impl VectorClockRepository for SqliteVectorClockRepository {
             })?;
 
         Ok(model.into())
+    }
+    async fn check_if_device_needs_update(
+        &self,
+        resource_ids: &[String],
+        last_synced_at: i64,
+        device_id: &str,
+    ) -> Result<bool, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Check if there are any vector clocks for the given resources
+        // that were updated after last_synced_at by devices other than the current one
+        let count: i64 = resource_vector_clocks::table
+            .filter(resource_vector_clocks::resource_id.eq_any(resource_ids))
+            .filter(resource_vector_clocks::updated_at.gt(last_synced_at))
+            .filter(resource_vector_clocks::device_id.ne(device_id))
+            .count()
+            .get_result(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(count > 0)
     }
 }

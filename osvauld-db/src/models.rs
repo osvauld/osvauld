@@ -557,7 +557,7 @@ impl ResourceVectorClockModel {
 
     // Helper to convert a collection of domain objects to models
     pub fn from_domain_vector_clocks(
-        clocks: Vec<DomainResourceVectorClock>,
+        clocks: &[DomainResourceVectorClock],
     ) -> Vec<ResourceVectorClockModel> {
         clocks
             .iter()

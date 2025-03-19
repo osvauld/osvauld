@@ -56,7 +56,7 @@ impl TransactionService {
         resource_key: ResourceKey,
         sync_record_set: SyncRecordSet,
         share_record_set: ShareRecordSet,
-        vector_clocks: Vec<ResourceVectorClock>,
+        vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
         // Save resource and its key
         self.resource_repository.save(&resource).await?;

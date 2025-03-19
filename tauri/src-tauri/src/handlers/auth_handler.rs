@@ -77,7 +77,7 @@ pub async fn handle_sign_up(
     // Spawn a background task to handle WebSocket connection
     tokio::spawn(async move {
         match rendezvous_clone
-            .initialize(format!("{}:{}", user.id, device.id))
+            .initialize(format!("{}:{}", user.id, device.id), &current_device.id)
             .await
         {
             Ok(_) => {
@@ -137,7 +137,10 @@ pub async fn login(
     // Spawn a background task to handle WebSocket connection
     tokio::spawn(async move {
         match rendezvous_clone
-            .initialize(format!("{}:{}", user.id, current_device.id))
+            .initialize(
+                format!("{}:{}", user.id, current_device.id),
+                &current_device.id,
+            )
             .await
         {
             Ok(_) => {

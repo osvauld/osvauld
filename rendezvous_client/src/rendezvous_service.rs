@@ -33,7 +33,7 @@ impl RendezvousService {
     }
 
     /// Initialize the service with the provided user
-    pub async fn initialize(&self, user: String) -> Result<(), String> {
+    pub async fn initialize(&self, user: String, current_device_id: &str) -> Result<(), String> {
         // Store the user in the service state
         {
             let mut user_lock = self.connection_id.lock().await;
@@ -59,7 +59,8 @@ impl RendezvousService {
             )
             .await;
         });
-        self.initialize_sync_with_pending_devices().await?;
+        self.initialize_sync_with_pending_devices(current_device_id)
+            .await?;
 
         Ok(())
     }
@@ -299,11 +300,18 @@ impl RendezvousService {
         client.get_connection_status(user_ids).await
     }
 
-    pub async fn initialize_sync_with_pending_devices(&self) -> Result<(), String> {
+    pub async fn initialize_sync_with_pending_devices(
+        &self,
+        current_device_id: &str,
+    ) -> Result<(), String> {
         info!("Checking for devices with pending syncs...");
 
         // Get devices with pending syncs
-        match self.user_service.get_users_with_pending_syncs().await {
+        match self
+            .user_service
+            .get_users_with_pending_syncs(current_device_id)
+            .await
+        {
             Ok(users_with_devices) => {
                 info!(
                     "Found {} users with devices that have pending syncs",
