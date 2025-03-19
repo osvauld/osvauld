@@ -1,6 +1,7 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::VectorClock;
 use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
@@ -45,34 +46,28 @@ impl ResourceService {
         resource_payload: String,
         resource_type: String,
         folder_id: String,
+        user: &User,
+        device_id: &str,
     ) -> Result<(Resource, ResourceKey), ResourceServiceError> {
         // Encrypt the resource
-        let public_key = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .get_public_key()
-                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
-        };
-        let user_id = get_key_id(&public_key)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
         let user_pub_key = UserPublicKey {
-            user_id: user_id.clone(),
-            public_key,
+            user_id: user.id.clone(),
+            public_key: user.public_key.clone(),
             access: "owner".to_string(),
         };
         let encrypted = encrypt_data_for_users(&resource_payload, &[user_pub_key])
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
-        let resource = Resource::new_with_user(
+        let resource = Resource::new_with_device(
             resource_type,
             encrypted.encrypted_data,
             folder_id,
             "signature".to_string(), // TODO: Implement proper signing
-            &user_id,
+            device_id,
         );
         let resource_key = ResourceKey::new(
             resource.id.clone(),
-            user_id,
+            user.id.clone(),
             encrypted.access_list[0].encrypted_key.clone(),
             true, // Owner
         );

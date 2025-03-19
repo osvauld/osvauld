@@ -147,6 +147,12 @@ impl PeerConnection {
                     return Err(e.to_string());
                 }
             }
+        } else {
+            self.context
+                .user_service
+                .update_device_last_synced(&self.device.id)
+                .await
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(())

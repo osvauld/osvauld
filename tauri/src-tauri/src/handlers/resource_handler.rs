@@ -3,7 +3,7 @@ use crate::types::{
     GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
     UpdateLastAccessedInput, UpdateResources,
 };
-use crate::user_state::UserState;
+use crate::user_state::{self, UserState};
 use crypto_utils::get_key_id;
 use log::info;
 use osvauld_services::{ResourceService, ShareService, SyncService, TransactionService};
@@ -20,34 +20,37 @@ pub async fn handle_add_resource(
     transaction_service: State<'_, Arc<TransactionService>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
-    let user_option = user_state.get_user().await;
-    if let Some(user) = user_option {
-        let (resource, resource_key) = resource_service
-            .add_resource(input.resource_payload, input.resource_type, input.folder_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        let sync_record_set = sync_service
-            .prepare_resource_to_sync(resource.clone(), &user.id)
-            .await
-            .map_err(|e| e.to_string())?;
-        let share_record_set = share_service
-            .prepare_owner_share_record(resource.id.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        let _ = transaction_service
-            .create_resource_with_sync(
-                resource.clone(),
-                resource_key,
-                sync_record_set,
-                share_record_set,
-            )
-            .await
-            .map_err(|e| e.to_string());
+    let user = user_state.get_user().await?;
+    let device = user_state.get_device().await?;
+    let (resource, resource_key) = resource_service
+        .add_resource(
+            input.resource_payload,
+            input.resource_type,
+            input.folder_id,
+            &user.id,
+            &device.id,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    let sync_record_set = sync_service
+        .prepare_resource_to_sync(resource.clone(), &user.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let share_record_set = share_service
+        .prepare_owner_share_record(resource.id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+    let _ = transaction_service
+        .create_resource_with_sync(
+            resource.clone(),
+            resource_key,
+            sync_record_set,
+            share_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string());
 
-        Ok(CryptoResponse::ResourceCreateted(resource.id))
-    } else {
-        Err("No user found in state. Please log in.".to_string())
-    }
+    Ok(CryptoResponse::ResourceCreateted(resource.id))
 }
 
 #[tauri::command]

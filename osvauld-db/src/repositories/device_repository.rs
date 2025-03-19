@@ -2,6 +2,7 @@ use crate::database::DbConnection;
 use crate::database::schema::devices;
 use crate::models::DeviceModel;
 use async_trait::async_trait;
+use chrono::Local;
 use diesel::ExpressionMethods;
 use diesel::prelude::*;
 use osvauld_core::models::device::Device;
@@ -64,12 +65,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(DeviceModel::to_domain_devices(device_models))
     }
 
-    async fn udpate_last_synced_at(
-        &self,
-        device_id: &str,
-        timestamp: i64,
-    ) -> Result<(), RepositoryError> {
+    async fn udpate_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
+        let timestamp = Local::now().timestamp_millis();
         diesel::update(devices::table)
             .filter(devices::id.eq(device_id))
             .set(devices::last_synced_at.eq(timestamp))

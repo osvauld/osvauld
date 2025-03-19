@@ -20,14 +20,22 @@ impl UserState {
             current_user: Arc::new(RwLock::new(CurrentUserState::default())),
         }
     }
-    pub async fn get_user(&self) -> Option<User> {
+
+    // Get the current user, returning an error if not present
+    pub async fn get_user(&self) -> Result<User, String> {
         let guard = self.current_user.read().await;
-        guard.user.clone()
+        guard
+            .user
+            .clone()
+            .ok_or_else(|| "No user found in state. Please log in.".to_string())
     }
 
-    // Get the current device, if any
-    pub async fn get_device(&self) -> Option<Device> {
+    // Get the current device, returning an error if not present
+    pub async fn get_device(&self) -> Result<Device, String> {
         let guard = self.current_user.read().await;
-        guard.device.clone()
+        guard
+            .device
+            .clone()
+            .ok_or_else(|| "No device found in state. Please register a device first.".to_string())
     }
 }

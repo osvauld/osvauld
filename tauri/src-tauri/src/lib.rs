@@ -128,6 +128,7 @@ pub fn run() {
                         user_repository.clone(),
                         crypto_utils.clone(),
                         sync_repo.clone(),
+                        device_repo.clone(),
                     ));
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),

@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
+
 #[derive(Error, Debug)]
 pub enum UserServiceError {
     #[error("Repository error: {0}")]
@@ -20,17 +21,20 @@ pub struct UserService {
     user_repository: Arc<dyn UserRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
     sync_repository: Arc<dyn SyncRepository>,
+    device_repository: Arc<dyn DeviceRepository>,
 }
 impl UserService {
     pub fn new(
         user_repository: Arc<dyn UserRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         sync_repository: Arc<dyn SyncRepository>,
+        device_repository: Arc<dyn DeviceRepository>,
     ) -> Self {
         Self {
             user_repository,
             crypto_utils,
             sync_repository,
+            device_repository,
         }
     }
 
@@ -104,5 +108,10 @@ impl UserService {
         }
 
         Ok(result)
+    }
+    pub async fn update_device_last_synced(&self, device_id: &str) -> Result<(), RepositoryError> {
+        self.device_repository
+            .udpate_last_synced_at(device_id)
+            .await
     }
 }

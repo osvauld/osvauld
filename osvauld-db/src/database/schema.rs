@@ -60,6 +60,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    resource_vector_clocks (id) {
+        id -> Text,
+        resource_id -> Text,
+        device_id -> Text,
+        clock_value -> Integer,
+        created_at -> BigInt,
+        updated_at -> BigInt,
+    }
+}
+
+diesel::table! {
     resources (id) {
         id -> Text,
         resource_type -> Text,
@@ -72,7 +83,6 @@ diesel::table! {
         deleted_at -> Nullable<BigInt>,
         updated_at -> BigInt,
         created_at -> BigInt,
-        vector_clock -> Text,
     }
 }
 
@@ -151,6 +161,8 @@ diesel::joinable!(device_records -> sync_records (sync_record_id));
 diesel::joinable!(devices -> users (user_id));
 diesel::joinable!(resource_keys -> resources (resource_id));
 diesel::joinable!(resource_keys -> users (user_id));
+diesel::joinable!(resource_vector_clocks -> devices (device_id));
+diesel::joinable!(resource_vector_clocks -> resources (resource_id));
 diesel::joinable!(resources -> folders (folder_id));
 diesel::joinable!(share_records -> resources (resource_id));
 diesel::joinable!(share_records -> users (shared_by_user_id));
@@ -166,6 +178,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     devices,
     folders,
     resource_keys,
+    resource_vector_clocks,
     resources,
     share_records,
     store_items,
