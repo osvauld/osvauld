@@ -197,7 +197,7 @@
 			// Create a container for the content with proper styling
 			const container = document.createElement("div");
 			container.innerHTML = `
-         <div style="width: 100%; padding: 96px;">
+         <div style="width: 100%;">
         <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black; ">
           ${editorEl.innerHTML}
         </div>
@@ -230,13 +230,40 @@
 					el.style.marginTop = "5px";
 					el.style.marginBottom = "5px";
 				}
+
+				// Prevent any images from breaking across pages
+				if (el.tagName === "IMG") {
+					el.style.pageBreakInside = "avoid";
+					el.style.breakInside = "avoid";
+					el.style.display = "block";
+					el.style.marginBottom = "20px"; // Add space after images
+				}
+
+				// Also prevent figures, tables, and other container elements from breaking
+				if (
+					el.tagName === "FIGURE" ||
+					el.tagName === "TABLE" ||
+					el.tagName === "BLOCKQUOTE" ||
+					el.tagName === "PRE"
+				) {
+					el.style.pageBreakInside = "avoid";
+					el.style.breakInside = "avoid";
+				}
+
+				// For headings, ensure they don't appear at the bottom of a page
+				if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(el.tagName)) {
+					el.style.pageBreakAfter = "avoid";
+					el.style.breakAfter = "avoid";
+					el.style.pageBreakBefore = "auto";
+					el.style.breakBefore = "auto";
+					el.style.marginTop = "20px";
+				}
 			});
 
 			// Initialize jsPDF
 			const pdf = new jsPDF("p", "mm", "a4");
 			const pageWidth = 210; // A4 width in mm
 			const contentWidth = 170; // Your content width
-			const leftMargin = (pageWidth - contentWidth) / 2; // Center on x-axis
 
 			// Generate PDF from HTML content
 			pdf.html(container, {
@@ -296,10 +323,12 @@
 						isPdfGenerating = false;
 					}
 				},
-				x: leftMargin,
+				x: 0,
 				y: 0,
 				width: contentWidth, // A4 width minus margins
 				windowWidth: 1000, // Adjust based on your content
+				margin: [15, 15, 15, 15],
+				autoPaging: "text", // Use text-aware paging
 			});
 		} catch (error) {
 			console.error("Error creating PDF:", error);
