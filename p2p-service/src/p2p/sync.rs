@@ -1,7 +1,10 @@
 use crate::p2p::peer_connection::PeerConnection;
+use osvauld_services::SyncEvent;
 
 use log::{error, info};
 use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload};
+
+use super::P2PEvent;
 
 impl PeerConnection {
     pub async fn add_device(&self, records: SyncPayload, ticket: String) -> Result<(), String> {
@@ -115,11 +118,16 @@ impl PeerConnection {
     }
 
     pub async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
-        let user_id = self.user.id.clone();
+        let event_adapter = self.sync_event_adapter();
         let ack_message = match self
             .context
             .sync_service
-            .process_sync_payload(&payload, user_id)
+            .process_sync_payload(
+                &payload,
+                &self.user.id,
+                &self.device.id,
+                Some(event_adapter),
+            )
             .await
         {
             Ok(sync_ack) => Message::SyncAck(sync_ack),
@@ -151,6 +159,11 @@ impl PeerConnection {
                 }
                 Ok(None) => {
                     info!("No pending syncs, sending sync complete");
+                    self.context
+                        .user_service
+                        .update_device_last_synced(&self.device.id)
+                        .await
+                        .map_err(|e| e.to_string())?;
                     let message = Message::SyncComplete;
                     self.send_message(message).await?;
                 }
@@ -180,5 +193,27 @@ impl PeerConnection {
     pub async fn send_update(&self, payload: String) -> Result<(), String> {
         log::info!("got update...");
         Ok(())
+    }
+
+    fn sync_event_adapter(&self) -> impl Fn(SyncEvent) + Send + Sync {
+        let event_emitter = self.event_emitter.clone();
+
+        move |sync_event| {
+            // Map SyncEvent to P2PEvent
+            let p2p_event = match sync_event {
+                SyncEvent::UpdateEvent {
+                    remote_resource,
+                    vector_clock,
+                    device_id,
+                    user_id,
+                } => P2PEvent::UpdateEvent {
+                    remote_resource,
+                    vector_clock,
+                    device_id,
+                    user_id,
+                },
+            };
+            event_emitter.emit(p2p_event);
+        }
     }
 }

@@ -97,6 +97,7 @@ pub enum SyncAckType {
     },
     DeviceRecords(Vec<String>), // list of device_record_ids
     DeviceSyncRecord(String),
+    UpdateRecieved(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

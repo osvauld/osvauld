@@ -22,6 +22,15 @@ use log::info;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+pub enum SyncEvent {
+    UpdateEvent {
+        remote_resource: Resource,
+        vector_clock: Vec<ResourceVectorClock>,
+        device_id: String,
+        user_id: String,
+    },
+}
+
 pub struct SyncService {
     sync_repository: Arc<dyn SyncRepository>,
     folder_repository: Arc<dyn FolderRepository>,
@@ -118,6 +127,7 @@ impl SyncService {
     ) -> Result<Option<SyncPayload>, RepositoryError> {
         info!("Getting pending syncs for device: {}", device.id);
 
+        info!("pending resource_ids {:?}", pending_resource_ids);
         // Try each type in priority order
 
         // 1. Device syncs (highest priority)
@@ -353,14 +363,23 @@ impl SyncService {
                     .await?;
                 Ok(None)
             }
+            SyncAckType::UpdateRecieved(resource_id) => {
+                info!("update recieved at remote");
+                Ok(None)
+            }
         }
     }
 
-    pub async fn process_sync_payload(
+    pub async fn process_sync_payload<F>(
         &self,
         payload: &SyncPayload,
-        user_id: String,
-    ) -> Result<SyncAckType, RepositoryError> {
+        user_id: &str,
+        device_id: &str,
+        emit_event: Option<F>,
+    ) -> Result<SyncAckType, RepositoryError>
+    where
+        F: Fn(SyncEvent) + Send + Sync,
+    {
         let current_device_id = self.store_repository.get_device_key().await?;
 
         match payload {
@@ -376,7 +395,7 @@ impl SyncService {
                     device_record_statuses,
                     device,
                     &current_device_id,
-                    &user_id,
+                    user_id,
                 )
                 .await
             }
@@ -395,7 +414,7 @@ impl SyncService {
                     resource,
                     vector_clocks,
                     &current_device_id,
-                    &user_id,
+                    user_id,
                 )
                 .await
             }
@@ -412,7 +431,7 @@ impl SyncService {
                     device_record_statuses,
                     folder,
                     &current_device_id,
-                    &user_id,
+                    user_id,
                 )
                 .await
             }
@@ -421,8 +440,14 @@ impl SyncService {
                 resource,
                 vector_clocks,
             } => {
-                self.process_resource_update_sync(resource, vector_clocks)
-                    .await
+                self.process_resource_update_sync(
+                    resource,
+                    device_id,
+                    user_id,
+                    vector_clocks,
+                    emit_event,
+                )
+                .await
             }
 
             SyncPayload::StatusUpdate {
@@ -599,13 +624,26 @@ impl SyncService {
         Ok(SyncAckType::DeviceRecords(device_record_ids))
     }
 
-    async fn process_resource_update_sync(
+    async fn process_resource_update_sync<F>(
         &self,
-        resourcr: &Resource,
+        resource: &Resource,
+        device_id: &str,
+        user_id: &str,
         vector_clock: &[ResourceVectorClock],
-    ) -> Result<SyncAckType, RepositoryError> {
-        info!("recieved update **********");
-        todo!()
+        emit_event: Option<F>,
+    ) -> Result<SyncAckType, RepositoryError>
+    where
+        F: Fn(SyncEvent) + Send + Sync,
+    {
+        if let Some(emit) = &emit_event {
+            emit(SyncEvent::UpdateEvent {
+                remote_resource: resource.clone(),
+                user_id: user_id.to_string(),
+                device_id: device_id.to_string(),
+                vector_clock: vector_clock.to_vec(),
+            })
+        }
+        Ok(SyncAckType::UpdateRecieved(resource.id.clone()))
     }
 
     // Helper function to prepare common data (no DB writes)

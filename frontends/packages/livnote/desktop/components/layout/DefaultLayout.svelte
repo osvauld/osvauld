@@ -5,15 +5,22 @@
 	import { onMount } from "svelte";
 	import { vaults } from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-
+	import { listen } from "@tauri-apps/api/event";
 	import { noteViewLayout } from "../../store/desktop.ui.store";
-
+	let unsubscribeResourceUpdate: Function | null = null;
 	onMount(async () => {
 		try {
 			console.log("default layout mounted");
 			const resp = await sendMessage("getFolder");
 			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
 			vaults.set(updatedVaults);
+
+			unsubscribeResourceUpdate = await listen(
+				"merge-update",
+				async (event) => {
+					console.log(event);
+				},
+			);
 			let connectionTicket = "";
 			let certificate = "";
 			let recoveryString = "";

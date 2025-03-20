@@ -208,7 +208,7 @@ impl RendezvousService {
         let p2p_service_clone = p2p_service.clone();
         let ticket = conn_string.clone();
         let user_id = response_user_id.to_string();
-
+        info!("**************************************** processing connection string");
         tokio::spawn(async move {
             match p2p_service_clone
                 .connect_with_ticket(&ticket, connection_type)

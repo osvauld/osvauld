@@ -2,10 +2,12 @@ use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserP
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
 use osvauld_core::models::user::User;
+use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
 };
 use serde_json::Value;
+use std::error::Error;
 use std::result::Result::Ok;
 use std::sync::Arc;
 use thiserror::Error;
@@ -288,4 +290,50 @@ impl ResourceService {
     //     // Return the new resource key and vector clock
     //     Ok((new_resource_key, updated_vector_clock))
     // }
+    //
+    pub async fn get_update_payload(
+        &self,
+        remote_resource: Resource,
+        remote_vector_clock: Vec<ResourceVectorClock>,
+    ) -> Result<(DecryptedResource, DecryptedResource), ResourceServiceError> {
+        // Get the user ID
+        let user_id = self.get_current_user_id().await?;
+
+        // Fetch the local resource with its key from the repository
+        let local_resource_with_key = self
+            .resource_repository
+            .find_by_id(&remote_resource.id, &user_id)
+            .await
+            .map_err(ResourceServiceError::RepositoryError)?;
+
+        // We can use the same encrypted key for both resources since the key is symmetric
+        // and has already been encrypted with the user's public key
+        let remote_resource_with_key = ResourceWithKey {
+            resource: remote_resource,
+            encrypted_key: local_resource_with_key.encrypted_key.clone(),
+        };
+
+        // Now decrypt both resources
+        let mut decrypted_resources = self
+            .decrypt_resources(vec![local_resource_with_key, remote_resource_with_key])
+            .await?;
+
+        // Extract the decrypted resources (there should be exactly 2)
+        if decrypted_resources.len() != 2 {
+            return Err(ResourceServiceError::CryptoError(
+                "Failed to decrypt resources for comparison".to_string(),
+            ));
+        }
+
+        // The second item should be the remote resource
+        let remote_decrypted = decrypted_resources.pop().unwrap();
+        // The first item should be the local resource
+        let local_decrypted = decrypted_resources.pop().unwrap();
+
+        // Return both decrypted resources
+        Ok((local_decrypted, remote_decrypted))
+
+        // Note: This implementation doesn't handle the vector clock yet.
+        // As mentioned, that will be handled in a future update.
+    }
 }

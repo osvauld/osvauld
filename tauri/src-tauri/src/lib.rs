@@ -166,8 +166,12 @@ pub fn run() {
                     let p2p_service = Arc::new(p2p_service);
 
                     // Initialize event manager and start listening
-                    let event_manager =
-                        EventManager::new(handle.clone(), p2p_service.clone(), p2p_receiver);
+                    let event_manager = EventManager::new(
+                        handle.clone(),
+                        p2p_service.clone(),
+                        p2p_receiver,
+                        resource_service.clone(),
+                    );
                     rt.spawn(async move {
                         event_manager.start_listening();
                     });
