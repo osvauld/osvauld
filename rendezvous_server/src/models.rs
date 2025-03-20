@@ -56,4 +56,10 @@ pub enum WsMessage {
     GetConnectionStatusResponse {
         data: Vec<ClientStatus>,
     },
+    UserConnectionNotificationRequest {
+        user_ids: Vec<String>,
+    },
+    UserConnectionNotification {
+        online_user_id: String,
+    },
 }

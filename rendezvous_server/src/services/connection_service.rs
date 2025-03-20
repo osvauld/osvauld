@@ -1,6 +1,5 @@
 use crate::error::AppError;
-use crate::models::{ClientStatus, Clients, WsMessage};
-use async_trait::async_trait;
+use crate::models::{Clients, WsMessage};
 use axum::extract::ws::Message;
 use serde::{Deserialize, Serialize};
 use std::fmt;
