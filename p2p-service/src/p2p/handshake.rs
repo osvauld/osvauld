@@ -90,6 +90,7 @@ impl P2PService {
         // Create the PeerConnection object with the new design
         let connection_arc = Arc::new(conn.clone());
         debug!("Creating peer connection object");
+        let resources_needing_update = self.sync_service.get_resources_needing_sync(&handshake_message.device.id).await.map_err(|e| P2PError::SyncService(e.to_string()))?;
 
         let peer_connection = PeerConnection::new(
             connection_arc,
@@ -99,6 +100,7 @@ impl P2PService {
             is_initiator,
             state.service_context.clone(),
             self.event_emitter.clone(),
+            resources_needing_update,
         );
 
         let peer_connection_arc = Arc::new(peer_connection);

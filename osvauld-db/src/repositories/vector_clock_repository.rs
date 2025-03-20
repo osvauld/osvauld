@@ -146,4 +146,25 @@ impl VectorClockRepository for SqliteVectorClockRepository {
 
         Ok(count > 0)
     }
+
+    async fn get_resource_ids_needing_updates(
+        &self,
+        resource_ids: &[String],
+        last_synced_at: i64,
+        device_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Find resources that were updated after last_synced_at by devices other than current one
+        let updated_resources: Vec<String> = resource_vector_clocks::table
+            .filter(resource_vector_clocks::resource_id.eq_any(resource_ids))
+            .filter(resource_vector_clocks::updated_at.gt(last_synced_at))
+            .filter(resource_vector_clocks::device_id.ne(device_id))
+            .select(resource_vector_clocks::resource_id)
+            .distinct()
+            .load::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(updated_resources)
+    }
 }

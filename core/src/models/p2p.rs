@@ -8,21 +8,31 @@ use crate::models::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SyncPayload {
-    pub sync_record: Option<SyncRecord>, // Optional because status updates don't have sync record
-    pub device_records: Vec<DeviceRecord>,
-    pub device_record_statuses: Vec<DeviceRecordStatus>,
-    pub data: Option<SyncData>, // The actual folder/resource/device data
-    pub vector_clocks: Option<Vec<ResourceVectorClock>>, // vector clocks if its a resource
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
-pub enum SyncData {
-    Folder(Folder),
-    Resource(ResourceKeyPair),
-    Device(Device),
-    SyncRecord(SyncRecord),
+pub enum SyncPayload {
+    DeviceSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        device: Device,
+    },
+    ResourceSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        resource: ResourceKeyPair,
+        vector_clocks: Vec<ResourceVectorClock>,
+    },
+    FolderSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        folder: Folder,
+    },
+    StatusUpdate {
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+    },
+    // Other variants as needed
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {

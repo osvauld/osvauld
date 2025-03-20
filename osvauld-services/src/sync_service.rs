@@ -1,14 +1,16 @@
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{SyncAckType, SyncData, SyncPayload};
+use osvauld_core::models::p2p::{SyncAckType, SyncPayload};
 use osvauld_core::models::sync_types::ResourceType;
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::models::{
     folder::Folder,
-    resource::Resource,
-    sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecord, SyncRecordSet, SyncUpdateData},
+    resource::{Resource, ResourceKeyPair},
+    sync_record::{
+        DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
+        SyncRecordSet,
+    },
 };
-use osvauld_core::models::{sync_record, vector_clock};
 
 use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
@@ -51,25 +53,25 @@ impl SyncService {
         sync_payload: SyncPayload,
         user_id: String,
     ) -> Result<(), RepositoryError> {
-        let device = match &sync_payload.data {
-            Some(SyncData::Device(device)) => device.clone(),
+        let (device, sync_record, device_records, device_record_statuses) = match sync_payload {
+            SyncPayload::DeviceSync {
+                sync_record,
+                device_records,
+                device_record_statuses,
+                device,
+            } => (device, sync_record, device_records, device_record_statuses),
             _ => {
                 return Err(RepositoryError::DatabaseError(
-                    "Invalid sync payload: expected device data".to_string(),
+                    "Invalid sync payload: expected DeviceSync payload".to_string(),
                 ));
             }
         };
-        let sync_record_set = match &sync_payload.sync_record {
-            Some(sync_record) => SyncRecordSet {
-                sync_record: sync_record.clone(),
-                device_records: sync_payload.device_records.clone(),
-                device_record_statuses: sync_payload.device_record_statuses.clone(),
-            },
-            None => {
-                return Err(RepositoryError::DatabaseError(
-                    "Invalid sync payload: missing sync record for device addition".to_string(),
-                ));
-            }
+
+        // Create the sync record set with the extracted data
+        let sync_record_set = SyncRecordSet {
+            sync_record,
+            device_records,
+            device_record_statuses,
         };
 
         let current_device_id = self.store_repository.get_device_key().await?;
@@ -154,12 +156,11 @@ impl SyncService {
                 .find_by_id(&sync_record.resource_id)
                 .await?;
 
-            return Ok(Some(SyncPayload {
-                sync_record: Some(sync_record),
+            return Ok(Some(SyncPayload::DeviceSync {
+                sync_record,
                 device_records,
                 device_record_statuses: statuses,
-                data: Some(SyncData::Device(device_data)),
-                vector_clocks: None,
+                device: device_data,
             }));
         }
 
@@ -181,12 +182,11 @@ impl SyncService {
                 .find_by_id(&sync_record.resource_id)
                 .await?;
 
-            return Ok(Some(SyncPayload {
-                sync_record: Some(sync_record),
+            return Ok(Some(SyncPayload::FolderSync {
+                sync_record,
                 device_records,
                 device_record_statuses: statuses,
-                data: Some(SyncData::Folder(folder)),
-                vector_clocks: None,
+                folder,
             }));
         }
 
@@ -213,12 +213,12 @@ impl SyncService {
                 .get_vector_clocks_for_resource(&sync_record.resource_id)
                 .await?;
 
-            return Ok(Some(SyncPayload {
-                sync_record: Some(sync_record),
+            return Ok(Some(SyncPayload::ResourceSync {
+                sync_record,
                 device_records,
                 device_record_statuses: statuses,
-                data: Some(SyncData::Resource(resource)),
-                vector_clocks: Some(vector_clocks),
+                resource,
+                vector_clocks,
             }));
         }
 
@@ -243,12 +243,9 @@ impl SyncService {
                 all_statuses.extend(statuses);
             }
 
-            return Ok(Some(SyncPayload {
-                sync_record: None,
+            return Ok(Some(SyncPayload::StatusUpdate {
                 device_records: all_device_records,
                 device_record_statuses: all_statuses,
-                data: None,
-                vector_clocks: None,
             }));
         }
 
@@ -347,82 +344,278 @@ impl SyncService {
             }
         }
     }
+
     pub async fn process_sync_payload(
         &self,
         payload: &SyncPayload,
         user_id: String,
     ) -> Result<SyncAckType, RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
-        let (mut device_records, mut device_record_statuses) = SyncRecord::process_device_records(
-            &payload.device_records,
-            &payload.device_record_statuses,
-            &current_device_id,
-        );
 
-        if let Some(sync_record) = &payload.sync_record {
-            if let Some(data) = &payload.data {
-                match data {
-                    SyncData::Folder(folder) => self.folder_repository.save(folder).await?,
-                    SyncData::Resource(resource_key_pair) => {
-                        self.resource_repository
-                            .save_resource_with_key(
-                                &resource_key_pair.resource,
-                                &resource_key_pair.key,
-                            )
-                            .await?;
-                        if let Some(vector_clocks) = &payload.vector_clocks {
-                            self.vector_clock_repository
-                                .save_vector_clocks(vector_clocks)
-                                .await?;
-                        }
-                    }
-                    SyncData::Device(device) => {
-                        if device.id != current_device_id {
-                            self.device_repository.save(device.clone()).await?
-                        };
-                    }
-                    _ => {}
-                }
+        match payload {
+            SyncPayload::DeviceSync {
+                sync_record,
+                device_records,
+                device_record_statuses,
+                device,
+            } => {
+                self.process_device_sync(
+                    sync_record,
+                    device_records,
+                    device_record_statuses,
+                    device,
+                    &current_device_id,
+                    &user_id,
+                )
+                .await
             }
 
-            let excluded_devices = vec![current_device_id.clone()];
-            let devices = self
-                .device_repository
-                .get_devices_by_user_except(&user_id, &excluded_devices)
-                .await?;
-            let status_change_records = SyncRecord::create_completion_records(
-                sync_record.id.clone(),
-                current_device_id,
-                &devices,
-            );
-            device_records.push(status_change_records.device_record.clone());
-            device_record_statuses.extend(status_change_records.device_record_statuses.clone());
+            SyncPayload::ResourceSync {
+                sync_record,
+                device_records,
+                device_record_statuses,
+                resource,
+                vector_clocks,
+            } => {
+                self.process_resource_sync(
+                    sync_record,
+                    device_records,
+                    device_record_statuses,
+                    resource,
+                    vector_clocks,
+                    &current_device_id,
+                    &user_id,
+                )
+                .await
+            }
 
-            let record_set = SyncRecordSet {
-                sync_record: sync_record.clone(),
+            SyncPayload::FolderSync {
+                sync_record,
                 device_records,
                 device_record_statuses,
-            };
-            self.sync_repository.add_sync_record_set(record_set).await?;
-            Ok(SyncAckType::FullSync {
-                sync_record_id: sync_record.id.clone(),
-                device_record: status_change_records.device_record.clone(),
-                device_sync_records: status_change_records.device_record_statuses.clone(),
-            })
-        } else {
-            let device_record_ids: Vec<_> = device_records
-                .iter()
-                .map(|device_record| device_record.id.clone())
-                .collect();
-            let device_record_set = DeviceRecordSet {
-                device_record_statuses,
+                folder,
+            } => {
+                self.process_folder_sync(
+                    sync_record,
+                    device_records,
+                    device_record_statuses,
+                    folder,
+                    &current_device_id,
+                    &user_id,
+                )
+                .await
+            }
+
+            SyncPayload::StatusUpdate {
                 device_records,
-            };
-            self.sync_repository
-                .update_device_record_set(device_record_set)
-                .await?;
-            Ok(SyncAckType::DeviceRecords(device_record_ids))
+                device_record_statuses,
+            } => {
+                self.process_status_update(
+                    device_records,
+                    device_record_statuses,
+                    &current_device_id,
+                )
+                .await
+            }
         }
+    }
+
+    // Process device sync payload
+    async fn process_device_sync(
+        &self,
+        sync_record: &SyncRecord,
+        device_records: &[DeviceRecord],
+        device_record_statuses: &[DeviceRecordStatus],
+        device: &Device,
+        current_device_id: &str,
+        user_id: &str,
+    ) -> Result<SyncAckType, RepositoryError> {
+        // Process common sync logic
+        self.device_repository.save(device.clone()).await?;
+        let (processed_records, processed_statuses, completion_records) = self
+            .prepare_common_sync_data(
+                sync_record,
+                device_records,
+                device_record_statuses,
+                current_device_id,
+                user_id,
+            )
+            .await?;
+
+        // Save sync record set
+        let record_set = SyncRecordSet {
+            sync_record: sync_record.clone(),
+            device_records: processed_records,
+            device_record_statuses: processed_statuses,
+        };
+        self.sync_repository.add_sync_record_set(record_set).await?;
+
+        Ok(SyncAckType::FullSync {
+            sync_record_id: sync_record.id.clone(),
+            device_record: completion_records.device_record,
+            device_sync_records: completion_records.device_record_statuses,
+        })
+    }
+
+    // Process resource sync payload
+    async fn process_resource_sync(
+        &self,
+        sync_record: &SyncRecord,
+        device_records: &[DeviceRecord],
+        device_record_statuses: &[DeviceRecordStatus],
+        resource: &ResourceKeyPair,
+        vector_clocks: &[ResourceVectorClock],
+        current_device_id: &str,
+        user_id: &str,
+    ) -> Result<SyncAckType, RepositoryError> {
+        // Process common sync logic
+        let (processed_records, processed_statuses, completion_records) = self
+            .prepare_common_sync_data(
+                sync_record,
+                device_records,
+                device_record_statuses,
+                current_device_id,
+                user_id,
+            )
+            .await?;
+
+        // DB WRITE OPERATIONS
+
+        // Save resource and vector clocks
+        self.resource_repository
+            .save_resource_with_key(&resource.resource, &resource.key)
+            .await?;
+
+        self.vector_clock_repository
+            .save_vector_clocks(vector_clocks)
+            .await?;
+
+        // Save sync record set
+        let record_set = SyncRecordSet {
+            sync_record: sync_record.clone(),
+            device_records: processed_records,
+            device_record_statuses: processed_statuses,
+        };
+        self.sync_repository.add_sync_record_set(record_set).await?;
+
+        Ok(SyncAckType::FullSync {
+            sync_record_id: sync_record.id.clone(),
+            device_record: completion_records.device_record,
+            device_sync_records: completion_records.device_record_statuses,
+        })
+    }
+
+    // Process folder sync payload
+    async fn process_folder_sync(
+        &self,
+        sync_record: &SyncRecord,
+        device_records: &[DeviceRecord],
+        device_record_statuses: &[DeviceRecordStatus],
+        folder: &Folder,
+        current_device_id: &str,
+        user_id: &str,
+    ) -> Result<SyncAckType, RepositoryError> {
+        // Process common sync logic
+        let (processed_records, processed_statuses, completion_records) = self
+            .prepare_common_sync_data(
+                sync_record,
+                device_records,
+                device_record_statuses,
+                current_device_id,
+                user_id,
+            )
+            .await?;
+
+        // DB WRITE OPERATIONS
+
+        // Save folder
+        self.folder_repository.save(folder).await?;
+
+        // Save sync record set
+        let record_set = SyncRecordSet {
+            sync_record: sync_record.clone(),
+            device_records: processed_records,
+            device_record_statuses: processed_statuses,
+        };
+        self.sync_repository.add_sync_record_set(record_set).await?;
+
+        Ok(SyncAckType::FullSync {
+            sync_record_id: sync_record.id.clone(),
+            device_record: completion_records.device_record,
+            device_sync_records: completion_records.device_record_statuses,
+        })
+    }
+
+    // Process status update payload
+    async fn process_status_update(
+        &self,
+        device_records: &[DeviceRecord],
+        device_record_statuses: &[DeviceRecordStatus],
+        current_device_id: &str,
+    ) -> Result<SyncAckType, RepositoryError> {
+        // Process device records
+        let (processed_records, processed_statuses) = SyncRecord::process_device_records(
+            device_records,
+            device_record_statuses,
+            current_device_id,
+        );
+
+        // Extract record IDs for acknowledgment
+        let device_record_ids: Vec<_> = processed_records
+            .iter()
+            .map(|device_record| device_record.id.clone())
+            .collect();
+
+        // DB WRITE OPERATION
+
+        // Update device record set
+        let device_record_set = DeviceRecordSet {
+            device_record_statuses: processed_statuses,
+            device_records: processed_records,
+        };
+        self.sync_repository
+            .update_device_record_set(device_record_set)
+            .await?;
+
+        Ok(SyncAckType::DeviceRecords(device_record_ids))
+    }
+
+    // Helper function to prepare common data (no DB writes)
+    async fn prepare_common_sync_data(
+        &self,
+        sync_record: &SyncRecord,
+        device_records: &[DeviceRecord],
+        device_record_statuses: &[DeviceRecordStatus],
+        current_device_id: &str,
+        user_id: &str,
+    ) -> Result<(Vec<DeviceRecord>, Vec<DeviceRecordStatus>, StatusChangeSet), RepositoryError>
+    {
+        // Process device records
+        let (mut processed_records, mut processed_statuses) = SyncRecord::process_device_records(
+            device_records,
+            device_record_statuses,
+            current_device_id,
+        );
+
+        // Get other devices
+        let excluded_devices = vec![current_device_id.to_string()];
+        let devices = self
+            .device_repository
+            .get_devices_by_user_except(user_id, &excluded_devices)
+            .await?;
+
+        // Create completion records
+        let completion_records = SyncRecord::create_completion_records(
+            sync_record.id.clone(),
+            current_device_id.to_string(),
+            &devices,
+        );
+
+        // Add completion records to processed records
+        processed_records.push(completion_records.device_record.clone());
+        processed_statuses.extend(completion_records.device_record_statuses.clone());
+
+        Ok((processed_records, processed_statuses, completion_records))
     }
 
     pub async fn add_folder_to_sync(
@@ -520,12 +713,11 @@ impl SyncService {
         device: Device,
         records: SyncRecordSet,
     ) -> SyncPayload {
-        SyncPayload {
-            data: Some(SyncData::Device(device)),
-            sync_record: Some(records.sync_record),
+        SyncPayload::DeviceSync {
+            device,
+            sync_record: records.sync_record,
             device_records: records.device_records,
             device_record_statuses: records.device_record_statuses,
-            vector_clocks: None,
         }
     }
 
@@ -547,5 +739,50 @@ impl SyncService {
             .update_device_sync_record_status(device_sync_record_id)
             .await
             .map_err(|e| e.to_string())
+    }
+
+    pub async fn get_resources_needing_sync(
+        &self,
+        device_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        // Check if device exists
+        let device = match self.device_repository.find_by_id(device_id).await {
+            Ok(device) => device,
+            Err(RepositoryError::NotFound) => {
+                // Device not found, return empty
+                return Ok(Vec::new());
+            }
+            Err(e) => return Err(e),
+        };
+
+        // If device has never synced, return empty list
+        if device.last_synced_at.is_none() {
+            return Ok(Vec::new());
+        }
+
+        let last_synced_at = device.last_synced_at.unwrap();
+
+        // Get all other devices
+        let all_other_devices = self
+            .device_repository
+            .get_all_devices_except(&[device_id.to_string()])
+            .await?;
+
+        if all_other_devices.is_empty() {
+            // No other devices to sync with
+            return Ok(Vec::new());
+        }
+
+        let device_resource_ids = self
+            .sync_repository
+            .get_resource_ids_for_device(&device.id)
+            .await?;
+        // Get resource IDs that need syncing based on vector clocks
+        let needs_sync = self
+            .vector_clock_repository
+            .get_resource_ids_needing_updates(&device_resource_ids, last_synced_at, device_id)
+            .await?;
+
+        Ok(needs_sync)
     }
 }

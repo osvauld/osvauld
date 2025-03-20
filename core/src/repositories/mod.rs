@@ -310,4 +310,11 @@ pub trait VectorClockRepository: Send + Sync {
         last_synced_at: i64,
         device_id: &str,
     ) -> Result<bool, RepositoryError>;
+
+    async fn get_resource_ids_needing_updates(
+        &self,
+        resource_ids: &[String],
+        last_synced_at: i64,
+        device_id: &str,
+    ) -> Result<Vec<String>, RepositoryError>;
 }

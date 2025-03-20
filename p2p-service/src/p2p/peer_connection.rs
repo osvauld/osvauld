@@ -1,15 +1,12 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
-use crate::p2p::errors::P2PError;
-use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::endpoint::Connection;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{ConnectionType, Message};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
-use tokio::sync::Mutex;
-use tokio::time::timeout;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use tokio::sync::Mutex;
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -44,6 +41,8 @@ pub struct PeerConnection {
 
     /// Event emitter for broadcasting events
     pub event_emitter: P2PEventEmitter,
+
+    pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
 }
 
 impl PeerConnection {
@@ -64,6 +63,7 @@ impl PeerConnection {
         is_initiator: bool,
         context: Arc<ServiceContext>,
         event_emitter: P2PEventEmitter,
+        pending_resource_ids: Vec<String>
     ) -> Self {
         info!("Creating new peer connection");
         
@@ -80,6 +80,7 @@ impl PeerConnection {
             task_handle,
             context,
             event_emitter,
+            pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
         };
 
         debug!("Starting message handler for the connection");
@@ -98,7 +99,7 @@ impl PeerConnection {
 
     /// Starts the message handler task
     fn start_message_handler(&self) -> tokio::task::JoinHandle<()> {
-        let connection = self.connection.clone();
+        let _connection = self.connection.clone();
         let self_clone = self.clone();
         let conn_id = self.get_id();
     
@@ -365,6 +366,7 @@ impl PeerConnection {
             task_handle: tokio::spawn(async {}), // Create a dummy task handle
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
+            pending_resource_ids: self.pending_resource_ids.clone()
         }
     }
 }
