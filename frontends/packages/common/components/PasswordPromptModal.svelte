@@ -1,23 +1,27 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { sendMessage, writeToClipboard } from "../utils/helper";
-
 	import { fly } from "svelte/transition";
-	// import { promptPassword, changePassword } from "../store";
-	import { ClosedEye, ClosePanel, Eye } from "../index";
+	import { createEventDispatcher } from "svelte";
+
+	import ClosedEye from "@osvauld/password-manager-common/icons/closedEye.svelte";
+	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
+	import Eye from "@osvauld/password-manager-common/icons/eye.svelte";
+
 	import SuccessView from "./SuccessView.svelte";
 	import NewPassword from "./NewPassword.svelte";
-	import { writable } from "svelte/store";
-	let promptPassword = writable(false);
-	let changePassword = writable(false);
+
+	export let changePassword = false;
+	let promptPassword = false;
 	let password: string = "";
 	let success: boolean = false;
 	let errorView: boolean = false;
 	let newPasswordView: boolean = false;
 	let showPassword: boolean = false;
+	const dispatch = createEventDispatcher();
 
 	const closeModal = () => {
-		promptPassword.set(false);
+		dispatch("close", true);
 	};
 
 	const autofocus = (node: any) => {
@@ -57,7 +61,7 @@
 			errorView = true;
 		}
 		setTimeout(() => {
-			changePassword.set(false);
+			// changePassword = false;
 			closeModal();
 		}, 1500);
 	};
@@ -101,7 +105,7 @@
 		{:else}
 			<form
 				class="flex flex-col h-full w-full"
-				on:submit|preventDefault="{$changePassword
+				on:submit|preventDefault="{changePassword
 					? newPasswordViewHandler
 					: handleRecoveryDataSubmit}">
 				<div class="flex justify-between items-center w-full">

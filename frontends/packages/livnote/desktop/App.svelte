@@ -7,6 +7,7 @@
 	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	import AddUserModal from "./components/modals/AddUserModal.svelte";
+	import PasswordPromptModal from "@osvauld/password-manager-common/components/PasswordPromptModal.svelte";
 
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { onMount } from "svelte";
@@ -16,6 +17,7 @@
 		showWelcome,
 		showConnector,
 		showAddUser,
+		passwordPromptModal,
 	} from "./store/desktop.ui.store";
 
 	let signedUp = false;
@@ -51,6 +53,11 @@
 		showConnector.set(false);
 	};
 
+	const handlePasswordModalClose = (event) => {
+		console.log("Handle handlePasswordModalClose trigger =>", event.detail);
+		passwordPromptModal.set({ isChangePassword: false, show: !event.detail });
+	};
+
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
@@ -84,15 +91,15 @@
    w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">
-			<Loader size={24} color="#1F242A" duration={1} />
+			<Loader size="{24}" color="#1F242A" duration="{1}" />
 		</div>
 	{:else if !signedUp}
 		<Signup
-			ImportComponent={DesktopImportPvtKey}
-			on:signedUp={handleSignedUp} />
+			ImportComponent="{DesktopImportPvtKey}"
+			on:signedUp="{handleSignedUp}" />
 	{:else if $showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
-			<Welcome on:authenticated={handleAuthenticated} />
+			<Welcome on:authenticated="{handleAuthenticated}" />
 		</div>
 	{:else}
 		<!-- <DocumentEditor /> -->
@@ -109,20 +116,24 @@
 		{#if $showSyncQr}
 			<Acceptor />
 		{/if}
-
-	
-		
 		-->
+
+		{#if $passwordPromptModal.show}
+			<PasswordPromptModal
+				changePassword="{$passwordPromptModal.isChangePassword}"
+				on:close="{handlePasswordModalClose}" />
+		{/if}
+
 		{#if $showAddUser}
 			<AddUserModal
-				on:userAdd={handleAddUser}
-				on:close={() => {
+				on:userAdd="{handleAddUser}"
+				on:close="{() => {
 					showAddUser.set(false);
-				}} />
+				}}" />
 		{/if}
 
 		{#if $showConnector}
-			<Connector on:close={handleConnectorClose} />
+			<Connector on:close="{handleConnectorClose}" />
 		{/if}
 
 		{#if $toastStore.show}
