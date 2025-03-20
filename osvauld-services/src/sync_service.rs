@@ -20,6 +20,7 @@ use osvauld_core::repositories::{
 use log::info;
 
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct SyncService {
     sync_repository: Arc<dyn SyncRepository>,
@@ -113,6 +114,7 @@ impl SyncService {
         &self,
         device: &Device,
         user: &User,
+        pending_resource_ids: Option<Arc<Mutex<Vec<String>>>>,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
         info!("Getting pending syncs for device: {}", device.id);
 
@@ -133,7 +135,26 @@ impl SyncService {
             return Ok(Some(payload));
         }
 
-        // 4. Device record status updates
+        // 4. Check for resource updates in the pending_resource_ids
+        if let Some(pending_resources) = pending_resource_ids {
+            // Lock the mutex to access the vector
+            let mut resources = pending_resources.lock().await;
+
+            // If we have any pending resources, pop one
+            if !resources.is_empty() {
+                let resource_id = resources.remove(0); // Pop the first item
+                info!(
+                    "Processing pending resource update for resource: {}",
+                    resource_id
+                );
+
+                // Get the resource data for update
+                let payload = self.get_resource_for_update(&resource_id).await?;
+                return Ok(Some(payload));
+            }
+        }
+
+        // 5. Device record status updates
         if let Some(payload) = self.get_unsynced_device_records(device).await? {
             return Ok(Some(payload));
         }
@@ -225,6 +246,21 @@ impl SyncService {
         Ok(None)
     }
 
+    async fn get_resource_for_update(
+        &self,
+        resource_id: &str,
+    ) -> Result<SyncPayload, RepositoryError> {
+        let resource = self.resource_repository.find_by_id_raw(resource_id).await?;
+        let vector_clocks = self
+            .vector_clock_repository
+            .get_vector_clocks_for_resource(resource_id)
+            .await?;
+        Ok(SyncPayload::ResourceUpdate {
+            resource,
+            vector_clocks,
+        })
+    }
+
     async fn get_unsynced_device_records(
         &self,
         device: &Device,
@@ -256,31 +292,6 @@ impl SyncService {
         //TODO: handle check for device alreay here.
         self.device_repository.save(device).await
     }
-
-    // pub async fn mark_sync_complete(
-    //     &self,
-    //     sync_id: &str,
-    //     device: Device,
-    // ) -> Result<(), RepositoryError> {
-    //     let current_device_id = self.store_repository.get_device_key().await?;
-    //     let devices = self
-    //         .device_repository
-    //         .get_devices_except(vec![current_device_id.clone(), device.id.clone()].as_slice())
-    //         .await?;
-    //     let status_change_records = SyncRecord::create_completion_records(
-    //         sync_id.to_string(),
-    //         device.id.clone(),
-    //         current_device_id,
-    //         &devices,
-    //     );
-    //     self.sync_repository
-    //         .update_device_record(device.id.clone(), sync_id.to_string())
-    //         .await?;
-    //     self.sync_repository
-    //         .add_status_change_set(status_change_records)
-    //         .await?;
-    //     Ok(())
-    // }
 
     pub async fn process_acknowledgement(
         &self,
@@ -404,6 +415,14 @@ impl SyncService {
                     &user_id,
                 )
                 .await
+            }
+
+            SyncPayload::ResourceUpdate {
+                resource,
+                vector_clocks,
+            } => {
+                self.process_resource_update_sync(resource, vector_clocks)
+                    .await
             }
 
             SyncPayload::StatusUpdate {
@@ -578,6 +597,15 @@ impl SyncService {
             .await?;
 
         Ok(SyncAckType::DeviceRecords(device_record_ids))
+    }
+
+    async fn process_resource_update_sync(
+        &self,
+        resourcr: &Resource,
+        vector_clock: &[ResourceVectorClock],
+    ) -> Result<SyncAckType, RepositoryError> {
+        info!("recieved update **********");
+        todo!()
     }
 
     // Helper function to prepare common data (no DB writes)

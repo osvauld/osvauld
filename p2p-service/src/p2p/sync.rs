@@ -33,7 +33,11 @@ impl PeerConnection {
         match self
             .context
             .sync_service
-            .get_next_pending_sync(&self.device, &self.user)
+            .get_next_pending_sync(
+                &self.device,
+                &self.user,
+                Some(self.pending_resource_ids.clone()),
+            )
             .await
         {
             Ok(Some(payload)) => {
@@ -84,7 +88,11 @@ impl PeerConnection {
         match self
             .context
             .sync_service
-            .get_next_pending_sync(&self.device, &self.user)
+            .get_next_pending_sync(
+                &self.device,
+                &self.user,
+                Some(self.pending_resource_ids.clone()),
+            )
             .await
         {
             Ok(Some(payload)) => {
@@ -130,7 +138,11 @@ impl PeerConnection {
             match self
                 .context
                 .sync_service
-                .get_next_pending_sync(&self.device, &self.user)
+                .get_next_pending_sync(
+                    &self.device,
+                    &self.user,
+                    Some(self.pending_resource_ids.clone()),
+                )
                 .await
             {
                 Ok(Some(payload)) => {

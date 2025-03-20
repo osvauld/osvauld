@@ -1,11 +1,13 @@
-use crate::models::device::Device;
-use crate::models::folder::Folder;
-use crate::models::resource::ResourceKeyPair;
-use crate::models::share_record::{ShareRecord, UserRecord, UserRecordStatus};
-use crate::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
-use crate::models::user::User;
-use crate::models::vector_clock::ResourceVectorClock;
+use super::device::Device;
+use super::folder::Folder;
+use super::resource::ResourceKeyPair;
+use super::share_record::{ShareRecord, UserRecord, UserRecordStatus};
+use super::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
+use super::user::User;
+use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
+
+use super::resource::Resource;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SyncPayload {
@@ -32,7 +34,10 @@ pub enum SyncPayload {
         device_records: Vec<DeviceRecord>,
         device_record_statuses: Vec<DeviceRecordStatus>,
     },
-    // Other variants as needed
+    ResourceUpdate {
+        resource: Resource,
+        vector_clocks: Vec<ResourceVectorClock>,
+    }, // Other variants as needed
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
