@@ -10,6 +10,7 @@
 
 	import SuccessView from "./SuccessView.svelte";
 	import NewPassword from "./NewPassword.svelte";
+	import Loader from "./Loader.svelte";
 
 	export let changePassword = false;
 	let promptPassword = false;
@@ -18,6 +19,7 @@
 	let errorView: boolean = false;
 	let newPasswordView: boolean = false;
 	let showPassword: boolean = false;
+	let loading = false;
 	const dispatch = createEventDispatcher();
 
 	const closeModal = () => {
@@ -33,23 +35,26 @@
 	};
 
 	const handlePasswordChangeSubmit = async (e: CustomEvent) => {
+		loading = true;
 		const newPassword = e.detail.passphrase;
 		const certificate = await sendMessage("changePassphrase", {
 			oldPassword: password,
 			newPassword,
 		});
-		newPasswordView = false;
 		if (certificate) {
 			success = true;
 		} else {
 			errorView = true;
 		}
+		newPasswordView = false;
+		loading = false;
 		setTimeout(() => {
 			closeModal();
 		}, 1500);
 	};
 
 	const handleRecoveryDataSubmit = async () => {
+		loading = true;
 		const certificate = await sendMessage("exportCertificate", {
 			passphrase: password,
 		});
@@ -60,6 +65,7 @@
 		} else {
 			errorView = true;
 		}
+		loading = false;
 		setTimeout(() => {
 			// changePassword = false;
 			closeModal();
@@ -96,10 +102,14 @@
 		aria-labelledby="export-recovery-data"
 		in:fly
 		out:fly>
-		{#if errorView}
-			<SuccessView status="{false}" recovery="{true}" />
+		{#if loading}
+			<div class="w-full h-full flex justify-center items-center">
+				<Loader color="#fff" size="{32}" />
+			</div>
+		{:else if errorView}
+			<SuccessView status="{false}" message="Unable to do operation" />
 		{:else if success}
-			<SuccessView status="{true}" recovery="{true}" />
+			<SuccessView status="{true}" message="Export complete" />
 		{:else if newPasswordView}
 			<NewPassword on:submit="{handlePasswordChangeSubmit}" />
 		{:else}
