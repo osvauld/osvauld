@@ -4,6 +4,9 @@
 	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
 	import Profile from "@osvauld/password-manager-common/icons/profile.svelte";
 	import Key from "@osvauld/password-manager-common/icons/key.svelte";
+	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
+	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
+	import downloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
 	import {
 		sendMessage,
 		writeToClipboard,
@@ -21,6 +24,7 @@
 		showSyncQr,
 		toastStore,
 		showAddUser,
+		passwordPromptModal,
 	} from "../../store/desktop.ui.store";
 
 	let showDropdown = false;
@@ -28,36 +32,46 @@
 
 	const MENUITEMS = [
 		{ id: "connect", label: "Connect", icon: Sync },
-		{ id: "userid", label: "Copy UserID", icon: Key },
+		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
+		{ id: "addUser", label: "Add User", icon: UserPlus },
 		{ id: "change", label: "Change Password", icon: Key },
+		{ id: "export", label: "Emergency Key", icon: downloadIcon },
 		{ id: "logout", label: "Logout", icon: Logout },
-		{ id: "addUser", label: "Add User", icon: Key },
 	];
 
 	const handleDropDownClick = async (id: string) => {
-		if (id === "add") {
-			addDeviceModal.set(true);
-		} else if (id == "logout") {
-			await sendMessage("logout");
-			showWelcome.set(true);
-		} else if (id == "sync") {
-			showSyncQr.set(true);
-		} else if (id === "connect") {
-			showConnector.set(true);
-		} else if (id === "userid") {
-			const userId = await sendMessage("getPublicKey");
-			await writeToClipboard(userId);
-			toastStore.set({
-				show: true,
-				message: "UserID copied to clipboard",
-				success: true,
-			});
-		} else if (id == "addUser") {
-			showAddUser.set(true);
+		switch (id) {
+			case "add":
+				addDeviceModal.set(true);
+				break;
+			case "logout":
+				await sendMessage("logout");
+				showWelcome.set(true);
+				break;
+			case "sync":
+				showSyncQr.set(true);
+				break;
+			case "connect":
+				showConnector.set(true);
+				break;
+			case "userid":
+				const userId = await sendMessage("getPublicKey");
+				await writeToClipboard(userId);
+				toastStore.set({
+					show: true,
+					message: "UserID copied to clipboard",
+					success: true,
+				});
+				break;
+			case "addUser":
+				showAddUser.set(true);
+				break;
+			case "export":
+				passwordPromptModal.set({ isChangePassword: false, show: true });
+				break;
 		}
-
 		showDropdown = false;
 	};
 </script>
@@ -84,12 +98,12 @@
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				on:click={() => (showDropdown = !showDropdown)}>
+				on:click="{() => (showDropdown = !showDropdown)}">
 				<Profile color="#4D4F60" />
 				<span class="ml-2">John Doe</span>
 				<span
 					class="ml-auto transition-transform ease-linear"
-					class:rotate-90={showDropdown}>
+					class:rotate-90="{showDropdown}">
 					<RightArrow />
 				</span>
 			</button>
@@ -98,7 +112,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation={() => (showDropdown = false)}>
+					on:click|stopPropagation="{() => (showDropdown = false)}">
 				</div>
 				<div
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -107,12 +121,12 @@
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							class="profileBtn"
-							on:mouseenter={() => (hoveredItem = id)}
-							on:mouseleave={() => (hoveredItem = "")}
-							on:click|stopPropagation={() => handleDropDownClick(id)}>
+							on:mouseenter="{() => (hoveredItem = id)}"
+							on:mouseleave="{() => (hoveredItem = '')}"
+							on:click|stopPropagation="{() => handleDropDownClick(id)}">
 							<Icon
-								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
-								size={24} />
+								color="{hoveredItem === id ? '#F2F2F0' : '#85889C'}"
+								size="{24}" />
 							{label}
 						</button>
 					{/each}
