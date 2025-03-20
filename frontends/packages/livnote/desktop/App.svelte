@@ -54,7 +54,6 @@
 	};
 
 	const handlePasswordModalClose = (event) => {
-		console.log("Handle handlePasswordModalClose trigger =>", event.detail);
 		passwordPromptModal.set({ isChangePassword: false, show: !event.detail });
 	};
 

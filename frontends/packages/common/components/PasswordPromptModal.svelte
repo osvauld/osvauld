@@ -115,9 +115,7 @@
 		in:fly
 		out:fly>
 		{#if loading}
-			<div class="w-full h-full flex justify-center items-center">
-				<Loader color="#fff" size="{32}" />
-			</div>
+			<Loader color="#fff" size="{32}" />
 		{:else if errorView}
 			<SuccessView status="{false}" message="Unable to do operation" />
 		{:else if success}
@@ -130,7 +128,7 @@
 				on:submit|preventDefault="{changePassword
 					? newPasswordViewHandler
 					: handleRecoveryDataSubmit}">
-				<div class="flex justify-between items-center w-full">
+				<div class="flex p-2 pb-4 justify-between items-center w-full">
 					<span
 						id="export-recovery-data"
 						class="text-[21px] font-medium text-osvauld-quarzowhite">
@@ -149,12 +147,13 @@
 				</div>
 				<div class="grow flex justify-center items-center">
 					<div
-						class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack w-[300px]">
+						class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
 						<input
-							class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-osvauld-iconblack focus:ring-0 active:outline-none focus:ring-offset-0"
+							class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
 							type="{showPassword ? 'text' : 'password'}"
 							id="passphrase"
 							aria-label="passphrase"
+							autocomplete="off"
 							use:autofocus
 							on:input="{handleInputChange}" />
 
