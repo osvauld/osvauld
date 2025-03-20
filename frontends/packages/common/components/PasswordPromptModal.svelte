@@ -4,6 +4,8 @@
 	import { fly } from "svelte/transition";
 	import { createEventDispatcher } from "svelte";
 
+	import { generateCertificatePDF } from "../utils/backupUtil";
+
 	import ClosedEye from "@osvauld/password-manager-common/icons/closedEye.svelte";
 	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
 	import Eye from "@osvauld/password-manager-common/icons/eye.svelte";
@@ -55,23 +57,33 @@
 
 	const handleRecoveryDataSubmit = async () => {
 		loading = true;
-		const certificate = await sendMessage("exportCertificate", {
-			passphrase: password,
-		});
-		if (certificate) {
-			const exporter = JSON.stringify({ certificate });
-			await writeToClipboard(exporter);
-			success = true;
-		} else {
-			errorView = true;
-		}
-		loading = false;
-		setTimeout(() => {
-			// changePassword = false;
-			closeModal();
-		}, 1500);
-	};
+		try {
+			const certificate = await sendMessage("exportCertificate", {
+				passphrase: password,
+			});
 
+			if (certificate) {
+				try {
+					// Generate and save PDF instead of copying to clipboard
+					await generateCertificatePDF(certificate);
+					success = true;
+				} catch (pdfError) {
+					console.error("PDF generation error:", pdfError);
+					errorView = true;
+				}
+			} else {
+				errorView = true;
+			}
+		} catch (error) {
+			console.error("Error exporting certificate:", error);
+			errorView = true;
+		} finally {
+			loading = false;
+			setTimeout(() => {
+				closeModal();
+			}, 1500);
+		}
+	};
 	const handleInputChange = (e: any) => {
 		password = e.target.value;
 	};
