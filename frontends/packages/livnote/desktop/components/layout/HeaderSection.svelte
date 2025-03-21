@@ -71,6 +71,9 @@
 			case "export":
 				passwordPromptModal.set({ isChangePassword: false, show: true });
 				break;
+			case "change":
+				passwordPromptModal.set({ isChangePassword: true, show: true });
+				break;
 		}
 		showDropdown = false;
 	};

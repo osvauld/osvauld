@@ -345,7 +345,7 @@
 	});
 </script>
 
-<div class="flex grow max-h-[60rem]">
+<div class="flex grow max-h-full">
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<div class="py-10 px-11 flex items-center justify-start shrink-0">
 			{#if !$noteViewLayout}

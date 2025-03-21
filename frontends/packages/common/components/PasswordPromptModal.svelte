@@ -108,7 +108,7 @@
 	on:click|preventDefault="{closeModal}"
 	role="presentation">
 	<div
-		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[28rem] h-[24rem] flex flex-col justify-center items-center"
+		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[32rem] flex flex-col justify-center items-center"
 		on:click|stopPropagation
 		role="presentation"
 		aria-labelledby="export-recovery-data"
@@ -119,12 +119,14 @@
 		{:else if errorView}
 			<SuccessView status="{false}" message="Unable to do operation" />
 		{:else if success}
-			<SuccessView status="{true}" message="Export complete" />
+			<SuccessView
+				status="{true}"
+				message="{changePassword ? 'Password Changed' : 'Export complete'}" />
 		{:else if newPasswordView}
 			<NewPassword on:submit="{handlePasswordChangeSubmit}" />
 		{:else}
 			<form
-				class="flex flex-col h-full w-full"
+				class="flex flex-col items-center h-full w-full"
 				on:submit|preventDefault="{changePassword
 					? newPasswordViewHandler
 					: handleRecoveryDataSubmit}">
@@ -142,9 +144,7 @@
 						<ClosePanel />
 					</button>
 				</div>
-				<div
-					class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4">
-				</div>
+				<div class="border-b border-osvauld-iconblack w-[90%]"></div>
 				<div class="grow flex justify-center items-center">
 					<div
 						class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
