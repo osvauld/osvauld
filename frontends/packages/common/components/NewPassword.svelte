@@ -1,8 +1,8 @@
 <script lang="ts">
 	import Loader from "./Loader.svelte";
-	import ClosedEye from "../icons/closedEye.svelte";
-	import Eye from "../icons/eye.svelte";
-	import Tick from "../icons/tick.svelte";
+	import ClosedEye from "@osvauld/password-manager-common/icons/closedEye.svelte";
+	import Eye from "@osvauld/password-manager-common/icons/eye.svelte";
+	import Tick from "@osvauld/password-manager-common/icons/tick.svelte";
 	import { createEventDispatcher } from "svelte";
 	const dispatch = createEventDispatcher();
 
@@ -26,6 +26,10 @@
 		}
 	};
 
+	const autofocus = (node: any) => {
+		node.focus();
+	};
+
 	const handleInputChange = (event: any) => {
 		passphrase = event.target.value;
 	};
@@ -43,14 +47,17 @@
 <form
 	on:submit|preventDefault="{handleSubmit}"
 	class="flex flex-col items-center justify-center">
-	<label for="passphrase" class="font-normal mt-6 mb-2"
+	<label for="passphrase" class="font-normal mt-6 mb-2 text-osvauld-quarzowhite"
 		>Enter New Passphrase</label>
 	<div
-		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack w-[300px]">
+		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
 		<input
-			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-osvauld-iconblack focus:ring-0 active:outline-none focus:ring-offset-0"
+			class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
 			type="{showPassword ? 'text' : 'password'}"
 			id="passphrase"
+			autocomplete="off"
+			autocorrect="off"
+			use:autofocus
 			on:input="{handleInputChange}" />
 
 		{#if isPassphraseAcceptable}
@@ -68,14 +75,16 @@
 		</button>
 	</div>
 	<PasswordStrengthValidator {passphrase} bind:isPassphraseAcceptable />
-	<label for="passphrase" class="font-normal mt-2 mb-2"
+	<label for="passphrase" class="font-normal mt-2 mb-2 text-osvauld-quarzowhite"
 		>Confirm New Passphrase</label>
 	<div
-		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack w-[300px]">
+		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
 		<input
-			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-osvauld-iconblack focus:ring-0 active:outline-none focus:ring-offset-0"
+			class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
 			type="{showReenteredPassword ? 'text' : 'password'}"
 			id="passphrase"
+			autocomplete="off"
+			autocorrect="off"
 			on:input="{handleConfirmationInputChange}" />
 
 		<button
@@ -93,11 +102,11 @@
 	<button
 		class="{submitDisabled
 			? 'border border-osvauld-iconblack text-osvauld-sheffieldgrey'
-			: 'bg-osvauld-carolinablue text-osvauld-ninjablack'} py-2 px-10 mt-8 rounded-lg font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
+			: 'bg-osvauld-carolinablue text-osvauld-ninjablack'} py-2 px-10 mt-8 rounded-lg font-medium w-[150px] flex justify-center items-center whitespace-nowrap cursor-pointer"
 		type="submit"
 		disabled="{submitDisabled}">
 		{#if isLoaderActive}
-			<Loader />
+			<Loader color="#fff" size="{32}" />
 		{:else}
 			<span>Submit</span>
 		{/if}
