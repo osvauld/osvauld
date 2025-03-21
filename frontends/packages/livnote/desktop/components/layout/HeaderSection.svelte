@@ -85,7 +85,7 @@
 		Livnote
 	</span>
 	<div class="grow py-10 px-16 flex items-center justify-start">
-		<div
+		<!-- <div
 			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg mr-3">
 			<span class="sr-only">Search</span>
 			<Lens color="#4D4F60" />
@@ -94,7 +94,7 @@
 				name="search"
 				class="ml-4 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
 				placeholder="Search..." />
-		</div>
+		</div> -->
 
 		<div
 			class="relative ml-auto text-osvauld-fieldText font-normal text-sm z-40">
