@@ -7,6 +7,7 @@
 		deleteConfirmationModal,
 		toastStore,
 		refreshCredentialList,
+		noteViewLayout,
 	} from "../../store/desktop.ui.store";
 	import { fly } from "svelte/transition";
 	import Warning from "@osvauld/password-manager-common/icons/warning.svelte";
@@ -24,6 +25,7 @@
 			await sendMessage("deleteResource", {
 				resourceId: $currentNote.id,
 			});
+			noteViewLayout.set(false);
 			refreshCredentialList.set(true);
 		}
 

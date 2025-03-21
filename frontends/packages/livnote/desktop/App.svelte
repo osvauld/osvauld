@@ -54,10 +54,6 @@
 		showConnector.set(false);
 	};
 
-	$: if ($currentNote) {
-		console.log("Current notes changeed", $currentNote);
-	}
-
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
