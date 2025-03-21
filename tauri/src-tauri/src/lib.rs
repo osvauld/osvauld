@@ -81,7 +81,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -138,6 +138,7 @@ pub fn run() {
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),
                         crypto_utils.clone(),
+                        vector_clock_repo.clone(),
                         resource_key_repo.clone(),
                     ));
                     let share_service = Arc::new(ShareService::new(

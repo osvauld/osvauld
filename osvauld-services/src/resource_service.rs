@@ -1,10 +1,11 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
-use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::resource_key::{self, ResourceKey};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
     RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
+    VectorClockRepository,
 };
 use serde_json::Value;
 use std::error::Error;
@@ -26,19 +27,22 @@ pub enum ResourceServiceError {
 pub struct ResourceService {
     resource_repository: Arc<dyn ResourceRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
-    resource_key_repository: Arc<dyn ResourceKeyRepository>,
+    vector_clock_repo: Arc<dyn VectorClockRepository>,
+    resource_key_repo: Arc<dyn ResourceKeyRepository>,
 }
 
 impl ResourceService {
     pub fn new(
         resource_repository: Arc<dyn ResourceRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
-        resource_key_repository: Arc<dyn ResourceKeyRepository>,
+        vector_clock_repo: Arc<dyn VectorClockRepository>,
+        resource_key_repo: Arc<dyn ResourceKeyRepository>,
     ) -> Self {
         Self {
             resource_repository,
             crypto_utils,
-            resource_key_repository,
+            vector_clock_repo,
+            resource_key_repo,
         }
     }
 
@@ -294,7 +298,6 @@ impl ResourceService {
     pub async fn get_update_payload(
         &self,
         remote_resource: Resource,
-        remote_vector_clock: Vec<ResourceVectorClock>,
     ) -> Result<(DecryptedResource, DecryptedResource), ResourceServiceError> {
         // Get the user ID
         let user_id = self.get_current_user_id().await?;
@@ -332,8 +335,54 @@ impl ResourceService {
 
         // Return both decrypted resources
         Ok((local_decrypted, remote_decrypted))
+    }
 
-        // Note: This implementation doesn't handle the vector clock yet.
-        // As mentioned, that will be handled in a future update.
+    pub async fn update_merged_payload(
+        &self,
+        merged_payload: &str,
+        remote_vector_clock: &[ResourceVectorClock],
+        resource_id: &str,
+    ) -> Result<(String, (Vec<ResourceVectorClock>, Vec<ResourceVectorClock>)), ResourceServiceError>
+    {
+        let current_user_id = self.get_current_user_id().await?;
+        let resource_key = self
+            .resource_key_repo
+            .find_by_resource_and_user(resource_id, &current_user_id)
+            .await?;
+
+        let encrypted_data = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .update_resource(&merged_payload, &resource_key.encrypted_key)
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        };
+        let local_vector_clock = self
+            .vector_clock_repo
+            .get_vector_clocks_for_resource(resource_id)
+            .await?;
+
+        let merged_vector_clock =
+            ResourceVectorClock::merge(&local_vector_clock, &remote_vector_clock);
+
+        if merged_vector_clock.local_needs_update {
+            self.vector_clock_repo
+                .update_vector_clocks(
+                    &merged_vector_clock.update_local,
+                    &merged_vector_clock.add_local,
+                )
+                .await
+                .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+        }
+
+        self.resource_repository
+            .update_resource(&encrypted_data, resource_id)
+            .await?;
+        Ok((
+            encrypted_data,
+            (
+                merged_vector_clock.add_remote,
+                merged_vector_clock.update_remote,
+            ),
+        ))
     }
 }

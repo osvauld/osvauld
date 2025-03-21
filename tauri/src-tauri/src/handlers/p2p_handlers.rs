@@ -35,7 +35,7 @@ pub async fn connect_with_device(
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<(), String> {
     p2p_service
-        .connect_with_ticket(&ticket, ConnectionType::Device)
+        .connect_with_ticket(&ticket, ConnectionType::Device, None)
         .await?;
     // p2p_service.start_device_sync().await
     Ok(())

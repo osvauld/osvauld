@@ -167,4 +167,42 @@ impl VectorClockRepository for SqliteVectorClockRepository {
 
         Ok(updated_resources)
     }
+
+    async fn update_vector_clocks(
+        &self,
+        update_vector_clocks: &[ResourceVectorClock],
+        add_vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Start a transaction to ensure atomicity
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // First, handle updates to existing vector clocks
+            for clock in update_vector_clocks {
+                diesel::update(resource_vector_clocks::table)
+                    .filter(resource_vector_clocks::resource_id.eq(&clock.resource_id))
+                    .filter(resource_vector_clocks::device_id.eq(&clock.device_id))
+                    .set((
+                        resource_vector_clocks::clock_value.eq(clock.clock_value as i32),
+                        resource_vector_clocks::updated_at.eq(clock.updated_at),
+                    ))
+                    .execute(conn)?;
+            }
+
+            // Then, insert new vector clocks
+            if !add_vector_clocks.is_empty() {
+                let new_clock_models =
+                    ResourceVectorClockModel::from_domain_vector_clocks(add_vector_clocks);
+
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&new_clock_models)
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
 }

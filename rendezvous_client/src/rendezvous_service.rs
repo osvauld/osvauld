@@ -208,50 +208,38 @@ impl RendezvousService {
         let p2p_service_clone = p2p_service.clone();
         let ticket = conn_string.clone();
         let user_id = response_user_id.to_string();
-        info!("**************************************** processing connection string");
+
+        // Create connection ID using the response_user_id
+        let connection_id = format!("{}", response_user_id);
+
+        info!(
+            "Processing connection string for user: {}",
+            response_user_id
+        );
+
         tokio::spawn(async move {
             match p2p_service_clone
-                .connect_with_ticket(&ticket, connection_type)
+                .connect_with_ticket(&ticket, connection_type, Some(&connection_id))
                 .await
             {
-                Ok(connection) => {
+                Ok(Some(connection)) => {
+                    // We successfully created a new connection
                     if is_first_connection {
-                        // Get current user for first connection process
-                        // if let Some(current_user) = user.lock().await.clone() {
-                        // Send FirstUserConnection message
-                        // match connection
-                        //     .send_message(Message::FirstUserConnection(current_user.clone()))
-                        //     .await
-                        // {
-                        //     Ok(_) => {
-                        //         info!(
-                        //             "Successfully initiated first connection with user: {}",
-                        //             user_id
-                        //         );
-                        //         // Initialize sync with the newly connected user's devices
-                        //         if let Err(e) =
-                        //             p2p_service_clone.start_device_sync_for_user(&user_id).await
-                        //         {
-                        //             error!(
-                        //                 "Failed to initialize sync with user devices: {}",
-                        //                 e
-                        //             );
-                        //         }
-                        //     }
-                        //     Err(e) => {
-                        //         error!("Failed to send FirstUserConnection message: {}", e);
-                        //     }
-                        // }
-                        // } else {
-                        //     error!("User not available for first connection process");
-                        // }
+                        // ...
                     } else {
                         info!("Successfully connected to peer using ticket");
-                        // For regular connections, start device sync as well
+                        // For regular connections, start device sync
                         if let Err(e) = connection.start_device_sync().await {
                             error!("Failed to initialize sync with user devices: {}", e);
                         }
                     }
+                }
+                Ok(None) => {
+                    // Connection already exists or is being established
+                    info!(
+                        "Connection to user {} already exists or is being established",
+                        user_id
+                    );
                 }
                 Err(e) => {
                     error!("Failed to connect with ticket: {}", e);
@@ -260,6 +248,7 @@ impl RendezvousService {
         });
     }
     /// Handle incoming connection request
+    ///
     async fn handle_connection_request(
         client: &Arc<Mutex<WsClient>>,
         p2p_service: &Arc<P2PService>,

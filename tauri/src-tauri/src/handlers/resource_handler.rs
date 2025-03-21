@@ -154,7 +154,7 @@ pub async fn update_resource(
         .await
         .map_err(|e| e.to_string())?;
     transaction_service
-        .update_resource_with_sync_and_share(&input.id, encrypted_data, &current_device)
+        .update_resource_with_sync_and_share(&input.id, &encrypted_data, &current_device)
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::UpdateResources)

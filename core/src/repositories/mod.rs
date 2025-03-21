@@ -142,8 +142,7 @@ pub trait ResourceRepository: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
     async fn get_favourites(&self, user_id: &str) -> Result<Vec<ResourceWithKey>, RepositoryError>;
-    async fn update_resource(&self, data: String, resource_id: &str)
-    -> Result<(), RepositoryError>;
+    async fn update_resource(&self, data: &str, resource_id: &str) -> Result<(), RepositoryError>;
     async fn find_resource_with_key(
         &self,
         resource_id: &str,
@@ -317,4 +316,10 @@ pub trait VectorClockRepository: Send + Sync {
         last_synced_at: i64,
         device_id: &str,
     ) -> Result<Vec<String>, RepositoryError>;
+
+    async fn update_vector_clocks(
+        &self,
+        update_vector_clocks: &[ResourceVectorClock],
+        add_vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
 }

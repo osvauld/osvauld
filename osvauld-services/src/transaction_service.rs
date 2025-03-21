@@ -80,7 +80,7 @@ impl TransactionService {
     pub async fn update_resource_with_sync_and_share(
         &self,
         resource_id: &str,
-        encrypted_data: String,
+        encrypted_data: &str,
         current_device: &Device,
     ) -> Result<(), RepositoryError> {
         // Use diesel transaction if your database supports it

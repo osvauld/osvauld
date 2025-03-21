@@ -5,8 +5,9 @@
 	import { onMount } from "svelte";
 	import { vaults } from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { listen } from "@tauri-apps/api/event";
+	import { listen, emit } from "@tauri-apps/api/event";
 	import { noteViewLayout } from "../../store/desktop.ui.store";
+	import { mergeDocuments } from "../notes/documentUtils.ts";
 	let unsubscribeResourceUpdate: Function | null = null;
 	onMount(async () => {
 		try {
@@ -19,6 +20,18 @@
 				"merge-update",
 				async (event) => {
 					console.log(event);
+					let mergedDocument = mergeDocuments(
+						event.payload.local_resource,
+						event.payload.remote_resource,
+					);
+					emit("merge-complete", {
+						mergedDocument,
+						deviceId: event.payload.device_id,
+						userId: event.payload.user_id,
+						vectorClock: event.payload.vector_clock,
+						resourceId: mergedDocument.resource_id,
+					});
+					console.log(mergedDocument);
 				},
 			);
 			let connectionTicket = "";

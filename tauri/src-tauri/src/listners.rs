@@ -1,6 +1,7 @@
 use log::{error, info};
+use serde::Deserialize;
 
-use osvauld_core::models::{p2p::Message, vector_clock};
+use osvauld_core::models::{p2p::Message, vector_clock::ResourceVectorClock};
 use osvauld_services::ResourceService;
 use p2p_service::{P2PService, p2p::P2PEvent};
 use std::sync::Arc;
@@ -14,6 +15,15 @@ pub struct EventManager {
     p2p_service: Arc<P2PService>,
     resource_service: Arc<ResourceService>,
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
+}
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MergeCompletePayload {
+    merged_document: serde_json::Value,
+    device_id: String,
+    user_id: String,
+    vector_clock: Vec<ResourceVectorClock>,
+    resource_id: String,
 }
 
 impl EventManager {
@@ -67,6 +77,52 @@ impl EventManager {
                     }
                     Err(e) => {
                         error!("Failed to serialize message: {}", e);
+                    }
+                }
+            });
+        });
+        let p2p_service_clone = self.p2p_service.clone();
+        let resource_service_clone = self.resource_service.clone();
+        self.app_handle.listen("merge-complete", move |event| {
+            let resource_service = resource_service_clone.clone();
+            let payload_str = event.payload().to_string();
+            let p2p_service = p2p_service_clone.clone();
+
+            // Move the async processing into the tokio::spawn, not in the listener closure
+            tokio::spawn(async move {
+                info!(
+                    "Received merge-complete event with payload: {}",
+                    payload_str
+                );
+
+                match serde_json::from_str::<MergeCompletePayload>(&payload_str) {
+                    Ok(payload) => {
+                        info!(
+                            "Successfully parsed merge-complete payload for resource: {}",
+                            payload.resource_id
+                        );
+
+                        let merged_doc_str = serde_json::to_string(&payload.merged_document)
+                            .unwrap_or_else(|_| "{}".to_string());
+                        match resource_service
+                            .update_merged_payload(
+                                &merged_doc_str,
+                                &payload.vector_clock,
+                                &payload.resource_id,
+                            )
+                            .await
+                        {
+                            Ok((encrypted_data, (add_remote_vector, update_remote_vector))) => {
+                                let connection_id =
+                                    format!("{}:{}", payload.user_id, payload.device_id);
+                            }
+                            Err(e) => {
+                                error!("failed to send update payload");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Failed to parse merge-complete payload: {:?}", e);
                     }
                 }
             });
@@ -161,7 +217,7 @@ impl EventManager {
                     // Handle the result from get_update_payload explicitly
                     match self
                         .resource_service
-                        .get_update_payload(remote_resource, vector_clock)
+                        .get_update_payload(remote_resource)
                         .await
                     {
                         Ok((local_resource, remote_resource)) => {
@@ -176,7 +232,8 @@ impl EventManager {
                                 "local_resource": local_resource,
                                 "remote_resource": remote_resource,
                                 "device_id": device_id,
-                                "user_id": user_id
+                                "user_id": user_id,
+                                "vector_clock": vector_clock,
                             });
 
                             // Emit an event to the frontend with the resources

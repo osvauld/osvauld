@@ -2,18 +2,18 @@ use crate::p2p::connection_manager::ConnectionManager;
 use crate::p2p::constants::*;
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use crate::p2p::errors::P2PError;
+use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
-use iroh::{Endpoint, RelayMode, SecretKey, NodeAddr};
+use iroh::{Endpoint, NodeAddr, RelayMode, SecretKey};
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
-use crate::p2p::logger;
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
@@ -44,16 +44,16 @@ impl P2PService {
         share_service: Arc<ShareService>,
     ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>) {
         let _guard = match logger::init_default_tracing() {
-        Ok(guard) => guard,
-        Err(e) => {
-            eprintln!("Failed to initialize tracing: {}", e);
-            None
-        }
-    };
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("Failed to initialize tracing: {}", e);
+                None
+            }
+        };
 
         let (emitter, receiver) = P2PEventEmitter::new();
         info!("Creating new P2P service instance");
-        
+
         let service = Self {
             state: Arc::new(Mutex::new(None)),
             sync_service,
@@ -64,7 +64,7 @@ impl P2PService {
             current_user: Arc::new(RwLock::new(None)),
             current_device: Arc::new(RwLock::new(None)),
         };
-        
+
         debug!("P2P service instance created successfully");
         (service, receiver)
     }
@@ -136,10 +136,10 @@ impl P2PService {
         }
 
         info!("Initializing P2P endpoint");
-        
+
         let secret_key = SecretKey::generate(rand::rngs::OsRng);
         debug!("Generated new secret key for P2P endpoint");
-        
+
         let endpoint = match Endpoint::builder()
             .secret_key(secret_key)
             .discovery_n0()
@@ -149,22 +149,28 @@ impl P2PService {
             .await
         {
             Ok(endpoint) => {
-                info!("Successfully bound P2P endpoint with node ID: {}", endpoint.node_id());
+                info!(
+                    "Successfully bound P2P endpoint with node ID: {}",
+                    endpoint.node_id()
+                );
                 endpoint
             }
             Err(e) => {
                 error!("Failed to bind P2P endpoint: {}", e);
-                return Err(P2PError::Initialization(format!("Failed to bind endpoint: {}", e)));
+                return Err(P2PError::Initialization(format!(
+                    "Failed to bind endpoint: {}",
+                    e
+                )));
             }
         };
-        
+
         let service_context = Arc::new(ServiceContext {
             auth_service: self.auth_service.clone(),
             user_service: self.user_service.clone(),
             sync_service: self.sync_service.clone(),
             share_service: self.share_service.clone(),
         });
-        
+
         *state = Some(P2PState {
             endpoint: Arc::new(endpoint),
             connections: ConnectionManager::new(),
@@ -179,9 +185,9 @@ impl P2PService {
     pub async fn start_listening(&self) -> Result<(), P2PError> {
         // Ensure P2P is initialized
         self.ensure_initialized().await?;
-        
+
         info!("Starting P2P listener");
-        
+
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
         let endpoint = state.endpoint.clone();
@@ -250,14 +256,17 @@ impl P2PService {
     #[instrument(skip(self), level = "debug")]
     pub async fn get_connection_ticket(&self) -> Result<String, P2PError> {
         debug!("Generating connection ticket");
-        
+
         self.ensure_initialized().await?;
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        
+
         let node_addr = match state.endpoint.node_addr().await {
             Ok(addr) => {
-                debug!("Got node address with {} direct addresses", addr.direct_addresses.len());
+                debug!(
+                    "Got node address with {} direct addresses",
+                    addr.direct_addresses.len()
+                );
                 addr
             }
             Err(e) => {
@@ -265,15 +274,15 @@ impl P2PService {
                 return Err(P2PError::Connection(e.to_string()));
             }
         };
-        
+
         let addrs = node_addr
             .direct_addresses
             .into_iter()
             .map(|e| e.to_string())
             .collect::<Vec<_>>();
-            
+
         debug!("Addresses included in ticket: {:?}", addrs);
-        
+
         let ticket = ConnectionTicket {
             node_id: state.endpoint.node_id().to_string(),
             addresses: addrs,
@@ -338,25 +347,26 @@ impl P2PService {
 
         // Connect using the ticket
         let peer_connection = self
-            .connect_with_ticket(ticket, ConnectionType::User)
+            .connect_with_ticket(ticket, ConnectionType::User, None)
             .await?;
 
         debug!("Connection established, sending FirstUserConnection message");
 
         // Send the FirstUserConnection message
-        match peer_connection
-            .send_message(Message::FirstUserConnection(user.clone()))
-            .await
-        {
-            Ok(_) => {
-                info!("First user connection established successfully");
-                Ok(peer_connection)
-            }
-            Err(e) => {
-                error!("Failed to send FirstUserConnection message: {}", e);
-                Err(P2PError::Message(e))
-            }
-        }
+        // match peer_connection
+        //     .send_message(Message::FirstUserConnection(user.clone()))
+        //     .await
+        // {
+        //     Ok(_) => {
+        //         info!("First user connection established successfully");
+        //         Ok(peer_connection)
+        //     }
+        //     Err(e) => {
+        //         error!("Failed to send FirstUserConnection message: {}", e);
+        //         Err(P2PError::Message(e))
+        //     }
+        // }
+        todo!()
     }
 
     /// Adds a device to the network
@@ -368,24 +378,33 @@ impl P2PService {
     ) -> Result<Arc<PeerConnection>, P2PError> {
         info!("Adding device using ticket");
 
-        // First establish connection with the target device
-        let peer_connection = self
-            .connect_with_ticket(&ticket, ConnectionType::Device)
-            .await?;
-
-        // Once connected, send the AddDevice message
-        info!("Connection established, sending AddDevice message");
-        match peer_connection
-            .send_message(Message::AddDevice(records))
-            .await
+        match self
+            .connect_with_ticket(&ticket, ConnectionType::Device, None)
+            .await?
         {
-            Ok(_) => {
-                info!("Device addition initiated successfully");
-                Ok(peer_connection)
+            Some(peer_connection) => {
+                // New connection was established, send the AddDevice message
+                info!("Connection established, sending AddDevice message");
+                match peer_connection
+                    .send_message(Message::AddDevice(records))
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Device addition initiated successfully");
+                        Ok(peer_connection)
+                    }
+                    Err(e) => {
+                        error!("Failed to send AddDevice message: {}", e);
+                        Err(P2PError::Message(e))
+                    }
+                }
             }
-            Err(e) => {
-                error!("Failed to send AddDevice message: {}", e);
-                Err(P2PError::Message(e))
+            None => {
+                // Connection already exists or is being established
+                error!("Connection already exists or is being established");
+                Err(P2PError::Connection(
+                    "Connection already exists or is being established".into(),
+                ))
             }
         }
     }
@@ -394,10 +413,10 @@ impl P2PService {
     #[instrument(skip(self), fields(connection_id = %connection_id), level = "info")]
     pub async fn start_device_sync(&self, connection_id: &str) -> Result<(), P2PError> {
         info!("Starting device sync with connection: {}", connection_id);
-        
+
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        
+
         let connection = match state.connections.get_peer_connection(connection_id).await {
             Ok(conn) => {
                 debug!("Found connection: {}", conn.get_id());
@@ -429,7 +448,7 @@ impl P2PService {
 
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        
+
         // Find all connections for this user
         let connections = state.connections.get_connections_by_user(user_id).await;
 
@@ -446,11 +465,7 @@ impl P2PService {
         for connection in connections {
             debug!("Starting sync for device: {}", connection.device.id);
             if let Err(e) = connection.start_device_sync().await {
-                let err_msg = format!(
-                    "Failed to sync device {}: {}",
-                    connection.get_id(),
-                    e
-                );
+                let err_msg = format!("Failed to sync device {}: {}", connection.get_id(), e);
                 error!("{}", err_msg);
                 errors.push(err_msg);
             }
@@ -465,90 +480,131 @@ impl P2PService {
             Err(P2PError::SyncService(err))
         }
     }
-    
-    #[instrument(skip(self, ticket_str, conn_type), fields(ticket_len = ticket_str.len(), conn_type = ?conn_type), level = "info")]
+
+    #[instrument(skip(self, ticket_str, conn_type, connection_id), fields(ticket_len = ticket_str.len(), conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
     pub async fn connect_with_ticket(
         &self,
         ticket_str: &str,
         conn_type: ConnectionType,
-    ) -> Result<Arc<PeerConnection>, P2PError> {
+        connection_id: Option<&str>, // Optional connection ID to check for duplicates
+    ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
         trace!("Using ticket: {}", ticket_str);
-        
-        //TODO: check if connection already exists.
+
+        // Ensure P2P service is initialized
         self.ensure_initialized().await?;
 
-        let (endpoint, node_addr) = {
-            let state_guard = self.state.lock().await;
-            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+        // Get the state for access to connections
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
 
-            let ticket: ConnectionTicket = match serde_json::from_str(ticket_str) {
-                Ok(ticket) => {
-                    debug!("Ticket parsed successfully");
-                    ticket
-                }
-                Err(e) => {
-                    error!("Failed to parse connection ticket: {}", e);
-                    return Err(P2PError::Deserialization(format!("Invalid ticket format: {}", e)));
-                }
-            };
+        // If a connection ID was provided, check if the connection is already active
+        if let Some(id) = connection_id {
+            // Check if connection is already established or in connecting state
+            if state.connections.is_connection_active(id).await {
+                debug!("Connection is already active: {}", id);
 
-            debug!("Addresses from ticket: {:?}", ticket.addresses);
-
-            let node_id = match ticket.node_id.parse() {
-                Ok(id) => id,
-                Err(e) => {
-                    error!("Invalid node ID in ticket: {}", e);
-                    return Err(P2PError::Connection(format!("Invalid node ID: {}", e)));
+                // Try to get an established connection
+                if let Ok(existing_connection) = state.connections.get_peer_connection(id).await {
+                    info!("Using existing established connection: {}", id);
+                    return Ok(Some(existing_connection));
+                } else {
+                    // If we're here, the connection is in connecting state but not yet established
+                    info!(
+                        "Connection is currently being established (returning None): {}",
+                        id
+                    );
+                    return Ok(None);
                 }
-            };
-            
-            let valid_addresses = ticket
-                .addresses
-                .iter()
-                .filter_map(|a| {
-                    match a.parse() {
-                        Ok(addr) => Some(addr),
-                        Err(e) => {
-                            warn!("Skipping invalid address {}: {}", a, e);
-                            None
-                        }
-                    }
-                })
-                .collect::<Vec<_>>();
-                
-            if valid_addresses.is_empty() {
-                error!("No valid addresses found in ticket");
-                return Err(P2PError::Connection("No valid addresses in ticket".into()));
             }
-                
-            debug!("Valid addresses: {}", valid_addresses.len());
 
-            let node_addr = NodeAddr::from_parts(
-                node_id,
-                None,
-                valid_addresses,
-            );
+            // Mark the connection as connecting
+            if let Err(e) = state.connections.mark_as_connecting(id).await {
+                // This shouldn't happen given the previous check, but handle it just in case
+                warn!("Failed to mark connection as connecting: {}", e);
+                return Err(P2PError::Connection(format!(
+                    "Failed to mark connection as connecting: {}",
+                    e
+                )));
+            }
+        }
 
-            debug!("Created NodeAddr: {:?}", node_addr);
-            debug!("Our endpoint ID: {}", state.endpoint.node_id());
-            debug!(
-                "ALPN Protocol: {}",
-                String::from_utf8_lossy(ALPN_PROTOCOL)
-            );
-
-            (state.endpoint.clone(), node_addr)
+        // Helper function to clean up connecting state on error
+        let cleanup_connecting = |connection_id: Option<&str>, error: P2PError| -> P2PError {
+            if let Some(id) = connection_id {
+                // We need to spawn a task because we can't use .await in a closure
+                let connection_id = id.to_string();
+                let state_connections = state.connections.clone();
+                tokio::spawn(async move {
+                    state_connections
+                        .remove_from_connecting(&connection_id)
+                        .await;
+                });
+            }
+            error
         };
 
+        // Parse connection ticket
+        let ticket: ConnectionTicket = match serde_json::from_str(ticket_str) {
+            Ok(ticket) => {
+                debug!("Ticket parsed successfully");
+                ticket
+            }
+            Err(e) => {
+                let error = P2PError::Deserialization(format!("Invalid ticket format: {}", e));
+                return Err(cleanup_connecting(connection_id, error));
+            }
+        };
+
+        // Parse node ID from ticket
+        let node_id = match ticket.node_id.parse() {
+            Ok(id) => id,
+            Err(e) => {
+                let error = P2PError::Connection(format!("Invalid node ID: {}", e));
+                return Err(cleanup_connecting(connection_id, error));
+            }
+        };
+
+        // Parse addresses from ticket
+        let valid_addresses = ticket
+            .addresses
+            .iter()
+            .filter_map(|a| match a.parse() {
+                Ok(addr) => Some(addr),
+                Err(e) => {
+                    warn!("Skipping invalid address {}: {}", a, e);
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if valid_addresses.is_empty() {
+            let error = P2PError::Connection("No valid addresses in ticket".into());
+            return Err(cleanup_connecting(connection_id, error));
+        }
+
+        debug!("Valid addresses: {}", valid_addresses.len());
+
+        // Create node address from parsed components
+        let node_addr = NodeAddr::from_parts(node_id, None, valid_addresses);
+
+        debug!("Created NodeAddr: {:?}", node_addr);
+        debug!("Our endpoint ID: {}", state.endpoint.node_id());
+        debug!("ALPN Protocol: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
+
+        // Attempt to establish connection
         info!("Connecting to remote endpoint...");
         let connection_span = info_span!("endpoint_connect", 
-            remote_node_id = %node_addr.node_id,
-            addresses = ?node_addr.direct_addresses.len());
-            
-        let connect_result = endpoint.connect(node_addr.clone(), ALPN_PROTOCOL)
+        remote_node_id = %node_addr.node_id,
+        addresses = ?node_addr.direct_addresses.len());
+
+        let connect_result = state
+            .endpoint
+            .connect(node_addr.clone(), ALPN_PROTOCOL)
             .instrument(connection_span)
             .await;
 
+        // Handle connection result
         let conn = match connect_result {
             Ok(conn) => {
                 info!("Connection established successfully");
@@ -557,25 +613,44 @@ impl P2PService {
             Err(e) => {
                 error!("Connection failed: {}", e);
                 debug!("Node addr used: {:?}", node_addr);
-                debug!("Endpoint bound sockets: {:?}", endpoint.bound_sockets());
-                
-                if let Ok(cur_addr) = endpoint.node_addr().await {
-                    debug!("Current endpoint addr: {:?}", cur_addr);
-                }
-                
-                return Err(P2PError::Connection(format!("Connection failed: {}", e)));
+
+                let error = P2PError::Connection(format!("Connection failed: {}", e));
+                return Err(cleanup_connecting(connection_id, error));
             }
         };
 
+        // Proceed with handshake
         info!("Starting handshake process");
-        let handshake_span = info_span!("handshake", initiator = true, connection_type = ?conn_type);
-        
-        let peer_connection = self
+        let handshake_span =
+            info_span!("handshake", initiator = true, connection_type = ?conn_type);
+
+        // Drop the state guard before handshake to avoid deadlocks
+        drop(state_guard);
+
+        // Perform handshake
+        let handshake_result = self
             .perform_handshake_and_create_peer(&conn, true, Some(conn_type))
             .instrument(handshake_span)
-            .await?;
+            .await;
 
-        info!("Handshake completed successfully");
-        Ok(peer_connection)
+        // Clean up connecting state if handshake fails
+        // If handshake succeeds, the connection will be in the established connections map
+        // and handle_peer_and_create_connection will call insert_connection which removes from connecting
+        match handshake_result {
+            Ok(peer_connection) => {
+                // Return the new peer connection
+                Ok(Some(peer_connection))
+            }
+            Err(e) => {
+                // Clean up connecting state
+                if let Some(id) = connection_id {
+                    let state_guard = self.state.lock().await;
+                    if let Some(state) = &*state_guard {
+                        state.connections.remove_from_connecting(id).await;
+                    }
+                }
+                Err(e)
+            }
+        }
     }
 }

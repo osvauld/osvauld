@@ -151,11 +151,7 @@ impl ResourceRepository for SqliteResourceRepository {
         Ok(())
     }
 
-    async fn update_resource(
-        &self,
-        data: String,
-        resource_id: &str,
-    ) -> Result<(), RepositoryError> {
+    async fn update_resource(&self, data: &str, resource_id: &str) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let now = Local::now().timestamp_millis();
 
