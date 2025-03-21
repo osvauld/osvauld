@@ -7,6 +7,7 @@
 		noteId,
 		currentNote,
 		notes,
+		deleteConfirmationModal,
 	} from "../../store/desktop.ui.store";
 	import { extractTitle, getLastModifiedDate } from "../utils/helper";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
@@ -76,9 +77,13 @@
 		currentNote.set({});
 	};
 
-	// const handleDeleteBtn = () => {
-	// 	deleteConfirmationModal.set({ item: "folder", show: true });
-	// };
+	const handleDeleteBtn = (item: "folder" | "note") => {
+		console.log("handleDeleteBtn triggerr===>");
+		item === "folder"
+			? deleteConfirmationModal.set({ item: "folder", show: true })
+			: deleteConfirmationModal.set({ item: "note", show: true });
+	};
+
 	const handleAddNote = async () => {
 		if ($vaults.length <= 1 || $currentVault.id === "all") {
 			toastStore.set({
@@ -231,7 +236,9 @@
 					{#if $currentVault.id !== "all"}
 						<button
 							class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
-							on:click|stopPropagation="{() => {}}"
+							on:click|stopPropagation="{() => {
+								handleDeleteBtn('folder');
+							}}"
 							on:mouseenter="{() => (deleteBtnHoved = true)}"
 							on:mouseleave="{() => (deleteBtnHoved = false)}"
 							aria-label="Delete Folder"
@@ -294,7 +301,8 @@
 					{/if}
 				</button>
 				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
+					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+					on:click|stopPropagation="{() => handleDeleteBtn('note')}">
 					<Bin size="{24}" />
 				</button>
 
@@ -333,9 +341,12 @@
 			<div
 				class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
 				<p class="text-statusColor">
-					Last edited : {getLastModifiedDate(
-						$currentNote.data.last_modified || $currentNote.data.last_accessed,
-					)}
+					Last edited : {$currentNote?.data
+						? getLastModifiedDate(
+								$currentNote.data.last_modified ||
+									$currentNote.data.last_accessed,
+							)
+						: "Not available"}
 				</p>
 			</div>
 		</div>
