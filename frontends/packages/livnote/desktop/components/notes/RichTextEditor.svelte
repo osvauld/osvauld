@@ -13,6 +13,7 @@
 		noteId,
 		noteViewLayout,
 		refreshCredentialList,
+		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
 	import { DOMSerializer } from "prosemirror-model";
@@ -52,21 +53,22 @@
 		currentlyLoadedNoteId = null;
 	});
 
-	saveNoteWithNewTitle(() => {
-		saveNoteManual();
-	});
-
 	const saveNoteManual = () => {
 		saved = true;
 		notesInstance
 			.saveNote($currentNote?.data.title)
 			.catch(console.error)
-			.then(() => refreshCredentialList.set(true));
+			.then(() => refreshCredentialList.set(true))
+			.then(() => refreshSidePanel.set(true));
 
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
 	};
+
+	saveNoteWithNewTitle(() => {
+		saveNoteManual();
+	});
 
 	const fallbackCopy = (html) => {
 		const tempElement = document.createElement("div");

@@ -390,7 +390,7 @@ export class Notes {
 			this.currentNoteId = noteId;
 			const noteContent = response.data;
 
-			console.log("Note data loaded:", noteContent);
+			// console.log("Note data loaded:", noteContent);
 
 			// Reset the Yjs document
 			this.ydoc.destroy();

@@ -9,6 +9,7 @@
 		noteId,
 		currentNote,
 		notes,
+		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
 	import { extractTitle } from "../utils/helper";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
@@ -118,6 +119,12 @@
 		} finally {
 			isLoading = false;
 		}
+	}
+
+	// Watch for refresh requests
+	$: if ($refreshSidePanel) {
+		fetchCredentials($currentVault.id);
+		refreshSidePanel.set(false);
 	}
 
 	// Load initial data
