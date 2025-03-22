@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { jsPDF } from "jspdf";
+	import { open, BaseDirectory } from "@tauri-apps/plugin-fs";
 	import {
 		currentVault,
 		noteViewLayout,
@@ -31,6 +33,7 @@
 	import { onMount } from "svelte";
 	import { setContext } from "svelte";
 	import ShareNote from "../modals/ShareNote.svelte";
+	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 
 	let userId;
 	let addCredentialHovered = false;
@@ -41,6 +44,8 @@
 	let shareUserList = [];
 	let favSelected = false;
 	let noteCopied = false;
+	let showDownloadTooltip = false;
+	let isPdfGenerating = false;
 	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
 
@@ -170,7 +175,176 @@
 			console.error("Error toggling favorite:", err);
 		}
 	};
+	const handleDownloadPdf = async () => {
+		if (!$currentNote || !$currentNote?.data) {
+			toastStore.set({
+				show: true,
+				message: "No note content to download",
+				success: false,
+			});
+			return;
+		}
 
+		// Add loading indicator state
+		isPdfGenerating = true;
+
+		try {
+			// Get the document title for the filename
+			const title = extractTitle($currentNote?.data?.content) || "note";
+			const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+
+			// Get the editor content
+			const editorEl = document.querySelector(".ProseMirror");
+			if (!editorEl) {
+				throw new Error("Editor content not found");
+			}
+
+			// Create a container for the content with proper styling
+			const container = document.createElement("div");
+			container.innerHTML = `
+         <div style="width: 100%;">
+        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black; ">
+          ${editorEl.innerHTML}
+        </div>
+      </div>
+    `;
+
+			// Apply styling fixes for the PDF
+			const allElements = container.querySelectorAll("*");
+			allElements.forEach((el) => {
+				// Ensure all text is visible on white background
+				el.style.color = "black";
+
+				// Fix styling for various elements
+				if (el.tagName === "PRE" || el.tagName === "CODE") {
+					el.style.backgroundColor = "#f0f0f0";
+					el.style.padding = "2px 4px";
+					el.style.borderRadius = "3px";
+					el.style.fontFamily = "monospace";
+				}
+
+				if (el.tagName === "BLOCKQUOTE") {
+					el.style.borderLeft = "3px solid #ccc";
+					el.style.paddingLeft = "10px";
+					el.style.margin = "10px 0";
+					el.style.color = "#555";
+				}
+
+				if (el.tagName === "UL" || el.tagName === "OL") {
+					el.style.paddingLeft = "20px";
+					el.style.marginTop = "5px";
+					el.style.marginBottom = "5px";
+				}
+
+				// Prevent any images from breaking across pages
+				if (el.tagName === "IMG") {
+					el.style.pageBreakInside = "avoid";
+					el.style.breakInside = "avoid";
+					el.style.display = "block";
+					el.style.marginBottom = "20px"; // Add space after images
+				}
+
+				// Also prevent figures, tables, and other container elements from breaking
+				if (
+					el.tagName === "FIGURE" ||
+					el.tagName === "TABLE" ||
+					el.tagName === "BLOCKQUOTE" ||
+					el.tagName === "PRE"
+				) {
+					el.style.pageBreakInside = "avoid";
+					el.style.breakInside = "avoid";
+				}
+
+				// For headings, ensure they don't appear at the bottom of a page
+				if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(el.tagName)) {
+					el.style.pageBreakAfter = "avoid";
+					el.style.breakAfter = "avoid";
+					el.style.pageBreakBefore = "auto";
+					el.style.breakBefore = "auto";
+					el.style.marginTop = "20px";
+				}
+			});
+
+			// Initialize jsPDF
+			const pdf = new jsPDF("p", "mm", "a4");
+			const pageWidth = 210; // A4 width in mm
+			const contentWidth = 170; // Your content width
+
+			// Generate PDF from HTML content
+			pdf.html(container, {
+				callback: async function (pdf) {
+					// Add page numbers to all pages
+					const totalPages = pdf.internal.getNumberOfPages();
+					for (let i = 1; i <= totalPages; i++) {
+						pdf.setPage(i);
+						pdf.setFontSize(10);
+						pdf.setTextColor(100, 100, 100);
+						const pageText = `Page ${i} of ${totalPages}`;
+						const pageTextWidth =
+							(pdf.getStringUnitWidth(pageText) * 10) /
+							pdf.internal.scaleFactor;
+						const pageTextX = (pageWidth - pageTextWidth) / 2;
+						const pageNumberY = 285; // Approximately 12mm from bottom edge
+						pdf.text(pageText, pageTextX, pageNumberY);
+					}
+
+					try {
+						// Get PDF data as array buffer
+						const pdfData = pdf.output("arraybuffer");
+
+						// Convert to Uint8Array for file writing
+						const pdfBuffer = new Uint8Array(pdfData);
+
+						// Determine file path in Documents directory
+						const filePath = `${safeTitle}.pdf`;
+
+						// Open the file for writing
+						const file = await open(filePath, {
+							write: true,
+							create: true,
+							truncate: true,
+							baseDir: BaseDirectory.Document,
+						});
+
+						// Write the PDF data to the file
+						await file.write(pdfBuffer);
+
+						// Close the file
+						await file.close();
+
+						toastStore.set({
+							show: true,
+							message: `Note exported as PDF to Documents folder: ${safeTitle}.pdf`,
+							success: true,
+						});
+					} catch (error) {
+						console.error("Error saving PDF file:", error);
+						toastStore.set({
+							show: true,
+							message: `Failed to save PDF file: ${error.message}`,
+							success: false,
+						});
+					} finally {
+						isPdfGenerating = false;
+					}
+				},
+				x: 0,
+				y: 0,
+				width: contentWidth, // A4 width minus margins
+				windowWidth: 1000, // Adjust based on your content
+				margin: [15, 15, 15, 15],
+				autoPaging: "text", // Use text-aware paging
+			});
+		} catch (error) {
+			console.error("Error creating PDF:", error);
+			toastStore.set({
+				show: true,
+				message: `Failed to create PDF: ${error.message}`,
+				success: false,
+			});
+			isPdfGenerating = false;
+		}
+	};
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
 	});
@@ -306,10 +480,27 @@
 					<Bin size="{24}" />
 				</button>
 
-				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<DownloadIcon />
-				</button>
+				<div class="relative flex justify-center items-center">
+					<button
+						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+						on:mouseenter="{() => (showDownloadTooltip = true)}"
+						on:mouseleave="{() => (showDownloadTooltip = false)}"
+						on:click="{handleDownloadPdf}"
+						aria-label="Download as PDF">
+						{#if isPdfGenerating}
+							<Loader color="#85889C" />
+						{:else}
+							<DownloadIcon />
+						{/if}
+					</button>
+
+					{#if showDownloadTooltip}
+						<div
+							class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-osvauld-defaultBorder text-toolTipText text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap">
+							Download as PDF
+						</div>
+					{/if}
+				</div>
 				<!-- <button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
 					<Menu />

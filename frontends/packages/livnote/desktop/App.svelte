@@ -8,6 +8,7 @@
 	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 	import AddUserModal from "./components/modals/AddUserModal.svelte";
+	import PasswordPromptModal from "@osvauld/password-manager-common/components/PasswordPromptModal.svelte";
 
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { onMount } from "svelte";
@@ -19,6 +20,7 @@
 		showAddUser,
 		deleteConfirmationModal,
 		currentNote,
+		passwordPromptModal,
 	} from "./store/desktop.ui.store";
 
 	let signedUp = false;
@@ -52,6 +54,10 @@
 		const { isInitiator } = event.detail;
 		syncRole = isInitiator ? "initiator" : "acceptor";
 		showConnector.set(false);
+	};
+
+	const handlePasswordModalClose = (event) => {
+		passwordPromptModal.set({ isChangePassword: false, show: !event.detail });
 	};
 
 	onMount(async () => {
@@ -109,12 +115,16 @@
 		{#if $showSyncQr}
 		<Acceptor />
 		{/if}
-		
-		
-		
-		-->
+    -->
+
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
+     {/if}
+
+		{#if $passwordPromptModal.show}
+			<PasswordPromptModal
+				changePassword="{$passwordPromptModal.isChangePassword}"
+				on:close="{handlePasswordModalClose}" />
 		{/if}
 
 		{#if $showAddUser}
