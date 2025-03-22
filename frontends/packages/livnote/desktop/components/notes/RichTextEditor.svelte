@@ -53,6 +53,7 @@
 
 	async function saveNoteManual() {
 		saved = true;
+		console.log("Current noted id from store =>", $currentNote.id);
 		notesInstance
 			.saveNote()
 			.catch(console.error)

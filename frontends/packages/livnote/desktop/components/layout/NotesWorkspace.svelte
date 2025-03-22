@@ -41,8 +41,44 @@
 	let shareUserList = [];
 	let favSelected = false;
 	let noteCopied = false;
+	let newNoteTitle = "";
+	let isEditingTitle = false;
+	let inputRef;
+
 	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
+
+	function startEditingTitle() {
+		newNoteTitle = $currentNote?.data
+			? extractTitle($currentNote?.data?.content)
+			: "Untitled note";
+		isEditingTitle = true;
+
+		// Focus the input after the DOM updates
+		setTimeout(() => {
+			if (inputRef) {
+				inputRef.focus();
+				inputRef.select();
+			}
+		}, 0);
+	}
+
+	function saveTitle() {
+		if (newNoteTitle.trim()) {
+			// Replace this with your actual save logic
+			currentNote.set({ ...$currentNote, title: newNoteTitle });
+			// Need to do a manual save Note trigger here.
+		}
+		isEditingTitle = false;
+	}
+
+	function handleKeydown(event) {
+		if (event.key === "Enter") {
+			saveTitle();
+		} else if (event.key === "Escape") {
+			isEditingTitle = false;
+		}
+	}
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
@@ -266,12 +302,29 @@
 						on:click="{handleBackButton}">
 						<BackArrow />
 					</button>
-					<span
-						class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-						>{$currentNote?.data
-							? extractTitle($currentNote?.data?.content)
-							: "New note"}
-					</span>
+					{#if isEditingTitle}
+						<div
+							class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
+							<input
+								bind:this="{inputRef}"
+								bind:value="{newNoteTitle}"
+								maxlength="20"
+								on:keydown="{handleKeydown}"
+								on:blur="{saveTitle}"
+								class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+						</div>
+					{:else}
+						<span
+							role="button"
+							tabindex="0"
+							class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
+							on:dblclick="{startEditingTitle}"
+							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
+							{$currentNote?.data
+								? extractTitle($currentNote?.data?.content)
+								: "New note"}
+						</span>
+					{/if}
 
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
