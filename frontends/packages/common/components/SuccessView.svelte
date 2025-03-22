@@ -1,164 +1,151 @@
 <script>
-	// import { changePassword } from "../../../lib/components/dashboard/store";
-	// TODO:EMERGENCY
-	import { writable } from "svelte/store";
-	let changePassword = writable(false);
-	export let recovery = false;
+	export let message = "";
 	export let status = true;
+	let changePassword = false;
 </script>
 
 <style>
-	svg {
-		width: 100px;
-		display: block;
+	.content {
 		margin: 40px auto 0;
+		display: block;
+		width: 100px;
 	}
-
-	.path {
-		stroke-dasharray: 1000;
-		stroke-dashoffset: 0;
+	.circle {
+		stroke-dasharray: 1194;
+		stroke-dashoffset: 1194;
+		animation: dc 0.5s ease-in-out;
+		animation-fill-mode: forwards;
 	}
-
-	.path.circle {
-		-webkit-animation: dash 0.9s ease-in-out;
-		animation: dash 0.9s ease-in-out;
+	.tick {
+		stroke-dasharray: 350;
+		stroke-dashoffset: 350;
+		animation: dt 0.4s ease-out;
+		animation-fill-mode: forwards;
+		animation-delay: 0.95s;
 	}
-
-	.path.line {
-		stroke-dashoffset: 1000;
-		-webkit-animation: dash 0.9s 0.35s ease-in-out forwards;
-		animation: dash 0.9s 0.35s ease-in-out forwards;
+	.x-line {
+		stroke-dasharray: 350;
+		stroke-dashoffset: 350;
+		animation: dt 0.4s ease-out;
+		animation-fill-mode: forwards;
+		animation-delay: 0.3s;
 	}
-
-	.path.check {
-		stroke-dashoffset: -100;
-		-webkit-animation: dash-check 0.9s 0.35s ease-in-out forwards;
-		animation: dash-check 0.9s 0.35s ease-in-out forwards;
-	}
-
 	p {
 		text-align: center;
 		margin: 20px 0 60px;
 		font-size: 1.25em;
 	}
-
 	p.success {
 		color: #52e376c2;
 	}
-
 	p.error {
 		color: #d06079;
 	}
-
-	@-webkit-keyframes dash {
-		0% {
-			stroke-dashoffset: 1000;
+	@keyframes dc {
+		from {
+			stroke-dashoffset: 1194;
 		}
-		100% {
+		to {
+			stroke-dashoffset: 2388;
+		}
+	}
+	@keyframes dt {
+		from {
+			stroke-dashoffset: 350;
+		}
+		to {
 			stroke-dashoffset: 0;
 		}
 	}
-
-	@keyframes dash {
-		0% {
-			stroke-dashoffset: 1000;
+	/* Add WebKit prefixes for better cross-browser compatibility */
+	@-webkit-keyframes dc {
+		from {
+			stroke-dashoffset: 1194;
 		}
-		100% {
+		to {
+			stroke-dashoffset: 2388;
+		}
+	}
+	@-webkit-keyframes dt {
+		from {
+			stroke-dashoffset: 350;
+		}
+		to {
 			stroke-dashoffset: 0;
-		}
-	}
-
-	@-webkit-keyframes dash-check {
-		0% {
-			stroke-dashoffset: -100;
-		}
-		100% {
-			stroke-dashoffset: 900;
-		}
-	}
-
-	@keyframes dash-check {
-		0% {
-			stroke-dashoffset: -100;
-		}
-		100% {
-			stroke-dashoffset: 900;
 		}
 	}
 </style>
 
 {#if status}
-	<svg
-		version="1.1"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 130.2 130.2">
-		<circle
-			class="path circle"
-			fill="none"
-			stroke="#52e376c2"
-			stroke-width="6"
-			stroke-miterlimit="10"
-			cx="65.1"
-			cy="65.1"
-			r="62.1"></circle>
-		<polyline
-			class="path check"
-			fill="none"
-			stroke="#52e376c2"
-			stroke-width="6"
-			stroke-linecap="round"
-			stroke-miterlimit="10"
-			points="100.2,40.2 51.5,88.8 29.8,67.5 "></polyline>
-	</svg>
-	<p class="success">
-		{$changePassword
-			? "Passphrase Changed"
-			: recovery
-				? "Copied to Clipboard"
-				: "Import Complete!"}
-	</p>
+	<div class="content">
+		<svg width="100" height="100" viewBox="0 0 400 400">
+			<circle
+				fill="none"
+				stroke="#52e376c2"
+				stroke-width="20"
+				cx="200"
+				cy="200"
+				r="190"
+				stroke-linecap="round"
+				transform="rotate(-90 200 200)"
+				class="circle"></circle>
+			<polyline
+				fill="none"
+				stroke="#52e376c2"
+				points="88,214 173,284 304,138"
+				stroke-width="24"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+				class="tick"></polyline>
+		</svg>
+		<p class="success">
+			{changePassword
+				? "Passphrase Changed"
+				: message
+					? message
+					: "Copied to Clipboard"}
+		</p>
+	</div>
 {:else}
-	<svg
-		version="1.1"
-		xmlns="http://www.w3.org/2000/svg"
-		viewBox="0 0 130.2 130.2">
-		<circle
-			class="path circle"
-			fill="none"
-			stroke="#D06079"
-			stroke-width="6"
-			stroke-miterlimit="10"
-			cx="65.1"
-			cy="65.1"
-			r="62.1"></circle>
-		<line
-			class="path line"
-			fill="none"
-			stroke="#D06079"
-			stroke-width="6"
-			stroke-linecap="round"
-			stroke-miterlimit="10"
-			x1="34.4"
-			y1="37.9"
-			x2="95.8"
-			y2="92.3"></line>
-		<line
-			class="path line"
-			fill="none"
-			stroke="#D06079"
-			stroke-width="6"
-			stroke-linecap="round"
-			stroke-miterlimit="10"
-			x1="95.8"
-			y1="38"
-			x2="34.4"
-			y2="92.2"></line>
-	</svg>
-	<p class="error">
-		{$changePassword
-			? "Wrong Passphrase"
-			: recovery
-				? "Wrong Passphrase!"
-				: "Import InComplete!"}
-	</p>
+	<div class="content">
+		<svg width="100" height="100" viewBox="0 0 400 400">
+			<circle
+				fill="none"
+				stroke="#D06079"
+				stroke-width="20"
+				cx="200"
+				cy="200"
+				r="190"
+				stroke-linecap="round"
+				transform="rotate(-90 200 200)"
+				class="circle"></circle>
+			<line
+				fill="none"
+				stroke="#D06079"
+				stroke-width="24"
+				stroke-linecap="round"
+				x1="100"
+				y1="100"
+				x2="300"
+				y2="300"
+				class="x-line"></line>
+			<line
+				fill="none"
+				stroke="#D06079"
+				stroke-width="24"
+				stroke-linecap="round"
+				x1="300"
+				y1="100"
+				x2="100"
+				y2="300"
+				class="x-line"></line>
+		</svg>
+		<p class="error">
+			{changePassword
+				? "Wrong Passphrase"
+				: message
+					? message
+					: "Import Incomplete!"}
+		</p>
+	</div>
 {/if}

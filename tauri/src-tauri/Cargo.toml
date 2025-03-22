@@ -51,5 +51,6 @@ osvauld_core = { path = "../../core" }
 osvauld_db = { path = "../../osvauld-db/" }
 osvauld_services = { path = "../../osvauld-services" }
 tauri = { version = "2.1.1", features = [] }
+tauri-plugin-fs = "2"
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.0.0-rc"

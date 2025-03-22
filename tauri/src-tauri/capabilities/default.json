@@ -14,6 +14,18 @@
     "store:allow-load",
     "log:default",
     "clipboard-manager:allow-write-text",
-    "store:default"
+    "store:default",
+    {
+      "identifier": "fs:allow-open",
+      "allow": [{ "path": "$DOCUMENT/*" }]
+    },
+    {
+      "identifier": "fs:allow-write",
+      "allow": [{ "path": "$DOCUMENT/*" }]
+    },
+    {
+      "identifier": "fs:allow-create",
+      "allow": [{ "path": "$DOCUMENT/*" }]
+    }
   ]
 }

@@ -25,3 +25,8 @@ export let showConnector = writable(false);
 
 export let noteId = writable("");
 export let showAddUser = writable(false);
+
+export let passwordPromptModal = writable({
+	isChangePassword: false,
+	show: false,
+});
