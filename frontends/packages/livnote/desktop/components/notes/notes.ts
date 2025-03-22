@@ -35,6 +35,7 @@ interface NoteContent {
 	client_id: string;
 	resource_id: string;
 	last_modified?: number;
+	title?: string;
 }
 
 interface CreateNoteParams {
@@ -337,7 +338,7 @@ export class Notes {
 		this.editorState = newState;
 	}
 
-	async saveNote() {
+	async saveNote(title = "Untitled note") {
 		if (!this.currentNoteId || !this.editorState) {
 			console.error("No note is currently active or editor state is missing");
 			return;
@@ -356,6 +357,7 @@ export class Notes {
 				client_id: `client-${this.clientID}`,
 				resource_id: this.currentNoteId, // Use the noteId as resourceId
 				last_modified: timestamp,
+				title,
 			};
 
 			await sendMessage("updateCredential", {

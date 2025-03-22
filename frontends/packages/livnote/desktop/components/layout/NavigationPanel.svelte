@@ -213,9 +213,7 @@
 									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
 							</span>
 							<span class="truncate">
-								{note.data && note.data.content
-									? extractTitle(note.data.content)
-									: note.id}
+								{note?.data.title ? note.data.title : "untitled note"}
 							</span>
 						</div>
 					</button>

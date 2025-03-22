@@ -44,13 +44,20 @@
 	let newNoteTitle = "";
 	let isEditingTitle = false;
 	let inputRef;
-
-	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
 
+	let saveNoteAndSwitch = () => {};
+	let saveNoteWithNewTitle = () => {};
+
+	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
+	setContext(
+		"saveNoteWithNewTitleFunction",
+		(fn) => (saveNoteWithNewTitle = fn),
+	);
+
 	function startEditingTitle() {
-		newNoteTitle = $currentNote?.data
-			? extractTitle($currentNote?.data?.content)
+		newNoteTitle = $currentNote?.data.title
+			? $currentNote.data.title
 			: "Untitled note";
 		isEditingTitle = true;
 
@@ -66,8 +73,15 @@
 	function saveTitle() {
 		if (newNoteTitle.trim()) {
 			// Replace this with your actual save logic
-			currentNote.set({ ...$currentNote, title: newNoteTitle });
-			// Need to do a manual save Note trigger here.
+			currentNote.set({
+				...$currentNote,
+				data: {
+					...$currentNote.data, // Preserve existing properties inside data
+					title: newNoteTitle, // Update or add the title property
+				},
+			});
+
+			saveNoteWithNewTitle();
 		}
 		isEditingTitle = false;
 	}
@@ -99,8 +113,6 @@
 		showShareList = false;
 	};
 
-	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
-
 	const handleFilterSelection = (section) => {
 		selectedSection = section;
 		// filterFavourites();
@@ -109,12 +121,9 @@
 
 	const handleBackButton = () => {
 		saveNoteAndSwitch();
-		noteId.set("");
-		currentNote.set({});
 	};
 
 	const handleDeleteBtn = (item: "folder" | "note") => {
-		console.log("handleDeleteBtn triggerr===>");
 		item === "folder"
 			? deleteConfirmationModal.set({ item: "folder", show: true })
 			: deleteConfirmationModal.set({ item: "note", show: true });
@@ -320,9 +329,9 @@
 							class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
 							on:dblclick="{startEditingTitle}"
 							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
-							{$currentNote?.data
-								? extractTitle($currentNote?.data?.content)
-								: "New note"}
+							{$currentNote?.data.title
+								? $currentNote.data.title
+								: "Untitled note"}
 						</span>
 					{/if}
 

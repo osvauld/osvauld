@@ -28,6 +28,7 @@
 	let loadingInProgress = false;
 	let saved = false;
 	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
+	const saveNoteWithNewTitle = getContext("saveNoteWithNewTitleFunction");
 
 	// Listen for noteId changes and load the corresponding note
 	$: if (
@@ -41,7 +42,7 @@
 
 	saveNoteAndSwitch(() => {
 		if (view) {
-			notesInstance.saveNote().catch(console.error);
+			notesInstance.saveNote($currentNote?.data.title).catch(console.error);
 		}
 
 		// Return to list view
@@ -51,18 +52,21 @@
 		currentlyLoadedNoteId = null;
 	});
 
-	async function saveNoteManual() {
+	saveNoteWithNewTitle(() => {
+		saveNoteManual();
+	});
+
+	const saveNoteManual = () => {
 		saved = true;
-		console.log("Current noted id from store =>", $currentNote.id);
 		notesInstance
-			.saveNote()
+			.saveNote($currentNote?.data.title)
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true));
 
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
-	}
+	};
 
 	const fallbackCopy = (html) => {
 		const tempElement = document.createElement("div");
@@ -207,7 +211,7 @@
 			autoSaveInterval = setInterval(() => {
 				// Savign animation go
 
-				notesInstance.saveNote().catch(console.error);
+				notesInstance.saveNote($currentNote.data.title).catch(console.error);
 				saved = true;
 				setTimeout(() => {
 					saved = false;
@@ -304,13 +308,14 @@
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
-		// Save one final time on destroy
 		notesInstance
-			.saveNote()
+			.saveNote($currentNote.data.title)
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true));
 
 		// Clear current note ID
+		noteId.set("");
+		currentNote.set({});
 		currentlyLoadedNoteId = null;
 	};
 
