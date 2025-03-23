@@ -1,9 +1,12 @@
-use log::{error, info};
+use log::{debug, error, info};
 use serde::Deserialize;
 
 use osvauld_core::models::{p2p::Message, vector_clock::ResourceVectorClock};
 use osvauld_services::ResourceService;
-use p2p_service::{P2PService, p2p::P2PEvent};
+use p2p_service::{
+    P2PService,
+    p2p::{P2PEvent, incoming::P2PSender},
+};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener};
 use tokio::sync::mpsc;
@@ -12,9 +15,9 @@ use tokio::sync::mpsc;
 /// This connects the Tauri event system with the P2P event system
 pub struct EventManager {
     app_handle: AppHandle,
-    p2p_service: Arc<P2PService>,
     resource_service: Arc<ResourceService>,
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
+    p2p_sender: P2PSender,
 }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -30,15 +33,15 @@ impl EventManager {
     /// Create a new EventManager that handles bidirectional events
     pub fn new(
         app_handle: AppHandle,
-        p2p_service: Arc<P2PService>,
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         resource_service: Arc<ResourceService>,
+        p2p_sender: P2PSender,
     ) -> Self {
         Self {
             app_handle,
-            p2p_service,
             p2p_receiver,
             resource_service,
+            p2p_sender,
         }
     }
 
@@ -54,41 +57,30 @@ impl EventManager {
     }
 
     /// Set up listeners for Tauri events
+
+    /// Set up listeners for Tauri events
     fn setup_tauri_listeners(&self) {
         // Listen for sync update events from the frontend
-        let p2p_service_clone = self.p2p_service.clone();
+        let p2p_sender = self.p2p_sender.clone();
         self.app_handle.listen("sync-update", move |event| {
-            let p2p_service = p2p_service_clone.clone();
             let payload_str = event.payload().to_string();
-
-            tokio::spawn(async move {
-                info!("Received sync-update event from frontend");
-                let msg = Message::SyncEvent {
-                    event: "sync-update".to_string(),
-                    payload: payload_str,
-                };
-
-                match serde_json::to_string(&msg) {
-                    Ok(serialized) => {
-                        info!("Sending sync update message to peer");
-                        // if let Err(e) = p2p_service.send_message(serialized).await {
-                        //     error!("Failed to send sync event: {}", e);
-                        // }
-                    }
-                    Err(e) => {
-                        error!("Failed to serialize message: {}", e);
-                    }
-                }
-            });
+            // Direct send without spawning a task for high-frequency events
+            if let Err(e) = p2p_sender.send_sync_update(payload_str) {
+                error!("Failed to send sync update event: {}", e);
+            } else {
+                debug!("Sent sync update event to P2P service"); // Using debug level for high-frequency events
+            }
         });
-        let p2p_service_clone = self.p2p_service.clone();
+
+        // Listen for merge-complete events
+        let p2p_sender = self.p2p_sender.clone();
         let resource_service_clone = self.resource_service.clone();
         self.app_handle.listen("merge-complete", move |event| {
             let resource_service = resource_service_clone.clone();
             let payload_str = event.payload().to_string();
-            let p2p_service = p2p_service_clone.clone();
+            let p2p_sender = p2p_sender.clone();
 
-            // Move the async processing into the tokio::spawn, not in the listener closure
+            // Spawn a task for merge-complete since it involves resource service operations
             tokio::spawn(async move {
                 info!(
                     "Received merge-complete event with payload: {}",
@@ -113,11 +105,21 @@ impl EventManager {
                             .await
                         {
                             Ok((encrypted_data, (add_remote_vector, update_remote_vector))) => {
-                                let connection_id =
-                                    format!("{}:{}", payload.user_id, payload.device_id);
+                                // Send merge complete event to P2P service using P2PSender
+                                if let Err(e) = p2p_sender.send_merge_complete(
+                                    encrypted_data,
+                                    payload.vector_clock,
+                                    payload.resource_id,
+                                    payload.user_id,
+                                    payload.device_id,
+                                ) {
+                                    error!("Failed to send merge complete event: {}", e);
+                                } else {
+                                    info!("Successfully sent merge complete event to P2P service");
+                                }
                             }
                             Err(e) => {
-                                error!("failed to send update payload");
+                                error!("Failed to update merged payload: {}", e);
                             }
                         }
                     }
@@ -127,22 +129,7 @@ impl EventManager {
                 }
             });
         });
-
-        // Listen for sync snapshot events from the frontend
-        let p2p_service_clone = self.p2p_service.clone();
-        self.app_handle.listen("sync-snapshot", move |event| {
-            let p2p_service = p2p_service_clone.clone();
-            let payload_str = event.payload().to_string();
-
-            tokio::spawn(async move {
-                info!("Received sync-snapshot event from frontend");
-                // if let Err(e) = p2p_service.send_snapshot(payload_str).await {
-                //     error!("Failed to send snapshot: {}", e);
-                // }
-            });
-        });
     }
-
     /// Listen for P2P events and forward them to Tauri
     async fn listen_for_p2p_events(&mut self) {
         info!("Started listening for P2P events");
@@ -188,12 +175,6 @@ impl EventManager {
                     info!("Received editing event");
                     if let Err(e) = self.app_handle.emit("sync-update-be", payload) {
                         error!("Failed to emit sync-update-be event: {}", e);
-                    }
-                }
-                P2PEvent::SnapshotEvent { payload } => {
-                    info!("Received snapshot event");
-                    if let Err(e) = self.app_handle.emit("sync-snapshot-be", payload) {
-                        error!("Failed to emit sync-snapshot-be event: {}", e);
                     }
                 }
                 P2PEvent::Error { message, source } => {

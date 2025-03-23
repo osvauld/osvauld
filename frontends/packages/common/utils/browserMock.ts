@@ -79,7 +79,6 @@ const tauriBrowser = {
           'getAllCredentials': (data: any) => invoke('get_all_resources', { input: data }),
           'logout': () => invoke('logout'),
           'getUserId': () => invoke('get_user_id'),
-          'sendSnapshot': (data) => invoke('send_snapshot', { snapshot: data }),
           'updateCredential': (data: any) => invoke('update_resource', { input: data }),
           'getCredential': (data: any) => invoke('get_resource', { input: data }),
           'addKnownUser': (data: any) => invoke('add_known_user', { input: data }),

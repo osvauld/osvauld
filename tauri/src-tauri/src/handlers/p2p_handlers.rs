@@ -57,19 +57,6 @@ pub fn get_system_locale() -> String {
 }
 
 #[tauri::command]
-pub async fn send_snapshot(
-    snapshot: String,
-    p2p_service: State<'_, Arc<P2PService>>,
-) -> Result<(), CryptoResponse> {
-    log::info!("snapshot recived {:?}", snapshot);
-    // let _ = p2p_service
-    //     .send_snapshot(snapshot)
-    //     .await
-    //     .map_err(|e| CryptoResponse::Error(e));
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn initiate_first_connection(
     input: InitiateFirstConnectionInput,
     rendezvous_service: State<'_, Arc<RendezvousService>>,

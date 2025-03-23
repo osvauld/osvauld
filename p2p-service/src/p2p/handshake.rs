@@ -2,13 +2,14 @@ use crate::p2p::constants::*;
 use crate::p2p::errors::{ P2PError, HandshakeError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
+use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, HandshakeMessage};
 use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use osvauld_core::models::p2p::{ConnectionType, HandshakeMessage};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use iroh::{ NodeAddr};
 
 impl P2PService {
     /// Performs the handshake process and creates a peer connection
@@ -460,5 +461,178 @@ impl P2PService {
         info!("Receiver: Handshake completed successfully");
         
         Ok(handshake_message)
+    }
+
+    #[instrument(skip(self, ticket_str, conn_type, connection_id), fields(ticket_len = ticket_str.len(), conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
+    pub async fn connect_with_ticket(
+        &self,
+        ticket_str: &str,
+        conn_type: ConnectionType,
+        connection_id: Option<&str>, // Optional connection ID to check for duplicates
+    ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
+        info!("Starting connection process with ticket");
+        trace!("Using ticket: {}", ticket_str);
+
+        // Ensure P2P service is initialized
+        self.ensure_initialized().await?;
+
+        // Get the state for access to connections
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+
+        // If a connection ID was provided, check if the connection is already active
+        if let Some(id) = connection_id {
+            // Check if connection is already established or in connecting state
+            if state.connections.is_connection_active(id).await {
+                debug!("Connection is already active: {}", id);
+
+                // Try to get an established connection
+                if let Ok(existing_connection) = state.connections.get_peer_connection(id).await {
+                    info!("Using existing established connection: {}", id);
+                    return Ok(Some(existing_connection));
+                } else {
+                    // If we're here, the connection is in connecting state but not yet established
+                    info!(
+                        "Connection is currently being established (returning None): {}",
+                        id
+                    );
+                    return Ok(None);
+                }
+            }
+
+            // Mark the connection as connecting
+            if let Err(e) = state.connections.mark_as_connecting(id).await {
+                // This shouldn't happen given the previous check, but handle it just in case
+                warn!("Failed to mark connection as connecting: {}", e);
+                return Err(P2PError::Connection(format!(
+                    "Failed to mark connection as connecting: {}",
+                    e
+                )));
+            }
+        }
+
+        // Helper function to clean up connecting state on error
+        let cleanup_connecting = |connection_id: Option<&str>, error: P2PError| -> P2PError {
+            if let Some(id) = connection_id {
+                // We need to spawn a task because we can't use .await in a closure
+                let connection_id = id.to_string();
+                let state_connections = state.connections.clone();
+                tokio::spawn(async move {
+                    state_connections
+                        .remove_from_connecting(&connection_id)
+                        .await;
+                });
+            }
+            error
+        };
+
+        // Parse connection ticket
+        let ticket: ConnectionTicket = match serde_json::from_str(ticket_str) {
+            Ok(ticket) => {
+                debug!("Ticket parsed successfully");
+                ticket
+            }
+            Err(e) => {
+                let error = P2PError::Deserialization(format!("Invalid ticket format: {}", e));
+                return Err(cleanup_connecting(connection_id, error));
+            }
+        };
+
+        // Parse node ID from ticket
+        let node_id = match ticket.node_id.parse() {
+            Ok(id) => id,
+            Err(e) => {
+                let error = P2PError::Connection(format!("Invalid node ID: {}", e));
+                return Err(cleanup_connecting(connection_id, error));
+            }
+        };
+
+        // Parse addresses from ticket
+        let valid_addresses = ticket
+            .addresses
+            .iter()
+            .filter_map(|a| match a.parse() {
+                Ok(addr) => Some(addr),
+                Err(e) => {
+                    warn!("Skipping invalid address {}: {}", a, e);
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if valid_addresses.is_empty() {
+            let error = P2PError::Connection("No valid addresses in ticket".into());
+            return Err(cleanup_connecting(connection_id, error));
+        }
+
+        debug!("Valid addresses: {}", valid_addresses.len());
+
+        // Create node address from parsed components
+        let node_addr = NodeAddr::from_parts(node_id, None, valid_addresses);
+
+        debug!("Created NodeAddr: {:?}", node_addr);
+        debug!("Our endpoint ID: {}", state.endpoint.node_id());
+        debug!("ALPN Protocol: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
+
+        // Attempt to establish connection
+        info!("Connecting to remote endpoint...");
+        let connection_span = info_span!("endpoint_connect", 
+        remote_node_id = %node_addr.node_id,
+        addresses = ?node_addr.direct_addresses.len());
+
+        let connect_result = state
+            .endpoint
+            .connect(node_addr.clone(), ALPN_PROTOCOL)
+            .instrument(connection_span)
+            .await;
+
+        // Handle connection result
+        let conn = match connect_result {
+            Ok(conn) => {
+                info!("Connection established successfully");
+                conn
+            }
+            Err(e) => {
+                error!("Connection failed: {}", e);
+                debug!("Node addr used: {:?}", node_addr);
+
+                let error = P2PError::Connection(format!("Connection failed: {}", e));
+                return Err(cleanup_connecting(connection_id, error));
+            }
+        };
+
+        // Proceed with handshake
+        info!("Starting handshake process");
+        let handshake_span =
+            info_span!("handshake", initiator = true, connection_type = ?conn_type);
+
+        // Drop the state guard before handshake to avoid deadlocks
+        drop(state_guard);
+
+        // Perform handshake
+        let handshake_result = self
+            .perform_handshake_and_create_peer(&conn, true, Some(conn_type))
+            .instrument(handshake_span)
+            .await;
+
+        // Clean up connecting state if handshake fails
+        // If handshake succeeds, the connection will be in the established connections map
+        // and handle_peer_and_create_connection will call insert_connection which removes from connecting
+        match handshake_result {
+            Ok(peer_connection) => {
+                // Return the new peer connection
+                Ok(Some(peer_connection))
+            }
+            Err(e) => {
+                // Clean up connecting state
+                if let Some(id) = connection_id {
+                    let state_guard = self.state.lock().await;
+                    if let Some(state) = &*state_guard {
+                        state.connections.remove_from_connecting(id).await;
+                    }
+                }
+                Err(e)
+            }
+        }
     }
 }

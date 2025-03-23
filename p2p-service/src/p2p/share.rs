@@ -81,24 +81,11 @@ impl PeerConnection {
                 self.event_emitter.emit(P2PEvent::EditingEvent { payload });
                 Ok(())
             }
-            "sync-snapshot" => {
-                log::info!("Received sync snapshot event");
-                self.event_emitter.emit(P2PEvent::SnapshotEvent { payload });
-                Ok(())
-            }
             _ => {
                 let err = format!("Unknown sync event type: {}", event_name);
                 log::error!("{}", err);
                 Err(err)
             }
         }
-    }
-
-    pub async fn send_snapshot(&self, snapshot: String) -> Result<(), String> {
-        let msg = Message::SyncEvent {
-            event: "sync-snapshot".to_string(),
-            payload: snapshot,
-        };
-        self.send_message(msg).await
     }
 }

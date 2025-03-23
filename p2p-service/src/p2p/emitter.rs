@@ -26,11 +26,6 @@ pub enum P2PEvent {
         /// Content of the editing event
         payload: String,
     },
-    /// Emitted when a snapshot update is received
-    SnapshotEvent {
-        /// Content of the snapshot
-        payload: String,
-    },
     /// Emitted when an error occurs
     Error {
         /// Description of the error

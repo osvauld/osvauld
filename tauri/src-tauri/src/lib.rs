@@ -1,5 +1,4 @@
 use log::error;
-use osvauld_core::models::vector_clock;
 use osvauld_db::{DbConnection, initialize_database};
 use tauri::Manager;
 pub mod handlers;
@@ -14,7 +13,7 @@ use crate::handlers::auth_handler::{
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
     connect_with_device, get_system_locale, get_ticket, initiate_first_connection, send_message,
-    send_snapshot, start_p2p_listener,
+    start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
     get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
@@ -158,20 +157,27 @@ pub fn run() {
                         folder_repo.clone(),
                         vector_clock_repo.clone(),
                     ));
-                    let (p2p_service, p2p_receiver) = P2PService::new(
-                        sync_service.clone(),
-                        auth_service.clone(),
-                        user_service.clone(),
-                        share_service.clone(),
-                    );
+                    let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
+                        P2PService::new(
+                            sync_service.clone(),
+                            auth_service.clone(),
+                            user_service.clone(),
+                            share_service.clone(),
+                        );
+                    let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
-
+                    rt.spawn(async move {
+                        P2PService::start_processing_incoming_events(
+                            p2p_service_clone,
+                            incoming_receiver,
+                        );
+                    });
                     // Initialize event manager and start listening
                     let event_manager = EventManager::new(
                         handle.clone(),
-                        p2p_service.clone(),
                         p2p_receiver,
                         resource_service.clone(),
+                        p2p_sender,
                     );
                     rt.spawn(async move {
                         event_manager.start_listening();
@@ -238,7 +244,6 @@ pub fn run() {
             update_last_accessed,
             get_all_resources,
             get_user_id,
-            send_snapshot,
             update_resource,
             get_resource,
             add_known_user,
