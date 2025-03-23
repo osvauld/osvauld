@@ -108,7 +108,8 @@ impl EventManager {
                                 // Send merge complete event to P2P service using P2PSender
                                 if let Err(e) = p2p_sender.send_merge_complete(
                                     encrypted_data,
-                                    payload.vector_clock,
+                                    add_remote_vector,
+                                    update_remote_vector,
                                     payload.resource_id,
                                     payload.user_id,
                                     payload.device_id,

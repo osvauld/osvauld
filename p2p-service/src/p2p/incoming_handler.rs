@@ -1,6 +1,6 @@
 use crate::p2p::P2PService;
 use crate::p2p::incoming::IncomingEvent;
-use osvauld_core::models::p2p::Message;
+use osvauld_core::models::p2p::{Message, UpdateResource};
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn, instrument};
@@ -21,14 +21,16 @@ impl P2PService {
                 match event {
                     IncomingEvent::MergeComplete { 
                         encrypted_doc, 
-                        vector_clock, 
+                        add_vector_clock, 
+                        update_vector_clock,
                         resource_id,
                         user_id,
                         device_id,
                     } => {
                         service.handle_merge_complete(
                             encrypted_doc, 
-                            vector_clock, 
+                            add_vector_clock, 
+                            update_vector_clock,
                             &resource_id,
                             &user_id,
                             &device_id,
@@ -46,13 +48,14 @@ impl P2PService {
     }
     
     /// Handles a merge complete event
-    #[instrument(skip(self, vector_clock, encrypted_doc), 
+    #[instrument(skip(self, add_vector_clock, encrypted_data, update_vector_clock), 
                 fields(resource_id = %resource_id, user_id = %user_id, device_id = %device_id),
                 level = "info")]
     pub async fn handle_merge_complete(
         &self,
-        encrypted_doc: String,
-        vector_clock: Vec<ResourceVectorClock>,
+        encrypted_data: String,
+        add_vector_clock: Vec<ResourceVectorClock>,
+        update_vector_clock: Vec<ResourceVectorClock>,
         resource_id: &str,
         user_id: &str,
         device_id: &str,
@@ -64,6 +67,14 @@ impl P2PService {
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
                 info!("Found connection for {}", connection_id);
+                
+                let message = UpdateResource {
+                    encrypted_data,
+                    add_vector_clock,
+                    update_vector_clock,
+                    resource_id: resource_id.to_string(),
+                };
+                connection.send_message(Message::UpdateResource(message));
                 // Use the connection to send an update
                 // Implementation for sending updates will go here in the future
             }

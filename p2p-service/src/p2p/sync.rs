@@ -2,7 +2,7 @@ use crate::p2p::peer_connection::PeerConnection;
 use osvauld_services::SyncEvent;
 
 use log::{error, info};
-use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload};
+use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload, UpdateResource};
 
 use super::P2PEvent;
 
@@ -215,5 +215,18 @@ impl PeerConnection {
             };
             event_emitter.emit(p2p_event);
         }
+    }
+
+    pub async fn handle_merge_update(&self, payload: &UpdateResource) -> Result<(), String> {
+        self.context
+            .sync_service
+            .merge_updated_doc(
+                &payload.encrypted_data,
+                &payload.add_vector_clock,
+                &payload.update_vector_clock,
+                &payload.resource_id,
+            )
+            .await
+            .map_err(|e| e.to_string())
     }
 }

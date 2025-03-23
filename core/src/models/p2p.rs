@@ -58,7 +58,7 @@ pub enum Message {
     UserAddAck(String),
     SharePayload(SharePayload),
     ShareComplete,
-    // HandshakeMessage(HandshakeMessage),
+    UpdateResource(UpdateResource),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,6 +71,14 @@ pub struct ConnectionTicket {
 pub enum ConnectionType {
     Device,
     User,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpdateResource {
+    pub encrypted_data: String,
+    pub add_vector_clock: Vec<ResourceVectorClock>,
+    pub update_vector_clock: Vec<ResourceVectorClock>,
+    pub resource_id: String,
 }
 
 // The HandshakeMessage type remains the same

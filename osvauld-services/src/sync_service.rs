@@ -851,4 +851,24 @@ impl SyncService {
 
         Ok(needs_sync)
     }
+
+    pub async fn merge_updated_doc(
+        &self,
+        doc: &str,
+        add_vector: &[ResourceVectorClock],
+        update_vector: &[ResourceVectorClock],
+        resource_id: &str,
+    ) -> Result<(), RepositoryError> {
+        // Update the resource with the new document
+        self.resource_repository
+            .update_resource(doc, resource_id)
+            .await?;
+
+        // Update vector clocks - handles both adding new ones and updating existing ones
+        self.vector_clock_repository
+            .update_vector_clocks(update_vector, add_vector)
+            .await?;
+
+        Ok(())
+    }
 }

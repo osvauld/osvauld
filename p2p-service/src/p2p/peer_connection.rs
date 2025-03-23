@@ -292,6 +292,10 @@ impl PeerConnection {
                 });
                 Ok(())
             }
+            Message::UpdateResource(payload) => {
+                info!("recived merge payload back");
+                self.handle_merge_update(payload).await
+            }
         }
     }
 

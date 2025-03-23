@@ -8,7 +8,8 @@ pub enum IncomingEvent {
     /// Sent when a merge is completed
     MergeComplete {
         encrypted_doc: String,
-        vector_clock: Vec<ResourceVectorClock>,
+        add_vector_clock: Vec<ResourceVectorClock>,
+        update_vector_clock: Vec<ResourceVectorClock>,
         resource_id: String,
         user_id: String,
         device_id: String,
@@ -41,14 +42,16 @@ impl P2PSender {
     pub fn send_merge_complete(
         &self,
         encrypted_doc: String,
-        vector_clock: Vec<ResourceVectorClock>,
+        add_vector_clock: Vec<ResourceVectorClock>,
+        update_vector_clock: Vec<ResourceVectorClock>,
         resource_id: String,
         user_id: String,
         device_id: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::MergeComplete {
             encrypted_doc,
-            vector_clock,
+            add_vector_clock,
+            update_vector_clock,
             resource_id,
             user_id,
             device_id,
