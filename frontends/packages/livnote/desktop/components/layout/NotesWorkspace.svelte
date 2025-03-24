@@ -49,7 +49,6 @@
 	let inputRef;
 	let showDownloadTooltip = false;
 	let isPdfGenerating = false;
-	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
 
 	let saveNoteAndSwitch = () => {};
