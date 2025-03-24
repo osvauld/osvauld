@@ -8,7 +8,7 @@
 		notes,
 		currentNote,
 	} from "../../store/desktop.ui.store";
-	import { extractTitle } from "../utils/helper";
+	import { extractTitle, getLastModifiedDate } from "../utils/helper";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
@@ -23,13 +23,6 @@
 	let error = null;
 
 	$: updatedNotes = $notes;
-
-	// Function to get last modified date in readable format
-	const getLastModifiedDate = (timestamp) => {
-		if (!timestamp) return "Never";
-		const date = new Date(timestamp);
-		return date.toLocaleDateString() + " " + date.toLocaleTimeString();
-	};
 
 	// Function to fetch notes based on the current vault
 	const fetchNotes = async () => {
@@ -157,8 +150,8 @@
 	// });
 </script>
 
-<div class="grow max-h-[85%] overflow-y-scroll px-16 py-4 relative">
-	<div class="h-full overflow-hidden pr-1 scrollbar-none">
+<div class="grow max-h-full overflow-y-scroll px-11 py-4 relative">
+	<div class="h-full overflow-y-auto pr-1 scrollbar-thin">
 		{#if $noteViewLayout}
 			<RichTextEditor
 				on:collaboration-update={(event) =>
@@ -190,7 +183,7 @@
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
 										class="text-osvauld-fieldText font-medium text-lg truncate">
-										{extractTitle(note.data.content)}
+										{note?.data.title ? note.data.title : "Untitled note"}
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
@@ -206,11 +199,13 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-										content={note.data.content}
-										editorState={note.data.editor_state}
-										yjsState={note.data.yjs_state}
-										maxHeight="120px"
-										minHeight="120px" />
+
+										content="{note.data.content}"
+										title="{note.data.title}"
+										editorState="{note.data.editor_state}"
+										yjsState="{note.data.yjs_state}"
+										maxHeight="180px"
+										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">
 										Last modified: {getLastModifiedDate(
 											note.data.last_modified || note.data.last_accessed,

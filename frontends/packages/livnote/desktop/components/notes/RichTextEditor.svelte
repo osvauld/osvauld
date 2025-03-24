@@ -13,8 +13,10 @@
 		noteId,
 		noteViewLayout,
 		refreshCredentialList,
+		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
+	import { DOMSerializer } from "prosemirror-model";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -27,6 +29,7 @@
 	let loadingInProgress = false;
 	let saved = false;
 	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
+	const saveNoteWithNewTitle = getContext("saveNoteWithNewTitleFunction");
 
 	// Listen for noteId changes and load the corresponding note
 	$: if (
@@ -40,7 +43,7 @@
 
 	saveNoteAndSwitch(() => {
 		if (view) {
-			notesInstance.saveNote().catch(console.error);
+			notesInstance.saveNote($currentNote?.data.title).catch(console.error);
 		}
 
 		// Return to list view
@@ -50,17 +53,95 @@
 		currentlyLoadedNoteId = null;
 	});
 
-	async function saveNoteManual() {
+	const saveNoteManual = () => {
 		saved = true;
 		notesInstance
-			.saveNote()
+			.saveNote($currentNote?.data.title)
 			.catch(console.error)
-			.then(() => refreshCredentialList.set(true));
+			.then(() => refreshCredentialList.set(true))
+			.then(() => refreshSidePanel.set(true));
 
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
-	}
+	};
+
+	saveNoteWithNewTitle(() => {
+		saveNoteManual();
+	});
+
+	const fallbackCopy = (html) => {
+		const tempElement = document.createElement("div");
+		tempElement.innerHTML = html;
+		tempElement.style.position = "absolute";
+		tempElement.style.left = "-9999px";
+		document.body.appendChild(tempElement);
+
+		// Select the temp element
+		const selection = window.getSelection();
+		const range = document.createRange();
+		range.selectNodeContents(tempElement);
+		selection?.removeAllRanges();
+		selection?.addRange(range);
+
+		// Execute copy
+		document.execCommand("copy");
+
+		// Clean up
+		selection?.removeAllRanges();
+		document.body.removeChild(tempElement);
+
+		console.log("Note copied using fallback method");
+	};
+
+	const copyContentListener = (event) => {
+		if (!view) return;
+
+		try {
+			// Get the schema from the document
+			const { schema } = notesInstance.getDoc();
+
+			// Create a serializer with this schema
+			const serializer = DOMSerializer.fromSchema(schema);
+
+			// Create a document fragment
+			const fragment = view.state.doc.content;
+
+			// Create a container for the HTML
+			const domFragment = document.createElement("div");
+
+			// Serialize the fragment to HTML
+			serializer.serializeFragment(fragment, { document }, domFragment);
+
+			// Get both HTML and plain text versions
+			const html = domFragment.innerHTML;
+			const text = domFragment.textContent || "";
+
+			// Use the Clipboard API to copy with formatting
+			if (navigator.clipboard && window.ClipboardItem) {
+				navigator.clipboard
+					.write([
+						new ClipboardItem({
+							"text/html": new Blob([html], { type: "text/html" }),
+							"text/plain": new Blob([text], { type: "text/plain" }),
+						}),
+					])
+					.then(() => {
+						console.log("Note copied with formatting");
+					})
+					.catch((err) => {
+						console.error("Clipboard API error:", err);
+						// Fallback to the execCommand method
+						fallbackCopy(html);
+					});
+			} else {
+				// Use fallback method
+				fallbackCopy(html);
+			}
+		} catch (error) {
+			console.error("Error during copy:", error);
+		}
+	};
 
 	async function loadNote(id) {
 		if (!element || loadingInProgress) return;
@@ -132,7 +213,7 @@
 			autoSaveInterval = setInterval(() => {
 				// Savign animation go
 
-				notesInstance.saveNote().catch(console.error);
+				notesInstance.saveNote($currentNote.data.title).catch(console.error);
 				saved = true;
 				setTimeout(() => {
 					saved = false;
@@ -229,15 +310,24 @@
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
-		// Save one final time on destroy
 		notesInstance
-			.saveNote()
+			.saveNote($currentNote.data.title)
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true));
 
 		// Clear current note ID
+		noteId.set("");
+		currentNote.set({});
 		currentlyLoadedNoteId = null;
 	};
+
+	noteId.subscribe((id) => {
+		// Only destroy and save if we had a previously loaded note
+		if (id && currentlyLoadedNoteId && id !== currentlyLoadedNoteId) {
+			prosemirrorInstanceDestructionHandle();
+		}
+		// If it's the first note or same note being reloaded, don't trigger destruction
+	});
 
 	// Initialize when component mounts
 	onMount(async () => {
@@ -248,22 +338,26 @@
 		if ($noteId) {
 			await loadNote($noteId);
 		}
-	});
 
-	// We need to do cleanup when noteId Changes
-
-	noteId.subscribe((id) => {
-		if (id) prosemirrorInstanceDestructionHandle();
+		document.addEventListener("request-editor-content", copyContentListener);
 	});
 
 	// Clean up when component is destroyed
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
 		prosemirrorInstanceDestructionHandle();
+		document.removeEventListener("request-editor-content", copyContentListener);
 	});
 </script>
 
 <style>
+	/* ProseMirror menubar styles for horizontal layout */
+	:global(.ProseMirror-menubar-wrapper) {
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+	}
+
 	.editor-container {
 		margin: 0 auto;
 		width: 100%;
@@ -271,17 +365,27 @@
 		background: #16171f;
 		color: white;
 		position: relative;
-		border-top-left-radius: 20px;
-		border-top-right-radius: 20px;
+		border-radius: 20px;
 	}
 
-	/* ProseMirror menubar styles for horizontal layout */
-	:global(.ProseMirror-menubar-wrapper) {
-		height: 100%;
+	:global(.ProseMirror-example-setup-style) {
+		position: relative;
+		padding: 15px;
+		min-height: 100px;
+		max-width: 96%;
+		width: 96%;
+		outline: none;
+		line-height: 1.5;
+		color: white;
+		background: #16171f;
+		border-radius: 20px;
+		overflow-y: scroll;
+		flex-grow: 1;
+		margin: 5px auto 5px auto;
 	}
 
 	:global(.ProseMirror-menubar) {
-		height: 92px;
+		min-height: 92px;
 		padding: 4px 24px;
 		white-space: nowrap;
 		overflow-y: hidden;
@@ -289,19 +393,9 @@
 		display: flex;
 		align-items: center;
 		gap: 1px;
-		z-index: 900;
 		border-bottom: 1px solid #2a2b2f;
 		border-top-left-radius: 20px;
 		border-top-right-radius: 20px;
-	}
-	:global(.ProseMirror) {
-		position: relative;
-		padding: 15px;
-		min-height: 100px;
-		outline: none;
-		line-height: 1.5;
-		color: white;
-		background: #16171f;
 	}
 
 	:global(.ProseMirror-menuitem) {
@@ -582,13 +676,6 @@
 		z-index: 999;
 	}
 
-	:global(.ProseMirror-example-setup-style) {
-		overflow-y: scroll;
-		max-height: 92%;
-		padding-bottom: 1rem;
-		overflow-x: scroll;
-	}
-
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
 		width: 4px;
 		height: 4px;
@@ -601,6 +688,134 @@
 	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-thumb) {
 		background-color: #2f303e;
 		border-radius: 4px;
+	}
+
+	:global(.slash-command-menu) {
+		max-height: 300px;
+		overflow-y: auto;
+		border-radius: 8px;
+		animation: fadeIn 0.1s ease-in-out;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar) {
+		width: 4px;
+		height: 4px;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+
+	:global(.slash-command-menu::-webkit-scrollbar-thumb) {
+		background-color: #2f303e;
+		border-radius: 4px;
+	}
+
+	:global(.slash-command-item) {
+		transition: background-color 0.15s ease;
+		border-radius: 4px;
+		margin: 4px;
+	}
+
+	:global(.slash-command-item:first-child) {
+		margin-top: 4px;
+	}
+
+	:global(.slash-command-item:last-child) {
+		margin-bottom: 4px;
+	}
+
+	:global(.slash-command-icon) {
+		background: #2f303e;
+		border-radius: 4px;
+		width: 28px !important;
+		height: 28px !important;
+		color: #bfc0cc;
+	}
+	:global(.ProseMirror ul) {
+		padding-left: 1.5em;
+		margin: 0.5em 0;
+		list-style-type: disc;
+	}
+
+	:global(.ProseMirror ul li) {
+		margin: 0.2em 0;
+		position: relative;
+	}
+
+	:global(.ProseMirror ul li p) {
+		margin: 0;
+	}
+
+	/* Numbered List Styles */
+	:global(.ProseMirror ol) {
+		padding-left: 1.5em;
+		margin: 0.5em 0;
+		list-style-type: decimal;
+	}
+
+	:global(.ProseMirror ol li) {
+		margin: 0.2em 0;
+		position: relative;
+	}
+
+	:global(.ProseMirror ol li p) {
+		margin: 0;
+	}
+
+	/* Nested List Styles */
+	:global(.ProseMirror li > ul, .ProseMirror li > ol) {
+		margin: 0.2em 0 0.2em 1em;
+	}
+
+	/* List item active state */
+	:global(.ProseMirror li.ProseMirror-selectednode) {
+		outline: 2px solid #2a2b2f;
+	}
+
+	/* Make sure list buttons in the menu are properly visible */
+	:global(
+		.ProseMirror-menu-dropdown-item[title="Wrap in bullet list"],
+		.ProseMirror-menu-dropdown-item[title="Wrap in ordered list"]
+	) {
+		display: flex;
+		align-items: center;
+	}
+
+	:global(
+		.ProseMirror-menu-dropdown-item[title="Wrap in bullet list"]::before
+	) {
+		content: "•";
+		margin-right: 5px;
+		font-size: 1.2em;
+	}
+
+	:global(
+		.ProseMirror-menu-dropdown-item[title="Wrap in ordered list"]::before
+	) {
+		content: "1.";
+		margin-right: 5px;
+		font-weight: bold;
+	}
+
+	:global(.ProseMirror blockquote) {
+		border-left: 3px solid #4a4b53;
+		margin-left: 0;
+		margin-right: 0;
+		padding-left: 1em;
+		font-style: italic;
+		color: #bfc0cc;
+	}
+
+	:global(.ProseMirror blockquote p) {
+		margin: 0.5em 0;
+	}
+
+	/* Add a subtle background for better visibility in dark mode */
+	:global(.ProseMirror blockquote) {
+		background-color: rgba(255, 255, 255, 0.03);
+		border-radius: 4px;
+		padding: 8px 16px 8px 12px;
 	}
 </style>
 
@@ -618,7 +833,7 @@
 		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
 			on:click="{saveNoteManual}"
-			class="absolute top-6 right-4 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			class="absolute z-10 top-6 right-5 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
 					><span class="text-[#9DD062] mr-2">Saved...</span>

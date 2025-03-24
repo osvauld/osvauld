@@ -7,6 +7,13 @@ import { schema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
 import { exampleSetup } from "prosemirror-example-setup";
+import { slashCommandPlugin } from "./slashCommandPlugin";
+import {
+	wrapInList,
+	splitListItem,
+	liftListItem,
+	sinkListItem,
+} from "prosemirror-schema-list";
 
 import {
 	redo,
@@ -28,6 +35,7 @@ interface NoteContent {
 	client_id: string;
 	resource_id: string;
 	last_modified?: number;
+	title?: string;
 }
 
 interface CreateNoteParams {
@@ -133,6 +141,14 @@ export class Notes {
 	}
 
 	private initEditorState() {
+		const listKeymap = keymap({
+			Enter: splitListItem(this.editorSchema.nodes.list_item),
+			Tab: sinkListItem(this.editorSchema.nodes.list_item),
+			"Shift-Tab": liftListItem(this.editorSchema.nodes.list_item),
+			"Ctrl-Shift-8": wrapInList(this.editorSchema.nodes.bullet_list),
+			"Ctrl-Shift-9": wrapInList(this.editorSchema.nodes.ordered_list),
+		});
+
 		// Create a synchronized editor state that works with our Yjs document
 		try {
 			// First create the sync plugin - it's critical this is done before the state is created
@@ -198,8 +214,10 @@ export class Notes {
 				schema: this.editorSchema,
 				doc: prosemirrorDoc, // Use the document from Yjs
 				plugins: [
+					slashCommandPlugin(this.editorSchema),
 					...exampleSetup({ schema: this.editorSchema }),
 					keymap(baseKeymap),
+					listKeymap,
 					syncPlugin, // Use the pre-initialized sync plugin
 					yCursorPlugin(this.awareness, {
 						cursorBuilder: this.createBasicCustomCursor.bind(this),
@@ -222,6 +240,7 @@ export class Notes {
 				plugins: [
 					...exampleSetup({ schema: this.editorSchema }),
 					keymap(baseKeymap),
+					listKeymap,
 					ySyncPlugin(this.type),
 					yCursorPlugin(this.awareness, {
 						cursorBuilder: this.createBasicCustomCursor.bind(this),
@@ -319,7 +338,7 @@ export class Notes {
 		this.editorState = newState;
 	}
 
-	async saveNote() {
+	async saveNote(title = "Untitled note") {
 		if (!this.currentNoteId || !this.editorState) {
 			console.error("No note is currently active or editor state is missing");
 			return;
@@ -338,6 +357,7 @@ export class Notes {
 				client_id: `client-${this.clientID}`,
 				resource_id: this.currentNoteId, // Use the noteId as resourceId
 				last_modified: timestamp,
+				title,
 			};
 
 			await sendMessage("updateCredential", {
@@ -370,7 +390,7 @@ export class Notes {
 			this.currentNoteId = noteId;
 			const noteContent = response.data;
 
-			console.log("Note data loaded:", noteContent);
+			// console.log("Note data loaded:", noteContent);
 
 			// Reset the Yjs document
 			this.ydoc.destroy();

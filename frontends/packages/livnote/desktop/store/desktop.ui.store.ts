@@ -12,6 +12,7 @@ export let viewCredentialModal = writable(false);
 export let currentNote = writable({});
 export let addDeviceModal = writable(false);
 export let refreshCredentialList = writable(false);
+export let refreshSidePanel = writable(false);
 
 export let deleteConfirmationModal = writable({ item: "", show: false });
 export let toastStore = writable({ show: false, message: "", success: true });
@@ -24,3 +25,8 @@ export let showConnector = writable(false);
 
 export let noteId = writable("");
 export let showAddUser = writable(false);
+
+export let passwordPromptModal = writable({
+	isChangePassword: false,
+	show: false,
+});

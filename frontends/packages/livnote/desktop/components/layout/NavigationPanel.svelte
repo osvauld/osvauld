@@ -9,6 +9,7 @@
 		noteId,
 		currentNote,
 		notes,
+		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
 	import { extractTitle } from "../utils/helper";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
@@ -120,6 +121,12 @@
 		}
 	}
 
+	// Watch for refresh requests
+	$: if ($refreshSidePanel) {
+		fetchCredentials($currentVault.id);
+		refreshSidePanel.set(false);
+	}
+
 	// Load initial data
 	onMount(() => {
 		if ($currentVault && $currentVault.id) {
@@ -129,7 +136,7 @@
 </script>
 
 <nav
-	class="w-[360px] shrink-0 h-full py-10 px-4 whitespace-nowrap"
+	class="w-[360px] shrink-0 h-full max-h-[60rem] py-10 px-4 whitespace-nowrap"
 	aria-label="Main Navigation">
 	<div class="relative">
 		<button
@@ -213,9 +220,7 @@
 									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
 							</span>
 							<span class="truncate">
-								{note.data && note.data.content
-									? extractTitle(note.data.content)
-									: note.id}
+								{note?.data.title ? note.data.title : "untitled note"}
 							</span>
 						</div>
 					</button>

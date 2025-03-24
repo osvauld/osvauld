@@ -5,7 +5,6 @@
 	"type": "module",
 	"main": "index.ts",
 	"types": "index.ts",
-  
 	"exports": {
 		".": "./index.ts",
 		"./utils/*": "./utils/*",
@@ -15,13 +14,15 @@
 	},
 	"dependencies": {
 		"@castlenine/svelte-qrcode": "^2.3.0",
+		"@osvauld/password-manager-common": "workspace:*",
 		"@tauri-apps/api": "^2.2.0",
 		"@tauri-apps/plugin-clipboard-manager": "^2.2.1",
+		"@tauri-apps/plugin-fs": "^2.2.0",
 		"@tauri-apps/plugin-store": "^2.2.0",
 		"dompurify": "^3.2.4",
+		"jspdf": "^3.0.1",
 		"papaparse": "^5.5.2",
 		"totp-generator": "^1.0.0",
-		"typesafe-i18n": "^5.26.2",
-		"@osvauld/password-manager-common": "workspace:*"
+		"typesafe-i18n": "^5.26.2"
 	}
 }

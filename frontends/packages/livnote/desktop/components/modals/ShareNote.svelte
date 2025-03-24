@@ -55,7 +55,6 @@
 	const handleKeyDown = (event: KeyboardEvent) => {
 		const collaboratorsLength = AVAILABLE_COLLABORATORS.length;
 		switch (event.key) {
-			case "Enter":
 			case " ":
 				event.preventDefault(); // Prevent space from scrolling
 				if (focusedIndex === -1) {
@@ -187,7 +186,7 @@
 
 <!-- Add these ARIA attributes to the main component -->
 <div
-	class="absolute top-full right-0 mt-2 z-50 w-[35rem] {isFocused
+	class="absolute top-full right-20 mt-2 z-50 w-[35rem] {isFocused
 		? 'h-[26.125rem] '
 		: 'h-auto'} rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col"
 	role="dialog"

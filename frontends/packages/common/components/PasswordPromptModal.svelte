@@ -1,23 +1,31 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { sendMessage, writeToClipboard } from "../utils/helper";
-
 	import { fly } from "svelte/transition";
-	// import { promptPassword, changePassword } from "../store";
-	import { ClosedEye, ClosePanel, Eye } from "../index";
+	import { createEventDispatcher } from "svelte";
+
+	import { generateCertificatePDF } from "../utils/backupUtil";
+
+	import ClosedEye from "@osvauld/password-manager-common/icons/closedEye.svelte";
+	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
+	import Eye from "@osvauld/password-manager-common/icons/eye.svelte";
+
 	import SuccessView from "./SuccessView.svelte";
 	import NewPassword from "./NewPassword.svelte";
-	import { writable } from "svelte/store";
-	let promptPassword = writable(false);
-	let changePassword = writable(false);
+	import Loader from "./Loader.svelte";
+
+	export let changePassword = false;
+	let promptPassword = false;
 	let password: string = "";
 	let success: boolean = false;
 	let errorView: boolean = false;
 	let newPasswordView: boolean = false;
 	let showPassword: boolean = false;
+	let loading = false;
+	const dispatch = createEventDispatcher();
 
 	const closeModal = () => {
-		promptPassword.set(false);
+		dispatch("close", true);
 	};
 
 	const autofocus = (node: any) => {
@@ -29,39 +37,53 @@
 	};
 
 	const handlePasswordChangeSubmit = async (e: CustomEvent) => {
+		loading = true;
 		const newPassword = e.detail.passphrase;
 		const certificate = await sendMessage("changePassphrase", {
 			oldPassword: password,
 			newPassword,
 		});
-		newPasswordView = false;
 		if (certificate) {
 			success = true;
 		} else {
 			errorView = true;
 		}
+		newPasswordView = false;
+		loading = false;
 		setTimeout(() => {
 			closeModal();
 		}, 1500);
 	};
 
 	const handleRecoveryDataSubmit = async () => {
-		const certificate = await sendMessage("exportCertificate", {
-			passphrase: password,
-		});
-		if (certificate) {
-			const exporter = JSON.stringify({ certificate });
-			await writeToClipboard(exporter);
-			success = true;
-		} else {
-			errorView = true;
-		}
-		setTimeout(() => {
-			changePassword.set(false);
-			closeModal();
-		}, 1500);
-	};
+		loading = true;
+		try {
+			const certificate = await sendMessage("exportCertificate", {
+				passphrase: password,
+			});
 
+			if (certificate) {
+				try {
+					// Generate and save PDF instead of copying to clipboard
+					await generateCertificatePDF(certificate);
+					success = true;
+				} catch (pdfError) {
+					console.error("PDF generation error:", pdfError);
+					errorView = true;
+				}
+			} else {
+				errorView = true;
+			}
+		} catch (error) {
+			console.error("Error exporting certificate:", error);
+			errorView = true;
+		} finally {
+			loading = false;
+			setTimeout(() => {
+				closeModal();
+			}, 1500);
+		}
+	};
 	const handleInputChange = (e: any) => {
 		password = e.target.value;
 	};
@@ -86,25 +108,29 @@
 	on:click|preventDefault="{closeModal}"
 	role="presentation">
 	<div
-		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[28rem] h-[24rem] flex flex-col justify-center items-center"
+		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[32rem] flex flex-col justify-center items-center"
 		on:click|stopPropagation
 		role="presentation"
 		aria-labelledby="export-recovery-data"
 		in:fly
 		out:fly>
-		{#if errorView}
-			<SuccessView status="{false}" recovery="{true}" />
+		{#if loading}
+			<Loader color="#fff" size="{32}" />
+		{:else if errorView}
+			<SuccessView status="{false}" message="Unable to do operation" />
 		{:else if success}
-			<SuccessView status="{true}" recovery="{true}" />
+			<SuccessView
+				status="{true}"
+				message="{changePassword ? 'Password Changed' : 'Export complete'}" />
 		{:else if newPasswordView}
 			<NewPassword on:submit="{handlePasswordChangeSubmit}" />
 		{:else}
 			<form
-				class="flex flex-col h-full w-full"
-				on:submit|preventDefault="{$changePassword
+				class="flex flex-col items-center h-full w-full"
+				on:submit|preventDefault="{changePassword
 					? newPasswordViewHandler
 					: handleRecoveryDataSubmit}">
-				<div class="flex justify-between items-center w-full">
+				<div class="flex p-2 pb-4 justify-between items-center w-full">
 					<span
 						id="export-recovery-data"
 						class="text-[21px] font-medium text-osvauld-quarzowhite">
@@ -118,17 +144,16 @@
 						<ClosePanel />
 					</button>
 				</div>
-				<div
-					class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4">
-				</div>
+				<div class="border-b border-osvauld-iconblack w-[90%]"></div>
 				<div class="grow flex justify-center items-center">
 					<div
-						class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack w-[300px]">
+						class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
 						<input
-							class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-osvauld-iconblack focus:ring-0 active:outline-none focus:ring-offset-0"
+							class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
 							type="{showPassword ? 'text' : 'password'}"
 							id="passphrase"
 							aria-label="passphrase"
+							autocomplete="off"
 							use:autofocus
 							on:input="{handleInputChange}" />
 

@@ -68,8 +68,12 @@ Meet **Osvauld Livnote** – a collaborative document editor application that br
    ```bash
    cd /frontends/packages/livnote/desktop
    pnpm install
+   
+3. **Install tauri-cli:**
+   ```bash
+   cargo install tauri-cli
 
-3. **Run development server:**
+4. **Run development server:**
    ```bash
    cd /tauri/src-tauri
    cargo tauri dev
