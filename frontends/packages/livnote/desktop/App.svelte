@@ -115,8 +115,7 @@
 		{#if $showSyncQr}
 		<Acceptor />
 		{/if}
-		
-		-->
+    -->
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
     {/if}

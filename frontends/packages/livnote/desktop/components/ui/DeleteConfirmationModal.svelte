@@ -40,13 +40,8 @@
 	};
 
 	const withdrawCredentialDeleteModal = () => {
-		currentNote.set({});
 		deleteConfirmationModal.set({ item: "", show: false });
 	};
-
-	onMount(() => {
-		console.log("Mounteeddd");
-	});
 </script>
 
 <div
