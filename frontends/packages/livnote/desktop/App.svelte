@@ -2,6 +2,7 @@
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
 	import Toast from "./components/ui/Toast.svelte";
+	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
 	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
 	import Connector from "./components/connection/Connector.svelte";
 	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
@@ -17,6 +18,8 @@
 		showWelcome,
 		showConnector,
 		showAddUser,
+		deleteConfirmationModal,
+		currentNote,
 		passwordPromptModal,
 	} from "./store/desktop.ui.store";
 
@@ -104,18 +107,19 @@
 		<!-- <DocumentEditor /> -->
 		<DefaultLayout />
 		<!-- 
+			
+		{#if $addDeviceModal}
+		<AddDeviceView />
+		{/if}
+		
+		{#if $showSyncQr}
+		<Acceptor />
+		{/if}
+		
+		-->
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
-		{/if}
-
-		{#if $addDeviceModal}
-			<AddDeviceView />
-		{/if}
-
-		{#if $showSyncQr}
-			<Acceptor />
-		{/if}
-		-->
+    {/if}
 
 		{#if $passwordPromptModal.show}
 			<PasswordPromptModal

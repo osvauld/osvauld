@@ -151,7 +151,7 @@
 </script>
 
 <div class="grow max-h-full overflow-y-scroll px-11 py-4 relative">
-	<div class="h-full overflow-hidden pr-1 scrollbar-none">
+	<div class="h-full overflow-y-auto pr-1 scrollbar-thin">
 		{#if $noteViewLayout}
 			<RichTextEditor
 				on:collaboration-update="{(event) =>
@@ -183,7 +183,7 @@
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
 										class="text-osvauld-fieldText font-medium text-lg truncate">
-										{extractTitle(note.data.content)}
+										{note?.data.title ? note.data.title : "Untitled note"}
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
@@ -200,6 +200,7 @@
 									<!-- Rich text preview -->
 									<NotePreview
 										content="{note.data.content}"
+										title="{note.data.title}"
 										editorState="{note.data.editor_state}"
 										yjsState="{note.data.yjs_state}"
 										maxHeight="180px"
