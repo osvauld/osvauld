@@ -139,7 +139,7 @@ impl TransactionService {
     ) -> Result<(), RepositoryError> {
         // Store primary certificate
 
-        self.user_repository.add_known_user(user.clone()).await?;
+        self.user_repository.add_known_user(user).await?;
         self.store_repository
             .store_certificate(
                 primary_certificate,
@@ -161,12 +161,18 @@ impl TransactionService {
         self.store_repository.store_device_key(&device.id).await?;
 
         // Save device information to repository
-        self.device_repository.save(device.clone()).await?;
+        self.device_repository.save(device).await?;
 
         // Save sync record set
         self.sync_repository
             .add_sync_record_set(sync_record_set.clone())
             .await?;
+        Ok(())
+    }
+
+    pub async fn add_new_user(&self, user: &User, device: &Device) -> Result<(), RepositoryError> {
+        self.user_repository.add_known_user(user).await?;
+        self.device_repository.save(device).await?;
         Ok(())
     }
 }

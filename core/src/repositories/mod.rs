@@ -159,7 +159,7 @@ pub trait ResourceRepository: Send + Sync {
 #[async_trait]
 
 pub trait DeviceRepository: Send + Sync {
-    async fn save(&self, device: Device) -> Result<(), RepositoryError>;
+    async fn save(&self, device: &Device) -> Result<(), RepositoryError>;
     async fn find_by_id(&self, device_id: &str) -> Result<Device, RepositoryError>;
     async fn update_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError>;
     async fn get_devices_by_user_id(&self, user_id: &str) -> Result<Vec<Device>, RepositoryError>;
@@ -187,7 +187,7 @@ pub trait DeviceRecordStatusRepository: Send + Sync {
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {
-    async fn add_known_user(&self, user: User) -> Result<(), RepositoryError>;
+    async fn add_known_user(&self, user: &User) -> Result<(), RepositoryError>;
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
 }

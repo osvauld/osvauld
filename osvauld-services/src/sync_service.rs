@@ -110,7 +110,7 @@ impl SyncService {
         let vector_clocks =
             ResourceVectorClock::create_entires_for_new_device(&resource_ids, &device.id);
         // Save the device first
-        let _ = self.device_repository.save(device.clone()).await?;
+        let _ = self.device_repository.save(&device).await?;
         // Add the sync record set
         self.sync_repository.add_sync_record_set(sync_set).await?;
         self.vector_clock_repository
@@ -300,7 +300,7 @@ impl SyncService {
 
     pub async fn add_device_entry(&self, device: Device) -> Result<(), RepositoryError> {
         //TODO: handle check for device alreay here.
-        self.device_repository.save(device).await
+        self.device_repository.save(&device).await
     }
 
     pub async fn process_acknowledgement(
@@ -475,7 +475,7 @@ impl SyncService {
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
         // Process common sync logic
-        self.device_repository.save(device.clone()).await?;
+        self.device_repository.save(device).await?;
         let (processed_records, processed_statuses, completion_records) = self
             .prepare_common_sync_data(
                 sync_record,

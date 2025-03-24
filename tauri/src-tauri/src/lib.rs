@@ -19,7 +19,7 @@ use crate::handlers::resource_handler::{
     get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
     share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
 };
-use crate::handlers::user_handler::{add_known_user, get_known_users};
+use crate::handlers::user_handler::{add_known_user, get_details_for_share, get_known_users};
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use osvauld_db::repositories::{
@@ -250,7 +250,8 @@ pub fn run() {
             get_known_users,
             get_public_key,
             initiate_first_connection,
-            share_resource
+            share_resource,
+            get_details_for_share,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

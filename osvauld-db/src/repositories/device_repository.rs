@@ -20,17 +20,10 @@ impl SqliteDeviceRepository {
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
-    async fn save(&self, device: Device) -> Result<(), RepositoryError> {
+    async fn save(&self, device: &Device) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        let device_model = DeviceModel {
-            id: device.id,
-            device_key: device.device_key,
-            user_id: device.user_id,
-            created_at: device.created_at,
-            updated_at: device.updated_at,
-            last_synced_at: device.last_synced_at,
-        };
+        let device_model = DeviceModel::from(device);
 
         diesel::insert_into(devices::table)
             .values(&device_model)

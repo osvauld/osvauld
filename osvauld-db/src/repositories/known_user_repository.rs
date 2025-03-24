@@ -19,8 +19,8 @@ impl SqliteUserRepository {
 
 #[async_trait]
 impl UserRepository for SqliteUserRepository {
-    async fn add_known_user(&self, user: User) -> Result<(), RepositoryError> {
-        let user_model = UserModel::from(&user);
+    async fn add_known_user(&self, user: &User) -> Result<(), RepositoryError> {
+        let user_model = UserModel::from(user);
         let mut conn = self.connection.lock().await;
         diesel::insert_into(users::table)
             .values(user_model)

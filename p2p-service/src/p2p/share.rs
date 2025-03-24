@@ -20,14 +20,14 @@ impl PeerConnection {
     }
 
     pub async fn handle_first_user_connection(&self, user: &User) -> Result<(), String> {
-        self.context
-            .user_service
-            .add_known_user(user.username.clone(), user.public_key.clone(), false)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let message = Message::UserAddAck(user.id.clone());
-        self.send_message(message).await?;
+        // self.context
+        //     .user_service
+        //     .add_known_user(user.username.clone(), user.public_key.clone(), false)
+        //     .await
+        //     .map_err(|e| e.to_string())?;
+        //
+        // let message = Message::UserAddAck(user.id.clone());
+        // self.send_message(message).await?;
         Ok(())
     }
 

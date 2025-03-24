@@ -45,6 +45,7 @@ pub enum CryptoResponse {
     GetResourceResponse(DecryptedResource),
     CreatedKnownUser(User),
     GetKnownUsers(Vec<User>),
+    UserDetailsForShare(String),
 }
 
 #[derive(Deserialize)]
@@ -178,13 +179,6 @@ pub struct GetResource {
     pub resource_id: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddKnownUser {
-    pub nickname: String,
-    pub public_key: String,
-}
-
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareResource {
@@ -195,4 +189,11 @@ pub struct ShareResource {
 #[serde(rename_all = "camelCase")]
 pub struct InitiateFirstConnectionInput {
     pub user_id: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct UserDetails {
+    pub user_public_key: String,
+    pub device_public_key: String,
+    pub username: String,
 }

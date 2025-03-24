@@ -45,25 +45,22 @@ impl UserService {
     pub async fn add_known_user(
         &self,
         username: String,
-        public_key: String,
-        owner: bool,
-    ) -> Result<User, String> {
-        log::info!("public key {:?}", public_key);
-        let key_id = get_key_id(&public_key.clone()).map_err(|e| e.to_string())?;
+        user_public_key: String,
+        device_public_key: String,
+    ) -> Result<(User, Device), String> {
+        let user_id = get_key_id(&user_public_key.clone()).map_err(|e| e.to_string())?;
+        let device_key_id = get_key_id(&device_public_key).map_err(|e| e.to_string())?;
+
         let signature = {
             let crypto = self.crypto_utils.lock().await;
             crypto
-                .sign_message(&public_key)
+                .sign_message(&user_public_key)
                 .map_err(|e| e.to_string())?
         };
-        let user = User::new(username, key_id, public_key, signature, owner);
+        let user = User::new(username, user_id.clone(), user_public_key, signature, false);
 
-        log::info!("adding to users table {:?}", user);
-        self.user_repository
-            .add_known_user(user.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(user)
+        let device = Device::new(device_key_id, device_public_key, user_id);
+        Ok((user, device))
     }
 
     pub async fn get_known_users(&self) -> Result<Vec<User>, String> {
@@ -89,6 +86,7 @@ impl UserService {
         let user_id = get_key_id(&public_key).map_err(|e| e.to_string())?;
         self.get_user_by_id(&user_id).await
     }
+
     pub async fn get_users_with_pending_syncs(
         &self,
         current_device_id: &str,
@@ -161,5 +159,10 @@ impl UserService {
         self.device_repository
             .update_last_synced_at(device_id)
             .await
+    }
+
+    pub async fn get_username(&self, user_id: &str) -> Result<String, RepositoryError> {
+        let user = self.user_repository.get_user_by_id(user_id).await?;
+        Ok(user.username)
     }
 }
