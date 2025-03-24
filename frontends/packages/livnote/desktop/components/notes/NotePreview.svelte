@@ -8,6 +8,7 @@
 	import * as Y from "yjs";
 
 	export let content = "";
+	export let title = "";
 	export let editorState = null;
 	export let yjsState = null;
 	export let maxHeight = "180px";

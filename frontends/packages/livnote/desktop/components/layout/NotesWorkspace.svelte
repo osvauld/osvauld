@@ -44,10 +44,61 @@
 	let shareUserList = [];
 	let favSelected = false;
 	let noteCopied = false;
+	let newNoteTitle = "";
+	let isEditingTitle = false;
+	let inputRef;
 	let showDownloadTooltip = false;
 	let isPdfGenerating = false;
 	let saveNoteAndSwitch = () => {};
 	$: isFavourite = $currentNote.favourite;
+
+	let saveNoteAndSwitch = () => {};
+	let saveNoteWithNewTitle = () => {};
+
+	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
+	setContext(
+		"saveNoteWithNewTitleFunction",
+		(fn) => (saveNoteWithNewTitle = fn),
+	);
+
+	function startEditingTitle() {
+		newNoteTitle = $currentNote?.data.title
+			? $currentNote.data.title
+			: "Untitled note";
+		isEditingTitle = true;
+
+		// Focus the input after the DOM updates
+		setTimeout(() => {
+			if (inputRef) {
+				inputRef.focus();
+				inputRef.select();
+			}
+		}, 0);
+	}
+
+	function saveTitle() {
+		if (newNoteTitle.trim()) {
+			// Replace this with your actual save logic
+			currentNote.set({
+				...$currentNote,
+				data: {
+					...$currentNote.data, // Preserve existing properties inside data
+					title: newNoteTitle, // Update or add the title property
+				},
+			});
+
+			saveNoteWithNewTitle();
+		}
+		isEditingTitle = false;
+	}
+
+	function handleKeydown(event) {
+		if (event.key === "Enter") {
+			saveTitle();
+		} else if (event.key === "Escape") {
+			isEditingTitle = false;
+		}
+	}
 
 	const handleShareList = async () => {
 		shareUserList = await sendMessage("getKnownUsers");
@@ -68,8 +119,6 @@
 		showShareList = false;
 	};
 
-	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
-
 	const handleFilterSelection = (section) => {
 		selectedSection = section;
 		// filterFavourites();
@@ -78,12 +127,9 @@
 
 	const handleBackButton = () => {
 		saveNoteAndSwitch();
-		noteId.set("");
-		currentNote.set({});
 	};
 
 	const handleDeleteBtn = (item: "folder" | "note") => {
-		console.log("handleDeleteBtn triggerr===>");
 		item === "folder"
 			? deleteConfirmationModal.set({ item: "folder", show: true })
 			: deleteConfirmationModal.set({ item: "note", show: true });
@@ -440,12 +486,29 @@
 						on:click="{handleBackButton}">
 						<BackArrow />
 					</button>
-					<span
-						class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-						>{$currentNote?.data
-							? extractTitle($currentNote?.data?.content)
-							: "New note"}
-					</span>
+					{#if isEditingTitle}
+						<div
+							class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
+							<input
+								bind:this="{inputRef}"
+								bind:value="{newNoteTitle}"
+								maxlength="20"
+								on:keydown="{handleKeydown}"
+								on:blur="{saveTitle}"
+								class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+						</div>
+					{:else}
+						<span
+							role="button"
+							tabindex="0"
+							class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
+							on:dblclick="{startEditingTitle}"
+							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
+							{$currentNote?.data.title
+								? $currentNote.data.title
+								: "Untitled note"}
+						</span>
+					{/if}
 
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"

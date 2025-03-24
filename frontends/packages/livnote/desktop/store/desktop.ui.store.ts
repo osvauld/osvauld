@@ -12,6 +12,7 @@ export let viewCredentialModal = writable(false);
 export let currentNote = writable({});
 export let addDeviceModal = writable(false);
 export let refreshCredentialList = writable(false);
+export let refreshSidePanel = writable(false);
 
 export let deleteConfirmationModal = writable({ item: "", show: false });
 export let toastStore = writable({ show: false, message: "", success: true });

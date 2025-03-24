@@ -116,10 +116,9 @@
 		<Acceptor />
 		{/if}
     -->
-
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
-     {/if}
+    {/if}
 
 		{#if $passwordPromptModal.show}
 			<PasswordPromptModal

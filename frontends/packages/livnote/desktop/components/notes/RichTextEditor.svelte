@@ -13,6 +13,7 @@
 		noteId,
 		noteViewLayout,
 		refreshCredentialList,
+		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
 	import { DOMSerializer } from "prosemirror-model";
@@ -28,6 +29,7 @@
 	let loadingInProgress = false;
 	let saved = false;
 	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
+	const saveNoteWithNewTitle = getContext("saveNoteWithNewTitleFunction");
 
 	// Listen for noteId changes and load the corresponding note
 	$: if (
@@ -41,7 +43,7 @@
 
 	saveNoteAndSwitch(() => {
 		if (view) {
-			notesInstance.saveNote().catch(console.error);
+			notesInstance.saveNote($currentNote?.data.title).catch(console.error);
 		}
 
 		// Return to list view
@@ -51,17 +53,22 @@
 		currentlyLoadedNoteId = null;
 	});
 
-	async function saveNoteManual() {
+	const saveNoteManual = () => {
 		saved = true;
 		notesInstance
-			.saveNote()
+			.saveNote($currentNote?.data.title)
 			.catch(console.error)
-			.then(() => refreshCredentialList.set(true));
+			.then(() => refreshCredentialList.set(true))
+			.then(() => refreshSidePanel.set(true));
 
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
-	}
+	};
+
+	saveNoteWithNewTitle(() => {
+		saveNoteManual();
+	});
 
 	const fallbackCopy = (html) => {
 		const tempElement = document.createElement("div");
@@ -206,7 +213,7 @@
 			autoSaveInterval = setInterval(() => {
 				// Savign animation go
 
-				notesInstance.saveNote().catch(console.error);
+				notesInstance.saveNote($currentNote.data.title).catch(console.error);
 				saved = true;
 				setTimeout(() => {
 					saved = false;
@@ -303,13 +310,14 @@
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
-		// Save one final time on destroy
 		notesInstance
-			.saveNote()
+			.saveNote($currentNote.data.title)
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true));
 
 		// Clear current note ID
+		noteId.set("");
+		currentNote.set({});
 		currentlyLoadedNoteId = null;
 	};
 
