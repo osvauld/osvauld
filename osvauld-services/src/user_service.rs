@@ -57,7 +57,14 @@ impl UserService {
                 .sign_message(&user_public_key)
                 .map_err(|e| e.to_string())?
         };
-        let user = User::new(username, user_id.clone(), user_public_key, signature, false);
+        let user = User::new(
+            username,
+            user_id.clone(),
+            user_public_key,
+            signature,
+            false,
+            false,
+        );
 
         let device = Device::new(device_key_id, device_public_key, user_id);
         Ok((user, device))

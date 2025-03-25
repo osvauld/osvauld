@@ -149,6 +149,7 @@ diesel::table! {
         created_at -> BigInt,
         signature -> Text,
         owner -> Bool,
+        first_sync -> Bool,
         deleted -> Bool,
         deleted_at -> Nullable<BigInt>,
     }

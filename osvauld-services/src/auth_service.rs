@@ -93,6 +93,7 @@ impl AuthService {
             certificate.public_key.clone(),
             "signature".to_string(),
             true,
+            true,
         );
         Ok((user, certificate))
     }
@@ -118,6 +119,7 @@ impl AuthService {
             user_id,
             certificate.public_key.clone(),
             "signature".to_string(),
+            true,
             true,
         );
 

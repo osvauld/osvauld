@@ -6,6 +6,7 @@ CREATE TABLE users (
     created_at BIGINT NOT NULL,
     signature TEXT NOT NULL,
     owner BOOLEAN NOT NULL DEFAULT FALSE,
+    first_sync BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL,
     deleted_at BIGINT
 );
