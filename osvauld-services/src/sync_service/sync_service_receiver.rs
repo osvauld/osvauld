@@ -1,6 +1,8 @@
+use crypto_utils::get_key_id;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{SyncAckType, SyncPayload};
 use osvauld_core::models::sync_types::ResourceType;
+use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::models::{
     folder::Folder,
@@ -10,10 +12,9 @@ use osvauld_core::models::{
         SyncRecordSet,
     },
 };
-
 use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, StoreRepository,
-    SyncRepository, VectorClockRepository,
+    SyncRepository, UserRepository, VectorClockRepository,
 };
 
 use log::info;
@@ -36,6 +37,7 @@ pub struct SyncService {
     pub device_repository: Arc<dyn DeviceRepository>,
     pub store_repository: Arc<dyn StoreRepository>,
     pub vector_clock_repository: Arc<dyn VectorClockRepository>,
+    pub user_repository: Arc<dyn UserRepository>,
 }
 
 impl SyncService {
@@ -46,6 +48,7 @@ impl SyncService {
         device_repository: Arc<dyn DeviceRepository>,
         store_repository: Arc<dyn StoreRepository>,
         vector_clock_repository: Arc<dyn VectorClockRepository>,
+        user_repository: Arc<dyn UserRepository>,
     ) -> Self {
         Self {
             sync_repository,
@@ -54,6 +57,7 @@ impl SyncService {
             device_repository,
             store_repository,
             vector_clock_repository,
+            user_repository,
         }
     }
 
@@ -110,7 +114,7 @@ impl SyncService {
             ResourceVectorClock::create_entires_for_new_device(&resource_ids, &device.id);
 
         // Use db transaction method for saving device sync
-        self.db_save_device_sync(&device, sync_set, &vector_clocks)
+        self.db_save_device_sync(&device, &sync_set, &vector_clocks)
             .await?;
 
         Ok(())
@@ -289,6 +293,11 @@ impl SyncService {
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
         // Process common sync logic
+
+        let mut devices = self
+            .get_user_other_devices(current_device_id, user_id)
+            .await?;
+        devices.push(device.clone());
         let (processed_records, processed_statuses, completion_records) = self
             .prepare_common_sync_data(
                 sync_record,
@@ -296,6 +305,7 @@ impl SyncService {
                 device_record_statuses,
                 current_device_id,
                 user_id,
+                devices,
             )
             .await?;
 
@@ -307,7 +317,7 @@ impl SyncService {
         };
 
         // Use db transaction method for saving device sync
-        self.db_save_device_sync(device, record_set, &[]).await?;
+        self.db_save_device_sync(device, &record_set, &[]).await?;
 
         Ok(SyncAckType::FullSync {
             sync_record_id: sync_record.id.clone(),
@@ -328,6 +338,10 @@ impl SyncService {
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
         // Process common sync logic
+
+        let devices = self
+            .get_user_other_devices(current_device_id, user_id)
+            .await?;
         let (processed_records, processed_statuses, completion_records) = self
             .prepare_common_sync_data(
                 sync_record,
@@ -335,6 +349,7 @@ impl SyncService {
                 device_record_statuses,
                 current_device_id,
                 user_id,
+                devices,
             )
             .await?;
 
@@ -346,7 +361,7 @@ impl SyncService {
         };
 
         // Use db transaction method for saving resource sync
-        self.db_save_resource_sync(resource, vector_clocks, record_set)
+        self.db_save_resource_sync(resource, vector_clocks, &record_set)
             .await?;
 
         Ok(SyncAckType::FullSync {
@@ -367,6 +382,9 @@ impl SyncService {
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
         // Process common sync logic
+        let devices = self
+            .get_user_other_devices(current_device_id, user_id)
+            .await?;
         let (processed_records, processed_statuses, completion_records) = self
             .prepare_common_sync_data(
                 sync_record,
@@ -374,6 +392,7 @@ impl SyncService {
                 device_record_statuses,
                 current_device_id,
                 user_id,
+                devices,
             )
             .await?;
 
@@ -385,7 +404,7 @@ impl SyncService {
         };
 
         // Use db transaction method for saving folder sync
-        self.db_save_folder_sync(folder, record_set).await?;
+        self.db_save_folder_sync(folder, &record_set).await?;
 
         Ok(SyncAckType::FullSync {
             sync_record_id: sync_record.id.clone(),
@@ -456,6 +475,7 @@ impl SyncService {
         device_record_statuses: &[DeviceRecordStatus],
         current_device_id: &str,
         user_id: &str,
+        devices: Vec<Device>,
     ) -> Result<(Vec<DeviceRecord>, Vec<DeviceRecordStatus>, StatusChangeSet), RepositoryError>
     {
         // Process device records
@@ -466,11 +486,6 @@ impl SyncService {
         );
 
         // Get other devices
-        let excluded_devices = vec![current_device_id.to_string()];
-        let devices = self
-            .device_repository
-            .get_devices_by_user_except(user_id, &excluded_devices)
-            .await?;
 
         // Create completion records
         let completion_records = SyncRecord::create_completion_records(
@@ -494,8 +509,7 @@ impl SyncService {
         //TODO: move to transaction
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
-            .device_repository
-            .get_devices_by_user_except(user_id, vec![current_device_id.clone()].as_slice())
+            .get_user_other_devices(&current_device_id, user_id)
             .await?;
         let sync_record_set =
             SyncRecord::create_folder_sync_record(folder.id, current_device_id, &devices);
@@ -510,8 +524,7 @@ impl SyncService {
     ) -> Result<(SyncRecordSet, Vec<ResourceVectorClock>), RepositoryError> {
         let current_device_id = self.store_repository.get_device_key().await?;
         let devices = self
-            .device_repository
-            .get_devices_by_user_except(user_id, vec![current_device_id.clone()].as_slice())
+            .get_user_other_devices(&current_device_id, user_id)
             .await?;
         let sync_record_set = SyncRecord::create_resource_sync_record(
             resource.id.clone(),
@@ -572,6 +585,65 @@ impl SyncService {
     ) -> Result<(), RepositoryError> {
         // Use db transaction method for merging updated document
         self.db_merge_document(doc, add_vector, update_vector, resource_id)
+            .await
+    }
+
+    pub async fn process_first_user_connection(
+        &self,
+        user: &User,
+        devices: &Vec<Device>,
+        current_user_id: &str,
+        current_device_id: &str,
+    ) -> Result<(User, Vec<Device>), RepositoryError> {
+        let user_devices = self
+            .device_repository
+            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .await?;
+        let mut new_user = user.clone();
+        new_user.first_sync = false;
+        let current_user = self.user_repository.get_user_by_id(current_user_id).await?;
+        let user_addition_record = SyncRecord::create_user_sync_record(
+            user.id.clone(),
+            current_device_id.to_string(),
+            &user_devices,
+        );
+        self.db_add_new_user(&new_user, devices, &user_addition_record)
+            .await?;
+        Ok((current_user, user_devices))
+    }
+
+    pub async fn process_first_user_connection_response(
+        &self,
+        user: &User,
+        devices: &Vec<Device>,
+        current_user_id: &str,
+        current_device_id: &str,
+    ) -> Result<(), RepositoryError> {
+        let user_devices = self
+            .device_repository
+            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .await?;
+        let user_addition_record = SyncRecord::create_user_sync_record(
+            user.id.clone(),
+            current_device_id.to_string(),
+            &user_devices,
+        );
+        self.db_complete_new_user_add(&user.id, devices, &user_addition_record)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn handle_user_add_ack(&self, user_id: &str) -> Result<(), RepositoryError> {
+        self.user_repository.complete_user_addtion(user_id).await
+    }
+    async fn get_user_other_devices(
+        &self,
+        current_device_id: &str,
+        user_id: &str,
+    ) -> Result<Vec<Device>, RepositoryError> {
+        let excluded_devices = vec![current_device_id.to_string()];
+        self.device_repository
+            .get_devices_by_user_except(user_id, &excluded_devices)
             .await
     }
 }

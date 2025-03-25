@@ -5,8 +5,8 @@ use osvauld_core::models::p2p::{ConnectionType, Message};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, ShareService, SyncService, UserService};
 use std::sync::Arc;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -14,6 +14,8 @@ pub struct ServiceContext {
     pub user_service: Arc<UserService>,
     pub sync_service: Arc<SyncService>,
     pub share_service: Arc<ShareService>,
+    pub current_user: Arc<RwLock<Option<User>>>,
+    pub current_device: Arc<RwLock<Option<Device>>>,
 }
 
 /// Represents a peer-to-peer connection with another device or user
@@ -63,10 +65,10 @@ impl PeerConnection {
         is_initiator: bool,
         context: Arc<ServiceContext>,
         event_emitter: P2PEventEmitter,
-        pending_resource_ids: Vec<String>
+        pending_resource_ids: Vec<String>,
     ) -> Self {
         info!("Creating new peer connection");
-        
+
         // Create a placeholder task handle that will be replaced
         let task_handle = tokio::spawn(async {});
 
@@ -84,11 +86,14 @@ impl PeerConnection {
         };
 
         debug!("Starting message handler for the connection");
-        
+
         // Start the message handler and store its task handle
         peer_connection.task_handle = peer_connection.start_message_handler();
 
-        info!("Peer connection created successfully: {}", peer_connection.get_id());
+        info!(
+            "Peer connection created successfully: {}",
+            peer_connection.get_id()
+        );
         peer_connection
     }
 
@@ -102,17 +107,17 @@ impl PeerConnection {
         let _connection = self.connection.clone();
         let self_clone = self.clone();
         let conn_id = self.get_id();
-    
+
         // Create the span first, before the value is moved
         let span = info_span!("message_handler", connection_id = %conn_id);
-    
+
         tokio::spawn(
             async move {
                 info!("Starting message listener for connection {}", conn_id);
                 self_clone.handle_messages().await;
                 info!("Message listener stopped for connection {}", conn_id);
             }
-            .instrument(span)
+            .instrument(span),
         )
     }
 
@@ -126,7 +131,7 @@ impl PeerConnection {
             match self.connection.accept_bi().await {
                 Ok((_send, mut recv)) => {
                     debug!("Accepted new bi-directional stream");
-                    
+
                     // Use a dynamic buffer that can grow as needed
                     let mut buffer = Vec::new();
                     let mut temp_buffer = vec![0u8; 8192]; // Larger temp buffer for reading chunks
@@ -142,16 +147,20 @@ impl PeerConnection {
                                 if let Ok(message_str) = String::from_utf8(buffer.clone()) {
                                     match serde_json::from_str::<Message>(&message_str) {
                                         Ok(message) => {
-                                            info!("Successfully deserialized message: {:?}", message);
+                                            info!(
+                                                "Successfully deserialized message: {:?}",
+                                                message
+                                            );
 
                                             // Process the message in a separate span
                                             let process_span = info_span!("process_message", 
                                                 message_type = ?std::mem::discriminant(&message));
-                                            
+
                                             // Process the message
-                                            if let Err(e) = self.process_message(&message)
+                                            if let Err(e) = self
+                                                .process_message(&message)
                                                 .instrument(process_span)
-                                                .await 
+                                                .await
                                             {
                                                 error!("Error processing message: {}", e);
 
@@ -214,7 +223,7 @@ impl PeerConnection {
                 }
             }
         }
-        
+
         warn!("Message handler exited for connection {}", conn_id);
     }
 
@@ -265,19 +274,23 @@ impl PeerConnection {
             }
             Message::SyncEvent { event, payload } => {
                 info!("Received SyncEvent: {}", event);
-                self.handle_sync_event(event, payload.clone()).await
+                // self.handle_sync_event(event, payload.clone()).await
+                Ok(())
             }
-            Message::FirstUserConnection(user) => {
+            Message::FirstUserConnectionRequest{user, devices} => {
                 info!("Received FirstUserConnection from user: {}", user.id);
-                self.handle_first_user_connection(user).await
+                self.handle_first_user_connection(user, devices).await
             }
-            Message::UserAddAck(user_id) => {
-                info!("Received UserAddAck for user: {}", user_id);
+            Message::FirstUserConnectionResponse{user, devices} => {
+                self.handle_first_user_connection_response(user,devices).await
+            }
+            Message::FristUserConnectionAck(user_id) => {
                 self.handle_user_add_ack(user_id).await
             }
             Message::SharePayload(payload) => {
                 info!("Received SharePayload");
-                self.handle_share_payload(payload).await
+                // self.handle_share_payload(payload).await
+                Ok(())
             }
             Message::ShareComplete => {
                 info!("Received ShareComplete");
@@ -304,7 +317,7 @@ impl PeerConnection {
     pub async fn send_message(&self, message: Message) -> Result<(), String> {
         info!("sending message {:?}", message);
         debug!("Preparing to send message");
-        
+
         let serialized_message = match serde_json::to_string(&message) {
             Ok(msg) => {
                 trace!("Serialized message to {} bytes", msg.len());
@@ -335,7 +348,12 @@ impl PeerConnection {
 
         debug!("Sending message in {} chunks", total_chunks);
         for (i, chunk) in bytes.chunks(CHUNK_SIZE).enumerate() {
-            trace!("Sending chunk {}/{} ({} bytes)", i + 1, total_chunks, chunk.len());
+            trace!(
+                "Sending chunk {}/{} ({} bytes)",
+                i + 1,
+                total_chunks,
+                chunk.len()
+            );
             if let Err(e) = send.write_all(chunk).await {
                 error!("Failed to write chunk {}: {}", i + 1, e);
                 return Err(format!("Failed to write chunk: {}", e));
@@ -370,7 +388,16 @@ impl PeerConnection {
             task_handle: tokio::spawn(async {}), // Create a dummy task handle
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
-            pending_resource_ids: self.pending_resource_ids.clone()
+            pending_resource_ids: self.pending_resource_ids.clone(),
         }
+    }
+    pub async fn get_local_user(&self) -> Option<User> {
+        let user_guard = self.context.current_user.read().await;
+        user_guard.clone()
+    }
+
+    pub async fn get_local_device(&self) -> Option<Device> {
+        let device_guard = self.context.current_device.read().await;
+        device_guard.clone()
     }
 }

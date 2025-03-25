@@ -124,6 +124,7 @@ pub fn run() {
                         device_repo.clone(),
                         store_repository.clone(),
                         vector_clock_repo.clone(),
+                        user_repository.clone(),
                     ));
 
                     let user_service = Arc::new(UserService::new(

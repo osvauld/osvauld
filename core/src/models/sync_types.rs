@@ -6,6 +6,7 @@ pub enum ResourceType {
     Folder,
     Resource,
     Device,
+    User,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -31,6 +32,7 @@ impl ToString for ResourceType {
             ResourceType::Folder => "folder".to_string(),
             ResourceType::Resource => "resource".to_string(),
             ResourceType::Device => "device".to_string(),
+            ResourceType::User => "user".to_string(),
         }
     }
 }
@@ -61,7 +63,8 @@ impl From<String> for ResourceType {
             "folder" => ResourceType::Folder,
             "resource" => ResourceType::Resource,
             "device" => ResourceType::Device,
-            _ => panic!("Invalid ResourceType string: {}", s),
+            "user" => ResourceType::User,
+            _ => ResourceType::Resource,
         }
     }
 }

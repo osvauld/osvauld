@@ -37,8 +37,9 @@ pub enum SyncPayload {
     ResourceUpdate {
         resource: Resource,
         vector_clocks: Vec<ResourceVectorClock>,
-    }, // Other variants as needed
+    },
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Chat(String),
@@ -54,11 +55,12 @@ pub enum Message {
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
-    FirstUserConnection(User),
-    UserAddAck(String),
     SharePayload(SharePayload),
     ShareComplete,
     UpdateResource(UpdateResource),
+    FirstUserConnectionRequest { user: User, devices: Vec<Device> },
+    FirstUserConnectionResponse { user: User, devices: Vec<Device> },
+    FristUserConnectionAck(String),
 }
 
 #[derive(Serialize, Deserialize)]

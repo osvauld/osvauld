@@ -2,6 +2,7 @@ use crate::p2p::connection_manager::ConnectionManager;
 use crate::p2p::constants::*;
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use crate::p2p::errors::P2PError;
+use crate::p2p::incoming::{IncomingEvent, P2PSender};
 use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
@@ -14,7 +15,6 @@ use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use crate::p2p::incoming::{IncomingEvent, P2PSender};
 
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
@@ -43,7 +43,12 @@ impl P2PService {
         auth_service: Arc<AuthService>,
         user_service: Arc<UserService>,
         share_service: Arc<ShareService>,
-    ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>, P2PSender, mpsc::UnboundedReceiver<IncomingEvent>) {
+    ) -> (
+        Self,
+        mpsc::UnboundedReceiver<P2PEvent>,
+        P2PSender,
+        mpsc::UnboundedReceiver<IncomingEvent>,
+    ) {
         let _guard = match logger::init_default_tracing() {
             Ok(guard) => guard,
             Err(e) => {
@@ -166,12 +171,30 @@ impl P2PService {
                 )));
             }
         };
+        let self_clone = self.clone();
+        let get_current_user = Arc::new(move || {
+            // Use block_on from futures-lite or similar mechanism
+            // or a more manual approach using runtime handles
+            let rt = tokio::runtime::Handle::current();
+            match rt.block_on(self_clone.current_user.read()) {
+                user_guard => user_guard.clone(),
+            }
+        });
 
+        let self_clone = self.clone();
+        let get_current_device = Arc::new(move || {
+            let rt = tokio::runtime::Handle::current();
+            match rt.block_on(self_clone.current_device.read()) {
+                device_guard => device_guard.clone(),
+            }
+        });
         let service_context = Arc::new(ServiceContext {
             auth_service: self.auth_service.clone(),
             user_service: self.user_service.clone(),
             sync_service: self.sync_service.clone(),
             share_service: self.share_service.clone(),
+            current_user: self.current_user.clone(),
+            current_device: self.current_device.clone(),
         });
 
         *state = Some(P2PState {
@@ -327,46 +350,14 @@ impl P2PService {
         debug!("Using connection: {}", connection.get_id());
 
         // Start the sync process
-        match connection.start_user_sync().await {
-            Ok(_) => {
-                info!("User sync initiated successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!("Failed to start user sync: {}", e);
-                Err(P2PError::SyncService(e))
-            }
-        }
-    }
-
-    /// Establishes first connection with a user
-    #[instrument(skip(self, user, ticket), fields(user_id = %user.id, ticket_len = ticket.len()), level = "info")]
-    pub async fn initiate_first_user_connection(
-        &self,
-        user: &User,
-        ticket: &str,
-    ) -> Result<Arc<PeerConnection>, P2PError> {
-        info!("Initiating first connection with user: {}", user.id);
-
-        // Connect using the ticket
-        let peer_connection = self
-            .connect_with_ticket(ticket, ConnectionType::User, None)
-            .await?;
-
-        debug!("Connection established, sending FirstUserConnection message");
-
-        // Send the FirstUserConnection message
-        // match peer_connection
-        //     .send_message(Message::FirstUserConnection(user.clone()))
-        //     .await
-        // {
+        // match connection.start_user_sync().await {
         //     Ok(_) => {
-        //         info!("First user connection established successfully");
-        //         Ok(peer_connection)
+        //         info!("User sync initiated successfully");
+        //         Ok(())
         //     }
         //     Err(e) => {
-        //         error!("Failed to send FirstUserConnection message: {}", e);
-        //         Err(P2PError::Message(e))
+        //         error!("Failed to start user sync: {}", e);
+        //         Err(P2PError::SyncService(e))
         //     }
         // }
         todo!()
@@ -484,20 +475,21 @@ impl P2PService {
         }
     }
 
-
-     #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
-    pub async fn get_connection_by_id(&self, connection_id: &str) -> Result<Arc<PeerConnection>, String> {
+    #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
+    pub async fn get_connection_by_id(
+        &self,
+        connection_id: &str,
+    ) -> Result<Arc<PeerConnection>, String> {
         // Acquire the state lock
         let state_guard = self.state.lock().await;
-        
+
         // Check if service is initialized
         let state = match state_guard.as_ref() {
             Some(s) => s,
             None => return Err("P2P service not initialized".to_string()),
         };
-        
+
         // Get the connection from the connection manager
         state.connections.get_peer_connection(connection_id).await
     }
-
 }

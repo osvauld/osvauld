@@ -2,6 +2,7 @@ use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
 use osvauld_core::models::resource::{Resource, ResourceKeyPair};
 use osvauld_core::models::sync_record::{DeviceRecordSet, StatusChangeSet, SyncRecordSet};
+use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::RepositoryError;
 
@@ -15,7 +16,7 @@ impl SyncService {
     pub async fn db_save_device_sync(
         &self,
         device: &Device,
-        sync_record_set: SyncRecordSet,
+        sync_record_set: &SyncRecordSet,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
         // Save the device first
@@ -41,7 +42,7 @@ impl SyncService {
         &self,
         resource: &ResourceKeyPair,
         vector_clocks: &[ResourceVectorClock],
-        sync_record_set: SyncRecordSet,
+        sync_record_set: &SyncRecordSet,
     ) -> Result<(), RepositoryError> {
         // Save resource with its key
         self.resource_repository
@@ -65,7 +66,7 @@ impl SyncService {
     pub async fn db_save_folder_sync(
         &self,
         folder: &Folder,
-        sync_record_set: SyncRecordSet,
+        sync_record_set: &SyncRecordSet,
     ) -> Result<(), RepositoryError> {
         // Save folder
         self.folder_repository.save(folder).await?;
@@ -174,7 +175,7 @@ impl SyncService {
     pub async fn db_prepare_new_resource_sync(
         &self,
         resource: &Resource,
-        sync_record_set: SyncRecordSet,
+        sync_record_set: &SyncRecordSet,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
         // Save the resource
@@ -190,6 +191,35 @@ impl SyncService {
             .save_vector_clocks(vector_clocks)
             .await?;
 
+        Ok(())
+    }
+
+    pub async fn db_add_new_user(
+        &self,
+        user: &User,
+        devices: &[Device],
+        user_addition_record: &SyncRecordSet,
+    ) -> Result<(), RepositoryError> {
+        self.user_repository.add_known_user(user).await?;
+        self.device_repository.save_many(devices).await?;
+        self.user_repository.add_known_user(user).await?;
+        self.sync_repository
+            .add_sync_record_set(user_addition_record)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn db_complete_new_user_add(
+        &self,
+        user_id: &str,
+        devices: &[Device],
+        user_addition_record: &SyncRecordSet,
+    ) -> Result<(), RepositoryError> {
+        self.user_repository.complete_user_addtion(user_id).await?;
+        self.device_repository.save_many(devices).await?;
+        self.sync_repository
+            .add_sync_record_set(user_addition_record)
+            .await?;
         Ok(())
     }
 }

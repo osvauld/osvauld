@@ -1,6 +1,7 @@
 use crypto_utils::{CryptoUtils, get_key_id};
 use log::info;
 use osvauld_core::models::device::Device;
+use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::{
     DeviceRepository, RepositoryError, SyncRepository, UserRepository, VectorClockRepository,
@@ -47,6 +48,8 @@ impl UserService {
         username: String,
         user_public_key: String,
         device_public_key: String,
+        current_user_id: &str,
+        current_device_id: &str,
     ) -> Result<(User, Device), String> {
         let user_id = get_key_id(&user_public_key.clone()).map_err(|e| e.to_string())?;
         let device_key_id = get_key_id(&device_public_key).map_err(|e| e.to_string())?;
@@ -57,6 +60,11 @@ impl UserService {
                 .sign_message(&user_public_key)
                 .map_err(|e| e.to_string())?
         };
+        let user_devices = self
+            .device_repository
+            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .await
+            .map_err(|e| e.to_string())?;
         let user = User::new(
             username,
             user_id.clone(),

@@ -21,7 +21,7 @@ impl SqliteSyncRepository {
 
 #[async_trait]
 impl SyncRepository for SqliteSyncRepository {
-    async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError> {
+    async fn add_sync_record_set(&self, record_set: &SyncRecordSet) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {

@@ -236,4 +236,16 @@ impl SyncService {
 
         Ok(needs_sync)
     }
+
+    pub async fn get_payload_for_first_user_sync(
+        &self,
+        user_id: &str,
+    ) -> Result<(User, Vec<Device>), RepositoryError> {
+        let devices = self
+            .device_repository
+            .get_devices_by_user_id(user_id)
+            .await?;
+        let user = self.user_repository.get_user_by_id(user_id).await?;
+        Ok((user, devices))
+    }
 }

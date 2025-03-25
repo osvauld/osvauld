@@ -38,7 +38,7 @@ pub trait FolderRepository: Send + Sync {
 
 #[async_trait]
 pub trait SyncRepository: Send + Sync {
-    async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError>;
+    async fn add_sync_record_set(&self, record_set: &SyncRecordSet) -> Result<(), RepositoryError>;
     async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
     async fn add_status_change_set(
         &self,
@@ -173,6 +173,7 @@ pub trait DeviceRepository: Send + Sync {
         &self,
         current_device_id: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
+    async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
@@ -190,6 +191,7 @@ pub trait UserRepository: Send + Sync {
     async fn add_known_user(&self, user: &User) -> Result<(), RepositoryError>;
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
+    async fn complete_user_addtion(&self, user_id: &str) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

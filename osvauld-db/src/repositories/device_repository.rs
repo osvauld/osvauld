@@ -95,4 +95,23 @@ impl DeviceRepository for SqliteDeviceRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(DeviceModel::to_domain_devices(device_models))
     }
+
+    async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError> {
+        if devices.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Convert all domain devices to database models
+        let device_models: Vec<DeviceModel> = devices.iter().map(DeviceModel::from).collect();
+
+        // Use a batch insert
+        diesel::insert_into(devices::table)
+            .values(&device_models)
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
 }

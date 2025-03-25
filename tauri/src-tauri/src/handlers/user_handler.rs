@@ -10,6 +10,7 @@ pub async fn add_known_user(
     input: String,
     user_service: State<'_, Arc<UserService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
+    user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
@@ -29,16 +30,27 @@ pub async fn add_known_user(
     let user_public_key = details.user_public_key;
     let device_public_key = details.device_public_key;
 
-    let (user, device) = user_service
-        .add_known_user(username, user_public_key, device_public_key)
+    let current_user = user_state.get_user().await.map_err(|e| e.to_string())?;
+    let current_device = user_state.get_device().await?;
+    let (new_user, new_device) = user_service
+        .add_known_user(
+            username,
+            user_public_key,
+            device_public_key,
+            &current_user.id,
+            &current_device.id,
+        )
         .await
         .map_err(|e| e.to_string())?;
     transaction_service
-        .add_new_user(&user, &device)
+        .add_new_user(&new_user, &new_device)
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(CryptoResponse::CreatedKnownUser { user, device })
+    Ok(CryptoResponse::CreatedKnownUser {
+        user: new_user,
+        device: new_device,
+    })
 }
 
 #[tauri::command]

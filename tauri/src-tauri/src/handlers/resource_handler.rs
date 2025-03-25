@@ -42,7 +42,7 @@ pub async fn handle_add_resource(
         .create_resource_with_sync(
             resource.clone(),
             resource_key,
-            sync_record_set,
+            &sync_record_set,
             share_record_set,
             &vector_clocks,
         )

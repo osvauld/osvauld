@@ -54,7 +54,7 @@ impl TransactionService {
         &self,
         resource: Resource,
         resource_key: ResourceKey,
-        sync_record_set: SyncRecordSet,
+        sync_record_set: &SyncRecordSet,
         share_record_set: ShareRecordSet,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
@@ -123,7 +123,7 @@ impl TransactionService {
         // Store primary certificate
         self.folder_repository.save(folder).await?;
         self.sync_repository
-            .add_sync_record_set(folder_sync_record_set.clone())
+            .add_sync_record_set(folder_sync_record_set)
             .await?;
 
         Ok(())
@@ -165,7 +165,7 @@ impl TransactionService {
 
         // Save sync record set
         self.sync_repository
-            .add_sync_record_set(sync_record_set.clone())
+            .add_sync_record_set(sync_record_set)
             .await?;
         Ok(())
     }

@@ -458,4 +458,18 @@ impl SyncRecord {
             device_record_statuses,
         }
     }
+
+    pub fn create_user_sync_record(
+        user_id: String,
+        current_device_id: String,
+        other_devices: &[Device],
+    ) -> SyncRecordSet {
+        SyncRecord::create_sync_records(
+            user_id,
+            ResourceType::User,
+            OperationType::Create,
+            current_device_id,
+            other_devices,
+        )
+    }
 }
