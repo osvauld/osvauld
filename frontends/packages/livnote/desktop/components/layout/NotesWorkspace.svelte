@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { jsPDF } from "jspdf";
-	import { open, BaseDirectory } from "@tauri-apps/plugin-fs";
 	import {
 		currentVault,
 		noteViewLayout,
@@ -12,6 +10,7 @@
 		deleteConfirmationModal,
 	} from "../../store/desktop.ui.store";
 	import { extractTitle, getLastModifiedDate } from "../utils/helper";
+	import { pdfGenerator } from "../utils/pdfGenerator";
 	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
@@ -220,6 +219,7 @@
 			console.error("Error toggling favorite:", err);
 		}
 	};
+
 	const handleDownloadPdf = async () => {
 		if (!$currentNote || !$currentNote?.data) {
 			toastStore.set({
@@ -232,164 +232,15 @@
 
 		// Add loading indicator state
 		isPdfGenerating = true;
-
-		try {
-			// Get the document title for the filename
-			const title = extractTitle($currentNote?.data?.content) || "note";
-			const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-
-			// Get the editor content
-			const editorEl = document.querySelector(".ProseMirror");
-			if (!editorEl) {
-				throw new Error("Editor content not found");
-			}
-
-			// Create a container for the content with proper styling
-			const container = document.createElement("div");
-			container.innerHTML = `
-         <div style="width: 100%;">
-        <div style="font-family: 'Inter', 'Segoe UI', sans-serif; line-height: 1.5; color: black; ">
-          ${editorEl.innerHTML}
-        </div>
-      </div>
-    `;
-
-			// Apply styling fixes for the PDF
-			const allElements = container.querySelectorAll("*");
-			allElements.forEach((el) => {
-				// Ensure all text is visible on white background
-				el.style.color = "black";
-
-				// Fix styling for various elements
-				if (el.tagName === "PRE" || el.tagName === "CODE") {
-					el.style.backgroundColor = "#f0f0f0";
-					el.style.padding = "2px 4px";
-					el.style.borderRadius = "3px";
-					el.style.fontFamily = "monospace";
-				}
-
-				if (el.tagName === "BLOCKQUOTE") {
-					el.style.borderLeft = "3px solid #ccc";
-					el.style.paddingLeft = "10px";
-					el.style.margin = "10px 0";
-					el.style.color = "#555";
-				}
-
-				if (el.tagName === "UL" || el.tagName === "OL") {
-					el.style.paddingLeft = "20px";
-					el.style.marginTop = "5px";
-					el.style.marginBottom = "5px";
-				}
-
-				// Prevent any images from breaking across pages
-				if (el.tagName === "IMG") {
-					el.style.pageBreakInside = "avoid";
-					el.style.breakInside = "avoid";
-					el.style.display = "block";
-					el.style.marginBottom = "20px"; // Add space after images
-				}
-
-				// Also prevent figures, tables, and other container elements from breaking
-				if (
-					el.tagName === "FIGURE" ||
-					el.tagName === "TABLE" ||
-					el.tagName === "BLOCKQUOTE" ||
-					el.tagName === "PRE"
-				) {
-					el.style.pageBreakInside = "avoid";
-					el.style.breakInside = "avoid";
-				}
-
-				// For headings, ensure they don't appear at the bottom of a page
-				if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(el.tagName)) {
-					el.style.pageBreakAfter = "avoid";
-					el.style.breakAfter = "avoid";
-					el.style.pageBreakBefore = "auto";
-					el.style.breakBefore = "auto";
-					el.style.marginTop = "20px";
-				}
-			});
-
-			// Initialize jsPDF
-			const pdf = new jsPDF("p", "mm", "a4");
-			const pageWidth = 210; // A4 width in mm
-			const contentWidth = 170; // Your content width
-
-			// Generate PDF from HTML content
-			pdf.html(container, {
-				callback: async function (pdf) {
-					// Add page numbers to all pages
-					const totalPages = pdf.internal.getNumberOfPages();
-					for (let i = 1; i <= totalPages; i++) {
-						pdf.setPage(i);
-						pdf.setFontSize(10);
-						pdf.setTextColor(100, 100, 100);
-						const pageText = `Page ${i} of ${totalPages}`;
-						const pageTextWidth =
-							(pdf.getStringUnitWidth(pageText) * 10) /
-							pdf.internal.scaleFactor;
-						const pageTextX = (pageWidth - pageTextWidth) / 2;
-						const pageNumberY = 285; // Approximately 12mm from bottom edge
-						pdf.text(pageText, pageTextX, pageNumberY);
-					}
-
-					try {
-						// Get PDF data as array buffer
-						const pdfData = pdf.output("arraybuffer");
-
-						// Convert to Uint8Array for file writing
-						const pdfBuffer = new Uint8Array(pdfData);
-
-						// Determine file path in Documents directory
-						const filePath = `${safeTitle}.pdf`;
-
-						// Open the file for writing
-						const file = await open(filePath, {
-							write: true,
-							create: true,
-							truncate: true,
-							baseDir: BaseDirectory.Document,
-						});
-
-						// Write the PDF data to the file
-						await file.write(pdfBuffer);
-
-						// Close the file
-						await file.close();
-
-						toastStore.set({
-							show: true,
-							message: `Note exported as PDF to Documents folder: ${safeTitle}.pdf`,
-							success: true,
-						});
-					} catch (error) {
-						console.error("Error saving PDF file:", error);
-						toastStore.set({
-							show: true,
-							message: `Failed to save PDF file: ${error.message}`,
-							success: false,
-						});
-					} finally {
-						isPdfGenerating = false;
-					}
-				},
-				x: 0,
-				y: 0,
-				width: contentWidth, // A4 width minus margins
-				windowWidth: 1000, // Adjust based on your content
-				margin: [15, 15, 15, 15],
-				autoPaging: "text", // Use text-aware paging
-			});
-		} catch (error) {
-			console.error("Error creating PDF:", error);
-			toastStore.set({
-				show: true,
-				message: `Failed to create PDF: ${error.message}`,
-				success: false,
-			});
-			isPdfGenerating = false;
-		}
+		const pdfStatus = await pdfGenerator(
+			$currentNote?.data.content,
+			$currentNote.data.title,
+		);
+		console.log("pdf status =>", pdfStatus);
+		toastStore.set(pdfStatus);
+		isPdfGenerating = false;
 	};
+
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
 	});
@@ -398,7 +249,46 @@
 <div class="flex grow max-h-full">
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<div class="py-10 px-11 flex items-center justify-start shrink-0">
-			{#if !$noteViewLayout}
+			{#if $noteViewLayout}
+				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
+					<button
+						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						on:click="{handleBackButton}">
+						<BackArrow />
+					</button>
+					{#if isEditingTitle}
+						<div
+							class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
+							<input
+								bind:this="{inputRef}"
+								bind:value="{newNoteTitle}"
+								maxlength="20"
+								on:keydown="{handleKeydown}"
+								on:blur="{saveTitle}"
+								class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+						</div>
+					{:else}
+						<span
+							role="button"
+							tabindex="0"
+							class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
+							on:dblclick="{startEditingTitle}"
+							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
+							{$currentNote?.data?.title || "Untitled"}
+						</span>
+					{/if}
+
+					<button
+						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						on:click|stopPropagation="{toggleFav}">
+						{#if isFavourite}
+							<Star />
+						{:else}
+							<EmptyStar color="#85889C" />
+						{/if}
+					</button>
+				</div>
+			{:else}
 				<div class="relative shrink-0">
 					<button
 						class="min-w-[20.25rem] text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
@@ -423,8 +313,8 @@
 					class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base">
 					<button
 						class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
-                       transition-colors
-                       {selectedSection === 'home'
+				   transition-colors
+				   {selectedSection === 'home'
 							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 							: ''}"
 						on:click="{() => handleFilterSelection('home')}"
@@ -437,7 +327,7 @@
 
 					<button
 						class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
-                       {selectedSection === 'favourites'
+				   {selectedSection === 'favourites'
 							? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
 							: ''}"
 						on:click="{() => handleFilterSelection('favourites')}"
@@ -476,47 +366,6 @@
 						<Add
 							color="{addCredentialHovered ? '#010109' : '#85889C'}"
 							size="{24}" />
-					</button>
-				</div>
-			{:else}
-				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
-					<button
-						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click="{handleBackButton}">
-						<BackArrow />
-					</button>
-					{#if isEditingTitle}
-						<div
-							class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
-							<input
-								bind:this="{inputRef}"
-								bind:value="{newNoteTitle}"
-								maxlength="20"
-								on:keydown="{handleKeydown}"
-								on:blur="{saveTitle}"
-								class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
-						</div>
-					{:else}
-						<span
-							role="button"
-							tabindex="0"
-							class="grow truncate mx-5 font-semibold text-4xl text-osvauld-sideListTextActive"
-							on:dblclick="{startEditingTitle}"
-							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
-							{$currentNote?.data.title
-								? $currentNote.data.title
-								: "Untitled note"}
-						</span>
-					{/if}
-
-					<button
-						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click|stopPropagation="{toggleFav}">
-						{#if isFavourite}
-							<Star />
-						{:else}
-							<EmptyStar color="#85889C" />
-						{/if}
 					</button>
 				</div>
 			{/if}

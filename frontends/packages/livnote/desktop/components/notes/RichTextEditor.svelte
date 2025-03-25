@@ -43,7 +43,9 @@
 
 	saveNoteAndSwitch(() => {
 		if (view) {
-			notesInstance.saveNote($currentNote?.data.title).catch(console.error);
+			notesInstance
+				.saveNote($currentNote?.data?.title || "Untitled")
+				.catch(console.error);
 		}
 
 		// Return to list view
@@ -56,7 +58,7 @@
 	const saveNoteManual = () => {
 		saved = true;
 		notesInstance
-			.saveNote($currentNote?.data.title)
+			.saveNote($currentNote?.data?.title || "Untitled")
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true))
 			.then(() => refreshSidePanel.set(true));
@@ -213,7 +215,9 @@
 			autoSaveInterval = setInterval(() => {
 				// Savign animation go
 
-				notesInstance.saveNote($currentNote.data.title).catch(console.error);
+				notesInstance
+					.saveNote($currentNote?.data?.title || "Untitled")
+					.catch(console.error);
 				saved = true;
 				setTimeout(() => {
 					saved = false;
@@ -311,7 +315,7 @@
 			clearInterval(autoSaveInterval);
 		}
 		notesInstance
-			.saveNote($currentNote.data.title)
+			.saveNote($currentNote?.data?.title || "Untitled")
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true));
 
