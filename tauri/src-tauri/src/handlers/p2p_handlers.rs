@@ -5,6 +5,7 @@ use osvauld_core::models::p2p::ConnectionType;
 use osvauld_services::UserService;
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
+use std::fmt::format;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
@@ -61,9 +62,10 @@ pub async fn initiate_first_connection(
     input: InitiateFirstConnectionInput,
     rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
-    info!("recived first connection request");
+    info!("recived first connection request {:?}", input);
+    let connection_id = format!("{}:{}", input.user.id, input.device.id);
     match rendezvous_service
-        .mark_for_first_connection(&input.user_id)
+        .mark_for_first_connection(&connection_id)
         .await
     {
         Ok(_) => info!("requested connection.."),

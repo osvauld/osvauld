@@ -38,7 +38,7 @@ pub async fn add_known_user(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(CryptoResponse::CreatedKnownUser(user))
+    Ok(CryptoResponse::CreatedKnownUser { user, device })
 }
 
 #[tauri::command]

@@ -80,7 +80,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -104,7 +104,6 @@ pub fn run() {
                     let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
                     let resource_key_repo =
                         Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
-                    // Initialize folder service with cloned repositories
                     let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
                     let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
                     let vector_clock_repo =

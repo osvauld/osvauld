@@ -33,11 +33,15 @@
 	};
 
 	const handleAddUser = async (event) => {
-		const user = await sendMessage("addKnownUser", event.detail);
+		const userResponse = await sendMessage("addKnownUser", event.detail);
 		console.log("initiating first connection");
-		// const response = await sendMessage("initiateFirstConnection", {
-		// 	userId: user.id,
-		// });
+		const firstConnectionResponse = await sendMessage(
+			"initiateFirstConnection",
+			{
+				user: userResponse.user,
+				device: userResponse.device,
+			},
+		);
 		// console.log(response);
 	};
 
