@@ -225,7 +225,8 @@ impl RendezvousService {
                 Ok(Some(connection)) => {
                     // We successfully created a new connection
                     if is_first_connection {
-                        // ...
+                        info!("starting first device sync");
+                        connection.initiate_user_first_connection().await;
                     } else {
                         info!("Successfully connected to peer using ticket");
                         // For regular connections, start device sync

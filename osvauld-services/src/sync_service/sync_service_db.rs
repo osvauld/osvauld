@@ -202,7 +202,6 @@ impl SyncService {
     ) -> Result<(), RepositoryError> {
         self.user_repository.add_known_user(user).await?;
         self.device_repository.save_many(devices).await?;
-        self.user_repository.add_known_user(user).await?;
         self.sync_repository
             .add_sync_record_set(user_addition_record)
             .await?;

@@ -42,7 +42,7 @@
 				device: userResponse.device,
 			},
 		);
-		// console.log(response);
+		console.log(firstConnectionResponse);
 	};
 
 	const handleAuthenticated = async () => {
