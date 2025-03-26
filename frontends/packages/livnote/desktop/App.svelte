@@ -19,17 +19,17 @@
 		showConnector,
 		showAddUser,
 		deleteConfirmationModal,
-		currentNote,
 		passwordPromptModal,
 	} from "./store/desktop.ui.store";
 
 	let signedUp = false;
 	let isLoading = true;
+	let syncRole = ""; // Add this to store the role
 
 	const handleSignedUp = async () => {
 		signedUp = true;
 		showWelcome.set(false);
-		const userId = await sendMessage("getUserId");
+		// const userId = await sendMessage("getUserId");
 	};
 
 	const handleAddUser = async (event) => {
@@ -44,11 +44,8 @@
 
 	const handleAuthenticated = async () => {
 		showWelcome.set(false);
-
-		const userId = await sendMessage("getUserId");
+		//const userId = await sendMessage("getUserId");
 	};
-
-	let syncRole = ""; // Add this to store the role
 
 	const handleConnectorClose = (event) => {
 		const { isInitiator } = event.detail;
@@ -118,7 +115,7 @@
     -->
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
-    {/if}
+		{/if}
 
 		{#if $passwordPromptModal.show}
 			<PasswordPromptModal

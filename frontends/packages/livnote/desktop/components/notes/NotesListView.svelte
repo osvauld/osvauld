@@ -138,12 +138,12 @@
 		return items.filter((_, index) => index % colCount === colIndex);
 	};
 
-	onMount(() => {
-		fetchNotes();
+	// onMount(() => {
+	// 	fetchNotes();
 
-		// Listen for window resize to update columns
-		// window.addEventListener("resize", fetchNotes);
-	});
+	// 	// Listen for window resize to update columns
+	// 	// window.addEventListener("resize", fetchNotes);
+	// });
 
 	// onDestroy(() => {
 	// 	window.removeEventListener("resize", fetchNotes);
