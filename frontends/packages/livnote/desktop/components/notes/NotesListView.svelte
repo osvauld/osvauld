@@ -138,12 +138,12 @@
 		return items.filter((_, index) => index % colCount === colIndex);
 	};
 
-	onMount(() => {
-		fetchNotes();
+	// onMount(() => {
+	// 	fetchNotes();
 
-		// Listen for window resize to update columns
-		// window.addEventListener("resize", fetchNotes);
-	});
+	// 	// Listen for window resize to update columns
+	// 	// window.addEventListener("resize", fetchNotes);
+	// });
 
 	// onDestroy(() => {
 	// 	window.removeEventListener("resize", fetchNotes);
@@ -151,7 +151,7 @@
 </script>
 
 <div class="grow max-h-full overflow-y-scroll px-11 py-4 relative">
-	<div class="h-full overflow-y-auto pr-1 scrollbar-thin">
+	<div class="h-full overflow-y-auto pr-1 scrollbar-thin min-w-[37.5rem]">
 		{#if $noteViewLayout}
 			<RichTextEditor
 				on:collaboration-update="{(event) =>
