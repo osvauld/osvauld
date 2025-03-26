@@ -4,7 +4,11 @@
 	import MobileHome from "@osvauld/password-manager-common/icons/mobileHome.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { vaults, currentVault } from "../../store/desktop.ui.store";
+	import {
+		vaults,
+		currentVault,
+		noteViewLayout,
+	} from "../../store/desktop.ui.store";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	export let vaultManagerActive;
@@ -46,6 +50,7 @@
 	const handleVaultSwitch = (vault) => {
 		currentVault.set(vault);
 		vaultManagerActive = false;
+		noteViewLayout.set(false);
 	};
 
 	const handleNewVaultInput = (e) => {
