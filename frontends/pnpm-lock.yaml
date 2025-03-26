@@ -79,15 +79,24 @@ importers:
       prosemirror-commands:
         specifier: ^1.6.2
         version: 1.7.0
+      prosemirror-dropcursor:
+        specifier: ^1.8.1
+        version: 1.8.1
       prosemirror-example-setup:
         specifier: ^1.2.3
         version: 1.2.3
+      prosemirror-gapcursor:
+        specifier: ^1.3.2
+        version: 1.3.2
       prosemirror-history:
         specifier: ^1.4.1
         version: 1.4.1
       prosemirror-keymap:
         specifier: ^1.2.2
         version: 1.2.2
+      prosemirror-menu:
+        specifier: ^1.2.4
+        version: 1.2.4
       prosemirror-model:
         specifier: ^1.24.1
         version: 1.24.1
