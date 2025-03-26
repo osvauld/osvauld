@@ -213,12 +213,54 @@ impl SyncService {
         user_id: &str,
         devices: &[Device],
         user_addition_record: &SyncRecordSet,
+        processed_user_addition_record: &SyncRecordSet,
     ) -> Result<(), RepositoryError> {
         self.user_repository.complete_user_addtion(user_id).await?;
         self.device_repository.save_many(devices).await?;
+
+        self.sync_repository
+            .add_sync_record_set(processed_user_addition_record)
+            .await?;
         self.sync_repository
             .add_sync_record_set(user_addition_record)
             .await?;
+        Ok(())
+    }
+    pub async fn db_handle_user_add_ack(
+        &self,
+        remote_user_id: &str,
+        completion_records: &StatusChangeSet,
+        processed_user_addition_record: &SyncRecordSet,
+        device_record_id: &str,
+        sync_record_id: &str,
+    ) -> Result<(), RepositoryError> {
+        // Update device record for completion
+        self.sync_repository
+            .update_device_record(device_record_id.to_string(), sync_record_id.to_string())
+            .await?;
+
+        // Update device record statuses
+        self.sync_repository
+            .update_device_record_statuses_for_sync(
+                sync_record_id.to_string(),
+                device_record_id.to_string(),
+            )
+            .await?;
+
+        // Mark the user addition as complete
+        self.user_repository
+            .complete_user_addtion(remote_user_id)
+            .await?;
+
+        // Process the completion records
+        self.sync_repository
+            .add_status_change_set(completion_records.clone())
+            .await?;
+        // Save the processed user addition records
+        self.sync_repository
+            .add_sync_record_set(processed_user_addition_record)
+            .await?;
+
         Ok(())
     }
 }

@@ -77,44 +77,47 @@ impl PeerConnection {
     }
 
     pub async fn handle_sync_ack(&self, ack_type: SyncAckType) -> Result<(), String> {
-        let device_sync_record_id = self
-            .context
-            .sync_service
-            .process_acknowledgement(ack_type, self.device.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        if let Some(record_id) = device_sync_record_id {
-            let ack_complete_msg = Message::AckComplete(record_id);
-            self.send_message(ack_complete_msg).await?;
-        }
+        if let Some(current_device) = self.get_local_device().await {
+            let device_sync_record_id = self
+                .context
+                .sync_service
+                .process_acknowledgement(ack_type, &self.device, &current_device.id)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Some(record_id) = device_sync_record_id {
+                let ack_complete_msg = Message::AckComplete(record_id);
+                self.send_message(ack_complete_msg).await?;
+            }
 
-        match self
-            .context
-            .sync_service
-            .get_next_pending_sync(
-                &self.device,
-                &self.user,
-                Some(self.pending_resource_ids.clone()),
-            )
-            .await
-        {
-            Ok(Some(payload)) => {
-                info!("Sending next sync payload");
-                let message = Message::SyncResponse(payload);
-                self.send_message(message).await?;
+            match self
+                .context
+                .sync_service
+                .get_next_pending_sync(
+                    &self.device,
+                    &self.user,
+                    Some(self.pending_resource_ids.clone()),
+                )
+                .await
+            {
+                Ok(Some(payload)) => {
+                    info!("Sending next sync payload");
+                    let message = Message::SyncResponse(payload);
+                    self.send_message(message).await?;
+                }
+                Ok(None) => {
+                    info!("No more pending syncs, sending complete");
+                    let message = Message::SyncComplete;
+                    self.send_message(message).await?;
+                }
+                Err(e) => {
+                    error!("Failed to get next pending sync: {}", e);
+                    return Err(e.to_string());
+                }
             }
-            Ok(None) => {
-                info!("No more pending syncs, sending complete");
-                let message = Message::SyncComplete;
-                self.send_message(message).await?;
-            }
-            Err(e) => {
-                error!("Failed to get next pending sync: {}", e);
-                return Err(e.to_string());
-            }
-        }
 
-        Ok(())
+            return Ok(());
+        }
+        Err("failed to get current device".into())
     }
 
     pub async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {

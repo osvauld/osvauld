@@ -97,6 +97,12 @@ pub trait SyncRepository: Send + Sync {
         &self,
         device_id: &str,
     ) -> Result<Vec<String>, RepositoryError>;
+
+    async fn update_device_status_record_for_device(
+        &self,
+        device_id: &str,
+        device_record_id: &str,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

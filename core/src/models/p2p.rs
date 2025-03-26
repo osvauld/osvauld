@@ -2,7 +2,9 @@ use super::device::Device;
 use super::folder::Folder;
 use super::resource::ResourceKeyPair;
 use super::share_record::{ShareRecord, UserRecord, UserRecordStatus};
-use super::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
+use super::sync_record::{
+    DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
+};
 use super::user::User;
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
@@ -54,13 +56,33 @@ pub enum Message {
     AddDeviceAck,
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
-    SyncEvent { event: String, payload: String },
+    SyncEvent {
+        event: String,
+        payload: String,
+    },
     SharePayload(SharePayload),
     ShareComplete,
     UpdateResource(UpdateResource),
-    FirstUserConnectionRequest { user: User, devices: Vec<Device> },
-    FirstUserConnectionResponse { user: User, devices: Vec<Device> },
-    FristUserConnectionAck(String),
+    FirstUserConnectionRequest {
+        user: User,
+        devices: Vec<Device>,
+    },
+    FirstUserConnectionResponse {
+        user: User,
+        devices: Vec<Device>,
+        user_addition_record: SyncRecordSet,
+    },
+    FristUserConnectionAck {
+        user_id: String,
+        completion_records: StatusChangeSet,
+        user_addition_records: SyncRecordSet,
+    },
+    FirstUserConnectionAckResponse {
+        addition_completion_record: StatusChangeSet,
+    },
+    FirstUserConnectionFinalAck {
+        device_record_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]

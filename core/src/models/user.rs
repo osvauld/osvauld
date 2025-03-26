@@ -23,7 +23,7 @@ impl User {
         public_key: String,
         signature: String,
         owner: bool,
-        frist_sync: bool,
+        first_sync: bool,
     ) -> Self {
         let now = Local::now().timestamp_millis();
 
@@ -33,7 +33,7 @@ impl User {
             public_key,
             signature,
             owner,
-            first_sync: false,
+            first_sync,
             created_at: now,
             updated_at: now,
             deleted: false,

@@ -41,7 +41,7 @@ pub struct DeviceRecordStatus {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncRecordSet {
     pub sync_record: SyncRecord,
     pub device_records: Vec<DeviceRecord>,
@@ -53,7 +53,7 @@ pub struct DeviceRecordSet {
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StatusChangeSet {
     pub device_record: DeviceRecord,
     pub device_record_statuses: Vec<DeviceRecordStatus>,
