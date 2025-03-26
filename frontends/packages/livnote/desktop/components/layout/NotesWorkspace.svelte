@@ -119,8 +119,7 @@
 
 	const handleFilterSelection = (section) => {
 		selectedSection = section;
-		// filterFavourites();
-		favSelected = !favSelected;
+		favSelected = section === "favourites";
 	};
 
 	const handleBackButton = () => {
