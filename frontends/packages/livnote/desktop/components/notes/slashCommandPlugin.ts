@@ -202,22 +202,32 @@ export function slashCommandPlugin(schema: Schema) {
 
 		// Get editor element's position and dimensions
 		const editorRect = view.dom.getBoundingClientRect();
+		const editorViewport =
+			view.dom.parentNode?.getBoundingClientRect() || editorRect;
 		const menuRect = menu.getBoundingClientRect();
 
 		// Calculate initial position
-		let top = coords.top - editorRect.top + 130; // Default position below cursor
+		let top = coords.top - editorRect.top + 120; // Default position below cursor
 		let left = coords.left - editorRect.left;
+		// Check bottom overflow - compare against viewport height, not editor height
+		// Also account for scroll position
+		const viewportHeight = editorViewport.height;
+		const scrollTop = (view.dom.parentNode as HTMLElement)?.scrollTop || 0;
+		const bottomOverflow =
+			coords.top - editorRect.top + menuRect.height + 20 >
+			viewportHeight + scrollTop;
 
-		// Check bottom overflow
-		const bottomOverflow = top + menuRect.height > editorRect.height;
 		if (bottomOverflow) {
-			// Position above cursor instead
-			top = coords.top - editorRect.top - menuRect.height + 80;
+			// Position above cursor instead - adjust the offset to account for menu height
+			top = coords.top - editorRect.top - menuRect.height + 90;
+			// Ensure it doesn't go above the visible area
+			top = Math.max(10, top);
 		}
 
 		// Check right overflow
 		const rightOverflow = left + menuRect.width > editorRect.width;
 		if (rightOverflow) {
+			console.log("Right overflow found");
 			// Align right edge of menu with cursor
 			left = left - menuRect.width + 20;
 			// Ensure it doesn't go too far left
@@ -266,9 +276,7 @@ export function slashCommandPlugin(schema: Schema) {
 			// Find the scrollable container - might be the editor or a parent element
 			const editorDom = editorView.dom;
 			const scrollableContainer =
-				editorDom.closest(".ProseMirror-example-setup-style") ||
-				editorDom.closest(".editor-container") ||
-				editorDom;
+				editorDom.closest(".editor-main") || editorDom;
 
 			// Setup scroll handler
 			scrollHandler = () => {

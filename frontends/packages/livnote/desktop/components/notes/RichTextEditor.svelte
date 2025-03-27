@@ -355,13 +355,81 @@
 </script>
 
 <style>
-	/* ProseMirror menubar styles for horizontal layout */
-	:global(.ProseMirror-menubar-wrapper) {
-		height: 100%;
+	/* Fixed Menu Styles */
+	:global(.editor-fixed-menu) {
+		background: #16171f;
+		height: 92px;
+		border-bottom: 1px solid #2a2b2f;
+		padding: 10px 15px;
 		display: flex;
-		flex-direction: column;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		border-top-left-radius: 8px;
+		border-top-right-radius: 8px;
 	}
 
+	:global(.editor-menu-group) {
+		display: flex;
+		align-items: center;
+		padding-right: 12px;
+		margin-right: 12px;
+		border-right: 1px solid #2a2b2f;
+	}
+
+	:global(.editor-menu-group:last-child) {
+		border-right: none;
+	}
+
+	/* Menu item styling */
+	:global(.editor-menuitem) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 30px;
+		height: 30px;
+		padding: 0 10px;
+		background: #2a2b2f;
+		color: #bfc0cc;
+		font-family:
+			system-ui,
+			-apple-system,
+			sans-serif;
+		font-size: 14px;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		margin-right: 3px;
+		transition:
+			background-color 0.2s ease,
+			color 0.2s ease;
+	}
+
+	:global(.editor-menuitem:hover) {
+		background: #3a3b44;
+	}
+
+	/* Active states */
+	:global(.editor-menuitem-active) {
+		background: #3a3b44;
+		color: #bfc0cc;
+		border-bottom: 2px solid #7c91f9;
+	}
+
+	/* Special styles for specific menu items */
+	:global(.menu-bold) {
+		font-weight: bold;
+	}
+
+	:global(.menu-italic) {
+		font-style: italic;
+	}
+
+	:global(.menu-code) {
+		font-family: monospace;
+	}
+
+	/* Basic editor container structure */
 	.editor-container {
 		margin: 0 auto;
 		width: 100%;
@@ -369,144 +437,17 @@
 		background: #16171f;
 		color: white;
 		position: relative;
-		border-radius: 20px;
-	}
-
-	:global(.ProseMirror-example-setup-style) {
-		position: relative;
-		padding: 15px;
-		min-height: 100px;
-		max-width: 96%;
-		width: 96%;
-		outline: none;
-		line-height: 1.5;
-		color: white;
-		background: #16171f;
-		border-radius: 20px;
-		overflow-y: scroll;
-		flex-grow: 1;
-		margin: 5px auto 5px auto;
-	}
-
-	:global(.ProseMirror-menubar) {
-		min-height: 92px;
-		padding: 4px 24px;
-		white-space: nowrap;
-		overflow-y: hidden;
-		background: #16171f;
+		border-radius: 1rem;
 		display: flex;
-		align-items: center;
-		gap: 1px;
-		border-bottom: 1px solid #2a2b2f;
-		border-top-left-radius: 20px;
-		border-top-right-radius: 20px;
+		flex-direction: column;
 	}
 
-	:global(.ProseMirror-menuitem) {
-		display: inline-flex;
-		align-items: center;
-		height: 24px;
-		margin-right: 4px;
-		cursor: pointer;
-	}
-
-	:global(.ProseMirror-menu-dropdown) {
-		vertical-align: middle;
-		padding: 2px 4px;
-		font-size: 14px;
-		color: white;
-	}
-
-	:global(.ProseMirror-menu-dropdown-wrap) {
-		position: relative;
-		display: inline-block;
-	}
-
-	:global(.ProseMirror-menu-dropdown-menu) {
-		position: fixed;
-		background: #16171f;
-		border: 1px solid #2a2b2f;
-		border-radius: 2px;
-		padding: 2px 0;
-		min-width: 67px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-	}
-
-	:global(.ProseMirror-menu-dropdown-item) {
-		padding: 2px 8px;
-		cursor: pointer;
-		font-size: 14px;
-		color: white;
-		position: relative;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item:hover) {
-		background: #2a2b2f;
-	}
-
-	:global(.ProseMirror-menu-submenu) {
-		position: absolute;
-		right: -70px;
-		top: 0;
-		background: #16171f;
-		border: 1px solid #2a2b2f;
-		border-radius: 2px;
-		padding: 2px 0;
-		min-width: 67px;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-	}
-	:global(.ProseMirror-icon) {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px;
-		height: 24px;
-		padding: 2px;
-		cursor: pointer;
-		border: 1px solid transparent;
-		border-radius: 2px;
-		font-size: 16px;
-		color: white;
-	}
-
-	:global(.ProseMirror-icon svg) {
-		fill: currentColor;
-		color: white;
-	}
-
-	:global(.ProseMirror-icon:hover) {
-		background: #2a2b2f;
-	}
-
-	:global(.ProseMirror-menu-disabled) {
-		opacity: 0.3;
-	}
-
-	:global(.ProseMirror-icon span) {
-		color: white;
-		font-weight: bold;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item:hover) {
-		background: #2a2b2f;
-	}
-
-	:global(.ProseMirror-icon) {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 24px;
-		height: 24px;
-		padding: 2px;
-		cursor: pointer;
-		border: 1px solid transparent;
-		border-radius: 2px;
-		font-size: 16px;
-		color: white;
-	}
-
-	:global(.ProseMirror-icon:hover) {
-		background: #2a2b2f;
+	.editor-main {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		overflow-y: auto;
+		margin: 5px 15px 5px 15px;
 	}
 
 	:global(.ProseMirror) {
@@ -516,16 +457,19 @@
 		outline: none;
 		line-height: 1.5;
 		color: white;
+		background: #16171f;
+		flex-grow: 1;
+		overflow-y: auto;
 	}
 
+	/* Remove old menubar styles */
+	:global(.ProseMirror-menubar) {
+		display: none !important;
+	}
+
+	/* Basic text styling */
 	:global(.ProseMirror p) {
 		margin: 0 0 1em 0;
-	}
-
-	:global(.ProseMirror h1) {
-		font-size: 2em;
-		margin: 0.67em 0;
-		color: white;
 	}
 
 	:global(.ProseMirror h1) {
@@ -549,193 +493,7 @@
 		font-weight: bold;
 	}
 
-	:global(.ProseMirror h4) {
-		font-size: 1em;
-		margin: 1.33em 0;
-		color: white;
-		font-weight: bold;
-	}
-
-	:global(.ProseMirror h5) {
-		font-size: 0.83em;
-		margin: 1.67em 0;
-		color: white;
-		font-weight: bold;
-	}
-
-	:global(.ProseMirror h6) {
-		font-size: 0.67em;
-		margin: 2.33em 0;
-		color: white;
-		font-weight: bold;
-	}
-
-	/* Improve menu styling for better visibility of heading options */
-	:global(.ProseMirror-menu-dropdown-item[title*="Heading"]) {
-		font-weight: bold;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item[title="Heading 1"]) {
-		font-size: 1.2em;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item[title="Heading 2"]) {
-		font-size: 1.1em;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item[title="Heading 3"]) {
-		font-size: 1em;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item[title="Heading 4"]) {
-		font-size: 0.95em;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item[title="Heading 5"]) {
-		font-size: 0.9em;
-	}
-
-	:global(.ProseMirror-menu-dropdown-item[title="Heading 6"]) {
-		font-size: 0.85em;
-	}
-
-	/* Cursor and selection styles */
-	:global(.ProseMirror-yjs-cursor) {
-		position: relative;
-		margin-left: -1px;
-		margin-right: -1px;
-		border-left: 2px solid black; /* Slightly thicker */
-		border-right: 2px solid black;
-		pointer-events: none;
-		z-index: 20;
-	}
-
-	/* Username tooltip */
-	:global(.ProseMirror-yjs-cursor > div) {
-		position: absolute;
-		top: -1.8em;
-		left: -1px;
-		font-size: 12px;
-		background-color: inherit; /* Will inherit from the cursor */
-		font-family: "Inter", "Segoe UI", sans-serif;
-		font-weight: 500;
-		line-height: normal;
-		user-select: none;
-		color: white;
-		padding: 3px 8px;
-		border-radius: 4px;
-		white-space: nowrap;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-	}
-
-	:global(.ProseMirror-icon:hover) {
-		border-color: #ddd;
-		background: #e5e5e5;
-	}
-
-	:global(.ProseMirror) {
-		position: relative;
-		padding: 15px;
-		min-height: 100px;
-		outline: none;
-		line-height: 1.5;
-	}
-
-	:global(.ProseMirror p) {
-		margin: 0 0 1em 0;
-	}
-
-	:global(.ProseMirror h1) {
-		font-size: 2em;
-		margin: 0.67em 0;
-	}
-
-	/* Cursor and selection styles */
-	:global(.ProseMirror-yjs-cursor) {
-		position: relative;
-		margin-left: -1px;
-		margin-right: -1px;
-		border-left: 1px solid black;
-		border-right: 1px solid black;
-		pointer-events: none;
-	}
-
-	:global(.ProseMirror-yjs-cursor > div) {
-		position: absolute;
-		top: -1.05em;
-		left: -1px;
-		font-size: 13px;
-		background-color: rgb(250, 129, 0);
-		font-family: serif;
-		font-style: normal;
-		font-weight: normal;
-		line-height: normal;
-		user-select: none;
-		color: white;
-		padding: 2px 6px;
-		border-radius: 3px;
-		white-space: nowrap;
-	}
-	:global(.ProseMirror-menu-dropdown-menu) {
-		z-index: 999;
-	}
-
-	:global(.ProseMirror-example-setup-style::-webkit-scrollbar) {
-		width: 4px;
-		height: 4px;
-	}
-
-	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-track) {
-		background: transparent;
-	}
-
-	:global(.ProseMirror-example-setup-style::-webkit-scrollbar-thumb) {
-		background-color: #2f303e;
-		border-radius: 4px;
-	}
-
-	:global(.slash-command-menu) {
-		max-height: 300px;
-		overflow-y: auto;
-		border-radius: 8px;
-		animation: fadeIn 0.1s ease-in-out;
-	}
-
-	:global(.slash-command-menu::-webkit-scrollbar) {
-		width: 4px;
-		height: 4px;
-	}
-
-	:global(.slash-command-menu::-webkit-scrollbar-track) {
-		background: transparent;
-	}
-
-	:global(.slash-command-menu::-webkit-scrollbar-thumb) {
-		background-color: #2f303e;
-		border-radius: 4px;
-	}
-
-	:global(.slash-command-item) {
-		transition: background-color 0.15s ease;
-		border-radius: 4px;
-		margin: 4px;
-	}
-
-	:global(.slash-command-item:first-child) {
-		margin-top: 4px;
-	}
-
-	:global(.slash-command-item:last-child) {
-		margin-bottom: 4px;
-	}
-
-	:global(.slash-command-icon) {
-		background: #2f303e;
-		border-radius: 4px;
-		width: 28px !important;
-		height: 28px !important;
-		color: #bfc0cc;
-	}
+	/* List styling */
 	:global(.ProseMirror ul) {
 		padding-left: 1.5em;
 		margin: 0.5em 0;
@@ -747,59 +505,10 @@
 		position: relative;
 	}
 
-	:global(.ProseMirror ul li p) {
-		margin: 0;
-	}
-
-	/* Numbered List Styles */
 	:global(.ProseMirror ol) {
 		padding-left: 1.5em;
 		margin: 0.5em 0;
 		list-style-type: decimal;
-	}
-
-	:global(.ProseMirror ol li) {
-		margin: 0.2em 0;
-		position: relative;
-	}
-
-	:global(.ProseMirror ol li p) {
-		margin: 0;
-	}
-
-	/* Nested List Styles */
-	:global(.ProseMirror li > ul, .ProseMirror li > ol) {
-		margin: 0.2em 0 0.2em 1em;
-	}
-
-	/* List item active state */
-	:global(.ProseMirror li.ProseMirror-selectednode) {
-		outline: 2px solid #2a2b2f;
-	}
-
-	/* Make sure list buttons in the menu are properly visible */
-	:global(
-		.ProseMirror-menu-dropdown-item[title="Wrap in bullet list"],
-		.ProseMirror-menu-dropdown-item[title="Wrap in ordered list"]
-	) {
-		display: flex;
-		align-items: center;
-	}
-
-	:global(
-		.ProseMirror-menu-dropdown-item[title="Wrap in bullet list"]::before
-	) {
-		content: "•";
-		margin-right: 5px;
-		font-size: 1.2em;
-	}
-
-	:global(
-		.ProseMirror-menu-dropdown-item[title="Wrap in ordered list"]::before
-	) {
-		content: "1.";
-		margin-right: 5px;
-		font-weight: bold;
 	}
 
 	:global(.ProseMirror blockquote) {
@@ -809,22 +518,57 @@
 		padding-left: 1em;
 		font-style: italic;
 		color: #bfc0cc;
-	}
-
-	:global(.ProseMirror blockquote p) {
-		margin: 0.5em 0;
-	}
-
-	/* Add a subtle background for better visibility in dark mode */
-	:global(.ProseMirror blockquote) {
 		background-color: rgba(255, 255, 255, 0.03);
 		border-radius: 4px;
 		padding: 8px 16px 8px 12px;
 	}
+
+	/* Scrollbar styling */
+	:global(.ProseMirror::-webkit-scrollbar) {
+		width: 4px;
+		height: 4px;
+	}
+
+	:global(.ProseMirror::-webkit-scrollbar-track) {
+		background: transparent;
+	}
+
+	:global(.ProseMirror::-webkit-scrollbar-thumb) {
+		background-color: #2f303e;
+		border-radius: 4px;
+	}
+
+	/* Cursor and selection styles */
+	:global(.ProseMirror-yjs-cursor) {
+		position: relative;
+		margin-left: -1px;
+		margin-right: -1px;
+		border-left: 2px solid black;
+		border-right: 2px solid black;
+		pointer-events: none;
+		z-index: 20;
+	}
+
+	:global(.ProseMirror-yjs-cursor > div) {
+		position: absolute;
+		top: -1.8em;
+		left: -1px;
+		font-size: 12px;
+		background-color: inherit;
+		font-family: "Inter", "Segoe UI", sans-serif;
+		font-weight: 500;
+		line-height: normal;
+		user-select: none;
+		color: white;
+		padding: 3px 8px;
+		border-radius: 4px;
+		white-space: nowrap;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+	}
 </style>
 
 <div class="editor-container">
-	<div class="editor-main relative h-full">
+	<div class="editor-main scrollbar-thin">
 		{#if isLoading}
 			<div
 				class="loading-overlay flex justify-center items-center h-full w-full">
@@ -834,10 +578,10 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
+		<div bind:this="{element}" class="h-full"></div>
 		<button
 			on:click="{saveNoteManual}"
-			class="absolute z-10 top-6 right-5 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			class="absolute z-10 top-6 right-5 w-32 border bg-[#16171f] border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
 					><span class="text-[#9DD062] mr-2">Saved...</span>
