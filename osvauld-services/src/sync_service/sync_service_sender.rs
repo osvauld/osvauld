@@ -28,8 +28,11 @@ impl SyncService {
         if let Some(payload) = self.get_device_sync_for_device(device).await? {
             return Ok(Some(payload));
         }
-
-        // 2. Folder syncs
+        // 2. User syncs
+        if let Some(payload) = self.get_user_sync_for_device(device).await? {
+            return Ok(Some(payload));
+        }
+        // 3. Folder syncs
         if let Some(payload) = self.get_folder_sync_for_device(device).await? {
             return Ok(Some(payload));
         }
@@ -86,6 +89,39 @@ impl SyncService {
                 device_records,
                 device_record_statuses: statuses,
                 device: device_data,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_user_sync_for_device(
+        &self,
+        device: &Device,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
+        if let Some((sync_record, device_records, statuses)) = self
+            .sync_repository
+            .get_pending_sync_by_type(&device.id, "user")
+            .await?
+        {
+            // Get the user data
+            let user = self
+                .user_repository
+                .get_user_by_id(&sync_record.resource_id)
+                .await?;
+
+            // Get devices associated with this user
+            let user_devices = self
+                .device_repository
+                .get_devices_by_user_id(&user.id)
+                .await?;
+
+            return Ok(Some(SyncPayload::UserSync {
+                sync_record,
+                device_records,
+                device_record_statuses: statuses,
+                user,
+                devices: user_devices,
             }));
         }
 

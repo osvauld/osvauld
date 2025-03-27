@@ -19,6 +19,13 @@ pub enum SyncPayload {
         device_record_statuses: Vec<DeviceRecordStatus>,
         device: Device,
     },
+    UserSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        user: User,
+        devices: Vec<Device>,
+    },
     ResourceSync {
         sync_record: SyncRecord,
         device_records: Vec<DeviceRecord>,
@@ -74,15 +81,9 @@ pub enum Message {
     },
     FristUserConnectionAck {
         user_id: String,
-        completion_records: StatusChangeSet,
         user_addition_records: SyncRecordSet,
     },
-    FirstUserConnectionAckResponse {
-        addition_completion_record: StatusChangeSet,
-    },
-    FirstUserConnectionFinalAck {
-        device_record_id: String,
-    },
+    FirstUserConnectionComplete,
 }
 
 #[derive(Serialize, Deserialize)]

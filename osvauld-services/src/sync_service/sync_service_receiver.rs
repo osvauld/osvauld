@@ -190,12 +190,12 @@ impl SyncService {
         user_id: &str,
         device_id: &str,
         emit_event: Option<F>,
+        current_device_id: &str,
+        current_user_id: &str,
     ) -> Result<SyncAckType, RepositoryError>
     where
         F: Fn(SyncEvent) + Send + Sync,
     {
-        let current_device_id = self.store_repository.get_device_key().await?;
-
         match payload {
             SyncPayload::DeviceSync {
                 sync_record,
@@ -208,8 +208,27 @@ impl SyncService {
                     device_records,
                     device_record_statuses,
                     device,
-                    &current_device_id,
+                    current_device_id,
                     user_id,
+                )
+                .await
+            }
+
+            SyncPayload::UserSync {
+                sync_record,
+                device_records,
+                device_record_statuses,
+                user,
+                devices,
+            } => {
+                self.process_user_sync(
+                    sync_record,
+                    device_records,
+                    device_record_statuses,
+                    user,
+                    devices,
+                    current_device_id,
+                    current_user_id,
                 )
                 .await
             }
@@ -227,7 +246,7 @@ impl SyncService {
                     device_record_statuses,
                     resource,
                     vector_clocks,
-                    &current_device_id,
+                    current_device_id,
                     user_id,
                 )
                 .await
@@ -244,7 +263,7 @@ impl SyncService {
                     device_records,
                     device_record_statuses,
                     folder,
-                    &current_device_id,
+                    current_device_id,
                     user_id,
                 )
                 .await
@@ -271,7 +290,7 @@ impl SyncService {
                 self.process_status_update(
                     device_records,
                     device_record_statuses,
-                    &current_device_id,
+                    current_device_id,
                 )
                 .await
             }
@@ -438,6 +457,51 @@ impl SyncService {
         Ok(SyncAckType::DeviceRecords(device_record_ids))
     }
 
+    async fn process_user_sync(
+        &self,
+        sync_record: &SyncRecord,
+        device_records: &[DeviceRecord],
+        device_record_statuses: &[DeviceRecordStatus],
+        user: &User,
+        devices: &[Device],
+        current_device_id: &str,
+        current_user_id: &str,
+    ) -> Result<SyncAckType, RepositoryError> {
+        // Process common sync logic
+        let other_devices = self
+            .get_user_other_devices(current_device_id, current_user_id)
+            .await?;
+        info!("other devices {:?}, {:?}", other_devices, current_device_id);
+        let mut all_devices = devices.to_vec();
+        all_devices.extend(other_devices.clone());
+        let (processed_records, processed_statuses, completion_records) = self
+            .prepare_common_sync_data(
+                sync_record,
+                device_records,
+                device_record_statuses,
+                current_device_id,
+                all_devices,
+            )
+            .await?;
+
+        // Create sync record set
+        let record_set = SyncRecordSet {
+            sync_record: sync_record.clone(),
+            device_records: processed_records,
+            device_record_statuses: processed_statuses,
+        };
+
+        // Add appropriate DB transaction method
+        // Something like this:
+        self.db_add_new_user(user, devices, &record_set).await?;
+
+        Ok(SyncAckType::FullSync {
+            sync_record_id: sync_record.id.clone(),
+            device_record: completion_records.device_record,
+            device_sync_records: completion_records.device_record_statuses,
+        })
+    }
+
     async fn process_resource_update_sync<F>(
         &self,
         resource: &Resource,
@@ -592,15 +656,11 @@ impl SyncService {
         let mut new_user = user.clone();
         new_user.first_sync = false;
         let current_user = self.user_repository.get_user_by_id(current_user_id).await?;
-        let all_devices: Vec<Device> = user_devices
-            .clone()
-            .into_iter()
-            .chain(devices.iter().cloned())
-            .collect();
+
         let user_addition_record = SyncRecord::create_user_sync_record(
             user.id.clone(),
             current_device_id.to_string(),
-            &all_devices,
+            &user_devices,
         );
         self.db_add_new_user(&new_user, devices, &user_addition_record)
             .await?;
@@ -614,151 +674,36 @@ impl SyncService {
         user_addition_record: &SyncRecordSet,
         current_user_id: &str,
         current_device_id: &str,
-    ) -> Result<(SyncRecordSet, StatusChangeSet), RepositoryError> {
+    ) -> Result<SyncRecordSet, RepositoryError> {
         let user_devices = self
             .device_repository
             .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
             .await?;
-        let all_devices: Vec<Device> = user_devices
-            .clone()
-            .into_iter()
-            .chain(devices.iter().cloned())
-            .collect();
         let remote_user_addition_record = SyncRecord::create_user_sync_record(
             user.id.clone(),
             current_device_id.to_string(),
-            &all_devices,
+            &user_devices,
         );
-        let (processed_records, processed_statuses, completion_records) = self
-            .prepare_common_sync_data(
-                &user_addition_record.sync_record,
-                &user_addition_record.device_records,
-                &user_addition_record.device_record_statuses,
-                current_device_id,
-                all_devices,
-            )
-            .await?;
 
-        let processed_user_addition_record = SyncRecordSet {
-            sync_record: user_addition_record.sync_record.clone(),
-            device_records: processed_records,
-            device_record_statuses: processed_statuses,
-        };
         self.db_complete_new_user_add(
             &user.id,
             devices,
             &remote_user_addition_record,
-            &processed_user_addition_record,
+            &user_addition_record,
         )
         .await?;
-        Ok((remote_user_addition_record, completion_records))
+        Ok(remote_user_addition_record)
     }
 
     pub async fn handle_user_add_ack(
         &self,
         remote_user_id: &str,
-        completion_records: &StatusChangeSet,
         user_addition_records: &SyncRecordSet,
-        current_device_id: &str,
-        current_user_id: &str,
-    ) -> Result<StatusChangeSet, RepositoryError> {
-        // Process completion records
-        let device_record = completion_records.device_record.clone();
-        let mut device_sync_records = completion_records.device_record_statuses.clone();
-
-        // Update statuses for current device
-        for dsr in &mut device_sync_records {
-            if dsr.aware_device_id == current_device_id {
-                dsr.synced = true;
-            }
-        }
-
-        // Get local and remote devices
-        let user_devices = self
-            .device_repository
-            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
-            .await?;
-
-        let remote_user_devices = self
-            .device_repository
-            .get_devices_by_user_id(remote_user_id)
-            .await?;
-
-        let all_devices: Vec<Device> = user_devices
-            .into_iter()
-            .chain(remote_user_devices.iter().cloned())
-            .collect();
-
-        // Process user addition records
-        let (processed_records, processed_statuses, completion_records) = self
-            .prepare_common_sync_data(
-                &user_addition_records.sync_record,
-                &user_addition_records.device_records,
-                &user_addition_records.device_record_statuses,
-                current_device_id,
-                all_devices,
-            )
-            .await?;
-
-        // Create processed record set
-        let processed_record_set = SyncRecordSet {
-            sync_record: user_addition_records.sync_record.clone(),
-            device_records: processed_records,
-            device_record_statuses: processed_statuses,
-        };
-
-        // Create updated completion records with synced=true for current device
-        let updated_completion_records = StatusChangeSet {
-            device_record: device_record.clone(),
-            device_record_statuses: device_sync_records,
-        };
-
-        // Use the abstracted DB function
-        self.db_handle_user_add_ack(
-            remote_user_id,
-            &updated_completion_records,
-            &processed_record_set,
-            &device_record.device_id,
-            &device_record.sync_record_id,
-        )
-        .await?;
-        Ok(completion_records)
-    }
-
-    pub async fn handle_user_add_ack_response(
-        &self,
-        user_addition_record: &StatusChangeSet,
-        current_device_id: &str,
-    ) -> Result<String, RepositoryError> {
-        // Process completion records
-        let device_record = user_addition_record.device_record.clone();
-        let mut device_sync_records = user_addition_record.device_record_statuses.clone();
-
-        // Update statuses for current device
-        for dsr in &mut device_sync_records {
-            if dsr.aware_device_id == current_device_id {
-                dsr.synced = true;
-            }
-        }
-        let updated_status_change_set = StatusChangeSet {
-            device_record: device_record.clone(),
-            device_record_statuses: device_sync_records,
-        };
-
-        self.sync_repository
-            .add_status_change_set(updated_status_change_set)
-            .await?;
-        Ok(device_record.id)
-    }
-
-    pub async fn handle_user_add_final_ack(
-        &self,
-        device_record_id: &str,
-        current_device_id: &str,
     ) -> Result<(), RepositoryError> {
-        self.sync_repository
-            .update_device_status_record_for_device(current_device_id, device_record_id)
-            .await
+        // Use the abstracted DB function
+        self.db_handle_user_add_ack(remote_user_id, &user_addition_records)
+            .await?;
+        Ok(())
     }
 
     async fn get_user_other_devices(

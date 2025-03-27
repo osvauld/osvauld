@@ -121,24 +121,32 @@ impl PeerConnection {
     }
 
     pub async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
-        let event_adapter = self.sync_event_adapter();
-        let ack_message = match self
-            .context
-            .sync_service
-            .process_sync_payload(
-                &payload,
-                &self.user.id,
-                &self.device.id,
-                Some(event_adapter),
-            )
-            .await
-        {
-            Ok(sync_ack) => Message::SyncAck(sync_ack),
-            Err(_e) => Message::Error,
-        };
+        if let Some(current_device) = self.get_local_device().await {
+            let event_adapter = self.sync_event_adapter();
+            let ack_message = match self
+                .context
+                .sync_service
+                .process_sync_payload(
+                    &payload,
+                    &self.user.id,
+                    &self.device.id,
+                    Some(event_adapter),
+                    &current_device.id,
+                    &current_device.user_id,
+                )
+                .await
+            {
+                Ok(sync_ack) => Message::SyncAck(sync_ack),
+                Err(e) => {
+                    error!("something happend {:?}", e);
+                    Message::Error
+                }
+            };
 
-        self.send_message(ack_message).await?;
-        Ok(())
+            self.send_message(ack_message).await?;
+            return Ok(());
+        }
+        Err("Local user not found".into())
     }
 
     pub async fn handle_sync_complete(&self) -> Result<(), String> {

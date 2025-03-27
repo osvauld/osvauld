@@ -56,7 +56,7 @@ impl PeerConnection {
         user_addition_record: &SyncRecordSet,
     ) -> Result<(), String> {
         if let Some(current_device) = self.get_local_device().await {
-            let (user_addition_records, completion_records) = self
+            let user_addition_records = self
                 .context
                 .sync_service
                 .process_first_user_connection_response(
@@ -71,7 +71,6 @@ impl PeerConnection {
             let message = Message::FristUserConnectionAck {
                 user_id: current_device.user_id,
                 user_addition_records,
-                completion_records,
             };
             self.send_message(message).await?;
             return Ok(());
@@ -83,59 +82,15 @@ impl PeerConnection {
     pub async fn handle_user_add_ack(
         &self,
         user_id: &str,
-        completion_records: &StatusChangeSet,
         user_addition_records: &SyncRecordSet,
     ) -> Result<(), String> {
-        if let Some(current_device) = self.get_local_device().await {
-            let addition_completion_record = self
-                .context
-                .sync_service
-                .handle_user_add_ack(
-                    user_id,
-                    completion_records,
-                    user_addition_records,
-                    &current_device.id,
-                    &current_device.user_id,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            let message = Message::FirstUserConnectionAckResponse {
-                addition_completion_record,
-            };
-            self.send_message(message).await?;
-            return Ok(());
-        };
-        Err("Local device not found".into())
-    }
-
-    pub async fn handle_user_add_ack_response(
-        &self,
-        user_addition_record: &StatusChangeSet,
-    ) -> Result<(), String> {
-        if let Some(current_device) = self.get_local_device().await {
-            let device_record_id = self
-                .context
-                .sync_service
-                .handle_user_add_ack_response(user_addition_record, &current_device.id)
-                .await
-                .map_err(|e| e.to_string())?;
-            let message = Message::FirstUserConnectionFinalAck { device_record_id };
-            self.send_message(message).await?;
-            return Ok(());
-        }
-        Err("Local device not found".into())
-    }
-
-    pub async fn handle_final_user_add_ack(&self, device_record_id: &str) -> Result<(), String> {
-        if let Some(current_device) = self.get_local_device().await {
-            self.context
-                .sync_service
-                .handle_user_add_final_ack(device_record_id, &current_device.id)
-                .await
-                .map_err(|e| e.to_string())?;
-
-            return Ok(());
-        }
-        Err("Local device not found".into())
+        self.context
+            .sync_service
+            .handle_user_add_ack(user_id, user_addition_records)
+            .await
+            .map_err(|e| e.to_string())?;
+        let message = Message::FirstUserConnectionComplete;
+        self.send_message(message).await?;
+        return Ok(());
     }
 }

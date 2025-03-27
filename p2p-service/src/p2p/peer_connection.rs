@@ -284,14 +284,12 @@ impl PeerConnection {
             Message::FirstUserConnectionResponse{user, devices, user_addition_record} => {
                 self.handle_first_user_connection_response(user,devices, user_addition_record).await
             }
-            Message::FristUserConnectionAck { user_id, completion_records, user_addition_records }=> {
-                self.handle_user_add_ack(user_id, completion_records, user_addition_records).await
+            Message::FristUserConnectionAck { user_id,  user_addition_records }=> {
+                self.handle_user_add_ack(user_id,  user_addition_records).await
             }
-            Message::FirstUserConnectionAckResponse { addition_completion_record } => {
-                self.handle_user_add_ack_response(addition_completion_record).await
-            }
-            Message::FirstUserConnectionFinalAck { device_record_id } => {
-                self.handle_final_user_add_ack(device_record_id).await
+            Message::FirstUserConnectionComplete => {
+                info!("user connection complete");
+                Ok(())
             }
             Message::SharePayload(payload) => {
                 info!("Received SharePayload");
