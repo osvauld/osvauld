@@ -150,7 +150,7 @@
 	// });
 </script>
 
-<div class="grow max-h-full overflow-y-scroll px-11 py-4 relative">
+<div class="grow max-h-full overflow-hidden px-11 py-4 relative">
 	<div
 		class="h-full pr-1 scrollbar-thin min-w-[37.5rem] {$noteViewLayout
 			? 'overflow-hidden '
