@@ -266,9 +266,7 @@ export function slashCommandPlugin(schema: Schema) {
 			// Find the scrollable container - might be the editor or a parent element
 			const editorDom = editorView.dom;
 			const scrollableContainer =
-				editorDom.closest(".ProseMirror-example-setup-style") ||
-				editorDom.closest(".editor-container") ||
-				editorDom;
+				editorDom.closest(".editor-main") || editorDom;
 
 			// Setup scroll handler
 			scrollHandler = () => {
