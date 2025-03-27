@@ -358,6 +358,7 @@
 	/* Fixed Menu Styles */
 	:global(.editor-fixed-menu) {
 		background: #16171f;
+		height: 92px;
 		border-bottom: 1px solid #2a2b2f;
 		padding: 10px 15px;
 		display: flex;
@@ -445,7 +446,7 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		overflow: hidden;
+		overflow: scroll;
 	}
 
 	:global(.ProseMirror) {
@@ -567,7 +568,7 @@
 </style>
 
 <div class="editor-container">
-	<div class="editor-main relative h-full">
+	<div class="editor-main">
 		{#if isLoading}
 			<div
 				class="loading-overlay flex justify-center items-center h-full w-full">
@@ -577,10 +578,10 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this={element} class="h-full scrollbar-thin"></div>
+		<div bind:this="{element}" class="h-full scrollbar-thin"></div>
 		<button
-			on:click={saveNoteManual}
-			class="absolute z-10 top-6 right-5 w-32 border border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
+			on:click="{saveNoteManual}"
+			class="absolute z-10 top-6 right-5 w-32 border bg-[#16171f] border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
 					><span class="text-[#9DD062] mr-2">Saved...</span>

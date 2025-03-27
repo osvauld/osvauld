@@ -205,7 +205,7 @@ export function slashCommandPlugin(schema: Schema) {
 		const menuRect = menu.getBoundingClientRect();
 
 		// Calculate initial position
-		let top = coords.top - editorRect.top + 130; // Default position below cursor
+		let top = coords.top - editorRect.top + 120; // Default position below cursor
 		let left = coords.left - editorRect.left;
 
 		// Check bottom overflow
