@@ -437,7 +437,7 @@
 		background: #16171f;
 		color: white;
 		position: relative;
-		border-radius: 20px;
+		border-radius: 1rem;
 		display: flex;
 		flex-direction: column;
 	}
@@ -446,7 +446,8 @@
 		flex: 1;
 		display: flex;
 		flex-direction: column;
-		overflow: scroll;
+		overflow-y: auto;
+		margin: 5px 15px 5px 15px;
 	}
 
 	:global(.ProseMirror) {
@@ -457,7 +458,6 @@
 		line-height: 1.5;
 		color: white;
 		background: #16171f;
-		border-radius: 0 0 20px 20px;
 		flex-grow: 1;
 		overflow-y: auto;
 	}
@@ -568,7 +568,7 @@
 </style>
 
 <div class="editor-container">
-	<div class="editor-main">
+	<div class="editor-main scrollbar-thin">
 		{#if isLoading}
 			<div
 				class="loading-overlay flex justify-center items-center h-full w-full">
