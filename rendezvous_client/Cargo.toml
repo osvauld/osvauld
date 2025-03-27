@@ -15,9 +15,15 @@ tokio = { version = "1.44.0", features = ["rt", "sync", "macros", "time"] }
 tokio-tungstenite = { version = "0.26.2", features = ["native-tls"] }
 url = "2.5.4"
 
+
+tracing = "0.1.41"
+tracing-appender = "0.2.3"
+osvauld_services = { path = "../osvauld-services" }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+
 osvauld_core = { path = "../core" }
 p2p_service = { path = "../p2p-service" }
-
+tracing-log = "0.2.0"
 [lib]
 name = "rendezvous_client"
 path = "src/lib.rs"

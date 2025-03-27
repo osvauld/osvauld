@@ -1,4 +1,5 @@
 use log::{error, info};
+use osvauld_core::models::{resource::Resource, vector_clock::ResourceVectorClock};
 use tokio::sync::mpsc;
 
 /// Enum representing various P2P events that can be emitted
@@ -25,17 +26,18 @@ pub enum P2PEvent {
         /// Content of the editing event
         payload: String,
     },
-    /// Emitted when a snapshot update is received
-    SnapshotEvent {
-        /// Content of the snapshot
-        payload: String,
-    },
     /// Emitted when an error occurs
     Error {
         /// Description of the error
         message: String,
         /// Source of the error
         source: String,
+    },
+    UpdateEvent {
+        vector_clock: Vec<ResourceVectorClock>,
+        remote_resource: Resource,
+        device_id: String,
+        user_id: String,
     },
 }
 

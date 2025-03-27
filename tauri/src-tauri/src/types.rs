@@ -1,3 +1,4 @@
+use osvauld_core::models::device::Device;
 use serde::{Deserialize, Serialize};
 
 use osvauld_core::models::folder::Folder;
@@ -43,8 +44,12 @@ pub enum CryptoResponse {
     UpdateResources,
     ResourceCreateted(String),
     GetResourceResponse(DecryptedResource),
-    CreatedKnownUser(User),
+    CreatedKnownUser {
+        user: User,
+        device: Device,
+    },
     GetKnownUsers(Vec<User>),
+    UserDetailsForShare(String),
 }
 
 #[derive(Deserialize)]
@@ -178,13 +183,6 @@ pub struct GetResource {
     pub resource_id: String,
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AddKnownUser {
-    pub nickname: String,
-    pub public_key: String,
-}
-
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareResource {
@@ -194,5 +192,13 @@ pub struct ShareResource {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct InitiateFirstConnectionInput {
-    pub user_id: String,
+    pub user: User,
+    pub device: Device,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct UserDetails {
+    pub user_public_key: String,
+    pub device_public_key: String,
+    pub username: String,
 }

@@ -1,28 +1,47 @@
-use crate::models::device::Device;
-use crate::models::folder::Folder;
-use crate::models::resource::ResourceKeyPair;
-use crate::models::share_record::{ShareRecord, UserRecord, UserRecordStatus};
-use crate::models::sync_record::{DeviceRecord, DeviceRecordStatus, SyncRecord};
-use crate::models::user::User;
+use super::device::Device;
+use super::folder::Folder;
+use super::resource::ResourceKeyPair;
+use super::share_record::{ShareRecord, UserRecord, UserRecordStatus};
+use super::sync_record::{
+    DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
+};
+use super::user::User;
+use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+
+use super::resource::Resource;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SyncPayload {
-    pub sync_record: Option<SyncRecord>, // Optional because status updates don't have sync record
-    pub device_records: Vec<DeviceRecord>,
-    pub device_record_statuses: Vec<DeviceRecordStatus>,
-    pub data: Option<SyncData>, // The actual folder/resource/device data
+pub enum SyncPayload {
+    DeviceSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        device: Device,
+    },
+    ResourceSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        resource: ResourceKeyPair,
+        vector_clocks: Vec<ResourceVectorClock>,
+    },
+    FolderSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        folder: Folder,
+    },
+    StatusUpdate {
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+    },
+    ResourceUpdate {
+        resource: Resource,
+        vector_clocks: Vec<ResourceVectorClock>,
+    },
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
-pub enum SyncData {
-    Folder(Folder),
-    Resource(ResourceKeyPair),
-    Device(Device),
-    SyncRecord(SyncRecord),
-}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Chat(String),
@@ -37,12 +56,33 @@ pub enum Message {
     AddDeviceAck,
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
-    SyncEvent { event: String, payload: String },
-    FirstUserConnection(User),
-    UserAddAck(String),
+    SyncEvent {
+        event: String,
+        payload: String,
+    },
     SharePayload(SharePayload),
     ShareComplete,
-    // HandshakeMessage(HandshakeMessage),
+    UpdateResource(UpdateResource),
+    FirstUserConnectionRequest {
+        user: User,
+        devices: Vec<Device>,
+    },
+    FirstUserConnectionResponse {
+        user: User,
+        devices: Vec<Device>,
+        user_addition_record: SyncRecordSet,
+    },
+    FristUserConnectionAck {
+        user_id: String,
+        completion_records: StatusChangeSet,
+        user_addition_records: SyncRecordSet,
+    },
+    FirstUserConnectionAckResponse {
+        addition_completion_record: StatusChangeSet,
+    },
+    FirstUserConnectionFinalAck {
+        device_record_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -56,25 +96,13 @@ pub enum ConnectionType {
     Device,
     User,
 }
-#[derive(Error, Debug, Serialize, Deserialize)]
-pub enum HandshakeError {
-    #[error("Invalid signature: {0}")]
-    InvalidSignature(String),
-    #[error("Invalid challenge: {0}")]
-    InvalidChallenge(String),
-    #[error("Serialization error: {0}")]
-    Serialization(String), // Changed from serde_json::Error
-    #[error("Auth service error: {0}")]
-    AuthService(String),
-    #[error("Connection error: {0}")]
-    Connection(String),
-    #[error("Timeout error: {0}")]
-    Timeout(String), // Changed from time::error::Elapsed
-}
-impl From<serde_json::Error> for HandshakeError {
-    fn from(err: serde_json::Error) -> Self {
-        HandshakeError::Serialization(err.to_string())
-    }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpdateResource {
+    pub encrypted_data: String,
+    pub add_vector_clock: Vec<ResourceVectorClock>,
+    pub update_vector_clock: Vec<ResourceVectorClock>,
+    pub resource_id: String,
 }
 
 // The HandshakeMessage type remains the same
@@ -101,6 +129,7 @@ pub enum SyncAckType {
     },
     DeviceRecords(Vec<String>), // list of device_record_ids
     DeviceSyncRecord(String),
+    UpdateRecieved(String),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

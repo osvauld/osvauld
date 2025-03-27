@@ -1,7 +1,10 @@
 use crate::p2p::peer_connection::PeerConnection;
+use osvauld_services::SyncEvent;
 
 use log::{error, info};
-use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload};
+use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload, UpdateResource};
+
+use super::P2PEvent;
 
 impl PeerConnection {
     pub async fn add_device(&self, records: SyncPayload, ticket: String) -> Result<(), String> {
@@ -22,8 +25,6 @@ impl PeerConnection {
     }
 
     pub async fn start_device_sync(&self) -> Result<(), String> {
-        // info!("Starting sync process");
-
         let sync_request = Message::SyncRequest;
         self.send_message(sync_request).await?;
         info!("Sync process started");
@@ -35,7 +36,11 @@ impl PeerConnection {
         match self
             .context
             .sync_service
-            .get_next_pending_sync(&self.device)
+            .get_next_pending_sync(
+                &self.device,
+                &self.user,
+                Some(self.pending_resource_ids.clone()),
+            )
             .await
         {
             Ok(Some(payload)) => {
@@ -58,7 +63,7 @@ impl PeerConnection {
     pub async fn handle_add_device_request(&self, records: SyncPayload) -> Result<(), String> {
         self.context
             .sync_service
-            .add_new_device_sync(records)
+            .add_new_device_sync(records, self.user.id.clone())
             .await
             .map_err(|e| e.to_string())?;
         // Create and send acknowledgment message
@@ -72,47 +77,60 @@ impl PeerConnection {
     }
 
     pub async fn handle_sync_ack(&self, ack_type: SyncAckType) -> Result<(), String> {
-        let device_sync_record_id = self
-            .context
-            .sync_service
-            .process_acknowledgement(ack_type, self.device.clone())
-            .await
-            .map_err(|e| e.to_string())?;
-        if let Some(record_id) = device_sync_record_id {
-            let ack_complete_msg = Message::AckComplete(record_id);
-            self.send_message(ack_complete_msg).await?;
-        }
+        if let Some(current_device) = self.get_local_device().await {
+            let device_sync_record_id = self
+                .context
+                .sync_service
+                .process_acknowledgement(ack_type, &self.device, &current_device.id)
+                .await
+                .map_err(|e| e.to_string())?;
+            if let Some(record_id) = device_sync_record_id {
+                let ack_complete_msg = Message::AckComplete(record_id);
+                self.send_message(ack_complete_msg).await?;
+            }
 
-        match self
-            .context
-            .sync_service
-            .get_next_pending_sync(&self.device)
-            .await
-        {
-            Ok(Some(payload)) => {
-                info!("Sending next sync payload");
-                let message = Message::SyncResponse(payload);
-                self.send_message(message).await?;
+            match self
+                .context
+                .sync_service
+                .get_next_pending_sync(
+                    &self.device,
+                    &self.user,
+                    Some(self.pending_resource_ids.clone()),
+                )
+                .await
+            {
+                Ok(Some(payload)) => {
+                    info!("Sending next sync payload");
+                    let message = Message::SyncResponse(payload);
+                    self.send_message(message).await?;
+                }
+                Ok(None) => {
+                    info!("No more pending syncs, sending complete");
+                    let message = Message::SyncComplete;
+                    self.send_message(message).await?;
+                }
+                Err(e) => {
+                    error!("Failed to get next pending sync: {}", e);
+                    return Err(e.to_string());
+                }
             }
-            Ok(None) => {
-                info!("No more pending syncs, sending complete");
-                let message = Message::SyncComplete;
-                self.send_message(message).await?;
-            }
-            Err(e) => {
-                error!("Failed to get next pending sync: {}", e);
-                return Err(e.to_string());
-            }
-        }
 
-        Ok(())
+            return Ok(());
+        }
+        Err("failed to get current device".into())
     }
 
     pub async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
+        let event_adapter = self.sync_event_adapter();
         let ack_message = match self
             .context
             .sync_service
-            .process_sync_payload(&payload)
+            .process_sync_payload(
+                &payload,
+                &self.user.id,
+                &self.device.id,
+                Some(event_adapter),
+            )
             .await
         {
             Ok(sync_ack) => Message::SyncAck(sync_ack),
@@ -131,7 +149,11 @@ impl PeerConnection {
             match self
                 .context
                 .sync_service
-                .get_next_pending_sync(&self.device)
+                .get_next_pending_sync(
+                    &self.device,
+                    &self.user,
+                    Some(self.pending_resource_ids.clone()),
+                )
                 .await
             {
                 Ok(Some(payload)) => {
@@ -140,6 +162,11 @@ impl PeerConnection {
                 }
                 Ok(None) => {
                     info!("No pending syncs, sending sync complete");
+                    self.context
+                        .user_service
+                        .update_device_last_synced(&self.device.id)
+                        .await
+                        .map_err(|e| e.to_string())?;
                     let message = Message::SyncComplete;
                     self.send_message(message).await?;
                 }
@@ -148,6 +175,12 @@ impl PeerConnection {
                     return Err(e.to_string());
                 }
             }
+        } else {
+            self.context
+                .user_service
+                .update_device_last_synced(&self.device.id)
+                .await
+                .map_err(|e| e.to_string())?;
         }
 
         Ok(())
@@ -163,5 +196,40 @@ impl PeerConnection {
     pub async fn send_update(&self, payload: String) -> Result<(), String> {
         log::info!("got update...");
         Ok(())
+    }
+
+    fn sync_event_adapter(&self) -> impl Fn(SyncEvent) + Send + Sync {
+        let event_emitter = self.event_emitter.clone();
+
+        move |sync_event| {
+            // Map SyncEvent to P2PEvent
+            let p2p_event = match sync_event {
+                SyncEvent::UpdateEvent {
+                    remote_resource,
+                    vector_clock,
+                    device_id,
+                    user_id,
+                } => P2PEvent::UpdateEvent {
+                    remote_resource,
+                    vector_clock,
+                    device_id,
+                    user_id,
+                },
+            };
+            event_emitter.emit(p2p_event);
+        }
+    }
+
+    pub async fn handle_merge_update(&self, payload: &UpdateResource) -> Result<(), String> {
+        self.context
+            .sync_service
+            .merge_updated_doc(
+                &payload.encrypted_data,
+                &payload.add_vector_clock,
+                &payload.update_vector_clock,
+                &payload.resource_id,
+            )
+            .await
+            .map_err(|e| e.to_string())
     }
 }

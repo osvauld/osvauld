@@ -6,6 +6,7 @@ CREATE TABLE users (
     created_at BIGINT NOT NULL,
     signature TEXT NOT NULL,
     owner BOOLEAN NOT NULL DEFAULT FALSE,
+    first_sync BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL,
     deleted_at BIGINT
 );
@@ -25,9 +26,11 @@ CREATE TABLE folders (
 CREATE TABLE devices (
     id TEXT PRIMARY KEY NOT NULL,
     device_key TEXT NOT NULL UNIQUE,
+    user_id TEXT NOT NULL,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
-    last_synced_at BIGINT
+    last_synced_at BIGINT,
+    FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
 CREATE TABLE sync_records (
@@ -76,9 +79,21 @@ CREATE TABLE resources (
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
-        vector_clock TEXT NOT NULL DEFAULT '{"clock":{}}',
     FOREIGN KEY (folder_id) REFERENCES folders (id)
 );
+
+CREATE TABLE resource_vector_clocks (
+    id TEXT PRIMARY KEY NOT NULL,
+    resource_id TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    clock_value INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    FOREIGN KEY (resource_id) REFERENCES resources (id),
+    FOREIGN KEY (device_id) REFERENCES devices (id),
+    UNIQUE (resource_id, device_id)
+);
+
 
 -- Resource keys table for per-user encryption keys
 CREATE TABLE resource_keys (

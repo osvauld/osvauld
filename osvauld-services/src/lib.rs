@@ -11,6 +11,6 @@ pub use auth_service::AuthService;
 pub use folder_service::FolderService;
 pub use resource_service::ResourceService;
 pub use share_service::ShareService;
-pub use sync_service::SyncService;
+pub use sync_service::{SyncEvent, SyncService};
 pub use transaction_service::TransactionService;
 pub use user_service::UserService;

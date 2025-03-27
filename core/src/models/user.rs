@@ -9,6 +9,7 @@ pub struct User {
     pub public_key: String,
     pub created_at: i64,
     pub signature: String,
+    pub first_sync: bool,
     pub updated_at: i64,
     pub owner: bool,
     pub deleted: bool,
@@ -22,6 +23,7 @@ impl User {
         public_key: String,
         signature: String,
         owner: bool,
+        first_sync: bool,
     ) -> Self {
         let now = Local::now().timestamp_millis();
 
@@ -31,6 +33,7 @@ impl User {
             public_key,
             signature,
             owner,
+            first_sync,
             created_at: now,
             updated_at: now,
             deleted: false,

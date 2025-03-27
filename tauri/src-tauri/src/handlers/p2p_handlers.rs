@@ -5,6 +5,7 @@ use osvauld_core::models::p2p::ConnectionType;
 use osvauld_services::UserService;
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
+use std::fmt::format;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
@@ -23,7 +24,10 @@ pub async fn send_message(
 
 #[tauri::command]
 pub async fn get_ticket(state: State<'_, Arc<P2PService>>) -> Result<String, String> {
-    state.get_connection_ticket().await
+    state
+        .get_connection_ticket()
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -32,7 +36,7 @@ pub async fn connect_with_device(
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<(), String> {
     p2p_service
-        .connect_with_ticket(&ticket, ConnectionType::Device)
+        .connect_with_ticket(&ticket, ConnectionType::Device, None)
         .await?;
     // p2p_service.start_device_sync().await
     Ok(())
@@ -54,26 +58,14 @@ pub fn get_system_locale() -> String {
 }
 
 #[tauri::command]
-pub async fn send_snapshot(
-    snapshot: String,
-    p2p_service: State<'_, Arc<P2PService>>,
-) -> Result<(), CryptoResponse> {
-    log::info!("snapshot recived {:?}", snapshot);
-    // let _ = p2p_service
-    //     .send_snapshot(snapshot)
-    //     .await
-    //     .map_err(|e| CryptoResponse::Error(e));
-    Ok(())
-}
-
-#[tauri::command]
 pub async fn initiate_first_connection(
     input: InitiateFirstConnectionInput,
     rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
-    info!("recived first connection request");
+    info!("recived first connection request {:?}", input);
+    let connection_id = format!("{}:{}", input.user.id, input.device.id);
     match rendezvous_service
-        .mark_for_first_connection(&input.user_id)
+        .mark_for_first_connection(&connection_id)
         .await
     {
         Ok(_) => info!("requested connection.."),

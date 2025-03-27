@@ -25,6 +25,10 @@ iroh-base = "0.32.0"
 # Osvauld core dependencies
 osvauld_core = { version = "0.1.0", path = "../core" }
 osvauld_services = { version = "0.1.0", path = "../osvauld-services" }
+tracing = { version = "0.1.41", features = ["attributes"] }
+tracing-appender = "0.2.3"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-log = "0.2.0"
 
 [features]
 default = []

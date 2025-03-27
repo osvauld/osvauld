@@ -2,6 +2,7 @@ use crate::database::DbConnection;
 use crate::database::schema::devices;
 use crate::models::DeviceModel;
 use async_trait::async_trait;
+use chrono::Local;
 use diesel::ExpressionMethods;
 use diesel::prelude::*;
 use osvauld_core::models::device::Device;
@@ -19,16 +20,10 @@ impl SqliteDeviceRepository {
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
-    async fn save(&self, device: Device) -> Result<(), RepositoryError> {
+    async fn save(&self, device: &Device) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        let device_model = DeviceModel {
-            id: device.id,
-            device_key: device.device_key,
-            created_at: device.created_at,
-            updated_at: device.updated_at,
-            last_synced_at: device.last_synced_at,
-        };
+        let device_model = DeviceModel::from(device);
 
         diesel::insert_into(devices::table)
             .values(&device_model)
@@ -51,10 +46,11 @@ impl DeviceRepository for SqliteDeviceRepository {
 
         Ok(device.into())
     }
-    async fn get_all_devices(&self) -> Result<Vec<Device>, RepositoryError> {
+    async fn get_devices_by_user_id(&self, user_id: &str) -> Result<Vec<Device>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         let device_models = devices::table
+            .filter(devices::user_id.eq(user_id))
             .order_by(devices::created_at.desc())
             .load::<DeviceModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
@@ -62,12 +58,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         Ok(DeviceModel::to_domain_devices(device_models))
     }
 
-    async fn udpate_last_synced_at(
-        &self,
-        device_id: &str,
-        timestamp: i64,
-    ) -> Result<(), RepositoryError> {
+    async fn update_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
+        let timestamp = Local::now().timestamp_millis();
         diesel::update(devices::table)
             .filter(devices::id.eq(device_id))
             .set(devices::last_synced_at.eq(timestamp))
@@ -75,17 +68,50 @@ impl DeviceRepository for SqliteDeviceRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(())
     }
-    async fn get_devices_except(
+    async fn get_devices_by_user_except(
         &self,
+        user_id: &str,
         exclude_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         let device_models = devices::table
             .filter(devices::id.ne_all(exclude_ids))
+            .filter(devices::user_id.eq(user_id))
             .order_by(devices::created_at.desc())
             .load::<DeviceModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
         Ok(DeviceModel::to_domain_devices(device_models))
+    }
+
+    async fn get_all_devices_except(
+        &self,
+        except_devices: &[String],
+    ) -> Result<Vec<Device>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let device_models = devices::table
+            .filter(devices::id.ne_all(except_devices))
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        Ok(DeviceModel::to_domain_devices(device_models))
+    }
+
+    async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError> {
+        if devices.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Convert all domain devices to database models
+        let device_models: Vec<DeviceModel> = devices.iter().map(DeviceModel::from).collect();
+
+        // Use a batch insert
+        diesel::insert_into(devices::table)
+            .values(&device_models)
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
     }
 }

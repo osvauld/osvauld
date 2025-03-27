@@ -13,7 +13,7 @@ use crate::models::{
         SyncRecordSet,
     },
     user::User,
-    vector_clock::VectorClock,
+    vector_clock::ResourceVectorClock,
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -38,7 +38,7 @@ pub trait FolderRepository: Send + Sync {
 
 #[async_trait]
 pub trait SyncRepository: Send + Sync {
-    async fn add_sync_record_set(&self, record_set: SyncRecordSet) -> Result<(), RepositoryError>;
+    async fn add_sync_record_set(&self, record_set: &SyncRecordSet) -> Result<(), RepositoryError>;
     async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
     async fn add_status_change_set(
         &self,
@@ -87,6 +87,22 @@ pub trait SyncRepository: Send + Sync {
         &self,
         sync_id: &str,
     ) -> Result<Vec<DeviceRecord>, RepositoryError>;
+    async fn get_users_with_unsynced_devices(&self) -> Result<Vec<Device>, RepositoryError>;
+    async fn update_device_record_statuses_for_sync(
+        &self,
+        sync_record_id: String,
+        device_id: String,
+    ) -> Result<(), RepositoryError>;
+    async fn get_resource_ids_for_device(
+        &self,
+        device_id: &str,
+    ) -> Result<Vec<String>, RepositoryError>;
+
+    async fn update_device_status_record_for_device(
+        &self,
+        device_id: &str,
+        device_record_id: &str,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
@@ -132,11 +148,7 @@ pub trait ResourceRepository: Send + Sync {
         user_id: &str,
     ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
     async fn get_favourites(&self, user_id: &str) -> Result<Vec<ResourceWithKey>, RepositoryError>;
-    async fn update_resource(
-        &self,
-        data: String,
-        resource_id: String,
-    ) -> Result<(), RepositoryError>;
+    async fn update_resource(&self, data: &str, resource_id: &str) -> Result<(), RepositoryError>;
     async fn find_resource_with_key(
         &self,
         resource_id: &str,
@@ -147,32 +159,27 @@ pub trait ResourceRepository: Send + Sync {
         resource: &Resource,
         key: &ResourceKey,
     ) -> Result<(), RepositoryError>;
-
-    async fn update_resource_vector_clock(
-        &self,
-        resource_id: &str,
-        vector_clock: &VectorClock,
-    ) -> Result<(), RepositoryError>;
-
     async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError>;
 }
 
 #[async_trait]
 
 pub trait DeviceRepository: Send + Sync {
-    async fn save(&self, device: Device) -> Result<(), RepositoryError>;
+    async fn save(&self, device: &Device) -> Result<(), RepositoryError>;
     async fn find_by_id(&self, device_id: &str) -> Result<Device, RepositoryError>;
-    async fn get_all_devices(&self) -> Result<Vec<Device>, RepositoryError>;
-    async fn udpate_last_synced_at(
+    async fn update_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError>;
+    async fn get_devices_by_user_id(&self, user_id: &str) -> Result<Vec<Device>, RepositoryError>;
+    async fn get_devices_by_user_except(
         &self,
-        device_id: &str,
-        timestamp: i64,
-    ) -> Result<(), RepositoryError>;
-
-    async fn get_devices_except(
-        &self,
+        user_id: &str,
         exclude_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
+
+    async fn get_all_devices_except(
+        &self,
+        current_device_id: &[String],
+    ) -> Result<Vec<Device>, RepositoryError>;
+    async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
@@ -187,9 +194,10 @@ pub trait DeviceRecordStatusRepository: Send + Sync {
 
 #[async_trait]
 pub trait UserRepository: Send + Sync {
-    async fn add_known_user(&self, user: User) -> Result<(), RepositoryError>;
+    async fn add_known_user(&self, user: &User) -> Result<(), RepositoryError>;
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
+    async fn complete_user_addtion(&self, user_id: &str) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
@@ -273,4 +281,53 @@ pub trait ShareRepository: Send + Sync {
     ) -> Result<Vec<UserRecord>, RepositoryError>;
 
     async fn get_share_record_by_id(&self, share_id: &str) -> Result<ShareRecord, RepositoryError>;
+}
+
+#[async_trait]
+pub trait VectorClockRepository: Send + Sync {
+    /// Save multiple vector clock entries
+    async fn save_vector_clocks(
+        &self,
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
+
+    /// Increment a vector clock for a specific resource and device
+    async fn increment_vector_clock(
+        &self,
+        resource_id: &str,
+        device_id: &str,
+    ) -> Result<ResourceVectorClock, RepositoryError>;
+
+    /// Get all vector clock entries for a resource
+    async fn get_vector_clocks_for_resource(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<ResourceVectorClock>, RepositoryError>;
+
+    /// Get a specific vector clock entry
+    async fn get_vector_clock(
+        &self,
+        resource_id: &str,
+        device_id: &str,
+    ) -> Result<ResourceVectorClock, RepositoryError>;
+
+    async fn check_if_device_needs_update(
+        &self,
+        resource_ids: &[String],
+        last_synced_at: i64,
+        device_id: &str,
+    ) -> Result<bool, RepositoryError>;
+
+    async fn get_resource_ids_needing_updates(
+        &self,
+        resource_ids: &[String],
+        last_synced_at: i64,
+        device_id: &str,
+    ) -> Result<Vec<String>, RepositoryError>;
+
+    async fn update_vector_clocks(
+        &self,
+        update_vector_clocks: &[ResourceVectorClock],
+        add_vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
 }

@@ -26,6 +26,7 @@ impl FolderService {
         name: String,
         description: Option<String>,
     ) -> Result<Folder, FolderServiceError> {
+        //TODO: move to transaction
         // Validate input
         if name.trim().is_empty() {
             return Err(FolderServiceError::ValidationError(
@@ -55,7 +56,6 @@ impl FolderService {
 
     pub async fn create_default_folder(&self) -> Result<Folder, FolderServiceError> {
         let folder = Folder::new("default".to_string(), None, true);
-        self.folder_repository.save(&folder).await?;
         Ok(folder)
     }
 }

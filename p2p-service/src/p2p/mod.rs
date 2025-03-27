@@ -1,7 +1,11 @@
 pub mod connection_manager;
 pub mod constants;
 pub mod emitter;
+pub mod errors;
 pub mod handshake;
+pub mod incoming;
+pub mod incoming_handler;
+pub mod logger;
 pub mod p2p_service;
 pub mod peer_connection;
 pub mod share;

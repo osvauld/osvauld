@@ -11,3 +11,4 @@ frontends/node_modules/
 frontends/packages/livnote/desktop/node_modules
 frontends/packages/livnote/desktop/dist/
 frontends/packages/common/node_modules/
+rendezvous_server/clients_db/
