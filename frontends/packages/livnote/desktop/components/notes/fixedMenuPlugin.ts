@@ -134,15 +134,15 @@ function addFormattingItems(container, schema, view) {
 	}
 
 	// Code
-	if (schema.marks.code) {
-		const codeButton = createButton("</>", "Code", () => {
-			toggleMark(schema.marks.code)(view.state, view.dispatch);
-			view.focus();
-		});
-		codeButton.classList.add("menu-code");
-		codeButton.dataset.markType = "code";
-		group.appendChild(codeButton);
-	}
+	// if (schema.marks.code) {
+	// 	const codeButton = createButton("</>", "Code", () => {
+	// 		toggleMark(schema.marks.code)(view.state, view.dispatch);
+	// 		view.focus();
+	// 	});
+	// 	codeButton.classList.add("menu-code");
+	// 	codeButton.dataset.markType = "code";
+	// 	group.appendChild(codeButton);
+	// }
 
 	if (group.children.length > 0) {
 		container.appendChild(group);
@@ -247,20 +247,31 @@ function addListItems(container, schema, view) {
 	}
 }
 
-// Add history buttons (undo/redo)
 function addHistoryItems(container, schema, view) {
 	const group = document.createElement("div");
 	group.className = "editor-menu-group";
 
-	// Undo
-	const undoButton = createButton("↶ Undo", "Undo last change", () => {
+	// Undo button with SVG
+	const undoButton = document.createElement("button");
+	undoButton.className = "editor-history-button"; // Assuming you have this class
+	undoButton.title = "Undo last change";
+	undoButton.innerHTML = `
+	  <svg width="24" height="24" focusable="false"><path d="M6.4 8H12c3.7 0 6.2 2 6.8 5.1.6 2.7-.4 5.6-2.3 6.8a1 1 0 0 1-1-1.8c1.1-.6 1.8-2.7 1.4-4.6-.5-2.1-2.1-3.5-4.9-3.5H6.4l3.3 3.3a1 1 0 1 1-1.4 1.4l-5-5a1 1 0 0 1 0-1.4l5-5a1 1 0 0 1 1.4 1.4L6.4 8Z" fill-rule="nonzero" fill="#85889C"></path></svg>
+	`;
+	undoButton.addEventListener("click", () => {
 		undo(view.state, view.dispatch);
 		view.focus();
 	});
 	group.appendChild(undoButton);
 
-	// Redo
-	const redoButton = createButton("↷ Redo", "Redo last undone change", () => {
+	// Redo button with SVG
+	const redoButton = document.createElement("button");
+	redoButton.className = "editor-history-button"; // Assuming you have this class
+	redoButton.title = "Redo last undone change";
+	redoButton.innerHTML = `
+	<svg width="24" height="24" focusable="false"><path d="M17.6 10H12c-2.8 0-4.4 1.4-4.9 3.5-.4 2 .3 4 1.4 4.6a1 1 0 1 1-1 1.8c-2-1.2-2.9-4.1-2.3-6.8.6-3 3-5.1 6.8-5.1h5.6l-3.3-3.3a1 1 0 1 1 1.4-1.4l5 5a1 1 0 0 1 0 1.4l-5 5a1 1 0 0 1-1.4-1.4l3.3-3.3Z" fill-rule="nonzero" fill="#85889C"></path></svg>
+	`;
+	redoButton.addEventListener("click", () => {
 		redo(view.state, view.dispatch);
 		view.focus();
 	});

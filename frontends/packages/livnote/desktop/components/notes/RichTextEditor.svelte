@@ -375,6 +375,7 @@
 		padding-right: 12px;
 		margin-right: 12px;
 		border-right: 1px solid #2a2b2f;
+		min-height: 30px;
 	}
 
 	:global(.editor-menu-group:last-child) {
@@ -564,6 +565,15 @@
 		border-radius: 4px;
 		white-space: nowrap;
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+	}
+
+	:global(.editor-history-button) {
+		padding: 5px;
+		cursor: pointer;
+		border-radius: 4px;
+	}
+	:global(.editor-history-button:hover) {
+		background-color: #2a2b2f;
 	}
 </style>
 
