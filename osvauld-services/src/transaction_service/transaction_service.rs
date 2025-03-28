@@ -14,15 +14,15 @@ use osvauld_core::models::share_record::{ShareRecordSet, UserRecordSet};
 use osvauld_core::models::sync_record::{SyncRecordSet, SyncUpdateData};
 use std::sync::Arc;
 pub struct TransactionService {
-    resource_repository: Arc<dyn ResourceRepository>,
-    resource_key_repository: Arc<dyn ResourceKeyRepository>,
-    sync_repository: Arc<dyn SyncRepository>,
-    share_repository: Arc<dyn ShareRepository>,
-    store_repository: Arc<dyn StoreRepository>,
-    user_repository: Arc<dyn UserRepository>,
-    device_repository: Arc<dyn DeviceRepository>,
-    folder_repository: Arc<dyn FolderRepository>,
-    vector_clock_repository: Arc<dyn VectorClockRepository>,
+    pub resource_repository: Arc<dyn ResourceRepository>,
+    pub resource_key_repository: Arc<dyn ResourceKeyRepository>,
+    pub sync_repository: Arc<dyn SyncRepository>,
+    pub share_repository: Arc<dyn ShareRepository>,
+    pub store_repository: Arc<dyn StoreRepository>,
+    pub user_repository: Arc<dyn UserRepository>,
+    pub device_repository: Arc<dyn DeviceRepository>,
+    pub folder_repository: Arc<dyn FolderRepository>,
+    pub vector_clock_repository: Arc<dyn VectorClockRepository>,
 }
 
 impl TransactionService {

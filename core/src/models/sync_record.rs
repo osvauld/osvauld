@@ -1,6 +1,6 @@
 use crate::models::device::Device;
 use crate::models::resource::Resource;
-use crate::models::sync_types::{OperationType, ResourceType, SyncStatus};
+use crate::models::sync_types::{OperationType, ResourceType, SyncMergeResult, SyncStatus};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -381,13 +381,22 @@ impl SyncRecord {
         device_records: &[DeviceRecord],
         device_statuses: &[DeviceRecordStatus],
         current_device_id: &str,
-    ) -> (Vec<DeviceRecord>, Vec<DeviceRecordStatus>) {
+    ) -> (
+        Vec<DeviceRecord>,
+        Vec<DeviceRecordStatus>,
+        Vec<String>,
+        Vec<String>,
+    ) {
+        let mut updated_record_ids = Vec::new();
+        let mut updated_status_ids = Vec::new();
+
         let updated_records = device_records
             .iter()
             .map(|record| {
                 let mut r = record.clone();
                 if r.device_id == current_device_id {
                     r.synced = true;
+                    updated_record_ids.push(r.id.clone());
                 }
                 r
             })
@@ -399,12 +408,18 @@ impl SyncRecord {
                 let mut s = status.clone();
                 if s.aware_device_id == current_device_id {
                     s.synced = true;
+                    updated_status_ids.push(s.id.clone());
                 }
                 s
             })
             .collect();
 
-        (updated_records, updated_statuses)
+        (
+            updated_records,
+            updated_statuses,
+            updated_record_ids,
+            updated_status_ids,
+        )
     }
 
     pub fn create_device_sync_records(
@@ -471,5 +486,145 @@ impl SyncRecord {
             current_device_id,
             other_devices,
         )
+    }
+
+    pub fn merge_sync_records(
+        local_device_records: &[DeviceRecord],
+        local_device_statuses: &[DeviceRecordStatus],
+        remote_device_records: &[DeviceRecord],
+        remote_device_statuses: &[DeviceRecordStatus],
+        current_device_id: &str,
+    ) -> SyncMergeResult {
+        let mut result = SyncMergeResult::new();
+
+        // Process Device Records
+        // 1. Check remote records against local records
+        for remote_record in remote_device_records {
+            let matching_local_record = local_device_records
+                .iter()
+                .find(|local_record| local_record.id == remote_record.id);
+
+            match matching_local_record {
+                Some(local_record) => {
+                    // Record exists on both sides - check sync flags
+                    if remote_record.synced && !local_record.synced {
+                        // Remote has synced=true but local has synced=false
+                        // Update local record to synced=true
+                        result
+                            .local_operations
+                            .record_ids_to_update
+                            .push(local_record.id.clone());
+                    }
+
+                    if local_record.synced && !remote_record.synced {
+                        // Local has synced=true but remote has synced=false
+                        // Update remote record to synced=true
+                        result
+                            .remote_operations
+                            .record_ids_to_update
+                            .push(remote_record.id.clone());
+                    }
+                }
+                None => {
+                    // Record exists on remote but not local - add to local
+                    result
+                        .local_operations
+                        .records_to_add
+                        .push(remote_record.clone());
+                }
+            }
+        }
+
+        // 2. Check local records against remote records
+        for local_record in local_device_records {
+            let matching_remote_record = remote_device_records
+                .iter()
+                .find(|remote_record| remote_record.id == local_record.id);
+
+            if matching_remote_record.is_none() {
+                // Record exists on local but not remote - add to remote
+                result
+                    .remote_operations
+                    .records_to_add
+                    .push(local_record.clone());
+            }
+        }
+
+        // Process Device Record Statuses
+        // 1. Check remote statuses against local statuses
+        for remote_status in remote_device_statuses {
+            let matching_local_status = local_device_statuses
+                .iter()
+                .find(|local_status| local_status.id == remote_status.id);
+
+            match matching_local_status {
+                Some(local_status) => {
+                    // Status exists on both sides - check sync flags
+
+                    // Special case: If status is for current device and synced=false
+                    // Always update it to synced=true
+                    if remote_status.aware_device_id == current_device_id && !remote_status.synced {
+                        result
+                            .local_operations
+                            .status_ids_to_update
+                            .push(local_status.id.clone());
+                        result
+                            .remote_operations
+                            .status_ids_to_update
+                            .push(remote_status.id.clone());
+                        continue;
+                    }
+
+                    if remote_status.synced && !local_status.synced {
+                        // Remote has synced=true but local has synced=false
+                        // Update local status to synced=true
+                        result
+                            .local_operations
+                            .status_ids_to_update
+                            .push(local_status.id.clone());
+                    }
+
+                    if local_status.synced && !remote_status.synced {
+                        // Local has synced=true but remote has synced=false
+                        // Update remote status to synced=true
+                        result
+                            .remote_operations
+                            .status_ids_to_update
+                            .push(remote_status.id.clone());
+                    }
+                }
+                None => {
+                    // Status exists on remote but not local - add to local
+
+                    // If this status is for the current device, ensure it's marked as synced
+                    let mut status_to_add = remote_status.clone();
+                    if status_to_add.aware_device_id == current_device_id {
+                        status_to_add.synced = true;
+                    }
+
+                    result
+                        .local_operations
+                        .status_records_to_add
+                        .push(status_to_add);
+                }
+            }
+        }
+
+        // 2. Check local statuses against remote statuses
+        for local_status in local_device_statuses {
+            let matching_remote_status = remote_device_statuses
+                .iter()
+                .find(|remote_status| remote_status.id == local_status.id);
+
+            if matching_remote_status.is_none() {
+                // Status exists on local but not remote - add to remote
+                result
+                    .remote_operations
+                    .status_records_to_add
+                    .push(local_status.clone());
+            }
+        }
+
+        result
     }
 }

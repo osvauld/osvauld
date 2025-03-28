@@ -1,3 +1,4 @@
+use crate::models::sync_record::{DeviceRecord, DeviceRecordStatus};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -88,6 +89,58 @@ impl From<String> for SyncStatus {
             "completed" => SyncStatus::Completed,
             "failed" => SyncStatus::Failed,
             _ => panic!("Invalid SyncStatus string: {}", s),
+        }
+    }
+}
+
+/// Result structure for sync operations that need to be performed
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SyncOperations {
+    /// Records to be added
+    pub records_to_add: Vec<DeviceRecord>,
+    /// Record statuses to be added
+    pub status_records_to_add: Vec<DeviceRecordStatus>,
+    /// IDs of records that need to be updated (synced flag)
+    pub record_ids_to_update: Vec<String>,
+    /// IDs of statuses that need to be updated (synced flag)
+    pub status_ids_to_update: Vec<String>,
+}
+
+impl SyncOperations {
+    /// Create a new empty set of sync operations
+    pub fn new() -> Self {
+        Self {
+            records_to_add: Vec::new(),
+            status_records_to_add: Vec::new(),
+            record_ids_to_update: Vec::new(),
+            status_ids_to_update: Vec::new(),
+        }
+    }
+
+    /// Check if there are any operations to perform
+    pub fn is_empty(&self) -> bool {
+        self.records_to_add.is_empty()
+            && self.status_records_to_add.is_empty()
+            && self.record_ids_to_update.is_empty()
+            && self.status_ids_to_update.is_empty()
+    }
+}
+
+/// Result structure for the merge operation between local and remote sync records
+#[derive(Debug)]
+pub struct SyncMergeResult {
+    /// Operations that need to be performed locally
+    pub local_operations: SyncOperations,
+    /// Operations that need to be sent back to the remote
+    pub remote_operations: SyncOperations,
+}
+
+impl SyncMergeResult {
+    /// Create a new empty merge result
+    pub fn new() -> Self {
+        Self {
+            local_operations: SyncOperations::new(),
+            remote_operations: SyncOperations::new(),
         }
     }
 }

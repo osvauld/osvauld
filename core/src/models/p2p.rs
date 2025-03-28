@@ -5,6 +5,7 @@ use super::share_record::{ShareRecord, UserRecord, UserRecordStatus};
 use super::sync_record::{
     DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
+use super::sync_types::SyncOperations;
 use super::user::User;
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
@@ -123,11 +124,7 @@ pub struct SyncAckDeviceRecord {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncAckType {
-    FullSync {
-        sync_record_id: String,
-        device_record: DeviceRecord,
-        device_sync_records: Vec<DeviceRecordStatus>,
-    },
+    FullSync(SyncOperations),
     DeviceRecords(Vec<String>), // list of device_record_ids
     DeviceSyncRecord(String),
     UpdateRecieved(String),
