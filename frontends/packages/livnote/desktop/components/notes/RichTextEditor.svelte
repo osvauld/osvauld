@@ -372,6 +372,7 @@
 	:global(.editor-menu-group) {
 		display: flex;
 		align-items: center;
+		gap: 5px;
 		padding-right: 12px;
 		margin-right: 12px;
 		border-right: 1px solid #2a2b2f;
@@ -414,7 +415,7 @@
 	:global(.editor-menuitem-active) {
 		background: #3a3b44;
 		color: #bfc0cc;
-		border-bottom: 2px solid #7c91f9;
+		box-shadow: 0px 2px 0px -1px rgb(124 145 249 / 1);
 	}
 
 	/* Special styles for specific menu items */
@@ -567,12 +568,12 @@
 		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 	}
 
-	:global(.editor-history-button) {
+	:global(.editor-general-button) {
 		padding: 5px;
 		cursor: pointer;
 		border-radius: 4px;
 	}
-	:global(.editor-history-button:hover) {
+	:global(.editor-general-button:hover) {
 		background-color: #2a2b2f;
 	}
 </style>
