@@ -364,7 +364,7 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 8px;
+		gap: 4px;
 		border-top-left-radius: 8px;
 		border-top-right-radius: 8px;
 	}
@@ -372,9 +372,9 @@
 	:global(.editor-menu-group) {
 		display: flex;
 		align-items: center;
-		gap: 5px;
-		padding-right: 12px;
-		margin-right: 12px;
+		gap: 3px;
+		padding-right: 5px;
+		margin-right: 5px;
 		border-right: 1px solid #2a2b2f;
 		min-height: 30px;
 	}

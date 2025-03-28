@@ -2,6 +2,7 @@ import { Plugin } from "prosemirror-state";
 import { MenuItem } from "prosemirror-menu";
 import { EditorView } from "prosemirror-view";
 import { Schema } from "prosemirror-model";
+import { liftListItem, sinkListItem } from "prosemirror-schema-list";
 import {
 	toggleMark,
 	lift,
@@ -11,6 +12,147 @@ import {
 } from "prosemirror-commands";
 import { wrapInList } from "prosemirror-schema-list";
 import { undo, redo } from "prosemirror-history";
+
+// Helper function to get current indentation level
+function getCurrentIndent(state) {
+	const { $from } = state.selection;
+	const node = $from.parent;
+	return node.attrs.indent || 0;
+}
+
+// Helper function to preserve existing attributes
+function getExistingAttributes(state, pos) {
+	const node = state.doc.nodeAt(pos);
+	return node ? { ...node.attrs } : {};
+}
+
+// Helper function to check if we're in a list
+function isInList(state) {
+	const { $from } = state.selection;
+	let depth = $from.depth;
+	while (depth > 0) {
+		const node = $from.node(depth);
+		if (node.type.name === "bullet_list" || node.type.name === "ordered_list") {
+			return true;
+		}
+		depth--;
+	}
+	return false;
+}
+
+function addIndentButtons(container, schema, view) {
+	const group = document.createElement("div");
+	group.className = "editor-menu-group";
+
+	// Indent right button
+	const indentRightButton = document.createElement("button");
+	indentRightButton.className = "editor-general-button";
+	indentRightButton.title = "Indent right";
+	indentRightButton.innerHTML = `
+	  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+		<g fill="none" stroke="#85889C" stroke-width="1.2">
+		  <line x1="3" y1="6" x2="21" y2="6" />
+		  <line x1="8" y1="10" x2="21" y2="10" />
+		  <line x1="8" y1="14" x2="21" y2="14" />
+		  <line x1="3" y1="18" x2="21" y2="18" />
+		  <path d="M3.5 13L6.5 10M3.5 11L6.5 14" />
+		</g>
+	  </svg>
+	`;
+	indentRightButton.addEventListener("click", () => {
+		indentRight(view);
+	});
+	group.appendChild(indentRightButton);
+
+	// Indent left button
+	const indentLeftButton = document.createElement("button");
+	indentLeftButton.className = "editor-general-button";
+	indentLeftButton.title = "Indent left";
+	indentLeftButton.innerHTML = `
+	  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+		<g fill="none" stroke="#85889C" stroke-width="1.2">
+		  <line x1="3" y1="6" x2="21" y2="6" />
+		  <line x1="8" y1="10" x2="21" y2="10" />
+		  <line x1="8" y1="14" x2="21" y2="14" />
+		  <line x1="3" y1="18" x2="21" y2="18" />
+		  <path d="M6.5 13L3.5 10M6.5 11L3.5 14" />
+		</g>
+	  </svg>
+	`;
+	indentLeftButton.addEventListener("click", () => {
+		indentLeft(view);
+	});
+	group.appendChild(indentLeftButton);
+
+	if (group.children.length > 0) {
+		container.appendChild(group);
+	}
+}
+
+// Function to handle indent right
+function indentRight(view) {
+	const { state, dispatch } = view;
+	const { selection } = state;
+
+	// Check if we're in a list
+	if (isInList(state)) {
+		// Use ProseMirror's built-in list item sinking
+		sinkListItem(state.schema.nodes.list_item)(state, dispatch);
+	} else {
+		// Apply custom indentation for non-list content
+		const tr = state.tr;
+		const { from, to } = selection;
+
+		// Get current indentation level
+		const currentIndent = getCurrentIndent(state);
+		const newIndent = Math.min(3, currentIndent + 1); // Maximum 3 levels of indentation
+
+		// Apply indent to selection
+		tr.setBlockType(from, to, state.schema.nodes.paragraph, {
+			indent: newIndent,
+			...getExistingAttributes(state, from),
+		});
+
+		dispatch(tr);
+	}
+
+	view.focus();
+}
+
+// Function to handle indent left (outdent)
+function indentLeft(view) {
+	const { state, dispatch } = view;
+	const { selection } = state;
+
+	// Check if we're in a list
+	if (isInList(state)) {
+		// Use ProseMirror's built-in list item lifting
+		liftListItem(state.schema.nodes.list_item)(state, dispatch);
+	} else {
+		// Apply custom outdentation for non-list content
+		const tr = state.tr;
+		const { from, to } = selection;
+
+		// Get current indentation level
+		const currentIndent = getCurrentIndent(state);
+		const newIndent = Math.max(0, currentIndent - 1);
+
+		// Apply new indent level
+		const attrs = { ...getExistingAttributes(state, from) };
+
+		if (newIndent === 0) {
+			// Remove indent attribute when at level 0
+			delete attrs.indent;
+		} else {
+			attrs.indent = newIndent;
+		}
+
+		tr.setBlockType(from, to, state.schema.nodes.paragraph, attrs);
+		dispatch(tr);
+	}
+
+	view.focus();
+}
 
 // Helper function to check if a mark is active
 function markActive(state, type) {
@@ -125,46 +267,6 @@ function addFormattingItems(container, schema, view) {
 	}
 }
 
-// Add block formatting buttons (headings, paragraph)
-function addBlockItems(container, schema, view) {
-	const group = document.createElement("div");
-	group.className = "editor-menu-group";
-
-	// // Paragraph
-	// if (schema.nodes.paragraph) {
-	// 	const paragraphButton = createButton("¶", "Paragraph", () => {
-	// 		setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
-	// 		view.focus();
-	// 	});
-	// 	paragraphButton.dataset.nodeType = "paragraph";
-	// 	group.appendChild(paragraphButton);
-	// }
-
-	// Headings
-	if (schema.nodes.heading) {
-		for (let level = 1; level <= 3; level++) {
-			const headingButton = createButton(
-				`H${level}`,
-				`Heading ${level}`,
-				() => {
-					setBlockType(schema.nodes.heading, { level })(
-						view.state,
-						view.dispatch,
-					);
-					view.focus();
-				},
-			);
-			headingButton.dataset.nodeType = "heading";
-			headingButton.dataset.level = level.toString();
-			group.appendChild(headingButton);
-		}
-	}
-
-	if (group.children.length > 0) {
-		container.appendChild(group);
-	}
-}
-
 // Add list and quote buttons
 function addListItems(container, schema, view) {
 	const group = document.createElement("div");
@@ -172,51 +274,85 @@ function addListItems(container, schema, view) {
 
 	// Bullet list
 	if (schema.nodes.bullet_list) {
-		const bulletListButton = createButton("• List", "Bullet list", () => {
+		const bulletListButton = document.createElement("button");
+		bulletListButton.className = "editor-general-button";
+		bulletListButton.title = "Bullet list";
+		bulletListButton.dataset.nodeType = "bullet_list";
+		bulletListButton.innerHTML = `
+		<svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+		  <path d="M0 512h128v-128h-128v128zM0 256h128v-128h-128v128zM0 768h128v-128h-128v128zM256 512h512v-128h-512v128zM256 256h512v-128h-512v128zM256 768h512v-128h-512v128z" fill="#85889C"/>
+		</svg>
+	  `;
+		bulletListButton.addEventListener("click", () => {
 			wrapInList(schema.nodes.bullet_list)(view.state, view.dispatch);
 			view.focus();
 		});
-		bulletListButton.dataset.nodeType = "bullet_list";
 		group.appendChild(bulletListButton);
 	}
 
 	// Ordered list
 	if (schema.nodes.ordered_list) {
-		const orderedListButton = createButton("1. List", "Ordered list", () => {
+		const orderedListButton = document.createElement("button");
+		orderedListButton.className = "editor-general-button";
+		orderedListButton.title = "Ordered list";
+		orderedListButton.dataset.nodeType = "ordered_list";
+		orderedListButton.innerHTML = `
+		<svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+		  <path d="M320 512h448v-128h-448v128zM320 768h448v-128h-448v128zM320 128v128h448v-128h-448zM79 384h78v-256h-36l-85 23v50l43-2v185zM189 590c0-36-12-78-96-78-33 0-64 6-83 16l1 66c21-10 42-15 67-15s32 11 32 28c0 26-30 58-110 112v50h192v-67l-91 2c49-30 87-66 87-113l1-1z" fill="#85889C"/>
+		</svg>
+	  `;
+		orderedListButton.addEventListener("click", () => {
 			wrapInList(schema.nodes.ordered_list)(view.state, view.dispatch);
 			view.focus();
 		});
-		orderedListButton.dataset.nodeType = "ordered_list";
 		group.appendChild(orderedListButton);
 	}
 
 	// Blockquote
 	if (schema.nodes.blockquote) {
-		const blockquoteButton = createButton("Quote", "Blockquote", () => {
+		const blockquoteButton = document.createElement("button");
+		blockquoteButton.className = "editor-general-button";
+		blockquoteButton.title = "Blockquote";
+		blockquoteButton.dataset.nodeType = "blockquote";
+		blockquoteButton.innerHTML = `
+		<svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+		  <path d="M0 448v256h256v-256h-128c0 0 0-128 128-128v-128c0 0-256 0-256 256zM640 320v-128c0 0-256 0-256 256v256h256v-256h-128c0 0 0-128 128-128z" fill="#85889C"/>
+		</svg>
+	  `;
+		blockquoteButton.addEventListener("click", () => {
 			wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
 			view.focus();
 		});
-		blockquoteButton.dataset.nodeType = "blockquote";
 		group.appendChild(blockquoteButton);
 	}
 
-	// Lift (outdent)
-	const liftButton = createButton(
-		"↑ Lift",
-		"Lift out of enclosing block",
-		() => {
-			lift(view.state, view.dispatch);
-			view.focus();
-		},
-	);
-	group.appendChild(liftButton);
+	// // Lift (outdent)
+	// const liftButton = document.createElement("button");
+	// liftButton.className = "editor-general-button";
+	// liftButton.title = "Lift out of enclosing block";
+	// liftButton.innerHTML = `
+	//  ^
+	// `;
+	// liftButton.addEventListener("click", () => {
+	// 	lift(view.state, view.dispatch);
+	// 	view.focus();
+	// });
+	// group.appendChild(liftButton);
 
-	// Join with the block above
-	const joinButton = createButton("↕ Join", "Join with above block", () => {
-		joinUp(view.state, view.dispatch);
-		view.focus();
-	});
-	group.appendChild(joinButton);
+	// // Join with the block above
+	// const joinButton = document.createElement("button");
+	// joinButton.className = "editor-general-button";
+	// joinButton.title = "Join with above block";
+	// joinButton.innerHTML = `
+	//   <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+	// 	<path d="M0 75h800v125h-800z M0 825h800v-125h-800z M250 400h100v-100h100v100h100v100h-100v100h-100v-100h-100z" fill="#85889C"/>
+	//   </svg>
+	// `;
+	// joinButton.addEventListener("click", () => {
+	// 	joinUp(view.state, view.dispatch);
+	// 	view.focus();
+	// });
+	// group.appendChild(joinButton);
 
 	if (group.children.length > 0) {
 		container.appendChild(group);
@@ -520,6 +656,164 @@ function addFormatDropdown(container, schema, view) {
 	container.appendChild(group);
 }
 
+function addAlignmentButtons(container, schema, view) {
+	const group = document.createElement("div");
+	group.className = "editor-menu-group";
+
+	// Align left button
+	const alignLeftButton = document.createElement("button");
+	alignLeftButton.className = "editor-general-button";
+	alignLeftButton.title = "Align left";
+	alignLeftButton.dataset.alignment = "left";
+	alignLeftButton.innerHTML = `
+	  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+		<g fill="none" stroke="#85889C" stroke-width="1.2">
+		  <line x1="3" y1="6" x2="21" y2="6" />
+		  <line x1="3" y1="10" x2="15" y2="10" />
+		  <line x1="3" y1="14" x2="21" y2="14" />
+		  <line x1="3" y1="18" x2="15" y2="18" />
+		</g>
+	  </svg>
+	`;
+	alignLeftButton.addEventListener("click", () => {
+		setTextAlign(view, "left");
+	});
+	group.appendChild(alignLeftButton);
+
+	// Align center button
+	const alignCenterButton = document.createElement("button");
+	alignCenterButton.className = "editor-general-button";
+	alignCenterButton.title = "Align center";
+	alignCenterButton.dataset.alignment = "center";
+	alignCenterButton.innerHTML = `
+	  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+		<g fill="none" stroke="#85889C" stroke-width="1.2">
+		  <line x1="3" y1="6" x2="21" y2="6" />
+		  <line x1="6" y1="10" x2="18" y2="10" />
+		  <line x1="3" y1="14" x2="21" y2="14" />
+		  <line x1="6" y1="18" x2="18" y2="18" />
+		</g>
+	  </svg>
+	`;
+	alignCenterButton.addEventListener("click", () => {
+		setTextAlign(view, "center");
+	});
+	group.appendChild(alignCenterButton);
+
+	// Align right button
+	const alignRightButton = document.createElement("button");
+	alignRightButton.className = "editor-general-button";
+	alignRightButton.title = "Align right";
+	alignRightButton.dataset.alignment = "right";
+	alignRightButton.innerHTML = `
+	  <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+		<g fill="none" stroke="#85889C" stroke-width="1.2">
+		  <line x1="3" y1="6" x2="21" y2="6" />
+		  <line x1="9" y1="10" x2="21" y2="10" />
+		  <line x1="3" y1="14" x2="21" y2="14" />
+		  <line x1="9" y1="18" x2="21" y2="18" />
+		</g>
+	  </svg>
+	`;
+	alignRightButton.addEventListener("click", () => {
+		setTextAlign(view, "right");
+	});
+	group.appendChild(alignRightButton);
+
+	if (group.children.length > 0) {
+		container.appendChild(group);
+	}
+}
+
+// Function to set text alignment
+function setTextAlign(view, align) {
+	const { state, dispatch } = view;
+	const { tr, selection } = state;
+	const { from, to } = selection;
+
+	// Determine if any nodes in the selection already have alignment
+	let hasExistingAlignment = false;
+	state.doc.nodesBetween(from, to, (node, pos) => {
+		if (
+			node.type.name === "paragraph" &&
+			node.attrs.align &&
+			node.attrs.align !== "left"
+		) {
+			hasExistingAlignment = true;
+		}
+	});
+
+	// Apply alignment to all selected blocks
+	state.doc.nodesBetween(from, to, (node, pos) => {
+		if (node.isBlock && node.type.attrs && node.type.attrs.align) {
+			// Only set the attribute if the align value is different
+			if (node.attrs.align !== align) {
+				const attrs = { ...node.attrs };
+
+				// If aligning left and there's no special indentation, we can remove the align attribute
+				if (align === "left" && !hasExistingAlignment) {
+					delete attrs.align;
+				} else {
+					attrs.align = align;
+				}
+
+				tr.setNodeMarkup(pos, null, attrs);
+			}
+		}
+	});
+
+	dispatch(tr);
+	view.focus();
+}
+
+// Helper function to get current text alignment
+function getCurrentTextAlignment(state) {
+	const { $from } = state.selection;
+	const node = $from.parent;
+
+	return node.attrs.align || "left";
+}
+
+// Update button states to highlight active alignment
+function updateAlignmentButtonStates(menuNode, state) {
+	const currentAlignment = getCurrentTextAlignment(state);
+
+	menuNode.querySelectorAll("[data-alignment]").forEach((button) => {
+		const alignment = button.dataset.alignment;
+		button.classList.toggle(
+			"editor-menuitem-active",
+			alignment === currentAlignment,
+		);
+	});
+}
+
+// Add CSS for text alignment
+const alignmentStyle = document.createElement("style");
+alignmentStyle.textContent = `
+	/* Text alignment styles */
+	.ProseMirror [style*="text-align: center"] {
+	  text-align: center;
+	}
+	
+	.ProseMirror [style*="text-align: right"] {
+	  text-align: right;
+	}
+	
+	/* Indentation styles */
+	.ProseMirror [data-indent="1"] {
+	  margin-left: 2em;
+	}
+	
+	.ProseMirror [data-indent="2"] {
+	  margin-left: 4em;
+	}
+	
+	.ProseMirror [data-indent="3"] {
+	  margin-left: 6em;
+	}
+  `;
+document.head.appendChild(alignmentStyle);
+
 // Add this to your CSS
 const style = document.createElement("style");
 style.textContent = `
@@ -574,7 +868,7 @@ style.textContent = `
 	
 	.submenu {
 	  position: absolute;
-	  left: 100%;
+	  left: 102%;
 	  top: 0;
 	  min-width: 160px;
 	  background: #2a2b2f;
@@ -607,8 +901,9 @@ export function fixedMenuPlugin(schema: Schema) {
 			addHistoryItems(menuNode, schema, editorView);
 			addFormattingItems(menuNode, schema, editorView);
 			addFormatDropdown(menuNode, schema, editorView);
-			// addBlockItems(menuNode, schema, editorView);
 			addListItems(menuNode, schema, editorView);
+			addIndentButtons(menuNode, schema, editorView); // Add indent buttons
+			addAlignmentButtons(menuNode, schema, editorView); // Add alignment buttons
 
 			// Insert the menu at the top of the editor
 			const editorContainer = editorView.dom.closest(".editor-container");
@@ -623,6 +918,7 @@ export function fixedMenuPlugin(schema: Schema) {
 				update(view) {
 					// Update active states for menu items when the editor state changes
 					updateButtonStates(menuNode, view);
+					updateAlignmentButtonStates(menuNode, view.state);
 				},
 				destroy() {
 					if (menuNode.parentNode) {
