@@ -117,6 +117,18 @@ pub fn run() {
                         device_repo.clone(),
                         sync_repo.clone(),
                     ));
+
+                    let transaction_service = Arc::new(TransactionService::new(
+                        resource_repo.clone(),
+                        resource_key_repo.clone(),
+                        sync_repo.clone(),
+                        share_repo.clone(),
+                        store_repository.clone(),
+                        user_repository.clone(),
+                        device_repo.clone(),
+                        folder_repo.clone(),
+                        vector_clock_repo.clone(),
+                    ));
                     let sync_service = Arc::new(SyncService::new(
                         sync_repo.clone(),
                         folder_repo.clone(),
@@ -125,6 +137,7 @@ pub fn run() {
                         store_repository.clone(),
                         vector_clock_repo.clone(),
                         user_repository.clone(),
+                        transaction_service.clone(),
                     ));
 
                     let user_service = Arc::new(UserService::new(
@@ -145,17 +158,6 @@ pub fn run() {
                         user_repository.clone(),
                         crypto_utils.clone(),
                         resource_repo.clone(),
-                    ));
-                    let transaction_service = Arc::new(TransactionService::new(
-                        resource_repo.clone(),
-                        resource_key_repo.clone(),
-                        sync_repo.clone(),
-                        share_repo.clone(),
-                        store_repository.clone(),
-                        user_repository.clone(),
-                        device_repo.clone(),
-                        folder_repo.clone(),
-                        vector_clock_repo.clone(),
                     ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
                         P2PService::new(
