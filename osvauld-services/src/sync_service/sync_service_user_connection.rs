@@ -3,6 +3,7 @@ use osvauld_core::models::p2p::UserConnectionPayload;
 use osvauld_core::models::sync_record::{StatusChangeSet, SyncRecord, SyncRecordSet};
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::RepositoryError;
+use tracing::info;
 
 use super::sync_service_core::SyncService;
 
@@ -73,12 +74,16 @@ impl SyncService {
             UserConnectionPayload::Complete {
                 completion_record,
                 device_record_status_id,
+                updated_device_record_ids,
+                updated_device_record_status_ids,
             } => {
                 // Process complete message and maybe get final sync
                 self.process_user_connection_complete(
                     completion_record,
                     device_record_status_id,
                     current_device_id,
+                    updated_device_record_ids,
+                    updated_device_record_status_ids,
                 )
                 .await
             }
@@ -99,7 +104,8 @@ impl SyncService {
         current_user_id: &str,
         current_device_id: &str,
     ) -> Result<UserConnectionPayload, RepositoryError> {
-        // Get current user's devices
+        // Get current user's devices current device is already added when we add the user first
+        // time.
         let user_devices = self
             .device_repository
             .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
@@ -183,7 +189,7 @@ impl SyncService {
                 &user.id,
                 devices,
                 &updated_user_addition_record,
-                &user_addition_record,
+                &remote_user_addition_record,
                 &completion_record,
             )
             .await?;
@@ -201,7 +207,7 @@ impl SyncService {
     pub async fn handle_user_add_ack(
         &self,
         remote_user_id: &str,
-        user_addition_records: &SyncRecordSet,
+        user_addition_record: &SyncRecordSet,
         completion_record: &StatusChangeSet,
         current_device_id: &str,
         current_user_id: &str,
@@ -212,6 +218,17 @@ impl SyncService {
         let (updated_completion_record, device_record_status_id) =
             SyncRecord::process_completion_record(completion_record, current_device_id);
 
+        let (processed_records, processed_statuses, updated_record_ids, updated_status_ids) =
+            SyncRecord::process_device_records(
+                &user_addition_record.device_records,
+                &user_addition_record.device_record_statuses,
+                current_device_id,
+            );
+        let updated_user_addition_record = SyncRecordSet {
+            sync_record: user_addition_record.sync_record.clone(),
+            device_records: processed_records,
+            device_record_statuses: processed_statuses,
+        };
         // Get devices from both users
         let remote_devices = self
             .device_repository
@@ -231,7 +248,7 @@ impl SyncService {
 
         // Create local completion record
         let local_completion_record = SyncRecord::create_completion_records(
-            user_addition_records.sync_record.id.clone(),
+            updated_user_addition_record.sync_record.id.clone(),
             current_device_id.to_string(),
             &all_devices,
         );
@@ -240,9 +257,11 @@ impl SyncService {
         self.db
             .handle_user_add_ack(
                 remote_user_id,
-                &user_addition_records,
+                &updated_user_addition_record,
                 &updated_completion_record,
                 &local_completion_record,
+                updated_device_record_ids,
+                updated_device_record_status_ids,
             )
             .await?;
 
@@ -250,6 +269,8 @@ impl SyncService {
         Ok(UserConnectionPayload::Complete {
             completion_record: local_completion_record,
             device_record_status_id,
+            updated_device_record_ids: updated_record_ids,
+            updated_device_record_status_ids: updated_status_ids,
         })
     }
     pub async fn process_user_connection_complete(
@@ -257,6 +278,8 @@ impl SyncService {
         completion_record: &StatusChangeSet,
         device_sync_record_id: &Option<String>,
         current_device_id: &str,
+        updated_device_record_status_ids: &[String],
+        updated_device_record_ids: &[String],
     ) -> Result<Option<UserConnectionPayload>, RepositoryError> {
         // Save the local completion record
 
@@ -266,8 +289,11 @@ impl SyncService {
             .handle_user_connection_complete(
                 &updated_completion_record,
                 device_sync_record_id.clone(),
+                updated_device_record_ids,
+                updated_device_record_status_ids,
             )
             .await?;
+        info!("sending final ack {:?}", updated_device_sync_record_id);
         Ok(Some(UserConnectionPayload::FinalSync {
             device_record_status_id: updated_device_sync_record_id,
         }))

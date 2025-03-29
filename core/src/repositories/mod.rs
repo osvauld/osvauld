@@ -103,6 +103,7 @@ pub trait SyncRepository: Send + Sync {
         device_id: &str,
         device_record_id: &str,
     ) -> Result<(), RepositoryError>;
+
     async fn update_device_sync_status_by_ids(
         &self,
         device_record_ids: Vec<String>,
@@ -141,6 +142,19 @@ pub trait SyncRepository: Send + Sync {
         &self,
         status_ids: &[String],
     ) -> Result<(), RepositoryError>;
+    async fn get_all_pending_syncs_by_type(
+        &self,
+        device_id: &str,
+        resource_type: &str,
+    ) -> Result<
+        Option<Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>>,
+        RepositoryError,
+    >;
+
+    async fn get_device_record_by_id(
+        &self,
+        device_record_id: &str,
+    ) -> Result<Option<DeviceRecord>, RepositoryError>;
 }
 
 #[async_trait]

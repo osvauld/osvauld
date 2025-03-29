@@ -264,7 +264,7 @@ impl SyncRecord {
 
                 // If we haven't already found a match, store the device record ID
                 if matched_device_record_id.is_none() {
-                    matched_device_record_id = Some(completion_record.device_record.id.clone());
+                    matched_device_record_id = Some(status.id.clone());
                 }
             }
 

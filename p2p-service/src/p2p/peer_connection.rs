@@ -268,9 +268,8 @@ impl PeerConnection {
                 debug!("Received pong");
                 Ok(())
             }
-            Message::AckComplete(device_sync_record_id) => {
-                info!("Received AckComplete for record: {}", device_sync_record_id);
-                self.ack_complete(device_sync_record_id.clone()).await
+            Message::AckComplete(device_sync_record_ids) => {
+                self.ack_complete(device_sync_record_ids.clone()).await
             }
             Message::SyncEvent { event, payload } => {
                 info!("Received SyncEvent: {}", event);

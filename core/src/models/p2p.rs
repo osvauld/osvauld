@@ -21,11 +21,8 @@ pub enum SyncPayload {
         device: Device,
     },
     UserSync {
-        sync_record: SyncRecord,
-        device_records: Vec<DeviceRecord>,
-        device_record_statuses: Vec<DeviceRecordStatus>,
-        user: User,
-        devices: Vec<Device>,
+        sync_data: Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>,
+        user_data: Vec<(User, Vec<Device>)>,
     },
     ResourceSync {
         sync_record: SyncRecord,
@@ -40,10 +37,7 @@ pub enum SyncPayload {
         device_record_statuses: Vec<DeviceRecordStatus>,
         folder: Folder,
     },
-    StatusUpdate {
-        device_records: Vec<DeviceRecord>,
-        device_record_statuses: Vec<DeviceRecordStatus>,
-    },
+    StatusUpdate(Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>),
     ResourceUpdate {
         resource: Resource,
         vector_clocks: Vec<ResourceVectorClock>,
@@ -70,6 +64,8 @@ pub enum UserConnectionPayload {
     Complete {
         completion_record: StatusChangeSet,
         device_record_status_id: Option<String>,
+        updated_device_record_ids: Vec<String>,
+        updated_device_record_status_ids: Vec<String>,
     },
     FinalSync {
         device_record_status_id: Option<String>,
@@ -84,7 +80,7 @@ pub enum Message {
     SyncRequest,
     SyncResponse(SyncPayload),
     SyncAck(SyncAckType),
-    AckComplete(String),
+    AckComplete(Vec<String>),
     SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
@@ -135,8 +131,7 @@ pub struct SyncAckDeviceRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncAckType {
     FullSync(SyncOperations),
-    DeviceRecords(Vec<String>), // list of device_record_ids
-    DeviceSyncRecord(String),
+    DeviceSyncRecords(Vec<String>), // list of device_record_ids
     UpdateRecieved(String),
 }
 

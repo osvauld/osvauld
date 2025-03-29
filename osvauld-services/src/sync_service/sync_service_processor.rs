@@ -5,7 +5,8 @@ use osvauld_core::models::resource::{Resource, ResourceKeyPair};
 use osvauld_core::models::sync_record::{
     DeviceRecord, DeviceRecordSet, DeviceRecordStatus, SyncRecord, SyncRecordSet,
 };
-use osvauld_core::models::sync_types::{ResourceType, SyncMergeResult};
+use osvauld_core::models::sync_types::SyncMergeResult;
+use osvauld_core::models::sync_types::SyncOperations;
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::RepositoryError;
@@ -46,22 +47,11 @@ impl SyncService {
             }
 
             SyncPayload::UserSync {
-                sync_record,
-                device_records,
-                device_record_statuses,
-                user,
-                devices,
+                sync_data,
+                user_data,
             } => {
-                self.process_user_sync(
-                    sync_record,
-                    device_records,
-                    device_record_statuses,
-                    user,
-                    devices,
-                    current_device_id,
-                    current_user_id,
-                )
-                .await
+                self.process_user_sync(sync_data, user_data, current_device_id, current_user_id)
+                    .await
             }
 
             SyncPayload::ResourceSync {
@@ -114,16 +104,8 @@ impl SyncService {
                 .await
             }
 
-            SyncPayload::StatusUpdate {
-                device_records,
-                device_record_statuses,
-            } => {
-                self.process_status_update(
-                    device_records,
-                    device_record_statuses,
-                    current_device_id,
-                )
-                .await
+            SyncPayload::StatusUpdate(payload) => {
+                self.process_status_update(payload, current_device_id).await
             }
         }
     }
@@ -265,88 +247,153 @@ impl SyncService {
     // Process status update payload
     async fn process_status_update(
         &self,
-        device_records: &[DeviceRecord],
-        device_record_statuses: &[DeviceRecordStatus],
+        payload: &Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>,
         current_device_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
         // Process device records
-        let (processed_records, processed_statuses, _updated_record_ids, _update_status_ids) =
-            SyncRecord::process_device_records(
-                device_records,
-                device_record_statuses,
-                current_device_id,
-            );
+        let mut updated_device_sync_records = Vec::new();
+        let mut updated_device_record_ids = Vec::new();
+        let mut to_add_records = Vec::new();
 
-        // Extract record IDs for acknowledgment
-        let device_record_ids: Vec<_> = processed_records
-            .iter()
-            .map(|device_record| device_record.id.clone())
-            .collect();
+        for (device_record, device_record_statuses) in payload {
+            let local_device_record = self
+                .sync_repository
+                .get_device_record_by_id(&device_record.id)
+                .await?;
 
-        // Create device record set
-        let device_record_set = DeviceRecordSet {
-            device_record_statuses: processed_statuses,
-            device_records: processed_records,
-        };
+            // Check if we need to add this record's status for the current device
+            if let Some(status) = device_record_statuses
+                .iter()
+                .find(|status| status.aware_device_id == current_device_id)
+            {
+                updated_device_sync_records.push(status.id.clone());
+            }
 
-        // Use db transaction method for updating device record set
-        self.db.update_device_record_set(device_record_set).await?;
+            if local_device_record.is_some() {
+                // Record exists locally
+                if device_record.synced {
+                    // If synced is true, add to updated IDs
+                    updated_device_record_ids.push(device_record.id.clone());
+                }
+            } else {
+                // Record doesn't exist locally, add to to_add_records
+                to_add_records.push((device_record.clone(), device_record_statuses.clone()));
+            }
+        }
+        self.db
+            .apply_device_sync_updates(
+                &to_add_records,
+                &updated_device_sync_records,
+                &updated_device_record_ids,
+            )
+            .await?;
 
-        Ok(SyncAckType::DeviceRecords(device_record_ids))
+        Ok(SyncAckType::DeviceSyncRecords(updated_device_sync_records))
     }
 
     async fn process_user_sync(
         &self,
-        sync_record: &SyncRecord,
-        device_records: &[DeviceRecord],
-        device_record_statuses: &[DeviceRecordStatus],
-        user: &User,
-        devices: &[Device],
+        sync_data: &Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>,
+        user_data: &Vec<(User, Vec<Device>)>,
         current_device_id: &str,
         current_user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
-        // Process common sync logic
+        // Get current user's other devices
         let other_devices = self
             .get_user_other_devices(current_device_id, current_user_id)
             .await?;
-        info!("other devices {:?}, {:?}", other_devices, current_device_id);
-        let mut all_devices = devices.to_vec();
-        all_devices.extend(other_devices.clone());
-        let (merge_result, record_exist) = self
-            .prepare_common_sync_data(
-                sync_record,
-                device_records,
-                device_record_statuses,
-                current_device_id,
-                all_devices,
-            )
-            .await?;
 
-        if !record_exist {
-            // Create sync record set
-            let record_set = SyncRecordSet {
-                sync_record: sync_record.clone(),
-                device_records: merge_result.local_operations.records_to_add.clone(),
-                device_record_statuses: merge_result.local_operations.status_records_to_add.clone(),
+        info!("other devices {:?}, {:?}", other_devices, current_device_id);
+
+        // Collect all devices from other users (not current user)
+        let mut all_devices = Vec::new();
+        let mut users_to_add = Vec::new();
+        let mut devices_to_add = Vec::new();
+
+        for (user, devices) in user_data {
+            let user_exists = match self.user_repository.get_user_by_id(&user.id).await {
+                Ok(_) => true,
+                Err(RepositoryError::NotFound) => false,
+                Err(e) => return Err(e),
             };
 
-            //we are adding the record set for all devices while user addition is done.
-            //but we only need to add the record set if the record user and current user are the
-            //same.
-            if current_user_id != user.id {
-                self.db
-                    .sync_add_new_user(user, devices, &record_set)
-                    .await?;
-            } else {
-                self.db.add_only_record_set(&record_set).await?;
+            // Only add the user if they don't already exist
+            if !user_exists {
+                users_to_add.push(user.clone());
+                devices_to_add.extend(devices.clone());
             }
-        } else {
-            self.db
-                .apply_sync_operations(&merge_result.local_operations)
-                .await?;
+            // Only add other users' data to be saved
+            if user.id != current_user_id {
+                all_devices.extend(devices.clone());
+            }
         }
 
-        Ok(SyncAckType::FullSync(merge_result.remote_operations))
+        // Add current user's other devices to the full device list for sync record processing
+        all_devices.extend(other_devices.clone());
+
+        // Create a combined SyncOperations for the final result
+        let mut combined_remote_operations = SyncOperations::new();
+
+        // List to collect all record sets that need to be added
+        let mut record_sets_to_add = Vec::new();
+        let mut operations_to_apply = Vec::new();
+
+        // Process all sync records
+        for (sync_record, device_records, device_record_statuses) in sync_data {
+            let (merge_result, record_exists) = self
+                .prepare_common_sync_data(
+                    sync_record,
+                    device_records,
+                    device_record_statuses,
+                    current_device_id,
+                    all_devices.clone(),
+                )
+                .await?;
+
+            if !record_exists {
+                // Create sync record set for new records
+                let record_set = SyncRecordSet {
+                    sync_record: sync_record.clone(),
+                    device_records: merge_result.local_operations.records_to_add.clone(),
+                    device_record_statuses: merge_result
+                        .local_operations
+                        .status_records_to_add
+                        .clone(),
+                };
+
+                record_sets_to_add.push(record_set);
+            } else {
+                // Store operations to apply for existing records
+                operations_to_apply.push(merge_result.local_operations.clone());
+            }
+
+            // Combine remote operations
+            combined_remote_operations
+                .records_to_add
+                .extend(merge_result.remote_operations.records_to_add);
+            combined_remote_operations
+                .status_records_to_add
+                .extend(merge_result.remote_operations.status_records_to_add);
+            combined_remote_operations
+                .record_ids_to_update
+                .extend(merge_result.remote_operations.record_ids_to_update);
+            combined_remote_operations
+                .status_ids_to_update
+                .extend(merge_result.remote_operations.status_ids_to_update);
+        }
+
+        // Now use the transaction service to add everything in one go
+        self.db
+            .add_users_and_devices_batch(&users_to_add, &devices_to_add, &record_sets_to_add)
+            .await?;
+
+        // Apply operations for existing records
+        for ops in operations_to_apply {
+            self.db.apply_sync_operations(&ops).await?;
+        }
+
+        // Return the combined remote operations as the acknowledgment
+        Ok(SyncAckType::FullSync(combined_remote_operations))
     }
 
     async fn process_resource_update_sync<F>(

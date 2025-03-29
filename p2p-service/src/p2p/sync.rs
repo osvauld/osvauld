@@ -194,10 +194,10 @@ impl PeerConnection {
         Ok(())
     }
 
-    pub async fn ack_complete(&self, device_record_status_id: String) -> Result<(), String> {
+    pub async fn ack_complete(&self, device_record_status_ids: Vec<String>) -> Result<(), String> {
         self.context
             .sync_service
-            .handle_ack_complete(device_record_status_id)
+            .handle_ack_complete(device_record_status_ids)
             .await
     }
 
