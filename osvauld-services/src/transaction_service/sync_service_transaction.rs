@@ -92,31 +92,6 @@ impl TransactionService {
             .await
     }
 
-    // Database operations for acknowledgement processing
-    pub async fn process_full_sync_ack(
-        &self,
-        device_id: String,
-        sync_record_id: String,
-        status_change_set: StatusChangeSet,
-    ) -> Result<(), RepositoryError> {
-        // Add status change set
-        self.sync_repository
-            .add_status_change_set(status_change_set)
-            .await?;
-
-        // Update device record
-        self.sync_repository
-            .update_device_record(device_id.clone(), sync_record_id.clone())
-            .await?;
-
-        // Update device record statuses
-        self.sync_repository
-            .update_device_record_statuses_for_sync(sync_record_id, device_id)
-            .await?;
-
-        Ok(())
-    }
-
     // Database operations for device sync record updates
     pub async fn update_device_sync_records(
         &self,
@@ -208,18 +183,29 @@ impl TransactionService {
         Ok(())
     }
 
+    pub async fn add_only_record_set(
+        &self,
+        record_set: &SyncRecordSet,
+    ) -> Result<(), RepositoryError> {
+        self.sync_repository.add_sync_record_set(record_set).await
+    }
+
     pub async fn complete_new_user_add(
         &self,
         user_id: &str,
         devices: &[Device],
         user_addition_record: &SyncRecordSet,
         processed_user_addition_record: &SyncRecordSet,
+        completion_record: &StatusChangeSet,
     ) -> Result<(), RepositoryError> {
         self.user_repository.complete_user_addtion(user_id).await?;
         self.device_repository.save_many(devices).await?;
 
         self.sync_repository
             .add_sync_record_set(processed_user_addition_record)
+            .await?;
+        self.sync_repository
+            .add_status_change_set(completion_record)
             .await?;
         self.sync_repository
             .add_sync_record_set(user_addition_record)
@@ -230,6 +216,8 @@ impl TransactionService {
         &self,
         remote_user_id: &str,
         user_addition_record: &SyncRecordSet,
+        updated_completion_record: &StatusChangeSet,
+        local_completion_record: &StatusChangeSet,
     ) -> Result<(), RepositoryError> {
         // Mark the user addition as complete
         self.user_repository
@@ -240,7 +228,29 @@ impl TransactionService {
         self.sync_repository
             .add_sync_record_set(user_addition_record)
             .await?;
+        self.sync_repository
+            .add_status_change_set(updated_completion_record)
+            .await?;
+        self.sync_repository
+            .add_status_change_set(local_completion_record)
+            .await?;
 
+        Ok(())
+    }
+
+    pub async fn handle_user_connection_complete(
+        &self,
+        updated_completion_record: &StatusChangeSet,
+        device_sync_record_id: Option<String>,
+    ) -> Result<(), RepositoryError> {
+        self.sync_repository
+            .add_status_change_set(updated_completion_record)
+            .await?;
+        if let Some(device_sync_record_id) = device_sync_record_id {
+            self.sync_repository
+                .update_device_sync_record_status(device_sync_record_id)
+                .await?;
+        }
         Ok(())
     }
 
@@ -252,7 +262,7 @@ impl TransactionService {
         updated_status_ids: Vec<String>,
     ) -> Result<(), RepositoryError> {
         self.sync_repository
-            .add_status_change_set(StatusChangeSet {
+            .add_status_change_set(&StatusChangeSet {
                 device_record: device_record.clone(),
                 device_record_statuses: device_record_status.to_vec(),
             })

@@ -277,19 +277,8 @@ impl PeerConnection {
                 // self.handle_sync_event(event, payload.clone()).await
                 Ok(())
             }
-            Message::FirstUserConnectionRequest{user, devices} => {
-                info!("Received FirstUserConnection from user: {}", user.id);
-                self.handle_first_user_connection(user, devices).await
-            }
-            Message::FirstUserConnectionResponse{user, devices, user_addition_record} => {
-                self.handle_first_user_connection_response(user,devices, user_addition_record).await
-            }
-            Message::FristUserConnectionAck { user_id,  user_addition_records }=> {
-                self.handle_user_add_ack(user_id,  user_addition_records).await
-            }
-            Message::FirstUserConnectionComplete => {
-                info!("user connection complete");
-                Ok(())
+            Message::UserConnection(payload) => {
+                self.process_user_connection_payload(payload).await
             }
             Message::SharePayload(payload) => {
                 info!("Received SharePayload");

@@ -49,6 +49,32 @@ pub enum SyncPayload {
         vector_clocks: Vec<ResourceVectorClock>,
     },
 }
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum UserConnectionPayload {
+    Request {
+        user: User,
+        devices: Vec<Device>,
+    },
+    Response {
+        user: User,
+        devices: Vec<Device>,
+        user_addition_record: SyncRecordSet,
+    },
+    Acknowledgment {
+        user_id: String,
+        user_addition_records: SyncRecordSet,
+        completion_record: StatusChangeSet,
+        updated_device_record_ids: Vec<String>,
+        updated_device_record_status_ids: Vec<String>,
+    },
+    Complete {
+        completion_record: StatusChangeSet,
+        device_record_status_id: Option<String>,
+    },
+    FinalSync {
+        device_record_status_id: Option<String>,
+    },
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
@@ -64,27 +90,11 @@ pub enum Message {
     AddDeviceAck,
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
-    SyncEvent {
-        event: String,
-        payload: String,
-    },
+    SyncEvent { event: String, payload: String },
     SharePayload(SharePayload),
     ShareComplete,
     UpdateResource(UpdateResource),
-    FirstUserConnectionRequest {
-        user: User,
-        devices: Vec<Device>,
-    },
-    FirstUserConnectionResponse {
-        user: User,
-        devices: Vec<Device>,
-        user_addition_record: SyncRecordSet,
-    },
-    FristUserConnectionAck {
-        user_id: String,
-        user_addition_records: SyncRecordSet,
-    },
-    FirstUserConnectionComplete,
+    UserConnection(UserConnectionPayload),
 }
 
 #[derive(Serialize, Deserialize)]

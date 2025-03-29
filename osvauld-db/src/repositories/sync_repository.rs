@@ -113,7 +113,7 @@ impl SyncRepository for SqliteSyncRepository {
     }
     async fn add_status_change_set(
         &self,
-        status_set: StatusChangeSet,
+        status_set: &StatusChangeSet,
     ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
 

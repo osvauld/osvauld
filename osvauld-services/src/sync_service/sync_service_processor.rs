@@ -330,10 +330,16 @@ impl SyncService {
                 device_record_statuses: merge_result.local_operations.status_records_to_add.clone(),
             };
 
-            // Use db transaction method for saving resource sync
-            self.db
-                .sync_add_new_user(user, devices, &record_set)
-                .await?;
+            //we are adding the record set for all devices while user addition is done.
+            //but we only need to add the record set if the record user and current user are the
+            //same.
+            if current_user_id != user.id {
+                self.db
+                    .sync_add_new_user(user, devices, &record_set)
+                    .await?;
+            } else {
+                self.db.add_only_record_set(&record_set).await?;
+            }
         } else {
             self.db
                 .apply_sync_operations(&merge_result.local_operations)

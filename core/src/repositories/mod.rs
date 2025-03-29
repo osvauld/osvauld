@@ -42,7 +42,7 @@ pub trait SyncRepository: Send + Sync {
     async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
     async fn add_status_change_set(
         &self,
-        status_set: StatusChangeSet,
+        status_set: &StatusChangeSet,
     ) -> Result<(), RepositoryError>;
     async fn update_device_record(
         &self,
