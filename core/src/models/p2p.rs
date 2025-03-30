@@ -5,6 +5,7 @@ use super::share_record::{ShareRecord, UserRecord, UserRecordStatus};
 use super::sync_record::{
     DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
+use super::sync_types::SyncOperations;
 use super::user::User;
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,10 @@ pub enum SyncPayload {
         device_record_statuses: Vec<DeviceRecordStatus>,
         device: Device,
     },
+    UserSync {
+        sync_data: Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>,
+        user_data: Vec<(User, Vec<Device>)>,
+    },
     ResourceSync {
         sync_record: SyncRecord,
         device_records: Vec<DeviceRecord>,
@@ -32,13 +37,38 @@ pub enum SyncPayload {
         device_record_statuses: Vec<DeviceRecordStatus>,
         folder: Folder,
     },
-    StatusUpdate {
-        device_records: Vec<DeviceRecord>,
-        device_record_statuses: Vec<DeviceRecordStatus>,
-    },
+    StatusUpdate(Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>),
     ResourceUpdate {
         resource: Resource,
         vector_clocks: Vec<ResourceVectorClock>,
+    },
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum UserConnectionPayload {
+    Request {
+        user: User,
+        devices: Vec<Device>,
+    },
+    Response {
+        user: User,
+        devices: Vec<Device>,
+        user_addition_record: SyncRecordSet,
+    },
+    Acknowledgment {
+        user_id: String,
+        user_addition_records: SyncRecordSet,
+        completion_record: StatusChangeSet,
+        updated_device_record_ids: Vec<String>,
+        updated_device_record_status_ids: Vec<String>,
+    },
+    Complete {
+        completion_record: StatusChangeSet,
+        device_record_status_id: Option<String>,
+        updated_device_record_ids: Vec<String>,
+        updated_device_record_status_ids: Vec<String>,
+    },
+    FinalSync {
+        device_record_status_id: Option<String>,
     },
 }
 
@@ -50,39 +80,17 @@ pub enum Message {
     SyncRequest,
     SyncResponse(SyncPayload),
     SyncAck(SyncAckType),
-    AckComplete(String),
+    AckComplete(Vec<String>),
     SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
-    SyncEvent {
-        event: String,
-        payload: String,
-    },
+    SyncEvent { event: String, payload: String },
     SharePayload(SharePayload),
     ShareComplete,
     UpdateResource(UpdateResource),
-    FirstUserConnectionRequest {
-        user: User,
-        devices: Vec<Device>,
-    },
-    FirstUserConnectionResponse {
-        user: User,
-        devices: Vec<Device>,
-        user_addition_record: SyncRecordSet,
-    },
-    FristUserConnectionAck {
-        user_id: String,
-        completion_records: StatusChangeSet,
-        user_addition_records: SyncRecordSet,
-    },
-    FirstUserConnectionAckResponse {
-        addition_completion_record: StatusChangeSet,
-    },
-    FirstUserConnectionFinalAck {
-        device_record_id: String,
-    },
+    UserConnection(UserConnectionPayload),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -122,13 +130,8 @@ pub struct SyncAckDeviceRecord {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum SyncAckType {
-    FullSync {
-        sync_record_id: String,
-        device_record: DeviceRecord,
-        device_sync_records: Vec<DeviceRecordStatus>,
-    },
-    DeviceRecords(Vec<String>), // list of device_record_ids
-    DeviceSyncRecord(String),
+    FullSync(SyncOperations),
+    DeviceSyncRecords(Vec<String>), // list of device_record_ids
     UpdateRecieved(String),
 }
 

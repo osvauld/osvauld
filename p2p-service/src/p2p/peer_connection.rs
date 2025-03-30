@@ -268,30 +268,16 @@ impl PeerConnection {
                 debug!("Received pong");
                 Ok(())
             }
-            Message::AckComplete(device_sync_record_id) => {
-                info!("Received AckComplete for record: {}", device_sync_record_id);
-                self.ack_complete(device_sync_record_id.clone()).await
+            Message::AckComplete(device_sync_record_ids) => {
+                self.ack_complete(device_sync_record_ids.clone()).await
             }
             Message::SyncEvent { event, payload } => {
                 info!("Received SyncEvent: {}", event);
                 // self.handle_sync_event(event, payload.clone()).await
                 Ok(())
             }
-            Message::FirstUserConnectionRequest{user, devices} => {
-                info!("Received FirstUserConnection from user: {}", user.id);
-                self.handle_first_user_connection(user, devices).await
-            }
-            Message::FirstUserConnectionResponse{user, devices, user_addition_record} => {
-                self.handle_first_user_connection_response(user,devices, user_addition_record).await
-            }
-            Message::FristUserConnectionAck { user_id, completion_records, user_addition_records }=> {
-                self.handle_user_add_ack(user_id, completion_records, user_addition_records).await
-            }
-            Message::FirstUserConnectionAckResponse { addition_completion_record } => {
-                self.handle_user_add_ack_response(addition_completion_record).await
-            }
-            Message::FirstUserConnectionFinalAck { device_record_id } => {
-                self.handle_final_user_add_ack(device_record_id).await
+            Message::UserConnection(payload) => {
+                self.process_user_connection_payload(payload).await
             }
             Message::SharePayload(payload) => {
                 info!("Received SharePayload");

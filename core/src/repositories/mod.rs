@@ -42,7 +42,7 @@ pub trait SyncRepository: Send + Sync {
     async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError>;
     async fn add_status_change_set(
         &self,
-        status_set: StatusChangeSet,
+        status_set: &StatusChangeSet,
     ) -> Result<(), RepositoryError>;
     async fn update_device_record(
         &self,
@@ -103,6 +103,58 @@ pub trait SyncRepository: Send + Sync {
         device_id: &str,
         device_record_id: &str,
     ) -> Result<(), RepositoryError>;
+
+    async fn update_device_sync_status_by_ids(
+        &self,
+        device_record_ids: Vec<String>,
+        device_record_status_ids: Vec<String>,
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_device_records_and_statuses_by_sync_record(
+        &self,
+        sync_record_id: &str,
+    ) -> Result<(Vec<DeviceRecord>, Vec<DeviceRecordStatus>), RepositoryError>;
+
+    async fn get_sync_record_by_id(
+        &self,
+        sync_id: &str,
+    ) -> Result<Option<SyncRecord>, RepositoryError>;
+
+    async fn add_device_records_bulk(
+        &self,
+        records: &[DeviceRecord],
+    ) -> Result<(), RepositoryError>;
+
+    /// Adds multiple device record statuses in a single operation
+    async fn add_device_record_statuses_bulk(
+        &self,
+        statuses: &[DeviceRecordStatus],
+    ) -> Result<(), RepositoryError>;
+
+    /// Updates the 'synced' flag to true for multiple device records by their IDs
+    async fn update_device_records_synced_bulk(
+        &self,
+        record_ids: &[String],
+    ) -> Result<(), RepositoryError>;
+
+    /// Updates the 'synced' flag to true for multiple device record statuses by their IDs
+    async fn update_device_record_statuses_synced_bulk(
+        &self,
+        status_ids: &[String],
+    ) -> Result<(), RepositoryError>;
+    async fn get_all_pending_syncs_by_type(
+        &self,
+        device_id: &str,
+        resource_type: &str,
+    ) -> Result<
+        Option<Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>>,
+        RepositoryError,
+    >;
+
+    async fn get_device_record_by_id(
+        &self,
+        device_record_id: &str,
+    ) -> Result<Option<DeviceRecord>, RepositoryError>;
 }
 
 #[async_trait]

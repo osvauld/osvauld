@@ -28,8 +28,11 @@ impl SyncService {
         if let Some(payload) = self.get_device_sync_for_device(device).await? {
             return Ok(Some(payload));
         }
-
-        // 2. Folder syncs
+        // 2. User syncs
+        if let Some(payload) = self.get_user_sync_for_device(device).await? {
+            return Ok(Some(payload));
+        }
+        // 3. Folder syncs
         if let Some(payload) = self.get_folder_sync_for_device(device).await? {
             return Ok(Some(payload));
         }
@@ -86,6 +89,50 @@ impl SyncService {
                 device_records,
                 device_record_statuses: statuses,
                 device: device_data,
+            }));
+        }
+
+        Ok(None)
+    }
+
+    async fn get_user_sync_for_device(
+        &self,
+        device: &Device,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
+        // Get all pending user sync records for this device
+        if let Some(sync_data) = self
+            .sync_repository
+            .get_all_pending_syncs_by_type(&device.id, "user")
+            .await?
+        {
+            // Extract all unique user IDs from the sync records
+            let user_ids: Vec<String> = sync_data
+                .iter()
+                .map(|(record, _, _)| record.resource_id.clone())
+                .collect::<std::collections::HashSet<String>>()
+                .into_iter()
+                .collect();
+
+            // Build user_data collection
+            let mut user_data = Vec::new();
+
+            for user_id in &user_ids {
+                // Get user data
+                let user = self.user_repository.get_user_by_id(user_id).await?;
+
+                // Get devices for this user
+                let user_devices = self
+                    .device_repository
+                    .get_devices_by_user_id(user_id)
+                    .await?;
+
+                user_data.push((user, user_devices));
+            }
+
+            // Return the batch payload
+            return Ok(Some(SyncPayload::UserSync {
+                sync_data,
+                user_data,
             }));
         }
 
@@ -175,18 +222,7 @@ impl SyncService {
             .await?;
 
         if !unsynced_records.is_empty() {
-            let mut all_device_records = Vec::new();
-            let mut all_statuses = Vec::new();
-
-            for (device_record, statuses) in unsynced_records {
-                all_device_records.push(device_record);
-                all_statuses.extend(statuses);
-            }
-
-            return Ok(Some(SyncPayload::StatusUpdate {
-                device_records: all_device_records,
-                device_record_statuses: all_statuses,
-            }));
+            return Ok(Some(SyncPayload::StatusUpdate(unsynced_records)));
         }
 
         Ok(None)

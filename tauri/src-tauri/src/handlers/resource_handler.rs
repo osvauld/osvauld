@@ -3,7 +3,7 @@ use crate::types::{
     GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
     UpdateLastAccessedInput, UpdateResources,
 };
-use crate::user_state::{self, UserState};
+use crate::user_state::UserState;
 use log::info;
 use osvauld_services::{ResourceService, ShareService, SyncService, TransactionService};
 use rendezvous_client::rendezvous_service::RendezvousService;

@@ -121,24 +121,32 @@ impl PeerConnection {
     }
 
     pub async fn handle_sync_response(&self, payload: SyncPayload) -> Result<(), String> {
-        let event_adapter = self.sync_event_adapter();
-        let ack_message = match self
-            .context
-            .sync_service
-            .process_sync_payload(
-                &payload,
-                &self.user.id,
-                &self.device.id,
-                Some(event_adapter),
-            )
-            .await
-        {
-            Ok(sync_ack) => Message::SyncAck(sync_ack),
-            Err(_e) => Message::Error,
-        };
+        if let Some(current_device) = self.get_local_device().await {
+            let event_adapter = self.sync_event_adapter();
+            let ack_message = match self
+                .context
+                .sync_service
+                .process_sync_payload(
+                    &payload,
+                    &self.user.id,
+                    &self.device.id,
+                    Some(event_adapter),
+                    &current_device.id,
+                    &current_device.user_id,
+                )
+                .await
+            {
+                Ok(sync_ack) => Message::SyncAck(sync_ack),
+                Err(e) => {
+                    error!("something happend {:?}", e);
+                    Message::Error
+                }
+            };
 
-        self.send_message(ack_message).await?;
-        Ok(())
+            self.send_message(ack_message).await?;
+            return Ok(());
+        }
+        Err("Local user not found".into())
     }
 
     pub async fn handle_sync_complete(&self) -> Result<(), String> {
@@ -186,11 +194,12 @@ impl PeerConnection {
         Ok(())
     }
 
-    pub async fn ack_complete(&self, device_record_status_id: String) -> Result<(), String> {
+    pub async fn ack_complete(&self, device_record_status_ids: Vec<String>) -> Result<(), String> {
         self.context
             .sync_service
-            .handle_ack_complete(device_record_status_id)
+            .handle_ack_complete(device_record_status_ids)
             .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn send_update(&self, payload: String) -> Result<(), String> {
