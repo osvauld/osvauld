@@ -199,6 +199,7 @@ impl PeerConnection {
             .sync_service
             .handle_ack_complete(device_record_status_ids)
             .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn send_update(&self, payload: String) -> Result<(), String> {

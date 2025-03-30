@@ -75,15 +75,12 @@ impl SyncService {
     pub async fn handle_ack_complete(
         &self,
         device_sync_record_ids: Vec<String>,
-    ) -> Result<(), String> {
+    ) -> Result<(), RepositoryError> {
         info!(
             "updating device sync record status {:?}",
             device_sync_record_ids
         );
         // Use db transaction method for completing acknowledgment
-        self.db
-            .complete_ack(device_sync_record_ids)
-            .await
-            .map_err(|e| e.to_string())
+        self.db.complete_ack(device_sync_record_ids).await
     }
 }
