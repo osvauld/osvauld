@@ -1,6 +1,6 @@
 use std::str::FromStr;
 use thiserror::Error;
-use tracing::{Level, Subscriber};
+use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -41,7 +41,7 @@ pub struct LogConfig {
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
-            level: Level::INFO,
+            level: Level::DEBUG,
             log_to_file: false,
             log_dir: None,
             file_prefix: None,
@@ -66,7 +66,10 @@ pub fn init_tracing(config: LogConfig) -> Result<Option<WorkerGuard>, LoggingErr
 
     // Helper function to create a filter based on the config
     let create_filter = || {
-        let filter_string = format!("p2p_service={}", config.level);
+        let filter_string = format!(
+            "p2p_service={},osvauld_services={}",
+            config.level, config.level
+        );
         EnvFilter::from_str(&filter_string).unwrap_or_else(|_| EnvFilter::new(filter_string))
     };
 

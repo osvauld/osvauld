@@ -109,7 +109,8 @@ pub fn run() {
                     let vector_clock_repo =
                         Arc::new(SqliteVectorClockRepository::new(connection.clone()));
 
-                    let folder_service = Arc::new(FolderService::new(folder_repo.clone()));
+                    let folder_service =
+                        Arc::new(FolderService::new(folder_repo.clone(), device_repo.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
                     let auth_service = Arc::new(AuthService::new(
                         store_repository.clone(),
@@ -152,6 +153,7 @@ pub fn run() {
                         crypto_utils.clone(),
                         vector_clock_repo.clone(),
                         resource_key_repo.clone(),
+                        device_repo.clone(),
                     ));
                     let share_service = Arc::new(ShareService::new(
                         share_repo.clone(),

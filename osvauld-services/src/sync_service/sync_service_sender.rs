@@ -3,46 +3,84 @@ use osvauld_core::models::p2p::SyncPayload;
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::RepositoryError;
 
-use log::info;
+use tracing::{Span, info, debug, error, instrument, trace};
 
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // Import the SyncService struct to implement methods on it
-use crate::sync_service::SyncService;
+use super::sync_service_core::SyncService;
 
 // Implement methods related to sending/retrieving sync data on SyncService
 impl SyncService {
+    #[instrument(
+        skip(self, device, user, pending_resource_ids, current_span), 
+        fields(
+            device_id = %device.id,
+            user_id = %user.id,
+            has_pending_resources = pending_resource_ids.is_some()
+        ),
+        level = "info"
+    )]
     pub async fn get_next_pending_sync(
         &self,
         device: &Device,
         user: &User,
         pending_resource_ids: Option<Arc<Mutex<Vec<String>>>>,
+        current_span: Span,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
-        info!("Getting pending syncs for device: {}", device.id);
-
-        info!("pending resource_ids {:?}", pending_resource_ids);
-        // Try each type in priority order
-
-        // 1. Device syncs (highest priority)
+        // Enter the parent span
+        let _guard = current_span.enter();
+        
+        info!("Getting next pending sync");
+        
+        if let Some(pending) = &pending_resource_ids {
+            let resources = pending.lock().await;
+            trace!(
+                pending_resource_count = resources.len(),
+                "Pending resource IDs available"
+            );
+        }
+        
+        // Try each type in priority order in sequence
+        debug!("Checking for device syncs (highest priority)");
         if let Some(payload) = self.get_device_sync_for_device(device).await? {
+            info!(
+                sync_type = "device", 
+                "Found device sync"
+            );
             return Ok(Some(payload));
         }
-        // 2. User syncs
+        
+        debug!("Checking for user syncs");
         if let Some(payload) = self.get_user_sync_for_device(device).await? {
+            info!(
+                sync_type = "user", 
+                "Found user sync"
+            );
             return Ok(Some(payload));
         }
-        // 3. Folder syncs
+        
+        debug!("Checking for folder syncs");
         if let Some(payload) = self.get_folder_sync_for_device(device).await? {
+            info!(
+                sync_type = "folder", 
+                "Found folder sync"
+            );
             return Ok(Some(payload));
         }
 
-        // 3. Resource syncs
+        debug!("Checking for resource syncs");
         if let Some(payload) = self.get_resource_sync_for_device(device, user).await? {
+            info!(
+                sync_type = "resource", 
+                "Found resource sync"
+            );
             return Ok(Some(payload));
         }
 
-        // 4. Check for resource updates in the pending_resource_ids
+        // Check for resource updates in the pending_resource_ids
+        debug!("Checking for pending resource updates");
         if let Some(pending_resources) = pending_resource_ids {
             // Lock the mutex to access the vector
             let mut resources = pending_resources.lock().await;
@@ -50,238 +88,645 @@ impl SyncService {
             // If we have any pending resources, pop one
             if !resources.is_empty() {
                 let resource_id = resources.remove(0); // Pop the first item
-                info!(
-                    "Processing pending resource update for resource: {}",
-                    resource_id
+                debug!(
+                    resource_id = %resource_id,
+                    remaining_resources = resources.len(),
+                    "Processing pending resource update"
                 );
 
                 // Get the resource data for update
-                let payload = self.get_resource_for_update(&resource_id).await?;
-                return Ok(Some(payload));
+                match self.get_resource_for_update(&resource_id).await {
+                    Ok(payload) => {
+                        info!(
+                            sync_type = "resource_update",
+                            resource_id = %resource_id,
+                            "Found resource update"
+                        );
+                        return Ok(Some(payload));
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %resource_id,
+                            "Failed to get resource for update"
+                        );
+                        return Err(e);
+                    }
+                }
             }
         }
 
-        // 5. Device record status updates
+        debug!("Checking for device record status updates");
         if let Some(payload) = self.get_unsynced_device_records(device).await? {
+            info!(
+                sync_type = "status_update", 
+                "Found status update"
+            );
             return Ok(Some(payload));
         }
 
+        info!("No pending syncs found");
         Ok(None)
     }
 
+    #[instrument(
+        skip(self, device), 
+        fields(
+            device_id = %device.id
+        ),
+        level = "debug"
+    )]
     async fn get_device_sync_for_device(
         &self,
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
-        if let Some((sync_record, device_records, statuses)) = self
-            .sync_repository
-            .get_pending_sync_by_type(&device.id, "device")
-            .await?
-        {
-            // Get the device data
-            let device_data = self
-                .device_repository
-                .find_by_id(&sync_record.resource_id)
-                .await?;
-
-            return Ok(Some(SyncPayload::DeviceSync {
-                sync_record,
-                device_records,
-                device_record_statuses: statuses,
-                device: device_data,
-            }));
+        debug!("Looking for pending device sync");
+        
+        match self.sync_repository.get_pending_sync_by_type(&device.id, "device").await {
+            Ok(Some((sync_record, device_records, statuses))) => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    resource_id = %sync_record.resource_id,
+                    device_records = device_records.len(),
+                    status_records = statuses.len(),
+                    "Found pending device sync"
+                );
+                
+                // Get the device data
+                debug!("Retrieving device data");
+                match self.device_repository.find_by_id(&sync_record.resource_id).await {
+                    Ok(device_data) => {
+                        debug!(
+                            device_data_id = %device_data.id,
+                            "Retrieved device data"
+                        );
+                        
+                        Ok(Some(SyncPayload::DeviceSync {
+                            sync_record,
+                            device_records,
+                            device_record_statuses: statuses,
+                            device: device_data,
+                        }))
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %sync_record.resource_id,
+                            "Failed to retrieve device data"
+                        );
+                        Err(e)
+                    }
+                }
+            },
+            Ok(None) => {
+                debug!("No pending device sync found");
+                Ok(None)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device.id,
+                    "Error retrieving pending device sync"
+                );
+                Err(e)
+            }
         }
-
-        Ok(None)
     }
 
+    #[instrument(
+        skip(self, device), 
+        fields(
+            device_id = %device.id
+        ),
+        level = "debug"
+    )]
     async fn get_user_sync_for_device(
         &self,
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
+        debug!("Looking for pending user syncs");
+        
         // Get all pending user sync records for this device
-        if let Some(sync_data) = self
-            .sync_repository
-            .get_all_pending_syncs_by_type(&device.id, "user")
-            .await?
-        {
-            // Extract all unique user IDs from the sync records
-            let user_ids: Vec<String> = sync_data
-                .iter()
-                .map(|(record, _, _)| record.resource_id.clone())
-                .collect::<std::collections::HashSet<String>>()
-                .into_iter()
-                .collect();
+        match self.sync_repository.get_all_pending_syncs_by_type(&device.id, "user").await {
+            Ok(Some(sync_data)) => {
+                debug!(
+                    sync_data_count = sync_data.len(),
+                    "Found pending user syncs"
+                );
+                
+                // Extract all unique user IDs from the sync records
+                let user_ids: Vec<String> = sync_data
+                    .iter()
+                    .map(|(record, _, _)| record.resource_id.clone())
+                    .collect::<std::collections::HashSet<String>>()
+                    .into_iter()
+                    .collect();
+                
+                debug!(
+                    unique_user_ids = user_ids.len(),
+                    "Extracted unique user IDs"
+                );
 
-            // Build user_data collection
-            let mut user_data = Vec::new();
+                // Build user_data collection
+                debug!("Building user data collection");
+                let mut user_data = Vec::new();
 
-            for user_id in &user_ids {
-                // Get user data
-                let user = self.user_repository.get_user_by_id(user_id).await?;
+                for (i, user_id) in user_ids.iter().enumerate() {
+                    trace!(
+                        index = i,
+                        user_id = %user_id,
+                        "Processing user data"
+                    );
+                    
+                    // Get user data
+                    match self.user_repository.get_user_by_id(user_id).await {
+                        Ok(user) => {
+                            trace!(
+                                user_id = %user.id,
+                                "Retrieved user data"
+                            );
+                            
+                            // Get devices for this user
+                            match self.device_repository.get_devices_by_user_id(user_id).await {
+                                Ok(user_devices) => {
+                                    trace!(
+                                        user_id = %user_id,
+                                        device_count = user_devices.len(),
+                                        "Retrieved user devices"
+                                    );
+                                    
+                                    user_data.push((user, user_devices));
+                                },
+                                Err(e) => {
+                                    error!(
+                                        error = %e,
+                                        user_id = %user_id,
+                                        "Failed to retrieve devices for user"
+                                    );
+                                    return Err(e);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!(
+                                error = %e,
+                                user_id = %user_id,
+                                "Failed to retrieve user data"
+                            );
+                            return Err(e);
+                        }
+                    }
+                }
+                
+                debug!(
+                    user_data_count = user_data.len(),
+                    "User data collection built"
+                );
 
-                // Get devices for this user
-                let user_devices = self
-                    .device_repository
-                    .get_devices_by_user_id(user_id)
-                    .await?;
-
-                user_data.push((user, user_devices));
+                // Return the batch payload
+                Ok(Some(SyncPayload::UserSync {
+                    sync_data,
+                    user_data,
+                }))
+            },
+            Ok(None) => {
+                debug!("No pending user syncs found");
+                Ok(None)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device.id,
+                    "Error retrieving pending user syncs"
+                );
+                Err(e)
             }
-
-            // Return the batch payload
-            return Ok(Some(SyncPayload::UserSync {
-                sync_data,
-                user_data,
-            }));
         }
-
-        Ok(None)
     }
 
+    #[instrument(
+        skip(self, device), 
+        fields(
+            device_id = %device.id
+        ),
+        level = "debug"
+    )]
     async fn get_folder_sync_for_device(
         &self,
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
-        if let Some((sync_record, device_records, statuses)) = self
-            .sync_repository
-            .get_pending_sync_by_type(&device.id, "folder")
-            .await?
-        {
-            // Get the folder data
-            let folder = self
-                .folder_repository
-                .find_by_id(&sync_record.resource_id)
-                .await?;
-
-            return Ok(Some(SyncPayload::FolderSync {
-                sync_record,
-                device_records,
-                device_record_statuses: statuses,
-                folder,
-            }));
+        debug!("Looking for pending folder sync");
+        
+        match self.sync_repository.get_pending_sync_by_type(&device.id, "folder").await {
+            Ok(Some((sync_record, device_records, statuses))) => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    resource_id = %sync_record.resource_id,
+                    device_records = device_records.len(),
+                    status_records = statuses.len(),
+                    "Found pending folder sync"
+                );
+                
+                // Get the folder data
+                debug!("Retrieving folder data");
+                match self.folder_repository.find_by_id(&sync_record.resource_id).await {
+                    Ok(folder) => {
+                        debug!(
+                            folder_id = %folder.id,
+                            "Retrieved folder data"
+                        );
+                        
+                        Ok(Some(SyncPayload::FolderSync {
+                            sync_record,
+                            device_records,
+                            device_record_statuses: statuses,
+                            folder,
+                        }))
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %sync_record.resource_id,
+                            "Failed to retrieve folder data"
+                        );
+                        Err(e)
+                    }
+                }
+            },
+            Ok(None) => {
+                debug!("No pending folder sync found");
+                Ok(None)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device.id,
+                    "Error retrieving pending folder sync"
+                );
+                Err(e)
+            }
         }
-
-        Ok(None)
     }
 
+    #[instrument(
+        skip(self, device, user), 
+        fields(
+            device_id = %device.id,
+            user_id = %user.id
+        ),
+        level = "debug"
+    )]
     async fn get_resource_sync_for_device(
         &self,
         device: &Device,
         user: &User,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
-        if let Some((sync_record, device_records, statuses)) = self
-            .sync_repository
-            .get_pending_sync_by_type(&device.id, "resource")
-            .await?
-        {
-            // Get the resource with key
-            let resource = self
-                .resource_repository
-                .find_resource_with_key(&sync_record.resource_id, &user.id)
-                .await?;
-            let vector_clocks = self
-                .vector_clock_repository
-                .get_vector_clocks_for_resource(&sync_record.resource_id)
-                .await?;
+        debug!("Looking for pending resource sync");
+        
+        match self.sync_repository.get_pending_sync_by_type(&device.id, "resource").await {
+            Ok(Some((sync_record, device_records, statuses))) => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    resource_id = %sync_record.resource_id,
+                    device_records = device_records.len(),
+                    status_records = statuses.len(),
+                    "Found pending resource sync"
+                );
+                
+                // Get the resource with key
+                debug!("Retrieving resource with key");
+                let resource = match self.resource_repository.find_resource_with_key(&sync_record.resource_id, &user.id).await {
+                    Ok(resource) => {
+                        debug!(
+                            resource_id = %resource.resource.id,
+                            "Retrieved resource data"
+                        );
+                        resource
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %sync_record.resource_id,
+                            user_id = %user.id,
+                            "Failed to retrieve resource with key"
+                        );
+                        return Err(e);
+                    }
+                };
+                
+                debug!("Retrieving vector clocks for resource");
+                let vector_clocks = match self.vector_clock_repository.get_vector_clocks_for_resource(&sync_record.resource_id).await {
+                    Ok(clocks) => {
+                        debug!(
+                            clock_count = clocks.len(),
+                            "Retrieved vector clocks"
+                        );
+                        clocks
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %sync_record.resource_id,
+                            "Failed to retrieve vector clocks"
+                        );
+                        return Err(e);
+                    }
+                };
 
-            return Ok(Some(SyncPayload::ResourceSync {
-                sync_record,
-                device_records,
-                device_record_statuses: statuses,
-                resource,
-                vector_clocks,
-            }));
+                Ok(Some(SyncPayload::ResourceSync {
+                    sync_record,
+                    device_records,
+                    device_record_statuses: statuses,
+                    resource,
+                    vector_clocks,
+                }))
+            },
+            Ok(None) => {
+                debug!("No pending resource sync found");
+                Ok(None)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device.id,
+                    "Error retrieving pending resource sync"
+                );
+                Err(e)
+            }
         }
-
-        Ok(None)
     }
 
+    #[instrument(
+        skip(self), 
+        fields(
+            resource_id = %resource_id
+        ),
+        level = "debug"
+    )]
     async fn get_resource_for_update(
         &self,
         resource_id: &str,
     ) -> Result<SyncPayload, RepositoryError> {
-        let resource = self.resource_repository.find_by_id_raw(resource_id).await?;
-        let vector_clocks = self
-            .vector_clock_repository
-            .get_vector_clocks_for_resource(resource_id)
-            .await?;
+        debug!("Getting resource for update");
+        
+        let resource = match self.resource_repository.find_by_id_raw(resource_id).await {
+            Ok(res) => {
+                debug!(
+                    resource_id = %res.id,
+                    "Retrieved resource data"
+                );
+                res
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    resource_id = %resource_id,
+                    "Failed to retrieve resource data"
+                );
+                return Err(e);
+            }
+        };
+        
+        let vector_clocks = match self.vector_clock_repository.get_vector_clocks_for_resource(resource_id).await {
+            Ok(clocks) => {
+                debug!(
+                    clock_count = clocks.len(),
+                    "Retrieved vector clocks"
+                );
+                clocks
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    resource_id = %resource_id,
+                    "Failed to retrieve vector clocks"
+                );
+                return Err(e);
+            }
+        };
+        
+        debug!("Prepared resource update payload");
         Ok(SyncPayload::ResourceUpdate {
             resource,
             vector_clocks,
         })
     }
 
+    #[instrument(
+        skip(self, device), 
+        fields(
+            device_id = %device.id
+        ),
+        level = "debug"
+    )]
     async fn get_unsynced_device_records(
         &self,
         device: &Device,
     ) -> Result<Option<SyncPayload>, RepositoryError> {
-        let unsynced_records = self
-            .sync_repository
-            .get_unsynced_device_sync_records(&device.id)
-            .await?;
-
-        if !unsynced_records.is_empty() {
-            return Ok(Some(SyncPayload::StatusUpdate(unsynced_records)));
+        debug!("Looking for unsynced device records");
+        
+        match self.sync_repository.get_unsynced_device_sync_records(&device.id).await {
+            Ok(unsynced_records) => {
+                if !unsynced_records.is_empty() {
+                    debug!(
+                        record_count = unsynced_records.len(),
+                        "Found unsynced device records"
+                    );
+                    return Ok(Some(SyncPayload::StatusUpdate(unsynced_records)));
+                }
+                
+                debug!("No unsynced device records found");
+                Ok(None)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device.id,
+                    "Error retrieving unsynced device records"
+                );
+                Err(e)
+            }
         }
-
-        Ok(None)
     }
 
+    #[instrument(
+        skip(self), 
+        fields(
+            device_id = %device_id
+        ),
+        level = "info"
+    )]
     pub async fn get_resources_needing_sync(
         &self,
         device_id: &str,
     ) -> Result<Vec<String>, RepositoryError> {
+        info!("Getting resources needing sync");
+        
         // Check if device exists
         let device = match self.device_repository.find_by_id(device_id).await {
-            Ok(device) => device,
+            Ok(device) => {
+                debug!(
+                    device_id = %device.id,
+                    "Retrieved device data"
+                );
+                device
+            },
             Err(RepositoryError::NotFound) => {
+                debug!(
+                    device_id = %device_id,
+                    "Device not found, returning empty list"
+                );
                 // Device not found, return empty
                 return Ok(Vec::new());
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device_id,
+                    "Error retrieving device"
+                );
+                return Err(e);
             }
-            Err(e) => return Err(e),
         };
 
         // If device has never synced, return empty list
         if device.last_synced_at.is_none() {
+            info!(
+                device_id = %device_id,
+                "Device has never synced, returning empty list"
+            );
             return Ok(Vec::new());
         }
 
         let last_synced_at = device.last_synced_at.unwrap();
+        debug!(
+            last_synced_at = ?last_synced_at,
+            "Using last synced timestamp"
+        );
 
         // Get all other devices
-        let all_other_devices = self
-            .device_repository
-            .get_all_devices_except(&[device_id.to_string()])
-            .await?;
+        debug!("Getting all other devices");
+        let all_other_devices = match self.device_repository.get_all_devices_except(&[device_id.to_string()]).await {
+            Ok(devices) => {
+                debug!(
+                    device_count = devices.len(),
+                    "Retrieved other devices"
+                );
+                devices
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device_id,
+                    "Error retrieving other devices"
+                );
+                return Err(e);
+            }
+        };
 
         if all_other_devices.is_empty() {
             // No other devices to sync with
+            info!(
+                device_id = %device_id,
+                "No other devices to sync with, returning empty list"
+            );
             return Ok(Vec::new());
         }
 
-        let device_resource_ids = self
-            .sync_repository
-            .get_resource_ids_for_device(&device.id)
-            .await?;
+        debug!("Getting resource IDs for device");
+        let device_resource_ids = match self.sync_repository.get_resource_ids_for_device(&device.id).await {
+            Ok(ids) => {
+                debug!(
+                    resource_id_count = ids.len(),
+                    "Retrieved resource IDs for device"
+                );
+                ids
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device_id,
+                    "Error retrieving resource IDs for device"
+                );
+                return Err(e);
+            }
+        };
+        
         // Get resource IDs that need syncing based on vector clocks
-        let needs_sync = self
-            .vector_clock_repository
-            .get_resource_ids_needing_updates(&device_resource_ids, last_synced_at, device_id)
-            .await?;
-
-        Ok(needs_sync)
+        debug!("Getting resource IDs needing updates");
+        match self.vector_clock_repository.get_resource_ids_needing_updates(
+            &device_resource_ids, 
+            last_synced_at, 
+            device_id
+        ).await {
+            Ok(needs_sync) => {
+                info!(
+                    resources_needing_sync = needs_sync.len(),
+                    "Found resources needing sync"
+                );
+                Ok(needs_sync)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device_id,
+                    "Error determining resources needing updates"
+                );
+                Err(e)
+            }
+        }
     }
 
+    #[instrument(
+        skip(self), 
+        fields(
+            user_id = %user_id
+        ),
+        level = "debug"
+    )]
     pub async fn get_payload_for_first_user_sync(
         &self,
         user_id: &str,
     ) -> Result<(User, Vec<Device>), RepositoryError> {
-        let devices = self
-            .device_repository
-            .get_devices_by_user_id(user_id)
-            .await?;
-        let user = self.user_repository.get_user_by_id(user_id).await?;
+        debug!("Getting payload for first user sync");
+        
+        let devices = match self.device_repository.get_devices_by_user_id(user_id).await {
+            Ok(devices) => {
+                debug!(
+                    device_count = devices.len(),
+                    "Retrieved devices for user"
+                );
+                devices
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    user_id = %user_id,
+                    "Error retrieving devices for user"
+                );
+                return Err(e);
+            }
+        };
+        
+        let user = match self.user_repository.get_user_by_id(user_id).await {
+            Ok(user) => {
+                debug!(
+                    user_id = %user.id,
+                    "Retrieved user data"
+                );
+                user
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    user_id = %user_id,
+                    "Error retrieving user"
+                );
+                return Err(e);
+            }
+        };
+        
+        info!("Prepared first user sync payload");
         Ok((user, devices))
     }
 }
