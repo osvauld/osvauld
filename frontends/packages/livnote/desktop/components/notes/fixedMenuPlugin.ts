@@ -207,6 +207,7 @@ function addFormattingItems(container, schema, view) {
 	const group = document.createElement("div");
 	group.className = "editor-menu-group";
 
+
 	// Bold
 	if (schema.marks.strong) {
 		const boldButton = document.createElement("button");
@@ -250,6 +251,25 @@ function addFormattingItems(container, schema, view) {
 		});
 		group.appendChild(italicButton);
 	}
+
+		// Paragraph
+		if (schema.nodes.paragraph) {
+			const paragraphButton = document.createElement("button");
+			paragraphButton.className = "editor-general-button menu-paragraph";
+			paragraphButton.title = "Paragraph";
+			paragraphButton.dataset.nodeType = "paragraph";
+			paragraphButton.innerHTML = `	
+<svg width="24px" height="24px" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <text x="50%" y="50%" font-family="Arial" font-size="100" font-weight="light" fill="#85889C" dominant-baseline="central" text-anchor="middle">P</text>
+</svg>
+		  `;
+			paragraphButton.addEventListener("click", () => {
+				setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+				view.focus();
+			});
+			group.appendChild(paragraphButton);
+		}
+	
 
 	// Code
 	// if (schema.marks.code) {
@@ -584,7 +604,7 @@ function addFormatDropdown(container, schema, view) {
 				view.state,
 				view.dispatch,
 			);
-			view.focus();
+			view.focus();			
 			hideDropdowns();
 		});
 		headingsSubmenu.appendChild(headingOption);
