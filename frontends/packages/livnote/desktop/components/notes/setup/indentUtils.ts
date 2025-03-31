@@ -1,6 +1,12 @@
 import { EditorView } from "prosemirror-view";
 import { liftListItem, sinkListItem } from "prosemirror-schema-list";
 
+interface NodeAttributes {
+  indent?: number;
+  level?: number;
+  [key: string]: any;
+}
+
 // Helper function to get current indentation level
 export function getCurrentIndent(state) {
   const { $from } = state.selection;
@@ -9,7 +15,7 @@ export function getCurrentIndent(state) {
 }
 
 // Helper function to preserve existing attributes
-export function getExistingAttributes(state, pos) {
+export function getExistingAttributes(state, pos): NodeAttributes {
   const node = state.doc.nodeAt(pos);
   return node ? { ...node.attrs } : {};
 }
@@ -40,22 +46,38 @@ export function indentRight(view: EditorView) {
   } else {
     // Apply custom indentation for non-list content
     const tr = state.tr;
-    const { from, to } = selection;
+    const { $from } = selection;
+    
+    // Get the closest parent block node
+    let depth = $from.depth;
+    while (depth > 0 && !$from.node(depth).type.isBlock) {
+      depth--;
+    }
+    
+    if (depth === 0) return false;
+    
+    const pos = $from.before(depth);
+    const node = $from.node(depth);
 
-    // Get current indentation level
-    const currentIndent = getCurrentIndent(state);
+    // Get current indentation level from the block node
+    const currentIndent = node.attrs.indent || 0;
     const newIndent = Math.min(3, currentIndent + 1); // Maximum 3 levels of indentation
 
-    // Apply indent to selection
-    tr.setBlockType(from, to, state.schema.nodes.paragraph, {
-      indent: newIndent,
-      ...getExistingAttributes(state, from),
-    });
+    // Prepare the attributes
+    const attrs: NodeAttributes = { ...node.attrs, indent: newIndent };
 
+    // If it's a heading, ensure we preserve the level
+    if (node.type.name === "heading") {
+      attrs.level = node.attrs.level;
+    }
+
+    // Apply the changes to the block node
+    tr.setNodeMarkup(pos, null, attrs);
     dispatch(tr);
   }
 
   view.focus();
+  return true;
 }
 
 // Function to handle indent left (outdent)
@@ -70,15 +92,26 @@ export function indentLeft(view: EditorView) {
   } else {
     // Apply custom outdentation for non-list content
     const tr = state.tr;
-    const { from, to } = selection;
+    const { $from } = selection;
+    
+    // Get the closest parent block node
+    let depth = $from.depth;
+    while (depth > 0 && !$from.node(depth).type.isBlock) {
+      depth--;
+    }
+    
+    if (depth === 0) return false;
+    
+    const pos = $from.before(depth);
+    const node = $from.node(depth);
 
-    // Get current indentation level
-    const currentIndent = getCurrentIndent(state);
+    // Get current indentation level from the block node
+    const currentIndent = node.attrs.indent || 0;
     const newIndent = Math.max(0, currentIndent - 1);
 
-    // Apply new indent level
-    const attrs = { ...getExistingAttributes(state, from) };
-
+    // Prepare the attributes
+    const attrs: NodeAttributes = { ...node.attrs };
+    
     if (newIndent === 0) {
       // Remove indent attribute when at level 0
       delete attrs.indent;
@@ -86,9 +119,16 @@ export function indentLeft(view: EditorView) {
       attrs.indent = newIndent;
     }
 
-    tr.setBlockType(from, to, state.schema.nodes.paragraph, attrs);
+    // If it's a heading, ensure we preserve the level
+    if (node.type.name === "heading") {
+      attrs.level = node.attrs.level;
+    }
+
+    // Apply the changes to the block node
+    tr.setNodeMarkup(pos, null, attrs);
     dispatch(tr);
   }
 
   view.focus();
+  return true;
 } 

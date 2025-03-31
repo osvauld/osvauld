@@ -3,6 +3,7 @@ import { emit } from "@tauri-apps/api/event";
 import { baseKeymap, setBlockType, exitCode } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
+import type { NodeSpec } from "prosemirror-model";
 import { schema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
@@ -63,44 +64,98 @@ export class Notes {
 		// Get the base paragraph node spec from the schema
 		const nodes = schema.spec.nodes;
 
-		// Modify the paragraph node to include align and indent attributes
-		const modifiedNodes = nodes.update("paragraph", {
-			...nodes.get("paragraph"),
+		// Helper function to add indent and align attributes to a node spec
+		const addIndentAndAlignAttrs = (nodeSpec: NodeSpec): NodeSpec => ({
+			...nodeSpec,
 			attrs: {
+				...nodeSpec.attrs,
 				align: { default: null },
 				indent: { default: null },
 			},
 			parseDOM: [
 				{
-					tag: "p",
-					getAttrs(dom) {
+					tag: nodeSpec.parseDOM?.[0]?.tag || "p",
+					getAttrs(dom: HTMLElement) {
+						const existingAttrs = nodeSpec.parseDOM?.[0]?.getAttrs ? 
+							nodeSpec.parseDOM[0].getAttrs(dom) : 
+							{};
 						return {
+							...existingAttrs,
 							align: dom.style.textAlign || null,
 							indent: dom.hasAttribute("data-indent")
-								? parseInt(dom.getAttribute("data-indent"), 10)
+								? parseInt(dom.getAttribute("data-indent") || "0", 10)
 								: null,
 						};
 					},
 				},
 			],
 			toDOM(node) {
-				const attrs = {};
+				const attrs: { [key: string]: any } = {};
 
-				// Handle alignment
-				if (node.attrs.align && node.attrs.align !== "left") {
+				if (node.attrs.align) {
 					attrs.style = `text-align: ${node.attrs.align}`;
 				}
 
-				// Handle indentation
 				if (node.attrs.indent && node.attrs.indent > 0) {
 					attrs["data-indent"] = node.attrs.indent;
 				}
 
-				return ["p", attrs, 0];
+				return [nodeSpec.parseDOM?.[0]?.tag || "p", attrs, 0] as [string, Object, number];
 			},
 		});
 
-		// Add list nodes to our modified nodes with paragraph node
+		// Get the heading node spec and modify it
+		const headingSpec = nodes.get("heading");
+		if (!headingSpec) {
+			throw new Error("Heading node spec not found in schema");
+		}
+
+		const modifiedHeadingSpec: NodeSpec = {
+			...headingSpec,
+			attrs: {
+				...headingSpec.attrs,
+				align: { default: null },
+				indent: { default: null },
+			},
+			parseDOM: (headingSpec.parseDOM || []).map(spec => ({
+				tag: spec.tag,
+				getAttrs(dom: HTMLElement) {
+					const existingAttrs = spec.getAttrs ? spec.getAttrs(dom) : {};
+					return {
+						...existingAttrs,
+						align: dom.style.textAlign || null,
+						indent: dom.hasAttribute("data-indent")
+							? parseInt(dom.getAttribute("data-indent") || "0", 10)
+							: null,
+					};
+				}
+			})),
+			toDOM(node) {
+				const attrs: { [key: string]: any } = {};
+
+				if (node.attrs.align) {
+					attrs.style = `text-align: ${node.attrs.align}`;
+				}
+
+				if (node.attrs.indent && node.attrs.indent > 0) {
+					attrs["data-indent"] = node.attrs.indent;
+				}
+
+				return [`h${node.attrs.level}`, attrs, 0] as [string, Object, number];
+			}
+		};
+
+		// Modify both paragraph and heading nodes
+		const paragraphSpec = nodes.get("paragraph");
+		if (!paragraphSpec) {
+			throw new Error("Paragraph node spec not found in schema");
+		}
+
+		const modifiedNodes = nodes
+			.update("paragraph", addIndentAndAlignAttrs(paragraphSpec))
+			.update("heading", modifiedHeadingSpec);
+
+		// Add list nodes to our modified nodes
 		this.editorSchema = new Schema({
 			nodes: addListNodes(modifiedNodes, "paragraph block*", "block"),
 			marks: schema.spec.marks,
@@ -123,16 +178,34 @@ export class Notes {
         text-align: right;
       }
       
-      /* Indentation styles */
-      .ProseMirror p[data-indent="1"] {
+      /* Indentation styles for paragraphs and headings */
+      .ProseMirror p[data-indent="1"],
+      .ProseMirror h1[data-indent="1"],
+      .ProseMirror h2[data-indent="1"],
+      .ProseMirror h3[data-indent="1"],
+      .ProseMirror h4[data-indent="1"],
+      .ProseMirror h5[data-indent="1"],
+      .ProseMirror h6[data-indent="1"] {
         margin-left: 2em;
       }
       
-      .ProseMirror p[data-indent="2"] {
+      .ProseMirror p[data-indent="2"],
+      .ProseMirror h1[data-indent="2"],
+      .ProseMirror h2[data-indent="2"],
+      .ProseMirror h3[data-indent="2"],
+      .ProseMirror h4[data-indent="2"],
+      .ProseMirror h5[data-indent="2"],
+      .ProseMirror h6[data-indent="2"] {
         margin-left: 4em;
       }
       
-      .ProseMirror p[data-indent="3"] {
+      .ProseMirror p[data-indent="3"],
+      .ProseMirror h1[data-indent="3"],
+      .ProseMirror h2[data-indent="3"],
+      .ProseMirror h3[data-indent="3"],
+      .ProseMirror h4[data-indent="3"],
+      .ProseMirror h5[data-indent="3"],
+      .ProseMirror h6[data-indent="3"] {
         margin-left: 6em;
       }
     `;
