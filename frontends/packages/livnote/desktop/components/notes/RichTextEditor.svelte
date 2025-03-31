@@ -17,6 +17,7 @@
 	} from "../../store/desktop.ui.store";
 	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
 	import { DOMSerializer } from "prosemirror-model";
+	import "./rich-text-editor.css";
 
 	const dispatch = createEventDispatcher();
 	let element;
@@ -355,80 +356,6 @@
 </script>
 
 <style>
-	/* Fixed Menu Styles */
-	:global(.editor-fixed-menu) {
-		background: #16171f;
-		height: 92px;
-		border-bottom: 1px solid #2a2b2f;
-		padding: 10px 15px;
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-		border-top-left-radius: 8px;
-		border-top-right-radius: 8px;
-	}
-
-	:global(.editor-menu-group) {
-		display: flex;
-		align-items: center;
-		padding-right: 12px;
-		margin-right: 12px;
-		border-right: 1px solid #2a2b2f;
-	}
-
-	:global(.editor-menu-group:last-child) {
-		border-right: none;
-	}
-
-	/* Menu item styling */
-	:global(.editor-menuitem) {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 30px;
-		height: 30px;
-		padding: 0 10px;
-		background: #2a2b2f;
-		color: #bfc0cc;
-		font-family:
-			system-ui,
-			-apple-system,
-			sans-serif;
-		font-size: 14px;
-		border: none;
-		border-radius: 4px;
-		cursor: pointer;
-		margin-right: 3px;
-		transition:
-			background-color 0.2s ease,
-			color 0.2s ease;
-	}
-
-	:global(.editor-menuitem:hover) {
-		background: #3a3b44;
-	}
-
-	/* Active states */
-	:global(.editor-menuitem-active) {
-		background: #3a3b44;
-		color: #bfc0cc;
-		border-bottom: 2px solid #7c91f9;
-	}
-
-	/* Special styles for specific menu items */
-	:global(.menu-bold) {
-		font-weight: bold;
-	}
-
-	:global(.menu-italic) {
-		font-style: italic;
-	}
-
-	:global(.menu-code) {
-		font-family: monospace;
-	}
-
 	/* Basic editor container structure */
 	.editor-container {
 		margin: 0 auto;
@@ -448,122 +375,6 @@
 		flex-direction: column;
 		overflow-y: auto;
 		margin: 5px 15px 5px 15px;
-	}
-
-	:global(.ProseMirror) {
-		position: relative;
-		padding: 15px;
-		min-height: 100px;
-		outline: none;
-		line-height: 1.5;
-		color: white;
-		background: #16171f;
-		flex-grow: 1;
-		overflow-y: auto;
-	}
-
-	/* Remove old menubar styles */
-	:global(.ProseMirror-menubar) {
-		display: none !important;
-	}
-
-	/* Basic text styling */
-	:global(.ProseMirror p) {
-		margin: 0 0 1em 0;
-	}
-
-	:global(.ProseMirror h1) {
-		font-size: 2em;
-		margin: 0.67em 0;
-		color: white;
-		font-weight: bold;
-	}
-
-	:global(.ProseMirror h2) {
-		font-size: 1.5em;
-		margin: 0.83em 0;
-		color: white;
-		font-weight: bold;
-	}
-
-	:global(.ProseMirror h3) {
-		font-size: 1.17em;
-		margin: 1em 0;
-		color: white;
-		font-weight: bold;
-	}
-
-	/* List styling */
-	:global(.ProseMirror ul) {
-		padding-left: 1.5em;
-		margin: 0.5em 0;
-		list-style-type: disc;
-	}
-
-	:global(.ProseMirror ul li) {
-		margin: 0.2em 0;
-		position: relative;
-	}
-
-	:global(.ProseMirror ol) {
-		padding-left: 1.5em;
-		margin: 0.5em 0;
-		list-style-type: decimal;
-	}
-
-	:global(.ProseMirror blockquote) {
-		border-left: 3px solid #4a4b53;
-		margin-left: 0;
-		margin-right: 0;
-		padding-left: 1em;
-		font-style: italic;
-		color: #bfc0cc;
-		background-color: rgba(255, 255, 255, 0.03);
-		border-radius: 4px;
-		padding: 8px 16px 8px 12px;
-	}
-
-	/* Scrollbar styling */
-	:global(.ProseMirror::-webkit-scrollbar) {
-		width: 4px;
-		height: 4px;
-	}
-
-	:global(.ProseMirror::-webkit-scrollbar-track) {
-		background: transparent;
-	}
-
-	:global(.ProseMirror::-webkit-scrollbar-thumb) {
-		background-color: #2f303e;
-		border-radius: 4px;
-	}
-
-	/* Cursor and selection styles */
-	:global(.ProseMirror-yjs-cursor) {
-		position: relative;
-		margin-left: -1px;
-		margin-right: -1px;
-		border-left: 2px solid black;
-		border-right: 2px solid black;
-		pointer-events: none;
-		z-index: 20;
-	}
-
-	:global(.ProseMirror-yjs-cursor > div) {
-		position: absolute;
-		top: -1.8em;
-		left: -1px;
-		font-size: 12px;
-		background-color: inherit;
-		font-family: "Inter", "Segoe UI", sans-serif;
-		font-weight: 500;
-		line-height: normal;
-		user-select: none;
-		color: white;
-		padding: 3px 8px;
-		border-radius: 4px;
-		white-space: nowrap;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 	}
 </style>
 
