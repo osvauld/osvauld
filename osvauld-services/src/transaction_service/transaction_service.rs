@@ -55,7 +55,7 @@ impl TransactionService {
         folder: &Folder,
         sync_record_set: &SyncRecordSet,
     ) -> Result<(), RepositoryError> {
-        let _ = self.folder_repository.save(folder).await;
+        self.folder_repository.save(folder).await?;
         self.sync_repository
             .add_sync_record_set(sync_record_set)
             .await?;
