@@ -284,11 +284,6 @@
 
 				// Only trigger Yjs update if document actually changed
 				if (tr.docChanged && ydoc) {
-					// This will trigger the 'update' event on ydoc with default (local) origin
-					// The Notes class will handle sending the update to peers
-
-					// Dispatch event for collaboration - ONLY send minimal data
-					// to avoid cyclic structure serialization issues
 					dispatch("collaboration-update", {
 						noteId: currentlyLoadedNoteId,
 					});

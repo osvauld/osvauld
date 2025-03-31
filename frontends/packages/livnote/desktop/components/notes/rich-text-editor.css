@@ -215,4 +215,22 @@
 
 .editor-general-button:hover {
     background-color: #2a2b2f;
+}
+
+/* Floating Menu Styles */
+.floating-menu {
+  transition: opacity 0.3s ease;
+}
+
+.floating-menu-button {
+  transition: background-color 0.2s ease;
+}
+
+.floating-menu-button:hover {
+  background: #3a3b44 !important;
+}
+
+.floating-menu-button.active {
+  background: #3a3b44 !important;
+  box-shadow: 0px 2px 0px -1px rgb(124 145 249 / 1);
 } 
