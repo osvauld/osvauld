@@ -50,6 +50,18 @@ impl TransactionService {
         }
     }
 
+    pub async fn add_folder_transaction(
+        &self,
+        folder: &Folder,
+        sync_record_set: &SyncRecordSet,
+    ) -> Result<(), RepositoryError> {
+        let _ = self.folder_repository.save(folder).await;
+        self.sync_repository
+            .add_sync_record_set(sync_record_set)
+            .await?;
+        Ok(())
+    }
+
     pub async fn create_resource_with_sync(
         &self,
         resource: Resource,

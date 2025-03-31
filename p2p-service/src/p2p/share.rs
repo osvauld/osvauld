@@ -6,38 +6,42 @@ impl PeerConnection {
         &self,
         payload: &UserConnectionPayload,
     ) -> Result<(), String> {
-        if let Some(current_device) = self.get_local_device().await {
-            let return_payload = self
-                .context
-                .sync_service
-                .process_user_connection_payload(
-                    payload,
-                    &current_device.user_id,
-                    &current_device.id,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            if let Some(payload) = return_payload {
-                let message = Message::UserConnection(payload);
-                self.send_message(message).await?;
-            }
-            return Ok(());
+        let current_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => return Err("Local device not found".into()),
+        };
+        let current_span = tracing::Span::current();
+        let return_payload = self
+            .context
+            .sync_service
+            .process_user_connection_payload(
+                payload,
+                &current_device.user_id,
+                &current_device.id,
+                current_span,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if let Some(payload) = return_payload {
+            let message = Message::UserConnection(payload);
+            self.send_message(message).await?;
         }
-        Err("Local user not found".into())
+        Ok(())
     }
 
     pub async fn initiate_user_first_connection(&self) -> Result<(), String> {
-        if let Some(user) = self.get_local_user().await {
-            let (user, devices) = self
-                .context
-                .sync_service
-                .get_payload_for_first_user_sync(&user.id)
-                .await
-                .map_err(|e| e.to_string())?;
-            let message = Message::UserConnection(UserConnectionPayload::Request { user, devices });
-            self.send_message(message).await?;
-            return Ok(());
-        }
-        Err("Local user not found".into())
+        let user = match self.get_local_user().await {
+            Some(user) => user,
+            None => return Err("Local user not found".into()),
+        };
+        let (user, devices) = self
+            .context
+            .sync_service
+            .get_payload_for_first_user_sync(&user.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let message = Message::UserConnection(UserConnectionPayload::Request { user, devices });
+        self.send_message(message).await?;
+        Ok(())
     }
 }

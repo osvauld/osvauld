@@ -3,7 +3,7 @@ use osvauld_core::models::folder::Folder;
 use osvauld_core::models::p2p::{SyncAckType, SyncPayload};
 use osvauld_core::models::resource::{Resource, ResourceKeyPair};
 use osvauld_core::models::sync_record::{
-    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, SyncRecord, SyncRecordSet,
+    DeviceRecord, DeviceRecordStatus, SyncRecord, SyncRecordSet,
 };
 use osvauld_core::models::sync_types::SyncMergeResult;
 use osvauld_core::models::sync_types::SyncOperations;
@@ -11,11 +11,21 @@ use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::RepositoryError;
 
-use log::info;
+use tracing::{Span, info, debug, error, instrument, trace};
 
 use super::sync_service_core::{SyncEvent, SyncService};
 
 impl SyncService {
+    #[instrument(
+        skip(self, payload, emit_event, current_span), 
+        fields(
+            payload_type = ?std::mem::discriminant(payload),
+            user_id = %user_id,
+            device_id = %device_id,
+            current_device_id = %current_device_id
+        ),
+        level = "info"
+    )]
     pub async fn process_sync_payload<F>(
         &self,
         payload: &SyncPayload,
@@ -24,17 +34,29 @@ impl SyncService {
         emit_event: Option<F>,
         current_device_id: &str,
         current_user_id: &str,
+        current_span: Span,
     ) -> Result<SyncAckType, RepositoryError>
     where
         F: Fn(SyncEvent) + Send + Sync,
     {
-        match payload {
+        // Enter the parent span
+        let _guard = current_span.enter();
+        
+        info!("Processing sync payload");
+        
+        let result = match payload {
             SyncPayload::DeviceSync {
                 sync_record,
                 device_records,
                 device_record_statuses,
                 device,
             } => {
+                debug!(
+                    sync_record_id = %sync_record.id, 
+                    device_records = device_records.len(),
+                    "Processing device sync payload"
+                );
+                
                 self.process_device_sync(
                     sync_record,
                     device_records,
@@ -50,6 +72,12 @@ impl SyncService {
                 sync_data,
                 user_data,
             } => {
+                debug!(
+                    sync_data_count = sync_data.len(),
+                    user_data_count = user_data.len(),
+                    "Processing user sync payload"
+                );
+                
                 self.process_user_sync(sync_data, user_data, current_device_id, current_user_id)
                     .await
             }
@@ -61,6 +89,13 @@ impl SyncService {
                 resource,
                 vector_clocks,
             } => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    resource_id = %resource.resource.id,
+                    device_records = device_records.len(),
+                    "Processing resource sync payload"
+                );
+                
                 self.process_resource_sync(
                     sync_record,
                     device_records,
@@ -79,6 +114,13 @@ impl SyncService {
                 device_record_statuses,
                 folder,
             } => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    folder_id = %folder.id,
+                    device_records = device_records.len(),
+                    "Processing folder sync payload"
+                );
+                
                 self.process_folder_sync(
                     sync_record,
                     device_records,
@@ -94,6 +136,12 @@ impl SyncService {
                 resource,
                 vector_clocks,
             } => {
+                debug!(
+                    resource_id = %resource.id,
+                    vector_clocks = vector_clocks.len(),
+                    "Processing resource update sync"
+                );
+                
                 self.process_resource_update_sync(
                     resource,
                     device_id,
@@ -105,12 +153,45 @@ impl SyncService {
             }
 
             SyncPayload::StatusUpdate(payload) => {
+                debug!(
+                    status_records = payload.len(),
+                    "Processing status update"
+                );
+                
                 self.process_status_update(payload, current_device_id).await
             }
+        };
+        
+        match &result {
+            Ok(ack) => {
+                info!(
+                    ack_type = ?std::mem::discriminant(ack),
+                    "Sync payload processed successfully"
+                );
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    "Failed to process sync payload"
+                );
+            }
         }
+        
+        result
     }
 
     // Process device sync payload
+    #[instrument(
+        skip(self, sync_record, device_records, device_record_statuses, device), 
+        fields(
+            sync_record_id = %sync_record.id,
+            device_id = %device.id,
+            current_device_id = %current_device_id,
+            user_id = %user_id,
+            record_count = device_records.len()
+        ),
+        level = "debug"
+    )]
     async fn process_device_sync(
         &self,
         sync_record: &SyncRecord,
@@ -120,23 +201,51 @@ impl SyncService {
         current_device_id: &str,
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
-        // Process common sync logic
-
-        let mut devices = self
-            .get_user_other_devices(current_device_id, user_id)
-            .await?;
+        debug!("Processing device sync");
+        
+        // Get user's other devices
+        debug!("Getting user's other devices");
+        let mut devices = match self.get_user_other_devices(current_device_id, user_id).await {
+            Ok(devices) => {
+                debug!(device_count = devices.len(), "Retrieved user's other devices");
+                devices
+            },
+            Err(e) => {
+                error!(error = %e, "Failed to get user's other devices");
+                return Err(e);
+            }
+        };
+        
+        // Add the current device to devices list
         devices.push(device.clone());
-        let (merge_result, record_exists) = self
-            .prepare_common_sync_data(
-                sync_record,
-                device_records,
-                device_record_statuses,
-                current_device_id,
-                devices,
-            )
-            .await?;
+        debug!(total_device_count = devices.len(), "Added current device to devices list");
+        
+        // Prepare common sync data
+        debug!("Preparing common sync data");
+        let (merge_result, record_exists) = match self.prepare_common_sync_data(
+            sync_record,
+            device_records,
+            device_record_statuses,
+            current_device_id,
+            devices,
+        ).await {
+            Ok(result) => {
+                debug!(
+                    record_exists = result.1,
+                    local_records = result.0.local_operations.records_to_add.len(),
+                    remote_records = result.0.remote_operations.records_to_add.len(),
+                    "Common sync data prepared"
+                );
+                result
+            },
+            Err(e) => {
+                error!(error = %e, "Failed to prepare common sync data");
+                return Err(e);
+            }
+        };
 
         if !record_exists {
+            debug!("Record doesn't exist, creating new sync record set");
             let record_set = SyncRecordSet {
                 sync_record: sync_record.clone(),
                 device_records: merge_result.local_operations.records_to_add.clone(),
@@ -144,16 +253,42 @@ impl SyncService {
             };
 
             // Use db transaction method for saving device sync
-            self.db.save_device_sync(device, &record_set, &[]).await?;
+            debug!("Saving device sync");
+            match self.db.save_device_sync(device, &record_set, &[]).await {
+                Ok(_) => debug!("Device sync saved successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to save device sync");
+                    return Err(e);
+                }
+            }
         } else {
-            self.db
-                .apply_sync_operations(&merge_result.local_operations)
-                .await?;
+            debug!("Record exists, applying sync operations");
+            match self.db.apply_sync_operations(&merge_result.local_operations).await {
+                Ok(_) => debug!("Sync operations applied successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to apply sync operations");
+                    return Err(e);
+                }
+            }
         }
+        
+        info!("Device sync processed successfully");
         Ok(SyncAckType::FullSync(merge_result.remote_operations))
     }
 
     // Process resource sync payload
+    #[instrument(
+        skip(self, sync_record, device_records, device_record_statuses, resource, vector_clocks), 
+        fields(
+            sync_record_id = %sync_record.id,
+            resource_id = %resource.resource.id,
+            current_device_id = %current_device_id,
+            user_id = %user_id,
+            record_count = device_records.len(),
+            vector_clock_count = vector_clocks.len()
+        ),
+        level = "debug"
+    )]
     async fn process_resource_sync(
         &self,
         sync_record: &SyncRecord,
@@ -164,22 +299,47 @@ impl SyncService {
         current_device_id: &str,
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
-        // Process common sync logic
-
-        let devices = self
-            .get_user_other_devices(current_device_id, user_id)
-            .await?;
-        let (merge_result, record_exist) = self
-            .prepare_common_sync_data(
-                sync_record,
-                device_records,
-                device_record_statuses,
-                current_device_id,
-                devices,
-            )
-            .await?;
+        debug!("Processing resource sync");
+        
+        // Get user's other devices
+        debug!("Getting user's other devices");
+        let devices = match self.get_user_other_devices(current_device_id, user_id).await {
+            Ok(devices) => {
+                debug!(device_count = devices.len(), "Retrieved user's other devices");
+                devices
+            },
+            Err(e) => {
+                error!(error = %e, "Failed to get user's other devices");
+                return Err(e);
+            }
+        };
+        
+        // Prepare common sync data
+        debug!("Preparing common sync data");
+        let (merge_result, record_exist) = match self.prepare_common_sync_data(
+            sync_record,
+            device_records,
+            device_record_statuses,
+            current_device_id,
+            devices,
+        ).await {
+            Ok(result) => {
+                debug!(
+                    record_exists = result.1,
+                    local_records = result.0.local_operations.records_to_add.len(),
+                    remote_records = result.0.remote_operations.records_to_add.len(),
+                    "Common sync data prepared"
+                );
+                result
+            },
+            Err(e) => {
+                error!(error = %e, "Failed to prepare common sync data");
+                return Err(e);
+            }
+        };
 
         if !record_exist {
+            debug!("Record doesn't exist, creating new sync record set");
             // Create sync record set
             let record_set = SyncRecordSet {
                 sync_record: sync_record.clone(),
@@ -188,19 +348,41 @@ impl SyncService {
             };
 
             // Use db transaction method for saving resource sync
-            self.db
-                .save_resource_sync(resource, vector_clocks, &record_set)
-                .await?;
+            debug!("Saving resource sync");
+            match self.db.save_resource_sync(resource, vector_clocks, &record_set).await {
+                Ok(_) => debug!("Resource sync saved successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to save resource sync");
+                    return Err(e);
+                }
+            }
         } else {
-            self.db
-                .apply_sync_operations(&merge_result.local_operations)
-                .await?;
+            debug!("Record exists, applying sync operations");
+            match self.db.apply_sync_operations(&merge_result.local_operations).await {
+                Ok(_) => debug!("Sync operations applied successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to apply sync operations");
+                    return Err(e);
+                }
+            }
         }
 
+        info!("Resource sync processed successfully");
         Ok(SyncAckType::FullSync(merge_result.remote_operations))
     }
 
     // Process folder sync payload
+    #[instrument(
+        skip(self, sync_record, device_records, device_record_statuses, folder), 
+        fields(
+            sync_record_id = %sync_record.id,
+            folder_id = %folder.id,
+            current_device_id = %current_device_id,
+            user_id = %user_id,
+            record_count = device_records.len()
+        ),
+        level = "debug"
+    )]
     async fn process_folder_sync(
         &self,
         sync_record: &SyncRecord,
@@ -210,22 +392,47 @@ impl SyncService {
         current_device_id: &str,
         user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
-        // Process common sync logic
-        let devices = self
-            .get_user_other_devices(current_device_id, user_id)
-            .await?;
+        debug!("Processing folder sync");
+        
+        // Get user's other devices
+        debug!("Getting user's other devices");
+        let devices = match self.get_user_other_devices(current_device_id, user_id).await {
+            Ok(devices) => {
+                debug!(device_count = devices.len(), "Retrieved user's other devices");
+                devices
+            },
+            Err(e) => {
+                error!(error = %e, "Failed to get user's other devices");
+                return Err(e);
+            }
+        };
 
-        let (merge_result, record_exist) = self
-            .prepare_common_sync_data(
-                sync_record,
-                device_records,
-                device_record_statuses,
-                current_device_id,
-                devices,
-            )
-            .await?;
+        // Prepare common sync data
+        debug!("Preparing common sync data");
+        let (merge_result, record_exist) = match self.prepare_common_sync_data(
+            sync_record,
+            device_records,
+            device_record_statuses,
+            current_device_id,
+            devices,
+        ).await {
+            Ok(result) => {
+                debug!(
+                    record_exists = result.1,
+                    local_records = result.0.local_operations.records_to_add.len(),
+                    remote_records = result.0.remote_operations.records_to_add.len(),
+                    "Common sync data prepared"
+                );
+                result
+            },
+            Err(e) => {
+                error!(error = %e, "Failed to prepare common sync data");
+                return Err(e);
+            }
+        };
 
         if !record_exist {
+            debug!("Record doesn't exist, creating new sync record set");
             // Create sync record set
             let record_set = SyncRecordSet {
                 sync_record: sync_record.clone(),
@@ -233,39 +440,87 @@ impl SyncService {
                 device_record_statuses: merge_result.local_operations.status_records_to_add.clone(),
             };
 
-            // Use db transaction method for saving resource sync
-            self.db.save_folder_sync(folder, &record_set).await?;
+            // Use db transaction method for saving folder sync
+            debug!("Saving folder sync");
+            match self.db.save_folder_sync(folder, &record_set).await {
+                Ok(_) => debug!("Folder sync saved successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to save folder sync");
+                    return Err(e);
+                }
+            }
         } else {
-            self.db
-                .apply_sync_operations(&merge_result.local_operations)
-                .await?;
+            debug!("Record exists, applying sync operations");
+            match self.db.apply_sync_operations(&merge_result.local_operations).await {
+                Ok(_) => debug!("Sync operations applied successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to apply sync operations");
+                    return Err(e);
+                }
+            }
         }
 
+        info!("Folder sync processed successfully");
         Ok(SyncAckType::FullSync(merge_result.remote_operations))
     }
 
     // Process status update payload
+    #[instrument(
+        skip(self, payload), 
+        fields(
+            payload_count = payload.len(),
+            current_device_id = %current_device_id
+        ),
+        level = "debug"
+    )]
     async fn process_status_update(
         &self,
         payload: &Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>,
         current_device_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
+        debug!("Processing status update payload");
+        
         // Process device records
         let mut updated_device_sync_records = Vec::new();
         let mut updated_device_record_ids = Vec::new();
         let mut to_add_records = Vec::new();
 
-        for (device_record, device_record_statuses) in payload {
-            let local_device_record = self
+        for (i, (device_record, device_record_statuses)) in payload.iter().enumerate() {
+            trace!(
+                index = i,
+                device_record_id = %device_record.id,
+                status_count = device_record_statuses.len(),
+                "Processing device record"
+            );
+            
+            // Get local device record
+            let local_device_record = match self
                 .sync_repository
                 .get_device_record_by_id(&device_record.id)
-                .await?;
+                .await {
+                    Ok(record) => {
+                        trace!(record_found = record.is_some(), "Device record lookup result");
+                        record
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            device_record_id = %device_record.id,
+                            "Failed to get device record by ID"
+                        );
+                        return Err(e);
+                    }
+                };
 
             // Check if we need to add this record's status for the current device
             if let Some(status) = device_record_statuses
                 .iter()
                 .find(|status| status.aware_device_id == current_device_id)
             {
+                trace!(
+                    status_id = %status.id,
+                    "Adding status record for current device"
+                );
                 updated_device_sync_records.push(status.id.clone());
             }
 
@@ -273,24 +528,60 @@ impl SyncService {
                 // Record exists locally
                 if device_record.synced {
                     // If synced is true, add to updated IDs
+                    trace!(
+                        device_record_id = %device_record.id,
+                        "Adding device record ID to updated list (exists and synced)"
+                    );
                     updated_device_record_ids.push(device_record.id.clone());
                 }
             } else {
                 // Record doesn't exist locally, add to to_add_records
+                trace!(
+                    device_record_id = %device_record.id,
+                    "Adding device record to to_add_records (doesn't exist locally)"
+                );
                 to_add_records.push((device_record.clone(), device_record_statuses.clone()));
             }
         }
-        self.db
+        
+        debug!(
+            to_add_records = to_add_records.len(),
+            updated_records = updated_device_sync_records.len(),
+            updated_ids = updated_device_record_ids.len(),
+            "Applying device sync updates"
+        );
+        
+        match self.db
             .apply_device_sync_updates(
                 &to_add_records,
                 &updated_device_sync_records,
                 &updated_device_record_ids,
             )
-            .await?;
+            .await {
+                Ok(_) => debug!("Device sync updates applied successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to apply device sync updates");
+                    return Err(e);
+                }
+            };
 
+        info!(
+            updated_records = updated_device_sync_records.len(),
+            "Status update processed successfully"
+        );
         Ok(SyncAckType::DeviceSyncRecords(updated_device_sync_records))
     }
 
+    #[instrument(
+        skip(self, sync_data, user_data), 
+        fields(
+            sync_data_count = sync_data.len(),
+            user_data_count = user_data.len(),
+            current_device_id = %current_device_id,
+            current_user_id = %current_user_id
+        ),
+        level = "debug"
+    )]
     async fn process_user_sync(
         &self,
         sync_data: &Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>,
@@ -298,38 +589,89 @@ impl SyncService {
         current_device_id: &str,
         current_user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
+        debug!("Processing user sync");
+        
         // Get current user's other devices
-        let other_devices = self
+        debug!("Getting current user's other devices");
+        let other_devices = match self
             .get_user_other_devices(current_device_id, current_user_id)
-            .await?;
+            .await {
+                Ok(devices) => {
+                    debug!(device_count = devices.len(), "Retrieved current user's other devices");
+                    devices
+                },
+                Err(e) => {
+                    error!(error = %e, "Failed to get current user's other devices");
+                    return Err(e);
+                }
+            };
 
-        info!("other devices {:?}, {:?}", other_devices, current_device_id);
+        debug!(
+            device_count = other_devices.len(),
+            current_device_id = %current_device_id,
+            "Other devices retrieved"
+        );
 
         // Collect all devices from other users (not current user)
         let mut all_devices = Vec::new();
         let mut users_to_add = Vec::new();
         let mut devices_to_add = Vec::new();
 
-        for (user, devices) in user_data {
+        for (i, (user, devices)) in user_data.iter().enumerate() {
+            trace!(
+                index = i,
+                user_id = %user.id,
+                device_count = devices.len(),
+                "Processing user data entry"
+            );
+            
+            // Check if user exists
             let user_exists = match self.user_repository.get_user_by_id(&user.id).await {
-                Ok(_) => true,
-                Err(RepositoryError::NotFound) => false,
-                Err(e) => return Err(e),
+                Ok(_) => {
+                    trace!(user_id = %user.id, "User exists");
+                    true
+                },
+                Err(RepositoryError::NotFound) => {
+                    trace!(user_id = %user.id, "User does not exist");
+                    false
+                },
+                Err(e) => {
+                    error!(error = %e, user_id = %user.id, "Error checking if user exists");
+                    return Err(e);
+                }
             };
 
             // Only add the user if they don't already exist
             if !user_exists {
+                trace!(user_id = %user.id, "Adding user to users_to_add");
                 users_to_add.push(user.clone());
                 devices_to_add.extend(devices.clone());
             }
+            
             // Only add other users' data to be saved
             if user.id != current_user_id {
+                trace!(
+                    user_id = %user.id,
+                    device_count = devices.len(),
+                    "Adding devices to all_devices (other user)"
+                );
                 all_devices.extend(devices.clone());
             }
         }
 
         // Add current user's other devices to the full device list for sync record processing
+        debug!(
+            adding_device_count = other_devices.len(),
+            "Adding current user's other devices to all_devices"
+        );
         all_devices.extend(other_devices.clone());
+
+        debug!(
+            users_to_add = users_to_add.len(),
+            devices_to_add = devices_to_add.len(),
+            all_devices = all_devices.len(),
+            "Collected devices and users"
+        );
 
         // Create a combined SyncOperations for the final result
         let mut combined_remote_operations = SyncOperations::new();
@@ -339,8 +681,17 @@ impl SyncService {
         let mut operations_to_apply = Vec::new();
 
         // Process all sync records
-        for (sync_record, device_records, device_record_statuses) in sync_data {
-            let (merge_result, record_exists) = self
+        debug!(sync_data_count = sync_data.len(), "Processing sync records");
+        for (i, (sync_record, device_records, device_record_statuses)) in sync_data.iter().enumerate() {
+            trace!(
+                index = i,
+                sync_record_id = %sync_record.id,
+                device_records = device_records.len(),
+                status_records = device_record_statuses.len(),
+                "Processing sync record"
+            );
+            
+            let (merge_result, record_exists) = match self
                 .prepare_common_sync_data(
                     sync_record,
                     device_records,
@@ -348,9 +699,31 @@ impl SyncService {
                     current_device_id,
                     all_devices.clone(),
                 )
-                .await?;
+                .await {
+                    Ok(result) => {
+                        trace!(
+                            record_exists = result.1,
+                            local_records = result.0.local_operations.records_to_add.len(),
+                            remote_records = result.0.remote_operations.records_to_add.len(),
+                            "Prepared common sync data for record"
+                        );
+                        result
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            sync_record_id = %sync_record.id,
+                            "Failed to prepare common sync data"
+                        );
+                        return Err(e);
+                    }
+                };
 
             if !record_exists {
+                trace!(
+                    sync_record_id = %sync_record.id,
+                    "Record doesn't exist, creating sync record set"
+                );
                 // Create sync record set for new records
                 let record_set = SyncRecordSet {
                     sync_record: sync_record.clone(),
@@ -363,11 +736,19 @@ impl SyncService {
 
                 record_sets_to_add.push(record_set);
             } else {
+                trace!(
+                    sync_record_id = %sync_record.id,
+                    "Record exists, storing operations to apply"
+                );
                 // Store operations to apply for existing records
                 operations_to_apply.push(merge_result.local_operations.clone());
             }
 
             // Combine remote operations
+            trace!(
+                sync_record_id = %sync_record.id,
+                "Combining remote operations"
+            );
             combined_remote_operations
                 .records_to_add
                 .extend(merge_result.remote_operations.records_to_add);
@@ -383,19 +764,71 @@ impl SyncService {
         }
 
         // Now use the transaction service to add everything in one go
-        self.db
+        debug!(
+            users_to_add = users_to_add.len(),
+            devices_to_add = devices_to_add.len(),
+            record_sets = record_sets_to_add.len(),
+            "Adding users, devices, and record sets"
+        );
+        match self.db
             .add_users_and_devices_batch(&users_to_add, &devices_to_add, &record_sets_to_add)
-            .await?;
+            .await {
+                Ok(_) => debug!("Added users, devices, and record sets successfully"),
+                Err(e) => {
+                    error!(error = %e, "Failed to add users, devices, and record sets");
+                    return Err(e);
+                }
+            };
 
         // Apply operations for existing records
-        for ops in operations_to_apply {
-            self.db.apply_sync_operations(&ops).await?;
+        debug!(
+            operations_count = operations_to_apply.len(),
+            "Applying operations for existing records"
+        );
+        for (i, ops) in operations_to_apply.iter().enumerate() {
+            trace!(
+                index = i,
+                records_to_add = ops.records_to_add.len(),
+                status_records_to_add = ops.status_records_to_add.len(),
+                "Applying operation"
+            );
+            
+            match self.db.apply_sync_operations(ops).await {
+                Ok(_) => trace!(index = i, "Applied operation successfully"),
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        index = i,
+                        "Failed to apply operation"
+                    );
+                    return Err(e);
+                }
+            }
         }
 
+        // Log final operation counts
+        info!(
+            records_to_add = combined_remote_operations.records_to_add.len(),
+            status_records_to_add = combined_remote_operations.status_records_to_add.len(),
+            record_ids_to_update = combined_remote_operations.record_ids_to_update.len(),
+            status_ids_to_update = combined_remote_operations.status_ids_to_update.len(),
+            "User sync processed successfully"
+        );
+        
         // Return the combined remote operations as the acknowledgment
         Ok(SyncAckType::FullSync(combined_remote_operations))
     }
 
+    #[instrument(
+        skip(self, resource, vector_clock, emit_event), 
+        fields(
+            resource_id = %resource.id,
+            device_id = %device_id,
+            user_id = %user_id,
+            vector_clock_count = vector_clock.len()
+        ),
+        level = "debug"
+    )]
     async fn process_resource_update_sync<F>(
         &self,
         resource: &Resource,
@@ -407,17 +840,39 @@ impl SyncService {
     where
         F: Fn(SyncEvent) + Send + Sync,
     {
+        debug!("Processing resource update sync");
+        
         if let Some(emit) = &emit_event {
+            debug!("Emitting resource update event");
             emit(SyncEvent::UpdateEvent {
                 remote_resource: resource.clone(),
                 user_id: user_id.to_string(),
                 device_id: device_id.to_string(),
                 vector_clock: vector_clock.to_vec(),
-            })
+            });
+            debug!("Event emitted");
+        } else {
+            debug!("No event emitter provided");
         }
+        
+        info!(
+            resource_id = %resource.id,
+            "Resource update sync processed successfully"
+        );
         Ok(SyncAckType::UpdateRecieved(resource.id.clone()))
     }
 
+    #[instrument(
+        skip(self, sync_record, device_records, device_record_statuses, devices), 
+        fields(
+            sync_record_id = %sync_record.id,
+            device_records = device_records.len(),
+            device_record_statuses = device_record_statuses.len(),
+            current_device_id = %current_device_id,
+            device_count = devices.len()
+        ),
+        level = "debug"
+    )]
     pub async fn prepare_common_sync_data(
         &self,
         sync_record: &SyncRecord,
@@ -426,23 +881,56 @@ impl SyncService {
         current_device_id: &str,
         devices: Vec<Device>,
     ) -> Result<(SyncMergeResult, bool), RepositoryError> {
+        debug!("Preparing common sync data");
+        
         let mut add_sync_record = false;
+        
         // Check if this sync record already exists by ID directly
-        let existing_record = self
+        debug!("Checking if sync record exists");
+        let existing_record = match self
             .sync_repository
             .get_sync_record_by_id(&sync_record.id)
-            .await?;
+            .await {
+                Ok(record) => {
+                    debug!(record_exists = record.is_some(), "Sync record lookup result");
+                    record
+                },
+                Err(e) => {
+                    error!(error = %e, "Failed to get sync record by ID");
+                    return Err(e);
+                }
+            };
 
         // If the sync record exists, fetch existing device records and statuses
         if existing_record.is_some() {
+            debug!("Sync record exists, fetching device records and statuses");
             add_sync_record = true;
+            
             // Get existing device records and statuses in one call
-            let (local_device_records, local_device_statuses) = self
+            let (local_device_records, local_device_statuses) = match self
                 .sync_repository
                 .get_device_records_and_statuses_by_sync_record(&sync_record.id)
-                .await?;
+                .await {
+                    Ok((records, statuses)) => {
+                        debug!(
+                            record_count = records.len(),
+                            status_count = statuses.len(),
+                            "Retrieved device records and statuses"
+                        );
+                        (records, statuses)
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            sync_record_id = %sync_record.id,
+                            "Failed to get device records and statuses"
+                        );
+                        return Err(e);
+                    }
+                };
 
             // Perform the merge operation
+            debug!("Performing merge operation for existing record");
             let merge_result = SyncRecord::merge_sync_records(
                 &local_device_records,
                 &local_device_statuses,
@@ -450,12 +938,22 @@ impl SyncService {
                 device_record_statuses,
                 current_device_id,
             );
+            
+            debug!(
+                local_records_to_add = merge_result.local_operations.records_to_add.len(),
+                local_statuses_to_add = merge_result.local_operations.status_records_to_add.len(),
+                remote_records_to_add = merge_result.remote_operations.records_to_add.len(),
+                remote_statuses_to_add = merge_result.remote_operations.status_records_to_add.len(),
+                "Merge operation completed for existing record"
+            );
 
             // Return the merge result directly
             return Ok((merge_result, add_sync_record));
         }
 
         // If no existing record was found, this is a new sync record
+        debug!("Sync record doesn't exist, processing device records for new record");
+        
         // Process device records using the existing logic - this updates sync flags for records associated with current_device_id
         let (processed_records, processed_statuses, updated_record_ids, updated_status_ids) =
             SyncRecord::process_device_records(
@@ -463,15 +961,31 @@ impl SyncService {
                 device_record_statuses,
                 current_device_id,
             );
+            
+        debug!(
+            processed_records = processed_records.len(),
+            processed_statuses = processed_statuses.len(),
+            updated_record_ids = updated_record_ids.len(),
+            updated_status_ids = updated_status_ids.len(),
+            "Processed device records for new record"
+        );
 
         // Create completion records for the current device
+        debug!("Creating completion records");
         let completion_records = SyncRecord::create_completion_records(
             sync_record.id.clone(),
             current_device_id.to_string(),
             &devices,
         );
+        
+        debug!(
+            completion_record_id = %completion_records.device_record.id,
+            status_record_count = completion_records.device_record_statuses.len(),
+            "Completion records created"
+        );
 
         // Construct a new merge result for the new record
+        debug!("Constructing merge result for new record");
         let mut merge_result = SyncMergeResult::new();
 
         // For a new record, all processed records and statuses go into local_operations
@@ -501,17 +1015,38 @@ impl SyncService {
         merge_result.remote_operations.record_ids_to_update = updated_record_ids;
         merge_result.remote_operations.status_ids_to_update = updated_status_ids;
 
+        debug!(
+            local_records_to_add = merge_result.local_operations.records_to_add.len(),
+            local_statuses_to_add = merge_result.local_operations.status_records_to_add.len(),
+            remote_records_to_add = merge_result.remote_operations.records_to_add.len(),
+            remote_statuses_to_add = merge_result.remote_operations.status_records_to_add.len(),
+            "Merge result constructed for new record"
+        );
+        
+        info!("Common sync data prepared successfully");
         Ok((merge_result, add_sync_record))
     }
 
+
+    #[instrument(
+        skip(self,doc ), 
+        fields(
+            add_vector= %add_vector.len(),
+            update_vector= update_vector.len(),
+            resource_id= %resource_id
+        ),
+        level = "debug"
+    )]
     pub async fn merge_updated_doc(
         &self,
         doc: &str,
         add_vector: &[ResourceVectorClock],
         update_vector: &[ResourceVectorClock],
         resource_id: &str,
+        current_span: Span,
     ) -> Result<(), RepositoryError> {
         // Use db transaction method for merging updated document
+        let _guard = current_span.enter();
         self.db
             .merge_document(doc, add_vector, update_vector, resource_id)
             .await

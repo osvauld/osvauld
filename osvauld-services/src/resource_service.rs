@@ -1,14 +1,14 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
-use osvauld_core::models::resource_key::{self, ResourceKey};
+use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
-    RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository, UserRepository,
+    DeviceRepository, RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository,
     VectorClockRepository,
 };
 use serde_json::Value;
-use std::error::Error;
 use std::result::Result::Ok;
 use std::sync::Arc;
 use thiserror::Error;
@@ -29,6 +29,7 @@ pub struct ResourceService {
     crypto_utils: Arc<Mutex<CryptoUtils>>,
     vector_clock_repo: Arc<dyn VectorClockRepository>,
     resource_key_repo: Arc<dyn ResourceKeyRepository>,
+    device_repository: Arc<dyn DeviceRepository>,
 }
 
 impl ResourceService {
@@ -37,12 +38,14 @@ impl ResourceService {
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         vector_clock_repo: Arc<dyn VectorClockRepository>,
         resource_key_repo: Arc<dyn ResourceKeyRepository>,
+        device_repository: Arc<dyn DeviceRepository>,
     ) -> Self {
         Self {
             resource_repository,
             crypto_utils,
             vector_clock_repo,
             resource_key_repo,
+            device_repository,
         }
     }
 
@@ -52,7 +55,16 @@ impl ResourceService {
         resource_type: String,
         folder_id: String,
         user: &User,
-    ) -> Result<(Resource, ResourceKey), ResourceServiceError> {
+        current_device_id: &str,
+    ) -> Result<
+        (
+            Resource,
+            ResourceKey,
+            SyncRecordSet,
+            Vec<ResourceVectorClock>,
+        ),
+        ResourceServiceError,
+    > {
         // Encrypt the resource
         let user_pub_key = UserPublicKey {
             user_id: user.id.clone(),
@@ -74,8 +86,11 @@ impl ResourceService {
             encrypted.access_list[0].encrypted_key.clone(),
             true, // Owner
         );
+        let (sync_record_set, vector_clocks) = self
+            .prepare_resource_to_sync(&resource, &user.id, current_device_id)
+            .await?;
         log::info!("resource_key{:?}", resource_key);
-        Ok((resource, resource_key))
+        Ok((resource, resource_key, sync_record_set, vector_clocks))
     }
 
     pub async fn delete_resource(&self, resource_id: String) -> Result<(), RepositoryError> {
@@ -384,5 +399,33 @@ impl ResourceService {
                 merged_vector_clock.update_remote,
             ),
         ))
+    }
+
+    pub async fn prepare_resource_to_sync(
+        &self,
+        resource: &Resource,
+        user_id: &str,
+        current_device_id: &str,
+    ) -> Result<(SyncRecordSet, Vec<ResourceVectorClock>), RepositoryError> {
+        let devices = self
+            .device_repository
+            .get_devices_by_user_except(&user_id, &[current_device_id.to_string()])
+            .await?;
+        let sync_record_set = SyncRecord::create_resource_sync_record(
+            resource.id.clone(),
+            current_device_id.to_string(),
+            &devices,
+        );
+        let device_ids: Vec<String> = devices
+            .iter()
+            .map(|d| d.id.clone())
+            .chain(std::iter::once(current_device_id.to_string()))
+            .collect();
+        let vector_clocks = ResourceVectorClock::create_initial_entries(
+            &resource.id,
+            &device_ids,
+            current_device_id,
+        );
+        Ok((sync_record_set, vector_clocks))
     }
 }

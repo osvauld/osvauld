@@ -47,17 +47,12 @@ pub async fn handle_sign_up(
         .await
         .map_err(|e| e.to_string())?;
 
-    let folder = folder_service
-        .create_default_folder()
-        .await
-        .map_err(|e| e.to_string())?;
-    info!("folder {:?}", folder);
-    let folder_sync_record_set = sync_service
-        .add_folder_to_sync(folder.clone(), &user.id)
+    let (folder, sync_record_set) = folder_service
+        .create_default_folder(&device.id, &user.id)
         .await
         .map_err(|e| e.to_string())?;
     transaction_service
-        .handle_add_folder_transaction(&folder, &folder_sync_record_set)
+        .handle_add_folder_transaction(&folder, &sync_record_set)
         .await
         .map_err(|e| e.to_string())?;
     let (_, user_id) = auth_service.load_certificate(&input.passphrase).await?;

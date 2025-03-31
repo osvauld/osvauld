@@ -5,7 +5,7 @@ use crate::types::{
 };
 use crate::user_state::UserState;
 use log::info;
-use osvauld_services::{ResourceService, ShareService, SyncService, TransactionService};
+use osvauld_services::{ResourceService, ShareService, TransactionService};
 use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use tauri::State;
@@ -14,24 +14,20 @@ use tauri::State;
 pub async fn handle_add_resource(
     input: AddResourceInput,
     resource_service: State<'_, Arc<ResourceService>>,
-    sync_service: State<'_, Arc<SyncService>>,
     share_service: State<'_, Arc<ShareService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
-    let (resource, resource_key) = resource_service
+    let (resource, resource_key, sync_record_set, vector_clocks) = resource_service
         .add_resource(
             input.resource_payload,
             input.resource_type,
             input.folder_id,
             &user,
+            &device.id,
         )
-        .await
-        .map_err(|e| e.to_string())?;
-    let (sync_record_set, vector_clocks) = sync_service
-        .prepare_resource_to_sync(&resource, &user.id, &device)
         .await
         .map_err(|e| e.to_string())?;
     let share_record_set = share_service
