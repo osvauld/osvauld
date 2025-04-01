@@ -28,8 +28,7 @@ use osvauld_db::repositories::{
     SqliteUserRepository, SqliteVectorClockRepository,
 };
 use osvauld_services::{
-    AuthService, FolderService, ResourceService, ShareService, SyncService, TransactionService,
-    UserService,
+    AuthService, FolderService, ResourceService, SyncService, TransactionService, UserService,
 };
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
@@ -155,18 +154,11 @@ pub fn run() {
                         resource_key_repo.clone(),
                         device_repo.clone(),
                     ));
-                    let share_service = Arc::new(ShareService::new(
-                        share_repo.clone(),
-                        user_repository.clone(),
-                        crypto_utils.clone(),
-                        resource_repo.clone(),
-                    ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
                         P2PService::new(
                             sync_service.clone(),
                             auth_service.clone(),
                             user_service.clone(),
-                            share_service.clone(),
                         );
                     let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
@@ -202,7 +194,6 @@ pub fn run() {
                     app.manage(sync_service);
                     app.manage(p2p_service.clone());
                     app.manage(user_service);
-                    app.manage(share_service);
                     app.manage(transaction_service);
                     app.manage(rendezvous_service);
                 }

@@ -109,39 +109,23 @@ CREATE TABLE resource_keys (
     UNIQUE(resource_id, user_id)
 );
 
+ 
 CREATE TABLE share_records (
     id TEXT PRIMARY KEY NOT NULL,
-    resource_id TEXT NOT NULL,           -- ID of the resource being shared
-    shared_by_user_id TEXT NOT NULL,     -- User who initiated the share
-    operation_type TEXT NOT NULL,        -- 'share', 'revoke', 'update_permission'
+    resource_id TEXT NOT NULL,          
+    shared_by_user_id TEXT NOT NULL,    
+    recipient_user_id TEXT NOT NULL,    
+    permission_level TEXT NOT NULL,     
+    signature TEXT NOT NULL,            
+    operation_type TEXT NOT NULL,       
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
     FOREIGN KEY (resource_id) REFERENCES resources (id),
-    FOREIGN KEY (shared_by_user_id) REFERENCES users (id)
+    FOREIGN KEY (shared_by_user_id) REFERENCES users (id),
+    FOREIGN KEY (recipient_user_id) REFERENCES users (id)
 );
 
-CREATE TABLE user_records (
-    id TEXT PRIMARY KEY NOT NULL,
-    share_record_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    status TEXT NOT NULL,                -- 'pending', 'accepted', 'rejected', 'completed'
-    synced BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    FOREIGN KEY (share_record_id) REFERENCES share_records (id),
-    FOREIGN KEY (user_id) REFERENCES users (id)
-);
 
-CREATE TABLE user_record_status (
-    id TEXT PRIMARY KEY NOT NULL,
-    user_record_id TEXT NOT NULL,
-    aware_user_id TEXT NOT NULL,         -- User that knows about this share status
-    synced BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    FOREIGN KEY (user_record_id) REFERENCES user_records (id),
-    FOREIGN KEY (aware_user_id) REFERENCES users (id)
-);
 CREATE TABLE store_items (
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL,

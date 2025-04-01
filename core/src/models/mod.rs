@@ -5,7 +5,6 @@ pub mod p2p;
 pub mod resource;
 pub mod resource_key;
 pub mod share_record;
-pub mod share_types;
 pub mod sync_record;
 pub mod sync_types;
 pub mod user;

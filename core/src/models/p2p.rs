@@ -1,7 +1,6 @@
 use super::device::Device;
 use super::folder::Folder;
 use super::resource::ResourceKeyPair;
-use super::share_record::{ShareRecord, UserRecord, UserRecordStatus};
 use super::sync_record::{
     DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
@@ -87,8 +86,6 @@ pub enum Message {
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
-    SharePayload(SharePayload),
-    ShareComplete,
     UpdateResource(UpdateResource),
     UserConnection(UserConnectionPayload),
 }
@@ -133,12 +130,4 @@ pub enum SyncAckType {
     FullSync(SyncOperations),
     DeviceSyncRecords(Vec<String>), // list of device_record_ids
     UpdateRecieved(String),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SharePayload {
-    pub share_record: Option<ShareRecord>,
-    pub user_records: Vec<UserRecord>,
-    pub user_record_statuses: Vec<UserRecordStatus>,
-    pub data: Option<ResourceKeyPair>,
 }
