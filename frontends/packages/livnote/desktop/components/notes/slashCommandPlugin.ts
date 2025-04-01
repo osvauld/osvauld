@@ -197,47 +197,73 @@ export function slashCommandPlugin(schema: Schema) {
 		const { state } = view;
 		const { selection } = state;
 
-		// Get coordinates from the editor
+		const scrollContainer = view.dom.closest<HTMLElement>('.editor-main');
+		if (!scrollContainer) {
+			console.warn("Slash menu: Could not find '.editor-main' scroll container. Positioning may be incorrect.");
+			closeMenu(view);
+			return;
+		}
+
+		// The menu's position is relative to its offsetParent
+		const offsetParent = menu.offsetParent as HTMLElement || document.body;
+
+		// Get coordinates relative to window
 		const coords = view.coordsAtPos(selection.from);
 
-		// Get editor element's position and dimensions
-		const editorRect = view.dom.getBoundingClientRect();
-		const editorViewport =
-			view.dom.parentNode?.getBoundingClientRect() || editorRect;
+		// Get rects relative to window
+		const scrollContainerRect = scrollContainer.getBoundingClientRect();
+		const offsetParentRect = offsetParent.getBoundingClientRect();
 		const menuRect = menu.getBoundingClientRect();
 
-		// Calculate initial position
-		let top = coords.top - editorRect.top + 120; // Default position below cursor
-		let left = coords.left - editorRect.left;
-		// Check bottom overflow - compare against viewport height, not editor height
-		// Also account for scroll position
-		const viewportHeight = editorViewport.height;
-		const scrollTop = (view.dom.parentNode as HTMLElement)?.scrollTop || 0;
-		const bottomOverflow =
-			coords.top - editorRect.top + menuRect.height + 20 >
-			viewportHeight + scrollTop;
+		// --- Visibility Check (Cursor) ---
+		// Check if the cursor is roughly within the visible part of the scroll container
+		const cursorVisible = coords.top >= scrollContainerRect.top && coords.bottom <= scrollContainerRect.bottom;
 
-		if (bottomOverflow) {
-			// Position above cursor instead - adjust the offset to account for menu height
-			top = coords.top - editorRect.top - menuRect.height + 90;
-			// Ensure it doesn't go above the visible area
-			top = Math.max(10, top);
+		if (!cursorVisible) {
+			closeMenu(view);
+			return;
 		}
 
-		// Check right overflow
-		const rightOverflow = left + menuRect.width > editorRect.width;
-		if (rightOverflow) {
-			console.log("Right overflow found");
-			// Align right edge of menu with cursor
-			left = left - menuRect.width + 20;
-			// Ensure it doesn't go too far left
-			left = Math.max(10, left);
+		// --- Calculate Target Position (relative to window) ---
+		// Default position: Below cursor, aligned with cursor horizontally
+		let targetTopWindow = coords.bottom + 10;
+		let targetLeftWindow = coords.left;
+
+		// --- Adjust for Viewport Overflow (within scrollContainer) ---
+
+		// Check if positioning BELOW fits vertically within scrollContainer's visible area
+		const spaceBelow = scrollContainerRect.bottom - coords.bottom;
+		if (spaceBelow < menuRect.height + 10) {
+			// Not enough space below, try positioning ABOVE
+			const spaceAbove = coords.top - scrollContainerRect.top;
+			if (spaceAbove >= menuRect.height + 10) {
+				// Enough space above
+				targetTopWindow = coords.top - menuRect.height - 10;
+			} else {
+				// Not enough space above or below. Clamp position to be just inside the bottom visible boundary.
+				targetTopWindow = scrollContainerRect.bottom - menuRect.height - 5;
+				// Alternatively: closeMenu(view); return; // If clamping looks bad
+			}
 		}
 
-		// Set position
+		// Check horizontal fit within scrollContainer's visible area
+		if (targetLeftWindow < scrollContainerRect.left) {
+			// Clamp to left edge
+			targetLeftWindow = scrollContainerRect.left + 5;
+		} else if (targetLeftWindow + menuRect.width > scrollContainerRect.right) {
+			// Clamp to right edge
+			targetLeftWindow = scrollContainerRect.right - menuRect.width - 5;
+		}
+
+		// --- Convert Window Coordinates to Offset Parent Coordinates ---
+		// The final CSS top/left must be relative to the offsetParent
+		const finalTop = targetTopWindow - offsetParentRect.top;
+		const finalLeft = targetLeftWindow - offsetParentRect.left;
+
+		// --- Apply Styles ---
 		menu.style.position = "absolute";
-		menu.style.top = `${top}px`;
-		menu.style.left = `${left}px`;
+		menu.style.top = `${finalTop}px`;
+		menu.style.left = `${finalLeft}px`;
 	}
 
 	// Close menu and clean up
