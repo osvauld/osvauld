@@ -20,7 +20,8 @@ impl SyncService {
         skip(self, payload, emit_event, current_span), 
         fields(
             payload_type = ?std::mem::discriminant(payload),
-            user_id = %user_id,
+            remote_user_id= %remote_user_id,
+            current_user_id = %current_user_id,
             device_id = %device_id,
             current_device_id = %current_device_id
         ),
@@ -29,7 +30,7 @@ impl SyncService {
     pub async fn process_sync_payload<F>(
         &self,
         payload: &SyncPayload,
-        user_id: &str,
+        remote_user_id: &str,
         device_id: &str,
         emit_event: Option<F>,
         current_device_id: &str,
@@ -63,7 +64,7 @@ impl SyncService {
                     device_record_statuses,
                     device,
                     current_device_id,
-                    user_id,
+                    current_user_id,
                 )
                 .await
             }
@@ -103,7 +104,8 @@ impl SyncService {
                     resource,
                     vector_clocks,
                     current_device_id,
-                    user_id,
+                    current_user_id,
+                    remote_user_id,
                 )
                 .await
             }
@@ -127,7 +129,7 @@ impl SyncService {
                     device_record_statuses,
                     folder,
                     current_device_id,
-                    user_id,
+                    current_user_id,
                 )
                 .await
             }
@@ -145,7 +147,7 @@ impl SyncService {
                 self.process_resource_update_sync(
                     resource,
                     device_id,
-                    user_id,
+                    current_user_id,
                     vector_clocks,
                     emit_event,
                 )
@@ -283,7 +285,8 @@ impl SyncService {
             sync_record_id = %sync_record.id,
             resource_id = %resource.resource.id,
             current_device_id = %current_device_id,
-            user_id = %user_id,
+            current_user_id = %current_user_id,
+            remote_user_id = %remote_user_id,
             record_count = device_records.len(),
             vector_clock_count = vector_clocks.len()
         ),
@@ -297,13 +300,14 @@ impl SyncService {
         resource: &ResourceKeyPair,
         vector_clocks: &[ResourceVectorClock],
         current_device_id: &str,
-        user_id: &str,
+        current_user_id: &str,
+        remote_user_id: &str,
     ) -> Result<SyncAckType, RepositoryError> {
         debug!("Processing resource sync");
         
         // Get user's other devices
         debug!("Getting user's other devices");
-        let devices = match self.get_user_other_devices(current_device_id, user_id).await {
+        let devices = match self.get_user_other_devices(current_device_id, current_user_id).await {
             Ok(devices) => {
                 debug!(device_count = devices.len(), "Retrieved user's other devices");
                 devices
@@ -347,9 +351,14 @@ impl SyncService {
                 device_record_statuses: merge_result.local_operations.status_records_to_add.clone(),
             };
 
+            let mut resource_pair = resource.clone();
+            if current_user_id != remote_user_id {
+                let default_folder = self.folder_repository.get_default_folder().await?;
+                resource_pair.resource.folder_id = default_folder.id;
+            } 
             // Use db transaction method for saving resource sync
             debug!("Saving resource sync");
-            match self.db.save_resource_sync(resource, vector_clocks, &record_set).await {
+            match self.db.save_resource_sync(&resource_pair, vector_clocks, &record_set).await {
                 Ok(_) => debug!("Resource sync saved successfully"),
                 Err(e) => {
                     error!(error = %e, "Failed to save resource sync");

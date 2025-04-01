@@ -31,6 +31,7 @@ pub trait FolderRepository: Send + Sync {
     async fn find_all(&self) -> Result<Vec<Folder>, RepositoryError>;
     async fn find_by_id(&self, id: &str) -> Result<Folder, RepositoryError>;
     async fn soft_delete(&self, id: &str) -> Result<(), RepositoryError>;
+    async fn get_default_folder(&self) -> Result<Folder, RepositoryError>;
 }
 
 #[async_trait]
@@ -152,6 +153,13 @@ pub trait SyncRepository: Send + Sync {
         &self,
         device_record_id: &str,
     ) -> Result<Option<DeviceRecord>, RepositoryError>;
+
+    async fn get_sync_record_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        resource_type: &str,
+    ) -> Result<SyncRecord, RepositoryError>;
 }
 
 #[async_trait]
@@ -227,6 +235,10 @@ pub trait DeviceRepository: Send + Sync {
     async fn get_all_devices_except(
         &self,
         current_device_id: &[String],
+    ) -> Result<Vec<Device>, RepositoryError>;
+    async fn get_devices_by_user_ids(
+        &self,
+        user_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
     async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError>;
 }

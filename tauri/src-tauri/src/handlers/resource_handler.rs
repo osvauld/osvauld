@@ -172,29 +172,27 @@ pub async fn share_resource(
     // Get current user and device info
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
+    let (
+        new_resource_key,
+        share_record,
+        recipient_vector_clocks,
+        sync_record_set,
+        resource_device_record_set,
+    ) = resource_service
+        .share_resource(input.user_id, input.resource_id, &user.id, &device.id)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    // Call the resource service to handle all share preparation
-    // let (resource_key, share_record_set, sync_record_set, vector_clocks) = resource_service
-    //     .prepare_resource_share(
-    //         input.resource_id.clone(),
-    //         input.public_key.clone(),
-    //         &user,
-    //         &device.id,
-    //     )
-    //     .await
-    //     .map_err(|e| e.to_string())?;
-    //
-    // // Use transaction service to save everything atomically
-    // transaction_service
-    //     .share_resource_transaction(
-    //         resource_key,
-    //         vector_clocks,
-    //         share_record_set,
-    //         sync_record_set,
-    //         input.resource_id.clone(),
-    //     )
-    //     .await
-    //     .map_err(|e| e.to_string())?;
+    transaction_service
+        .share_resource_transaction(
+            new_resource_key,
+            share_record,
+            recipient_vector_clocks,
+            sync_record_set,
+            resource_device_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::Success)
 }

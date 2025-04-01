@@ -93,6 +93,19 @@ impl SyncRecord {
         )
     }
 
+    pub fn create_share_sync_record(
+        resource_id: String,
+        current_device_id: String,
+        other_devices: &[Device],
+    ) -> SyncRecordSet {
+        SyncRecord::create_sync_records(
+            resource_id,
+            ResourceType::Share,
+            OperationType::Create,
+            current_device_id,
+            other_devices,
+        )
+    }
     pub fn create_soft_delete_resource_records(
         resource_id: String,
         current_device_id: String,
@@ -662,5 +675,50 @@ impl SyncRecord {
         }
 
         result
+    }
+    pub fn create_resource_share_records(
+        sync_record_id: String,
+        current_device_id: String,
+        recipient_devices: &[Device],
+        all_device_ids: &[String],
+    ) -> DeviceRecordSet {
+        let now = Local::now().timestamp_millis();
+        let mut device_records = Vec::new();
+        let mut device_record_statuses = Vec::new();
+
+        // Create device records for all recipient devices
+        for recipient_device in recipient_devices {
+            // Create a device record for each recipient device
+            let device_record = DeviceRecord {
+                id: Uuid::new_v4().to_string(),
+                sync_record_id: sync_record_id.clone(),
+                device_id: recipient_device.id.clone(),
+                status: SyncStatus::Pending,
+                synced: false,
+                created_at: now,
+                updated_at: now,
+            };
+
+            // Create status records for all devices in the system
+            for aware_device_id in all_device_ids {
+                device_record_statuses.push(DeviceRecordStatus {
+                    id: Uuid::new_v4().to_string(),
+                    device_record_id: device_record.id.clone(),
+                    aware_device_id: aware_device_id.clone(),
+                    // Only the current device has synced=true initially
+                    synced: aware_device_id == &current_device_id,
+                    created_at: now,
+                    updated_at: now,
+                });
+            }
+
+            // Add the device record to our collection
+            device_records.push(device_record);
+        }
+
+        DeviceRecordSet {
+            device_records,
+            device_record_statuses,
+        }
     }
 }

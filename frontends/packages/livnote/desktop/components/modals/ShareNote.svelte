@@ -9,7 +9,7 @@
 	export let shareUserList;
 	export let noteId;
 	let inputRef;
-	let MAX_ALLOWED_USERS = 5;
+	let MAX_ALLOWED_USERS = 1;
 	let selectedUsers = [];
 	let isFocused = false;
 	let query = "";
@@ -119,15 +119,14 @@
 		showShareList = false;
 	};
 
-	const handleCollaboratorSelection = () => {
+	const handleCollaboratorSelection = async () => {
 		showShareList = false;
-		toastStore.set({
-			show: true,
-			message: `${selectedUsers[0]} added as collaborator`,
-			success: true,
+		console.log(selectedUsers);
+		await sendMessage("shareResource", {
+			resourceId: noteId,
+			userId: selectedUsers[0].id,
 		});
 	};
-
 	const extractIconLetter = (username) => {
 		return username.trim().split("")[0];
 	};
@@ -291,7 +290,7 @@
 									console.log("Selected collab==>", collaborator.username);
 									if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
 									query = "";
-									selectedUsers = [...selectedUsers, collaborator.username];
+									selectedUsers = [...selectedUsers, collaborator];
 									focusedIndex = -1;
 								}}
 								on:keydown|stopPropagation={(e) => {

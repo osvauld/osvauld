@@ -88,4 +88,18 @@ impl FolderRepository for SqliteFolderRepository {
 
         Ok(())
     }
+    async fn get_default_folder(&self) -> Result<Folder, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let folder_model = folders::table
+            .filter(folders::deleted.eq(false))
+            .order_by(folders::created_at.asc())
+            .first::<FolderModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(folder_model.into())
+    }
 }
