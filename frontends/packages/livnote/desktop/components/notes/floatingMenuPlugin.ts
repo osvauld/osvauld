@@ -122,44 +122,37 @@ export function floatingMenuPlugin(schema: Schema) {
     const start = editorView.coordsAtPos(from);
     const end = editorView.coordsAtPos(to);
 
-    // Get editor container and its scroll position
-    const editorContainer = editorView.dom.closest('.editor-main');
-    if (!editorContainer) return;
-
-    const containerRect = editorContainer.getBoundingClientRect();
+    // Get editor element's position and dimensions
     const editorRect = editorView.dom.getBoundingClientRect();
+    const editorViewport = (editorView.dom.parentNode as HTMLElement)?.getBoundingClientRect() || editorRect;
     const menuRect = menu.getBoundingClientRect();
-    const scrollTop = editorContainer.scrollTop;
 
-    // Calculate the center position of the selection relative to the viewport
-    const selectionCenter = {
-      top: Math.min(start.top, end.top),
-      left: (start.left + end.left) / 2
-    };
+    // Calculate initial position
+    let top = start.top - editorRect.top + 45; // Reduced offset from 120 to 20
+    let left = (start.left + end.left) / 2 - editorRect.left - (menuRect.width / 2);
 
-    // Check if selection is within visible viewport
-    const selectionTopInViewport = selectionCenter.top - containerRect.top;
-    const selectionBottomInViewport = Math.max(end.bottom, start.bottom) - containerRect.top;
+    // Check bottom overflow
+    const viewportHeight = editorViewport.height;
+    const scrollTop = (editorView.dom.parentNode as HTMLElement)?.scrollTop || 0;
+    const bottomOverflow = start.top - editorRect.top + menuRect.height + 20 > viewportHeight + scrollTop;
 
-    // If selection is outside viewport, don't show menu
-    if (selectionTopInViewport < 0 || selectionBottomInViewport > containerRect.height) {
-      hideMenu();
-      return;
+    if (bottomOverflow) {
+      // Position above selection instead
+      top = start.top - editorRect.top - menuRect.height + 10; // Reduced offset from 90 to 10
+      // Ensure it doesn't go above the visible area
+      top = Math.max(10, top);
     }
 
-    // Position menu above selection, accounting for scroll
-    let top = selectionCenter.top - editorRect.top - menuRect.height - 5;
-    let left = selectionCenter.left - editorRect.left - (menuRect.width / 2);
-
-    // If there's not enough space above in the viewport, position below
-    if ((selectionCenter.top - containerRect.top) < menuRect.height + 5) {
-      top = Math.max(end.bottom, start.bottom) - editorRect.top + 5;
+    // Check right overflow
+    const rightOverflow = left + menuRect.width > editorRect.width;
+    if (rightOverflow) {
+      // Align right edge of menu with selection
+      left = left - menuRect.width + 20;
+      // Ensure it doesn't go too far left
+      left = Math.max(10, left);
     }
 
-    // Ensure menu stays within horizontal bounds
-    left = Math.max(2, Math.min(left, editorRect.width - menuRect.width - 2));
-
-    // Set the position
+    // Set position
     menu.style.top = `${top}px`;
     menu.style.left = `${left}px`;
     showMenu();
