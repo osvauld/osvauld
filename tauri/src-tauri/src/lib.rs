@@ -153,6 +153,9 @@ pub fn run() {
                         vector_clock_repo.clone(),
                         resource_key_repo.clone(),
                         device_repo.clone(),
+                        user_repository.clone(),
+                        share_repo.clone(),
+                        sync_repo.clone(),
                     ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
                         P2PService::new(

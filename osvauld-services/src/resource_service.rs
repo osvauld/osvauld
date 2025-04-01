@@ -1,13 +1,14 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::share_record::{PermissionLevel, ShareRecord};
-use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
+use osvauld_core::models::share_record::{PermissionLevel, ShareOperation, ShareRecord};
+use osvauld_core::models::sync_record::{DeviceRecordSet, SyncRecord, SyncRecordSet};
+use osvauld_core::models::sync_types::{OperationType, ResourceType};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
     DeviceRepository, RepositoryError, ResourceKeyRepository, ResourceRepository, ShareRepository,
-    VectorClockRepository,
+    SyncRepository, UserRepository, VectorClockRepository,
 };
 use serde_json::Value;
 use std::result::Result::Ok;
@@ -31,6 +32,9 @@ pub struct ResourceService {
     vector_clock_repo: Arc<dyn VectorClockRepository>,
     resource_key_repo: Arc<dyn ResourceKeyRepository>,
     device_repository: Arc<dyn DeviceRepository>,
+    user_repository: Arc<dyn UserRepository>,
+    share_repository: Arc<dyn ShareRepository>,
+    sync_repository: Arc<dyn SyncRepository>,
 }
 
 impl ResourceService {
@@ -40,6 +44,9 @@ impl ResourceService {
         vector_clock_repo: Arc<dyn VectorClockRepository>,
         resource_key_repo: Arc<dyn ResourceKeyRepository>,
         device_repository: Arc<dyn DeviceRepository>,
+        user_repository: Arc<dyn UserRepository>,
+        share_repository: Arc<dyn ShareRepository>,
+        sync_repository: Arc<dyn SyncRepository>,
     ) -> Self {
         Self {
             resource_repository,
@@ -47,6 +54,9 @@ impl ResourceService {
             vector_clock_repo,
             resource_key_repo,
             device_repository,
+            user_repository,
+            share_repository,
+            sync_repository,
         }
     }
 
@@ -441,5 +451,115 @@ impl ResourceService {
             current_device_id,
         );
         Ok((sync_record_set, vector_clocks))
+    }
+
+    pub async fn share_resource(
+        &self,
+        recipient_user_id: String,
+        resource_id: String,
+        current_user_id: &str,
+        current_device_id: &str,
+    ) -> Result<
+        (
+            ResourceKey,
+            ShareRecord,
+            Vec<ResourceVectorClock>,
+            SyncRecordSet,
+            DeviceRecordSet,
+        ),
+        ResourceServiceError,
+    > {
+        let resource_key = self
+            .resource_key_repo
+            .find_by_resource_and_user(&resource_id, &current_user_id)
+            .await?;
+        let recipient_user = self
+            .user_repository
+            .get_user_by_id(&recipient_user_id)
+            .await?;
+
+        // Encrypt the key for the recipient
+        let new_encryption_key = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .encrypt_key_with_new_pub_key(
+                    &resource_key.encrypted_key,
+                    &recipient_user.public_key,
+                )
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        };
+
+        let new_resource_key = ResourceKey::new(
+            resource_id.clone(),
+            recipient_user_id.clone(),
+            new_encryption_key,
+            false,
+        );
+        let recipient_user_devices = self
+            .device_repository
+            .get_devices_by_user_id(&recipient_user_id)
+            .await?;
+        let recipient_device_ids: Vec<String> = recipient_user_devices
+            .iter()
+            .map(|device| device.id.clone())
+            .collect();
+
+        let share_record = ShareRecord::prepare_share_record(
+            resource_id.clone(),
+            current_user_id.to_string(),
+            recipient_user_id,
+            PermissionLevel::Write,
+            "signature".to_string(),
+        );
+        let resource_sync_record = self
+            .sync_repository
+            .get_sync_record_by_resource_and_operation(
+                &resource_id,
+                &OperationType::Create.to_string(),
+                &ResourceType::Resource.to_string(),
+            )
+            .await?;
+        let shared_records = self
+            .share_repository
+            .find_by_resource_and_operation(&resource_id, &ShareOperation::Share.to_string())
+            .await?;
+
+        let shared_user_ids: Vec<String> = shared_records
+            .iter()
+            .map(|sr| sr.recipient_user_id.clone())
+            .collect();
+        let shared_user_devices = self
+            .device_repository
+            .get_devices_by_user_ids(&shared_user_ids)
+            .await?;
+        let mut all_devices = recipient_user_devices.clone();
+        all_devices.extend(
+            shared_user_devices
+                .clone()
+                .into_iter()
+                .filter(|device| device.id != current_device_id),
+        );
+        let mut all_device_ids: Vec<String> = recipient_device_ids.clone();
+        all_device_ids.extend(shared_user_devices.iter().map(|device| device.id.clone()));
+        let resource_device_record_set = SyncRecord::create_resource_share_records(
+            resource_sync_record.id,
+            current_device_id.to_string(),
+            &recipient_user_devices,
+            &all_device_ids,
+        );
+        let recipient_vector_clocks =
+            ResourceVectorClock::create_entries_for_sharing(&resource_id, &recipient_device_ids);
+        let sync_record_set = SyncRecord::create_share_sync_record(
+            share_record.id.clone(),
+            current_device_id.to_string(),
+            &all_devices,
+        );
+        Ok((
+            new_resource_key,
+            share_record,
+            recipient_vector_clocks,
+            sync_record_set,
+            resource_device_record_set,
+        ))
     }
 }

@@ -700,4 +700,27 @@ impl SyncRepository for SqliteSyncRepository {
 
         Ok(result.map(|model| model.to_domain()))
     }
+
+    async fn get_sync_record_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        resource_type: &str,
+    ) -> Result<SyncRecord, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let result = sync_records::table
+            .filter(sync_records::resource_id.eq(resource_id))
+            .filter(sync_records::operation_type.eq(operation_type))
+            .filter(sync_records::resource_type.eq(resource_type))
+            .order_by(sync_records::created_at.desc()) // Get the most recent record
+            .select(SyncRecordModel::as_select())
+            .first::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(result.to_domain())
+    }
 }

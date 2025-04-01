@@ -488,4 +488,26 @@ impl P2PService {
         // Get the connection from the connection manager
         state.connections.get_peer_connection(connection_id).await
     }
+
+   
+pub async fn send_sync_update(&self, payload: Message) -> Result<(), String> {
+    let state_guard = self.state.lock().await;
+
+    // Check if service is initialized
+    let state = match state_guard.as_ref() {
+        Some(s) => s,
+        None => return Err("P2P service not initialized".to_string()),
+    };
+
+    // Get the connection from the connection manager
+    // Fix: Convert Option to Result with ok_or()
+    let connection = state.connections.get_first_active_connection().await
+        .ok_or("No active connection found".to_string())?;
+    
+    if let Err(e) = connection.send_message(payload).await {
+        return Err(format!("Failed to send message: {}", e));
+    }
+    Ok(())
+}
+
 }
