@@ -7,11 +7,8 @@ alwaysApply: true
 # This is the project's tech stack
 
 - Svelte, Typescript and tailwindCSS for building frontend components.
-- Vanilla css, DOM manipulation methods where needed.
-- Tauri crossplatform framework for desktop and mobile builds.
-- SQLite for embedded database.
-- Iroh for enabling peer-to-peer connectivity.
-- prosemirror for text editor.
+- Vanilla CSS, DOM manipulation methods where needed.
 - Common directory is used for common components, frontends divided into mobile desktop for password manager and we are currenty focusing on live collaborative text editor called livnote. 
+- prosemirror for text editor.
 
 
