@@ -9,6 +9,7 @@ import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
 import { slashCommandPlugin } from "./slashCommandPlugin";
 import { fixedMenuPlugin } from "./fixedMenuPlugin";
+import { floatingMenuPlugin } from "./floatingMenuPlugin";
 import {
 	wrapInList,
 	splitListItem,
@@ -387,6 +388,7 @@ export class Notes {
 					gapCursor(),
 					history(),
 					fixedMenuPlugin(this.editorSchema),
+					floatingMenuPlugin(this.editorSchema),
 					yCursorPlugin(this.awareness, {
 						cursorBuilder: this.createBasicCustomCursor.bind(this),
 					}),
