@@ -1,6 +1,7 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::share_record::{PermissionLevel, ShareRecord};
 use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
@@ -62,6 +63,7 @@ impl ResourceService {
             ResourceKey,
             SyncRecordSet,
             Vec<ResourceVectorClock>,
+            ShareRecord,
         ),
         ResourceServiceError,
     > {
@@ -86,11 +88,23 @@ impl ResourceService {
             encrypted.access_list[0].encrypted_key.clone(),
             true, // Owner
         );
+        let share_record = ShareRecord::prepare_share_record(
+            resource.id.clone(),
+            user.id.clone(),
+            user.id.clone(),
+            PermissionLevel::Admin,
+            "signature".to_string(),
+        );
         let (sync_record_set, vector_clocks) = self
             .prepare_resource_to_sync(&resource, &user.id, current_device_id)
             .await?;
-        log::info!("resource_key{:?}", resource_key);
-        Ok((resource, resource_key, sync_record_set, vector_clocks))
+        Ok((
+            resource,
+            resource_key,
+            sync_record_set,
+            vector_clocks,
+            share_record,
+        ))
     }
 
     pub async fn delete_resource(&self, resource_id: String) -> Result<(), RepositoryError> {

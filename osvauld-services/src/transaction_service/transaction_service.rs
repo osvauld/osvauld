@@ -1,6 +1,7 @@
 use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
+use osvauld_core::models::share_record::{self, ShareRecord};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
@@ -10,7 +11,6 @@ use osvauld_core::repositories::{
 
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::share_record::{ShareRecordSet, UserRecordSet};
 use osvauld_core::models::sync_record::{SyncRecordSet, SyncUpdateData};
 use std::sync::Arc;
 pub struct TransactionService {
@@ -67,7 +67,7 @@ impl TransactionService {
         resource: Resource,
         resource_key: ResourceKey,
         sync_record_set: &SyncRecordSet,
-        share_record_set: ShareRecordSet,
+        share_record: &ShareRecord,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
         // Save resource and its key
@@ -80,9 +80,7 @@ impl TransactionService {
             .await?;
 
         // Save share records
-        self.share_repository
-            .add_share_record_set(share_record_set)
-            .await?;
+        self.share_repository.save(share_record).await?;
         self.vector_clock_repository
             .save_vector_clocks(vector_clocks)
             .await?;
@@ -113,14 +111,14 @@ impl TransactionService {
         &self,
         resource_key: ResourceKey,
         vector_clock: ResourceVectorClock,
-        user_record: UserRecordSet,
+        // user_record: UserRecordSet,
         resource_id: String,
     ) -> Result<(), RepositoryError> {
         log::info!("vecoor {:?}", vector_clock);
         self.resource_key_repository.save(&resource_key).await?;
-        self.share_repository
-            .update_user_record_set(user_record)
-            .await?;
+        // self.share_repository
+        //     .update_user_record_set(user_record)
+        //     .await?;
         // Update the resource's vector clock
         // self.resource_repository
         //     .update_resource_vector_clock(&resource_id, &vector_clock)
