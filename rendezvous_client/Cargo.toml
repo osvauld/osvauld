@@ -24,6 +24,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 osvauld_core = { path = "../core" }
 p2p_service = { path = "../p2p-service" }
 tracing-log = "0.2.0"
+chrono = "0.4.40"
 [lib]
 name = "rendezvous_client"
 path = "src/lib.rs"
