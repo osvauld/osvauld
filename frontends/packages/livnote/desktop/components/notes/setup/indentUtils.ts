@@ -62,7 +62,7 @@ export function indentRight(view: EditorView): boolean {
     const node = $from.node(depth);
 
     // Get current indentation level from the block node
-    const currentIndent = node.attrs.indent || 0;
+    const currentIndent = (node.attrs.indent as number) || 0;
     const newIndent = Math.min(3, currentIndent + 1); // Maximum 3 levels of indentation
 
     // Prepare the attributes
@@ -75,11 +75,9 @@ export function indentRight(view: EditorView): boolean {
 
     // Apply the changes to the block node
     tr.setNodeMarkup(pos, null, attrs);
-    dispatch(tr);
+    if (dispatch) dispatch(tr);
+    return true;
   }
-
-  view.focus();
-  return true;
 }
 
 // Function to handle indent left (outdent)
@@ -108,7 +106,7 @@ export function indentLeft(view: EditorView): boolean {
     const node = $from.node(depth);
 
     // Get current indentation level from the block node
-    const currentIndent = node.attrs.indent || 0;
+    const currentIndent = (node.attrs.indent as number) || 0;
     const newIndent = Math.max(0, currentIndent - 1);
 
     // Prepare the attributes
@@ -128,9 +126,7 @@ export function indentLeft(view: EditorView): boolean {
 
     // Apply the changes to the block node
     tr.setNodeMarkup(pos, null, attrs);
-    dispatch(tr);
+    if (dispatch) dispatch(tr);
+    return true;
   }
-
-  view.focus();
-  return true;
 } 

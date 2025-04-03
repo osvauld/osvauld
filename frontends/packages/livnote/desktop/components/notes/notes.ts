@@ -343,14 +343,17 @@ export class Notes {
 			} catch (err) {
 				console.error("Error creating ProseMirror doc from YJS:", err);
 				// If that fails, create a new empty document
-				prosemirrorDoc = initProseMirrorDoc(this.editorSchema);
+				prosemirrorDoc = this.editorSchema.node("doc", null, [
+					this.editorSchema.node("paragraph", null, [])
+				]);
 				console.log("Created empty ProseMirror doc instead");
 			}
 
 			// Create the editor state with the document
+			const doc = (prosemirrorDoc as any).doc || prosemirrorDoc;
 			this.editorState = EditorState.create({
 				schema: this.editorSchema,
-				doc: prosemirrorDoc, // Use the document from Yjs
+				doc: doc,
 				plugins: [
 					slashCommandPlugin(this.editorSchema),
 					listKeymap,
