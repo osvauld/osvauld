@@ -1,17 +1,16 @@
 import { EditorView } from "prosemirror-view";
-import { Schema } from "prosemirror-model";
+import { Schema, MarkType, NodeType } from "prosemirror-model";
 import { toggleMark, setBlockType } from "prosemirror-commands";
+import { EditorState, Selection } from "prosemirror-state";
 
 // Helper function to check if a mark is active
-export function markActive(state, type) {
+export function markActive(state: EditorState, type: MarkType): boolean {
   try {
     const { from, $from, to, empty } = state.selection;
 
     if (empty) {
-      return (
-        type.isInSet($from.marks()) ||
-        (state.storedMarks && type.isInSet(state.storedMarks))
-      );
+      const marks = type.isInSet($from.marks());
+      return Boolean(marks);
     } else {
       return state.doc.rangeHasMark(from, to, type);
     }
@@ -22,12 +21,15 @@ export function markActive(state, type) {
 }
 
 // Helper function to check if node type is active at selection
-export function nodeActive(state, type, attrs = {}) {
+export function nodeActive(state: EditorState, type: NodeType, attrs: Record<string, unknown> = {}): boolean {
   const { selection } = state;
-  const { $from, $to, node } = selection;
+  const { $from, $to } = selection;
 
-  if (node) {
-    return node.hasMarkup(type, attrs);
+  if ('node' in selection) {
+    const node = (selection as any).node;
+    if (node) {
+      return node.hasMarkup(type, attrs);
+    }
   }
 
   let active = false;
@@ -46,7 +48,7 @@ export function nodeActive(state, type, attrs = {}) {
 }
 
 // Create a button with text, title and click handler
-export function createButton(text: string, title: string, onClick: () => void) {
+export function createButton(text: string, title: string, onClick: () => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "editor-menuitem";
   button.textContent = text;
@@ -58,12 +60,12 @@ export function createButton(text: string, title: string, onClick: () => void) {
 }
 
 // Update active/disabled states for menu items
-export function updateButtonStates(menuNode: HTMLElement, view: EditorView) {
+export function updateButtonStates(menuNode: HTMLElement, view: EditorView): void {
   const { state } = view;
   const { schema } = state.doc.type;
 
   // Update mark buttons (bold, italic, code)
-  menuNode.querySelectorAll("[data-mark-type]").forEach((button) => {
+  menuNode.querySelectorAll<HTMLElement>("[data-mark-type]").forEach((button) => {
     try {
       const markName = button.dataset.markType;
       if (!markName || !schema.marks[markName]) return;
@@ -80,9 +82,12 @@ export function updateButtonStates(menuNode: HTMLElement, view: EditorView) {
   });
 
   // Update node type buttons (headings, paragraph)
-  menuNode.querySelectorAll("[data-node-type]").forEach((button) => {
+  menuNode.querySelectorAll<HTMLElement>("[data-node-type]").forEach((button) => {
     const nodeName = button.dataset.nodeType;
+    if (!nodeName) return;
+    
     const nodeType = schema.nodes[nodeName];
+    if (!nodeType) return;
 
     if (nodeName === "heading" && button.dataset.level) {
       const level = parseInt(button.dataset.level);

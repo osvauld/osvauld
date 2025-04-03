@@ -33,9 +33,9 @@ import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 
 interface NoteContent {
-	content: any;
+	content: string | Record<string, unknown>;
 	yjs_state: Uint8Array | number[];
-	editor_state: any;
+	editor_state: string | Record<string, unknown>;
 	client_id: string;
 	resource_id: string;
 	last_modified?: number;
@@ -47,13 +47,13 @@ interface CreateNoteParams {
 }
 
 export class Notes {
-	private ydoc: Y.Doc;
-	private type: Y.XmlFragment;
-	private awareness: Awareness;
+	private ydoc!: Y.Doc;
+	private type!: Y.XmlFragment;
+	private awareness!: Awareness;
 	private clientID: number;
 	private currentNoteId: string | null = null;
 	private editorState: EditorState | null = null;
-	private editorSchema: Schema;
+	private editorSchema!: Schema;
 
 	constructor() {
 		this.clientID = Math.floor(Math.random() * 0xffffffff);
@@ -247,45 +247,18 @@ export class Notes {
 		});
 	}
 
-	public updateUserInfo(name, color) {
-		const currentState = this.awareness.getLocalState();
-		if (!currentState || !currentState.user) return;
-
-		const newUser = {
-			...currentState.user,
-		};
-
-		if (name) {
-			newUser.name = name;
-		}
-
-		if (color) {
-			newUser.color = color;
-		}
-
-		this.awareness.setLocalState({
-			...currentState,
-			user: newUser,
-		});
+	public updateUserInfo(name: string, color: string): void {
+		this.awareness.setLocalStateField('user', { name, color });
 	}
 
-	private createBasicCustomCursor(user) {
-		const cursor = document.createElement("span");
-		cursor.classList.add("ProseMirror-yjs-cursor");
-
-		// Set cursor color based on user's color
-		cursor.setAttribute("style", `border-color: ${user.color}`);
-
-		// Create the tooltip that shows user name
-		const userDiv = document.createElement("div");
-		userDiv.setAttribute("style", `background-color: ${user.color}`);
-
-		// Add user name
-		userDiv.insertBefore(document.createTextNode(user.name || "Unknown"), null);
-
-		// Attach the tooltip to the cursor
-		cursor.insertBefore(userDiv, null);
-
+	private createBasicCustomCursor(user: { name: string; color: string }): HTMLElement {
+		const cursor = document.createElement('span');
+		cursor.style.borderLeft = `2px solid ${user.color}`;
+		cursor.style.marginLeft = '-1px';
+		cursor.style.paddingLeft = '1px';
+		cursor.style.position = 'relative';
+		cursor.style.height = '1.2em';
+		cursor.style.display = 'inline-block';
 		return cursor;
 	}
 
