@@ -3,11 +3,15 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { listen } from "@tauri-apps/api/event";
 	import { onMount, onDestroy } from "svelte";
-
+	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	let connectionTicket = "";
 	let status = "Ready to connect";
 	let error = "";
+	let certificate = "";
+	let recoveryString = "";
 	let unlistenHandlers: (() => void)[] = [];
+	let textareaElement;
+
 
 	async function setupEventListeners() {
 		const unlisten1 = await listen("peer-connected", () => {
@@ -30,8 +34,22 @@
 			await invoke("start_p2p_listener");
 			console.log("acceptor mounted");
 			await setupEventListeners();
-			connectionTicket = await invoke("get_ticket");
+			connectionTicket = await sendMessage("getTicket");
+			certificate = await sendMessage("exportCertificate", {
+				passphrase: "test",
+			});
+			recoveryString = JSON.stringify({
+				ticket: connectionTicket,
+				certificate: certificate,
+			});
+			// connectionTicket = await invoke("get_ticket");
 			status = "Ready to connect. Share the ticket with mobile device.";
+			// Use setTimeout to ensure the textarea is rendered before focusing
+			setTimeout(() => {
+				if (textareaElement) {
+					textareaElement.focus();
+				}
+			}, 100);
 		} catch (err) {
 			error = err.toString();
 			status = "Failed to initialize";
@@ -70,11 +88,11 @@
 		{/if}
 
 		<div class="flex flex-col gap-3">
-			{#if connectionTicket}
+			{#if recoveryString}
 				<div class="mx-auto">
-					<QRCode data="{JSON.stringify(connectionTicket)}" />
+					<QRCode data="{JSON.stringify(recoveryString)}" />
 				</div>
-				<textarea name="text" id="sdfa"> {connectionTicket} </textarea>
+				<textarea name="text" class="font-light text-xs text-white w-full h-32 p-2 mt-4 overflow-auto break-all" bind:this={textareaElement}> {recoveryString} </textarea>
 
 				<button
 					on:click="{copyTicket}"

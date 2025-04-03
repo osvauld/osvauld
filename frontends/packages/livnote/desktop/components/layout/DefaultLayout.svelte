@@ -34,20 +34,20 @@
 					console.log(mergedDocument);
 				},
 			);
-			let connectionTicket = "";
-			let certificate = "";
-			let recoveryString = "";
-			await sendMessage("startP2PListner");
-			connectionTicket = await sendMessage("getTicket");
-			// TODO: change the passphrase to the actual password
-			certificate = await sendMessage("exportCertificate", {
-				passphrase: "test",
-			});
-			recoveryString = JSON.stringify({
-				ticket: connectionTicket,
-				certificate: certificate,
-			});
-			console.log(recoveryString);
+			// let connectionTicket = "";
+			// let certificate = "";
+			// let recoveryString = "";
+			// await sendMessage("startP2PListner");
+			// connectionTicket = await sendMessage("getTicket");
+			// // TODO: change the passphrase to the actual password
+			// certificate = await sendMessage("exportCertificate", {
+			// 	passphrase: "test",
+			// });
+			// recoveryString = JSON.stringify({
+			// 	ticket: connectionTicket,
+			// 	certificate: certificate,
+			// });
+			// console.log(recoveryString);
 		} catch (e) {
 			console.log("Error received ===>", e);
 		}
