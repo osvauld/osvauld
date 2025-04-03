@@ -90,7 +90,7 @@
 		<div class="flex flex-col gap-3">
 			{#if recoveryString}
 				<div class="mx-auto">
-					<QRCode data="{JSON.stringify(recoveryString)}" />
+					<QRCode data="{recoveryString}" />
 				</div>
 				<textarea name="text" class="font-light text-xs text-white w-full h-32 p-2 mt-4 overflow-auto break-all" bind:this={textareaElement}> {recoveryString} </textarea>
 
