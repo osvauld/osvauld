@@ -1,5 +1,8 @@
 <script>
-	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
+	import { fly } from "svelte/transition";
+	import { onMount } from "svelte";
+
+	import { Warning, ClosePanel } from "@osvauld/password-manager-common";
 
 	import {
 		currentNote,
@@ -9,10 +12,8 @@
 		refreshCredentialList,
 		noteViewLayout,
 	} from "../../store/desktop.ui.store";
-	import { fly } from "svelte/transition";
-	import Warning from "@osvauld/password-manager-common/icons/warning.svelte";
+
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { onMount } from "svelte";
 
 	const deleteConfirmation = async () => {
 		if ($deleteConfirmationModal.item == "folder") {

@@ -1,23 +1,13 @@
 <script lang="ts">
 	import { slide, fly } from "svelte/transition";
-	import OsvauldDesktopLogo from "@osvauld/password-manager-common/icons/osvauldDesktopLogo.svelte";
-	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
-	import Profile from "@osvauld/password-manager-common/icons/profile.svelte";
-	import Key from "@osvauld/password-manager-common/icons/key.svelte";
-	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
-	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
-	import downloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
+
 	import {
 		sendMessage,
 		writeToClipboard,
 	} from "@osvauld/password-manager-common/utils/helper";
 
-	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import { addDeviceModal, showConnector } from "../../store/desktop.ui.store";
-	import Sync from "@osvauld/password-manager-common/icons/sync.svelte";
-	import Devices from "@osvauld/password-manager-common/icons/devices.svelte";
-	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
-	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
+	import { CopyIcon, DownloadIcon, UserPlus, RightArrow, Sync, Devices, QrScanner, Logout, OsvauldDesktopLogo, Lens, Profile, Key } from "@osvauld/password-manager-common";
+	
 	import {
 		showWelcome,
 		language,
@@ -25,6 +15,7 @@
 		toastStore,
 		showAddUser,
 		passwordPromptModal,
+		addDeviceModal, showConnector 
 	} from "../../store/desktop.ui.store";
 
 	let showDropdown = false;
@@ -37,7 +28,7 @@
 		{ id: "devices", label: "My Devices", icon: Devices },
 		{ id: "addUser", label: "Add User", icon: UserPlus },
 		{ id: "change", label: "Change Password", icon: Key },
-		{ id: "export", label: "Emergency Key", icon: downloadIcon },
+		{ id: "export", label: "Emergency Key", icon: DownloadIcon },
 		{ id: "logout", label: "Logout", icon: Logout },
 	];
 

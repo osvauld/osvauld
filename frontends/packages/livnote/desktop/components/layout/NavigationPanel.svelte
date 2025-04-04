@@ -1,8 +1,8 @@
 <script lang="ts">
-	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import Home from "@osvauld/password-manager-common/icons/mobileHome.svelte";
-	import Star from "@osvauld/password-manager-common/icons/star.svelte";
-	import VaultManager from "../ui/VaultManager.svelte";
+	import { onMount } from "svelte";
+
+	import { RightArrow as Arrow, MobileHome as Home, Star, MobileNote } from "@osvauld/password-manager-common";
+
 	import {
 		currentVault,
 		noteViewLayout,
@@ -11,13 +11,14 @@
 		notes,
 		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
+
+	import VaultManager from "../ui/VaultManager.svelte";
 	import { extractTitle } from "../utils/helper";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import { LocalStorageService } from "@osvauld/password-manager-common";
 	import { StorageService } from "@osvauld/password-manager-common";
-	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { onMount } from "svelte";
+
 
 	let selectedSection = "home";
 	let localSelectedCredential = 0;
