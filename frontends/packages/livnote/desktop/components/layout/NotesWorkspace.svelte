@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from "svelte";
+	import { setContext } from "svelte";
 	import {
 		currentVault,
 		noteViewLayout,
@@ -9,30 +11,19 @@
 		notes,
 		deleteConfirmationModal,
 	} from "../../store/desktop.ui.store";
-	import { extractTitle, getLastModifiedDate } from "../utils/helper";
-	import { pdfGenerator } from "../utils/pdfGenerator";
-	import Add from "@osvauld/password-manager-common/icons/add.svelte";
-	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
-	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
-	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
-	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
-	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
-	import DownloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
-	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
-	import Tick from "@osvauld/password-manager-common/icons/tick.svelte";
-	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
-	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import NotesListView from "../notes/NotesListView.svelte";
-	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
-	import VaultManager from "../ui/VaultManager.svelte";
 
-	import { MobileHome } from "@osvauld/password-manager-common";
+	import { MobileHome, Add, VerticalMenu as Menu, BinIcon as Bin, Star as EmptyStar, FavStar as Star, CopyIcon, DownloadIcon, UserPlus, Tick, BackArrow, RightArrow as Arrow} from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
-	import { notesInstance } from "../notes/notes";
-	import { onMount } from "svelte";
-	import { setContext } from "svelte";
+
+	import NotesListView from "../notes/NotesListView.svelte";
+	import VaultManager from "../ui/VaultManager.svelte";
 	import ShareNote from "../modals/ShareNote.svelte";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
+
+	import { notesInstance } from "../notes/notes";
+	import { extractTitle, getLastModifiedDate } from "../utils/helper";
+	import { pdfGenerator } from "../utils/pdfGenerator";
+	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	let userId;
 	let addCredentialHovered = false;
