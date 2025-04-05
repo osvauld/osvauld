@@ -12,6 +12,8 @@
 	let unlistenHandlers: (() => void)[] = [];
 	let textareaElement;
 
+	export let passwordCollected = "";
+
 
 	async function setupEventListeners() {
 		const unlisten1 = await listen("peer-connected", () => {
@@ -36,7 +38,7 @@
 			await setupEventListeners();
 			connectionTicket = await sendMessage("getTicket");
 			certificate = await sendMessage("exportCertificate", {
-				passphrase: "test",
+				passphrase: passwordCollected,
 			});
 			recoveryString = JSON.stringify({
 				ticket: connectionTicket,
