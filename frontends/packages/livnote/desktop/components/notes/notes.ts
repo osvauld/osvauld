@@ -31,20 +31,40 @@ import {
 } from "y-prosemirror";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+import type {
+	NoteContent,
+	CreateNoteParams,
+	UserInfo,
+	EditorDocumentState,
+	NoteResponse,
+	CollaborationUpdateEvent
+} from "../../types/notes.types";
 
-interface NoteContent {
-	content: string | Record<string, unknown>;
-	yjs_state: Uint8Array | number[];
-	editor_state: string | Record<string, unknown>;
-	client_id: string;
-	resource_id: string;
-	last_modified?: number;
-	title?: string;
-}
+// Type definitions for notes, states and other components
 
-interface CreateNoteParams {
-	folderId: string;
-}
+/**
+ * Note content structure for storage, retrieval and synchronization
+ */
+
+/**
+ * Parameters for note creation operations
+ */
+
+/**
+ * User information for collaboration awareness
+ */
+
+/**
+ * Editor document state for collaboration
+ */
+
+/**
+ * Response structure from the server for note operations
+ */
+
+/**
+ * Collaboration update event data
+ */
 
 export class Notes {
 	private ydoc!: Y.Doc;
@@ -61,7 +81,7 @@ export class Notes {
 		this.initYjs();
 	}
 
-	private initSchema() {
+	private initSchema(): void {
 		// Get the base paragraph node spec from the schema
 		const nodes = schema.spec.nodes;
 
@@ -167,7 +187,7 @@ export class Notes {
 	}
 
 	// Helper method to add the required CSS
-	private addCustomStyles() {
+	private addCustomStyles(): void {
 		const styleElement = document.createElement("style");
 		styleElement.textContent = `
       /* Text alignment styles */
@@ -213,7 +233,7 @@ export class Notes {
 		document.head.appendChild(styleElement);
 	}
 
-	private initYjs() {
+	private initYjs(): void {
 		this.ydoc = new Y.Doc();
 		this.type = this.ydoc.getXmlFragment("prosemirror");
 		this.awareness = new Awareness(this.ydoc);
@@ -243,15 +263,19 @@ export class Notes {
 				name: `User ${this.clientID}`,
 				color: userColor,
 				id: this.clientID,
-			},
+			} as UserInfo,
 		});
 	}
 
 	public updateUserInfo(name: string, color: string): void {
-		this.awareness.setLocalStateField('user', { name, color });
+		this.awareness.setLocalStateField('user', { 
+			name, 
+			color,
+			id: this.clientID
+		} as UserInfo);
 	}
 
-	private createBasicCustomCursor(user: { name: string; color: string }): HTMLElement {
+	private createBasicCustomCursor(user: UserInfo): HTMLElement {
 		const cursor = document.createElement('span');
 		cursor.style.borderLeft = `2px solid ${user.color}`;
 		cursor.style.marginLeft = '-1px';
@@ -262,7 +286,7 @@ export class Notes {
 		return cursor;
 	}
 
-	private initEditorState() {
+	private initEditorState(): void {
 		const listKeymap = keymap({
 			Enter: splitListItem(this.editorSchema.nodes.list_item),
 			Tab: sinkListItem(this.editorSchema.nodes.list_item),
@@ -468,7 +492,7 @@ export class Notes {
 		}
 	}
 
-	getDoc() {
+	getDoc(): EditorDocumentState {
 		return {
 			ydoc: this.ydoc,
 			type: this.type,
@@ -479,11 +503,11 @@ export class Notes {
 		};
 	}
 
-	updateEditorState(newState: EditorState) {
+	updateEditorState(newState: EditorState): void {
 		this.editorState = newState;
 	}
 
-	async saveNote(title = "Untitled note") {
+	async saveNote(title = "Untitled note"): Promise<void> {
 		if (!this.currentNoteId || !this.editorState) {
 			console.error("No note is currently active or editor state is missing");
 			return;
@@ -520,11 +544,11 @@ export class Notes {
 		}
 	}
 
-	async loadNote(noteId: string) {
+	async loadNote(noteId: string): Promise<EditorDocumentState> {
 		try {
 			console.log(`Loading note: ${noteId}`);
 
-			const response = await sendMessage("getCredential", {
+			const response: NoteResponse = await sendMessage("getCredential", {
 				resourceId: noteId,
 			});
 
@@ -577,7 +601,7 @@ export class Notes {
 		}
 	}
 
-	async handleCollaborationUpdate(update: Uint8Array) {
+	async handleCollaborationUpdate(update: Uint8Array): Promise<void> {
 		try {
 			if (!this.currentNoteId) {
 				console.warn("No current note ID, skipping collaboration update");
@@ -597,7 +621,7 @@ export class Notes {
 				clientID: this.clientID,
 				client_id: `client-${this.clientID}`,
 				resource_id: this.currentNoteId,
-			});
+			} as CollaborationUpdateEvent);
 
 			// Don't auto-save here, it causes too many saves
 			// Let the auto-save interval handle it
@@ -606,7 +630,7 @@ export class Notes {
 		}
 	}
 
-	applyUpdate(update: Uint8Array | number[], sender: number) {
+	applyUpdate(update: Uint8Array | number[], sender: number): void {
 		if (sender === this.clientID) {
 			console.log("Ignoring own update");
 			return;
@@ -631,7 +655,7 @@ export class Notes {
 		}
 	}
 
-	destroy() {
+	destroy(): void {
 		if (this.ydoc) {
 			this.ydoc.destroy();
 		}
