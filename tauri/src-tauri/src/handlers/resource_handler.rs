@@ -6,7 +6,6 @@ use crate::types::{
 use crate::user_state::UserState;
 use log::info;
 use osvauld_services::{ResourceService, TransactionService};
-use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use tauri::State;
 
@@ -19,21 +18,23 @@ pub async fn handle_add_resource(
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
-    let (resource, resource_key, sync_record_set, vector_clocks, share_record) = resource_service
-        .add_resource(
-            input.resource_payload,
-            input.resource_type,
-            input.folder_id,
-            &user,
-            &device.id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+    let (resource, resource_key, sync_record_set, share_record_set, vector_clocks, share_record) =
+        resource_service
+            .add_resource(
+                input.resource_payload,
+                input.resource_type,
+                input.folder_id,
+                &user,
+                &device.id,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
     let _ = transaction_service
         .create_resource_with_sync(
             resource.clone(),
             resource_key,
             &sync_record_set,
+            &share_record_set,
             &share_record,
             &vector_clocks,
         )
@@ -177,22 +178,23 @@ pub async fn share_resource(
         share_record,
         recipient_vector_clocks,
         sync_record_set,
+        share_record_set,
         resource_device_record_set,
     ) = resource_service
         .share_resource(input.user_id, input.resource_id, &user.id, &device.id)
         .await
         .map_err(|e| e.to_string())?;
 
-    transaction_service
-        .share_resource_transaction(
-            new_resource_key,
-            share_record,
-            recipient_vector_clocks,
-            sync_record_set,
-            resource_device_record_set,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+    // transaction_service
+    //     .share_resource_transaction(
+    //         new_resource_key,
+    //         share_record,
+    //         recipient_vector_clocks,
+    //         sync_record_set,
+    //         resource_device_record_set,
+    //     )
+    //     .await
+    //     .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::Success)
 }

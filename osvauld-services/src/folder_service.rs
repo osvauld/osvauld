@@ -48,7 +48,7 @@ impl FolderService {
         let folder = Folder::new(name, description, false);
         let user_devices = self
             .device_repository
-            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .get_devices_by_user_id(current_user_id)
             .await?;
 
         let sync_record_set = SyncRecord::create_folder_sync_record(

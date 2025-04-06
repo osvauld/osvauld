@@ -1,6 +1,7 @@
 use super::device::Device;
 use super::folder::Folder;
 use super::resource::ResourceKeyPair;
+use super::share_record::ShareRecord;
 use super::sync_record::{
     DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
@@ -35,6 +36,12 @@ pub enum SyncPayload {
         device_records: Vec<DeviceRecord>,
         device_record_statuses: Vec<DeviceRecordStatus>,
         folder: Folder,
+    },
+    ShareSync {
+        sync_record: SyncRecord,
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+        share_record: ShareRecord,
     },
     StatusUpdate(Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>),
     ResourceUpdate {
