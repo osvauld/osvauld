@@ -723,4 +723,25 @@ impl SyncRepository for SqliteSyncRepository {
 
         Ok(result.to_domain())
     }
+
+    async fn get_sync_records_by_resource_and_type_and_operation(
+        &self,
+        resource_id: &str,
+        resource_type: &str,
+        operation_type: &str,
+    ) -> Result<Vec<SyncRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let sync_records = sync_records::table
+            .filter(sync_records::resource_id.eq(resource_id))
+            .filter(sync_records::resource_type.eq(resource_type))
+            .filter(sync_records::operation_type.eq(operation_type))
+            .load::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?
+            .into_iter()
+            .map(|model| model.to_domain())
+            .collect();
+
+        Ok(sync_records)
+    }
 }

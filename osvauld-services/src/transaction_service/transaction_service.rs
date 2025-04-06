@@ -67,6 +67,7 @@ impl TransactionService {
         resource: Resource,
         resource_key: ResourceKey,
         sync_record_set: &SyncRecordSet,
+        share_record_set: &SyncRecordSet,
         share_record: &ShareRecord,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
@@ -77,6 +78,10 @@ impl TransactionService {
         // Save sync records
         self.sync_repository
             .add_sync_record_set(sync_record_set)
+            .await?;
+
+        self.sync_repository
+            .add_sync_record_set(share_record_set)
             .await?;
 
         // Save share records
@@ -206,9 +211,9 @@ impl TransactionService {
             .await?;
 
         // Save the sync record set for syncing across devices
-        // self.sync_repository
-        //     .add_sync_record_set(&sync_record_set)
-        //     .await?;
+        self.sync_repository
+            .add_sync_record_set(&sync_record_set)
+            .await?;
         self.sync_repository
             .update_device_record_set(resource_device_record_set)
             .await?;

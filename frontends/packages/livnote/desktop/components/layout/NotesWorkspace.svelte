@@ -11,7 +11,6 @@
 	} from "../../store/desktop.ui.store";
 	import { extractTitle, getLastModifiedDate } from "../utils/helper";
 	import { pdfGenerator } from "../utils/pdfGenerator";
-	import Add from "@osvauld/password-manager-common/icons/add.svelte";
 	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
 	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
 	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
@@ -19,14 +18,13 @@
 	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
 	import DownloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
 	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
-	import Tick from "@osvauld/password-manager-common/icons/tick.svelte";
 	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
 	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
 	import NotesListView from "../notes/NotesListView.svelte";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 	import VaultManager from "../ui/VaultManager.svelte";
 
-	import { MobileHome } from "@osvauld/password-manager-common";
+	import { MobileHome, Tick, Add } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { notesInstance } from "../notes/notes";
 	import { onMount } from "svelte";
@@ -252,18 +250,18 @@
 				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click="{handleBackButton}">
+						on:click={handleBackButton}>
 						<BackArrow />
 					</button>
 					{#if isEditingTitle}
 						<div
 							class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
 							<input
-								bind:this="{inputRef}"
-								bind:value="{newNoteTitle}"
+								bind:this={inputRef}
+								bind:value={newNoteTitle}
 								maxlength="20"
-								on:keydown="{handleKeydown}"
-								on:blur="{saveTitle}"
+								on:keydown={handleKeydown}
+								on:blur={saveTitle}
 								class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
 						</div>
 					{:else}
@@ -271,15 +269,15 @@
 							role="button"
 							tabindex="0"
 							class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
-							on:dblclick="{startEditingTitle}"
-							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
+							on:dblclick={startEditingTitle}
+							on:keydown={(e) => e.key === "Enter" && startEditingTitle()}>
 							{$currentNote?.data?.title || "Untitled"}
 						</span>
 					{/if}
 
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click|stopPropagation="{toggleFav}">
+						on:click|stopPropagation={toggleFav}>
 						{#if isFavourite}
 							<Star />
 						{:else}

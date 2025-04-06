@@ -160,6 +160,12 @@ pub trait SyncRepository: Send + Sync {
         operation_type: &str,
         resource_type: &str,
     ) -> Result<SyncRecord, RepositoryError>;
+    async fn get_sync_records_by_resource_and_type_and_operation(
+        &self,
+        resource_id: &str,
+        resource_type: &str,
+        operation_type: &str,
+    ) -> Result<Vec<SyncRecord>, RepositoryError>;
 }
 
 #[async_trait]
@@ -341,4 +347,5 @@ pub trait ShareRepository: Send + Sync {
         resource_id: &str,
         operation_type: &str,
     ) -> Result<Vec<ShareRecord>, RepositoryError>;
+    async fn find_by_id(&self, id: &str) -> Result<ShareRecord, RepositoryError>;
 }
