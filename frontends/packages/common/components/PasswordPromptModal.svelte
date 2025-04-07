@@ -1,4 +1,6 @@
+
 <script lang="ts">
+	// This Modal component can be used during exporting certificate or changing passphrase
 	import { onMount } from "svelte";
 	import { sendMessage, writeToClipboard } from "../utils/helper";
 	import { fly } from "svelte/transition";
