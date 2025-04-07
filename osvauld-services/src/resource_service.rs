@@ -2,7 +2,7 @@ use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserP
 use osvauld_core::models::device::Device;
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::share_record::{PermissionLevel, ShareOperation, ShareRecord};
+use osvauld_core::models::share_record::{self, PermissionLevel, ShareOperation, ShareRecord};
 use osvauld_core::models::sync_record::{DeviceRecord, DeviceRecordSet, SyncRecord, SyncRecordSet};
 use osvauld_core::models::sync_types::{OperationType, ResourceType};
 use osvauld_core::models::user::User;
@@ -410,7 +410,7 @@ impl ResourceService {
         &self,
         resource_id: &str,
         recipient_user_id: &str,
-    ) -> Result<(Vec<Device>, Vec<Device>), ResourceServiceError> {
+    ) -> Result<(Vec<Device>, Vec<Device>, Vec<String>), ResourceServiceError> {
         // Get recipient's devices
         let recipient_user_devices = self
             .device_repository
@@ -422,6 +422,8 @@ impl ResourceService {
             .share_repository
             .find_by_resource_and_operation(resource_id, &ShareOperation::Share.to_string())
             .await?;
+        let shared_record_ids: Vec<String> =
+            shared_records.iter().map(|sr| sr.id.clone()).collect();
 
         // Get existing shared user devices
         let shared_user_ids: Vec<String> = shared_records
@@ -441,7 +443,7 @@ impl ResourceService {
         let mut all_devices = recipient_user_devices.clone();
         all_devices.extend(shared_user_devices.clone().into_iter());
 
-        Ok((recipient_user_devices, all_devices))
+        Ok((recipient_user_devices, all_devices, shared_record_ids))
     }
 
     // Helper function for resource key and vector clock preparation
@@ -504,12 +506,12 @@ impl ResourceService {
             Vec<ResourceVectorClock>,
             SyncRecordSet,
             DeviceRecordSet,
-            Vec<DeviceRecordSet>,
+            DeviceRecordSet,
         ),
         ResourceServiceError,
     > {
         // Collect all necessary device IDs
-        let (recipient_devices, all_devices) = self
+        let (recipient_devices, all_devices, shared_record_ids) = self
             .collect_devices_for_sharing(&resource_id, &recipient_user_id)
             .await?;
         let recipient_device_ids: Vec<String> =
@@ -532,48 +534,10 @@ impl ResourceService {
             PermissionLevel::Write,
             "signature".to_string(),
         );
-
-        // Prepare sync records
-        let (sync_record_set, resource_device_record_set, existing_share_updates) = self
-            .prepare_sync_records_for_sharing(
-                &resource_id,
-                &share_record.id,
-                current_device_id,
-                &recipient_devices,
-                &all_devices,
-            )
-            .await?;
-
-        Ok((
-            new_resource_key,
-            share_record,
-            recipient_vector_clocks,
-            sync_record_set,
-            resource_device_record_set,
-            existing_share_updates,
-        ))
-    }
-    // Helper function for preparing sync records
-    async fn prepare_sync_records_for_sharing(
-        &self,
-        resource_id: &str,
-        share_record_id: &str,
-        current_device_id: &str,
-        recipient_devices: &[Device],
-        all_devices: &[Device],
-    ) -> Result<(SyncRecordSet, DeviceRecordSet, Vec<DeviceRecordSet>), ResourceServiceError> {
-        // Create sync record set for the new share record
-        let sync_record_set = SyncRecord::create_share_sync_record(
-            share_record_id.to_string(),
-            current_device_id.to_string(),
-            all_devices,
-        );
-
-        // Find resource sync record
         let resource_sync_record = self
             .sync_repository
             .get_sync_record_by_resource_and_operation(
-                resource_id,
+                &resource_id,
                 &OperationType::Create.to_string(),
                 &ResourceType::Resource.to_string(),
             )
@@ -586,42 +550,34 @@ impl ResourceService {
         let resource_device_record_set = SyncRecord::create_resource_share_records(
             resource_sync_record.id,
             current_device_id.to_string(),
-            recipient_devices,
+            &recipient_devices,
             &all_device_ids,
         );
 
-        // Get all existing share sync records for this resource
-        let existing_share_sync_records = self
+        let (sync_records, existing_device_records) = self
             .sync_repository
-            .get_sync_records_by_resource_and_type_and_operation(
-                resource_id,
-                &ResourceType::Share.to_string(),
+            .get_sync_and_device_records_by_resource_ids(
+                &shared_record_ids,
                 &OperationType::Create.to_string(),
             )
             .await?;
-
-        // Get sync record IDs
-        let existing_sync_record_ids: Vec<String> = existing_share_sync_records
-            .iter()
-            .map(|sr| sr.id.clone())
-            .collect();
-
-        // Extract recipient device IDs
-        let recipient_device_ids: Vec<String> =
-            recipient_devices.iter().map(|d| d.id.clone()).collect();
-
-        // Use the SyncRecord domain function to create device records for all sync records
-        let existing_share_updates = SyncRecord::create_device_records_for_sync_records(
-            &existing_sync_record_ids,
-            &recipient_device_ids,
-            current_device_id,
-            &all_device_ids,
-        );
-
+        //prepare the records
+        let (share_sync_record_set, device_record_set) =
+            SyncRecord::prepare_sync_records_for_sharing(
+                &share_record.id,
+                current_device_id,
+                &recipient_devices,
+                &all_devices,
+                &sync_records,
+                &existing_device_records,
+            );
         Ok((
-            sync_record_set,
+            new_resource_key,
+            share_record,
+            recipient_vector_clocks,
+            share_sync_record_set,
+            device_record_set,
             resource_device_record_set,
-            existing_share_updates,
         ))
     }
 }

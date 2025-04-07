@@ -178,23 +178,24 @@ pub async fn share_resource(
         share_record,
         recipient_vector_clocks,
         sync_record_set,
-        share_record_set,
-        resource_device_record_set,
+        device_record_set,
+        resource_record_set,
     ) = resource_service
         .share_resource(input.user_id, input.resource_id, &user.id, &device.id)
         .await
         .map_err(|e| e.to_string())?;
 
-    // transaction_service
-    //     .share_resource_transaction(
-    //         new_resource_key,
-    //         share_record,
-    //         recipient_vector_clocks,
-    //         sync_record_set,
-    //         resource_device_record_set,
-    //     )
-    //     .await
-    //     .map_err(|e| e.to_string())?;
+    transaction_service
+        .share_resource_transaction(
+            new_resource_key,
+            share_record,
+            recipient_vector_clocks,
+            sync_record_set,
+            device_record_set,
+            resource_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::Success)
 }

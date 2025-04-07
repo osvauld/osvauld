@@ -197,6 +197,7 @@ impl TransactionService {
         share_record: ShareRecord,
         recipient_vector_clocks: Vec<ResourceVectorClock>,
         sync_record_set: SyncRecordSet,
+        share_device_record_set: DeviceRecordSet,
         resource_device_record_set: DeviceRecordSet,
     ) -> Result<(), RepositoryError> {
         // Save the resource key for the recipient
@@ -216,6 +217,10 @@ impl TransactionService {
             .await?;
         self.sync_repository
             .update_device_record_set(resource_device_record_set)
+            .await?;
+
+        self.sync_repository
+            .update_device_record_set(share_device_record_set)
             .await?;
 
         Ok(())
