@@ -9,6 +9,7 @@ use crate::models::{
         DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
         SyncRecordSet,
     },
+    sync_types::OperationType,
     user::User,
     vector_clock::ResourceVectorClock,
 };
@@ -166,6 +167,11 @@ pub trait SyncRepository: Send + Sync {
         resource_type: &str,
         operation_type: &str,
     ) -> Result<Vec<SyncRecord>, RepositoryError>;
+    async fn get_sync_and_device_records_by_resource_ids(
+        &self,
+        resource_ids: &[String],
+        operation_type: &str,
+    ) -> Result<(Vec<SyncRecord>, Vec<DeviceRecord>), RepositoryError>;
 }
 
 #[async_trait]

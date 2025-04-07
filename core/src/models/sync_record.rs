@@ -650,6 +650,68 @@ impl SyncRecord {
 
         result
     }
+
+    pub fn prepare_sync_records_for_sharing(
+        share_record_id: &str,
+        current_device_id: &str,
+        recipient_devices: &[Device],
+        all_devices: &[Device],
+        sync_records: &[SyncRecord],
+        existing_device_records: &[DeviceRecord],
+    ) -> (SyncRecordSet, DeviceRecordSet) {
+        let now = Local::now().timestamp_millis();
+        let mut device_records = Vec::new();
+        let mut device_record_statuses = Vec::new();
+        let sync_record_set = SyncRecord::create_share_sync_record(
+            share_record_id.to_string(),
+            current_device_id.to_string(),
+            all_devices,
+        );
+        for sync_record in sync_records {
+            for recipient_device in recipient_devices {
+                let device_record = DeviceRecord {
+                    id: Uuid::new_v4().to_string(),
+                    sync_record_id: sync_record.id.clone(),
+                    device_id: recipient_device.id.clone(),
+                    status: SyncStatus::Pending,
+                    synced: false,
+                    created_at: now,
+                    updated_at: now,
+                };
+                for device in all_devices {
+                    let record_status = DeviceRecordStatus {
+                        id: Uuid::new_v4().to_string(),
+                        device_record_id: device_record.id.clone(),
+                        aware_device_id: device.id.clone(),
+                        synced: current_device_id == device.id,
+                        created_at: now,
+                        updated_at: now,
+                    };
+                    device_record_statuses.push(record_status);
+                }
+                device_records.push(device_record);
+            }
+        }
+        for device_record in existing_device_records {
+            for recipient_device in recipient_devices {
+                let record_status = DeviceRecordStatus {
+                    id: Uuid::new_v4().to_string(),
+                    device_record_id: device_record.id.clone(),
+                    aware_device_id: recipient_device.id.clone(),
+                    synced: false,
+                    created_at: now,
+                    updated_at: now,
+                };
+                device_record_statuses.push(record_status);
+            }
+        }
+        let device_record_set = DeviceRecordSet {
+            device_record_statuses,
+            device_records,
+        };
+        (sync_record_set, device_record_set)
+    }
+
     pub fn create_resource_share_records(
         sync_record_id: String,
         current_device_id: String,
@@ -694,55 +756,5 @@ impl SyncRecord {
             device_records,
             device_record_statuses,
         }
-    }
-
-    pub fn create_device_records_for_sync_records(
-        sync_record_ids: &[String],
-        new_device_ids: &[String],
-        current_device_id: &str,
-        all_device_ids: &[String],
-    ) -> Vec<DeviceRecordSet> {
-        let now = Local::now().timestamp_millis();
-        let mut device_record_sets = Vec::new();
-
-        // For each sync record, create device records for all new devices
-        for sync_record_id in sync_record_ids {
-            let mut device_records = Vec::new();
-            let mut device_record_statuses = Vec::new();
-
-            // Create device records for all new devices
-            for new_device_id in new_device_ids {
-                let device_record = DeviceRecord {
-                    id: Uuid::new_v4().to_string(),
-                    sync_record_id: sync_record_id.clone(),
-                    device_id: new_device_id.clone(),
-                    status: SyncStatus::Pending,
-                    synced: false,
-                    created_at: now,
-                    updated_at: now,
-                };
-
-                // Create status records for this device record for all devices
-                for aware_device_id in all_device_ids {
-                    device_record_statuses.push(DeviceRecordStatus {
-                        id: Uuid::new_v4().to_string(),
-                        device_record_id: device_record.id.clone(),
-                        aware_device_id: aware_device_id.clone(),
-                        synced: aware_device_id == current_device_id,
-                        created_at: now,
-                        updated_at: now,
-                    });
-                }
-
-                device_records.push(device_record);
-            }
-
-            device_record_sets.push(DeviceRecordSet {
-                device_records,
-                device_record_statuses,
-            });
-        }
-
-        device_record_sets
     }
 }
