@@ -20,6 +20,7 @@
 		showAddUser,
 		deleteConfirmationModal,
 		passwordPromptModal,
+		currentNote,
 	} from "./store/desktop.ui.store";
 
 	let signedUp = false;

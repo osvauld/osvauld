@@ -546,7 +546,7 @@ export class Notes {
 
 	async loadNote(noteId: string) {
 		try {
-			console.log(`Loading note: ${noteId}`);
+			// console.log(`Loading note: ${noteId}`);
 
 			const response = await sendMessage("getCredential", {
 				resourceId: noteId,

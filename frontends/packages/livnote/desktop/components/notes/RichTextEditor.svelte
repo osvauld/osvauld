@@ -315,9 +315,6 @@
 			.catch(console.error)
 			.then(() => refreshCredentialList.set(true));
 
-		// Clear current note ID
-		noteId.set("");
-		currentNote.set({});
 		currentlyLoadedNoteId = null;
 	};
 
