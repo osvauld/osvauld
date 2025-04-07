@@ -35,10 +35,13 @@
     "components/**/*.ts",
     "components/**/*.js",
     "components/**/*.svelte",
-    "types/**/*.ts"
+    "types/**/*.ts",
+		 "store/**/*.ts"
   ],
 	"exclude": [
 		"node_modules/*",
+		"components/notes/**/*.svelte",
+		"components/notes/**/*.ts",
 	],
 	"references": [
 		{

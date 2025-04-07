@@ -1,22 +1,27 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import ClosePanel from "@osvauld/password-manager-common/icons/closePanel.svelte";
-	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
+
+	import { Lens, ClosePanel} from "@osvauld/password-manager-common";
 	import { toastStore } from "../../store/desktop.ui.store";
 
 	export let showShareList = false;
-	export let shareUserList;
-	export let noteId;
-	let inputRef;
+	export let shareUserList: any[];
+	export let noteId: string;
+	let inputRef: HTMLInputElement;
 	let MAX_ALLOWED_USERS = 1;
-	let selectedUsers = [];
+	let selectedUsers: string[] = [];
 	let isFocused = false;
 	let query = "";
 	let focusedIndex = -1;
-	let items: HTMLDivElement[] = [];
-	let availableCollaboratorsFiltered = [];
+	let items: HTMLButtonElement[] = [];
+	let availableCollaboratorsFiltered: Collaborator[] = [];
 
-	const EXISTING_COLLABORATORS = [
+	interface Collaborator {
+		username: string;
+		online: boolean;
+	}
+
+	const EXISTING_COLLABORATORS: Collaborator[] = [
 		{
 			username: "fusernames",
 			online: true,
@@ -27,7 +32,7 @@
 		},
 	];
 
-	const AVAILABLE_COLLABORATORS = [
+	const AVAILABLE_COLLABORATORS: Collaborator[] = [
 		{
 			username: "gusername",
 			online: true,
@@ -52,10 +57,18 @@
 			)
 		: AVAILABLE_COLLABORATORS;
 
+	const selectCollaborator = (username: string) => {
+		if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
+		query = '';
+		selectedUsers = [...selectedUsers, username];
+		focusedIndex = -1;
+	};
+
 	const handleKeyDown = (event: KeyboardEvent) => {
 		const collaboratorsLength = AVAILABLE_COLLABORATORS.length;
 		switch (event.key) {
 			case " ":
+			case "Enter":
 				event.preventDefault(); // Prevent space from scrolling
 				if (focusedIndex === -1) {
 					autofocus();
@@ -66,12 +79,7 @@
 					selectedUsers.length < MAX_ALLOWED_USERS
 				) {
 					// Actually select the collaborator when Enter/Space is pressed
-					query = "";
-					selectedUsers = [
-						...selectedUsers,
-						availableCollaboratorsFiltered[focusedIndex].username,
-					];
-					focusedIndex = -1;
+					selectCollaborator(availableCollaboratorsFiltered[focusedIndex].username);
 					console.log("Selected collaborator:", selectedUsers);
 				}
 				break;
@@ -153,17 +161,17 @@
 		});
 	};
 
-	const extractIconLetter = (username) => {
+	const extractIconLetter = (username: string) => {
 		return username.trim().split("")[0];
 	};
 
-	const sortOnlineCollaborators = (availableCollaborators) => {
+	const sortOnlineCollaborators = (availableCollaborators: Collaborator[]) => {
 		return availableCollaborators.sort(
 			(a, b) => Number(b.online) - Number(a.online),
 		);
 	};
 
-	const filterSelectedUsers = (availableUsers) => {
+	const filterSelectedUsers = (availableUsers: Collaborator[]) => {
 		return availableUsers.filter(
 			(user) => !selectedUsers.includes(user.username),
 		);
@@ -203,10 +211,11 @@
 	</div>
 
 	<!-- Improve the search input accessibility -->
-	<div
+	<button
+		type="button"
 		class="h-[2.75rem] w-full mt-4 mb-1.5 px-3 py-2 gap-1 flex justify-start items-center border border-osvauld-iconblack focus-within:border-osvauld-activeBorder rounded-lg cursor-pointer"
 		on:click|stopPropagation="{autofocus}"
-		role="search">
+		aria-label="Search for collaborators">
 		<span class="shrink-0 mr-2">
 			<Lens color="{isFocused ? '#67697C' : '#30363D'}" />
 		</span>
@@ -234,6 +243,7 @@
 			on:focusout="{(event) => {
 				if (
 					event.relatedTarget &&
+					event.relatedTarget instanceof Element &&
 					event.relatedTarget.closest('.collaborator-list')
 				) {
 					return;
@@ -243,7 +253,7 @@
 			on:keydown="{handleKeyDown}"
 			bind:this="{inputRef}"
 			bind:value="{query}" />
-	</div>
+	</button>
 
 	<!-- Make the existing collaborators list accessible -->
 	<div class="relative p-4">
@@ -301,8 +311,9 @@
 						role="listbox"
 						aria-label="Available collaborators">
 						{#each sortOnlineCollaborators(filterSelectedUsers(availableCollaboratorsFiltered)) as collaborator, index}
-							<div
-								class="group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer {focusedIndex ===
+							<button
+								type="button"
+								class="w-full text-left group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer {focusedIndex ===
 								index
 									? 'bg-osvauld-fieldActive shadow-[0_0_0_1px_#292A36] rounded-lg'
 									: 'hover:shadow-[0_0_0_1px_#292A36] hover:rounded-lg hover:bg-osvauld-fieldActive'} transition-colors ease-in duration-150 collaborator-list"
@@ -313,25 +324,9 @@
 								bind:this="{items[index]}"
 								on:mousedown|stopPropagation="{(e) => {
 									e.preventDefault();
-									// Keep focus on the input element after mouse selection
-									console.log('Selected collab==>', collaborator.username);
-									if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
-									query = '';
-									selectedUsers = [...selectedUsers, collaborator.username];
-									focusedIndex = -1;
+									selectCollaborator(collaborator.username);
 								}}"
-								on:keydown|stopPropagation="{(e) => {
-									if (e.key === 'Enter' || e.key === ' ') {
-										e.preventDefault();
-
-										// Add your selection logic here
-										if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
-										console.log('Selected collab==>', collaborator.username);
-										query = '';
-										selectedUsers = [...selectedUsers, collaborator.username];
-										focusedIndex = -1;
-									}
-								}}">
+								>
 								<span
 									class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
 									aria-hidden="true">
@@ -348,7 +343,7 @@
 								{:else}
 									<span class="sr-only">Offline</span>
 								{/if}
-							</div>
+							</button>
 						{/each}
 					</div>
 				{/if}
