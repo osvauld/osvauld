@@ -114,4 +114,25 @@ impl DeviceRepository for SqliteDeviceRepository {
 
         Ok(())
     }
+    async fn get_devices_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // If the user_ids array is empty, return an empty vector
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Query devices that belong to any of the specified user IDs
+        let device_models = devices::table
+            .filter(devices::user_id.eq_any(user_ids))
+            .order_by(devices::created_at.desc())
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Convert models to domain objects
+        Ok(DeviceModel::to_domain_devices(device_models))
+    }
 }

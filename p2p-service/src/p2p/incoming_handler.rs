@@ -83,34 +83,26 @@ impl P2PService {
             }
         }
     }
+#[instrument(skip(self, payload), level = "info")]
+pub async fn handle_sync_update(&self, payload: String) {
+    info!("Processing sync-update event");
     
-    /// Handles a sync update event
-    #[instrument(skip(self, payload), level = "info")]
-    pub async fn handle_sync_update(&self, payload: String) {
-        info!("Processing sync-update event");
-        
-        // Get the current state
-        
-        // let connection_id = format!("{}:{}", user_id, device_id);
-        
-        // Create a message for the update
-        let message = Message::SyncEvent {
-            event: "sync-update".to_string(),
-            payload: payload.clone(),
-        };
-        //  match self.get_connection_by_id(&connection_id).await {
-        //     Ok(connection) => {
-        //         info!("Found connection for {}", connection_id);
-        //         // Use the connection to send an update
-        //         // Implementation for sending updates will go here in the future
-        //     }
-        //     Err(e) => {
-        //         error!("Connection not found for {}: {}", connection_id, e);
-        //     }
-        // }
-        // Send the message to all connections
-        
-        info!("Sync update processed and forwarded to all connections");
+    // Get the current state
+    
+    // let connection_id = format!("{}:{}", user_id, device_id);
+    
+    // Create a message for the update
+    let message = Message::SyncEvent {
+        event: "sync-update".to_string(),
+        payload: payload.clone(),
+    };
+    // Remove the ? operator since this function returns ()
+    if let Err(e) = self.send_sync_update(message).await {
+        error!("Failed to send sync update: {}", e);
     }
+    
+    info!("Sync update processed and forwarded to all connections");
+}
+    
     
 }

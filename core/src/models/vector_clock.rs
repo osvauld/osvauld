@@ -71,6 +71,23 @@ impl ResourceVectorClock {
 
         vector_clocks
     }
+
+    pub fn create_entries_for_sharing(
+        resource_id: &str,
+        device_ids: &[String],
+    ) -> Vec<ResourceVectorClock> {
+        let mut vector_clocks = Vec::new();
+
+        for device_id in device_ids {
+            vector_clocks.push(ResourceVectorClock::new(
+                resource_id.to_string(),
+                device_id.clone(),
+                0, // Initialize with 0 since the recipient's devices don't have the resource yet
+            ));
+        }
+
+        vector_clocks
+    }
     // Merge two sets of vector clock entries
     // Returns a complete analysis of what needs to be updated where
     pub fn merge(

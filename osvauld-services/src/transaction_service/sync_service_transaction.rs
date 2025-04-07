@@ -1,6 +1,7 @@
 use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
 use osvauld_core::models::resource::{Resource, ResourceKeyPair};
+use osvauld_core::models::share_record::ShareRecord;
 use osvauld_core::models::sync_record::{
     DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecordSet,
 };
@@ -8,8 +9,6 @@ use osvauld_core::models::sync_types::SyncOperations;
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::RepositoryError;
-
-use log::info;
 
 use crate::transaction_service::TransactionService;
 
@@ -395,6 +394,22 @@ impl TransactionService {
                 .update_device_record_statuses_synced_bulk(updated_device_sync_records)
                 .await?;
         }
+
+        Ok(())
+    }
+
+    pub async fn save_share_sync(
+        &self,
+        share_record: &ShareRecord,
+        sync_record_set: &SyncRecordSet,
+    ) -> Result<(), RepositoryError> {
+        // Save the share record
+        self.share_repository.save(share_record).await?;
+
+        // Save the sync records
+        self.sync_repository
+            .add_sync_record_set(sync_record_set)
+            .await?;
 
         Ok(())
     }

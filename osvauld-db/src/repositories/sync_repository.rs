@@ -700,4 +700,90 @@ impl SyncRepository for SqliteSyncRepository {
 
         Ok(result.map(|model| model.to_domain()))
     }
+
+    async fn get_sync_record_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        resource_type: &str,
+    ) -> Result<SyncRecord, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let result = sync_records::table
+            .filter(sync_records::resource_id.eq(resource_id))
+            .filter(sync_records::operation_type.eq(operation_type))
+            .filter(sync_records::resource_type.eq(resource_type))
+            .order_by(sync_records::created_at.desc()) // Get the most recent record
+            .select(SyncRecordModel::as_select())
+            .first::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(result.to_domain())
+    }
+
+    async fn get_sync_records_by_resource_and_type_and_operation(
+        &self,
+        resource_id: &str,
+        resource_type: &str,
+        operation_type: &str,
+    ) -> Result<Vec<SyncRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let sync_records = sync_records::table
+            .filter(sync_records::resource_id.eq(resource_id))
+            .filter(sync_records::resource_type.eq(resource_type))
+            .filter(sync_records::operation_type.eq(operation_type))
+            .load::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?
+            .into_iter()
+            .map(|model| model.to_domain())
+            .collect();
+
+        Ok(sync_records)
+    }
+
+    async fn get_sync_and_device_records_by_resource_ids(
+        &self,
+        resource_ids: &[String],
+        operation_type: &str,
+    ) -> Result<(Vec<SyncRecord>, Vec<DeviceRecord>), RepositoryError> {
+        if resource_ids.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Get all sync records for the specified resource IDs and operation type
+        let sync_record_models = sync_records::table
+            .filter(sync_records::resource_id.eq_any(resource_ids))
+            .filter(sync_records::operation_type.eq(operation_type))
+            .order_by(sync_records::created_at.desc())
+            .select(SyncRecordModel::as_select())
+            .load::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        if sync_record_models.is_empty() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+
+        // Extract sync record IDs for the device record query
+        let sync_record_ids: Vec<String> =
+            sync_record_models.iter().map(|sr| sr.id.clone()).collect();
+
+        // Get all device records for these sync records
+        let device_record_models = device_records::table
+            .filter(device_records::sync_record_id.eq_any(sync_record_ids))
+            .select(DeviceRecordModel::as_select())
+            .load::<DeviceRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Convert models to domain objects
+        let sync_records = sync_record_models.iter().map(|m| m.to_domain()).collect();
+        let device_records = device_record_models.iter().map(|m| m.to_domain()).collect();
+
+        Ok((sync_records, device_records))
+    }
 }

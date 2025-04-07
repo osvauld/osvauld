@@ -3,7 +3,7 @@ use iroh::endpoint::Connection;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{ConnectionType, Message};
 use osvauld_core::models::user::User;
-use osvauld_services::{AuthService, ShareService, SyncService, UserService};
+use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
@@ -13,7 +13,6 @@ pub struct ServiceContext {
     pub auth_service: Arc<AuthService>,
     pub user_service: Arc<UserService>,
     pub sync_service: Arc<SyncService>,
-    pub share_service: Arc<ShareService>,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
 }
@@ -272,22 +271,13 @@ impl PeerConnection {
                 self.ack_complete(device_sync_record_ids.clone()).await
             }
             Message::SyncEvent { event, payload } => {
-                info!("Received SyncEvent: {}", event);
+                info!("Received SyncEvent: {:?}", payload);
                 // self.handle_sync_event(event, payload.clone()).await
+                self.event_emitter.emit(P2PEvent::EditingEvent { payload: payload.clone() });
                 Ok(())
             }
             Message::UserConnection(payload) => {
                 self.process_user_connection_payload(payload).await
-            }
-            Message::SharePayload(payload) => {
-                info!("Received SharePayload");
-                // self.handle_share_payload(payload).await
-                Ok(())
-            }
-            Message::ShareComplete => {
-                info!("Received ShareComplete");
-                self.event_emitter.emit(P2PEvent::ShareComplete);
-                Ok(())
             }
             Message::Error => {
                 error!("Received error message from peer");

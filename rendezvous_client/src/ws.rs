@@ -52,6 +52,9 @@ pub enum WsMessage {
     GetConnectionStatusResponse {
         data: Vec<UserConnectionStatus>,
     },
+    Ping {
+        timestamp: i64,
+    },
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserConnectionStatus {
@@ -74,6 +77,37 @@ impl WsClient {
     // Add this new method to get a receiver
     pub fn subscribe(&self) -> broadcast::Receiver<WsMessage> {
         self.tx.subscribe()
+    }
+
+    pub fn start_ping_interval(&self, interval_seconds: u64) -> tokio::task::JoinHandle<()> {
+        let writer = self.writer.clone();
+        let interval = tokio::time::Duration::from_secs(interval_seconds);
+
+        tokio::spawn(async move {
+            let mut interval_timer = tokio::time::interval(interval);
+
+            loop {
+                interval_timer.tick().await;
+
+                // Check if connection is still active
+                let mut writer_lock = writer.lock().await;
+                if writer_lock.is_none() {
+                    // Connection closed, stop pinging
+                    break;
+                }
+
+                // Send ping frame (using the WebSocket protocol's built-in ping)
+                if let Some(writer) = writer_lock.as_mut() {
+                    // Create a ping frame with current timestamp (optional)
+                    let ping_data = format!("{}", chrono::Utc::now().timestamp()).into_bytes();
+
+                    if let Err(e) = writer.send(Message::Ping(ping_data.into())).await {
+                        error!("Failed to send WebSocket ping: {}", e);
+                        // Connection might be dead, but we'll let the reader detect that
+                    }
+                }
+            }
+        })
     }
 
     /// Connect to WebSocket server and register

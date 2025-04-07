@@ -8,6 +8,7 @@ pub enum ResourceType {
     Resource,
     Device,
     User,
+    Share,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -34,6 +35,7 @@ impl ToString for ResourceType {
             ResourceType::Resource => "resource".to_string(),
             ResourceType::Device => "device".to_string(),
             ResourceType::User => "user".to_string(),
+            ResourceType::Share => "share".to_string(),
         }
     }
 }
@@ -65,6 +67,7 @@ impl From<String> for ResourceType {
             "resource" => ResourceType::Resource,
             "device" => ResourceType::Device,
             "user" => ResourceType::User,
+            "share" => ResourceType::Share,
             _ => ResourceType::Resource,
         }
     }

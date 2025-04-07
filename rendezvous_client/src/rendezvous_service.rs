@@ -42,6 +42,10 @@ impl RendezvousService {
 
         // Connect to the rendezvous server with the user_id
         self.connect_and_register(&user).await?;
+        {
+            let client = self.client.lock().await;
+            client.start_ping_interval(30); // Ping every 30 seconds
+        }
 
         // Create clones of the fields we need in the async task
         let client = self.client.clone();
