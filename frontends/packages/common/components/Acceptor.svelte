@@ -64,14 +64,14 @@
 
 	async function copyTicket() {
 		try {
-			await navigator.clipboard.writeText(connectionTicket);
+			await navigator.clipboard.writeText(recoveryString);
 			const originalStatus = status;
-			status = "Ticket copied!";
+			status = "Connection Ticket copied!";
 			setTimeout(() => {
 				status = originalStatus;
 			}, 2000);
 		} catch (err) {
-			error = "Failed to copy ticket";
+			error = "Failed to copy connection ticket";
 		}
 	}
 </script>
