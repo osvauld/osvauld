@@ -8,29 +8,30 @@
 		vaults,
 		currentVault,
 		noteViewLayout,
+		type Vault
 	} from "../../store/desktop.ui.store";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
-	export let vaultManagerActive;
+	export let vaultManagerActive: boolean;
 	export let instance = "content";
 	let newVaultInputActive = false;
 	let newVaultName = "";
 
-	const autofocus = (node) => {
+	const autofocus = (node: HTMLElement) => {
 		node.focus();
 	};
 
 	const fetchAllVaults = async () => {
 		try {
-			const resp = await sendMessage("getFolder");
-			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
+			const resp = await sendMessage("getFolder") as Vault[];
+			const updatedVaults: Vault[] = [{ id: "all", name: "All Vaults" }, ...resp];
 			vaults.set(updatedVaults);
 		} catch (e) {
 			console.log("Error received", e);
 		}
 	};
 
-	const handleVaultCreation = async (event) => {
+	const handleVaultCreation = async (event: Event) => {
 		event.preventDefault();
 		try {
 			await sendMessage("addFolder", {
@@ -42,18 +43,21 @@
 		}
 
 		await fetchAllVaults();
-		currentVault.set($vaults.find((vault) => vault.name === newVaultName));
+		const newVault = $vaults.find((vault) => vault.name === newVaultName);
+		if (newVault) {
+			currentVault.set(newVault);
+		}
 		newVaultName = "";
 		vaultManagerActive = false;
 	};
 
-	const handleVaultSwitch = (vault) => {
+	const handleVaultSwitch = (vault: Vault) => {
 		currentVault.set(vault);
 		vaultManagerActive = false;
 		noteViewLayout.set(false);
 	};
 
-	const handleNewVaultInput = (e) => {
+	const handleNewVaultInput = (e: Event) => {
 		e.preventDefault();
 		e.stopPropagation();
 		newVaultInputActive = !newVaultInputActive;
