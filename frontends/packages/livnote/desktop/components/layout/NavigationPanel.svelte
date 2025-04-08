@@ -63,8 +63,8 @@
 
 	// Function to handle note selection
 	function selectNote(note) {
-		currentNote.set(note);
 		noteId.set(note.id);
+		currentNote.set(note);
 	}
 
 	// Watch for changes to currentVault
@@ -144,13 +144,13 @@
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
 			aria-expanded="false"
-			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+			on:click={() => (vaultManagerActive = !vaultManagerActive)}>
 			<span class="flex-1 truncate text-left py-1"
 				>{$currentVault.id === "all" ? "All Vaults" : $currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {vaultManagerActive
 					? '-rotate-90'
-					: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
+					: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 			></button>
 		{#if vaultManagerActive}
 			<VaultManager bind:vaultManagerActive instance="nav" />
@@ -204,7 +204,10 @@
 			{#each credentials as note (note.id)}
 				{@const hoveredOrSelected =
 					hoveredCredential === note.id || $noteId === note.id}
-				{@const titles = console.log(note?.data.title ? note.data.title : "untitled note", note.id) }
+				{@const titles = console.log(
+					note?.data.title ? note.data.title : "untitled note",
+					note.id,
+				)}
 				<li>
 					<button
 						class="w-full flex items-center justify-between gap-3 p-3 rounded-lg
@@ -212,13 +215,12 @@
 							{hoveredOrSelected
 							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:mouseenter="{() => (hoveredCredential = note.id)}"
-						on:mouseleave="{() => (hoveredCredential = null)}"
-						on:click="{() => selectNote(note)}">
+						on:mouseenter={() => (hoveredCredential = note.id)}
+						on:mouseleave={() => (hoveredCredential = null)}
+						on:click={() => selectNote(note)}>
 						<div class="flex items-center gap-3 truncate">
 							<span class="shrink-0">
-								<MobileNote
-									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
+								<MobileNote color={hoveredOrSelected ? "#F2F2F0" : "#85889C"} />
 							</span>
 							<span class="truncate">
 								{note?.data.title ? note.data.title : "untitled note"}

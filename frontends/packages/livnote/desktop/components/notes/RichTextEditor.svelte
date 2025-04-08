@@ -43,7 +43,10 @@
 	}
 
 	saveNoteAndSwitch(() => {
-		console.log("saving note with title 1", $currentNote?.data?.title || "Untitled");
+		console.log(
+			"saving note with title 1",
+			$currentNote?.data?.title || "Untitled",
+		);
 		if (view) {
 			notesInstance
 				.saveNote($currentNote?.data?.title || "Untitled")
@@ -59,7 +62,10 @@
 
 	const saveNoteManual = () => {
 		saved = true;
-		console.log("saving note with title 2", $currentNote?.data?.title || "Untitled");
+		console.log(
+			"saving note with title 2",
+			$currentNote?.data?.title || "Untitled",
+		);
 		notesInstance
 			.saveNote($currentNote?.data?.title || "Untitled")
 			.catch(console.error)
@@ -217,7 +223,10 @@
 
 			autoSaveInterval = setInterval(() => {
 				// Savign animation go
-        console.log("saving note with title 3", $currentNote?.data?.title || "Untitled");
+				console.log(
+					"saving note with title 3",
+					$currentNote?.data?.title || "Untitled",
+				);
 				notesInstance
 					.saveNote($currentNote?.data?.title || "Untitled")
 					.catch(console.error);
@@ -312,6 +321,7 @@
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
+		console.log("prosemirror destruction handle called");
 		notesInstance
 			.saveNote($currentNote?.data?.title || "Untitled")
 			.catch(console.error)
@@ -383,9 +393,9 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this="{element}" class="h-full"></div>
+		<div bind:this={element} class="h-full"></div>
 		<button
-			on:click="{saveNoteManual}"
+			on:click={saveNoteManual}
 			class="absolute z-10 top-6 right-5 w-32 border bg-[#16171f] border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"
