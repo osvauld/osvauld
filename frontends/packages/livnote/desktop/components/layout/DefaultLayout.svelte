@@ -7,7 +7,7 @@
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { listen, emit } from "@tauri-apps/api/event";
 	import { noteViewLayout } from "../../store/desktop.ui.store";
-	import { mergeDocuments } from "../notes/documentUtils.ts";
+	import { mergeDocuments } from "../notes/documentUtils";
 
 	let unsubscribeResourceUpdate: Function | null = null;
 	

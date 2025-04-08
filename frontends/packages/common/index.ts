@@ -103,3 +103,4 @@ export { default as Warning } from './icons/warning.svelte';
 export { default as BackArrow } from './icons/backArrow.svelte';
 export { default as VerticalMenu } from './icons/verticalMenu.svelte';
 export { default as DownloadIcon } from './icons/downloadIcon.svelte';
+export { default as SavedTick } from './icons/savedTick.svelte';

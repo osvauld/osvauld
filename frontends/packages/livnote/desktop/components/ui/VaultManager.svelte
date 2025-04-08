@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { slide, fly, blur } from "svelte/transition";
-	import Add from "@osvauld/password-manager-common/icons/add.svelte";
-	import MobileHome from "@osvauld/password-manager-common/icons/mobileHome.svelte";
+	import { Add, MobileHome} from "@osvauld/password-manager-common";
 	import { onMount, onDestroy } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import {

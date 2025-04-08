@@ -17,7 +17,7 @@
 		refreshCredentialList,
 		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
-	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
+	import { SavedTick} from "@osvauld/password-manager-common";
 	import { DOMSerializer } from "prosemirror-model";
 	import "./rich-text-editor.css";
 

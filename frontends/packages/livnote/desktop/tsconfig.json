@@ -39,9 +39,7 @@
 		 "store/**/*.ts"
   ],
 	"exclude": [
-		"node_modules/*",
-		"components/notes/**/*.svelte",
-		"components/notes/**/*.ts",
+		"node_modules/*"
 	],
 	"references": [
 		{
