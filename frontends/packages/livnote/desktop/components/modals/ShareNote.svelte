@@ -5,7 +5,7 @@
 	import { toastStore } from "../../store/desktop.ui.store";
 
 	export let showShareList = false;
-	export let shareUserList: any[];
+	export let shareUserList: { id: string; publicKey: string }[] = [];
 	export let noteId: string;
 	let inputRef: HTMLInputElement;
 	let MAX_ALLOWED_USERS = 1;
@@ -57,14 +57,14 @@
 			)
 		: AVAILABLE_COLLABORATORS;
 
-	const selectCollaborator = (username: string) => {
+	const selectCollaborator = (username: string): void => {
 		if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
 		query = '';
 		selectedUsers = [...selectedUsers, username];
 		focusedIndex = -1;
 	};
 
-	const handleKeyDown = (event: KeyboardEvent) => {
+	const handleKeyDown = (event: KeyboardEvent): void => {
 		const collaboratorsLength = AVAILABLE_COLLABORATORS.length;
 		switch (event.key) {
 			case " ":
@@ -146,13 +146,13 @@
 		}
 	};
 
-	const handleUserIdSelection = async (id: string, publicKey: string) => {
+	const handleUserIdSelection = async (id: string, publicKey: string): Promise<void> => {
 		console.log(id, publicKey);
 		// await sendMessage("shareResource", { publicKey, resourceId: $noteId });
 		showShareList = false;
 	};
 
-	const handleCollaboratorSelection = () => {
+	const handleCollaboratorSelection = (): void => {
 		showShareList = false;
 		toastStore.set({
 			show: true,
@@ -161,27 +161,27 @@
 		});
 	};
 
-	const extractIconLetter = (username: string) => {
+	const extractIconLetter = (username: string): string => {
 		return username.trim().split("")[0];
 	};
 
-	const sortOnlineCollaborators = (availableCollaborators: Collaborator[]) => {
+	const sortOnlineCollaborators = (availableCollaborators: Collaborator[]): Collaborator[] => {
 		return availableCollaborators.sort(
 			(a, b) => Number(b.online) - Number(a.online),
 		);
 	};
 
-	const filterSelectedUsers = (availableUsers: Collaborator[]) => {
+	const filterSelectedUsers = (availableUsers: Collaborator[]): Collaborator[] => {
 		return availableUsers.filter(
 			(user) => !selectedUsers.includes(user.username),
 		);
 	};
 
-	const autofocus = () => {
+	const autofocus = (): void => {
 		inputRef.focus();
 	};
 
-	const unfocus = () => {
+	const unfocus = (): void => {
 		inputRef.blur();
 	};
 
