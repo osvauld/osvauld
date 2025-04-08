@@ -79,6 +79,13 @@ pub enum UserConnectionPayload {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Phases {
+    PhaseComplete(SyncPhase),    // Signal completion of current phase
+    PhaseAcknowledge(SyncPhase), // Acknowledge phase completion
+    InitiatePhase(SyncPhase),    // Trigger transition to next phase
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Chat(String),
     Ping,
@@ -95,6 +102,7 @@ pub enum Message {
     SyncEvent { event: String, payload: String },
     UpdateResource(UpdateResource),
     UserConnection(UserConnectionPayload),
+    Phases(Phases),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,4 +145,21 @@ pub enum SyncAckType {
     FullSync(SyncOperations),
     DeviceSyncRecords(Vec<String>), // list of device_record_ids
     UpdateRecieved(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum SyncPhase {
+    DeviceSync,
+    UserSync,
+    FolderSync,
+    ResourceSync,
+    ShareSync,
+    UpdateSync,
+    Complete,
+}
+
+impl Default for SyncPhase {
+    fn default() -> Self {
+        SyncPhase::DeviceSync
+    }
 }

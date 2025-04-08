@@ -1,7 +1,8 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
+use crate::p2p::phase_management::PhaseState;
 use iroh::endpoint::Connection;
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{ConnectionType, Message};
+use osvauld_core::models::p2p::{ConnectionType, Message, SyncPhase};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
@@ -44,6 +45,8 @@ pub struct PeerConnection {
     pub event_emitter: P2PEventEmitter,
 
     pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
+    pub phase: PhaseState,
+
 }
 
 impl PeerConnection {
@@ -82,6 +85,7 @@ impl PeerConnection {
             context,
             event_emitter,
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
+            phase: PhaseState::new(),
         };
 
         debug!("Starting message handler for the connection");

@@ -8,6 +8,7 @@ pub mod incoming_handler;
 pub mod logger;
 pub mod p2p_service;
 pub mod peer_connection;
+pub mod phase_management;
 pub mod share;
 pub mod sync;
 
