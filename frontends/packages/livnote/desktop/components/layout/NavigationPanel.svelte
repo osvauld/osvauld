@@ -19,20 +19,35 @@
 	import { StorageService } from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
+	interface Note {
+		id: string;
+		data: {
+			title?: string;
+			content?: string;
+			editor_state?: any;
+			last_accessed?: number;
+			last_modified?: number;
+		};
+	}
 
-	let selectedSection = "home";
-	let localSelectedCredential = 0;
-	let vaultManagerActive = false;
-	let hoveredCredential = null;
+	interface Vault {
+		id: string;
+		name: string;
+	}
 
-	let credentials = [];
-	let isLoading = false;
+	let selectedSection: string = "home";
+	let localSelectedCredential: number = 0;
+	let vaultManagerActive: boolean = false;
+	let hoveredCredential: string | null = null;
+
+	let credentials: Note[] = [];
+	let isLoading: boolean = false;
 
 	// Async function to fetch credentials based on vault ID
-	async function fetchCredentials(vaultId) {
+	async function fetchCredentials(vaultId: string) {
 		isLoading = true;
 		try {
-			let fetchedCredentials;
+			let fetchedCredentials: Note[];
 			if (vaultId === "all") {
 				fetchedCredentials = await sendMessage("getAllCredentials", {
 					favourite: false,
@@ -45,11 +60,11 @@
 
 			// Filter for notes only
 			credentials = fetchedCredentials.filter(
-				(cred) => cred.data && cred.data.content && cred.data.editor_state,
+				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
-			credentials.sort((a, b) => {
+			credentials.sort((a: Note, b: Note) => {
 				const timeA = a.data.last_accessed || a.data.last_modified || 0;
 				const timeB = b.data.last_accessed || b.data.last_modified || 0;
 				return timeB - timeA;
@@ -63,7 +78,7 @@
 	}
 
 	// Function to handle note selection
-	function selectNote(note) {
+	function selectNote(note: Note) {
 		currentNote.set(note);
 		noteId.set(note.id);
 	}
@@ -85,12 +100,12 @@
 	}
 
 	// Handle section changes
-	function handleSectionChange(section) {
+	function handleSectionChange(section: string) {
 		selectedSection = section;
 		// If you want to implement favorite filtering, you could do that here
 		if (section === "favourites") {
 			fetchFavorites();
-		} else {
+		} else if ($currentVault) {
 			fetchCredentials($currentVault.id);
 		}
 	}
@@ -99,17 +114,17 @@
 	async function fetchFavorites() {
 		isLoading = true;
 		try {
-			const allCredentials = await sendMessage("getAllCredentials", {
+			const allCredentials: Note[] = await sendMessage("getAllCredentials", {
 				favourite: true,
 			});
 
 			// Filter for notes only
 			credentials = allCredentials.filter(
-				(cred) => cred.data && cred.data.content && cred.data.editor_state,
+				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
-			credentials.sort((a, b) => {
+			credentials.sort((a: Note, b: Note) => {
 				const timeA = a.data.last_accessed || a.data.last_modified || 0;
 				const timeB = b.data.last_accessed || b.data.last_modified || 0;
 				return timeB - timeA;
@@ -123,7 +138,7 @@
 	}
 
 	// Watch for refresh requests
-	$: if ($refreshSidePanel) {
+	$: if ($refreshSidePanel && $currentVault) {
 		fetchCredentials($currentVault.id);
 		refreshSidePanel.set(false);
 	}
