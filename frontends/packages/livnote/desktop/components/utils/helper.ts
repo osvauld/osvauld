@@ -1,5 +1,5 @@
 // Function to get title from content (first heading or first line)
-export const extractTitle = (content) => {
+export const extractTitle = (content: string): string => {
 	// Try to find a heading tag
 	const headingMatch = content.match(/<heading[^>]*>(.*?)<\/heading>/);
 	if (headingMatch && headingMatch[1]) {
@@ -23,7 +23,7 @@ export const extractTitle = (content) => {
 	return "Untitled Note";
 };
 
-export const getLastModifiedDate = (timestamp) => {
+export const getLastModifiedDate = (timestamp: number | string | null | undefined): string => {
 	if (!timestamp) return "Never";
 	const date = new Date(timestamp);
 	return date.toLocaleDateString() + " " + date.toLocaleTimeString();

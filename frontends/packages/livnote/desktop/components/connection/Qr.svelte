@@ -2,9 +2,11 @@
 	import QRCode from "@castlenine/svelte-qrcode";
 	import { onMount } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	let connectionTicket = "";
-	let certificate = "";
-	let recoveryString = "";
+	
+	let connectionTicket: string = "";
+	let certificate: string = "";
+	let recoveryString: string = "";
+	
 	onMount(async () => {
 		await sendMessage("startP2PListner");
 		connectionTicket = await sendMessage("getTicket");

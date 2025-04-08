@@ -13,8 +13,7 @@
 	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
 	import NotePreview from "./NotePreview.svelte";
-	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
-	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
+	import { FavStar as Star, Star as EmptyStar  } from "@osvauld/password-manager-common";
 	import { onMount, onDestroy } from "svelte";
 	import type { Writable } from "svelte/store";
 	import { get } from "svelte/store";
