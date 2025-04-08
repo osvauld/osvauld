@@ -204,6 +204,7 @@
 			{#each credentials as note (note.id)}
 				{@const hoveredOrSelected =
 					hoveredCredential === note.id || $noteId === note.id}
+				{@const titles = console.log(note?.data.title ? note.data.title : "untitled note", note.id) }
 				<li>
 					<button
 						class="w-full flex items-center justify-between gap-3 p-3 rounded-lg

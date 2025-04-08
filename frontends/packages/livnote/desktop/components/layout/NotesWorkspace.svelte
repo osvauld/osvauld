@@ -75,6 +75,7 @@
 	}
 
 	function saveTitle() {
+		console.log("saving title for note", $currentNote);
 		if (newNoteTitle.trim()) {
 			// Replace this with your actual save logic
 			currentNote.set({

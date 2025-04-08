@@ -475,6 +475,8 @@ export class Notes {
 				resource_id: noteId,
 			};
 
+			console.log("Saving note extra ==>", updatedContent);
+			
 			await sendMessage("updateCredential", {
 				id: noteId,
 				data: JSON.stringify({
@@ -528,6 +530,8 @@ export class Notes {
 				last_modified: timestamp,
 				title,
 			};
+
+			console.log("Saving note final ==>", noteContent);
 
 			await sendMessage("updateCredential", {
 				id: this.currentNoteId,

@@ -43,6 +43,7 @@
 	}
 
 	saveNoteAndSwitch(() => {
+		console.log("saving note with title 1", $currentNote?.data?.title || "Untitled");
 		if (view) {
 			notesInstance
 				.saveNote($currentNote?.data?.title || "Untitled")
@@ -58,6 +59,7 @@
 
 	const saveNoteManual = () => {
 		saved = true;
+		console.log("saving note with title 2", $currentNote?.data?.title || "Untitled");
 		notesInstance
 			.saveNote($currentNote?.data?.title || "Untitled")
 			.catch(console.error)
@@ -215,7 +217,7 @@
 
 			autoSaveInterval = setInterval(() => {
 				// Savign animation go
-
+        console.log("saving note with title 3", $currentNote?.data?.title || "Untitled");
 				notesInstance
 					.saveNote($currentNote?.data?.title || "Untitled")
 					.catch(console.error);
