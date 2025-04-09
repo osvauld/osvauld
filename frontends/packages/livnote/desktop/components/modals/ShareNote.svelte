@@ -5,8 +5,8 @@
 	import { toastStore } from "../../store/desktop.ui.store";
 
 	export let showShareList = false;
-	export let shareUserList: { id: string; publicKey: string }[] = [];
-	export let noteId: string;
+	export const shareUserList: { id: string; publicKey: string }[] = [];
+	export const noteId: string = "";
 	let inputRef: HTMLInputElement;
 	let MAX_ALLOWED_USERS = 1;
 	let selectedUsers: string[] = [];
@@ -237,7 +237,6 @@
 			autocorrect="off"
 			autocomplete="off"
 			aria-controls="collaborators-listbox"
-			aria-expanded="{isFocused}"
 			aria-autocomplete="list"
 			on:focusin="{() => (isFocused = true)}"
 			on:focusout="{(event) => {

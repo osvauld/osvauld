@@ -3,7 +3,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import { listen } from "@tauri-apps/api/event";
 
-	export let isInitiator: boolean = true;
+	export const isInitiator: boolean = true;
 	
 	let ticket = "";
 	let status = "Ready to connect";
