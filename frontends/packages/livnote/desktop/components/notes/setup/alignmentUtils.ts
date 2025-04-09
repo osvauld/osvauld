@@ -5,12 +5,30 @@ export function setTextAlign(view: EditorView, align: string) {
   const { state, dispatch } = view;
   const { tr, selection } = state;
   const { from, to } = selection;
+  
+  // Check if the document is empty or has no content
+  const docIsEmpty = state.doc.childCount === 0 || 
+    (state.doc.childCount === 1 && state.doc.firstChild && state.doc.firstChild.content.size === 0);
+  
+  if (docIsEmpty) {
+    // Create a new paragraph node with the desired alignment
+    // Apply alignment directly when creating the node
+    const alignAttrs = align === "left" ? {} : { align };
+    const paragraph = state.schema.nodes.paragraph.create(alignAttrs, []);
+    
+    // Replace any existing content with our aligned paragraph
+    tr.replaceWith(0, state.doc.content.size, paragraph);
+    dispatch(tr);
+    view.focus();
+    return;
+  }
 
   // Determine if any nodes in the selection already have alignment
   let hasExistingAlignment = false;
   state.doc.nodesBetween(from, to, (node, pos) => {
     if (
       node.type.name === "paragraph" &&
+      node.attrs && 
       node.attrs.align &&
       node.attrs.align !== "left"
     ) {
@@ -20,7 +38,7 @@ export function setTextAlign(view: EditorView, align: string) {
 
   // Apply alignment to all selected blocks
   state.doc.nodesBetween(from, to, (node, pos) => {
-    if (node.isBlock && node.type.attrs && node.type.attrs.align) {
+    if (node.isBlock && node.attrs && "align" in node.attrs) {
       // Only set the attribute if the align value is different
       if (node.attrs.align !== align) {
         const attrs = { ...node.attrs };
@@ -45,14 +63,14 @@ export function setTextAlign(view: EditorView, align: string) {
 export function getCurrentTextAlignment(state) {
   const { $from } = state.selection;
   const node = $from.parent;
-  return node.attrs.align || "left";
+  return node.attrs && node.attrs.align ? node.attrs.align : "left";
 }
 
 // Update button states to highlight active alignment
 export function updateAlignmentButtonStates(menuNode: HTMLElement, state) {
   const currentAlignment = getCurrentTextAlignment(state);
 
-  menuNode.querySelectorAll("[data-alignment]").forEach((button) => {
+  menuNode.querySelectorAll<HTMLElement>("[data-alignment]").forEach((button) => {
     const alignment = button.dataset.alignment;
     button.classList.toggle(
       "editor-menuitem-active",
