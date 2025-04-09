@@ -243,7 +243,7 @@
 	});
 </script>
 
-<div class="flex grow max-h-full">
+<div class="flex grow max-h-full max-w-[calc(100vw - 22.5rem)]">
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<div class="py-10 px-11 flex items-center justify-start shrink-0">
 			{#if $noteViewLayout}
@@ -371,8 +371,8 @@
 		<NotesListView {favSelected} />
 	</div>
 	{#if $noteViewLayout}
-		<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start">
-			<div class=" shrink-0 gap-4 flex justify-between items-center text-base">
+		<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
+			<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 					on:click={handleCopyNote}>

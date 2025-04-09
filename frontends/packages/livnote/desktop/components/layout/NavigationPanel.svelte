@@ -136,7 +136,7 @@
 </script>
 
 <nav
-	class="w-[360px] shrink-0 h-full max-h-[60rem] py-10 px-4 whitespace-nowrap"
+	class="w-[22.5rem] shrink-0 h-full max-h-[60rem] py-10 px-4 whitespace-nowrap"
 	aria-label="Main Navigation">
 	<div class="relative">
 		<button
