@@ -1,141 +1,89 @@
-use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::SyncPayload;
+use osvauld_core::models::sync_types::OperationType;
+use osvauld_core::models::{device::Device, sync_types::ResourceType};
+use osvauld_core::models::p2p::{SyncPayload, PhaseType};
+use osvauld_core::models::sync_record::SyncRecordSet;
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::RepositoryError;
-
 use tracing::{Span, info, debug, error, instrument, trace};
-
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
-// Import the SyncService struct to implement methods on it
 use super::sync_service_core::SyncService;
 
 // Implement methods related to sending/retrieving sync data on SyncService
 impl SyncService {
-    #[instrument(
-        skip(self, device, user, pending_resource_ids, current_span), 
-        fields(
-            device_id = %device.id,
-            user_id = %user.id,
-            has_pending_resources = pending_resource_ids.is_some()
-        ),
-        level = "info"
-    )]
-    pub async fn get_next_pending_sync(
-        &self,
-        device: &Device,
-        user: &User,
-        pending_resource_ids: Option<Arc<Mutex<Vec<String>>>>,
-        current_span: Span,
-    ) -> Result<Option<SyncPayload>, RepositoryError> {
-        // Enter the parent span
-        let _guard = current_span.enter();
-        
-        info!("Getting next pending sync");
-        
-        if let Some(pending) = &pending_resource_ids {
-            let resources = pending.lock().await;
-            trace!(
-                pending_resource_count = resources.len(),
-                "Pending resource IDs available"
-            );
-        }
-        
-        // Try each type in priority order in sequence
-        debug!("Checking for device syncs (highest priority)");
-        if let Some(payload) = self.get_device_sync_for_device(device).await? {
-            info!(
-                sync_type = "device", 
-                "Found device sync"
-            );
-            return Ok(Some(payload));
-        }
-        
-        debug!("Checking for user syncs");
-        if let Some(payload) = self.get_user_sync_for_device(device).await? {
-            info!(
-                sync_type = "user", 
-                "Found user sync"
-            );
-            return Ok(Some(payload));
-        }
-        
-        debug!("Checking for folder syncs");
-        if let Some(payload) = self.get_folder_sync_for_device(device).await? {
-            info!(
-                sync_type = "folder", 
-                "Found folder sync"
-            );
-            return Ok(Some(payload));
-        }
-
-        debug!("Checking for resource syncs");
-        if let Some(payload) = self.get_resource_sync_for_device(device, user).await? {
-            info!(
-                sync_type = "resource", 
-                "Found resource sync"
-            );
-            return Ok(Some(payload));
-        }
-        debug!("Checking for share syncs");
-    if let Some(payload) = self.get_share_sync_for_device(device).await? {
-        info!(
-            sync_type = "share", 
-            "Found share sync"
-        );
-        return Ok(Some(payload));
-    }
-
-        // Check for resource updates in the pending_resource_ids
-        debug!("Checking for pending resource updates");
-        if let Some(pending_resources) = pending_resource_ids {
-            // Lock the mutex to access the vector
-            let mut resources = pending_resources.lock().await;
-
-            // If we have any pending resources, pop one
-            if !resources.is_empty() {
-                let resource_id = resources.remove(0); // Pop the first item
-                debug!(
-                    resource_id = %resource_id,
-                    remaining_resources = resources.len(),
-                    "Processing pending resource update"
-                );
-
-                // Get the resource data for update
-                match self.get_resource_for_update(&resource_id).await {
-                    Ok(payload) => {
-                        info!(
-                            sync_type = "resource_update",
-                            resource_id = %resource_id,
-                            "Found resource update"
-                        );
-                        return Ok(Some(payload));
-                    },
-                    Err(e) => {
-                        error!(
-                            error = %e,
-                            resource_id = %resource_id,
-                            "Failed to get resource for update"
-                        );
-                        return Err(e);
+pub async fn get_next_pending_sync(
+    &self,
+    device: &Device,
+    user: &User,
+    pending_resource_ids: Option<Arc<Mutex<Vec<String>>>>,
+    current_phase: PhaseType,
+    current_span: Span,
+) -> Result<Option<SyncPayload>, RepositoryError> {
+    let _guard = current_span.enter();
+    
+    match current_phase {
+        PhaseType::DeviceSync => {
+            debug!("Checking for device syncs for DeviceSync phase");
+            self.get_device_sync_for_device(device).await
+        },
+        PhaseType::FolderSync => {
+            debug!("Checking for folder syncs for FolderSync phase");
+            self.get_folder_sync_for_device(device).await
+        },
+        PhaseType::ResourceSync => {
+            debug!("Checking for resource syncs for ResourceSync phase");
+            self.get_resource_sync_for_device(device, user).await
+        },
+        PhaseType::ShareSync => {
+            debug!("Checking for share syncs for ShareSync phase");
+            self.get_share_sync_for_device(device).await
+        },
+        PhaseType::UpdateSync => {
+            debug!("Checking for pending resource updates");
+            if let Some(pending_resources) = pending_resource_ids {
+                // Lock the mutex to access the vector
+                let mut resources = pending_resources.lock().await;
+                // If we have any pending resources, pop one
+                if !resources.is_empty() {
+                    let resource_id = resources.remove(0); // Pop the first item
+                    debug!(
+                        resource_id = %resource_id,
+                        remaining_resources = resources.len(),
+                        "Processing pending resource update"
+                    );
+                    // Get the resource data for update
+                    match self.get_resource_for_update(&resource_id).await {
+                        Ok(payload) => {
+                            info!(
+                                sync_type = "resource_update",
+                                resource_id = %resource_id,
+                                "Found resource update"
+                            );
+                            return Ok(Some(payload));
+                        },
+                        Err(e) => {
+                            error!(
+                                error = %e,
+                                resource_id = %resource_id,
+                                "Failed to get resource for update"
+                            );
+                            return Err(e);
+                        }
                     }
                 }
             }
+            Ok(None)
+        },
+        PhaseType::DeviceRecordSync => {
+            debug!("Checking for device record syncs for DeviceRecordSync phase");
+            self.get_unsynced_device_records(device).await
+        },
+        _ => {
+            debug!("No sync data for phase: {:?}", current_phase);
+            Ok(None)
         }
-
-        debug!("Checking for device record status updates");
-        if let Some(payload) = self.get_unsynced_device_records(device).await? {
-            info!(
-                sync_type = "status_update", 
-                "Found status update"
-            );
-            return Ok(Some(payload));
-        }
-
-        info!("No pending syncs found");
-        Ok(None)
     }
+}
 
     #[instrument(
         skip(self, device), 
@@ -800,5 +748,63 @@ impl SyncService {
         
         info!("Prepared first user sync payload");
         Ok((user, devices))
+    }
+
+
+     #[instrument(
+        skip(self, device_id),
+        fields(
+            device_id = %device_id
+        ),
+        level = "info"
+    )]
+    pub async fn get_add_device_record_set(
+        &self,
+        device_id: &str
+    ) -> Result<SyncRecordSet, RepositoryError> {
+        info!("Retrieving device sync record set");
+        
+        // Use the repository method to get all sync data at once
+        let sync_data = match self.sync_repository.find_sync_record_set_by_resource(
+            device_id,
+            &ResourceType::Device.to_string(),
+           &OperationType::Create.to_string(), 
+        ).await {
+            Ok(Some((sync_record, device_records, device_record_statuses))) => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    device_records_count = device_records.len(),
+                    statuses_count = device_record_statuses.len(),
+                    "Retrieved device sync record set"
+                );
+                
+                // Create and return the SyncRecordSet
+                let record_set = SyncRecordSet {
+                    sync_record,
+                    device_records,
+                    device_record_statuses,
+                };
+                
+                info!("Device sync record set retrieved successfully");
+                Ok(record_set)
+            },
+            Ok(None) => {
+                error!(
+                    device_id = %device_id,
+                    "No sync record found for device"
+                );
+                Err(RepositoryError::NotFound)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device_id,
+                    "Error retrieving device sync record set"
+                );
+                Err(e)
+            }
+        };
+        
+        sync_data
     }
 }

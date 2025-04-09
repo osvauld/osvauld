@@ -172,6 +172,12 @@ pub trait SyncRepository: Send + Sync {
         resource_ids: &[String],
         operation_type: &str,
     ) -> Result<(Vec<SyncRecord>, Vec<DeviceRecord>), RepositoryError>;
+    async fn find_sync_record_set_by_resource(
+        &self,
+        resource_id: &str,
+        resource_type: &str,
+        operation_type: &str,
+    ) -> Result<Option<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>, RepositoryError>;
 }
 
 #[async_trait]

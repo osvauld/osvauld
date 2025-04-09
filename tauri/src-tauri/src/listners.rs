@@ -65,11 +65,11 @@ impl EventManager {
         self.app_handle.listen("sync-update", move |event| {
             let payload_str = event.payload().to_string();
             // Direct send without spawning a task for high-frequency events
-            if let Err(e) = p2p_sender.send_sync_update(payload_str) {
-                error!("Failed to send sync update event: {}", e);
-            } else {
-                debug!("Sent sync update event to P2P service"); // Using debug level for high-frequency events
-            }
+            // if let Err(e) = p2p_sender.send_sync_update(payload_str) {
+            //     error!("Failed to send sync update event: {}", e);
+            // } else {
+            //     debug!("Sent sync update event to P2P service"); // Using debug level for high-frequency events
+            // }
         });
 
         // Listen for merge-complete events

@@ -79,22 +79,13 @@ pub enum UserConnectionPayload {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Phases {
-    PhaseComplete(SyncPhase),    // Signal completion of current phase
-    PhaseAcknowledge(SyncPhase), // Acknowledge phase completion
-    InitiatePhase(SyncPhase),    // Trigger transition to next phase
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
     Chat(String),
     Ping,
     Pong,
-    SyncRequest,
     SyncResponse(SyncPayload),
     SyncAck(SyncAckType),
     AckComplete(Vec<String>),
-    SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
     // FileTransfer { name: String, data: Vec<u8> },
@@ -102,7 +93,7 @@ pub enum Message {
     SyncEvent { event: String, payload: String },
     UpdateResource(UpdateResource),
     UserConnection(UserConnectionPayload),
-    Phases(Phases),
+    Phase(Phase),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -148,18 +139,31 @@ pub enum SyncAckType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum SyncPhase {
+pub enum PhaseType {
+    AddDevice,
+    FirstUserConnection,
     DeviceSync,
-    UserSync,
+    // UserSync,
     FolderSync,
     ResourceSync,
     ShareSync,
     UpdateSync,
+    DeviceRecordSync,
     Complete,
 }
 
-impl Default for SyncPhase {
-    fn default() -> Self {
-        SyncPhase::DeviceSync
-    }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum PhaseAction {
+    Init,
+    Ack,
+    Complete,
+    CompleteAck,
+    Initiate,
+}
+
+// Combined into a single Phase message
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Phase {
+    pub action: PhaseAction,
+    pub phase_type: PhaseType,
 }
