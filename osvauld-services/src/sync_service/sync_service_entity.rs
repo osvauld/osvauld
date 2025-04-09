@@ -1,5 +1,4 @@
 use super::sync_service_core::SyncService;
-use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::SyncPayload;
 use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
 use osvauld_core::models::sync_types::ResourceType;
@@ -185,21 +184,4 @@ impl SyncService {
         Ok(())
     }
 
-    pub async fn add_device_entry(&self, device: Device) -> Result<(), RepositoryError> {
-        //TODO: handle check for device alreay here.
-        self.device_repository.save(&device).await
-    }
-
-    pub fn generate_add_device_payload(
-        &self,
-        device: Device,
-        records: SyncRecordSet,
-    ) -> SyncPayload {
-        SyncPayload::DeviceSync {
-            device,
-            sync_record: records.sync_record,
-            device_records: records.device_records,
-            device_record_statuses: records.device_record_statuses,
-        }
-    }
 }

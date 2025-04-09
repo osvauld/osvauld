@@ -26,28 +26,47 @@ impl PeerConnection {
         }
     }
 
-    // Public methods
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
     pub async fn start_device_sync(&self) -> Result<(), String> {
-        info!("Starting device sync");
-        let sync_request = Message::SyncRequest;
+        info!("Starting device sync phase");
 
-        match self.send_message(sync_request).await {
-            Ok(_) => {
-                info!("Sync process initiated successfully");
+        // Get current device with early return pattern
+        let current_device = self.ensure_current_device().await?;
+
+        // Get current span for context propagation
+        let current_span = Span::current();
+
+        // Get the current phase
+        let current_phase = self.phase.get_current_phase().await;
+
+        // Get next pending sync from sync service, specifying the current phase
+        match self
+            .context
+            .sync_service
+            .get_next_pending_sync(
+                &self.device,
+                &self.user,
+                Some(self.pending_resource_ids.clone()),
+                current_phase,
+                current_span,
+            )
+            .await
+        {
+            Ok(Some(payload)) => {
+                info!("Sending sync payload for device sync phase");
+                let message = Message::SyncResponse(payload);
+                self.send_message(message).await?;
                 Ok(())
             }
+            Ok(None) => {
+                // No pending syncs for this phase
+                info!("No pending device syncs, completing phase");
+                self.complete_current_phase().await
+            }
             Err(e) => {
-                error!(error = %e, "Failed to send sync request");
-                Err(format!("Failed to start sync: {}", e))
+                error!(error = %e, "Failed to get pending device syncs");
+                Err(format!("Failed to get pending device syncs: {}", e))
             }
         }
-    }
-
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn handle_sync_request(&self) -> Result<(), String> {
-        info!("Handling incoming sync request");
-        self.get_and_send_next_sync().await
     }
 
     #[instrument(skip(self, records), fields(
@@ -66,17 +85,20 @@ impl PeerConnection {
             .await
         {
             Ok(_) => {
-                debug!("Device sync records added successfully");
-                // Create and send acknowledgment message
                 let ack_message = Message::AddDeviceAck;
-
                 match self.send_message(ack_message).await {
                     Ok(_) => {
                         info!("Device addition processed successfully");
+
+                        // Mark the AddDevice phase as complete
+                        self.complete_current_phase().await?;
+
+                        // The phase transition logic will handle moving to DeviceSync
+
                         Ok(())
                     }
                     Err(e) => {
-                        error!(error = %e, "Failed to send device add acknowledgment");
+                        error!("Failed to send device add acknowledgment: {}", e);
                         Err(format!("Failed to send acknowledgment: {}", e))
                     }
                 }
@@ -88,10 +110,10 @@ impl PeerConnection {
         }
     }
 
-    /// Helper function to get next pending sync - kept private to avoid public API changes
-    async fn get_and_send_next_sync(&self) -> Result<(), String> {
+    pub async fn get_and_send_next_sync(&self) -> Result<(), String> {
         debug!("Retrieving next pending sync");
         let current_span = Span::current();
+        let current_phase = self.phase.get_current_phase().await;
         match self
             .context
             .sync_service
@@ -99,6 +121,7 @@ impl PeerConnection {
                 &self.device,
                 &self.user,
                 Some(self.pending_resource_ids.clone()),
+                current_phase,
                 current_span,
             )
             .await
@@ -113,9 +136,8 @@ impl PeerConnection {
                 Ok(())
             }
             Ok(None) => {
-                info!("No more pending syncs, sending sync complete");
-                let message = Message::SyncComplete;
-                self.send_message(message).await?;
+                info!("No more pending syncs, for current phase");
+                self.complete_current_phase().await?;
                 Ok(())
             }
             Err(e) => {
@@ -228,77 +250,6 @@ impl PeerConnection {
         }
     }
 
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn handle_sync_complete(&self) -> Result<(), String> {
-        info!("Sync process completed");
-
-        let current_span = Span::current();
-        if self.is_initiator {
-            debug!("This connection is the initiator, checking for pending syncs");
-            match self
-                .context
-                .sync_service
-                .get_next_pending_sync(
-                    &self.device,
-                    &self.user,
-                    Some(self.pending_resource_ids.clone()),
-                    current_span,
-                )
-                .await
-            {
-                Ok(Some(payload)) => {
-                    info!("Found pending sync, sending response");
-                    let message = Message::SyncResponse(payload);
-                    self.send_message(message).await?;
-                }
-                Ok(None) => {
-                    info!("No pending syncs, updating last synced timestamp");
-
-                    match self
-                        .context
-                        .user_service
-                        .update_device_last_synced(&self.device.id)
-                        .await
-                    {
-                        Ok(_) => {
-                            debug!("Device last synced timestamp updated");
-                            let message = Message::SyncComplete;
-                            self.send_message(message).await?;
-                        }
-                        Err(e) => {
-                            error!(error = %e, "Failed to update device last synced timestamp");
-                            return Err(format!("Failed to update device synced time: {}", e));
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to get next pending sync");
-                    return Err(format!("Failed to get next pending sync: {}", e));
-                }
-            }
-        } else {
-            info!("This connection is not the initiator, updating last synced timestamp");
-
-            match self
-                .context
-                .user_service
-                .update_device_last_synced(&self.device.id)
-                .await
-            {
-                Ok(_) => {
-                    debug!("Device last synced timestamp updated");
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to update device last synced timestamp");
-                    return Err(format!("Failed to update device synced time: {}", e));
-                }
-            }
-        }
-
-        info!("Sync complete process finished successfully");
-        Ok(())
-    }
-
     #[instrument(skip(self, device_record_status_ids), fields(
         connection_id = %self.get_id(),
         record_count = device_record_status_ids.len()
@@ -381,6 +332,55 @@ impl PeerConnection {
             Err(e) => {
                 error!(error = %e, "Failed to merge updated document");
                 Err(format!("Failed to merge document: {}", e))
+            }
+        }
+    }
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn start_add_device_sync(&self) -> Result<(), String> {
+        info!("Starting add device sync process");
+
+        // For non-initiators, there's nothing to do - we wait for the AddDevice message
+        if !self.is_initiator {
+            debug!("This connection is not the initiator, waiting for AddDevice message");
+            return Ok(());
+        }
+
+        let current_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => return Err("Local device not found".into()),
+        };
+
+        // Get the add device payload from the sync service
+        match self
+            .context
+            .sync_service
+            .get_add_device_record_set(&current_device.id)
+            .await
+        {
+            Ok(record_set) => {
+                info!("Add device sync payload retrieved successfully");
+                let add_device_payload = SyncPayload::DeviceSync {
+                    sync_record: record_set.sync_record,
+                    device_records: record_set.device_records,
+                    device_record_statuses: record_set.device_record_statuses,
+                    device: current_device.clone(),
+                };
+                let message = Message::AddDevice(add_device_payload);
+
+                match self.send_message(message).await {
+                    Ok(_) => {
+                        info!("Add device sync message sent successfully");
+                        Ok(())
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to send add device message");
+                        Err(format!("Failed to send add device message: {}", e))
+                    }
+                }
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to get add device payload");
+                Err(format!("Failed to get add device payload: {}", e))
             }
         }
     }

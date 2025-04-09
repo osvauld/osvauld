@@ -230,7 +230,10 @@ impl RendezvousService {
                     // We successfully created a new connection
                     if is_first_connection {
                         info!("starting first device sync");
-                        connection.initiate_user_first_connection().await;
+
+                        if let Err(e) = connection.initiate_user_first_connection().await {
+                            error!("Failed to initialize first user connection: {}", e);
+                        }
                     } else {
                         info!("Successfully connected to peer using ticket");
                         // For regular connections, start device sync

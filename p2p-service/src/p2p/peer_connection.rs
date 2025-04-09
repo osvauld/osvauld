@@ -1,4 +1,5 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
+use crate::p2p::phase_management::PhaseState;
 use iroh::endpoint::Connection;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{ConnectionType, Message};
@@ -44,6 +45,8 @@ pub struct PeerConnection {
     pub event_emitter: P2PEventEmitter,
 
     pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
+    pub phase: PhaseState,
+
 }
 
 impl PeerConnection {
@@ -82,6 +85,7 @@ impl PeerConnection {
             context,
             event_emitter,
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
+            phase: PhaseState::new(),
         };
 
         debug!("Starting message handler for the connection");
@@ -230,10 +234,6 @@ impl PeerConnection {
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
     async fn process_message(&self, message: &Message) -> Result<(), String> {
         match message {
-            Message::SyncRequest => {
-                info!("Received SyncRequest");
-                self.handle_sync_request().await
-            }
             Message::SyncAck(updated_data) => {
                 info!("Received SyncAck");
                 self.handle_sync_ack(updated_data.clone()).await
@@ -244,15 +244,11 @@ impl PeerConnection {
             }
             Message::AddDeviceAck => {
                 info!("Received AddDeviceAck");
-                self.start_device_sync().await
+                self.complete_current_phase().await
             }
             Message::SyncResponse(payload) => {
                 info!("Received SyncResponse");
                 self.handle_sync_response(payload.clone()).await
-            }
-            Message::SyncComplete => {
-                info!("Received SyncComplete");
-                self.handle_sync_complete().await
             }
             Message::Chat(content) => {
                 info!("Received chat message: {}", content);
@@ -291,6 +287,9 @@ impl PeerConnection {
                 info!("recived merge payload back");
                 self.handle_merge_update(payload).await
             }
+            Message::Phase(phase) => {
+                self.handle_phase_message(phase).await
+            }
         }
     }
 
@@ -298,7 +297,6 @@ impl PeerConnection {
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(&message)), level = "debug")]
     pub async fn send_message(&self, message: Message) -> Result<(), String> {
         info!("sending message {:?}", message);
-        debug!("Preparing to send message");
 
         let serialized_message = match serde_json::to_string(&message) {
             Ok(msg) => {
@@ -311,10 +309,8 @@ impl PeerConnection {
             }
         };
 
-        debug!("Opening bi-directional stream for sending message");
         let (mut send, _) = match self.connection.open_bi().await {
             Ok(stream) => {
-                debug!("Bi-directional stream opened successfully");
                 stream
             }
             Err(e) => {
@@ -342,7 +338,6 @@ impl PeerConnection {
             }
         }
 
-        debug!("Finishing message transmission");
         if let Err(e) = send.finish() {
             error!("Failed to finish sending: {}", e);
             return Err(format!("Failed to finish sending: {}", e));
@@ -371,6 +366,7 @@ impl PeerConnection {
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
             pending_resource_ids: self.pending_resource_ids.clone(),
+            phase: self.phase.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {

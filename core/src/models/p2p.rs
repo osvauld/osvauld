@@ -83,11 +83,9 @@ pub enum Message {
     Chat(String),
     Ping,
     Pong,
-    SyncRequest,
     SyncResponse(SyncPayload),
     SyncAck(SyncAckType),
     AckComplete(Vec<String>),
-    SyncComplete,
     AddDevice(SyncPayload),
     AddDeviceAck,
     // FileTransfer { name: String, data: Vec<u8> },
@@ -95,6 +93,7 @@ pub enum Message {
     SyncEvent { event: String, payload: String },
     UpdateResource(UpdateResource),
     UserConnection(UserConnectionPayload),
+    Phase(Phase),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -137,4 +136,34 @@ pub enum SyncAckType {
     FullSync(SyncOperations),
     DeviceSyncRecords(Vec<String>), // list of device_record_ids
     UpdateRecieved(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum PhaseType {
+    AddDevice,
+    FirstUserConnection,
+    DeviceSync,
+    // UserSync,
+    FolderSync,
+    ResourceSync,
+    ShareSync,
+    UpdateSync,
+    DeviceRecordSync,
+    Complete,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub enum PhaseAction {
+    Init,
+    Ack,
+    Complete,
+    CompleteAck,
+    Initiate,
+}
+
+// Combined into a single Phase message
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Phase {
+    pub action: PhaseAction,
+    pub phase_type: PhaseType,
 }
