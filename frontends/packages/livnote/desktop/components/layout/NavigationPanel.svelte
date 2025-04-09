@@ -63,8 +63,8 @@
 
 	// Function to handle note selection
 	function selectNote(note) {
-		currentNote.set(note);
 		noteId.set(note.id);
+		currentNote.set(note);
 	}
 
 	// Watch for changes to currentVault
