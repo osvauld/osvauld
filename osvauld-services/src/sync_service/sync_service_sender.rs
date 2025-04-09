@@ -78,6 +78,14 @@ impl SyncService {
             );
             return Ok(Some(payload));
         }
+        debug!("Checking for share syncs");
+    if let Some(payload) = self.get_share_sync_for_device(device).await? {
+        info!(
+            sync_type = "share", 
+            "Found share sync"
+        );
+        return Ok(Some(payload));
+    }
 
         // Check for resource updates in the pending_resource_ids
         debug!("Checking for pending resource updates");
@@ -413,7 +421,7 @@ impl SyncService {
                         return Err(e);
                     }
                 };
-                
+
                 debug!("Retrieving vector clocks for resource");
                 let vector_clocks = match self.vector_clock_repository.get_vector_clocks_for_resource(&sync_record.resource_id).await {
                     Ok(clocks) => {
@@ -450,6 +458,70 @@ impl SyncService {
                     error = %e,
                     device_id = %device.id,
                     "Error retrieving pending resource sync"
+                );
+                Err(e)
+            }
+        }
+    }
+
+    #[instrument(
+        skip(self, device), 
+        fields(
+            device_id = %device.id
+        ),
+        level = "debug"
+    )]
+    async fn get_share_sync_for_device(
+        &self,
+        device: &Device,
+    ) -> Result<Option<SyncPayload>, RepositoryError> {
+        debug!("Looking for pending share sync");
+        
+        match self.sync_repository.get_pending_sync_by_type(&device.id, "share").await {
+            Ok(Some((sync_record, device_records, statuses))) => {
+                debug!(
+                    sync_record_id = %sync_record.id,
+                    resource_id = %sync_record.resource_id,
+                    device_records = device_records.len(),
+                    status_records = statuses.len(),
+                    "Found pending share sync"
+                );
+                
+                // Get the share record
+                debug!("Retrieving share record");
+                match self.share_repository.find_by_id(&sync_record.resource_id).await {
+                    Ok(share_record) => {
+                        debug!(
+                            share_record_id = %share_record.id,
+                            "Retrieved share record"
+                        );
+                        
+                        Ok(Some(SyncPayload::ShareSync {
+                            sync_record,
+                            device_records,
+                            device_record_statuses: statuses,
+                            share_record,
+                        }))
+                    },
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %sync_record.resource_id,
+                            "Failed to retrieve share record"
+                        );
+                        Err(e)
+                    }
+                }
+            },
+            Ok(None) => {
+                debug!("No pending share sync found");
+                Ok(None)
+            },
+            Err(e) => {
+                error!(
+                    error = %e,
+                    device_id = %device.id,
+                    "Error retrieving pending share sync"
                 );
                 Err(e)
             }

@@ -11,7 +11,6 @@
 		notes,
 		deleteConfirmationModal,
 	} from "../../store/desktop.ui.store";
-
 	import { MobileHome, Add, VerticalMenu as Menu, BinIcon as Bin, Star as EmptyStar, FavStar as Star, CopyIcon, DownloadIcon, UserPlus, Tick, BackArrow, RightArrow as Arrow} from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
 
@@ -259,18 +258,18 @@
 				<div class="mx-2 flex justify-between items-center max-w-[44rem]">
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click="{handleBackButton}">
+						on:click={handleBackButton}>
 						<BackArrow />
 					</button>
 					{#if isEditingTitle}
 						<div
 							class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
 							<input
-								bind:this="{inputRef}"
-								bind:value="{newNoteTitle}"
+								bind:this={inputRef}
+								bind:value={newNoteTitle}
 								maxlength="20"
-								on:keydown="{handleKeydown}"
-								on:blur="{saveTitle}"
+								on:keydown={handleKeydown}
+								on:blur={saveTitle}
 								class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
 						</div>
 					{:else}
@@ -286,7 +285,7 @@
 
 					<button
 						class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-						on:click|stopPropagation="{toggleFav}">
+						on:click|stopPropagation={toggleFav}>
 						{#if isFavourite}
 							<Star />
 						{:else}

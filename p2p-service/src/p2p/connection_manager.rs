@@ -1,4 +1,3 @@
-use crate::p2p::errors::P2PError;
 use crate::p2p::peer_connection::PeerConnection;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -223,5 +222,24 @@ impl ConnectionManager {
             error!("{}", err_msg);
             Err(err_msg)
         }
+    }
+    #[instrument(skip(self), level = "debug")]
+    pub async fn get_first_active_connection(&self) -> Option<Arc<PeerConnection>> {
+        debug!("Attempting to get first active connection");
+        let connections = self.connections.lock().await;
+
+        if connections.is_empty() {
+            debug!("No active connections found");
+            return None;
+        }
+
+        // Get the first connection from the HashMap
+        let first_connection = connections.values().next().cloned();
+
+        if let Some(conn) = &first_connection {
+            debug!("Found active connection: {}", conn.get_id());
+        }
+
+        first_connection
     }
 }

@@ -91,6 +91,9 @@ diesel::table! {
         id -> Text,
         resource_id -> Text,
         shared_by_user_id -> Text,
+        recipient_user_id -> Text,
+        permission_level -> Text,
+        signature -> Text,
         operation_type -> Text,
         created_at -> BigInt,
         updated_at -> BigInt,
@@ -112,29 +115,6 @@ diesel::table! {
         resource_type -> Text,
         operation_type -> Text,
         source_device_id -> Text,
-        created_at -> BigInt,
-        updated_at -> BigInt,
-    }
-}
-
-diesel::table! {
-    user_record_status (id) {
-        id -> Text,
-        user_record_id -> Text,
-        aware_user_id -> Text,
-        synced -> Bool,
-        created_at -> BigInt,
-        updated_at -> BigInt,
-    }
-}
-
-diesel::table! {
-    user_records (id) {
-        id -> Text,
-        share_record_id -> Text,
-        user_id -> Text,
-        status -> Text,
-        synced -> Bool,
         created_at -> BigInt,
         updated_at -> BigInt,
     }
@@ -166,12 +146,7 @@ diesel::joinable!(resource_vector_clocks -> devices (device_id));
 diesel::joinable!(resource_vector_clocks -> resources (resource_id));
 diesel::joinable!(resources -> folders (folder_id));
 diesel::joinable!(share_records -> resources (resource_id));
-diesel::joinable!(share_records -> users (shared_by_user_id));
 diesel::joinable!(sync_records -> devices (source_device_id));
-diesel::joinable!(user_record_status -> user_records (user_record_id));
-diesel::joinable!(user_record_status -> users (aware_user_id));
-diesel::joinable!(user_records -> share_records (share_record_id));
-diesel::joinable!(user_records -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     device_record_status,
@@ -184,7 +159,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     share_records,
     store_items,
     sync_records,
-    user_record_status,
-    user_records,
     users,
 );

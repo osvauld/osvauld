@@ -4,14 +4,12 @@ use crate::models::{
     folder::Folder,
     resource::{Resource, ResourceKeyPair, ResourceWithKey},
     resource_key::ResourceKey,
-    share_record::{
-        ShareRecord, ShareRecordSet, ShareStatusChangeSet, UserRecord, UserRecordSet,
-        UserRecordStatus,
-    },
+    share_record::ShareRecord,
     sync_record::{
         DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
         SyncRecordSet,
     },
+    sync_types::OperationType,
     user::User,
     vector_clock::ResourceVectorClock,
 };
@@ -34,6 +32,7 @@ pub trait FolderRepository: Send + Sync {
     async fn find_all(&self) -> Result<Vec<Folder>, RepositoryError>;
     async fn find_by_id(&self, id: &str) -> Result<Folder, RepositoryError>;
     async fn soft_delete(&self, id: &str) -> Result<(), RepositoryError>;
+    async fn get_default_folder(&self) -> Result<Folder, RepositoryError>;
 }
 
 #[async_trait]
@@ -155,6 +154,24 @@ pub trait SyncRepository: Send + Sync {
         &self,
         device_record_id: &str,
     ) -> Result<Option<DeviceRecord>, RepositoryError>;
+
+    async fn get_sync_record_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        resource_type: &str,
+    ) -> Result<SyncRecord, RepositoryError>;
+    async fn get_sync_records_by_resource_and_type_and_operation(
+        &self,
+        resource_id: &str,
+        resource_type: &str,
+        operation_type: &str,
+    ) -> Result<Vec<SyncRecord>, RepositoryError>;
+    async fn get_sync_and_device_records_by_resource_ids(
+        &self,
+        resource_ids: &[String],
+        operation_type: &str,
+    ) -> Result<(Vec<SyncRecord>, Vec<DeviceRecord>), RepositoryError>;
 }
 
 #[async_trait]
@@ -231,6 +248,10 @@ pub trait DeviceRepository: Send + Sync {
         &self,
         current_device_id: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
+    async fn get_devices_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError>;
     async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError>;
 }
 
@@ -270,69 +291,6 @@ pub trait ResourceKeyRepository: Send + Sync {
         resource_id: &str,
         user_id: &str,
     ) -> Result<(), RepositoryError>;
-}
-
-#[async_trait]
-pub trait ShareRepository: Send + Sync {
-    async fn add_share_record_set(&self, record_set: ShareRecordSet)
-    -> Result<(), RepositoryError>;
-
-    async fn add_status_change_set(
-        &self,
-        status_set: ShareStatusChangeSet,
-    ) -> Result<(), RepositoryError>;
-
-    async fn update_user_record(
-        &self,
-        user_id: String,
-        share_id: String,
-    ) -> Result<(), RepositoryError>;
-
-    async fn update_user_record_set(
-        &self,
-        record_set: UserRecordSet,
-    ) -> Result<(), RepositoryError>;
-
-    async fn get_pending_share_by_user(
-        &self,
-        user_id: &str,
-    ) -> Result<Option<(ShareRecord, Vec<UserRecord>, Vec<UserRecordStatus>)>, RepositoryError>;
-
-    async fn get_unsynced_user_share_records(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<(UserRecord, Vec<UserRecordStatus>)>, RepositoryError>;
-
-    async fn update_user_sync_record_status(
-        &self,
-        user_sync_record_id: String,
-    ) -> Result<(), RepositoryError>;
-
-    async fn update_share_status(
-        &self,
-        user_record_ids: Vec<String>,
-        status_record_ids: Vec<String>,
-    ) -> Result<(), RepositoryError>;
-
-    async fn update_user_sync_record_by_user_id(
-        &self,
-        user_record_ids: Vec<String>,
-        synced_user_id: String,
-    ) -> Result<(), RepositoryError>;
-
-    async fn get_all_share_records(&self) -> Result<Vec<ShareRecord>, RepositoryError>;
-
-    async fn get_effective_share_records(
-        &self,
-        resource_id: &str,
-    ) -> Result<Vec<ShareRecord>, RepositoryError>;
-
-    async fn get_user_records_by_share_id(
-        &self,
-        share_id: &str,
-    ) -> Result<Vec<UserRecord>, RepositoryError>;
-
-    async fn get_share_record_by_id(&self, share_id: &str) -> Result<ShareRecord, RepositoryError>;
 }
 
 #[async_trait]
@@ -382,4 +340,18 @@ pub trait VectorClockRepository: Send + Sync {
         update_vector_clocks: &[ResourceVectorClock],
         add_vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError>;
+}
+
+#[async_trait]
+pub trait ShareRepository: Send + Sync {
+    /// Save a share record to the database
+    async fn save(&self, share_record: &ShareRecord) -> Result<(), RepositoryError>;
+
+    /// Find share records by resource ID and operation type
+    async fn find_by_resource_and_operation(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError>;
+    async fn find_by_id(&self, id: &str) -> Result<ShareRecord, RepositoryError>;
 }

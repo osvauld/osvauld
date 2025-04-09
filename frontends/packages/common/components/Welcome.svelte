@@ -1,4 +1,6 @@
+
 <script lang="ts">
+	// This component is just for the passphrase entry
 	import Eye from "../icons/eye.svelte";
 	import Loader from "./Loader.svelte";
 	import { createEventDispatcher } from "svelte";
@@ -12,7 +14,9 @@
 	let errorMessage = false;
 	let isLoaderActive = false;
 	let inputElem: any;
-
+	
+	export let passwordReturn = false;
+	
 	function toggleShowPassword() {
 		showPassword = !showPassword;
 	}
@@ -20,6 +24,7 @@
 	const onInput = (event: any) => {
 		passphrase = event.target.value;
 	};
+
 	function autofocus(node: any) {
 		node.focus();
 	}
@@ -30,7 +35,11 @@
 		isLoaderActive = true;
 		const pubkey = await sendMessage("login", { passphrase });
 		if (pubkey) {
-			dispatch("authenticated", true);
+			if (passwordReturn) {
+				dispatch("passphraseCollected", passphrase);
+			} else {
+				dispatch("authenticated", true);
+			}
 		} else {
 			isLoaderActive = false;
 			errorMessage = true;
@@ -41,10 +50,11 @@
 			}, 1500);
 		}
 	}
+
 </script>
 
 <div
-	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey">
+	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey bg-osvauld-frameblack p-12 rounded-lg">
 	<form
 		class="flex flex-col justify-center items-center"
 		on:submit|preventDefault={handleSubmit}>

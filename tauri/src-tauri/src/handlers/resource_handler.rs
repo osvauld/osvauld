@@ -5,8 +5,7 @@ use crate::types::{
 };
 use crate::user_state::UserState;
 use log::info;
-use osvauld_services::{ResourceService, ShareService, TransactionService};
-use rendezvous_client::rendezvous_service::RendezvousService;
+use osvauld_services::{ResourceService, TransactionService};
 use std::sync::Arc;
 use tauri::State;
 
@@ -14,32 +13,29 @@ use tauri::State;
 pub async fn handle_add_resource(
     input: AddResourceInput,
     resource_service: State<'_, Arc<ResourceService>>,
-    share_service: State<'_, Arc<ShareService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
-    let (resource, resource_key, sync_record_set, vector_clocks) = resource_service
-        .add_resource(
-            input.resource_payload,
-            input.resource_type,
-            input.folder_id,
-            &user,
-            &device.id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    let share_record_set = share_service
-        .prepare_owner_share_record(resource.id.clone())
-        .await
-        .map_err(|e| e.to_string())?;
+    let (resource, resource_key, sync_record_set, share_record_set, vector_clocks, share_record) =
+        resource_service
+            .add_resource(
+                input.resource_payload,
+                input.resource_type,
+                input.folder_id,
+                &user,
+                &device.id,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
     let _ = transaction_service
         .create_resource_with_sync(
             resource.clone(),
             resource_key,
             &sync_record_set,
-            share_record_set,
+            &share_record_set,
+            &share_record,
             &vector_clocks,
         )
         .await
@@ -167,56 +163,39 @@ pub async fn get_resource(
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::GetResourceResponse(resource))
 }
-
 #[tauri::command]
 pub async fn share_resource(
     input: ShareResource,
     resource_service: State<'_, Arc<ResourceService>>,
-    share_service: State<'_, Arc<ShareService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
+    user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
-    //TODO: change from public key to user_id?
-    // let (resource_key, vector_clock) = resource_service
-    //     .share_resource(input.resource_id.clone(), input.public_key.clone())
-    //     .await
-    //     .map_err(|e| e.to_string())?;
-    // //TODO: add sync record for share
-    // let share_service_set = share_service
-    //     .prepare_share_records(input.resource_id.clone(), input.public_key.clone())
-    //     .await
-    //     .map_err(|e| e.to_string())?;
-    // transaction_service
-    //     .share_resource(
-    //         resource_key,
-    //         vector_clock,
-    //         share_service_set,
-    //         input.resource_id.clone(),
-    //     )
-    //     .await
-    //     .map_err(|e| e.to_string())?;
-    // let shared_by_user_id = get_key_id(&input.public_key).map_err(|e| e.to_string())?;
-    // match rendezvous_service
-    //     .get_connection_status(vec![shared_by_user_id.clone()])
-    //     .await
-    // {
-    //     Ok(status_list) => {
-    //         if let Some(status) = status_list.into_iter().next() {
-    //             // Log the status but continue regardless
-    //             log::info!(
-    //                 "User {} connection status: {}",
-    //                 shared_by_user_id,
-    //                 status.connection_status
-    //             );
-    //         } else {
-    //             log::warn!("No connection status found for user {}", shared_by_user_id);
-    //         }
-    //     }
-    //     Err(e) => {
-    //         // Log the error but continue anyway
-    //         log::warn!("Failed to get connection status: {}", e);
-    //     }
-    // }
-    //
+    // Get current user and device info
+    let user = user_state.get_user().await?;
+    let device = user_state.get_device().await?;
+    let (
+        new_resource_key,
+        share_record,
+        recipient_vector_clocks,
+        sync_record_set,
+        device_record_set,
+        resource_record_set,
+    ) = resource_service
+        .share_resource(input.user_id, input.resource_id, &user.id, &device.id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    transaction_service
+        .share_resource_transaction(
+            new_resource_key,
+            share_record,
+            recipient_vector_clocks,
+            sync_record_set,
+            device_record_set,
+            resource_record_set,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
     Ok(CryptoResponse::Success)
 }

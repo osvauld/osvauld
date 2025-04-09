@@ -1,6 +1,7 @@
 use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
+use osvauld_core::models::share_record::{self, ShareRecord};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
@@ -10,8 +11,7 @@ use osvauld_core::repositories::{
 
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::share_record::{ShareRecordSet, UserRecordSet};
-use osvauld_core::models::sync_record::{SyncRecordSet, SyncUpdateData};
+use osvauld_core::models::sync_record::{DeviceRecordSet, SyncRecordSet, SyncUpdateData};
 use std::sync::Arc;
 pub struct TransactionService {
     pub resource_repository: Arc<dyn ResourceRepository>,
@@ -67,7 +67,8 @@ impl TransactionService {
         resource: Resource,
         resource_key: ResourceKey,
         sync_record_set: &SyncRecordSet,
-        share_record_set: ShareRecordSet,
+        share_record_set: &SyncRecordSet,
+        share_record: &ShareRecord,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
         // Save resource and its key
@@ -79,10 +80,12 @@ impl TransactionService {
             .add_sync_record_set(sync_record_set)
             .await?;
 
-        // Save share records
-        self.share_repository
-            .add_share_record_set(share_record_set)
+        self.sync_repository
+            .add_sync_record_set(share_record_set)
             .await?;
+
+        // Save share records
+        self.share_repository.save(share_record).await?;
         self.vector_clock_repository
             .save_vector_clocks(vector_clocks)
             .await?;
@@ -113,14 +116,14 @@ impl TransactionService {
         &self,
         resource_key: ResourceKey,
         vector_clock: ResourceVectorClock,
-        user_record: UserRecordSet,
+        // user_record: UserRecordSet,
         resource_id: String,
     ) -> Result<(), RepositoryError> {
         log::info!("vecoor {:?}", vector_clock);
         self.resource_key_repository.save(&resource_key).await?;
-        self.share_repository
-            .update_user_record_set(user_record)
-            .await?;
+        // self.share_repository
+        //     .update_user_record_set(user_record)
+        //     .await?;
         // Update the resource's vector clock
         // self.resource_repository
         //     .update_resource_vector_clock(&resource_id, &vector_clock)
@@ -185,6 +188,41 @@ impl TransactionService {
     pub async fn add_new_user(&self, user: &User, device: &Device) -> Result<(), RepositoryError> {
         self.user_repository.add_known_user(user).await?;
         self.device_repository.save(device).await?;
+        Ok(())
+    }
+
+    pub async fn share_resource_transaction(
+        &self,
+        resource_key: ResourceKey,
+        share_record: ShareRecord,
+        recipient_vector_clocks: Vec<ResourceVectorClock>,
+        sync_record_set: SyncRecordSet,
+        share_device_record_set: DeviceRecordSet,
+        resource_device_record_set: DeviceRecordSet,
+    ) -> Result<(), RepositoryError> {
+        // Save the resource key for the recipient
+        self.resource_key_repository.save(&resource_key).await?;
+
+        // Save the share record
+        self.share_repository.save(&share_record).await?;
+
+        // Save the vector clocks for recipient devices
+        self.vector_clock_repository
+            .save_vector_clocks(&recipient_vector_clocks)
+            .await?;
+
+        // Save the sync record set for syncing across devices
+        self.sync_repository
+            .add_sync_record_set(&sync_record_set)
+            .await?;
+        self.sync_repository
+            .update_device_record_set(resource_device_record_set)
+            .await?;
+
+        self.sync_repository
+            .update_device_record_set(share_device_record_set)
+            .await?;
+
         Ok(())
     }
 }

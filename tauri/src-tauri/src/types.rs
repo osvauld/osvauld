@@ -186,7 +186,7 @@ pub struct GetResource {
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareResource {
-    pub public_key: String,
+    pub user_id: String,
     pub resource_id: String,
 }
 #[derive(Deserialize, Debug)]

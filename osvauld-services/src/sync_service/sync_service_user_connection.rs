@@ -178,7 +178,7 @@ impl SyncService {
         // time.
         let user_devices = match self
             .device_repository
-            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .get_devices_by_user_id(current_user_id)
             .await {
                 Ok(devices) => {
                     debug!(device_count = devices.len(), "Retrieved user devices");
@@ -234,13 +234,14 @@ impl SyncService {
                     return Err(e);
                 }
             };
+        let other_user_devices: Vec<Device> = user_devices.iter().filter(|ud|ud.id != current_device_id).cloned().collect();
 
         info!("First user connection processed successfully");
         
         // Return the Response payload directly
         Ok(UserConnectionPayload::Response {
             user: current_user,
-            devices: user_devices,
+            devices: other_user_devices,
             user_addition_record,
         })
     }
@@ -264,7 +265,7 @@ impl SyncService {
         // Get current user's devices
         let user_devices = match self
             .device_repository
-            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .get_devices_by_user_id(current_user_id)
             .await {
                 Ok(devices) => {
                     debug!(device_count = devices.len(), "Retrieved user devices");
@@ -411,7 +412,7 @@ impl SyncService {
         debug!("Getting current user devices");
         let user_devices = match self
             .device_repository
-            .get_devices_by_user_except(current_user_id, &[current_device_id.to_string()])
+            .get_devices_by_user_id(current_user_id)
             .await {
                 Ok(devices) => {
                     debug!(device_count = devices.len(), "Retrieved current user devices");

@@ -12,6 +12,8 @@
 	let unlistenHandlers: (() => void)[] = [];
 	let textareaElement;
 
+	export let passwordCollected = "";
+
 
 	async function setupEventListeners() {
 		const unlisten1 = await listen("peer-connected", () => {
@@ -36,7 +38,7 @@
 			await setupEventListeners();
 			connectionTicket = await sendMessage("getTicket");
 			certificate = await sendMessage("exportCertificate", {
-				passphrase: "test",
+				passphrase: passwordCollected,
 			});
 			recoveryString = JSON.stringify({
 				ticket: connectionTicket,
@@ -62,14 +64,14 @@
 
 	async function copyTicket() {
 		try {
-			await navigator.clipboard.writeText(connectionTicket);
+			await navigator.clipboard.writeText(recoveryString);
 			const originalStatus = status;
-			status = "Ticket copied!";
+			status = "Connection Ticket copied!";
 			setTimeout(() => {
 				status = originalStatus;
 			}, 2000);
 		} catch (err) {
-			error = "Failed to copy ticket";
+			error = "Failed to copy connection ticket";
 		}
 	}
 </script>

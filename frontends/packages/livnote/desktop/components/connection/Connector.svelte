@@ -4,17 +4,24 @@
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import { createEventDispatcher } from "svelte";
+	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 
 	const dispatch = createEventDispatcher();
+
+	let isInitiator = true;
+  let passwordCollected = "";
 
 	function handleClose() {
 		// Dispatch a "close" event to the parent component
 		dispatch("close", { isInitiator });
 	}
-	let isInitiator = true;
 
 	function toggleView() {
 		isInitiator = !isInitiator;
+	}
+
+	function handlePasswordReturn(e: CustomEvent) {
+		passwordCollected = e.detail;
 	}
 </script>
 
@@ -26,8 +33,10 @@
 
 	{#if isInitiator}
 		<Initiator bind:isInitiator />
+	{:else if passwordCollected}
+		<Acceptor {passwordCollected}/>
 	{:else}
-		<Acceptor />
+	   <Welcome passwordReturn="{true}" on:passphraseCollected={handlePasswordReturn}/>
 	{/if}
 
 	<div class="flex justify-between">

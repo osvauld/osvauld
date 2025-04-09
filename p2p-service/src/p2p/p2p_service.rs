@@ -9,7 +9,7 @@ use iroh::{Endpoint, RelayMode, SecretKey};
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload};
 use osvauld_core::models::user::User;
-use osvauld_services::{AuthService, ShareService, SyncService, UserService};
+use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
@@ -29,7 +29,6 @@ pub struct P2PService {
     pub sync_service: Arc<SyncService>,
     pub auth_service: Arc<AuthService>,
     pub user_service: Arc<UserService>,
-    pub share_service: Arc<ShareService>,
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
@@ -42,7 +41,6 @@ impl P2PService {
         sync_service: Arc<SyncService>,
         auth_service: Arc<AuthService>,
         user_service: Arc<UserService>,
-        share_service: Arc<ShareService>,
     ) -> (
         Self,
         mpsc::UnboundedReceiver<P2PEvent>,
@@ -66,7 +64,6 @@ impl P2PService {
             sync_service,
             auth_service,
             user_service,
-            share_service,
             event_emitter: emitter,
             current_user: Arc::new(RwLock::new(None)),
             current_device: Arc::new(RwLock::new(None)),
@@ -192,7 +189,6 @@ impl P2PService {
             auth_service: self.auth_service.clone(),
             user_service: self.user_service.clone(),
             sync_service: self.sync_service.clone(),
-            share_service: self.share_service.clone(),
             current_user: self.current_user.clone(),
             current_device: self.current_device.clone(),
         });
@@ -492,4 +488,26 @@ impl P2PService {
         // Get the connection from the connection manager
         state.connections.get_peer_connection(connection_id).await
     }
+
+   
+pub async fn send_sync_update(&self, payload: Message) -> Result<(), String> {
+    let state_guard = self.state.lock().await;
+
+    // Check if service is initialized
+    let state = match state_guard.as_ref() {
+        Some(s) => s,
+        None => return Err("P2P service not initialized".to_string()),
+    };
+
+    // Get the connection from the connection manager
+    // Fix: Convert Option to Result with ok_or()
+    let connection = state.connections.get_first_active_connection().await
+        .ok_or("No active connection found".to_string())?;
+    
+    if let Err(e) = connection.send_message(payload).await {
+        return Err(format!("Failed to send message: {}", e));
+    }
+    Ok(())
+}
+
 }
