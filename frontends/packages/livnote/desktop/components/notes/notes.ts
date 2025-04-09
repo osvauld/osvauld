@@ -314,6 +314,24 @@ export class Notes {
 			},
 		});
 
+		// Add hard break keymap for Shift+Enter in regular text
+		const hardBreakKeymap = keymap({
+			"Shift-Enter": (state, dispatch) => {
+				const { selection } = state;
+				const { $from, $to } = selection;
+				
+				// Don't handle if we're in a code block (codeBlockKeymap handles it)
+				if ($from.parent.type.name === "code_block") return false;
+				
+				// Insert a hard break at the current position
+				if (dispatch) {
+					const hardBreak = state.schema.nodes.hard_break.create();
+					dispatch(state.tr.replaceSelectionWith(hardBreak).scrollIntoView());
+				}
+				return true;
+			}
+		});
+
 		// Create a synchronized editor state that works with our Yjs document
 		try {
 			// First create the sync plugin - it's critical this is done before the state is created
@@ -381,6 +399,7 @@ export class Notes {
 				plugins: [
 					slashCommandPlugin(this.editorSchema),
 					listKeymap,
+					hardBreakKeymap,
 					keymap(baseKeymap),
 					codeBlockKeymap,
 					syncPlugin,
