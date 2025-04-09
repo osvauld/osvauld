@@ -271,7 +271,7 @@
 							class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
 							on:dblclick={startEditingTitle}
 							on:keydown={(e) => e.key === "Enter" && startEditingTitle()}>
-							{$currentNote?.data?.title || "Untitled"}
+							{$currentNote?.data?.last_modified ? $currentNote?.data?.title : "Untitled"}
 						</span>
 					{/if}
 
