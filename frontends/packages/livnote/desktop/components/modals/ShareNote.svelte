@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 
-	import { Lens, ClosePanel} from "@osvauld/password-manager-common";
+	import { Lens, ClosePanel } from "@osvauld/password-manager-common";
 	import { toastStore } from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
@@ -22,7 +22,6 @@
 		online: boolean;
 	}
 
-
 	let existingCollaboratiors = [];
 
 	let availableCollaborators = [];
@@ -35,7 +34,7 @@
 
 	const selectCollaborator = (username: string): void => {
 		if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
-		query = '';
+		query = "";
 		selectedUsers = [...selectedUsers, username];
 		focusedIndex = -1;
 	};
@@ -55,7 +54,9 @@
 					selectedUsers.length < MAX_ALLOWED_USERS
 				) {
 					// Actually select the collaborator when Enter/Space is pressed
-					selectCollaborator(availableCollaboratorsFiltered[focusedIndex].username);
+					selectCollaborator(
+						availableCollaboratorsFiltered[focusedIndex].username,
+					);
 					console.log("Selected collaborator:", selectedUsers);
 				}
 				break;
@@ -122,12 +123,14 @@
 		}
 	};
 
-	const handleUserIdSelection = async (id: string, publicKey: string): Promise<void> => {
+	const handleUserIdSelection = async (
+		id: string,
+		publicKey: string,
+	): Promise<void> => {
 		console.log(id, publicKey);
 		await sendMessage("shareResource", { publicKey, resourceId: $noteId });
 		showShareList = false;
 	};
-
 
 	const handleCollaboratorSelection = async (): void => {
 		showShareList = false;
@@ -139,17 +142,20 @@
 	};
 
 	const extractIconLetter = (username: string): string => {
-
 		return username.trim().split("")[0];
 	};
 
-	const sortOnlineCollaborators = (availableCollaborators: Collaborator[]): Collaborator[] => {
+	const sortOnlineCollaborators = (
+		availableCollaborators: Collaborator[],
+	): Collaborator[] => {
 		return availableCollaborators.sort(
 			(a, b) => Number(b.online) - Number(a.online),
 		);
 	};
 
-	const filterSelectedUsers = (availableUsers: Collaborator[]): Collaborator[] => {
+	const filterSelectedUsers = (
+		availableUsers: Collaborator[],
+	): Collaborator[] => {
 		return availableUsers.filter(
 			(user) => !selectedUsers.includes(user.username),
 		);
@@ -191,9 +197,8 @@
 	<button
 		type="button"
 		class="h-[2.75rem] w-full mt-4 mb-1.5 px-3 py-2 gap-1 flex justify-start items-center border border-osvauld-iconblack focus-within:border-osvauld-activeBorder rounded-lg cursor-pointer"
-		on:click|stopPropagation="{autofocus}"
+		on:click|stopPropagation={autofocus}
 		aria-label="Search for collaborators">
-
 		<span class="shrink-0 mr-2">
 			<Lens color={isFocused ? "#67697C" : "#30363D"} />
 		</span>
@@ -221,18 +226,16 @@
 				if (
 					event.relatedTarget &&
 					event.relatedTarget instanceof Element &&
-					event.relatedTarget.closest('.collaborator-list')
-
+					event.relatedTarget.closest(".collaborator-list")
 				) {
 					return;
 				}
 				isFocused = false;
-			}}"
-			on:keydown="{handleKeyDown}"
-			bind:this="{inputRef}"
-			bind:value="{query}" />
+			}}
+			on:keydown={handleKeyDown}
+			bind:this={inputRef}
+			bind:value={query} />
 	</button>
-
 
 	<!-- Make the existing collaborators list accessible -->
 	<div class="relative p-4">
@@ -304,8 +307,7 @@
 								on:mousedown|stopPropagation={(e) => {
 									e.preventDefault();
 									selectCollaborator(collaborator.username);
-								}}"
-								>
+								}}>
 								<span
 									class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
 									aria-hidden="true">

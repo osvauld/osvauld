@@ -6125,12 +6125,15 @@ dependencies = [
 name = "rendezvous_server"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum",
  "futures-util",
  "serde",
  "serde_json",
  "sled",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "uuid",
 ]
 
