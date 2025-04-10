@@ -3,6 +3,8 @@
 	import { onMount, onDestroy } from "svelte";
 	import { listen } from "@tauri-apps/api/event";
 
+	export const isInitiator: boolean = true;
+	
 	let ticket = "";
 	let status = "Ready to connect";
 	let error = "";
@@ -41,8 +43,8 @@
 			connecting = true;
 			//TODO: handle live and sync connection
 			// await invoke("connect_with_device", { ticket: response.trim() });
-		} catch (err) {
-			error = err.toString();
+		} catch (err: unknown) {
+			error = err instanceof Error ? err.message : "An unknown error occurred";
 			status = "Connection failed";
 			connecting = false;
 		}
@@ -53,8 +55,8 @@
 			const text = await navigator.clipboard.readText();
 			ticket = text;
 			error = "";
-		} catch (err) {
-			error = "Failed to paste from clipboard";
+		} catch (err: unknown) {
+			error = err instanceof Error ? err.message : "Failed to paste from clipboard";
 		}
 	}
 </script>

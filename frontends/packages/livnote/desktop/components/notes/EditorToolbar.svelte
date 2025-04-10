@@ -1,8 +1,10 @@
-<script>
+<script lang="ts">
 	import { setBlockType, toggleMark } from "prosemirror-commands";
 	import { wrapInList } from "prosemirror-schema-list";
+	import type { EditorView } from "prosemirror-view";
+	import type { NodeType, MarkType, Schema } from "prosemirror-model";
 
-	export let editorView;
+	export let editorView: EditorView | null = null;
 	export let isDarkMode = false;
 
 	// These reactive statements track the active state of each formatting option
@@ -31,7 +33,7 @@
 	let isItalic = false;
 
 	// Check if a node type is active at the current selection
-	function isNodeActive(typeName, attrs = {}) {
+	function isNodeActive(typeName: string, attrs: Record<string, any> = {}): boolean {
 		if (!editorView || !editorView.state) return false;
 
 		const state = editorView.state;
@@ -48,11 +50,11 @@
 		}
 
 		const node = state.doc.cut(from, to).content.firstChild;
-		return node && node.type.name === typeName;
+		return node ? node.type.name === typeName : false;
 	}
 
 	// Check if a mark is active at the current selection
-	function isMarkActive(markName) {
+	function isMarkActive(markName: string): boolean {
 		if (!editorView || !editorView.state) return false;
 
 		const state = editorView.state;
@@ -82,7 +84,7 @@
 	}
 
 	// Helper function to execute ProseMirror commands
-	function runCommand(cmd) {
+	function runCommand(cmd: (state: any, dispatch: any, view: any) => boolean) {
 		return () => {
 			if (!editorView) return;
 			cmd(editorView.state, editorView.dispatch, editorView);
@@ -92,43 +94,55 @@
 
 	// Define commands
 	const commands = {
-		paragraph: () =>
-			runCommand(setBlockType(editorView.state.schema.nodes.paragraph))(),
+		paragraph: () => {
+			if (!editorView?.state.schema.nodes.paragraph) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.paragraph))();
+		},
 
-		h1: () =>
-			runCommand(
-				setBlockType(editorView.state.schema.nodes.heading, { level: 1 }),
-			)(),
+		h1: () => {
+			if (!editorView?.state.schema.nodes.heading) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.heading, { level: 1 }))();
+		},
 
-		h2: () =>
-			runCommand(
-				setBlockType(editorView.state.schema.nodes.heading, { level: 2 }),
-			)(),
+		h2: () => {
+			if (!editorView?.state.schema.nodes.heading) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.heading, { level: 2 }))();
+		},
 
-		h3: () =>
-			runCommand(
-				setBlockType(editorView.state.schema.nodes.heading, { level: 3 }),
-			)(),
+		h3: () => {
+			if (!editorView?.state.schema.nodes.heading) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.heading, { level: 3 }))();
+		},
 
-		bulletList: () =>
-			runCommand(wrapInList(editorView.state.schema.nodes.bullet_list))(),
+		bulletList: () => {
+			if (!editorView?.state.schema.nodes.bullet_list) return;
+			runCommand(wrapInList(editorView.state.schema.nodes.bullet_list))();
+		},
 
-		orderedList: () =>
-			runCommand(wrapInList(editorView.state.schema.nodes.ordered_list))(),
+		orderedList: () => {
+			if (!editorView?.state.schema.nodes.ordered_list) return;
+			runCommand(wrapInList(editorView.state.schema.nodes.ordered_list))();
+		},
 
-		codeBlock: () =>
-			runCommand(setBlockType(editorView.state.schema.nodes.code_block))(),
+		codeBlock: () => {
+			if (!editorView?.state.schema.nodes.code_block) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.code_block))();
+		},
 
-		toggleBold: () =>
-			runCommand(toggleMark(editorView.state.schema.marks.strong))(),
+		toggleBold: () => {
+			if (!editorView?.state.schema.marks.strong) return;
+			runCommand(toggleMark(editorView.state.schema.marks.strong))();
+		},
 
-		toggleItalic: () =>
-			runCommand(toggleMark(editorView.state.schema.marks.em))(),
+		toggleItalic: () => {
+			if (!editorView?.state.schema.marks.em) return;
+			runCommand(toggleMark(editorView.state.schema.marks.em))();
+		},
 
-		setTextColor: (color) =>
-			runCommand(
-				toggleMark(editorView.state.schema.marks.textColor, { color }),
-			)(),
+		setTextColor: (color: string) => {
+			if (!editorView?.state.schema.marks.textColor) return;
+			runCommand(toggleMark(editorView.state.schema.marks.textColor, { color }))();
+		},
 	};
 </script>
 
@@ -262,7 +276,10 @@
 			I
 		</button>
 		<select
-			on:change="{(e) => commands.setTextColor(e.target.value)}"
+			on:change="{(e: Event) => {
+				const target = e.target as HTMLSelectElement;
+				if (target) commands.setTextColor(target.value);
+			}}"
 			title="Text color">
 			<option value="">Color</option>
 			<option value="#000000">Black</option>

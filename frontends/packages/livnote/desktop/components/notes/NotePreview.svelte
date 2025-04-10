@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { EditorState } from "prosemirror-state";
@@ -8,13 +8,13 @@
 	import * as Y from "yjs";
 
 	export let content = "";
-	export let title = "";
+	export const title: string = "";
 	export let editorState = null;
 	export let yjsState = null;
 	export let maxHeight = "180px";
 	export let minHeight = "180px";
 
-	let element;
+	let element: HTMLElement | null = null;
 	let view;
 
 	// Initialize the preview on mount

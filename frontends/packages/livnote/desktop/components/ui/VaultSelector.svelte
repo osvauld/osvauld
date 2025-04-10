@@ -1,13 +1,20 @@
-<script>
+<script lang="ts">
 	import { fly } from "svelte/transition";
-	import MobileHome from "@osvauld/password-manager-common/icons/mobileHome.svelte";
-	import { vaults, currentVault } from "../../store/desktop.ui.store";
 	import { createEventDispatcher, onMount } from "svelte";
+	import { MobileHome } from "@osvauld/password-manager-common";
+	import { vaults, currentVault } from "../../store/desktop.ui.store";
 
-	const dispatch = createEventDispatcher();
+	interface Vault {
+		id: string;
+		name: string;
+	}
 
-	const handleVaultSelection = (vault) => {
-		dispatch("select", vault);
+	const dispatch = createEventDispatcher<{
+		select: { vault: Vault };
+	}>();
+
+	const handleVaultSelection = (vault: Vault): void => {
+		dispatch("select", { vault });
 	};
 </script>
 
@@ -23,8 +30,8 @@
 				class="text-osvauld-dangerRed text-lg h-10 w-full p-2 flex justify-center items-center"
 				>Please Add Vault to Proceed</span>
 		{:else}
-			{#each $vaults.filter((vault) => vault.id !== "all") as vault (vault.id)}
-				{@const isActive = $currentVault.id === vault.id}
+			{#each $vaults.filter((vault: Vault) => vault.id !== "all") as vault (vault.id)}
+				{@const isActive: boolean = $currentVault.id === vault.id}
 				<button
 					class="h-[48px] p-4 text-mobile-textPrimary flex items-center rounded-lg hover:bg-osvauld-frameblack"
 					class:bg-mobile-bgLight={isActive}

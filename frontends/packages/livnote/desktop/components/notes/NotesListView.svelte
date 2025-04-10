@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import {
 		selectedCategory,
 		currentVault,
@@ -13,14 +13,36 @@
 	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
 	import NotePreview from "./NotePreview.svelte";
-	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
-	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
+	import { FavStar as Star, Star as EmptyStar  } from "@osvauld/password-manager-common";
 	import { onMount, onDestroy } from "svelte";
+	import type { Writable } from "svelte/store";
+	import { get } from "svelte/store";
 
-	export let favSelected;
-	let updatedNotes = [];
-	let isLoading = true;
-	let error = null;
+	interface NoteData {
+		title?: string;
+		content?: string;
+		last_modified?: number;
+		last_accessed?: number;
+		editor_state?: string | Record<string, unknown>;
+		yjs_state?: Uint8Array | number[];
+	}
+
+	interface Note {
+		id: string;
+		data: NoteData;
+		favourite?: boolean;
+	}
+
+	interface Vault {
+		id: string;
+		name: string;
+		description?: string;
+	}
+
+	export let favSelected: boolean = false;
+	let updatedNotes: Note[] = [];
+	let isLoading: boolean = true;
+	let error: string | null = null;
 
 	$: updatedNotes = $notes;
 
@@ -28,32 +50,32 @@
 	const fetchNotes = async () => {
 		isLoading = true;
 		error = null;
-		let fetchedNotes = [];
+		let fetchedNotes: Note[] = [];
 
 		try {
-			if ($currentVault.id === "all") {
+			const currentVaultValue = get(currentVault) as Vault;
+			if (currentVaultValue.id === "all") {
 				fetchedNotes = await sendMessage("getAllCredentials", {
 					favourite: false,
 				});
 			} else {
 				fetchedNotes = await sendMessage("getCredentialsForFolder", {
-					folderId: $currentVault.id,
+					folderId: currentVaultValue.id,
 				});
 			}
 
 			// Filter for valid notes only
 			fetchedNotes = fetchedNotes.filter(
-				(cred) => cred.data && cred.data.content && cred.data.editor_state,
+				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
-			fetchedNotes.sort((a, b) => {
+			fetchedNotes.sort((a: Note, b: Note) => {
 				const timeA = a.data.last_accessed || a.data.last_modified || 0;
 				const timeB = b.data.last_accessed || b.data.last_modified || 0;
 				return timeB - timeA;
 			});
 			console.log("fetched notest", fetchedNotes);
-			//updatedNotes = fetchedNotes;
 			notes.set(fetchedNotes);
 		} catch (err) {
 			console.error("Error fetching notes:", err);
@@ -66,19 +88,19 @@
 
 	$: {
 		updatedNotes = favSelected
-			? $notes.filter((note) => note.favourite)
+			? $notes.filter((note: Note) => note.favourite)
 			: $notes;
 	}
 
 	// Function to toggle favorite status
-	const toggleFavorite = async (noteId, currentStatus) => {
+	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
 		try {
 			await sendMessage("toggleFav", {
 				resourceId: noteId,
 			});
 
 			// Update local state
-			const notesWithFavToggleChange = $notes.map((cred) => {
+			const notesWithFavToggleChange = $notes.map((cred: Note) => {
 				if (cred.id === noteId) {
 					return {
 						...cred,
@@ -98,7 +120,7 @@
 	};
 
 	// Function to handle note selection
-	const selectNote = (note) => {
+	const selectNote = (note: Note) => {
 		currentNote.set(note);
 
 		// First reset the note view to ensure clean state
@@ -115,27 +137,27 @@
 	};
 
 	// Watch for changes to currentVault
-	$: if ($currentVault) {
+	$: if (get(currentVault)) {
 		fetchNotes();
 	}
 
 	// Watch for refresh requests
-	$: if ($refreshCredentialList) {
+	$: if (get(refreshCredentialList)) {
 		fetchNotes();
 		refreshCredentialList.set(false);
 	}
 
 	// Calculate grid layout
-	const getColumnCount = () => {
+	const getColumnCount = (): number => {
 		if (typeof window === "undefined") return 1;
 		if (window.innerWidth >= 1440) return 3;
 		if (window.innerWidth >= 1024) return 2;
 		return 1;
 	};
 
-	const getColumnItems = (items, colIndex) => {
+	const getColumnItems = (items: Note[], colIndex: number): Note[] => {
 		const colCount = getColumnCount();
-		return items.filter((_, index) => index % colCount === colIndex);
+		return items.filter((_, index: number) => index % colCount === colIndex);
 	};
 
 	// onMount(() => {
@@ -191,7 +213,7 @@
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
 										on:click|stopPropagation={() =>
-											toggleFavorite(note.id, note.favourite)}>
+											toggleFavorite(note.id, note.favourite ?? false)}>
 										{#if note.favourite}
 											<Star />
 										{:else}
@@ -202,11 +224,10 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-
-										content="{note.data.content}"
-										title="{note.data.title}"
-										editorState="{note.data.editor_state}"
-										yjsState="{note.data.yjs_state}"
+										content={note.data.content ?? ""}
+										title={note.data.title ?? ""}
+										editorState={typeof note.data.editor_state === 'string' ? JSON.parse(note.data.editor_state) : note.data.editor_state}
+										yjsState={note.data.yjs_state instanceof Uint8Array ? Array.from(note.data.yjs_state) : note.data.yjs_state}
 										maxHeight="180px"
 										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

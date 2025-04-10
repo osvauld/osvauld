@@ -7,47 +7,62 @@
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import { listen, emit } from "@tauri-apps/api/event";
 	import { noteViewLayout } from "../../store/desktop.ui.store";
-	import { mergeDocuments } from "../notes/documentUtils.ts";
+	import { mergeDocuments } from "../notes/documentUtils";
+
 	let unsubscribeResourceUpdate: Function | null = null;
+	
+	// Define types for the event payload and other data structures
+	interface MergeUpdatePayload {
+		local_resource: any;
+		remote_resource: any;
+		device_id: string;
+		user_id: string;
+		vector_clock: any;
+	}
+	
+	interface Vault {
+		id: string;
+		name: string;
+	}
+	
+	// Define type for merged document
+	interface MergedDocument {
+		resource_id: string;
+		[key: string]: any;
+	}
+	
 	onMount(async () => {
 		try {
-			console.log("default layout mounted");
-			const resp = await sendMessage("getFolder");
-			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
-			vaults.set(updatedVaults);
+			const resp: any[] = await sendMessage("getFolder");
+			
+			// Create a properly typed array by spreading any[] response into a typed array
+			const defaultVault: Vault = { id: "all", name: "All Vaults" };
+			const folderVaults: Vault[] = resp.map(item => ({ id: item.id || "", name: item.name || "" }));
+			const updatedVaults = [defaultVault, ...folderVaults];
+			
+			// Update the vaults store with properly typed data
+			vaults.update(() => updatedVaults as any);
 
 			unsubscribeResourceUpdate = await listen(
 				"merge-update",
 				async (event) => {
 					console.log(event);
+					const payload = event.payload as MergeUpdatePayload;
 					let mergedDocument = mergeDocuments(
-						event.payload.local_resource,
-						event.payload.remote_resource,
-					);
+						payload.local_resource,
+						payload.remote_resource,
+					) as MergedDocument;
+					
 					emit("merge-complete", {
 						mergedDocument,
-						deviceId: event.payload.device_id,
-						userId: event.payload.user_id,
-						vectorClock: event.payload.vector_clock,
+						deviceId: payload.device_id,
+						userId: payload.user_id,
+						vectorClock: payload.vector_clock,
 						resourceId: mergedDocument.resource_id,
 					});
 					console.log(mergedDocument);
 				},
 			);
-			// let connectionTicket = "";
-			// let certificate = "";
-			// let recoveryString = "";
-			// await sendMessage("startP2PListner");
-			// connectionTicket = await sendMessage("getTicket");
-			// // TODO: change the passphrase to the actual password
-			// certificate = await sendMessage("exportCertificate", {
-			// 	passphrase: "test",
-			// });
-			// recoveryString = JSON.stringify({
-			// 	ticket: connectionTicket,
-			// 	certificate: certificate,
-			// });
-			// console.log(recoveryString);
 		} catch (e) {
 			console.log("Error received ===>", e);
 		}

@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { onMount } from "svelte";
+	import { setContext } from "svelte";
 	import {
 		currentVault,
 		noteViewLayout,
@@ -9,58 +11,75 @@
 		notes,
 		deleteConfirmationModal,
 	} from "../../store/desktop.ui.store";
-	import { extractTitle, getLastModifiedDate } from "../utils/helper";
-	import { pdfGenerator } from "../utils/pdfGenerator";
-	import Menu from "@osvauld/password-manager-common/icons/verticalMenu.svelte";
-	import Bin from "@osvauld/password-manager-common/icons/binIcon.svelte";
-	import EmptyStar from "@osvauld/password-manager-common/icons/star.svelte";
-	import Star from "@osvauld/password-manager-common/icons/favStar.svelte";
-	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
-	import DownloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
-	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
-	import BackArrow from "@osvauld/password-manager-common/icons/backArrow.svelte";
-	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import NotesListView from "../notes/NotesListView.svelte";
-	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
-	import VaultManager from "../ui/VaultManager.svelte";
-
-	import { MobileHome, Tick, Add } from "@osvauld/password-manager-common";
+	import { MobileHome, Add, VerticalMenu as Menu, BinIcon as Bin, Star as EmptyStar, FavStar as Star, CopyIcon, DownloadIcon, UserPlus, Tick, BackArrow, RightArrow as Arrow} from "@osvauld/password-manager-common";
 	import { sendMessage } from "@osvauld/password-manager-common";
-	import { notesInstance } from "../notes/notes";
-	import { onMount } from "svelte";
-	import { setContext } from "svelte";
+
+	import NotesListView from "../notes/NotesListView.svelte";
+	import VaultManager from "../ui/VaultManager.svelte";
 	import ShareNote from "../modals/ShareNote.svelte";
 	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
 
-	let userId;
+	import { notesInstance } from "../notes/notes";
+	import { extractTitle, getLastModifiedDate } from "../utils/helper";
+	import { pdfGenerator } from "../utils/pdfGenerator";
+	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
+
+	interface NoteData {
+		title?: string;
+		content?: string;
+		last_modified?: number;
+		last_accessed?: number;
+	}
+
+	interface Note {
+		id: string;
+		data: NoteData;
+		favourite?: boolean;
+	}
+
+	interface User {
+		id: string;
+		publicKey: string;
+	}
+
+	interface ToastMessage {
+		show: boolean;
+		message: string;
+		success: boolean;
+	}
+
+	// Type assertions for store values
+	$: currentNoteValue = $currentNote as Note;
+	$: notesValue = $notes as Note[];
+	$: notesStore = notes as unknown as { set: (value: Note[]) => void };
+
+	let userId: string;
 	let addCredentialHovered = false;
 	let deleteBtnHoved = false;
 	let vaultManagerActive = false;
 	let selectedSection = "home";
 	let showShareList = false;
-	let shareUserList = [];
+	let shareUserList: User[] = [];
 	let favSelected = false;
 	let noteCopied = false;
 	let newNoteTitle = "";
 	let isEditingTitle = false;
-	let inputRef;
+	let inputRef: HTMLInputElement | null = null;
 	let showDownloadTooltip = false;
 	let isPdfGenerating = false;
-	$: isFavourite = $currentNote.favourite;
+	$: isFavourite = currentNoteValue?.favourite ?? false;
 
-	let saveNoteAndSwitch = () => {};
-	let saveNoteWithNewTitle = () => {};
+	let saveNoteAndSwitch: () => void = () => {};
+	let saveNoteWithNewTitle: () => void = () => {};
 
-	setContext("saveNoteAndSwitchFunction", (fn) => (saveNoteAndSwitch = fn));
+	setContext("saveNoteAndSwitchFunction", (fn: () => void) => (saveNoteAndSwitch = fn));
 	setContext(
 		"saveNoteWithNewTitleFunction",
-		(fn) => (saveNoteWithNewTitle = fn),
+		(fn: () => void) => (saveNoteWithNewTitle = fn),
 	);
 
 	function startEditingTitle() {
-		newNoteTitle = $currentNote?.data.title
-			? $currentNote.data.title
-			: "Untitled note";
+		newNoteTitle = currentNoteValue?.data?.title ?? "Untitled note";
 		isEditingTitle = true;
 
 		// Focus the input after the DOM updates
@@ -74,12 +93,11 @@
 
 	function saveTitle() {
 		if (newNoteTitle.trim()) {
-			// Replace this with your actual save logic
 			currentNote.set({
-				...$currentNote,
+				...currentNoteValue,
 				data: {
-					...$currentNote.data, // Preserve existing properties inside data
-					title: newNoteTitle, // Update or add the title property
+					...currentNoteValue?.data,
+					title: newNoteTitle,
 				},
 			});
 
@@ -88,7 +106,7 @@
 		isEditingTitle = false;
 	}
 
-	function handleKeydown(event) {
+	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Enter") {
 			saveTitle();
 		} else if (event.key === "Escape") {
@@ -105,7 +123,7 @@
 				show: true,
 				message: "Please add users to enable collaboration",
 				success: false,
-			});
+			} as ToastMessage);
 		}
 	};
 
@@ -115,7 +133,7 @@
 		showShareList = false;
 	};
 
-	const handleFilterSelection = (section) => {
+	const handleFilterSelection = (section: string) => {
 		selectedSection = section;
 		favSelected = section === "favourites";
 	};
@@ -136,21 +154,16 @@
 				show: true,
 				message: "Please add/select folder",
 				success: false,
-			});
+			} as ToastMessage);
 			return;
 		}
 
 		try {
-			// Create note with initialized state in a single operation
 			const note = await notesInstance.createNote({
 				folderId: $currentVault.id,
-				userId,
 			});
 
-			// Set the note ID in the store
 			noteId.set(note);
-
-			// Update the view to show the editor
 			noteViewLayout.set(true);
 		} catch (error) {
 			console.error("Error creating note:", error);
@@ -158,38 +171,34 @@
 				show: true,
 				message: "Failed to create note",
 				success: false,
-			});
+			} as ToastMessage);
 		}
 	};
 
-	// Add this function to NotesWorkspace.svelte
 	const handleCopyNote = async () => {
-		if (!$currentNote || !$currentNote?.data) {
+		if (!currentNoteValue?.data) {
 			toastStore.set({
 				show: true,
 				message: "No note content to copy",
 				success: false,
-			});
+			} as ToastMessage);
 			return;
 		}
 
 		try {
-			// Get editor content as HTML by communicating with RichTextEditor component
-			// Using a custom event to get content
 			const copyEvent = new CustomEvent("request-editor-content");
 			document.dispatchEvent(copyEvent);
 			noteCopied = true;
 			setTimeout(() => {
 				noteCopied = false;
 			}, 1000);
-			// The response will come via a different event handler we'll add next
 		} catch (error) {
 			console.error("Error copying note:", error);
 			toastStore.set({
 				show: true,
 				message: "Failed to copy note content",
 				success: false,
-			});
+			} as ToastMessage);
 		}
 	};
 
@@ -197,10 +206,10 @@
 		isFavourite = !isFavourite;
 		try {
 			await sendMessage("toggleFav", {
-				resourceId: $currentNote.id,
+				resourceId: currentNoteValue?.id,
 			});
-			const notesWithFavToggleChange = $notes.map((cred) => {
-				if (cred.id === $currentNote.id) {
+			const notesWithFavToggleChange = notesValue.map((cred) => {
+				if (cred.id === currentNoteValue?.id) {
 					return {
 						...cred,
 						data: {
@@ -211,30 +220,29 @@
 				}
 				return cred;
 			});
-			notes.set(notesWithFavToggleChange);
+			notesStore.set(notesWithFavToggleChange);
 		} catch (err) {
 			console.error("Error toggling favorite:", err);
 		}
 	};
 
 	const handleDownloadPdf = async () => {
-		if (!$currentNote || !$currentNote?.data) {
+		if (!currentNoteValue?.data) {
 			toastStore.set({
 				show: true,
 				message: "No note content to download",
 				success: false,
-			});
+			} as ToastMessage);
 			return;
 		}
 
-		// Add loading indicator state
 		isPdfGenerating = true;
 		const pdfStatus = await pdfGenerator(
-			$currentNote?.data.content,
-			$currentNote.data.title,
+			currentNoteValue.data.content ?? "",
+			currentNoteValue.data.title ?? "Untitled",
 		);
 		console.log("pdf status =>", pdfStatus);
-		toastStore.set(pdfStatus);
+		toastStore.set(pdfStatus as ToastMessage);
 		isPdfGenerating = false;
 	};
 
@@ -269,9 +277,9 @@
 							role="button"
 							tabindex="0"
 							class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
-							on:dblclick={startEditingTitle}
-							on:keydown={(e) => e.key === "Enter" && startEditingTitle()}>
-							{$currentNote?.data?.title || "Untitled"}
+							on:dblclick="{startEditingTitle}"
+							on:keydown="{(e) => e.key === 'Enter' && startEditingTitle()}">
+							{currentNoteValue?.data?.title || "Untitled"}
 						</span>
 					{/if}
 
@@ -409,10 +417,6 @@
 						</div>
 					{/if}
 				</div>
-				<!-- <button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive">
-					<Menu />
-				</button> -->
 			</div>
 
 			<div class="flex-1 w-full">
@@ -440,10 +444,10 @@
 			<div
 				class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
 				<p class="text-statusColor">
-					Last edited : {$currentNote?.data
+					Last edited : {currentNoteValue?.data
 						? getLastModifiedDate(
-								$currentNote.data.last_modified ||
-									$currentNote.data.last_accessed,
+								currentNoteValue.data.last_modified ||
+									currentNoteValue.data.last_accessed,
 							)
 						: "Not available"}
 				</p>

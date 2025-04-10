@@ -1,36 +1,36 @@
 <script lang="ts">
 	import { slide, fly, blur } from "svelte/transition";
-	import Add from "@osvauld/password-manager-common/icons/add.svelte";
-	import MobileHome from "@osvauld/password-manager-common/icons/mobileHome.svelte";
+	import { Add, MobileHome} from "@osvauld/password-manager-common";
 	import { onMount, onDestroy } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	import {
 		vaults,
 		currentVault,
 		noteViewLayout,
+		type Vault
 	} from "../../store/desktop.ui.store";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
-	export let vaultManagerActive;
+	export let vaultManagerActive: boolean;
 	export let instance = "content";
 	let newVaultInputActive = false;
 	let newVaultName = "";
 
-	const autofocus = (node) => {
+	const autofocus = (node: HTMLElement) => {
 		node.focus();
 	};
 
 	const fetchAllVaults = async () => {
 		try {
-			const resp = await sendMessage("getFolder");
-			const updatedVaults = [{ id: "all", name: "All Vaults" }, ...resp];
+			const resp = await sendMessage("getFolder") as Vault[];
+			const updatedVaults: Vault[] = [{ id: "all", name: "All Vaults" }, ...resp];
 			vaults.set(updatedVaults);
 		} catch (e) {
 			console.log("Error received", e);
 		}
 	};
 
-	const handleVaultCreation = async (event) => {
+	const handleVaultCreation = async (event: Event) => {
 		event.preventDefault();
 		try {
 			await sendMessage("addFolder", {
@@ -42,18 +42,21 @@
 		}
 
 		await fetchAllVaults();
-		currentVault.set($vaults.find((vault) => vault.name === newVaultName));
+		const newVault = $vaults.find((vault) => vault.name === newVaultName);
+		if (newVault) {
+			currentVault.set(newVault);
+		}
 		newVaultName = "";
 		vaultManagerActive = false;
 	};
 
-	const handleVaultSwitch = (vault) => {
+	const handleVaultSwitch = (vault: Vault) => {
 		currentVault.set(vault);
 		vaultManagerActive = false;
 		noteViewLayout.set(false);
 	};
 
-	const handleNewVaultInput = (e) => {
+	const handleNewVaultInput = (e: Event) => {
 		e.preventDefault();
 		e.stopPropagation();
 		newVaultInputActive = !newVaultInputActive;
@@ -66,13 +69,13 @@
 
 <div
 	class="fixed inset-0 bg-transparent z-[999]"
+	role="presentation"
 	on:click="{() => (vaultManagerActive = false)}">
 	<div
 		class="{`absolute  w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${instance === 'content' ? 'top-56 left-11 ' : 'top-56 left-4'}`}"
 		style="width: calc(360px - 2rem);"
 		id="vaultSelector"
-		in:fly
-		on:click|stopPropagation>
+		in:fly>
 		<div class="h-full flex flex-col">
 			<div class="flex-1 overflow-y-auto space-y-2 scrollbar-thin p-1">
 				{#each $vaults as vault (vault.id)}

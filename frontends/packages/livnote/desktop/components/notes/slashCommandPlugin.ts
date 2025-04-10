@@ -9,14 +9,7 @@ import { EditorView } from "prosemirror-view";
 import { setBlockType, wrapIn, toggleMark } from "prosemirror-commands";
 import { Schema } from "prosemirror-model";
 import { wrapInList } from "prosemirror-schema-list";
-
-// Structure for command items
-export interface SlashCommandItem {
-	title: string;
-	description?: string;
-	icon?: string;
-	command: (state: EditorState, dispatch: any, view: EditorView) => boolean;
-}
+import type { SlashCommandItem } from "../../types/editor.types";
 
 // Plugin key for external access
 export const slashCommandKey = new PluginKey("slash-command");
