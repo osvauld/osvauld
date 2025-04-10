@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
         compilerOptions: {
           dev: isDev,
           hmr: isDev,
-          runes: false,
+          runes: true,
         },
       }),
     ],

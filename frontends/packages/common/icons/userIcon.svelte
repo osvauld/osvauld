@@ -1,5 +1,5 @@
-<script>
-	export let color;
+<script lang="ts">
+	let { color } = $props();
 </script>
 
 <svg

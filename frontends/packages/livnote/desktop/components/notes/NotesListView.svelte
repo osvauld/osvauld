@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run, stopPropagation } from "svelte/legacy";
+
 	import {
 		selectedCategory,
 		currentVault,
@@ -13,9 +15,10 @@
 	import { emit } from "@tauri-apps/api/event";
 	import RichTextEditor from "./RichTextEditor.svelte";
 	import NotePreview from "./NotePreview.svelte";
-	import { FavStar as Star, Star as EmptyStar  } from "@osvauld/password-manager-common";
-	import { onMount, onDestroy } from "svelte";
-	import type { Writable } from "svelte/store";
+	import {
+		FavStar as Star,
+		Star as EmptyStar,
+	} from "@osvauld/password-manager-common";
 	import { get } from "svelte/store";
 
 	interface NoteData {
@@ -39,12 +42,18 @@
 		description?: string;
 	}
 
-	export let favSelected: boolean = false;
-	let updatedNotes: Note[] = [];
-	let isLoading: boolean = true;
-	let error: string | null = null;
+	interface Props {
+		favSelected?: boolean;
+	}
 
-	$: updatedNotes = $notes;
+	let { favSelected = false }: Props = $props();
+	let updatedNotes: Note[] = $state([]);
+	let isLoading: boolean = $state(true);
+	let error: string | null = $state(null);
+
+	run(() => {
+		updatedNotes = $notes;
+	});
 
 	// Function to fetch notes based on the current vault
 	const fetchNotes = async () => {
@@ -66,7 +75,8 @@
 
 			// Filter for valid notes only
 			fetchedNotes = fetchedNotes.filter(
-				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
+				(cred: Note) =>
+					cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
@@ -86,11 +96,11 @@
 		}
 	};
 
-	$: {
+	run(() => {
 		updatedNotes = favSelected
 			? $notes.filter((note: Note) => note.favourite)
 			: $notes;
-	}
+	});
 
 	// Function to toggle favorite status
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
@@ -137,15 +147,19 @@
 	};
 
 	// Watch for changes to currentVault
-	$: if (get(currentVault)) {
-		fetchNotes();
-	}
+	run(() => {
+		if (get(currentVault)) {
+			fetchNotes();
+		}
+	});
 
 	// Watch for refresh requests
-	$: if (get(refreshCredentialList)) {
-		fetchNotes();
-		refreshCredentialList.set(false);
-	}
+	run(() => {
+		if (get(refreshCredentialList)) {
+			fetchNotes();
+			refreshCredentialList.set(false);
+		}
+	});
 
 	// Calculate grid layout
 	const getColumnCount = (): number => {
@@ -203,7 +217,7 @@
 							<div
 								role="presentation"
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
-								on:click={() => selectNote(note)}>
+								onclick={() => selectNote(note)}>
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
@@ -212,8 +226,9 @@
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
-										on:click|stopPropagation={() =>
-											toggleFavorite(note.id, note.favourite ?? false)}>
+										onclick={stopPropagation(() =>
+											toggleFavorite(note.id, note.favourite ?? false),
+										)}>
 										{#if note.favourite}
 											<Star />
 										{:else}
@@ -226,8 +241,12 @@
 									<NotePreview
 										content={note.data.content ?? ""}
 										title={note.data.title ?? ""}
-										editorState={typeof note.data.editor_state === 'string' ? JSON.parse(note.data.editor_state) : note.data.editor_state}
-										yjsState={note.data.yjs_state instanceof Uint8Array ? Array.from(note.data.yjs_state) : note.data.yjs_state}
+										editorState={typeof note.data.editor_state === "string"
+											? JSON.parse(note.data.editor_state)
+											: note.data.editor_state}
+										yjsState={note.data.yjs_state instanceof Uint8Array
+											? Array.from(note.data.yjs_state)
+											: note.data.yjs_state}
 										maxHeight="180px"
 										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

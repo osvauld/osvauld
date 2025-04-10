@@ -1,22 +1,16 @@
-
 <script lang="ts">
-	// This component is just for the passphrase entry
 	import Eye from "../icons/eye.svelte";
 	import Loader from "./Loader.svelte";
-	import { createEventDispatcher } from "svelte";
 	import ClosedEye from "../icons/closedEye.svelte";
 	import { sendMessage } from "../utils/helper";
 	import { StorageService } from "../utils/storageHelper";
-	const dispatch = createEventDispatcher();
+	let { authenticated } = $props();
+	let passphrase = $state("");
+	let showPassword = $state(false);
+	let errorMessage = $state(false);
+	let isLoaderActive = $state(false);
+	let inputElem: any = $state();
 
-	let passphrase = "";
-	let showPassword = false;
-	let errorMessage = false;
-	let isLoaderActive = false;
-	let inputElem: any;
-	
-	export let passwordReturn = false;
-	
 	function toggleShowPassword() {
 		showPassword = !showPassword;
 	}
@@ -29,17 +23,14 @@
 		node.focus();
 	}
 
-	$: type = showPassword ? "text" : "password";
+	let type = $derived(showPassword ? "text" : "password");
 
-	async function handleSubmit() {
+	async function handleSubmit(e: any) {
+		e.preventDefault();
 		isLoaderActive = true;
 		const pubkey = await sendMessage("login", { passphrase });
 		if (pubkey) {
-			if (passwordReturn) {
-				dispatch("passphraseCollected", passphrase);
-			} else {
-				dispatch("authenticated", true);
-			}
+			authenticated?.(true);
 		} else {
 			isLoaderActive = false;
 			errorMessage = true;
@@ -50,14 +41,13 @@
 			}, 1500);
 		}
 	}
-
 </script>
 
 <div
 	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey bg-osvauld-frameblack p-12 rounded-lg">
 	<form
 		class="flex flex-col justify-center items-center"
-		on:submit|preventDefault={handleSubmit}>
+		onsubmit={handleSubmit}>
 		<label for="passphrase">Enter Passphrase</label>
 
 		<div
@@ -70,11 +60,11 @@
 				value={passphrase}
 				use:autofocus
 				bind:this={inputElem}
-				on:input={onInput} />
+				oninput={onInput} />
 			<button
 				type="button"
 				class="flex justify-center items-center"
-				on:click={toggleShowPassword}>
+				onclick={toggleShowPassword}>
 				{#if showPassword}
 					<ClosedEye />
 				{:else}

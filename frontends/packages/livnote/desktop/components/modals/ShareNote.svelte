@@ -1,21 +1,27 @@
 <script lang="ts">
+	import { run, stopPropagation } from 'svelte/legacy';
+
 	import { onMount } from "svelte";
 
 	import { Lens, ClosePanel } from "@osvauld/password-manager-common";
 	import { toastStore } from "../../store/desktop.ui.store";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 
-	export let showShareList = false;
+	interface Props {
+		showShareList?: boolean;
+	}
+
+	let { showShareList = $bindable(false) }: Props = $props();
 	export const shareUserList: { id: string; publicKey: string }[] = [];
 	export const noteId: string = "";
-	let inputRef: HTMLInputElement;
+	let inputRef: HTMLInputElement = $state();
 	let MAX_ALLOWED_USERS = 1;
-	let selectedUsers: string[] = [];
-	let isFocused = false;
-	let query = "";
-	let focusedIndex = -1;
-	let items: HTMLButtonElement[] = [];
-	let availableCollaboratorsFiltered: Collaborator[] = [];
+	let selectedUsers: string[] = $state([]);
+	let isFocused = $state(false);
+	let query = $state("");
+	let focusedIndex = $state(-1);
+	let items: HTMLButtonElement[] = $state([]);
+	let availableCollaboratorsFiltered: Collaborator[] = $state([]);
 
 	interface Collaborator {
 		username: string;
@@ -24,13 +30,15 @@
 
 	let existingCollaboratiors = [];
 
-	let availableCollaborators = [];
+	let availableCollaborators = $state([]);
 
-	$: availableCollaboratorsFiltered = query
-		? availableCollaborators.filter((c) =>
-				c.username.toLowerCase().includes(query.toLowerCase()),
-			)
-		: availableCollaborators;
+	run(() => {
+		availableCollaboratorsFiltered = query
+			? availableCollaborators.filter((c) =>
+					c.username.toLowerCase().includes(query.toLowerCase()),
+				)
+			: availableCollaborators;
+	});
 
 	const selectCollaborator = (username: string): void => {
 		if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
@@ -188,7 +196,7 @@
 		<button
 			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 			aria-label="Close panel"
-			on:click={() => (showShareList = false)}>
+			onclick={() => (showShareList = false)}>
 			<ClosePanel />
 		</button>
 	</div>
@@ -197,7 +205,7 @@
 	<button
 		type="button"
 		class="h-[2.75rem] w-full mt-4 mb-1.5 px-3 py-2 gap-1 flex justify-start items-center border border-osvauld-iconblack focus-within:border-osvauld-activeBorder rounded-lg cursor-pointer"
-		on:click|stopPropagation={autofocus}
+		onclick={stopPropagation(autofocus)}
 		aria-label="Search for collaborators">
 		<span class="shrink-0 mr-2">
 			<Lens color={isFocused ? "#67697C" : "#30363D"} />
@@ -221,8 +229,8 @@
 			autocomplete="off"
 			aria-controls="collaborators-listbox"
 			aria-autocomplete="list"
-			on:focusin={() => (isFocused = true)}
-			on:focusout={(event) => {
+			onfocusin={() => (isFocused = true)}
+			onfocusout={(event) => {
 				if (
 					event.relatedTarget &&
 					event.relatedTarget instanceof Element &&
@@ -232,7 +240,7 @@
 				}
 				isFocused = false;
 			}}
-			on:keydown={handleKeyDown}
+			onkeydown={handleKeyDown}
 			bind:this={inputRef}
 			bind:value={query} />
 	</button>
@@ -304,10 +312,10 @@
 								aria-selected={focusedIndex === index}
 								tabindex={focusedIndex === index ? 0 : -1}
 								bind:this={items[index]}
-								on:mousedown|stopPropagation={(e) => {
+								onmousedown={stopPropagation((e) => {
 									e.preventDefault();
 									selectCollaborator(collaborator.username);
-								}}>
+								})}>
 								<span
 									class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
 									aria-hidden="true">
@@ -332,7 +340,7 @@
 			{#if selectedUsers.length !== 0}
 				<button
 					class="absolute bottom-5 left-0 mt-2 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
-					on:mousedown={handleCollaboratorSelection}>Add to collaborate</button>
+					onmousedown={handleCollaboratorSelection}>Add to collaborate</button>
 			{/if}
 		{/if}
 	</div>

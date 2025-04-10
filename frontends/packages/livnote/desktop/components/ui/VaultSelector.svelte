@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy';
+
 	import { fly } from "svelte/transition";
 	import { createEventDispatcher, onMount } from "svelte";
 	import { MobileHome } from "@osvauld/password-manager-common";
@@ -36,7 +38,7 @@
 					class="h-[48px] p-4 text-mobile-textPrimary flex items-center rounded-lg hover:bg-osvauld-frameblack"
 					class:bg-mobile-bgLight={isActive}
 					class:text-mobile-textTertiary={isActive}
-					on:click|stopPropagation={() => handleVaultSelection(vault)}>
+					onclick={stopPropagation(() => handleVaultSelection(vault))}>
 					<span><MobileHome color={isActive ? "#F2F2F0" : "#85889C"} /></span>
 					<span class="grow text-left pl-2 capitalize max-w-full truncate"
 						>{vault.name}</span>

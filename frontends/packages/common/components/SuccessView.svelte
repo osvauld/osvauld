@@ -1,6 +1,10 @@
-<script>
-	export let message = "";
-	export let status = true;
+<script lang="ts">
+	interface Props {
+		message?: string;
+		status?: boolean;
+	}
+
+	let { message = "", status = true }: Props = $props();
 	let changePassword = false;
 </script>
 

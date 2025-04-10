@@ -3,29 +3,41 @@
 	import ClosedEye from "../icons/closedEye.svelte";
 	import Loader from "./Loader.svelte";
 	import { sendMessage } from "../utils/helper";
-	import { createEventDispatcher } from "svelte";
-
 	import { StorageService } from "../utils/storageHelper";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
-	const dispatch = createEventDispatcher();
 
-	let username = "";
+	// Replace createEventDispatcher with callback props
+	let { onSignedUp } = $props();
 
-	let passphrase = "";
-	let confirmPassphrase = "";
-	let showFirstPassword = false;
-	let showSecondPassword = false;
-	let showPassphraseMismatchError = false;
-	let passphraseEmpty = false;
-	let isLoaderActive = false;
-	let isPassphraseAcceptable = false;
+	// Reactive state variables
+	let username = $state("");
+	let passphrase = $state("");
+	let confirmPassphrase = $state("");
+	let showFirstPassword = $state(false);
+	let showSecondPassword = $state(false);
+	let showPassphraseMismatchError = $state(false);
+	let passphraseEmpty = $state(false);
+	let isLoaderActive = $state(false);
+	let isPassphraseAcceptable = $state(false);
 
-	$: firstInputType = showFirstPassword ? "text" : "password";
-	$: secondInputType = showSecondPassword ? "text" : "password";
-	$: submitDisabled =
-		passphrase.length === 0 || passphrase !== confirmPassphrase;
+	// Derived values
+	let firstInputType = $derived(showFirstPassword ? "text" : "password");
+	let secondInputType = $derived(showSecondPassword ? "text" : "password");
+	let submitDisabled = $derived(
+		passphrase.length === 0 ||
+			passphrase !== confirmPassphrase ||
+			!isPassphraseAcceptable ||
+			username.length < 4,
+	);
 
-	const handlePassPhraseSubmit = async () => {
+	// Handle password strength changes from the validator component
+	const handleStrengthChange = (isAcceptable: boolean) => {
+		isPassphraseAcceptable = isAcceptable;
+	};
+
+	const handlePassPhraseSubmit = async (event) => {
+		event.preventDefault();
+
 		if (passphrase.length === 0 || username.length < 4) {
 			passphraseEmpty = true;
 			isLoaderActive = false;
@@ -34,7 +46,9 @@
 			}, 1500);
 			return;
 		}
+
 		isLoaderActive = true;
+
 		if (passphrase === confirmPassphrase) {
 			try {
 				const response = await sendMessage("savePassphrase", {
@@ -47,7 +61,8 @@
 
 				await StorageService.setIsLoggedIn("true");
 
-				dispatch("signedUp");
+				// Call the callback prop instead of dispatching an event
+				onSignedUp?.();
 			} catch (error) {
 				showPassphraseMismatchError = true;
 				isLoaderActive = false;
@@ -57,6 +72,7 @@
 			}
 		}
 	};
+
 	function onInput(event: any, type: string) {
 		if (type === "passphrase") passphrase = event.target.value;
 		else confirmPassphrase = event.target.value;
@@ -71,24 +87,24 @@
 
 <form
 	class="flex flex-col justify-center items-center"
-	on:submit|preventDefault="{handlePassPhraseSubmit}">
+	onsubmit={handlePassPhraseSubmit}>
 	<label for="passphrase" class="font-normal mt-6">Enter Passphrase</label>
 
 	<div
 		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
 		<input
 			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 outline-0 p-2 w-full"
-			type="{firstInputType}"
+			type={firstInputType}
 			autocomplete="off"
 			autocapitalize="off"
 			autocorrect="off"
 			id="password"
-			on:input="{(e) => onInput(e, 'passphrase')}" />
+			oninput={(e) => onInput(e, "passphrase")} />
 
 		<button
 			type="button"
 			class="flex justify-center items-center"
-			on:click="{() => togglePassword(true)}">
+			onclick={() => togglePassword(true)}>
 			{#if showFirstPassword}
 				<ClosedEye />
 			{:else}
@@ -96,24 +112,29 @@
 			{/if}
 		</button>
 	</div>
-	<PasswordStrengthValidator {passphrase} bind:isPassphraseAcceptable />
-	<label for="passphrase" class="font-normal">Confirm Passphrase</label>
+
+	<!-- Updated to use onStrengthChange callback instead of binding -->
+	<PasswordStrengthValidator
+		{passphrase}
+		onStrengthChange={handleStrengthChange} />
+
+	<label for="confirmPassphrase" class="font-normal">Confirm Passphrase</label>
 
 	<div
 		class="w-[300px] flex bg-osvauld-frameblack px-3 mt-4 border rounded-lg border-osvauld-iconblack">
 		<input
 			class="text-white bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:border-transparent focus:ring-0 p-2 outline-0 w-full"
-			type="{secondInputType}"
+			type={secondInputType}
 			autocomplete="off"
 			autocapitalize="off"
 			autocorrect="off"
-			id="password"
-			on:change="{(e) => onInput(e, 'confirmPassphrase')}" />
+			id="confirmPassphrase"
+			oninput={(e) => onInput(e, "confirmPassphrase")} />
 
 		<button
 			type="button"
 			class="flex justify-center items-center"
-			on:click="{() => togglePassword(false)}">
+			onclick={() => togglePassword(false)}>
 			{#if showSecondPassword}
 				<ClosedEye />
 			{:else}
@@ -131,8 +152,7 @@
 			autocapitalize="off"
 			autocorrect="off"
 			id="username"
-			disabled="{submitDisabled}"
-			bind:value="{username}" />
+			bind:value={username} />
 	</div>
 
 	{#if passphraseEmpty}
@@ -152,9 +172,9 @@
 			? 'border border-osvauld-iconblack text-osvauld-sheffieldgrey'
 			: 'bg-osvauld-carolinablue text-osvauld-ninjablack'} py-2 px-10 mt-8 rounded-lg font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
 		type="submit"
-		disabled="{submitDisabled}">
+		disabled={submitDisabled}>
 		{#if isLoaderActive}
-			<Loader size="{24}" color="#1F242A" duration="{1}" />
+			<Loader size={24} color="#1F242A" duration={1} />
 		{:else}
 			<span>Submit</span>
 		{/if}</button>

@@ -1,36 +1,28 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { setBlockType, toggleMark } from "prosemirror-commands";
 	import { wrapInList } from "prosemirror-schema-list";
 	import type { EditorView } from "prosemirror-view";
 	import type { NodeType, MarkType, Schema } from "prosemirror-model";
 
-	export let editorView: EditorView | null = null;
-	export let isDarkMode = false;
-
-	// These reactive statements track the active state of each formatting option
-	$: {
-		if (editorView) {
-			isH1 = isNodeActive("heading", { level: 1 });
-			isH2 = isNodeActive("heading", { level: 2 });
-			isH3 = isNodeActive("heading", { level: 3 });
-			isParagraph = isNodeActive("paragraph");
-			isBulletList = isNodeActive("bullet_list");
-			isOrderedList = isNodeActive("ordered_list");
-			isCodeBlock = isNodeActive("code_block");
-			isBold = isMarkActive("strong");
-			isItalic = isMarkActive("em");
-		}
+	interface Props {
+		editorView?: EditorView | null;
+		isDarkMode?: boolean;
 	}
 
-	let isH1 = false;
-	let isH2 = false;
-	let isH3 = false;
-	let isParagraph = false;
-	let isBulletList = false;
-	let isOrderedList = false;
-	let isCodeBlock = false;
-	let isBold = false;
-	let isItalic = false;
+	let { editorView = null, isDarkMode = $bindable(false) }: Props = $props();
+
+
+	let isH1 = $state(false);
+	let isH2 = $state(false);
+	let isH3 = $state(false);
+	let isParagraph = $state(false);
+	let isBulletList = $state(false);
+	let isOrderedList = $state(false);
+	let isCodeBlock = $state(false);
+	let isBold = $state(false);
+	let isItalic = $state(false);
 
 	// Check if a node type is active at the current selection
 	function isNodeActive(typeName: string, attrs: Record<string, any> = {}): boolean {
@@ -144,6 +136,20 @@
 			runCommand(toggleMark(editorView.state.schema.marks.textColor, { color }))();
 		},
 	};
+	// These reactive statements track the active state of each formatting option
+	run(() => {
+		if (editorView) {
+			isH1 = isNodeActive("heading", { level: 1 });
+			isH2 = isNodeActive("heading", { level: 2 });
+			isH3 = isNodeActive("heading", { level: 3 });
+			isParagraph = isNodeActive("paragraph");
+			isBulletList = isNodeActive("bullet_list");
+			isOrderedList = isNodeActive("ordered_list");
+			isCodeBlock = isNodeActive("code_block");
+			isBold = isMarkActive("strong");
+			isItalic = isMarkActive("em");
+		}
+	});
 </script>
 
 <style>
@@ -223,17 +229,17 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isParagraph}"
-			on:click="{commands.paragraph}"
+			onclick={commands.paragraph}
 			title="Normal text">
 			¶
 		</button>
-		<button class:active="{isH1}" on:click="{commands.h1}" title="Heading 1">
+		<button class:active="{isH1}" onclick={commands.h1} title="Heading 1">
 			H1
 		</button>
-		<button class:active="{isH2}" on:click="{commands.h2}" title="Heading 2">
+		<button class:active="{isH2}" onclick={commands.h2} title="Heading 2">
 			H2
 		</button>
-		<button class:active="{isH3}" on:click="{commands.h3}" title="Heading 3">
+		<button class:active="{isH3}" onclick={commands.h3} title="Heading 3">
 			H3
 		</button>
 	</div>
@@ -241,13 +247,13 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isBulletList}"
-			on:click="{commands.bulletList}"
+			onclick={commands.bulletList}
 			title="Bullet list">
 			•
 		</button>
 		<button
 			class:active="{isOrderedList}"
-			on:click="{commands.orderedList}"
+			onclick={commands.orderedList}
 			title="Numbered list">
 			1.
 		</button>
@@ -256,7 +262,7 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isCodeBlock}"
-			on:click="{commands.codeBlock}"
+			onclick={commands.codeBlock}
 			title="Code block">
 			&lt;/&gt;
 		</button>
@@ -265,21 +271,21 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isBold}"
-			on:click="{commands.toggleBold}"
+			onclick={commands.toggleBold}
 			title="Bold">
 			B
 		</button>
 		<button
 			class:active="{isItalic}"
-			on:click="{commands.toggleItalic}"
+			onclick={commands.toggleItalic}
 			title="Italic">
 			I
 		</button>
 		<select
-			on:change="{(e: Event) => {
+			onchange={(e: Event) => {
 				const target = e.target as HTMLSelectElement;
 				if (target) commands.setTextColor(target.value);
-			}}"
+			}}
 			title="Text color">
 			<option value="">Color</option>
 			<option value="#000000">Black</option>
@@ -293,7 +299,7 @@
 	<button
 		class="theme-switcher"
 		class:dark="{isDarkMode}"
-		on:click="{() => (isDarkMode = !isDarkMode)}">
+		onclick={() => (isDarkMode = !isDarkMode)}>
 		{isDarkMode ? "☀️" : "🌙"}
 	</button>
 </div>

@@ -22,8 +22,8 @@
 		passwordPromptModal,
 	} from "./store/desktop.ui.store";
 
-	let signedUp = false;
-	let isLoading = true;
+	let signedUp = $state(false);
+	let isLoading = $state(true);
 	let syncRole = ""; // Add this to store the role
 
 	const handleSignedUp = async () => {
@@ -96,26 +96,14 @@
 			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
-		<Signup
-			ImportComponent={DesktopImportPvtKey}
-			on:signedUp={handleSignedUp} />
+		<Signup ImportComponent={DesktopImportPvtKey} onSignedUp={handleSignedUp} />
 	{:else if $showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
 			<Welcome on:authenticated={handleAuthenticated} />
 		</div>
 	{:else}
-		<!-- <DocumentEditor /> -->
 		<DefaultLayout />
-		<!-- 
-			
-		{#if $addDeviceModal}
-		<AddDeviceView />
-		{/if}
-		
-		{#if $showSyncQr}
-		<Acceptor />
-		{/if}
-    -->
+
 		{#if $deleteConfirmationModal.show}
 			<DeleteConfirmationModal />
 		{/if}
@@ -123,19 +111,19 @@
 		{#if $passwordPromptModal.show}
 			<PasswordPromptModal
 				changePassword={$passwordPromptModal.isChangePassword}
-				on:close={handlePasswordModalClose} />
+				onClose={handlePasswordModalClose} />
 		{/if}
 
 		{#if $showAddUser}
 			<AddUserModal
-				on:userAdd={handleAddUser}
-				on:close={() => {
+				userAdd={handleAddUser}
+				close={() => {
 					showAddUser.set(false);
 				}} />
 		{/if}
 
 		{#if $showConnector}
-			<Connector on:close={handleConnectorClose} />
+			<Connector onClose={handleConnectorClose} />
 		{/if}
 
 		{#if $toastStore.show}

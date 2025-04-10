@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import {
 		onMount,
 		onDestroy,
@@ -24,43 +26,19 @@
 	const dispatch = createEventDispatcher<{
 		"collaboration-update": { noteId: string };
 	}>();
-	let element: HTMLElement | null = null;
-	let view: EditorView | null = null;
+	let element: HTMLElement | null = $state(null);
+	let view: EditorView | null = $state(null);
 	let autoSaveInterval: number | null = null;
 	let unsubscribeUpdate: UnlistenFn | null = null;
-	let isLoading = false;
-	let error: string | null = null;
-	let currentlyLoadedNoteId: string | null = null;
-	let loadingInProgress = false;
-	let saved = false;
+	let isLoading = $state(false);
+	let error: string | null = $state(null);
+	let currentlyLoadedNoteId: string | null = $state(null);
+	let loadingInProgress = $state(false);
+	let saved = $state(false);
 	const saveNoteAndSwitch = getContext<(callback: () => void) => void>("saveNoteAndSwitchFunction");
 	const saveNoteWithNewTitle = getContext<(callback: () => void) => void>("saveNoteWithNewTitleFunction");
 
-	// Listen for noteId changes and load the corresponding note
-	$: if (
-		$noteId &&
-		element &&
-		$noteId !== currentlyLoadedNoteId &&
-		!loadingInProgress
-	) {
-		loadNote($noteId);
-	}
 
-	$: if (saveNoteAndSwitch) {
-		saveNoteAndSwitch(() => {
-			if (view) {
-				notesInstance
-					.saveNote($currentNote?.data?.title || "Untitled")
-					.catch(console.error);
-			}
-
-			// Return to list view
-			noteViewLayout.set(false);
-
-			// Clear current note ID
-			currentlyLoadedNoteId = null;
-		});
-	}
 
 	const saveNoteManual = () => {
 		saved = true;
@@ -75,11 +53,6 @@
 		}, 1000);
 	};
 
-	$: if (saveNoteWithNewTitle) {
-		saveNoteWithNewTitle(() => {
-			saveNoteManual();
-		});
-	}
 
 	const fallbackCopy = (html: string): void => {
 		const tempElement = document.createElement("div");
@@ -359,6 +332,41 @@
 		prosemirrorInstanceDestructionHandle();
 		document.removeEventListener("request-editor-content", copyContentListener as EventListener);
 	});
+	run(() => {
+		if (saveNoteAndSwitch) {
+			saveNoteAndSwitch(() => {
+				if (view) {
+					notesInstance
+						.saveNote($currentNote?.data?.title || "Untitled")
+						.catch(console.error);
+				}
+
+				// Return to list view
+				noteViewLayout.set(false);
+
+				// Clear current note ID
+				currentlyLoadedNoteId = null;
+			});
+		}
+	});
+	// Listen for noteId changes and load the corresponding note
+	run(() => {
+		if (
+			$noteId &&
+			element &&
+			$noteId !== currentlyLoadedNoteId &&
+			!loadingInProgress
+		) {
+			loadNote($noteId);
+		}
+	});
+	run(() => {
+		if (saveNoteWithNewTitle) {
+			saveNoteWithNewTitle(() => {
+				saveNoteManual();
+			});
+		}
+	});
 </script>
 
 <style>
@@ -397,7 +405,7 @@
 
 		<div bind:this="{element}" class="h-full"></div>
 		<button
-			on:click="{saveNoteManual}"
+			onclick={saveNoteManual}
 			class="absolute z-10 top-6 right-5 w-32 border bg-[#16171f] border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"

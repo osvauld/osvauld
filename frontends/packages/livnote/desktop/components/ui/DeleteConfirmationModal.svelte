@@ -1,4 +1,6 @@
 <script>
+	import { preventDefault, stopPropagation } from 'svelte/legacy';
+
 	import { fly } from "svelte/transition";
 	import { onMount } from "svelte";
 
@@ -47,12 +49,12 @@
 
 <div
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px]"
-	on:click|preventDefault="{withdrawCredentialDeleteModal}"
+	onclick={preventDefault(withdrawCredentialDeleteModal)}
 	role="presentation">
 	<form
 		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[14rem] flex flex-col items-start justify-center gap-3"
 		in:fly
-		on:submit|preventDefault|stopPropagation="{deleteConfirmation}">
+		onsubmit={stopPropagation(preventDefault(deleteConfirmation))}>
 		<div class="flex justify-between items-center w-full">
 			<span class="text-[21px] font-medium text-osvauld-quarzowhite capitalize"
 				>Delete
@@ -61,7 +63,7 @@
 			</span>
 			<button
 				class="cursor-pointer p-2"
-				on:click|stopPropagation="{withdrawCredentialDeleteModal}">
+				onclick={stopPropagation(withdrawCredentialDeleteModal)}>
 				<ClosePanel />
 			</button>
 		</div>
@@ -83,11 +85,11 @@
 		<div class="flex justify-end items-center gap-4 w-full">
 			<button
 				class="font-medium text-base rounded-md py-[5px] px-[15px] text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
-				on:click="{withdrawCredentialDeleteModal}">Cancel</button>
+				onclick={withdrawCredentialDeleteModal}>Cancel</button>
 			<button
 				class="border border-osvauld-dangerRed py-[5px] px-[15px] text-base font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all"
 				type="submit"
-				on:click="{deleteConfirmation}"
+				onclick={deleteConfirmation}
 				>Delete {$deleteConfirmationModal.item}</button>
 		</div>
 	</form>

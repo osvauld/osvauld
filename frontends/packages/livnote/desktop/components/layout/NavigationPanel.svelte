@@ -1,7 +1,14 @@
 <script lang="ts">
+	import { run } from "svelte/legacy";
+
 	import { onMount } from "svelte";
 
-	import { RightArrow as Arrow, MobileHome as Home, Star, MobileNote } from "@osvauld/password-manager-common";
+	import {
+		RightArrow as Arrow,
+		MobileHome as Home,
+		Star,
+		MobileNote,
+	} from "@osvauld/password-manager-common";
 
 	import {
 		currentVault,
@@ -37,11 +44,11 @@
 
 	let selectedSection: string = "home";
 	let localSelectedCredential: number = 0;
-	let vaultManagerActive: boolean = false;
-	let hoveredCredential: string | null = null;
+	let vaultManagerActive: boolean = $state(false);
+	let hoveredCredential: string | null = $state(null);
 
-	let credentials: Note[] = [];
-	let isLoading: boolean = false;
+	let credentials: Note[] = $state([]);
+	let isLoading: boolean = $state(false);
 
 	// Async function to fetch credentials based on vault ID
 	async function fetchCredentials(vaultId: string) {
@@ -60,7 +67,8 @@
 
 			// Filter for notes only
 			credentials = fetchedCredentials.filter(
-				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
+				(cred: Note) =>
+					cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
@@ -84,20 +92,22 @@
 	}
 
 	// Watch for changes to currentVault
-	$: if ($currentVault && $currentVault.id) {
-		// Call the async function when vault changes
-		fetchCredentials($currentVault.id);
+	run(() => {
+		if ($currentVault && $currentVault.id) {
+			// Call the async function when vault changes
+			fetchCredentials($currentVault.id);
 
-		// Store Current vault for persisting
-		(async () => {
-			try {
-				const currentVaultString = JSON.stringify($currentVault);
-				await StorageService.setCurrentVault(currentVaultString);
-			} catch (error) {
-				console.error("Error storing vault:", error);
-			}
-		})();
-	}
+			// Store Current vault for persisting
+			(async () => {
+				try {
+					const currentVaultString = JSON.stringify($currentVault);
+					await StorageService.setCurrentVault(currentVaultString);
+				} catch (error) {
+					console.error("Error storing vault:", error);
+				}
+			})();
+		}
+	});
 
 	// Handle section changes
 	function handleSectionChange(section: string) {
@@ -120,7 +130,8 @@
 
 			// Filter for notes only
 			credentials = allCredentials.filter(
-				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
+				(cred: Note) =>
+					cred.data && cred.data.content && cred.data.editor_state,
 			);
 
 			// Sort by last accessed/modified (most recent first)
@@ -138,10 +149,12 @@
 	}
 
 	// Watch for refresh requests
-	$: if ($refreshSidePanel && $currentVault) {
-		fetchCredentials($currentVault.id);
-		refreshSidePanel.set(false);
-	}
+	run(() => {
+		if ($refreshSidePanel && $currentVault) {
+			fetchCredentials($currentVault.id);
+			refreshSidePanel.set(false);
+		}
+	});
 
 	// Load initial data
 	onMount(() => {
@@ -160,13 +173,13 @@
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
 			aria-expanded="false"
-			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+			onclick={() => (vaultManagerActive = !vaultManagerActive)}>
 			<span class="flex-1 truncate text-left py-1"
 				>{$currentVault.id === "all" ? "All Vaults" : $currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {vaultManagerActive
 					? '-rotate-90'
-					: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
+					: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 			></button>
 		{#if vaultManagerActive}
 			<VaultManager bind:vaultManagerActive instance="nav" />
@@ -227,13 +240,12 @@
 							{hoveredOrSelected
 							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:mouseenter="{() => (hoveredCredential = note.id)}"
-						on:mouseleave="{() => (hoveredCredential = null)}"
-						on:click="{() => selectNote(note)}">
+						onmouseenter={() => (hoveredCredential = note.id)}
+						onmouseleave={() => (hoveredCredential = null)}
+						onclick={() => selectNote(note)}>
 						<div class="flex items-center gap-3 truncate">
 							<span class="shrink-0">
-								<MobileNote
-									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
+								<MobileNote color={hoveredOrSelected ? "#F2F2F0" : "#85889C"} />
 							</span>
 							<span class="truncate">
 								{note?.data.title ? note.data.title : "untitled note"}

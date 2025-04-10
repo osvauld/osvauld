@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy';
+
 	import { slide, fly } from "svelte/transition";
 
 	import {
@@ -18,8 +20,8 @@
 		addDeviceModal, showConnector 
 	} from "../../store/desktop.ui.store";
 
-	let showDropdown = false;
-	let hoveredItem = "";
+	let showDropdown = $state(false);
+	let hoveredItem = $state("");
 
 	const MENUITEMS = [
 		{ id: "connect", label: "Connect", icon: Sync },
@@ -93,7 +95,7 @@
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				on:click={() => (showDropdown = !showDropdown)}>
+				onclick={() => (showDropdown = !showDropdown)}>
 				<Profile color="#4D4F60" />
 				<span class="ml-2">John Doe</span>
 				<span
@@ -107,7 +109,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation={() => (showDropdown = false)}>
+					onclick={stopPropagation(() => (showDropdown = false))}>
 				</div>
 				<div
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -116,9 +118,9 @@
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							class="profileBtn"
-							on:mouseenter={() => (hoveredItem = id)}
-							on:mouseleave={() => (hoveredItem = "")}
-							on:click|stopPropagation={() => handleDropDownClick(id)}>
+							onmouseenter={() => (hoveredItem = id)}
+							onmouseleave={() => (hoveredItem = "")}
+							onclick={stopPropagation(() => handleDropDownClick(id))}>
 							<Icon
 								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
 								size={24} />

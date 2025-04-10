@@ -1,19 +1,18 @@
 <script lang="ts">
-	import QRCode from "@castlenine/svelte-qrcode";
+	// import QRCode from "@castlenine/svelte-qrcode";
 	import { invoke } from "@tauri-apps/api/core";
 	import { listen } from "@tauri-apps/api/event";
 	import { onMount, onDestroy } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
 	let connectionTicket = "";
-	let status = "Ready to connect";
-	let error = "";
+	let status = $state("Ready to connect");
+	let error = $state("");
 	let certificate = "";
-	let recoveryString = "";
+	let recoveryString = $state("");
 	let unlistenHandlers: (() => void)[] = [];
-	let textareaElement;
+	let textareaElement = $state();
 
-	export let passwordCollected = "";
-
+	let { passwordCollected }: Props = $props();
 
 	async function setupEventListeners() {
 		const unlisten1 = await listen("peer-connected", () => {
@@ -92,12 +91,17 @@
 		<div class="flex flex-col gap-3">
 			{#if recoveryString}
 				<div class="mx-auto">
-					<QRCode data="{recoveryString}" />
+					<!-- <QRCode data="{recoveryString}" /> -->
 				</div>
-				<textarea name="text" class="font-light text-xs text-white w-full h-32 p-2 mt-4 overflow-auto break-all" bind:this={textareaElement}> {recoveryString} </textarea>
+				<textarea
+					name="text"
+					class="font-light text-xs text-white w-full h-32 p-2 mt-4 overflow-auto break-all"
+					bind:this="{textareaElement}">
+					{recoveryString}
+				</textarea>
 
 				<button
-					on:click="{copyTicket}"
+					onclick="{copyTicket}"
 					class="w-full bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg py-3 font-medium">
 					Copy Ticket
 				</button>
