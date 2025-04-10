@@ -55,6 +55,12 @@ pub enum WsMessage {
     Ping {
         timestamp: i64,
     },
+    UserConnectionNotificationRequest {
+        user_ids: Vec<String>,
+    },
+    UserConnectionNotification {
+        online_user_id: String,
+    },
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserConnectionStatus {
@@ -316,5 +322,14 @@ impl WsClient {
             Ok(result) => result,
             Err(_) => Err("Timed out waiting for connection status response".to_string()),
         }
+    }
+
+    pub async fn request_user_connection_notifications(
+        &self,
+        user_ids: Vec<String>,
+    ) -> Result<(), String> {
+        let message = WsMessage::UserConnectionNotificationRequest { user_ids };
+
+        self.send_message(message).await
     }
 }

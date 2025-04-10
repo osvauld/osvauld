@@ -27,7 +27,7 @@ impl RendezvousService {
             p2p_service,
             ws_url: ws_url.to_string(),
             pending_first_connections: Arc::new(Mutex::new(HashSet::new())),
-            connection_id: Arc::new(Mutex::new(None)), // Initialize with None
+            connection_id: Arc::new(Mutex::new(None)),
             user_service,
         }
     }
@@ -170,6 +170,25 @@ impl RendezvousService {
                             }
                         }
                     }
+                    WsMessage::UserConnectionNotification { online_user_id } => {
+                        info!("User came online: {}", online_user_id);
+
+                        // When a user comes online, attempt to establish a connection
+                        let client_clone = client.clone();
+                        let user_id = online_user_id.clone();
+
+                        tokio::spawn(async move {
+                            let client_lock = client_clone.lock().await;
+                            if let Err(e) =
+                                client_lock.request_user_connection_string(&user_id).await
+                            {
+                                error!(
+                                    "Failed to request connection to newly online user {}: {}",
+                                    user_id, e
+                                );
+                            }
+                        });
+                    }
                     _ => {
                         debug!("Received other message: {:?}", msg);
                     }
@@ -302,7 +321,6 @@ impl RendezvousService {
         current_device_id: &str,
     ) -> Result<(), String> {
         info!("Checking for devices with pending syncs...");
-
         // Get devices with pending syncs
         match self
             .user_service
@@ -314,52 +332,48 @@ impl RendezvousService {
                     "Found {} users with devices that have pending syncs",
                     users_with_devices.len()
                 );
-
-                // Process each user's devices
-                for (sync_user_id, devices) in users_with_devices {
-                    if !devices.is_empty() {
-                        info!(
-                            "User {} has {} devices with pending syncs",
-                            sync_user_id,
-                            devices.len()
-                        );
-
-                        // Create list of connection IDs to check
-                        let device_connection_ids: Vec<String> = devices
-                            .iter()
-                            .map(|device| format!("{}:{}", sync_user_id, device.id))
-                            .collect();
-
-                        // Check which devices are online
-                        match self.get_connection_status(device_connection_ids).await {
-                            Ok(statuses) => {
-                                for status in statuses {
-                                    if status.connection_status == "online" {
-                                        info!(
-                                            "Device {} is online, requesting connection",
-                                            status.user_id
-                                        );
-                                        if let Err(e) =
-                                            self.request_user_connection(&status.user_id).await
-                                        {
-                                            error!(
-                                                "Failed to request connection to {}: {}",
-                                                status.user_id, e
-                                            );
-                                        }
-                                    } else {
-                                        info!(
-                                            "Device {} is offline, skipping sync",
-                                            status.user_id
-                                        );
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to get connection status: {}", e);
-                            }
+                if !users_with_devices.is_empty() {
+                    // Process each user's devices
+                    for (sync_user_id, devices) in &users_with_devices {
+                        if !devices.is_empty() {
+                            info!(
+                                "User {} has {} devices with pending syncs",
+                                sync_user_id,
+                                devices.len()
+                            );
                         }
                     }
+
+                    // Create user_id:device_id format for each device
+                    let mut user_device_ids: Vec<String> = Vec::new();
+                    for (user_id, devices) in &users_with_devices {
+                        for device in devices {
+                            user_device_ids.push(format!("{}:{}", user_id, device.id));
+                        }
+                    }
+
+                    // Request connection notifications for these user:device combinations
+                    if !user_device_ids.is_empty() {
+                        info!(
+                            "Setting up connection notifications for {} user-device combinations with pending syncs",
+                            user_device_ids.len()
+                        );
+                        if let Err(e) = self
+                            .request_user_connection_notifications(user_device_ids)
+                            .await
+                        {
+                            error!("Failed to set up connection notifications: {}", e);
+                            return Err(format!(
+                                "Failed to set up connection notifications: {}",
+                                e
+                            ));
+                        }
+                        info!(
+                            "Successfully set up connection notifications for users with pending syncs"
+                        );
+                    }
+                } else {
+                    info!("No users with pending syncs found");
                 }
                 Ok(())
             }
@@ -368,5 +382,16 @@ impl RendezvousService {
                 Err(e)
             }
         }
+    }
+    pub async fn request_user_connection_notifications(
+        &self,
+        user_ids: Vec<String>,
+    ) -> Result<(), String> {
+        let client = self.client.lock().await;
+        info!(
+            "Requesting connection notifications for {} users",
+            user_ids.len()
+        );
+        client.request_user_connection_notifications(user_ids).await
     }
 }

@@ -91,27 +91,89 @@ async fn handle_incoming_messages(
     handler: ClientHandler,
 ) {
     while let Some(Ok(message)) = receiver.next().await {
+        // Update last activity timestamp for client for any message type
         if let Some(client_info) = handler.clients.lock().await.get_mut(&handler.client_id) {
             client_info.last_activity = Instant::now();
         }
 
-        if let Ok(text) = message.to_text() {
-            info!("Received message: {}", text);
+        match message {
+            Message::Text(text) => {
+                info!("Received text message: {}", text);
 
-            match serde_json::from_str::<WsMessage>(text) {
-                Ok(ws_message) => {
-                    if let Err(e) = process_message(ws_message, &handler).await {
-                        error!("Error processing message: {}", e);
+                match serde_json::from_str::<WsMessage>(&text) {
+                    Ok(ws_message) => {
+                        if let Err(e) = process_message(ws_message, &handler).await {
+                            error!("Error processing message: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error parsing message: {}", e);
                     }
                 }
-                Err(e) => {
-                    error!("Error parsing message: {}", e);
+            }
+            Message::Ping(data) => {
+                // Handle WebSocket protocol ping frame
+                if !data.is_empty() {
+                    // Try to parse the timestamp data if present
+                    match std::str::from_utf8(&data) {
+                        Ok(ping_data_str) => {
+                            info!(
+                                "Received WebSocket ping from client {} with data: {}",
+                                handler.client_id, ping_data_str
+                            );
+                        }
+                        Err(_) => {
+                            info!(
+                                "Received WebSocket ping from client {} (non-UTF8 data)",
+                                handler.client_id
+                            );
+                        }
+                    }
+                } else {
+                    info!("Received WebSocket ping from client {}", handler.client_id);
                 }
+
+                // Automatically respond with a pong containing the same data
+                if let Some(client_info) = handler.clients.lock().await.get_mut(&handler.client_id)
+                {
+                    if let Err(e) = client_info.sender.send(Message::Pong(data)) {
+                        error!("Failed to send pong response: {}", e);
+                    } else {
+                        info!("Sent pong response to client {}", handler.client_id);
+                    }
+                }
+            }
+            Message::Pong(data) => {
+                // Just log pong reception
+                if !data.is_empty() {
+                    match std::str::from_utf8(&data) {
+                        Ok(pong_data_str) => {
+                            info!(
+                                "Received WebSocket pong from client {} with data: {}",
+                                handler.client_id, pong_data_str
+                            );
+                        }
+                        Err(_) => {
+                            info!(
+                                "Received WebSocket pong from client {} (non-UTF8 data)",
+                                handler.client_id
+                            );
+                        }
+                    }
+                } else {
+                    info!("Received WebSocket pong from client {}", handler.client_id);
+                }
+            }
+            Message::Binary(data) => {
+                info!("Received binary data of size: {} bytes", data.len());
+            }
+            Message::Close(frame) => {
+                info!("Received close frame from client: {:?}", frame);
+                break;
             }
         }
     }
 }
-
 async fn process_message(message: WsMessage, handler: &ClientHandler) -> Result<(), AppError> {
     match message {
         WsMessage::Register { user_id } => handle_register(user_id, handler).await,
@@ -141,6 +203,21 @@ async fn process_message(message: WsMessage, handler: &ClientHandler) -> Result<
             Ok(())
         }
     }
+}
+async fn handle_ping(timestamp: i64, handler: &ClientHandler) -> Result<(), AppError> {
+    // Update the client's last activity timestamp
+    if let Some(client_info) = handler.clients.lock().await.get_mut(&handler.client_id) {
+        client_info.last_activity = Instant::now();
+    }
+
+    // Log ping reception at debug level to avoid too much noise in logs
+    info!(
+        "Received ping from client {} with timestamp {}",
+        handler.client_id, timestamp
+    );
+
+    // For now, just acknowledge the ping without sending a response
+    Ok(())
 }
 
 async fn handle_register(user_id: String, handler: &ClientHandler) -> Result<(), AppError> {
