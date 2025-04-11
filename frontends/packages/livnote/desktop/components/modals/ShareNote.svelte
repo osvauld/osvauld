@@ -1,45 +1,63 @@
 <script lang="ts">
-	import { run, stopPropagation } from 'svelte/legacy';
-
-	import { onMount } from "svelte";
-
 	import { Lens, ClosePanel } from "@osvauld/password-manager-common";
-	import { toastStore } from "../../store/desktop.ui.store";
-	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
+	import { sendMessage } from "@osvauld/password-manager-common/";
 
+	// Import the centralized state
+	import { dataState, uiState } from "../../state/";
+	// Define interfaces
+	interface Collaborator {
+		username: string;
+		online: boolean;
+		id?: string;
+		publicKey?: string;
+	}
+
+	// Props
 	interface Props {
 		showShareList?: boolean;
 	}
 
 	let { showShareList = $bindable(false) }: Props = $props();
-	export const shareUserList: { id: string; publicKey: string }[] = [];
-	export const noteId: string = "";
-	let inputRef: HTMLInputElement = $state();
-	let MAX_ALLOWED_USERS = 1;
-	let selectedUsers: string[] = $state([]);
+
+	// Local state
+	const MAX_ALLOWED_USERS = 1;
+	let inputRef = $state<HTMLInputElement | null>(null);
+	let selectedUsers = $state<string[]>([]);
 	let isFocused = $state(false);
 	let query = $state("");
 	let focusedIndex = $state(-1);
-	let items: HTMLButtonElement[] = $state([]);
-	let availableCollaboratorsFiltered: Collaborator[] = $state([]);
+	let items = $state<HTMLButtonElement[]>([]);
+	let availableCollaborators = $state<Collaborator[]>([]);
+	let existingCollaborators = $state<Collaborator[]>([]);
 
-	interface Collaborator {
-		username: string;
-		online: boolean;
-	}
-
-	let existingCollaboratiors = [];
-
-	let availableCollaborators = $state([]);
-
-	run(() => {
-		availableCollaboratorsFiltered = query
+	// Computed values
+	let availableCollaboratorsFiltered = $derived(() => {
+		return query
 			? availableCollaborators.filter((c) =>
 					c.username.toLowerCase().includes(query.toLowerCase()),
 				)
 			: availableCollaborators;
 	});
 
+	async function fetchUsers() {
+		try {
+			const users = await sendMessage("getKnownUsers");
+			availableCollaborators = users;
+
+			// Here you would typically also fetch existing collaborators for the note
+			if (dataState.currentNote?.id) {
+				const noteCollaborators = await sendMessage("getNoteCollaborators", {
+					noteId: dataState.currentNote.id,
+				}).catch(() => []);
+				existingCollaborators = noteCollaborators || [];
+			}
+		} catch (error) {
+			console.error("Error fetching users:", error);
+			uiState.showToast("Failed to load users", false);
+		}
+	}
+
+	// Event handlers
 	const selectCollaborator = (username: string): void => {
 		if (selectedUsers.length >= MAX_ALLOWED_USERS) return;
 		query = "";
@@ -48,7 +66,8 @@
 	};
 
 	const handleKeyDown = (event: KeyboardEvent) => {
-		const collaboratorsLength = availableCollaborators.length;
+		const collaboratorsLength = availableCollaboratorsFiltered.length;
+
 		switch (event.key) {
 			case " ":
 			case "Enter":
@@ -61,16 +80,15 @@
 					focusedIndex < collaboratorsLength &&
 					selectedUsers.length < MAX_ALLOWED_USERS
 				) {
-					// Actually select the collaborator when Enter/Space is pressed
+					// Select the collaborator when Enter/Space is pressed
 					selectCollaborator(
 						availableCollaboratorsFiltered[focusedIndex].username,
 					);
-					console.log("Selected collaborator:", selectedUsers);
 				}
 				break;
 
 			case "Escape":
-				// Add escape key handling to close dropdown
+				// Close dropdown
 				isFocused = false;
 				unfocus();
 				break;
@@ -80,7 +98,7 @@
 				const hasSelectedUsers = selectedUsers.length > 0;
 
 				if (hasSelectedUsers && !isQueryEmpty) {
-					// Do the regular backspace on input
+					// Regular backspace on input
 				} else if (hasSelectedUsers) {
 					selectedUsers = selectedUsers.slice(0, -1);
 				} else if (isQueryEmpty) {
@@ -95,14 +113,8 @@
 				if (collaboratorsLength > 0) {
 					focusedIndex =
 						focusedIndex === -1 ? 0 : (focusedIndex + 1) % collaboratorsLength;
-					if (items[focusedIndex]) {
-						items[focusedIndex].scrollIntoView({
-							block: "center",
-							behavior: "smooth",
-						});
-					}
+					scrollToFocusedItem();
 				}
-
 				break;
 
 			case "ArrowUp":
@@ -114,14 +126,8 @@
 						focusedIndex =
 							(focusedIndex - 1 + collaboratorsLength) % collaboratorsLength;
 					}
-					if (items[focusedIndex]) {
-						items[focusedIndex].scrollIntoView({
-							block: "center",
-							behavior: "smooth",
-						});
-					}
+					scrollToFocusedItem();
 				}
-
 				break;
 
 			case "Tab":
@@ -131,59 +137,79 @@
 		}
 	};
 
-	const handleUserIdSelection = async (
-		id: string,
-		publicKey: string,
-	): Promise<void> => {
-		console.log(id, publicKey);
-		await sendMessage("shareResource", { publicKey, resourceId: $noteId });
-		showShareList = false;
+	const scrollToFocusedItem = () => {
+		if (items[focusedIndex]) {
+			items[focusedIndex].scrollIntoView({
+				block: "center",
+				behavior: "smooth",
+			});
+		}
 	};
 
-	const handleCollaboratorSelection = async (): void => {
-		showShareList = false;
-		console.log(selectedUsers);
-		await sendMessage("shareResource", {
-			resourceId: noteId,
-			userId: selectedUsers[0].id,
-		});
+	const handleCollaboratorSelection = async (): Promise<void> => {
+		if (selectedUsers.length === 0) return;
+
+		const user = availableCollaborators.find(
+			(u) => u.username === selectedUsers[0],
+		);
+		if (!user || !user.id) return;
+
+		try {
+			await sendMessage("shareResource", {
+				resourceId: dataState.currentNote?.id,
+				userId: user.id,
+			});
+
+			// Show success toast
+			uiState.showToast("Note shared successfully", true);
+
+			// Close the share panel
+			showShareList = false;
+		} catch (error) {
+			console.error("Error sharing note:", error);
+			uiState.showToast("Failed to share note", false);
+		}
 	};
 
+	// Helper functions
 	const extractIconLetter = (username: string): string => {
-		return username.trim().split("")[0];
+		return username.charAt(0).toUpperCase();
 	};
 
 	const sortOnlineCollaborators = (
-		availableCollaborators: Collaborator[],
+		collaborators: Collaborator[],
 	): Collaborator[] => {
-		return availableCollaborators.sort(
+		return [...collaborators].sort(
 			(a, b) => Number(b.online) - Number(a.online),
 		);
 	};
 
-	const filterSelectedUsers = (
-		availableUsers: Collaborator[],
-	): Collaborator[] => {
-		return availableUsers.filter(
-			(user) => !selectedUsers.includes(user.username),
-		);
+	const filterSelectedUsers = (users: Collaborator[]): Collaborator[] => {
+		return users.filter((user) => !selectedUsers.includes(user.username));
 	};
 
 	const autofocus = (): void => {
-		inputRef.focus();
+		if (inputRef) inputRef.focus();
 	};
 
 	const unfocus = (): void => {
-		inputRef.blur();
+		if (inputRef) inputRef.blur();
 	};
 
-	onMount(async () => {
-		const users = await sendMessage("getKnownUsers");
-		availableCollaborators = users;
+	// Initialize data when component is shown
+	$effect(() => {
+		if (showShareList) {
+			fetchUsers();
+
+			// Reset state on reopening
+			selectedUsers = [];
+			query = "";
+			focusedIndex = -1;
+			isFocused = false;
+		}
 	});
 </script>
 
-<!-- Add these ARIA attributes to the main component -->
 <div
 	class="absolute top-full right-20 mt-2 z-50 w-[35rem] {isFocused
 		? 'h-[26.125rem] '
@@ -196,16 +222,22 @@
 		<button
 			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 			aria-label="Close panel"
-			onclick={() => (showShareList = false)}>
+			onclick={(e) => {
+				e.preventDefault();
+				showShareList = false;
+			}}>
 			<ClosePanel />
 		</button>
 	</div>
 
-	<!-- Improve the search input accessibility -->
+	<!-- Search input -->
 	<button
 		type="button"
 		class="h-[2.75rem] w-full mt-4 mb-1.5 px-3 py-2 gap-1 flex justify-start items-center border border-osvauld-iconblack focus-within:border-osvauld-activeBorder rounded-lg cursor-pointer"
-		onclick={stopPropagation(autofocus)}
+		onclick={(e) => {
+			e.stopPropagation();
+			autofocus();
+		}}
 		aria-label="Search for collaborators">
 		<span class="shrink-0 mr-2">
 			<Lens color={isFocused ? "#67697C" : "#30363D"} />
@@ -245,7 +277,7 @@
 			bind:value={query} />
 	</button>
 
-	<!-- Make the existing collaborators list accessible -->
+	<!-- Collaborators display area -->
 	<div class="relative p-4">
 		<div
 			class="{isFocused
@@ -253,12 +285,12 @@
 				: 'h-auto'} max-h-[16.25rem] overflow-y-auto scrollbar-thin select-none cursor-default"
 			role="region"
 			aria-label="Current collaborators">
-			{#if existingCollaboratiors.length === 0}
+			{#if existingCollaborators.length === 0}
 				<div class="p-3">No existing collaborators found!</div>
 			{:else if isFocused}
 				<div class="p-3">Select collaborator</div>
 			{:else}
-				{#each sortOnlineCollaborators(existingCollaboratiors) as collaborator}
+				{#each sortOnlineCollaborators(existingCollaborators) as collaborator}
 					<div
 						class="flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3">
 						<span
@@ -284,7 +316,7 @@
 			{/if}
 		</div>
 
-		<!-- Make the available collaborators dropdown accessible -->
+		<!-- Available collaborators dropdown -->
 		{#if isFocused}
 			<div
 				class="absolute top-0 left-0 w-full {selectedUsers.length !== 0
@@ -297,7 +329,7 @@
 				{:else}
 					<div
 						id="collaborators-listbox"
-						class=" max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
+						class="max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
 						role="listbox"
 						aria-label="Available collaborators">
 						{#each sortOnlineCollaborators(filterSelectedUsers(availableCollaboratorsFiltered)) as collaborator, index}
@@ -312,10 +344,11 @@
 								aria-selected={focusedIndex === index}
 								tabindex={focusedIndex === index ? 0 : -1}
 								bind:this={items[index]}
-								onmousedown={stopPropagation((e) => {
+								onmousedown={(e) => {
 									e.preventDefault();
+									e.stopPropagation();
 									selectCollaborator(collaborator.username);
-								})}>
+								}}>
 								<span
 									class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
 									aria-hidden="true">
@@ -340,7 +373,9 @@
 			{#if selectedUsers.length !== 0}
 				<button
 					class="absolute bottom-5 left-0 mt-2 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
-					onmousedown={handleCollaboratorSelection}>Add to collaborate</button>
+					onmousedown={handleCollaboratorSelection}>
+					Add to collaborate
+				</button>
 			{/if}
 		{/if}
 	</div>

@@ -9,8 +9,7 @@
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	// Import the centralized state
-	import { dataState } from "../../state/data.state";
-	import { uiState } from "../../state/ui.state";
+	import { dataState, uiState } from "../../state";
 
 	// Import VaultManager
 	import VaultManager from "../ui/VaultManager.svelte";
@@ -47,19 +46,18 @@
 			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize trun"
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
-			aria-expanded={uiState.vaultManager.isActive}
-			onclick={() => uiState.toggleVaultManager("nav")}>
+			aria-expanded={uiState.vaultManagerActive}
+			onclick={() => uiState.toggleVaultManager()}>
 			<span class="flex-1 truncate text-left py-1"
 				>{dataState.currentVault.id === "all"
 					? "All Vaults"
 					: dataState.currentVault.name}</span
 			><span
-				class="shrink-0 transition-transform duration-300 {uiState.vaultManager
-					.isActive
+				class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
 					? '-rotate-90'
 					: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 			></button>
-		{#if uiState.vaultManager.isActive && uiState.vaultManager.source === "nav"}
+		{#if uiState.vaultManagerActive}
 			<VaultManager />
 		{/if}
 	</div>

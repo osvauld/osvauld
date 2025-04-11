@@ -5,14 +5,19 @@
 		Loader,
 		sendMessage,
 	} from "@osvauld/password-manager-common";
-	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
+	import NotesListView from "./components/notes/NotesListView.svelte";
+	import NotesWorkspace from "./components/layout/NotesWorkspace.svelte";
+	import HeaderSection from "./components/layout/HeaderSection.svelte";
 	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import AppModals from "./components/modals/Modals.svelte";
 	import { dataState, uiState } from "./state/";
+	import { listen } from "@tauri-apps/api/event";
+	import { mergeDocuments } from "./components/notes/documentUtils";
 
 	let signedUp = $state(false);
 	let isLoading = $state(true);
+	let unsubscribeResourceUpdate = $state<Function | null>(null);
 
 	// Handle escape key to close modals
 	function handleKeydown(event: KeyboardEvent) {
@@ -24,11 +29,11 @@
 	const handleSignedUp = async () => {
 		signedUp = true;
 		uiState.setWelcomeScreen(false);
-		// const userId = await sendMessage("getUserId");
 	};
 
 	const handleAuthenticated = async () => {
 		uiState.setWelcomeScreen(false);
+		await dataState.initializeState();
 	};
 
 	onMount(async () => {
@@ -40,7 +45,31 @@
 			if (checkPvtLoad === false) {
 				uiState.setWelcomeScreen(true);
 			} else {
-				await dataState.initializeState();
+				// Set up merge update listener
+				unsubscribeResourceUpdate = await listen(
+					"merge-update",
+					async (event) => {
+						// Handle merge updates
+						const payload = event.payload;
+						let mergedDocument = mergeDocuments(
+							payload.local_resource,
+							payload.remote_resource,
+						);
+
+						// This will be handled in the appropriate component
+						document.dispatchEvent(
+							new CustomEvent("merge-complete", {
+								detail: {
+									mergedDocument,
+									deviceId: payload.device_id,
+									userId: payload.user_id,
+									vectorClock: payload.vector_clock,
+									resourceId: mergedDocument.resource_id,
+								},
+							}),
+						);
+					},
+				);
 			}
 
 			// Add global event listener for escape key
@@ -55,6 +84,10 @@
 	onDestroy(() => {
 		// Clean up event listener
 		window.removeEventListener("keydown", handleKeydown);
+
+		if (unsubscribeResourceUpdate) {
+			unsubscribeResourceUpdate();
+		}
 	});
 </script>
 
@@ -79,7 +112,20 @@
 			<Welcome authenticated={handleAuthenticated} />
 		</div>
 	{:else}
-		<DefaultLayout />
-		<AppModals />
+		<div
+			class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden">
+			<HeaderSection />
+			<!-- App modals right after the header section -->
+			<AppModals />
+
+			<div class="grow flex overflow-hidden">
+				{#if uiState.noteViewLayout}
+					<!-- Note editing mode: Show NotesWorkspace with its own Navigation panel -->
+					<NotesWorkspace />
+				{:else}
+					<NotesListView />
+				{/if}
+			</div>
+		</div>
 	{/if}
 </main>

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import Initiator from "./Initiator.svelte";
+	import Initiator from "../connection/Initiator.svelte";
 	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 
@@ -27,10 +27,6 @@
 		<Initiator />
 	{:else if passwordCollected}
 		<Acceptor {passwordCollected} />
-	{:else}
-		<Welcome
-			passwordReturn={true}
-			on:passphraseCollected={handlePasswordReturn} />
 	{/if}
 
 	<div class="flex justify-between">

@@ -5,27 +5,26 @@
 	import { Schema } from "prosemirror-model";
 	import { schema } from "prosemirror-schema-basic";
 	import { addListNodes } from "prosemirror-schema-list";
-	import * as Y from "yjs";
 
-	export const title: string = "";
+	// Props using Svelte 5 syntax
 	interface Props {
 		content?: string;
 		editorState?: any;
-		yjsState?: any;
 		maxHeight?: string;
 		minHeight?: string;
+		maxBlocks?: number;
 	}
 
 	let {
 		content = "",
 		editorState = null,
-		yjsState = null,
 		maxHeight = "180px",
-		minHeight = "180px"
+		minHeight = "180px",
+		maxBlocks = 5,
 	}: Props = $props();
 
-	let element: HTMLElement | null = $state(null);
-	let view;
+	let element = $state<HTMLElement | null>(null);
+	let view = $state<EditorView | null>(null);
 
 	// Initialize the preview on mount
 	onMount(() => {
@@ -40,41 +39,31 @@
 
 			let state;
 
-			// Try to initialize from yjs state if available
-			if (yjsState && Array.isArray(yjsState)) {
-				const ydoc = new Y.Doc();
-				const yXmlFragment = ydoc.getXmlFragment("prosemirror");
+			// Try to initialize from editor state if available
+			if (editorState) {
+				// Get the document from editor state
+				const docJson = editorState.doc || {
+					type: "doc",
+					content: [{ type: "paragraph" }],
+				};
 
-				// Apply YJS state
-				Y.applyUpdate(ydoc, new Uint8Array(yjsState));
+				// Limit content to first few blocks if needed
+				if (
+					maxBlocks > 0 &&
+					docJson.content &&
+					docJson.content.length > maxBlocks
+				) {
+					docJson.content = docJson.content.slice(0, maxBlocks);
+				}
 
-				// Create editor state from the YJS content
 				state = EditorState.create({
 					schema: editorSchema,
-					doc: editorSchema.nodeFromJSON(
-						editorState?.doc || {
-							type: "doc",
-							content: [{ type: "paragraph" }],
-						},
-					),
+					doc: editorSchema.nodeFromJSON(docJson),
 				});
 			}
-			// Fallback to direct editor state if available
-			else if (editorState) {
-				state = EditorState.create({
-					schema: editorSchema,
-					doc: editorSchema.nodeFromJSON(
-						editorState.doc || {
-							type: "doc",
-							content: [{ type: "paragraph" }],
-						},
-					),
-				});
-			}
-			// Last resort: try to parse HTML content
+			// Fallback to content string
 			else if (content) {
-				// This is a simplified approach - in a real implementation,
-				// you would use a proper HTML parser for ProseMirror
+				// Simple approach - just show text content
 				state = EditorState.create({
 					schema: editorSchema,
 					doc: editorSchema.node("doc", {}, [
@@ -195,5 +184,5 @@
 <div
 	class="preview-container note-preview"
 	style="max-height: {maxHeight}; min-height: {minHeight}">
-	<div bind:this="{element}"></div>
+	<div bind:this={element}></div>
 </div>

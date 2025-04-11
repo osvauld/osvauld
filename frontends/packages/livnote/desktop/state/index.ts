@@ -1,5 +1,5 @@
-import { dataState } from './data.state';
-import { uiState } from './ui.state';
+import { dataState } from './data.svelte';
+import { uiState } from './ui.svelte';
 
 // Export both state objects
 export { dataState, uiState };

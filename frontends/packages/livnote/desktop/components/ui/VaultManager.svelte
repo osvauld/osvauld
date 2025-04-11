@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { slide, fly } from "svelte/transition";
 	import { Add, MobileHome } from "@osvauld/password-manager-common";
-	import { onMount } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { dataState, uiState } from "../../state/";
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
-	import type { Vault } from "../../state/data.state";
+	import type { Vault } from "../../state/data.svelte.ts";
 
 	// No need for vaultManagerActive prop anymore
 	let newVaultInputActive = $state(false);
@@ -41,7 +40,7 @@
 			}
 
 			newVaultName = "";
-			uiState.closeVaultManager();
+			uiState.toggleVaultManager();
 		} catch (e) {
 			console.log("Vault creation failed", e);
 		}
@@ -49,7 +48,7 @@
 
 	const handleVaultSwitch = (vault: Vault) => {
 		dataState.switchVault(vault);
-		uiState.closeVaultManager();
+		uiState.toggleVaultManager();
 	};
 
 	const handleNewVaultInput = (e: Event) => {
@@ -57,19 +56,14 @@
 		e.stopPropagation();
 		newVaultInputActive = !newVaultInputActive;
 	};
-
-	onMount(async () => {
-		// Load vaults using our centralized state function
-		await dataState.fetchVaults();
-	});
 </script>
 
 <div
 	class="fixed inset-0 bg-transparent z-[999]"
 	role="presentation"
-	onclick={() => uiState.closeVaultManager()}>
+	onclick={() => uiState.toggleVaultManager()}>
 	<div
-		class={`absolute w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${uiState.vaultManager.source === "content" ? "top-56 left-11 " : "top-56 left-4"}`}
+		class={`absolute w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg top-56 left-4`}
 		style="width: calc(360px - 2rem);"
 		id="vaultSelector"
 		in:fly>

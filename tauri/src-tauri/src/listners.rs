@@ -1,12 +1,9 @@
-use log::{debug, error, info};
+use log::{error, info};
 use serde::Deserialize;
 
-use osvauld_core::models::{p2p::Message, vector_clock::ResourceVectorClock};
+use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_services::ResourceService;
-use p2p_service::{
-    P2PService,
-    p2p::{P2PEvent, incoming::P2PSender},
-};
+use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener};
 use tokio::sync::mpsc;

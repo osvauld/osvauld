@@ -1,69 +1,83 @@
-<script>
-	import { preventDefault, stopPropagation } from 'svelte/legacy';
-
+<script lang="ts">
 	import { fly } from "svelte/transition";
-	import { onMount } from "svelte";
-
-	import { Warning, ClosePanel } from "@osvauld/password-manager-common";
-
 	import {
-		currentNote,
-		currentVault,
-		deleteConfirmationModal,
-		toastStore,
-		refreshCredentialList,
-		noteViewLayout,
-	} from "../../store/desktop.ui.store";
+		Warning,
+		ClosePanel,
+		sendMessage,
+	} from "@osvauld/password-manager-common";
 
-	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
+	// Import the centralized state
+	import { dataState, uiState } from "../../state";
 
-	const deleteConfirmation = async () => {
-		if ($deleteConfirmationModal.item == "folder") {
+	const deleteConfirmation = async (e: Event) => {
+		// Prevent default form submission
+		e.preventDefault();
+
+		// Get current deleteConfirmation data
+		const item = uiState.deleteConfirmationModal.item;
+
+		if (item === "folder") {
 			await sendMessage("deleteFolder", {
-				folderId: $currentVault.id,
+				folderId: dataState.currentVault.id,
 			});
-			currentVault.set({ id: "all", name: "all vaults" });
-		} else if ($deleteConfirmationModal.item == "note") {
-			console.log("Current note", $currentNote);
+			// Reset to All Vaults
+			dataState.switchVault({ id: "all", name: "All Vaults" });
+		} else if (item === "note") {
+			if (!dataState.currentNote) return;
+
 			await sendMessage("deleteResource", {
-				resourceId: $currentNote.id,
+				resourceId: dataState.currentNote.id,
 			});
-			noteViewLayout.set(false);
-			refreshCredentialList.set(true);
+
+			// Clear the current note and update UI
+			dataState.clearCurrentNote();
+
+			// Refresh all notes
+			await dataState.fetchAllNotes();
 		}
 
-		// We need to collect response above and show toggle accordingly
-		//
-		toastStore.set({
-			show: true,
-			message: `${$deleteConfirmationModal.item} deleted successfully`,
-			success: true,
-		});
-		deleteConfirmationModal.set({ item: "", show: false });
+		// Show success toast
+		uiState.showToast(`${item} deleted successfully`, true);
+
+		// Close the confirmation modal
+		uiState.hideDeleteConfirmation();
 	};
 
-	const withdrawCredentialDeleteModal = () => {
-		deleteConfirmationModal.set({ item: "", show: false });
+	const handleModalBackdropClick = (e: MouseEvent) => {
+		// Close modal when clicking the backdrop (but not its children)
+		if (e.target === e.currentTarget) {
+			uiState.hideDeleteConfirmation();
+		}
+	};
+
+	const handleCancelClick = (e: MouseEvent) => {
+		e.preventDefault();
+		e.stopPropagation();
+		uiState.hideDeleteConfirmation();
 	};
 </script>
 
 <div
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px]"
-	onclick={preventDefault(withdrawCredentialDeleteModal)}
+	on:click={handleModalBackdropClick}
 	role="presentation">
 	<form
 		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[14rem] flex flex-col items-start justify-center gap-3"
 		in:fly
-		onsubmit={stopPropagation(preventDefault(deleteConfirmation))}>
+		on:submit={deleteConfirmation}
+		on:click={(e) => e.stopPropagation()}>
 		<div class="flex justify-between items-center w-full">
 			<span class="text-[21px] font-medium text-osvauld-quarzowhite capitalize"
 				>Delete
-				{$deleteConfirmationModal.item === "note" ? "note" : $currentVault.name}
+				{uiState.deleteConfirmationModal.item === "note"
+					? "note"
+					: dataState.currentVault.name}
 				?
 			</span>
 			<button
 				class="cursor-pointer p-2"
-				onclick={stopPropagation(withdrawCredentialDeleteModal)}>
+				on:click={handleCancelClick}
+				type="button">
 				<ClosePanel />
 			</button>
 		</div>
@@ -71,7 +85,7 @@
 			class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4">
 		</div>
 		<div
-			class=" w-full font-normal text-base flex justify-start items-center bg-osvauld-fieldActive rounded-lg gap-3 p-2">
+			class="w-full font-normal text-base flex justify-start items-center bg-osvauld-fieldActive rounded-lg gap-3 p-2">
 			<div class="justify-center items-center flex">
 				<Warning />
 			</div>
@@ -85,12 +99,15 @@
 		<div class="flex justify-end items-center gap-4 w-full">
 			<button
 				class="font-medium text-base rounded-md py-[5px] px-[15px] text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
-				onclick={withdrawCredentialDeleteModal}>Cancel</button>
+				type="button"
+				on:click={handleCancelClick}>
+				Cancel
+			</button>
 			<button
 				class="border border-osvauld-dangerRed py-[5px] px-[15px] text-base font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all"
-				type="submit"
-				onclick={deleteConfirmation}
-				>Delete {$deleteConfirmationModal.item}</button>
+				type="submit">
+				Delete {uiState.deleteConfirmationModal.item}
+			</button>
 		</div>
 	</form>
 </div>
