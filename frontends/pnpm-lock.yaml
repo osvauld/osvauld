@@ -127,13 +127,13 @@ importers:
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
-        version: 5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+        version: 5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       '@tailwindcss/forms':
         specifier: ^0.5.10
         version: 0.5.10(tailwindcss@4.0.7)
       '@tailwindcss/vite':
         specifier: ^4.0.6
-        version: 4.0.7(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+        version: 4.0.7(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       '@types/node':
         specifier: ^22.13.1
         version: 22.13.4
@@ -174,8 +174,8 @@ importers:
         specifier: ^5.7.3
         version: 5.7.3
       vite:
-        specifier: ^6.1.4
-        version: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+        specifier: ^6.1.5
+        version: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
 
   packages/password-manager/desktop:
     dependencies:
@@ -209,13 +209,13 @@ importers:
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
-        version: 5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+        version: 5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       '@tailwindcss/forms':
         specifier: ^0.5.10
         version: 0.5.10(tailwindcss@4.0.7)
       '@tailwindcss/vite':
         specifier: ^4.0.6
-        version: 4.0.7(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+        version: 4.0.7(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       '@types/node':
         specifier: ^22.13.1
         version: 22.13.4
@@ -253,8 +253,8 @@ importers:
         specifier: ^5.7.3
         version: 5.7.3
       vite:
-        specifier: ^6.1.4
-        version: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+        specifier: ^6.1.5
+        version: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
 
   packages/password-manager/mobile:
     dependencies:
@@ -291,13 +291,13 @@ importers:
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
-        version: 5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+        version: 5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       '@tailwindcss/forms':
         specifier: ^0.5.10
         version: 0.5.10(tailwindcss@4.0.7)
       '@tailwindcss/vite':
         specifier: ^4.0.6
-        version: 4.0.7(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+        version: 4.0.7(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       '@types/node':
         specifier: ^22.13.1
         version: 22.13.4
@@ -335,8 +335,8 @@ importers:
         specifier: ^5.7.3
         version: 5.7.3
       vite:
-        specifier: ^6.1.4
-        version: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+        specifier: ^6.1.5
+        version: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
 
 packages:
 
@@ -1701,8 +1701,8 @@ packages:
   utrie@1.0.2:
     resolution: {integrity: sha512-1MLa5ouZiOmQzUbjbu9VmjLzn1QLXBhwpUa7kdLUQK+KQ5KA9I1vk5U4YHe/X2Ch7PYnJfWuWT+VbuxbGwljhw==}
 
-  vite@6.1.4:
-    resolution: {integrity: sha512-VzONrF/qqEg/JBwHXBJdVSmBZBhwiPGinyUb0SQLByqQwi6o8UvX5TWLkpvkq3tvN8Cr273ieZDt36CGwWRMvA==}
+  vite@6.1.5:
+    resolution: {integrity: sha512-H/gAFpW5I4ow/8Bz4t4i8k2St5JThMlqUT8gsH5v0rkqbqpf4qLrFozjq/V2KG1iOXF+3Ko9mlG0kmGerktWJw==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
     hasBin: true
     peerDependencies:
@@ -2026,25 +2026,25 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.39.0':
     optional: true
 
-  '@sveltejs/vite-plugin-svelte-inspector@4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)))(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))':
+  '@sveltejs/vite-plugin-svelte-inspector@4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)))(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte': 5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+      '@sveltejs/vite-plugin-svelte': 5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       debug: 4.4.0
       svelte: 5.20.2
-      vite: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+      vite: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
     transitivePeerDependencies:
       - supports-color
 
-  '@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))':
+  '@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte-inspector': 4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)))(svelte@5.20.2)(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+      '@sveltejs/vite-plugin-svelte-inspector': 4.0.1(@sveltejs/vite-plugin-svelte@5.0.3(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)))(svelte@5.20.2)(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
       debug: 4.4.0
       deepmerge: 4.3.1
       kleur: 4.1.5
       magic-string: 0.30.17
       svelte: 5.20.2
-      vite: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
-      vitefu: 1.0.5(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
+      vite: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+      vitefu: 1.0.5(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))
     transitivePeerDependencies:
       - supports-color
 
@@ -2106,13 +2106,13 @@ snapshots:
       '@tailwindcss/oxide-win32-arm64-msvc': 4.0.7
       '@tailwindcss/oxide-win32-x64-msvc': 4.0.7
 
-  '@tailwindcss/vite@4.0.7(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))':
+  '@tailwindcss/vite@4.0.7(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1))':
     dependencies:
       '@tailwindcss/node': 4.0.7
       '@tailwindcss/oxide': 4.0.7
       lightningcss: 1.29.1
       tailwindcss: 4.0.7
-      vite: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+      vite: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
 
   '@tauri-apps/api@2.0.1': {}
 
@@ -3051,7 +3051,7 @@ snapshots:
       base64-arraybuffer: 1.0.2
     optional: true
 
-  vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1):
+  vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1):
     dependencies:
       esbuild: 0.24.2
       postcss: 8.5.3
@@ -3062,9 +3062,9 @@ snapshots:
       jiti: 2.4.2
       lightningcss: 1.29.1
 
-  vitefu@1.0.5(vite@6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)):
+  vitefu@1.0.5(vite@6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)):
     optionalDependencies:
-      vite: 6.1.4(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
+      vite: 6.1.5(@types/node@22.13.4)(jiti@2.4.2)(lightningcss@1.29.1)
 
   w3c-keyname@2.2.8: {}
 
