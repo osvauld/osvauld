@@ -10,7 +10,8 @@
 		"./utils/*": "./utils/*",
 		"./icons/*": "./icons/*",
 		"./i18n/*": "./i18n/*",
-		"./dtos/*": "./dtos/*"
+		"./dtos/*": "./dtos/*",
+    "./components/*": "./components/*"
 	},
 	"dependencies": {
 		"@castlenine/svelte-qrcode": "^2.3.0",
