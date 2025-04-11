@@ -1,11 +1,8 @@
-use log::info;
 use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::sync_record::SyncRecordSet;
 use osvauld_core::models::user::User;
 use osvauld_core::models::{device::Device, sync_record::SyncRecord};
-use osvauld_core::repositories::{
-    DeviceRepository, RepositoryError, StoreRepository, SyncRepository,
-};
+use osvauld_core::repositories::{DeviceRepository, RepositoryError, StoreRepository};
 
 use base64::encode;
 use crypto_utils::{
@@ -20,7 +17,6 @@ pub struct AuthService {
     store_repository: Arc<dyn StoreRepository>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
     device_repository: Arc<dyn DeviceRepository>,
-    sync_repository: Arc<dyn SyncRepository>,
 }
 
 impl AuthService {
@@ -28,13 +24,11 @@ impl AuthService {
         store_repository: Arc<dyn StoreRepository>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         device_repository: Arc<dyn DeviceRepository>,
-        sync_repository: Arc<dyn SyncRepository>,
     ) -> Self {
         Self {
             store_repository,
             crypto_utils,
             device_repository,
-            sync_repository,
         }
     }
 

@@ -1,37 +1,31 @@
-<script>
+<script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import { setBlockType, toggleMark } from "prosemirror-commands";
 	import { wrapInList } from "prosemirror-schema-list";
+	import type { EditorView } from "prosemirror-view";
+	import type { NodeType, MarkType, Schema } from "prosemirror-model";
 
-	export let editorView;
-	export let isDarkMode = false;
-
-	// These reactive statements track the active state of each formatting option
-	$: {
-		if (editorView) {
-			isH1 = isNodeActive("heading", { level: 1 });
-			isH2 = isNodeActive("heading", { level: 2 });
-			isH3 = isNodeActive("heading", { level: 3 });
-			isParagraph = isNodeActive("paragraph");
-			isBulletList = isNodeActive("bullet_list");
-			isOrderedList = isNodeActive("ordered_list");
-			isCodeBlock = isNodeActive("code_block");
-			isBold = isMarkActive("strong");
-			isItalic = isMarkActive("em");
-		}
+	interface Props {
+		editorView?: EditorView | null;
+		isDarkMode?: boolean;
 	}
 
-	let isH1 = false;
-	let isH2 = false;
-	let isH3 = false;
-	let isParagraph = false;
-	let isBulletList = false;
-	let isOrderedList = false;
-	let isCodeBlock = false;
-	let isBold = false;
-	let isItalic = false;
+	let { editorView = null, isDarkMode = $bindable(false) }: Props = $props();
+
+
+	let isH1 = $state(false);
+	let isH2 = $state(false);
+	let isH3 = $state(false);
+	let isParagraph = $state(false);
+	let isBulletList = $state(false);
+	let isOrderedList = $state(false);
+	let isCodeBlock = $state(false);
+	let isBold = $state(false);
+	let isItalic = $state(false);
 
 	// Check if a node type is active at the current selection
-	function isNodeActive(typeName, attrs = {}) {
+	function isNodeActive(typeName: string, attrs: Record<string, any> = {}): boolean {
 		if (!editorView || !editorView.state) return false;
 
 		const state = editorView.state;
@@ -48,11 +42,11 @@
 		}
 
 		const node = state.doc.cut(from, to).content.firstChild;
-		return node && node.type.name === typeName;
+		return node ? node.type.name === typeName : false;
 	}
 
 	// Check if a mark is active at the current selection
-	function isMarkActive(markName) {
+	function isMarkActive(markName: string): boolean {
 		if (!editorView || !editorView.state) return false;
 
 		const state = editorView.state;
@@ -82,7 +76,7 @@
 	}
 
 	// Helper function to execute ProseMirror commands
-	function runCommand(cmd) {
+	function runCommand(cmd: (state: any, dispatch: any, view: any) => boolean) {
 		return () => {
 			if (!editorView) return;
 			cmd(editorView.state, editorView.dispatch, editorView);
@@ -92,44 +86,70 @@
 
 	// Define commands
 	const commands = {
-		paragraph: () =>
-			runCommand(setBlockType(editorView.state.schema.nodes.paragraph))(),
+		paragraph: () => {
+			if (!editorView?.state.schema.nodes.paragraph) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.paragraph))();
+		},
 
-		h1: () =>
-			runCommand(
-				setBlockType(editorView.state.schema.nodes.heading, { level: 1 }),
-			)(),
+		h1: () => {
+			if (!editorView?.state.schema.nodes.heading) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.heading, { level: 1 }))();
+		},
 
-		h2: () =>
-			runCommand(
-				setBlockType(editorView.state.schema.nodes.heading, { level: 2 }),
-			)(),
+		h2: () => {
+			if (!editorView?.state.schema.nodes.heading) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.heading, { level: 2 }))();
+		},
 
-		h3: () =>
-			runCommand(
-				setBlockType(editorView.state.schema.nodes.heading, { level: 3 }),
-			)(),
+		h3: () => {
+			if (!editorView?.state.schema.nodes.heading) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.heading, { level: 3 }))();
+		},
 
-		bulletList: () =>
-			runCommand(wrapInList(editorView.state.schema.nodes.bullet_list))(),
+		bulletList: () => {
+			if (!editorView?.state.schema.nodes.bullet_list) return;
+			runCommand(wrapInList(editorView.state.schema.nodes.bullet_list))();
+		},
 
-		orderedList: () =>
-			runCommand(wrapInList(editorView.state.schema.nodes.ordered_list))(),
+		orderedList: () => {
+			if (!editorView?.state.schema.nodes.ordered_list) return;
+			runCommand(wrapInList(editorView.state.schema.nodes.ordered_list))();
+		},
 
-		codeBlock: () =>
-			runCommand(setBlockType(editorView.state.schema.nodes.code_block))(),
+		codeBlock: () => {
+			if (!editorView?.state.schema.nodes.code_block) return;
+			runCommand(setBlockType(editorView.state.schema.nodes.code_block))();
+		},
 
-		toggleBold: () =>
-			runCommand(toggleMark(editorView.state.schema.marks.strong))(),
+		toggleBold: () => {
+			if (!editorView?.state.schema.marks.strong) return;
+			runCommand(toggleMark(editorView.state.schema.marks.strong))();
+		},
 
-		toggleItalic: () =>
-			runCommand(toggleMark(editorView.state.schema.marks.em))(),
+		toggleItalic: () => {
+			if (!editorView?.state.schema.marks.em) return;
+			runCommand(toggleMark(editorView.state.schema.marks.em))();
+		},
 
-		setTextColor: (color) =>
-			runCommand(
-				toggleMark(editorView.state.schema.marks.textColor, { color }),
-			)(),
+		setTextColor: (color: string) => {
+			if (!editorView?.state.schema.marks.textColor) return;
+			runCommand(toggleMark(editorView.state.schema.marks.textColor, { color }))();
+		},
 	};
+	// These reactive statements track the active state of each formatting option
+	run(() => {
+		if (editorView) {
+			isH1 = isNodeActive("heading", { level: 1 });
+			isH2 = isNodeActive("heading", { level: 2 });
+			isH3 = isNodeActive("heading", { level: 3 });
+			isParagraph = isNodeActive("paragraph");
+			isBulletList = isNodeActive("bullet_list");
+			isOrderedList = isNodeActive("ordered_list");
+			isCodeBlock = isNodeActive("code_block");
+			isBold = isMarkActive("strong");
+			isItalic = isMarkActive("em");
+		}
+	});
 </script>
 
 <style>
@@ -209,17 +229,17 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isParagraph}"
-			on:click="{commands.paragraph}"
+			onclick={commands.paragraph}
 			title="Normal text">
 			¶
 		</button>
-		<button class:active="{isH1}" on:click="{commands.h1}" title="Heading 1">
+		<button class:active="{isH1}" onclick={commands.h1} title="Heading 1">
 			H1
 		</button>
-		<button class:active="{isH2}" on:click="{commands.h2}" title="Heading 2">
+		<button class:active="{isH2}" onclick={commands.h2} title="Heading 2">
 			H2
 		</button>
-		<button class:active="{isH3}" on:click="{commands.h3}" title="Heading 3">
+		<button class:active="{isH3}" onclick={commands.h3} title="Heading 3">
 			H3
 		</button>
 	</div>
@@ -227,13 +247,13 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isBulletList}"
-			on:click="{commands.bulletList}"
+			onclick={commands.bulletList}
 			title="Bullet list">
 			•
 		</button>
 		<button
 			class:active="{isOrderedList}"
-			on:click="{commands.orderedList}"
+			onclick={commands.orderedList}
 			title="Numbered list">
 			1.
 		</button>
@@ -242,7 +262,7 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isCodeBlock}"
-			on:click="{commands.codeBlock}"
+			onclick={commands.codeBlock}
 			title="Code block">
 			&lt;/&gt;
 		</button>
@@ -251,18 +271,21 @@
 	<div class="toolbar-group">
 		<button
 			class:active="{isBold}"
-			on:click="{commands.toggleBold}"
+			onclick={commands.toggleBold}
 			title="Bold">
 			B
 		</button>
 		<button
 			class:active="{isItalic}"
-			on:click="{commands.toggleItalic}"
+			onclick={commands.toggleItalic}
 			title="Italic">
 			I
 		</button>
 		<select
-			on:change="{(e) => commands.setTextColor(e.target.value)}"
+			onchange={(e: Event) => {
+				const target = e.target as HTMLSelectElement;
+				if (target) commands.setTextColor(target.value);
+			}}
 			title="Text color">
 			<option value="">Color</option>
 			<option value="#000000">Black</option>
@@ -276,7 +299,7 @@
 	<button
 		class="theme-switcher"
 		class:dark="{isDarkMode}"
-		on:click="{() => (isDarkMode = !isDarkMode)}">
+		onclick={() => (isDarkMode = !isDarkMode)}>
 		{isDarkMode ? "☀️" : "🌙"}
 	</button>
 </div>

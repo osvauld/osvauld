@@ -2,7 +2,13 @@ import { jsPDF } from "jspdf";
 import { open, BaseDirectory } from "@tauri-apps/plugin-fs";
 import { extractTitle } from "./helper";
 
-export const pdfGenerator = async (content, givenTitle) => {
+interface PdfResult {
+	show: boolean;
+	message: string;
+	success: boolean;
+}
+
+export const pdfGenerator = async (content: string, givenTitle?: string): Promise<PdfResult> => {
 	try {
 		const title = givenTitle || extractTitle(content);
 		const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
@@ -30,7 +36,7 @@ export const pdfGenerator = async (content, givenTitle) => {
 			pdf.html(container, {
 				callback: async function (pdf) {
 					try {
-						const totalPages = pdf.internal.getNumberOfPages();
+						const totalPages = (pdf as any).internal.getNumberOfPages();
 						for (let i = 1; i <= totalPages; i++) {
 							pdf.setPage(i);
 							pdf.setFontSize(10);
@@ -63,11 +69,11 @@ export const pdfGenerator = async (content, givenTitle) => {
 							message: `Note exported as PDF to Documents folder: ${safeTitle}.pdf`,
 							success: true,
 						});
-					} catch (error) {
+					} catch (error: unknown) {
 						console.error("Error saving PDF file:", error);
 						reject({
 							show: true,
-							message: `Failed to save PDF file: ${error.message}`,
+							message: `Failed to save PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`,
 							success: false,
 						});
 					}
@@ -80,11 +86,11 @@ export const pdfGenerator = async (content, givenTitle) => {
 				autoPaging: "text",
 			});
 		});
-	} catch (error) {
+	} catch (error: unknown) {
 		console.error("Error creating PDF:", error);
 		return {
 			show: true,
-			message: `Failed to create PDF: ${error.message}`,
+			message: `Failed to create PDF: ${error instanceof Error ? error.message : 'Unknown error'}`,
 			success: false,
 		};
 	}

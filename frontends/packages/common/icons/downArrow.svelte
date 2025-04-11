@@ -1,5 +1,5 @@
-<script>
-	export let type;
+<script lang="ts">
+	let { type } = $props();
 	function setbackground(type) {
 		const typeToClassMap = {
 			reader: "#F9E2AF",

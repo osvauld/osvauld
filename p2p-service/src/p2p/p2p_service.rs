@@ -7,7 +7,7 @@ use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload};
+use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload, PhaseType, Phase, PhaseAction};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
@@ -360,12 +360,11 @@ impl P2PService {
     }
 
     /// Adds a device to the network
-    #[instrument(skip(self, records, ticket), fields(ticket_len = ticket.len()), level = "info")]
+    #[instrument(skip(self,  ticket), fields(ticket_len = ticket.len()), level = "info")]
     pub async fn add_device(
         &self,
-        records: SyncPayload,
         ticket: String,
-    ) -> Result<Arc<PeerConnection>, P2PError> {
+    ) -> Result<(), P2PError> {
         info!("Adding device using ticket");
 
         match self
@@ -373,21 +372,21 @@ impl P2PService {
             .await?
         {
             Some(peer_connection) => {
-                // New connection was established, send the AddDevice message
-                info!("Connection established, sending AddDevice message");
-                match peer_connection
-                    .send_message(Message::AddDevice(records))
-                    .await
-                {
-                    Ok(_) => {
-                        info!("Device addition initiated successfully");
-                        Ok(peer_connection)
-                    }
-                    Err(e) => {
-                        error!("Failed to send AddDevice message: {}", e);
-                        Err(P2PError::Message(e))
-                    }
+                // Initialize the phase as AddDevice
+                peer_connection.phase.reset_for_new_phase(PhaseType::AddDevice).await;
+                
+                // Send the Phase message first to notify the other side
+                let phase_message = Message::Phase(Phase {
+                    action: PhaseAction::Init,
+                    phase_type: PhaseType::AddDevice,
+                });
+                
+                if let Err(e) = peer_connection.send_message(phase_message).await {
+                    error!("Failed to send Phase initialization message: {}", e);
+                    return Err(P2PError::Message(e));
                 }
+                Ok(())
+                
             }
             None => {
                 // Connection already exists or is being established

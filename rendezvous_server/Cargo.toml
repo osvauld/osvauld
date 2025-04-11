@@ -11,6 +11,9 @@ futures-util = "0.3"
 sled = "0.34"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+async-trait = "0.1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
 [dependencies.uuid]
 version = "1.14.0"
 features = [

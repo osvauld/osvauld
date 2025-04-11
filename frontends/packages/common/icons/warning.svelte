@@ -1,6 +1,10 @@
 <!-- Warning.svelte -->
-<script>
-	export let copiedToClipboard = false;
+<script lang="ts">
+	interface Props {
+		copiedToClipboard?: boolean;
+	}
+
+	let { copiedToClipboard = false }: Props = $props();
 </script>
 
 <style>

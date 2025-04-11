@@ -1,11 +1,9 @@
-// packages/password-manager/common/index.ts
 
 // Export DTOs
 export * from './dtos/credential.dto';
 export * from './dtos/cryptoKeys.dto';
 export * from './dtos/event.dto';
 export * from './dtos/folder.dto';
-export * from './dtos/import.dto';
 export * from './dtos/user.dto';
 
 // Export Utils
@@ -20,10 +18,10 @@ export * from './utils/translationUtils';
 
 
 // Export Components
-export * from './components/Loader.svelte';
-export * from './components/Signup.svelte';
-export * from './components/Welcome.svelte';
-export * from './components/PasswordPromptModal.svelte';
+export { default as Loader } from './components/Loader.svelte';
+export { default as Signup } from './components/Signup.svelte';
+export { default as Welcome } from './components/Welcome.svelte';
+export { default as PasswordPromptModal } from './components/PasswordPromptModal.svelte';
 // Export Icons
 export { default as ActiveCopy } from './icons/activeCopy.svelte';
 export { default as Add } from './icons/add.svelte';
@@ -100,3 +98,7 @@ export { default as UserCheck } from './icons/userCheck.svelte';
 export { default as UserIcon } from './icons/userIcon.svelte';
 export { default as UserPlus } from './icons/userPlus.svelte';
 export { default as Warning } from './icons/warning.svelte';
+export { default as BackArrow } from './icons/backArrow.svelte';
+export { default as VerticalMenu } from './icons/verticalMenu.svelte';
+export { default as DownloadIcon } from './icons/downloadIcon.svelte';
+export { default as SavedTick } from './icons/savedTick.svelte';

@@ -1,23 +1,15 @@
 <script lang="ts">
+	import { stopPropagation } from 'svelte/legacy';
+
 	import { slide, fly } from "svelte/transition";
-	import OsvauldDesktopLogo from "@osvauld/password-manager-common/icons/osvauldDesktopLogo.svelte";
-	import Lens from "@osvauld/password-manager-common/icons/lens.svelte";
-	import Profile from "@osvauld/password-manager-common/icons/profile.svelte";
-	import Key from "@osvauld/password-manager-common/icons/key.svelte";
-	import UserPlus from "@osvauld/password-manager-common/icons/userPlus.svelte";
-	import CopyIcon from "@osvauld/password-manager-common/icons/copyIcon.svelte";
-	import downloadIcon from "@osvauld/password-manager-common/icons/downloadIcon.svelte";
+
 	import {
 		sendMessage,
 		writeToClipboard,
 	} from "@osvauld/password-manager-common/utils/helper";
 
-	import RightArrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import { addDeviceModal, showConnector } from "../../store/desktop.ui.store";
-	import Sync from "@osvauld/password-manager-common/icons/sync.svelte";
-	import Devices from "@osvauld/password-manager-common/icons/devices.svelte";
-	import QrScanner from "@osvauld/password-manager-common/icons/qrScanner.svelte";
-	import Logout from "@osvauld/password-manager-common/icons/logout.svelte";
+	import { CopyIcon, DownloadIcon, UserPlus, RightArrow, Sync, Devices, QrScanner, Logout, OsvauldDesktopLogo, Lens, Profile, Key } from "@osvauld/password-manager-common";
+	
 	import {
 		showWelcome,
 		language,
@@ -25,10 +17,11 @@
 		toastStore,
 		showAddUser,
 		passwordPromptModal,
+		addDeviceModal, showConnector 
 	} from "../../store/desktop.ui.store";
 
-	let showDropdown = false;
-	let hoveredItem = "";
+	let showDropdown = $state(false);
+	let hoveredItem = $state("");
 
 	const MENUITEMS = [
 		{ id: "connect", label: "Connect", icon: Sync },
@@ -37,7 +30,7 @@
 		{ id: "devices", label: "My Devices", icon: Devices },
 		{ id: "addUser", label: "Add User", icon: UserPlus },
 		{ id: "change", label: "Change Password", icon: Key },
-		{ id: "export", label: "Emergency Key", icon: downloadIcon },
+		{ id: "export", label: "Emergency Key", icon: DownloadIcon },
 		{ id: "logout", label: "Logout", icon: Logout },
 	];
 
@@ -102,7 +95,7 @@
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				on:click={() => (showDropdown = !showDropdown)}>
+				onclick={() => (showDropdown = !showDropdown)}>
 				<Profile color="#4D4F60" />
 				<span class="ml-2">John Doe</span>
 				<span
@@ -116,7 +109,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation={() => (showDropdown = false)}>
+					onclick={stopPropagation(() => (showDropdown = false))}>
 				</div>
 				<div
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -125,9 +118,9 @@
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							class="profileBtn"
-							on:mouseenter={() => (hoveredItem = id)}
-							on:mouseleave={() => (hoveredItem = "")}
-							on:click|stopPropagation={() => handleDropDownClick(id)}>
+							onmouseenter={() => (hoveredItem = id)}
+							onmouseleave={() => (hoveredItem = "")}
+							onclick={stopPropagation(() => handleDropDownClick(id))}>
 							<Icon
 								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
 								size={24} />

@@ -3,10 +3,10 @@
 	import { onMount, onDestroy } from "svelte";
 	import { listen } from "@tauri-apps/api/event";
 
-	let ticket = "";
-	let status = "Ready to connect";
-	let error = "";
-	let connecting = false;
+	let ticket = $state("");
+	let status = $state("Ready to connect");
+	let error = $state("");
+	let connecting = $state(false);
 	let scanning = false;
 	let unlistenHandlers: (() => void)[] = [];
 
@@ -41,8 +41,8 @@
 			connecting = true;
 			//TODO: handle live and sync connection
 			// await invoke("connect_with_device", { ticket: response.trim() });
-		} catch (err) {
-			error = err.toString();
+		} catch (err: unknown) {
+			error = err instanceof Error ? err.message : "An unknown error occurred";
 			status = "Connection failed";
 			connecting = false;
 		}
@@ -53,8 +53,9 @@
 			const text = await navigator.clipboard.readText();
 			ticket = text;
 			error = "";
-		} catch (err) {
-			error = "Failed to paste from clipboard";
+		} catch (err: unknown) {
+			error =
+				err instanceof Error ? err.message : "Failed to paste from clipboard";
 		}
 	}
 </script>
@@ -82,13 +83,13 @@
 					class="w-full bg-mobile-bgPrimary border rounded-lg text-mobile-textPrimary border-mobile-bgHighlight p-3 focus:border-mobile-borderActive focus:ring-0" />
 				<div class="flex gap-2">
 					<button
-						on:click={pasteTicket}
+						onclick={pasteTicket}
 						class="px-4 py-2.5 bg-mobile-bgHighlight text-mobile-textPrimary rounded-lg font-medium"
 						disabled={connecting || scanning}>
 						Paste
 					</button>
 					<button
-						on:click={connect}
+						onclick={connect}
 						class="flex-1 px-4 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium"
 						disabled={connecting || scanning || !ticket.trim()}>
 						{connecting ? "Connecting..." : "Connect"}

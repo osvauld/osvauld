@@ -1,5 +1,9 @@
-<script>
-	export let color = "#85889C";
+<script lang="ts">
+	interface Props {
+		color?: string;
+	}
+
+	let { color = "#85889C" }: Props = $props();
 </script>
 
 <svg

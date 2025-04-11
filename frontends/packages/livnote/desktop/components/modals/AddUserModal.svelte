@@ -1,20 +1,14 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { createEventDispatcher } from "svelte";
-	const dispatch = createEventDispatcher();
-
-	let userDetails = "";
-
-	onMount(() => {
-		console.log("mounted");
-	});
+	let userDetails = $state("");
+	let { close, userAdd } = $props();
 
 	function handleClose() {
-		dispatch("close");
+		close();
 	}
 
-	function handleSubmit() {
-		dispatch("userAdd", userDetails);
+	function handleSubmit(e) {
+		e.preventDefault();
+		userAdd(userDetails);
 		// Handle form submission here
 	}
 </script>
@@ -24,7 +18,7 @@
 	<div class="bg-osvauld-frameblack p-6 rounded-lg shadow-lg w-full max-w-md">
 		<h1 class="text-2xl font-bold mb-6 text-center">Add User</h1>
 
-		<form on:submit|preventDefault={handleSubmit} class="flex flex-col gap-4">
+		<form onsubmit={handleSubmit} class="flex flex-col gap-4">
 			<div>
 				<label
 					for="UserDetails"
@@ -45,7 +39,7 @@
 				Add User
 			</button>
 			<button
-				on:click={handleClose}
+				onclick={handleClose}
 				class="mt-2 w-full bg-osvauld-carolinablue text-osvauld-frameblack font-medium py-2 px-4 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
 				Close
 			</button>

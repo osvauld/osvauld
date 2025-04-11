@@ -1,4 +1,6 @@
-<script>
+<script lang="ts">
+	import { run } from 'svelte/legacy';
+
 	import {
 		onMount,
 		onDestroy,
@@ -6,7 +8,9 @@
 		getContext,
 	} from "svelte";
 	import { EditorView } from "prosemirror-view";
+	import type { EditorState } from "prosemirror-state";
 	import { listen } from "@tauri-apps/api/event";
+	import type { UnlistenFn } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
 	import {
 		currentNote,
@@ -15,46 +19,26 @@
 		refreshCredentialList,
 		refreshSidePanel,
 	} from "../../store/desktop.ui.store";
-	import SavedTick from "@osvauld/password-manager-common/icons/savedTick.svelte";
+	import { SavedTick} from "@osvauld/password-manager-common";
 	import { DOMSerializer } from "prosemirror-model";
 	import "./rich-text-editor.css";
 
-	const dispatch = createEventDispatcher();
-	let element;
-	let view = null;
-	let autoSaveInterval;
-	let unsubscribeUpdate;
-	let isLoading = false;
-	let error = null;
-	let currentlyLoadedNoteId = null;
-	let loadingInProgress = false;
-	let saved = false;
-	const saveNoteAndSwitch = getContext("saveNoteAndSwitchFunction");
-	const saveNoteWithNewTitle = getContext("saveNoteWithNewTitleFunction");
+	const dispatch = createEventDispatcher<{
+		"collaboration-update": { noteId: string };
+	}>();
+	let element: HTMLElement | null = $state(null);
+	let view: EditorView | null = $state(null);
+	let autoSaveInterval: number | null = null;
+	let unsubscribeUpdate: UnlistenFn | null = null;
+	let isLoading = $state(false);
+	let error: string | null = $state(null);
+	let currentlyLoadedNoteId: string | null = $state(null);
+	let loadingInProgress = $state(false);
+	let saved = $state(false);
+	const saveNoteAndSwitch = getContext<(callback: () => void) => void>("saveNoteAndSwitchFunction");
+	const saveNoteWithNewTitle = getContext<(callback: () => void) => void>("saveNoteWithNewTitleFunction");
 
-	// Listen for noteId changes and load the corresponding note
-	$: if (
-		$noteId &&
-		element &&
-		$noteId !== currentlyLoadedNoteId &&
-		!loadingInProgress
-	) {
-		loadNote($noteId);
-	}
 
-	saveNoteAndSwitch(() => {
-		if (view) {
-			notesInstance
-				.saveNote($currentNote?.data?.title || "Untitled")
-				.catch(console.error);
-		}
-
-		// Return to list view
-		noteViewLayout.set(false);
-
-		// Clear current note ID
-		currentlyLoadedNoteId = null;
-	});
 
 	const saveNoteManual = () => {
 		saved = true;
@@ -69,11 +53,8 @@
 		}, 1000);
 	};
 
-	saveNoteWithNewTitle(() => {
-		saveNoteManual();
-	});
 
-	const fallbackCopy = (html) => {
+	const fallbackCopy = (html: string): void => {
 		const tempElement = document.createElement("div");
 		tempElement.innerHTML = html;
 		tempElement.style.position = "absolute";
@@ -97,7 +78,7 @@
 		console.log("Note copied using fallback method");
 	};
 
-	const copyContentListener = (event) => {
+	const copyContentListener = (event: Event): void => {
 		if (!view) return;
 
 		try {
@@ -146,7 +127,7 @@
 		}
 	};
 
-	async function loadNote(id) {
+	async function loadNote(id: string): Promise<void> {
 		if (!element || loadingInProgress) return;
 
 		loadingInProgress = true;
@@ -177,45 +158,48 @@
 			}
 
 			// Create editor view with the loaded content
-			view = createEditorView(element, docInfo.editorState);
+			if (docInfo.editorState) {
+				view = createEditorView(element, docInfo.editorState);
 
-			// Mark this note as loaded
-			currentlyLoadedNoteId = id;
+				// Mark this note as loaded
+				currentlyLoadedNoteId = id;
 
-			setTimeout(() => {
-				if (view) {
-					try {
-						// Force focus on the editor
-						view.focus();
+				setTimeout(() => {
+					if (view) {
+						try {
+							// Force focus on the editor
+							view.focus();
 
-						// Create a transaction to position the cursor at the end
-						const tr = view.state.tr;
+							// Create a transaction to position the cursor at the end
+							const tr = view.state.tr;
 
-						// Get the end position of the document
-						const endPosition = tr.doc.content.size;
+							// Get the end position of the document
+							const endPosition = tr.doc.content.size;
 
-						// Set the selection at the end position
-						tr.setSelection(
-							view.state.selection.constructor.near(
-								tr.doc.resolve(Math.max(0, endPosition)),
-							),
-						);
+							// Set the selection at the end position
+							const selection = view.state.selection.constructor as any;
+							tr.setSelection(
+								selection.near(
+									tr.doc.resolve(Math.max(0, endPosition)),
+								),
+							);
 
-						// Dispatch the transaction with a custom "cursorPlacement" metadata
-						view.dispatch(tr.setMeta("cursorPlacement", true));
-					} catch (err) {
-						console.error("Error positioning cursor:", err);
+							// Dispatch the transaction with a custom "cursorPlacement" metadata
+							view.dispatch(tr.setMeta("cursorPlacement", true));
+						} catch (err) {
+							console.error("Error positioning cursor:", err);
+						}
 					}
-				}
-			}, 100);
+				}, 100);
+			}
+
 			// Setup auto-save
 			if (autoSaveInterval) {
 				clearInterval(autoSaveInterval);
 			}
 
-			autoSaveInterval = setInterval(() => {
+			autoSaveInterval = window.setInterval(() => {
 				// Savign animation go
-
 				notesInstance
 					.saveNote($currentNote?.data?.title || "Untitled")
 					.catch(console.error);
@@ -258,17 +242,17 @@
 			}
 		} catch (err) {
 			console.error("Error loading note:", err);
-			error = `Failed to load note: ${err.message}`;
+			error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
 		} finally {
 			isLoading = false;
 			loadingInProgress = false;
 		}
 	}
 
-	function createEditorView(element, state) {
+	function createEditorView(element: HTMLElement, state: EditorState): EditorView {
 		const { ydoc } = notesInstance.getDoc();
 
-		const dispatchTransaction = async (tr) => {
+		const dispatchTransaction = async (tr: any) => {
 			if (!view) return;
 
 			try {
@@ -285,7 +269,7 @@
 				// Only trigger Yjs update if document actually changed
 				if (tr.docChanged && ydoc) {
 					dispatch("collaboration-update", {
-						noteId: currentlyLoadedNoteId,
+						noteId: currentlyLoadedNoteId || "",
 					});
 				}
 			} catch (err) {
@@ -299,7 +283,7 @@
 		});
 	}
 
-	const prosemirrorInstanceDestructionHandle = () => {
+	const prosemirrorInstanceDestructionHandle = (): void => {
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
@@ -321,7 +305,7 @@
 		currentlyLoadedNoteId = null;
 	};
 
-	noteId.subscribe((id) => {
+	noteId.subscribe((id: string) => {
 		// Only destroy and save if we had a previously loaded note
 		if (id && currentlyLoadedNoteId && id !== currentlyLoadedNoteId) {
 			prosemirrorInstanceDestructionHandle();
@@ -339,14 +323,49 @@
 			await loadNote($noteId);
 		}
 
-		document.addEventListener("request-editor-content", copyContentListener);
+		document.addEventListener("request-editor-content", copyContentListener as EventListener);
 	});
 
 	// Clean up when component is destroyed
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
 		prosemirrorInstanceDestructionHandle();
-		document.removeEventListener("request-editor-content", copyContentListener);
+		document.removeEventListener("request-editor-content", copyContentListener as EventListener);
+	});
+	run(() => {
+		if (saveNoteAndSwitch) {
+			saveNoteAndSwitch(() => {
+				if (view) {
+					notesInstance
+						.saveNote($currentNote?.data?.title || "Untitled")
+						.catch(console.error);
+				}
+
+				// Return to list view
+				noteViewLayout.set(false);
+
+				// Clear current note ID
+				currentlyLoadedNoteId = null;
+			});
+		}
+	});
+	// Listen for noteId changes and load the corresponding note
+	run(() => {
+		if (
+			$noteId &&
+			element &&
+			$noteId !== currentlyLoadedNoteId &&
+			!loadingInProgress
+		) {
+			loadNote($noteId);
+		}
+	});
+	run(() => {
+		if (saveNoteWithNewTitle) {
+			saveNoteWithNewTitle(() => {
+				saveNoteManual();
+			});
+		}
 	});
 </script>
 
@@ -397,7 +416,7 @@
 
 		<div bind:this="{element}" class="h-full"></div>
 		<button
-			on:click="{saveNoteManual}"
+			onclick={saveNoteManual}
 			class="absolute z-10 top-6 right-5 w-32 border bg-[#16171f] border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center"

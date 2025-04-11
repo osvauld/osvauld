@@ -19,7 +19,11 @@
 		"declaration": true,
 		"declarationMap": true,
 		"allowJs": true,
-		"isolatedModules": true
+		"isolatedModules": true,
+    "paths": {
+			"@osvauld/password-manager-common": ["."],
+			"@osvauld/password-manager-common/*": ["./*"]
+		}
 	},
 	"include": [
 		"utils/**/*.ts",

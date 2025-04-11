@@ -1,4 +1,6 @@
 import { EditorView } from "prosemirror-view";
+import { EditorState } from "prosemirror-state";
+import { Node, ResolvedPos } from "prosemirror-model";
 
 // Function to set text alignment
 export function setTextAlign(view: EditorView, align: string) {
@@ -60,14 +62,14 @@ export function setTextAlign(view: EditorView, align: string) {
 }
 
 // Helper function to get current text alignment
-export function getCurrentTextAlignment(state) {
+export function getCurrentTextAlignment(state: EditorState): string {
   const { $from } = state.selection;
   const node = $from.parent;
   return node.attrs && node.attrs.align ? node.attrs.align : "left";
 }
 
 // Update button states to highlight active alignment
-export function updateAlignmentButtonStates(menuNode: HTMLElement, state) {
+export function updateAlignmentButtonStates(menuNode: HTMLElement, state: EditorState): void {
   const currentAlignment = getCurrentTextAlignment(state);
 
   menuNode.querySelectorAll<HTMLElement>("[data-alignment]").forEach((button) => {

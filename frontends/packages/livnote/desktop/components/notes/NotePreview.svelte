@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { EditorState } from "prosemirror-state";
@@ -7,14 +7,24 @@
 	import { addListNodes } from "prosemirror-schema-list";
 	import * as Y from "yjs";
 
-	export let content = "";
-	export let title = "";
-	export let editorState = null;
-	export let yjsState = null;
-	export let maxHeight = "180px";
-	export let minHeight = "180px";
+	export const title: string = "";
+	interface Props {
+		content?: string;
+		editorState?: any;
+		yjsState?: any;
+		maxHeight?: string;
+		minHeight?: string;
+	}
 
-	let element;
+	let {
+		content = "",
+		editorState = null,
+		yjsState = null,
+		maxHeight = "180px",
+		minHeight = "180px"
+	}: Props = $props();
+
+	let element: HTMLElement | null = $state(null);
 	let view;
 
 	// Initialize the preview on mount

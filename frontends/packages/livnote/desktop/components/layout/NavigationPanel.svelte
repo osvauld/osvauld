@@ -1,138 +1,42 @@
 <script lang="ts">
-	import Arrow from "@osvauld/password-manager-common/icons/rightArrow.svelte";
-	import Home from "@osvauld/password-manager-common/icons/mobileHome.svelte";
-	import Star from "@osvauld/password-manager-common/icons/star.svelte";
-	import VaultManager from "../ui/VaultManager.svelte";
 	import {
-		currentVault,
-		noteViewLayout,
-		noteId,
-		currentNote,
-		notes,
-		refreshSidePanel,
-	} from "../../store/desktop.ui.store";
-	import { extractTitle } from "../utils/helper";
+		RightArrow as Arrow,
+		MobileHome as Home,
+		Star,
+		MobileNote,
+	} from "@osvauld/password-manager-common";
+
 	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
-	import { LocalStorageService } from "@osvauld/password-manager-common";
-	import { StorageService } from "@osvauld/password-manager-common";
-	import MobileNote from "@osvauld/password-manager-common/icons/mobileNote.svelte";
-	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { onMount } from "svelte";
 
-	let selectedSection = "home";
-	let localSelectedCredential = 0;
-	let vaultManagerActive = false;
-	let hoveredCredential = null;
+	// Import the centralized state
+	import { dataState } from "../../state/data.state";
+	import { uiState } from "../../state/ui.state";
 
-	let credentials = [];
-	let isLoading = false;
+	// Import VaultManager
+	import VaultManager from "../ui/VaultManager.svelte";
 
-	// Async function to fetch credentials based on vault ID
-	async function fetchCredentials(vaultId) {
-		isLoading = true;
-		try {
-			let fetchedCredentials;
-			if (vaultId === "all") {
-				fetchedCredentials = await sendMessage("getAllCredentials", {
-					favourite: false,
-				});
-			} else {
-				fetchedCredentials = await sendMessage("getCredentialsForFolder", {
-					folderId: vaultId,
-				});
-			}
+	// Define an enum for section selection
+	enum Section {
+		HOME = "home",
+		FAVOURITES = "favourites",
+	}
 
-			// Filter for notes only
-			credentials = fetchedCredentials.filter(
-				(cred) => cred.data && cred.data.content && cred.data.editor_state,
-			);
+	// Local UI state using $state
+	let selectedSection = $state<Section>(Section.HOME);
+	let hoveredCredential = $state<string | null>(null);
 
-			// Sort by last accessed/modified (most recent first)
-			credentials.sort((a, b) => {
-				const timeA = a.data.last_accessed || a.data.last_modified || 0;
-				const timeB = b.data.last_accessed || b.data.last_modified || 0;
-				return timeB - timeA;
-			});
-		} catch (error) {
-			console.error("Error fetching credentials:", error);
-			credentials = [];
-		} finally {
-			isLoading = false;
-		}
+	// Handle section changes
+	function handleSectionChange(section: Section) {
+		selectedSection = section;
+
+		// Use the centralized state for favorites
+		dataState.toggleFavoriteView(section === Section.FAVOURITES);
 	}
 
 	// Function to handle note selection
 	function selectNote(note) {
-		noteId.set(note.id);
-		currentNote.set(note);
+		dataState.switchNote(note);
 	}
-
-	// Watch for changes to currentVault
-	$: if ($currentVault && $currentVault.id) {
-		// Call the async function when vault changes
-		fetchCredentials($currentVault.id);
-
-		// Store Current vault for persisting
-		(async () => {
-			try {
-				const currentVaultString = JSON.stringify($currentVault);
-				await StorageService.setCurrentVault(currentVaultString);
-			} catch (error) {
-				console.error("Error storing vault:", error);
-			}
-		})();
-	}
-
-	// Handle section changes
-	function handleSectionChange(section) {
-		selectedSection = section;
-		// If you want to implement favorite filtering, you could do that here
-		if (section === "favourites") {
-			fetchFavorites();
-		} else {
-			fetchCredentials($currentVault.id);
-		}
-	}
-
-	// Function to fetch favorites
-	async function fetchFavorites() {
-		isLoading = true;
-		try {
-			const allCredentials = await sendMessage("getAllCredentials", {
-				favourite: true,
-			});
-
-			// Filter for notes only
-			credentials = allCredentials.filter(
-				(cred) => cred.data && cred.data.content && cred.data.editor_state,
-			);
-
-			// Sort by last accessed/modified (most recent first)
-			credentials.sort((a, b) => {
-				const timeA = a.data.last_accessed || a.data.last_modified || 0;
-				const timeB = b.data.last_accessed || b.data.last_modified || 0;
-				return timeB - timeA;
-			});
-		} catch (error) {
-			console.error("Error fetching favorites:", error);
-			credentials = [];
-		} finally {
-			isLoading = false;
-		}
-	}
-
-	// Watch for refresh requests
-	$: if ($refreshSidePanel) {
-		fetchCredentials($currentVault.id);
-		refreshSidePanel.set(false);
-	}
-
-	// Load initial data
-	onMount(() => {
-		if ($currentVault && $currentVault.id) {
-			fetchCredentials($currentVault.id);
-		}
-	});
 </script>
 
 <nav
@@ -143,17 +47,20 @@
 			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize trun"
 			aria-label="Switch Vault"
 			aria-controls="vaultSelector"
-			aria-expanded="false"
-			on:click="{() => (vaultManagerActive = !vaultManagerActive)}">
+			aria-expanded={uiState.vaultManager.isActive}
+			onclick={() => uiState.toggleVaultManager("nav")}>
 			<span class="flex-1 truncate text-left py-1"
-				>{$currentVault.id === "all" ? "All Vaults" : $currentVault.name}</span
+				>{dataState.currentVault.id === "all"
+					? "All Vaults"
+					: dataState.currentVault.name}</span
 			><span
-				class="shrink-0 transition-transform duration-300 {vaultManagerActive
+				class="shrink-0 transition-transform duration-300 {uiState.vaultManager
+					.isActive
 					? '-rotate-90'
-					: 'rotate-90'}"><Arrow color="#F2F2F0" size="{24}" /></span
+					: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 			></button>
-		{#if vaultManagerActive}
-			<VaultManager bind:vaultManagerActive instance="nav" />
+		{#if uiState.vaultManager.isActive && uiState.vaultManager.source === "nav"}
+			<VaultManager />
 		{/if}
 	</div>
 	<div
@@ -163,47 +70,48 @@
 				<button
 					class="w-full flex items-center gap-3 p-3 rounded-lg
                        transition-colors
-                       {!$noteId && selectedSection === 'home'
+                       {!dataState.currentNote && selectedSection === Section.HOME
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => handleSectionChange('home')}"
-					aria-current="{selectedSection === 'home' ? 'page' : undefined}">
+					on:click={() => handleSectionChange(Section.HOME)}
+					aria-current={selectedSection === Section.HOME ? 'page' : undefined}>
 					<Home
-						color="{!$noteId && selectedSection === 'home'
+						color={!dataState.currentNote && selectedSection === Section.HOME
 							? '#F2F2F0'
-							: '#85889C'}" />
+							: '#85889C'} />
 					<span>Home</span>
 				</button>
 			</li>
 			<li>
 				<button
 					class="w-full flex items-center gap-3 p-3 rounded-lg
-                       {!$noteId && selectedSection === 'favourites'
+                       {!dataState.currentNote && selectedSection === Section.FAVOURITES
 						? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 						: ''}"
-					on:click="{() => handleSectionChange('favourites')}"
-					aria-current="{selectedSection === 'favourites'
+					on:click={() => handleSectionChange(Section.FAVOURITES)}
+					aria-current={selectedSection === Section.FAVOURITES
 						? 'page'
-						: undefined}">
+						: undefined}>
 					<Star
-						color="{!$noteId && selectedSection === 'favourites'
+						color={!dataState.currentNote && selectedSection === Section.FAVOURITES
 							? '#F2F2F0'
-							: '#85889C'}" />
+							: '#85889C'} />
 					<span>Favourites</span>
 				</button>
 			</li>
 		</ul> -->
 	</div>
 
-	{#if isLoading}
+	{#if dataState.isDataLoading}
 		<div class="text-osvauld-fieldText text-center p-4">Loading...</div>
 	{:else}
 		<ul
 			class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
 			role="list">
-			{#each credentials as note (note.id)}
+			{#each dataState.filteredNotes as note (note.id)}
 				{@const hoveredOrSelected =
-					hoveredCredential === note.id || $noteId === note.id}
+					hoveredCredential === note.id ||
+					(dataState.currentNote && dataState.currentNote.id === note.id)}
 				<li>
 					<button
 						class="w-full flex items-center justify-between gap-3 p-3 rounded-lg
@@ -211,13 +119,12 @@
 							{hoveredOrSelected
 							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 							: ''}"
-						on:mouseenter="{() => (hoveredCredential = note.id)}"
-						on:mouseleave="{() => (hoveredCredential = null)}"
-						on:click="{() => selectNote(note)}">
+						onmouseenter={() => (hoveredCredential = note.id)}
+						onmouseleave={() => (hoveredCredential = null)}
+						onclick={() => selectNote(note)}>
 						<div class="flex items-center gap-3 truncate">
 							<span class="shrink-0">
-								<MobileNote
-									color="{hoveredOrSelected ? '#F2F2F0' : '#85889C'}" />
+								<MobileNote color={hoveredOrSelected ? "#F2F2F0" : "#85889C"} />
 							</span>
 							<span class="truncate">
 								{note?.data.title ? note.data.title : "untitled note"}
