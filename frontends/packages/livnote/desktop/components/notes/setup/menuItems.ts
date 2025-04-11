@@ -357,6 +357,8 @@ export function addFormatDropdown(container: HTMLElement, schema: Schema, view: 
     hideDropdowns();
     if (!isVisible) {
       dropdownMenu.style.display = "block";
+      // Force a reflow to make sure the browser applies the style change
+      dropdownMenu.getBoundingClientRect();
     }
   });
 
@@ -368,11 +370,24 @@ export function addFormatDropdown(container: HTMLElement, schema: Schema, view: 
     }
   });
 
+  // Hide submenu when leaving headings item
+  headingsItem.addEventListener("mouseleave", () => {
+    const submenu = headingsItem.querySelector(".submenu");
+    if (submenu instanceof HTMLElement) {
+      submenu.style.display = "none";
+    }
+  });
+
   // Close dropdown when clicking outside
   document.addEventListener("click", (e) => {
     if (e.target instanceof Node && !dropdownContainer.contains(e.target)) {
       hideDropdowns();
     }
+  });
+
+  // Stop event propagation when clicking on the dropdown menu
+  dropdownMenu.addEventListener("click", (e) => {
+    e.stopPropagation();
   });
 
   // Add everything to the DOM

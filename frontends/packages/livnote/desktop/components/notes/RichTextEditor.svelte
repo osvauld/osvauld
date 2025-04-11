@@ -300,8 +300,8 @@
 			.then(() => refreshCredentialList.set(true));
 
 		// Clear current note ID
-		noteId.set("");
-		currentNote.set({});
+		// noteId.set("");
+		// currentNote.set({});
 		currentlyLoadedNoteId = null;
 	};
 
@@ -381,6 +381,7 @@
 		border-radius: 1rem;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden; /* Prevent container from growing */
 	}
 
 	.editor-main {
@@ -389,6 +390,16 @@
 		flex-direction: column;
 		overflow-y: auto;
 		margin: 5px 15px 5px 15px;
+		max-height: 100%; /* Ensure it doesn't grow beyond container */
+	}
+
+	/* Add styles for the editor content */
+	:global(.ProseMirror) {
+		min-height: 100%;
+		height: fit-content;
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+		word-break: break-word;
 	}
 </style>
 

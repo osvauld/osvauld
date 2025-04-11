@@ -274,7 +274,7 @@
 	});
 </script>
 
-<div class="flex grow max-h-full">
+<div class="flex grow max-h-full max-w-[calc(100vw - 22.5rem)]">
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<div class="py-10 px-11 flex items-center justify-start shrink-0">
 			{#if $noteViewLayout}
@@ -300,9 +300,9 @@
 							role="button"
 							tabindex="0"
 							class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
-							ondblclick={startEditingTitle}
-							onkeydown={(e) => e.key === "Enter" && startEditingTitle()}>
-							{currentNoteValue?.data?.title || "Untitled"}
+							on:dblclick={startEditingTitle}
+							on:keydown={(e) => e.key === "Enter" && startEditingTitle()}>
+							{$currentNote?.data?.last_modified ? $currentNote?.data?.title : "Untitled"}
 						</span>
 					{/if}
 
@@ -402,8 +402,8 @@
 		<NotesListView {favSelected} />
 	</div>
 	{#if $noteViewLayout}
-		<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start">
-			<div class=" shrink-0 gap-4 flex justify-between items-center text-base">
+		<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
+			<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 					onclick={handleCopyNote}>

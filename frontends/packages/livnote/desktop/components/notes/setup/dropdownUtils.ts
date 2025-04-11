@@ -31,8 +31,12 @@ export const dropdownStyle = `
     left: 0px;
     min-width: 160px;
     background: #2a2b2f;
+    border: 1px solid #3a3b44;
+    border-radius: 4px;
     font-size: 14px;
     z-index: 100;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
   }
   
   .dropdown-item {
@@ -58,9 +62,13 @@ export const dropdownStyle = `
     top: 0;
     min-width: 160px;
     background: #2a2b2f;
+    border: 1px solid #3a3b44;
+    border-radius: 4px;
     font-size: 14px;
     display: none;
     z-index: 101;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
   }
   
   .submenu-item {
