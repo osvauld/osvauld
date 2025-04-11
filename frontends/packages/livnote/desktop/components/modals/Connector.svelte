@@ -25,8 +25,8 @@
 	class="p-4 inset-0 items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px] fixed flex flex-col gap-4">
 	{#if isInitiator}
 		<Initiator />
-	{:else if passwordCollected}
-		<Acceptor {passwordCollected} />
+	{:else}
+		<Acceptor />
 	{/if}
 
 	<div class="flex justify-between">

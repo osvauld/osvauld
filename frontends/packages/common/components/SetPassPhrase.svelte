@@ -23,12 +23,14 @@
 	// Derived values
 	let firstInputType = $derived(showFirstPassword ? "text" : "password");
 	let secondInputType = $derived(showSecondPassword ? "text" : "password");
-	let submitDisabled = $derived(
-		passphrase.length === 0 ||
-			passphrase !== confirmPassphrase ||
-			!isPassphraseAcceptable ||
-			username.length < 4,
-	);
+	//TODO: for dev disabling password strength check
+	// let submitDisabled = $derived(
+	// 	passphrase.length === 0 ||
+	// 		passphrase !== confirmPassphrase ||
+	// 		!isPassphraseAcceptable ||
+	// 		username.length < 4,
+	// );
+	let submitDisabled = false;
 
 	// Handle password strength changes from the validator component
 	const handleStrengthChange = (isAcceptable: boolean) => {

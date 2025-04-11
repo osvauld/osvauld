@@ -1,14 +1,14 @@
 <script lang="ts">
+	import BaseImportPvtKey from "./BaseImportPvtKey.svelte";
 	import SetPassPhrase from "./SetPassPhrase.svelte";
 
-	// Using $props for component props
-	let { ImportComponent, onSignedUp } = $props();
+	let { onSignedUp } = $props();
 
-	// Using $state for reactive variables
 	let importPvtKeyFlag = $state(false);
 	let showSelection = $state(true);
 
 	const handleSignedUp = () => {
+		console.log("triggerd handle signup");
 		onSignedUp?.();
 	};
 
@@ -39,7 +39,7 @@
 			</div>
 		</div>
 	{:else if importPvtKeyFlag}
-		<ImportComponent onLogin={handleSignedUp} />
+		<BaseImportPvtKey onLogin={handleSignedUp} />
 	{:else}
 		<SetPassPhrase onSignedUp={handleSignedUp} />
 	{/if}

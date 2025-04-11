@@ -17,11 +17,13 @@
 	let isPassphraseAcceptable = $state(false);
 
 	// Derived values
-	let submitDisabled = $derived(
-		passphrase.length === 0 ||
-			passphrase !== reenteredPassPhrase ||
-			!isPassphraseAcceptable,
-	);
+	// TODO: for dev disabling this
+	// let submitDisabled = $derived(
+	// 	passphrase.length === 0 ||
+	// 		passphrase !== reenteredPassPhrase ||
+	// 		!isPassphraseAcceptable,
+	// );
+	let submitDisabled = false;
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {
 		if (isInitialResponse) {

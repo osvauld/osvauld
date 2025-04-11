@@ -11,8 +11,9 @@
 	let recoveryString = $state("");
 	let unlistenHandlers: (() => void)[] = [];
 	let textareaElement = $state();
-
-	let { passwordCollected }: Props = $props();
+	let passwordCollected = $state("");
+	let isPassphraseSubmitted = $state(false);
+	let isLoading = $state(false);
 
 	async function setupEventListeners() {
 		const unlisten1 = await listen("peer-connected", () => {
@@ -30,31 +31,60 @@
 		unlistenHandlers = [unlisten1, unlisten2, unlisten3];
 	}
 
-	onMount(async () => {
+	async function initializeConnection() {
 		try {
+			isLoading = true;
 			await invoke("start_p2p_listener");
 			console.log("acceptor mounted");
 			await setupEventListeners();
 			connectionTicket = await sendMessage("getTicket");
+			status = "Ready to connect. Share the ticket with mobile device.";
+			isLoading = false;
+		} catch (err) {
+			error = err.toString();
+			status = "Failed to initialize";
+			isLoading = false;
+		}
+	}
+
+	async function handlePassphraseSubmit() {
+		if (!passwordCollected.trim()) {
+			error = "Please enter your passphrase";
+			return;
+		}
+
+		try {
+			isLoading = true;
+			error = ""; // Clear any previous errors
+
 			certificate = await sendMessage("exportCertificate", {
 				passphrase: passwordCollected,
 			});
+
 			recoveryString = JSON.stringify({
 				ticket: connectionTicket,
 				certificate: certificate,
 			});
-			// connectionTicket = await invoke("get_ticket");
+
+			isPassphraseSubmitted = true;
 			status = "Ready to connect. Share the ticket with mobile device.";
+
 			// Use setTimeout to ensure the textarea is rendered before focusing
 			setTimeout(() => {
 				if (textareaElement) {
 					textareaElement.focus();
 				}
 			}, 100);
+
+			isLoading = false;
 		} catch (err) {
-			error = err.toString();
-			status = "Failed to initialize";
+			error = `Failed to export certificate: ${err.toString()}`;
+			isLoading = false;
 		}
+	}
+
+	onMount(async () => {
+		await initializeConnection();
 	});
 
 	onDestroy(() => {
@@ -79,7 +109,12 @@
 	<div class="bg-mobile-bgSeconary rounded-lg p-4">
 		<h2 class="text-xl mb-2 text-mobile-textPrimary">Receive Connection</h2>
 		<p class="text-mobile-textSecondary mb-4">
-			Share this ticket with your mobile device to establish connection
+			{#if !isPassphraseSubmitted}
+				Enter your passphrase to generate a connection ticket for your mobile
+				device
+			{:else}
+				Share this ticket with your mobile device to establish connection
+			{/if}
 		</p>
 
 		{#if error}
@@ -89,25 +124,46 @@
 		{/if}
 
 		<div class="flex flex-col gap-3">
-			{#if recoveryString}
+			{#if !isPassphraseSubmitted}
+				<!-- Passphrase input form -->
+				<div class="w-full">
+					<label for="passphrase" class="block text-mobile-textSecondary mb-1"
+						>Passphrase</label>
+					<input
+						type="password"
+						id="passphrase"
+						placeholder="Enter your passphrase"
+						bind:value={passwordCollected}
+						class="w-full bg-mobile-bgPrimary border border-mobile-borderColor rounded-lg p-2 text-mobile-textPrimary" />
+				</div>
+
+				<button
+					on:click={handlePassphraseSubmit}
+					disabled={isLoading}
+					class="w-full bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg py-3 font-medium mt-2">
+					{isLoading ? "Processing..." : "Submit Passphrase"}
+				</button>
+			{:else if recoveryString}
 				<div class="mx-auto">
 					<!-- <QRCode data="{recoveryString}" /> -->
 				</div>
 				<textarea
 					name="text"
 					class="font-light text-xs text-white w-full h-32 p-2 mt-4 overflow-auto break-all"
-					bind:this="{textareaElement}">
+					bind:this={textareaElement}>
 					{recoveryString}
 				</textarea>
 
 				<button
-					onclick="{copyTicket}"
+					on:click={copyTicket}
 					class="w-full bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg py-3 font-medium">
 					Copy Ticket
 				</button>
 			{:else}
 				<div class="text-mobile-textSecondary text-center py-4">
-					Generating connection ticket...
+					{isLoading
+						? "Generating connection ticket..."
+						: "Failed to generate ticket. Please try again."}
 				</div>
 			{/if}
 		</div>

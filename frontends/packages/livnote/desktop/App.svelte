@@ -29,6 +29,7 @@
 	const handleSignedUp = async () => {
 		signedUp = true;
 		uiState.setWelcomeScreen(false);
+		await dataState.initializeState();
 	};
 
 	const handleAuthenticated = async () => {
@@ -41,10 +42,12 @@
 			const response = await sendMessage("isSignedUp");
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
+			console.log(checkPvtLoad);
 
 			if (checkPvtLoad === false) {
 				uiState.setWelcomeScreen(true);
 			} else {
+				await handleAuthenticated();
 				// Set up merge update listener
 				unsubscribeResourceUpdate = await listen(
 					"merge-update",
@@ -106,7 +109,7 @@
 			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
-		<Signup ImportComponent={DesktopImportPvtKey} onSignedUp={handleSignedUp} />
+		<Signup onSignedUp={handleSignedUp} />
 	{:else if uiState.showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
 			<Welcome authenticated={handleAuthenticated} />
