@@ -9,6 +9,7 @@
 	// No need for vaultManagerActive prop anymore
 	let newVaultInputActive = $state(false);
 	let newVaultName = $state("");
+	let { position = "noteList" }: { position: "navigationPanel" | "noteList" } = $props();
 
 	const autofocus = (node: HTMLElement) => {
 		node.focus();
@@ -63,7 +64,7 @@
 	role="presentation"
 	onclick={() => uiState.toggleVaultManager()}>
 	<div
-		class={`absolute w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg top-56 left-4`}
+		class={`absolute w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${ position === "noteList" ? 'top-60 left-22' : 'top-56 left-4'}`}
 		style="width: calc(360px - 2rem);"
 		id="vaultSelector"
 		in:fly>

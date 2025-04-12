@@ -61,7 +61,7 @@
 			</span>
 		</button>
 		{#if uiState.vaultManagerActive}
-			<VaultManager />
+			<VaultManager position="noteList"/>
 		{/if}
 	</div>
 	<div

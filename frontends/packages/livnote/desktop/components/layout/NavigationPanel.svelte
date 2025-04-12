@@ -58,7 +58,7 @@
 					: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 			></button>
 		{#if uiState.vaultManagerActive}
-			<VaultManager />
+			<VaultManager position="navigationPanel"/>
 		{/if}
 	</div>
 	<div

@@ -8,7 +8,6 @@
 	import NotesListView from "./components/notes/NotesListView.svelte";
 	import NotesWorkspace from "./components/layout/NotesWorkspace.svelte";
 	import HeaderSection from "./components/layout/HeaderSection.svelte";
-	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import AppModals from "./components/modals/Modals.svelte";
 	import { dataState, uiState } from "./state/";

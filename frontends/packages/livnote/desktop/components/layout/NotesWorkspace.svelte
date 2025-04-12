@@ -117,7 +117,7 @@
 	});
 </script>
 
-<div class="flex grow max-h-full max-w-[calc(100vw)]">
+<div class="flex grow max-h-full max-w-full">
 	<NavigationPanel />
 
 	<div class="flex-1 flex flex-col overflow-hidden">
