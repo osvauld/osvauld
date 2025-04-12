@@ -3,10 +3,7 @@ mod errors;
 pub mod types;
 
 use crate::errors::{AesError, CryptoUtilsError, PgpError};
-use crate::types::{
-    EncryptedDataWithAccess, EncryptedResource, GeneratedKeys, ResourceWithEncryptedKey,
-    UserAccess, UserPublicKey,
-};
+use crate::types::{EncryptedResource, GeneratedKeys};
 use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
 
@@ -126,11 +123,11 @@ pub fn import_certificate(
     })
 }
 
-/// Encrypt data for multiple users using their public keys
-pub fn encrypt_data_for_users(
+/// Encrypt data for a single user using their public key
+pub fn encrypt_data_for_user(
     data: &str,
-    users: &[UserPublicKey],
-) -> Result<EncryptedDataWithAccess, CryptoError> {
+    public_key: &str,
+) -> Result<(String, String), CryptoError> {
     // Generate AES key
     let aes_key = crypto_core::generate_aes_key();
 
@@ -138,29 +135,16 @@ pub fn encrypt_data_for_users(
     let encrypted_data =
         crypto_core::encrypt_with_aes(&aes_key, data).map_err(|e| CryptoError::AesError(e))?;
 
-    // Encrypt AES key for each user
-    let mut access_list = Vec::new();
-    for user in users {
-        let recipient =
-            crypto_core::get_recipient(&user.public_key).map_err(|e| CryptoError::PgpError(e))?;
+    // Encrypt AES key for the user
+    let recipient = crypto_core::get_recipient(public_key).map_err(|e| CryptoError::PgpError(e))?;
 
-        let encrypted_key = crypto_core::encrypt_text_pgp(
-            &recipient,
-            &general_purpose::STANDARD.encode(aes_key.as_slice()),
-        )
-        .map_err(|e| CryptoError::Other(e.to_string()))?;
+    let encrypted_key = crypto_core::encrypt_text_pgp(
+        &recipient,
+        &general_purpose::STANDARD.encode(aes_key.as_slice()),
+    )
+    .map_err(|e| CryptoError::Other(e.to_string()))?;
 
-        access_list.push(UserAccess {
-            user_id: user.user_id.clone(),
-            access: user.access.clone(),
-            encrypted_key,
-        });
-    }
-
-    Ok(EncryptedDataWithAccess {
-        encrypted_data,
-        access_list,
-    })
+    Ok((encrypted_data, encrypted_key))
 }
 
 /// Get key ID from a public key
@@ -341,57 +325,34 @@ impl CryptoUtils {
         })
     }
 
-    /// Decrypt resources using the loaded certificate
-    pub fn decrypt_resources(
-        &self,
-        resources: &[ResourceWithEncryptedKey],
-    ) -> Result<Vec<ResourceWithEncryptedKey>, CryptoError> {
+    pub fn decrypt_resource(&self, data: &str, encrypted_key: &str) -> Result<String, CryptoError> {
         let policy = &StandardPolicy::new();
 
-        // Convert CryptoUtilsError
+        // Get the certificate and decryption key
         let cert = self
             .get_cert()
             .map_err(|e| CryptoError::CryptoUtilsError(e))?;
 
-        // Convert PgpError
         let decrypt_key =
             crypto_core::get_decryption_key(cert).map_err(|e| CryptoError::PgpError(e))?;
 
-        let mut decrypted_resources = Vec::new();
+        // Decrypt the encrypted key
+        let encrypted_key_bytes = encrypted_key.as_bytes();
+        let decrypted_key =
+            crypto_core::decrypt_text_pgp(policy, &decrypt_key, encrypted_key_bytes)
+                .map_err(|e| CryptoError::PgpError(e))?;
 
-        for resource in resources {
-            // Decrypt the encrypted key - Convert PgpError
-            let encrypted_key_bytes = resource.encrypted_key.as_bytes();
-            let decrypted_key =
-                crypto_core::decrypt_text_pgp(policy, &decrypt_key, encrypted_key_bytes)
-                    .map_err(|e| CryptoError::PgpError(e))?;
+        // Convert to UTF-8 string
+        let aes_key = String::from_utf8(decrypted_key)?;
 
-            // Convert UTF-8 error using From trait
-            let aes_key = String::from_utf8(decrypted_key)?;
+        // Decode from base64
+        let key_bytes = general_purpose::STANDARD.decode(&aes_key)?;
 
-            // Convert base64 decode error
-            let key_bytes = general_purpose::STANDARD.decode(&aes_key)?;
+        // Decrypt the data with AES
+        let decrypted_data = crypto_core::decrypt_with_aes(&key_bytes, data)
+            .map_err(|e| CryptoError::AesError(e))?;
 
-            // Convert AesError
-            let decrypted_data = crypto_core::decrypt_with_aes(&key_bytes, &resource.data)
-                .map_err(|e| CryptoError::AesError(e))?;
-
-            // Create a new ResourceWithEncryptedKey with decrypted data
-            let decrypted_resource = ResourceWithEncryptedKey {
-                id: resource.id.clone(),
-                resource_type: resource.resource_type.clone(),
-                data: decrypted_data,
-                signature: resource.signature.clone(),
-                encrypted_key: resource.encrypted_key.clone(),
-                last_accessed: resource.last_accessed,
-                favourite: resource.favourite,
-                folder_id: resource.folder_id.clone(),
-            };
-
-            decrypted_resources.push(decrypted_resource);
-        }
-
-        Ok(decrypted_resources)
+        Ok(decrypted_data)
     }
 
     /// Update an existing resource using its encrypted key

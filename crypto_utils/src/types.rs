@@ -15,38 +15,6 @@ pub struct PasswordChangeInput {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct UserPublicKey {
-    pub user_id: String,
-    pub public_key: String,
-    pub access: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct UserAccess {
-    pub user_id: String,
-    pub access: String,
-    pub encrypted_key: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct EncryptedDataWithAccess {
-    pub encrypted_data: String,
-    pub access_list: Vec<UserAccess>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct ResourceWithEncryptedKey {
-    pub id: String,
-    pub resource_type: String,
-    pub data: String,
-    pub signature: String,
-    pub encrypted_key: String,
-    pub last_accessed: i64,
-    pub favourite: bool,
-    pub folder_id: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
 pub struct EncryptedResource {
     pub encrypted_data: String,
     pub encrypted_key: String,
