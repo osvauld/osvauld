@@ -87,6 +87,18 @@
 <div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
+		on:click={saveNoteManual}
+		class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]">
+		{#if saved}
+			<span class="whitespace-nowrap flex items-center justify-center">
+				<span class="text-[#9DD062] mr-2">Saved</span>
+				<Tick color="#9DD062" />
+			</span>
+		{:else}
+			<span>Save</span>
+		{/if}
+	</button>
+		<button
 			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 			on:click={handleCopyNote}>
 			{#if noteCopied}
@@ -111,7 +123,7 @@
 				{#if isPdfGenerating}
 					<Loader color="#85889C" />
 				{:else}
-					<DownloadIcon />
+					<DownloadIcon  />
 				{/if}
 			</button>
 
@@ -123,18 +135,7 @@
 			{/if}
 		</div>
 
-		<button
-			on:click={saveNoteManual}
-			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer">
-			{#if saved}
-				<span class="whitespace-nowrap flex items-center justify-center">
-					<span class="text-[#9DD062] mr-2">Saved</span>
-					<Tick color="#9DD062" />
-				</span>
-			{:else}
-				<span>Save</span>
-			{/if}
-		</button>
+
 	</div>
 
 	<div class="flex-1 w-full">
