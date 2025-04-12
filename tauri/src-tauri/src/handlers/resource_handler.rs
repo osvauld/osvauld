@@ -1,20 +1,20 @@
 use crate::types::{
-    AddResourceInput, CryptoResponse, DeleteResourceInput, GetAllResources, GetResource,
-    GetResourceForFolderInput, ResourceResponse, ShareResource, ToggleFavInput,
-    UpdateLastAccessedInput, UpdateResources,
+    AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
+    ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput, UpdateResources,
 };
 use crate::user_state::UserState;
 use log::info;
 use osvauld_services::{ResourceService, TransactionService};
 use std::sync::Arc;
-use tauri::State;
 
+use tauri::{AppHandle, Emitter, State};
 #[tauri::command]
 pub async fn handle_add_resource(
     input: AddResourceInput,
     resource_service: State<'_, Arc<ResourceService>>,
     transaction_service: State<'_, Arc<TransactionService>>,
     user_state: State<'_, UserState>,
+    app_handle: AppHandle,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
@@ -40,6 +40,20 @@ pub async fn handle_add_resource(
         )
         .await
         .map_err(|e| e.to_string());
+    let resource_added = resource_service
+        .get_resource_by_id_direct(&resource.id, &user.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let response = ResourceResponse {
+        id: resource_added.id,
+        data: resource_added.data,
+        favourite: resource_added.favourite,
+        last_accessed: resource_added.last_accessed,
+        folder_id: resource_added.folder_id,
+    };
+    app_handle
+        .emit("resource-added", response)
+        .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::ResourceCreateted(resource.id))
 }
@@ -112,10 +126,9 @@ pub async fn update_last_accessed(
 #[tauri::command]
 pub async fn get_all_resources(
     resource_service: State<'_, Arc<ResourceService>>,
-    input: GetAllResources,
 ) -> Result<CryptoResponse, String> {
     let resources = resource_service
-        .get_all_resources(input.favourite)
+        .get_all_resources()
         .await
         .map_err(|e| e.to_string())?;
     let resource_responses = resources
@@ -138,6 +151,7 @@ pub async fn update_resource(
     transaction_service: State<'_, Arc<TransactionService>>,
     input: UpdateResources,
     user_state: State<'_, UserState>,
+    app_handle: AppHandle,
 ) -> Result<CryptoResponse, String> {
     //TODO: migrate obsolete user records to another table.
     let current_device = user_state.get_device().await?;
@@ -148,6 +162,21 @@ pub async fn update_resource(
     transaction_service
         .update_resource_with_sync_and_share(&input.id, &encrypted_data, &current_device)
         .await
+        .map_err(|e| e.to_string())?;
+
+    let resource_added = resource_service
+        .get_resource_by_id_direct(&input.id, &current_device.user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let response = ResourceResponse {
+        id: resource_added.id,
+        data: resource_added.data,
+        favourite: resource_added.favourite,
+        last_accessed: resource_added.last_accessed,
+        folder_id: resource_added.folder_id,
+    };
+    app_handle
+        .emit("resource-update", response)
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::UpdateResources)
 }

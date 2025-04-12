@@ -108,10 +108,6 @@ pub struct AddDeviceInput {
 pub struct ExportedCertificate {
     pub passphrase: String,
 }
-#[derive(Deserialize)]
-pub struct GetAllResources {
-    pub favourite: bool,
-}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -163,6 +159,7 @@ pub struct GetResourceForFolderInput {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceResponse {
     pub id: String,
     pub data: serde_json::Value,

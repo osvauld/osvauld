@@ -1,86 +1,28 @@
 <script lang="ts">
-	import {
-		onMount,
-		onDestroy,
-		createEventDispatcher,
-		getContext,
-	} from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import type { EditorState } from "prosemirror-state";
 	import { listen } from "@tauri-apps/api/event";
 	import type { UnlistenFn } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
-	import {
-		currentNote,
-		noteId,
-		noteViewLayout,
-		refreshCredentialList,
-		refreshSidePanel,
-	} from "../../store/desktop.ui.store";
-	import { SavedTick} from "@osvauld/password-manager-common";
+	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
 	import "./rich-text-editor.css";
 
-	const dispatch = createEventDispatcher<{
-		"collaboration-update": { noteId: string };
-	}>();
-	let element: HTMLElement | null = null;
-	let view: EditorView | null = null;
-	let autoSaveInterval: number | null = null;
-	let unsubscribeUpdate: UnlistenFn | null = null;
-	let isLoading = false;
-	let error: string | null = null;
-	let currentlyLoadedNoteId: string | null = null;
-	let loadingInProgress = false;
-	let saved = false;
-	const saveNoteAndSwitch = getContext<(callback: () => void) => void>("saveNoteAndSwitchFunction");
-	const saveNoteWithNewTitle = getContext<(callback: () => void) => void>("saveNoteWithNewTitleFunction");
+	// Event dispatcher for collaboration updates
 
-	// Listen for noteId changes and load the corresponding note
-	$: if (
-		$noteId &&
-		element &&
-		$noteId !== currentlyLoadedNoteId &&
-		!loadingInProgress
-	) {
-		loadNote($noteId);
-	}
+	// Local state using $state
+	let element = $state<HTMLElement | null>(null);
+	let view = $state<EditorView | null>(null);
+	let autoSaveInterval = $state<number | null>(null);
+	let unsubscribeUpdate = $state<UnlistenFn | null>(null);
+	let isLoading = $state(true);
+	let error = $state<string | null>(null);
+	let currentlyLoadedNoteId = $state<string | null>(null);
+	let loadingInProgress = $state(false);
+	let saved = $state(false);
 
-	$: if (saveNoteAndSwitch) {
-		saveNoteAndSwitch(() => {
-			if (view) {
-				notesInstance
-					.saveNote($currentNote?.data?.title || "Untitled")
-					.catch(console.error);
-			}
-
-			// Return to list view
-			noteViewLayout.set(false);
-
-			// Clear current note ID
-			currentlyLoadedNoteId = null;
-		});
-	}
-
-	const saveNoteManual = () => {
-		saved = true;
-		notesInstance
-			.saveNote($currentNote?.data?.title || "Untitled")
-			.catch(console.error)
-			.then(() => refreshCredentialList.set(true))
-			.then(() => refreshSidePanel.set(true));
-
-		setTimeout(() => {
-			saved = false;
-		}, 1000);
-	};
-
-	$: if (saveNoteWithNewTitle) {
-		saveNoteWithNewTitle(() => {
-			saveNoteManual();
-		});
-	}
-
+	// Copy content utilities
 	const fallbackCopy = (html: string): void => {
 		const tempElement = document.createElement("div");
 		tempElement.innerHTML = html;
@@ -178,11 +120,11 @@
 			// Force a small delay to ensure DOM is ready
 			await new Promise((resolve) => setTimeout(resolve, 50));
 
-			// If another load operation started while we were waiting, abort
-			if (currentlyLoadedNoteId !== null && currentlyLoadedNoteId !== id) {
-				console.log("Aborting load - another note was loaded");
+			if (currentlyLoadedNoteId === id) {
+				console.log("Note already loaded, skipping");
 				return;
 			}
+			currentlyLoadedNoteId = id;
 
 			// Create editor view with the loaded content
 			if (docInfo.editorState) {
@@ -206,9 +148,7 @@
 							// Set the selection at the end position
 							const selection = view.state.selection.constructor as any;
 							tr.setSelection(
-								selection.near(
-									tr.doc.resolve(Math.max(0, endPosition)),
-								),
+								selection.near(tr.doc.resolve(Math.max(0, endPosition))),
 							);
 
 							// Dispatch the transaction with a custom "cursorPlacement" metadata
@@ -226,14 +166,16 @@
 			}
 
 			autoSaveInterval = window.setInterval(() => {
-				// Savign animation go
-				notesInstance
-					.saveNote($currentNote?.data?.title || "Untitled")
-					.catch(console.error);
-				saved = true;
-				setTimeout(() => {
-					saved = false;
-				}, 1000);
+				if (dataState.currentNote) {
+					notesInstance
+						.saveNote(dataState.currentNote.data?.title || "Untitled")
+						.catch(console.error);
+
+					saved = true;
+					setTimeout(() => {
+						saved = false;
+					}, 1000);
+				}
 			}, 30000); // Auto-save every 30 seconds
 
 			// Set up listener for sync updates from other peers
@@ -276,7 +218,10 @@
 		}
 	}
 
-	function createEditorView(element: HTMLElement, state: EditorState): EditorView {
+	function createEditorView(
+		element: HTMLElement,
+		state: EditorState,
+	): EditorView {
 		const { ydoc } = notesInstance.getDoc();
 
 		const dispatchTransaction = async (tr: any) => {
@@ -290,15 +235,7 @@
 				if (tr.getMeta("cursorPlacement")) {
 					return;
 				}
-
 				notesInstance.updateEditorState(newState);
-
-				// Only trigger Yjs update if document actually changed
-				if (tr.docChanged && ydoc) {
-					dispatch("collaboration-update", {
-						noteId: currentlyLoadedNoteId || "",
-					});
-				}
 			} catch (err) {
 				console.error("Error in dispatch transaction:", err);
 			}
@@ -310,7 +247,23 @@
 		});
 	}
 
-	const prosemirrorInstanceDestructionHandle = (): void => {
+	// Public method to save the note
+	export function saveNote(): Promise<void> {
+		if (!dataState.currentNote) return Promise.resolve();
+
+		return notesInstance
+			.saveNote(dataState.currentNote.data?.title || "Untitled")
+			.then(() => {
+				dispatch("save-complete", true);
+				return Promise.resolve();
+			})
+			.catch((error) => {
+				console.error("Error saving note:", error);
+				return Promise.reject(error);
+			});
+	}
+
+	function cleanupEditor(): void {
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
@@ -321,43 +274,42 @@
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
-		notesInstance
-			.saveNote($currentNote?.data?.title || "Untitled")
-			.catch(console.error)
-			.then(() => refreshCredentialList.set(true));
 
-		// Clear current note ID
-		noteId.set("");
-		currentNote.set({});
-		currentlyLoadedNoteId = null;
-	};
-
-	noteId.subscribe((id: string) => {
-		// Only destroy and save if we had a previously loaded note
-		if (id && currentlyLoadedNoteId && id !== currentlyLoadedNoteId) {
-			prosemirrorInstanceDestructionHandle();
+		// Save before cleanup if we have a note loaded
+		if (currentlyLoadedNoteId && dataState.currentNote) {
+			notesInstance
+				.saveNote(dataState.currentNote.data?.title || "Untitled")
+				.catch(console.error);
 		}
-		// If it's the first note or same note being reloaded, don't trigger destruction
-	});
 
+		currentlyLoadedNoteId = null;
+	}
+	$effect(() => {
+		const currentNoteId = dataState.currentNote?.id;
+
+		if (currentNoteId && currentNoteId !== currentlyLoadedNoteId) {
+			loadNote(currentNoteId);
+		}
+	});
 	// Initialize when component mounts
 	onMount(async () => {
-		console.log("RichTextEditor mounted");
 		// Clear any state to ensure clean start
 		currentlyLoadedNoteId = null;
 
-		if ($noteId) {
-			await loadNote($noteId);
-		}
-
-		document.addEventListener("request-editor-content", copyContentListener as EventListener);
+		document.addEventListener(
+			"request-editor-content",
+			copyContentListener as EventListener,
+		);
 	});
 
 	// Clean up when component is destroyed
 	onDestroy(() => {
 		console.log("RichTextEditor destroyed");
-		prosemirrorInstanceDestructionHandle();
-		document.removeEventListener("request-editor-content", copyContentListener as EventListener);
+		cleanupEditor();
+		document.removeEventListener(
+			"request-editor-content",
+			copyContentListener as EventListener,
+		);
 	});
 </script>
 
@@ -373,6 +325,7 @@
 		border-radius: 1rem;
 		display: flex;
 		flex-direction: column;
+		overflow: hidden; /* Prevent container from growing */
 	}
 
 	.editor-main {
@@ -381,6 +334,16 @@
 		flex-direction: column;
 		overflow-y: auto;
 		margin: 5px 15px 5px 15px;
+		max-height: 100%; /* Ensure it doesn't grow beyond container */
+	}
+
+	/* Add styles for the editor content */
+	:global(.ProseMirror) {
+		min-height: 100%;
+		height: fit-content;
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+		word-break: break-word;
 	}
 </style>
 
@@ -395,17 +358,6 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this="{element}" class="h-full"></div>
-		<button
-			on:click="{saveNoteManual}"
-			class="absolute z-10 top-6 right-5 w-32 border bg-[#16171f] border-osvauld-iconblack text-osvauld-fieldText text-[16px] font-medium px-2.5 py-1.5 rounded-lg cursor-pointer whitespace-nowrap">
-			{#if saved}
-				<span class="whitespace-nowrap flex items-center justify-center"
-					><span class="text-[#9DD062] mr-2">Saved...</span>
-					<span><SavedTick /></span></span>
-			{:else}
-				<span>Save Changes</span>
-			{/if}
-		</button>
+		<div bind:this={element} class="h-full"></div>
 	</div>
 </div>

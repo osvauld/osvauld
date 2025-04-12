@@ -1,19 +1,15 @@
 <script lang="ts">
-	import { onMount } from "svelte";
-	import Initiator from "./Initiator.svelte";
-	import { sendMessage } from "@osvauld/password-manager-common";
+	import Initiator from "../connection/Initiator.svelte";
 	import Acceptor from "@osvauld/password-manager-common/components/Acceptor.svelte";
-	import { createEventDispatcher } from "svelte";
 	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
 
-	const dispatch = createEventDispatcher();
-
-	let isInitiator = true;
-  let passwordCollected = "";
+	let isInitiator = $state(true);
+	let passwordCollected = $state("");
+	let { onClose } = $props();
 
 	function handleClose() {
 		// Dispatch a "close" event to the parent component
-		dispatch("close", { isInitiator });
+		onClose?.({ isInitiator });
 	}
 
 	function toggleView() {
@@ -27,27 +23,21 @@
 
 <div
 	class="p-4 inset-0 items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px] fixed flex flex-col gap-4">
-	<!-- Place button here, outside any potentially covering container -->
-
-	<!-- Main container -->
-
 	{#if isInitiator}
-		<Initiator bind:isInitiator />
-	{:else if passwordCollected}
-		<Acceptor {passwordCollected}/>
+		<Initiator />
 	{:else}
-	   <Welcome passwordReturn="{true}" on:passphraseCollected={handlePasswordReturn}/>
+		<Acceptor />
 	{/if}
 
 	<div class="flex justify-between">
 		<button
 			class="bg-blue-500 text-white px-4 py-2 rounded m-2 z-50"
-			on:click="{toggleView}">
+			onclick={toggleView}>
 			{isInitiator ? "Switch to Acceptor" : "Switch to Initiator"}
 		</button>
 		<button
 			class="bg-mobile-bgHighlight text-white px-4 py-2 rounded m-2 z-50"
-			on:click="{handleClose}">
+			onclick={handleClose}>
 			Close
 		</button>
 	</div>

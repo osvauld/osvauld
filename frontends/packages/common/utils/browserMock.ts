@@ -85,8 +85,8 @@ const tauriBrowser = {
           toggleFav: (data: any) => invoke("toggle_fav", { input: data }),
           updateLastAccessed: (data: any) =>
             invoke("update_last_accessed", { input: data }),
-          getAllCredentials: (data: any) =>
-            invoke("get_all_resources", { input: data }),
+          getAllCredentials: () =>
+            invoke("get_all_resources"),
           logout: () => invoke("logout"),
           getUserId: () => invoke("get_user_id"),
           sendSnapshot: (data) => invoke("send_snapshot", { snapshot: data }),

@@ -1,11 +1,8 @@
-
 <script lang="ts">
 	// This Modal component can be used during exporting certificate or changing passphrase
 	import { onMount } from "svelte";
 	import { sendMessage, writeToClipboard } from "../utils/helper";
 	import { fly } from "svelte/transition";
-	import { createEventDispatcher } from "svelte";
-
 	import { generateCertificatePDF } from "../utils/backupUtil";
 
 	import ClosedEye from "@osvauld/password-manager-common/icons/closedEye.svelte";
@@ -16,48 +13,60 @@
 	import NewPassword from "./NewPassword.svelte";
 	import Loader from "./Loader.svelte";
 
-	export let changePassword = false;
-	let promptPassword = false;
-	let password: string = "";
-	let success: boolean = false;
-	let errorView: boolean = false;
-	let newPasswordView: boolean = false;
-	let showPassword: boolean = false;
-	let loading = false;
-	const dispatch = createEventDispatcher();
+	// Replace props and event dispatch with callback props
+	let { changePassword = false, onClose } = $props();
+
+	// State variables
+	let password = $state("");
+	let success = $state(false);
+	let errorView = $state(false);
+	let newPasswordView = $state(false);
+	let showPassword = $state(false);
+	let loading = $state(false);
 
 	const closeModal = () => {
-		dispatch("close", true);
+		onClose?.(true);
 	};
 
-	const autofocus = (node: any) => {
+	const autofocus = (node: HTMLInputElement) => {
 		node.focus();
 	};
 
-	const newPasswordViewHandler = async () => {
+	const newPasswordViewHandler = async (event: Event) => {
+		event.preventDefault();
 		newPasswordView = true;
 	};
 
-	const handlePasswordChangeSubmit = async (e: CustomEvent) => {
+	const handlePasswordChangeSubmit = async (data: { passphrase: string }) => {
 		loading = true;
-		const newPassword = e.detail.passphrase;
-		const certificate = await sendMessage("changePassphrase", {
-			oldPassword: password,
-			newPassword,
-		});
-		if (certificate) {
-			success = true;
-		} else {
+		const newPassword = data.passphrase;
+
+		try {
+			const certificate = await sendMessage("changePassphrase", {
+				oldPassword: password,
+				newPassword,
+			});
+
+			if (certificate) {
+				success = true;
+			} else {
+				errorView = true;
+			}
+		} catch (error) {
+			console.error("Error changing password:", error);
 			errorView = true;
+		} finally {
+			newPasswordView = false;
+			loading = false;
+			setTimeout(() => {
+				closeModal();
+			}, 1500);
 		}
-		newPasswordView = false;
-		loading = false;
-		setTimeout(() => {
-			closeModal();
-		}, 1500);
 	};
 
-	const handleRecoveryDataSubmit = async () => {
+	const handleRecoveryDataSubmit = async (event: Event) => {
+		event.preventDefault();
+
 		loading = true;
 		try {
 			const certificate = await sendMessage("exportCertificate", {
@@ -86,8 +95,19 @@
 			}, 1500);
 		}
 	};
-	const handleInputChange = (e: any) => {
-		password = e.target.value;
+
+	const handleInputChange = (e: Event) => {
+		if (e.target instanceof HTMLInputElement) {
+			password = e.target.value;
+		}
+	};
+
+	const handleBackdropClick = (event: MouseEvent) => {
+		// Only close if the clicked element is the backdrop itself
+		if (event.target === event.currentTarget) {
+			event.preventDefault();
+			closeModal();
+		}
 	};
 
 	onMount(() => {
@@ -107,31 +127,31 @@
 
 <div
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px]"
-	on:click|preventDefault="{closeModal}"
+	onclick={handleBackdropClick}
 	role="presentation">
 	<div
 		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[32rem] flex flex-col justify-center items-center"
-		on:click|stopPropagation
+		onclick={(e) => e.stopPropagation()}
 		role="presentation"
 		aria-labelledby="export-recovery-data"
 		in:fly
 		out:fly>
 		{#if loading}
-			<Loader color="#fff" size="{32}" />
+			<Loader color="#fff" size={32} />
 		{:else if errorView}
-			<SuccessView status="{false}" message="Unable to do operation" />
+			<SuccessView status={false} message="Unable to do operation" />
 		{:else if success}
 			<SuccessView
-				status="{true}"
-				message="{changePassword ? 'Password Changed' : 'Export complete'}" />
+				status={true}
+				message={changePassword ? "Password Changed" : "Export complete"} />
 		{:else if newPasswordView}
-			<NewPassword on:submit="{handlePasswordChangeSubmit}" />
+			<NewPassword onSubmit={handlePasswordChangeSubmit} />
 		{:else}
 			<form
 				class="flex flex-col items-center h-full w-full"
-				on:submit|preventDefault="{changePassword
+				onsubmit={changePassword
 					? newPasswordViewHandler
-					: handleRecoveryDataSubmit}">
+					: handleRecoveryDataSubmit}>
 				<div class="flex p-2 pb-4 justify-between items-center w-full">
 					<span
 						id="export-recovery-data"
@@ -141,7 +161,10 @@
 					<button
 						class="cursor-pointer p-2"
 						type="button"
-						on:click|preventDefault="{closeModal}"
+						onclick={(e) => {
+							e.preventDefault();
+							closeModal();
+						}}
 						aria-label="Close">
 						<ClosePanel />
 					</button>
@@ -152,17 +175,17 @@
 						class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
 						<input
 							class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
-							type="{showPassword ? 'text' : 'password'}"
+							type={showPassword ? "text" : "password"}
 							id="passphrase"
 							aria-label="passphrase"
 							autocomplete="off"
 							use:autofocus
-							on:input="{handleInputChange}" />
+							oninput={handleInputChange} />
 
 						<button
 							type="button"
 							class="flex justify-center items-center"
-							on:click="{() => (showPassword = !showPassword)}">
+							onclick={() => (showPassword = !showPassword)}>
 							{#if showPassword}
 								<ClosedEye />
 							{:else}
@@ -174,7 +197,7 @@
 				<button
 					class="border w-[10rem] py-3 px-6 my-4 mx-auto text-base font-medium rounded-md bg-osvauld-carolinablue border-osvauld-carolinablue text-osvauld-frameblack cursor-pointer"
 					type="submit"
-					disabled="{!password}">
+					disabled={!password}>
 					Proceed
 				</button>
 			</form>

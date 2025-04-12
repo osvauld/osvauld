@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { createEventDispatcher } from "svelte";
 	import { sendMessage } from "../utils/helper";
 	import NewPassword from "./NewPassword.svelte";
 
-	const dispatch = createEventDispatcher();
-	export let recoveryData = "";
+	// Using $props for component properties
+	let { recoveryData = "" } = $props();
+	
+	// Using callback props instead of createEventDispatcher
+	let { onLogin } = $props();
 
 	const handleInputChange = (event: any) => {
 		recoveryData = event.target.value;
@@ -18,7 +20,7 @@
 			...recovery,
 		});
 		const pubkey = await sendMessage("login", { passphrase });
-		dispatch("login", true);
+		onLogin?.(true);
 	};
 </script>
 
@@ -35,8 +37,10 @@
 		class="text-osvauld-quarzowhite bg-osvauld-frameblack border border-osvauld-iconblack tracking-wider font-light text-sm font-mono focus:border-osvauld-iconblack focus:ring-0 resize-none w-[300px] min-h-[6rem] max-h-[10rem] rounded-lg scrollbar-thin overflow-y-scroll"
 		id="privateKey"
 		value={recoveryData}
-		on:input={handleInputChange}></textarea>
-	<NewPassword on:submit={handleSubmit} />
-	<slot name="additional-controls" />
+		oninput={handleInputChange}></textarea>
+	<NewPassword submit={handleSubmit} />
+	
+	{#snippet additionalControls()}
+		<!-- This is where additional controls will be rendered -->
+	{/snippet}
 </div>
-

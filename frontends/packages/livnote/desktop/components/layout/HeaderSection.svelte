@@ -1,26 +1,34 @@
 <script lang="ts">
-	import { slide, fly } from "svelte/transition";
+	import { slide } from "svelte/transition";
 
 	import {
 		sendMessage,
 		writeToClipboard,
-	} from "@osvauld/password-manager-common/utils/helper";
+	} from "@osvauld/password-manager-common";
 
-	import { CopyIcon, DownloadIcon, UserPlus, RightArrow, Sync, Devices, QrScanner, Logout, OsvauldDesktopLogo, Lens, Profile, Key } from "@osvauld/password-manager-common";
-	
 	import {
-		showWelcome,
-		language,
-		showSyncQr,
-		toastStore,
-		showAddUser,
-		passwordPromptModal,
-		addDeviceModal, showConnector 
-	} from "../../store/desktop.ui.store";
+		CopyIcon,
+		DownloadIcon,
+		UserPlus,
+		RightArrow,
+		Sync,
+		Devices,
+		QrScanner,
+		Logout,
+		Lens,
+		Profile,
+		Key,
+		RightArrow as Arrow,
+	} from "@osvauld/password-manager-common";
 
-	let showDropdown = false;
-	let hoveredItem = "";
+	// Import the centralized state
+	import { dataState, uiState } from "../../state";
 
+	// Local UI state
+	let showDropdown = $state(false);
+	let hoveredItem = $state("");
+
+	// Menu items definition
 	const MENUITEMS = [
 		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
@@ -32,41 +40,49 @@
 		{ id: "logout", label: "Logout", icon: Logout },
 	];
 
+	// Handle dropdown menu item clicks
 	const handleDropDownClick = async (id: string) => {
 		switch (id) {
 			case "add":
-				addDeviceModal.set(true);
+				// Old: addDeviceModal.set(true);
+				// TODO: Update with your new state management
+				// when you implement this feature
 				break;
 			case "logout":
 				await sendMessage("logout");
-				showWelcome.set(true);
+				uiState.setWelcomeScreen(true);
 				break;
 			case "sync":
-				showSyncQr.set(true);
+				uiState.toggleModal("showSyncQr", true);
 				break;
 			case "connect":
-				showConnector.set(true);
+				uiState.toggleModal("showConnector", true);
 				break;
 			case "userid":
-				const userDetails = await sendMessage("getUserDetailsForShare");
-
-				await writeToClipboard(userDetails);
-				toastStore.set({
-					show: true,
-					message: "UserID copied to clipboard",
-					success: true,
-				});
+				try {
+					const userDetails = await sendMessage("getUserDetailsForShare");
+					await writeToClipboard(userDetails);
+					uiState.showToast("UserID copied to clipboard", true);
+				} catch (error) {
+					console.error("Error copying user ID:", error);
+					uiState.showToast("Failed to copy UserID", false);
+				}
 				break;
 			case "addUser":
-				showAddUser.set(true);
+				uiState.toggleModal("showAddUser", true);
 				break;
 			case "export":
-				passwordPromptModal.set({ isChangePassword: false, show: true });
+				uiState.showPasswordPrompt(false);
 				break;
 			case "change":
-				passwordPromptModal.set({ isChangePassword: true, show: true });
+				uiState.showPasswordPrompt(true);
 				break;
 		}
+		showDropdown = false;
+	};
+
+	// Close dropdown when clicking outside
+	const handleOutsideClick = (e: MouseEvent) => {
 		showDropdown = false;
 	};
 </script>
@@ -87,13 +103,12 @@
 				class="ml-4 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
 				placeholder="Search..." />
 		</div> -->
-
 		<div
 			class="relative ml-auto text-osvauld-fieldText font-normal text-sm z-40">
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				on:click={() => (showDropdown = !showDropdown)}>
+				onclick={() => (showDropdown = !showDropdown)}>
 				<Profile color="#4D4F60" />
 				<span class="ml-2">John Doe</span>
 				<span
@@ -107,7 +122,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click|stopPropagation={() => (showDropdown = false)}>
+					onclick={handleOutsideClick}>
 				</div>
 				<div
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
@@ -116,9 +131,12 @@
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							class="profileBtn"
-							on:mouseenter={() => (hoveredItem = id)}
-							on:mouseleave={() => (hoveredItem = "")}
-							on:click|stopPropagation={() => handleDropDownClick(id)}>
+							onmouseenter={() => (hoveredItem = id)}
+							onmouseleave={() => (hoveredItem = "")}
+							onclick={(e) => {
+								e.stopPropagation();
+								handleDropDownClick(id);
+							}}>
 							<Icon
 								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
 								size={24} />

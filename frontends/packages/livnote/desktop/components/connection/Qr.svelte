@@ -1,12 +1,12 @@
 <script lang="ts">
-	import QRCode from "@castlenine/svelte-qrcode";
+	// import QRCode from "@castlenine/svelte-qrcode";
 	import { onMount } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	
-	let connectionTicket: string = "";
-	let certificate: string = "";
-	let recoveryString: string = "";
-	
+
+	let connectionTicket: string = $state("");
+	let certificate: string = $state("");
+	let recoveryString: string = $state("");
+
 	onMount(async () => {
 		await sendMessage("startP2PListner");
 		connectionTicket = await sendMessage("getTicket");
@@ -23,15 +23,15 @@
 </script>
 
 {#if recoveryString}
-	<div class="mx-auto">
-		<QRCode
-			size="{512}"
-			typeNumber="{40}"
-			data="{JSON.stringify({
-				ticket: connectionTicket,
-				certificate: certificate,
-			})}" />
-	</div>
+	<!-- <div class="mx-auto"> -->
+	<!-- 	<QRCode -->
+	<!-- 		size="{512}" -->
+	<!-- 		typeNumber="{40}" -->
+	<!-- 		data="{JSON.stringify({ -->
+	<!-- 			ticket: connectionTicket, -->
+	<!-- 			certificate: certificate, -->
+	<!-- 		})}" /> -->
+	<!-- </div> -->
 {/if}
 <textarea class="font-bold bg-black">
 	{recoveryString}

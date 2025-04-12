@@ -16,14 +16,28 @@
 		"allowSyntheticDefaultImports": true,
 		"forceConsistentCasingInFileNames": true,
 		"baseUrl": ".",
-		"paths": {
+    "paths": {
 			"@osvauld/password-manager-common": [
 				"../common"
 			],
 			"@osvauld/password-manager-common/*": [
 				"../common/*"
 			],
-  "@osvauld/password-manager-common/components/*": ["../common/components/*"]
+			"@osvauld/password-manager-common/utils/*": [
+				"../common/utils/*"
+			],
+			"@osvauld/password-manager-common/components/*": [
+				"../common/components/*"
+			],
+			"@osvauld/password-manager-common/icons/*": [
+				"../common/icons/*"
+			],
+			"@osvauld/password-manager-common/i18n/*": [
+				"../common/i18n/*"
+			],
+			"@osvauld/password-manager-common/dtos/*": [
+				"../common/dtos/*"
+			]
 		},
 		"allowJs": true,
 		"isolatedModules": true
@@ -36,7 +50,7 @@
     "components/**/*.js",
     "components/**/*.svelte",
     "types/**/*.ts",
-		 "store/**/*.ts"
+		 "state/**/*.ts"
   ],
 	"exclude": [
 		"node_modules/*"

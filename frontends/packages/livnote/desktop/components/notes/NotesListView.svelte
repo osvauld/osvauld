@@ -1,96 +1,19 @@
 <script lang="ts">
-	import {
-		selectedCategory,
-		currentVault,
-		noteViewLayout,
-		noteId,
-		refreshCredentialList,
-		notes,
-		currentNote,
-	} from "../../store/desktop.ui.store";
-	import { extractTitle, getLastModifiedDate } from "../utils/helper";
-	import { sendMessage } from "@osvauld/password-manager-common/utils/helper";
-	import { emit } from "@tauri-apps/api/event";
-	import RichTextEditor from "./RichTextEditor.svelte";
-	import NotePreview from "./NotePreview.svelte";
-	import { FavStar as Star, Star as EmptyStar  } from "@osvauld/password-manager-common";
 	import { onMount, onDestroy } from "svelte";
-	import type { Writable } from "svelte/store";
-	import { get } from "svelte/store";
+	import { getLastModifiedDate } from "../utils/helper";
+	import { sendMessage } from "@osvauld/password-manager-common";
+	import NotePreview from "./NotePreview.svelte";
+	import NoteListPanel from "../ui/NoteListPanel.svelte";
+	import {
+		FavStar as Star,
+		Star as EmptyStar,
+		RightArrow as Arrow,
+	} from "@osvauld/password-manager-common";
 
-	interface NoteData {
-		title?: string;
-		content?: string;
-		last_modified?: number;
-		last_accessed?: number;
-		editor_state?: string | Record<string, unknown>;
-		yjs_state?: Uint8Array | number[];
-	}
+	import { dataState, uiState } from "../../state/";
 
-	interface Note {
-		id: string;
-		data: NoteData;
-		favourite?: boolean;
-	}
-
-	interface Vault {
-		id: string;
-		name: string;
-		description?: string;
-	}
-
-	export let favSelected: boolean = false;
-	let updatedNotes: Note[] = [];
-	let isLoading: boolean = true;
-	let error: string | null = null;
-
-	$: updatedNotes = $notes;
-
-	// Function to fetch notes based on the current vault
-	const fetchNotes = async () => {
-		isLoading = true;
-		error = null;
-		let fetchedNotes: Note[] = [];
-
-		try {
-			const currentVaultValue = get(currentVault) as Vault;
-			if (currentVaultValue.id === "all") {
-				fetchedNotes = await sendMessage("getAllCredentials", {
-					favourite: false,
-				});
-			} else {
-				fetchedNotes = await sendMessage("getCredentialsForFolder", {
-					folderId: currentVaultValue.id,
-				});
-			}
-
-			// Filter for valid notes only
-			fetchedNotes = fetchedNotes.filter(
-				(cred: Note) => cred.data && cred.data.content && cred.data.editor_state,
-			);
-
-			// Sort by last accessed/modified (most recent first)
-			fetchedNotes.sort((a: Note, b: Note) => {
-				const timeA = a.data.last_accessed || a.data.last_modified || 0;
-				const timeB = b.data.last_accessed || b.data.last_modified || 0;
-				return timeB - timeA;
-			});
-			console.log("fetched notest", fetchedNotes);
-			notes.set(fetchedNotes);
-		} catch (err) {
-			console.error("Error fetching notes:", err);
-			error = "Failed to load notes. Please try again.";
-			updatedNotes = [];
-		} finally {
-			isLoading = false;
-		}
-	};
-
-	$: {
-		updatedNotes = favSelected
-			? $notes.filter((note: Note) => note.favourite)
-			: $notes;
-	}
+	// Local state for responsive grid
+	let resizeTimer = $state<number | null>(null);
 
 	// Function to toggle favorite status
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
@@ -98,54 +21,18 @@
 			await sendMessage("toggleFav", {
 				resourceId: noteId,
 			});
-
-			// Update local state
-			const notesWithFavToggleChange = $notes.map((cred: Note) => {
-				if (cred.id === noteId) {
-					return {
-						...cred,
-						data: {
-							...cred.data,
-						},
-						favourite: !currentStatus,
-					};
-				}
-				return cred;
-			});
-			notes.set(notesWithFavToggleChange);
-			updatedNotes = notesWithFavToggleChange;
+			dataState.updateNoteFavorite(noteId);
 		} catch (err) {
 			console.error("Error toggling favorite:", err);
+			uiState.showToast("Failed to update favorite status", false);
 		}
 	};
 
 	// Function to handle note selection
-	const selectNote = (note: Note) => {
-		currentNote.set(note);
-
-		// First reset the note view to ensure clean state
-		noteViewLayout.set(false);
-
-		// Wait for UI update to complete
-		setTimeout(() => {
-			// Then set the note ID
-			noteId.set(note.id);
-
-			// Finally switch to editor view
-			noteViewLayout.set(true);
-		}, 50);
+	const selectNote = (note: any) => {
+		// Use centralized state to switch to the note
+		dataState.switchNote(note);
 	};
-
-	// Watch for changes to currentVault
-	$: if (get(currentVault)) {
-		fetchNotes();
-	}
-
-	// Watch for refresh requests
-	$: if (get(refreshCredentialList)) {
-		fetchNotes();
-		refreshCredentialList.set(false);
-	}
 
 	// Calculate grid layout
 	const getColumnCount = (): number => {
@@ -155,41 +42,46 @@
 		return 1;
 	};
 
-	const getColumnItems = (items: Note[], colIndex: number): Note[] => {
+	const getColumnItems = (items, colIndex: number) => {
 		const colCount = getColumnCount();
-		return items.filter((_, index: number) => index % colCount === colIndex);
+		return items.filter((_, index) => index % colCount === colIndex);
 	};
 
-	// onMount(() => {
-	// 	fetchNotes();
+	// Handle window resize
+	function handleResize() {
+		// Debounce resize handling
+		if (resizeTimer !== null) {
+			clearTimeout(resizeTimer);
+		}
 
-	// 	// Listen for window resize to update columns
-	// 	// window.addEventListener("resize", fetchNotes);
-	// });
+		resizeTimer = setTimeout(() => {
+			// Force a re-render
+			dataState.notes = [...dataState.notes];
+		}, 250) as unknown as number;
+	}
 
-	// onDestroy(() => {
-	// 	window.removeEventListener("resize", fetchNotes);
-	// });
+	onMount(() => {
+		// Add resize listener
+		window.addEventListener("resize", handleResize);
+	});
+
+	onDestroy(() => {
+		// Clean up resize listener
+		window.removeEventListener("resize", handleResize);
+		if (resizeTimer !== null) {
+			clearTimeout(resizeTimer);
+		}
+	});
 </script>
 
-<div class="grow max-h-full overflow-hidden px-11 py-4 relative">
-	<div
-		class="h-full pr-1 scrollbar-thin min-w-[37.5rem] {$noteViewLayout
-			? 'overflow-hidden '
-			: 'overflow-y-auto'}">
-		{#if $noteViewLayout}
-			<RichTextEditor
-				on:collaboration-update={(event) =>
-					emit("sync-update", JSON.stringify(event.detail))} />
-		{:else if isLoading}
+<div class="grow max-h-full overflow-hidden px-11 py-4 relative flex flex-col">
+	<NoteListPanel />
+	<div class="grow pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
+		{#if dataState.isDataLoading}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">Loading notes...</div>
 			</div>
-		{:else if error}
-			<div class="flex justify-center items-center h-full">
-				<div class="text-red-500">{error}</div>
-			</div>
-		{:else if updatedNotes.length === 0}
+		{:else if dataState.filteredNotes.length === 0}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">
 					No notes found. Create a new note to get started.
@@ -199,11 +91,11 @@
 			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 				{#each Array(getColumnCount()) as _, colIndex}
 					<div class="flex flex-col gap-6">
-						{#each getColumnItems(updatedNotes, colIndex) as note (note.id)}
+						{#each getColumnItems(dataState.filteredNotes, colIndex) as note (note.id)}
 							<div
 								role="presentation"
 								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
-								on:click={() => selectNote(note)}>
+								onclick={() => selectNote(note)}>
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
@@ -212,8 +104,10 @@
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
-										on:click|stopPropagation={() =>
-											toggleFavorite(note.id, note.favourite ?? false)}>
+										onclick={(e) => {
+											e.stopPropagation();
+											toggleFavorite(note.id, note.favourite ?? false);
+										}}>
 										{#if note.favourite}
 											<Star />
 										{:else}
@@ -225,9 +119,9 @@
 									<!-- Rich text preview -->
 									<NotePreview
 										content={note.data.content ?? ""}
-										title={note.data.title ?? ""}
-										editorState={typeof note.data.editor_state === 'string' ? JSON.parse(note.data.editor_state) : note.data.editor_state}
-										yjsState={note.data.yjs_state instanceof Uint8Array ? Array.from(note.data.yjs_state) : note.data.yjs_state}
+										editorState={typeof note.data.editor_state === "string"
+											? JSON.parse(note.data.editor_state)
+											: note.data.editor_state}
 										maxHeight="180px"
 										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

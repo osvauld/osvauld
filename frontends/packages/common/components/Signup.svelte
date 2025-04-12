@@ -1,16 +1,15 @@
 <script lang="ts">
+	import BaseImportPvtKey from "./BaseImportPvtKey.svelte";
 	import SetPassPhrase from "./SetPassPhrase.svelte";
-	import { createEventDispatcher } from "svelte";
 
-	export let ImportComponent; // Allow platform-specific import component to be passed
+	let { onSignedUp } = $props();
 
-	let importPvtKeyFlag = false;
-	let showSelection = true;
-
-	const dispatch = createEventDispatcher();
+	let importPvtKeyFlag = $state(false);
+	let showSelection = $state(true);
 
 	const handleSignedUp = () => {
-		dispatch("signedUp");
+		console.log("triggerd handle signup");
+		onSignedUp?.();
 	};
 
 	const handleSelection = (isImport: boolean) => {
@@ -29,19 +28,19 @@
 			<div class="flex gap-3">
 				<button
 					class="flex-1 px-10 py-2.5 bg-osvauld-carolinablue text-mobile-bgPrimary rounded-lg font-medium whitespace-nowrap"
-					on:click="{() => handleSelection(false)}">
+					onclick={() => handleSelection(false)}>
 					Sign Up
 				</button>
 				<button
 					class="flex-1 px-10 py-2.5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg font-medium whitespace-nowrap"
-					on:click="{() => handleSelection(true)}">
+					onclick={() => handleSelection(true)}>
 					Import Key
 				</button>
 			</div>
 		</div>
 	{:else if importPvtKeyFlag}
-		<svelte:component this="{ImportComponent}" on:login="{handleSignedUp}" />
+		<BaseImportPvtKey onLogin={handleSignedUp} />
 	{:else}
-		<SetPassPhrase on:signedUp="{handleSignedUp}" />
+		<SetPassPhrase onSignedUp={handleSignedUp} />
 	{/if}
 </div>

@@ -2,8 +2,8 @@ use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserP
 use osvauld_core::models::device::Device;
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::share_record::{self, PermissionLevel, ShareOperation, ShareRecord};
-use osvauld_core::models::sync_record::{DeviceRecord, DeviceRecordSet, SyncRecord, SyncRecordSet};
+use osvauld_core::models::share_record::{PermissionLevel, ShareOperation, ShareRecord};
+use osvauld_core::models::sync_record::{DeviceRecordSet, SyncRecord, SyncRecordSet};
 use osvauld_core::models::sync_types::{OperationType, ResourceType};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
@@ -199,20 +199,16 @@ impl ResourceService {
         self.decrypt_resources(resources_with_keys).await
     }
 
-    pub async fn get_all_resources(
-        &self,
-        favourites_only: bool,
-    ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+    pub async fn get_all_resources(&self) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
         // Get current user's ID
         let user_id = self.get_current_user_id().await?;
 
         // Get resources with their keys
-        let resources_with_keys = if favourites_only {
-            self.resource_repository.get_favourites(&user_id).await
-        } else {
-            self.resource_repository.get_all_resources(&user_id).await
-        }
-        .map_err(ResourceServiceError::RepositoryError)?;
+        let resources_with_keys = self
+            .resource_repository
+            .get_all_resources(&user_id)
+            .await
+            .map_err(ResourceServiceError::RepositoryError)?;
 
         // Decrypt and return the resources
         self.decrypt_resources(resources_with_keys).await
@@ -579,5 +575,30 @@ impl ResourceService {
             device_record_set,
             resource_device_record_set,
         ))
+    }
+    pub async fn get_resource_by_id_direct(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<DecryptedResource, ResourceServiceError> {
+        // Get current user's ID
+
+        // Get the specific resource with its key
+        let resource_with_key = self
+            .resource_repository
+            .find_by_id(resource_id, user_id)
+            .await
+            .map_err(ResourceServiceError::RepositoryError)?;
+
+        // Use the existing decrypt_resources method with a single item
+        let decrypted_resources = self.decrypt_resources(vec![resource_with_key]).await?;
+
+        // Return the first (and only) result
+        decrypted_resources
+            .into_iter()
+            .next()
+            .ok_or(ResourceServiceError::CryptoError(
+                "Failed to decrypt resource".to_string(),
+            ))
     }
 }

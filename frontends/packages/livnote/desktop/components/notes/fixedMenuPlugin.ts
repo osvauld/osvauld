@@ -16,7 +16,15 @@ import {
 
 // Add styles to document
 const style = document.createElement("style");
+style.id = "prosemirror-menu-styles"; // Add an ID to avoid duplicate styles
 style.textContent = dropdownStyle + activeItemStyle + alignmentStyle;
+
+// Remove any existing style element with the same ID to avoid duplicates
+const existingStyle = document.getElementById("prosemirror-menu-styles");
+if (existingStyle) {
+	existingStyle.remove();
+}
+
 document.head.appendChild(style);
 
 // Create a custom menu plugin

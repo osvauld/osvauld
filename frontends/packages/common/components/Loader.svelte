@@ -1,7 +1,11 @@
-<script>
-	export let size = 24;
-	export let color = "#000";
-	export let duration = 1;
+<script lang="ts">
+	interface Props {
+		size?: number;
+		color?: string;
+		duration?: number;
+	}
+
+	let { size = 24, color = "#000", duration = 1 }: Props = $props();
 </script>
 
 <style>

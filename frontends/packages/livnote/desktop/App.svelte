@@ -1,80 +1,94 @@
 <script lang="ts">
-	import Welcome from "@osvauld/password-manager-common/components/Welcome.svelte";
-	import Signup from "@osvauld/password-manager-common/components/Signup.svelte";
-	import Toast from "./components/ui/Toast.svelte";
-	import DeleteConfirmationModal from "./components/ui/DeleteConfirmationModal.svelte";
-	import DefaultLayout from "./components/layout/DefaultLayout.svelte";
-	import Connector from "./components/connection/Connector.svelte";
-	import DesktopImportPvtKey from "./components/connection/DesktopImportPvtKey.svelte";
-	import Loader from "@osvauld/password-manager-common/components/Loader.svelte";
-	import AddUserModal from "./components/modals/AddUserModal.svelte";
-	import PasswordPromptModal from "@osvauld/password-manager-common/components/PasswordPromptModal.svelte";
-
-	import { sendMessage } from "@osvauld/password-manager-common";
-	import { onMount } from "svelte";
-
 	import {
-		toastStore,
-		showWelcome,
-		showConnector,
-		showAddUser,
-		deleteConfirmationModal,
-		passwordPromptModal,
-	} from "./store/desktop.ui.store";
+		Welcome,
+		Signup,
+		Loader,
+		sendMessage,
+	} from "@osvauld/password-manager-common";
+	import NotesListView from "./components/notes/NotesListView.svelte";
+	import NotesWorkspace from "./components/layout/NotesWorkspace.svelte";
+	import HeaderSection from "./components/layout/HeaderSection.svelte";
+	import { onMount, onDestroy } from "svelte";
+	import AppModals from "./components/modals/Modals.svelte";
+	import { dataState, uiState } from "./state/";
+	import { listen } from "@tauri-apps/api/event";
+	import { mergeDocuments } from "./components/notes/documentUtils";
 
-	let signedUp = false;
-	let isLoading = true;
-	let syncRole = ""; // Add this to store the role
+	let signedUp = $state(false);
+	let isLoading = $state(true);
+	let unsubscribeResourceUpdate = $state<Function | null>(null);
+
+	// Handle escape key to close modals
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === "Escape") {
+			uiState.closeAllModals();
+		}
+	}
 
 	const handleSignedUp = async () => {
 		signedUp = true;
-		showWelcome.set(false);
-		// const userId = await sendMessage("getUserId");
-	};
-
-	const handleAddUser = async (event) => {
-		const userResponse = await sendMessage("addKnownUser", event.detail);
-		console.log("initiating first connection");
-		const firstConnectionResponse = await sendMessage(
-			"initiateFirstConnection",
-			{
-				user: userResponse.user,
-				device: userResponse.device,
-			},
-		);
-		console.log(firstConnectionResponse);
+		uiState.setWelcomeScreen(false);
+		await dataState.initializeState();
 	};
 
 	const handleAuthenticated = async () => {
-		showWelcome.set(false);
-		//const userId = await sendMessage("getUserId");
-	};
-
-	const handleConnectorClose = (event) => {
-		const { isInitiator } = event.detail;
-		syncRole = isInitiator ? "initiator" : "acceptor";
-		showConnector.set(false);
-	};
-
-	const handlePasswordModalClose = (event) => {
-		passwordPromptModal.set({ isChangePassword: false, show: !event.detail });
+		uiState.setWelcomeScreen(false);
+		await dataState.initializeState();
 	};
 
 	onMount(async () => {
 		try {
 			const response = await sendMessage("isSignedUp");
-			console.log("is signedup response", response);
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
+			console.log(checkPvtLoad);
+
 			if (checkPvtLoad === false) {
-				showWelcome.set(true);
+				uiState.setWelcomeScreen(true);
 			} else {
-				// await vaultInitlization();
+				await handleAuthenticated();
+				// Set up merge update listener
+				unsubscribeResourceUpdate = await listen(
+					"merge-update",
+					async (event) => {
+						// Handle merge updates
+						const payload = event.payload;
+						let mergedDocument = mergeDocuments(
+							payload.local_resource,
+							payload.remote_resource,
+						);
+
+						// This will be handled in the appropriate component
+						document.dispatchEvent(
+							new CustomEvent("merge-complete", {
+								detail: {
+									mergedDocument,
+									deviceId: payload.device_id,
+									userId: payload.user_id,
+									vectorClock: payload.vector_clock,
+									resourceId: mergedDocument.resource_id,
+								},
+							}),
+						);
+					},
+				);
 			}
+
+			// Add global event listener for escape key
+			window.addEventListener("keydown", handleKeydown);
 		} catch (error) {
 			console.error("Error during initialization:", error);
 		} finally {
 			isLoading = false;
+		}
+	});
+
+	onDestroy(() => {
+		// Clean up event listener
+		window.removeEventListener("keydown", handleKeydown);
+
+		if (unsubscribeResourceUpdate) {
+			unsubscribeResourceUpdate();
 		}
 	});
 </script>
@@ -88,60 +102,32 @@
 </style>
 
 <main
-	class="
-    bg-osvauld-frameblack
-   w-screen h-screen text-macchiato-text text-lg !font-sans">
+	class="bg-osvauld-frameblack w-screen h-screen text-macchiato-text text-lg !font-sans">
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">
 			<Loader size={24} color="#1F242A" duration={1} />
 		</div>
 	{:else if !signedUp}
-		<Signup
-			ImportComponent={DesktopImportPvtKey}
-			on:signedUp={handleSignedUp} />
-	{:else if $showWelcome}
+		<Signup onSignedUp={handleSignedUp} />
+	{:else if uiState.showWelcome}
 		<div class="overflow-hidden flex justify-center items-center w-full h-full">
-			<Welcome on:authenticated={handleAuthenticated} />
+			<Welcome authenticated={handleAuthenticated} />
 		</div>
 	{:else}
-		<!-- <DocumentEditor /> -->
-		<DefaultLayout />
-		<!-- 
-			
-		{#if $addDeviceModal}
-		<AddDeviceView />
-		{/if}
-		
-		{#if $showSyncQr}
-		<Acceptor />
-		{/if}
-    -->
-		{#if $deleteConfirmationModal.show}
-			<DeleteConfirmationModal />
-		{/if}
+		<div
+			class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden">
+			<HeaderSection />
+			<!-- App modals right after the header section -->
+			<AppModals />
 
-		{#if $passwordPromptModal.show}
-			<PasswordPromptModal
-				changePassword={$passwordPromptModal.isChangePassword}
-				on:close={handlePasswordModalClose} />
-		{/if}
-
-		{#if $showAddUser}
-			<AddUserModal
-				on:userAdd={handleAddUser}
-				on:close={() => {
-					showAddUser.set(false);
-				}} />
-		{/if}
-
-		{#if $showConnector}
-			<Connector on:close={handleConnectorClose} />
-		{/if}
-
-		{#if $toastStore.show}
-			<div class="z-100">
-				<Toast />
+			<div class="grow flex overflow-hidden">
+				{#if uiState.noteViewLayout}
+					<!-- Note editing mode: Show NotesWorkspace with its own Navigation panel -->
+					<NotesWorkspace />
+				{:else}
+					<NotesListView />
+				{/if}
 			</div>
-		{/if}
+		</div>
 	{/if}
 </main>
