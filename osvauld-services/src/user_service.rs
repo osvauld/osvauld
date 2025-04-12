@@ -47,8 +47,8 @@ impl UserService {
         username: String,
         user_public_key: String,
         device_public_key: String,
-        current_user_id: &str,
-        current_device_id: &str,
+        _current_user_id: &str,
+        _current_device_id: &str,
     ) -> Result<(User, Device), String> {
         let user_id = get_key_id(&user_public_key.clone()).map_err(|e| e.to_string())?;
         let device_key_id = get_key_id(&device_public_key).map_err(|e| e.to_string())?;

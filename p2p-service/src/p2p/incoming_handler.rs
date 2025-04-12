@@ -3,49 +3,50 @@ use crate::p2p::incoming::IncomingEvent;
 use osvauld_core::models::p2p::{Message, UpdateResource};
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn, instrument};
+use tracing::{ error, info, warn, instrument};
 
 /// Implementation of P2PService methods for handling incoming events and event processing
 impl P2PService {
     /// Starts processing incoming events in a background task
-    #[instrument(skip_all, level = "debug")]
-    pub fn start_processing_incoming_events(
-        service: Self, 
-        mut receiver: mpsc::UnboundedReceiver<IncomingEvent>
-    ) {
-        // Spawn a task to process events
-        tokio::spawn(async move {
-            info!("Started processing incoming events");
-            
-            while let Some(event) = receiver.recv().await {
-                match event {
-                    IncomingEvent::MergeComplete { 
+#[instrument(skip_all, level = "debug")]
+pub fn start_processing_incoming_events(
+    service: Self, 
+    mut receiver: mpsc::UnboundedReceiver<IncomingEvent>
+) {
+    // Spawn a task to process events
+    tokio::spawn(async move {
+        info!("Started processing incoming events");
+        
+        while let Some(event) = receiver.recv().await {
+            match event {
+                IncomingEvent::MergeComplete { 
+                    encrypted_doc, 
+                    add_vector_clock, 
+                    update_vector_clock,
+                    resource_id,
+                    user_id,
+                    device_id,
+                } => {
+                    if let Err(e) = service.handle_merge_complete(
                         encrypted_doc, 
                         add_vector_clock, 
                         update_vector_clock,
-                        resource_id,
-                        user_id,
-                        device_id,
-                    } => {
-                        service.handle_merge_complete(
-                            encrypted_doc, 
-                            add_vector_clock, 
-                            update_vector_clock,
-                            &resource_id,
-                            &user_id,
-                            &device_id,
-                        ).await;
-                    },
-                    IncomingEvent::SyncUpdate { payload } => {
-                        service.handle_sync_update(payload).await;
-                    },
-                    
-                }
+                        &resource_id,
+                        &user_id,
+                        &device_id,
+                    ).await {
+                        error!("Error handling merge complete: {}", e);
+                    }
+                },
+                IncomingEvent::SyncUpdate { payload } => {
+                    service.handle_sync_update(payload).await;
+                },
             }
-            
-            info!("Stopped processing incoming events");
-        });
-    }
+        }
+        
+        info!("Stopped processing incoming events");
+    });
+}
     
     /// Handles a merge complete event
     #[instrument(skip(self, add_vector_clock, encrypted_data, update_vector_clock), 
@@ -59,7 +60,7 @@ impl P2PService {
         resource_id: &str,
         user_id: &str,
         device_id: &str,
-    ) {
+    ) -> Result<(), String> {
         info!("Processing merge-complete event for resource: {}", resource_id);
         
         let connection_id = format!("{}:{}", user_id, device_id);
@@ -74,15 +75,17 @@ impl P2PService {
                     update_vector_clock,
                     resource_id: resource_id.to_string(),
                 };
-                connection.send_message(Message::UpdateResource(message));
+                connection.send_message(Message::UpdateResource(message)).await.map_err(|e| e.to_string())?;
+                Ok(())
                 // Use the connection to send an update
                 // Implementation for sending updates will go here in the future
             }
             Err(e) => {
-                error!("Connection not found for {}: {}", connection_id, e);
+                return Err(e.to_string())
             }
         }
     }
+
 #[instrument(skip(self, payload), level = "info")]
 pub async fn handle_sync_update(&self, payload: String) {
     info!("Processing sync-update event");
