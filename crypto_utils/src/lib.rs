@@ -9,10 +9,10 @@ use crate::types::{
 };
 use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
-use argon2::password_hash::rand_core::OsRng;
-use base64::{decode, encode};
+
+use base64::{engine::general_purpose, Engine as _};
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
-use rand::RngCore;
+use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
 use std::str::FromStr;
 use thiserror::Error;
@@ -73,7 +73,7 @@ pub fn generate_keys(password: &str, username: &str) -> Result<GeneratedKeys, Cr
     Ok(GeneratedKeys {
         private_key: encrypted_private_key,
         public_key,
-        salt: encode(salt),
+        salt: general_purpose::STANDARD.encode(salt),
     })
 }
 
@@ -87,14 +87,14 @@ pub fn generate_keys_without_password(username: &str) -> Result<GeneratedKeys, C
         .serialize(&mut cert_data)
         .map_err(|e| CryptoError::Other(e.to_string()))?;
 
-    let encoded_private_key = encode(cert_data);
+    let encoded_private_key = general_purpose::STANDARD.encode(cert_data);
     let public_key = crypto_core::get_public_key_armored(&cert)
         .map_err(|e| CryptoError::Other(e.to_string()))?;
 
     Ok(GeneratedKeys {
         private_key: encoded_private_key,
         public_key,
-        salt: encode("".as_bytes()),
+        salt: general_purpose::STANDARD.encode("".as_bytes()),
     })
 }
 
@@ -122,7 +122,7 @@ pub fn import_certificate(
     Ok(GeneratedKeys {
         private_key: enc_priv_key,
         public_key,
-        salt: encode(salt),
+        salt: general_purpose::STANDARD.encode(salt),
     })
 }
 
@@ -144,8 +144,11 @@ pub fn encrypt_data_for_users(
         let recipient =
             crypto_core::get_recipient(&user.public_key).map_err(|e| CryptoError::PgpError(e))?;
 
-        let encrypted_key = crypto_core::encrypt_text_pgp(&recipient, &encode(aes_key.as_slice()))
-            .map_err(|e| CryptoError::Other(e.to_string()))?;
+        let encrypted_key = crypto_core::encrypt_text_pgp(
+            &recipient,
+            &general_purpose::STANDARD.encode(aes_key.as_slice()),
+        )
+        .map_err(|e| CryptoError::Other(e.to_string()))?;
 
         access_list.push(UserAccess {
             user_id: user.user_id.clone(),
@@ -167,7 +170,7 @@ pub fn get_key_id(public_key: &str) -> Result<String, CryptoError> {
 
 /// Decrypt AES-encrypted data using a provided key
 pub fn decrypt_with_aes(ciphertext: &str, encoded_key: &str) -> Result<String, CryptoError> {
-    let key_bytes = decode(encoded_key)?;
+    let key_bytes = general_purpose::STANDARD.decode(encoded_key)?;
 
     let plaintext = crypto_core::decrypt_with_aes(&key_bytes, ciphertext)
         .map_err(|e| CryptoError::AesError(e))?;
@@ -275,7 +278,7 @@ impl CryptoUtils {
         let signature = crypto_core::sign_message(&keypair, message)
             .map_err(|e| CryptoUtilsError::SigningError(e.to_string()))?;
 
-        Ok(encode(signature))
+        Ok(general_purpose::STANDARD.encode(signature))
     }
 
     /// Sign and hash a message
@@ -284,7 +287,7 @@ impl CryptoUtils {
         let hash_text =
             crypto_core::hash_text_sha512(message).map_err(|e| CryptoError::PgpError(e))?;
 
-        let hash_base64 = encode(&hash_text);
+        let hash_base64 = general_purpose::STANDARD.encode(&hash_text);
 
         // Convert CryptoUtilsError
         let signature = self
@@ -326,8 +329,11 @@ impl CryptoUtils {
         let recipient =
             crypto_core::get_recipient(&public_key).map_err(|e| CryptoError::PgpError(e))?;
 
-        let encrypted_key = crypto_core::encrypt_text_pgp(&recipient, &encode(aes_key.as_slice()))
-            .map_err(|e| CryptoError::Other(e.to_string()))?;
+        let encrypted_key = crypto_core::encrypt_text_pgp(
+            &recipient,
+            &general_purpose::STANDARD.encode(aes_key.as_slice()),
+        )
+        .map_err(|e| CryptoError::Other(e.to_string()))?;
 
         Ok(EncryptedResource {
             encrypted_data,
@@ -364,7 +370,7 @@ impl CryptoUtils {
             let aes_key = String::from_utf8(decrypted_key)?;
 
             // Convert base64 decode error
-            let key_bytes = decode(&aes_key)?;
+            let key_bytes = general_purpose::STANDARD.decode(&aes_key)?;
 
             // Convert AesError
             let decrypted_data = crypto_core::decrypt_with_aes(&key_bytes, &resource.data)
@@ -425,7 +431,7 @@ impl CryptoUtils {
         let utf8_key = String::from_utf8(decrypted_key)?;
 
         // Decode from base64
-        let key_bytes = decode(&utf8_key)?;
+        let key_bytes = general_purpose::STANDARD.decode(&utf8_key)?;
 
         Ok(key_bytes)
     }
@@ -443,8 +449,11 @@ impl CryptoUtils {
             crypto_core::get_recipient(public_key).map_err(|e| CryptoError::PgpError(e))?;
 
         // Re-encrypt the AES key with the new public key
-        let newly_encrypted_key = crypto_core::encrypt_text_pgp(&recipient, &encode(&key_bytes))
-            .map_err(|e| CryptoError::Other(e.to_string()))?;
+        let newly_encrypted_key = crypto_core::encrypt_text_pgp(
+            &recipient,
+            &general_purpose::STANDARD.encode(&key_bytes),
+        )
+        .map_err(|e| CryptoError::Other(e.to_string()))?;
 
         Ok(newly_encrypted_key)
     }
