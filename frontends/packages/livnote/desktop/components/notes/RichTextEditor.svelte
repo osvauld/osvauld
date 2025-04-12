@@ -7,6 +7,7 @@
 	import { notesInstance } from "./notes";
 	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
+	import "./rich-text-editor.css";
 
 	// Event dispatcher for collaboration updates
 
