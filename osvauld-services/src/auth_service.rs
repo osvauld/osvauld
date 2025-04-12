@@ -4,7 +4,7 @@ use osvauld_core::models::user::User;
 use osvauld_core::models::{device::Device, sync_record::SyncRecord};
 use osvauld_core::repositories::{DeviceRepository, RepositoryError, StoreRepository};
 
-use base64::encode;
+use base64::{Engine as _, engine::general_purpose};
 use crypto_utils::{
     CryptoUtils, change_certificate_password, export_certificate, generate_keys,
     generate_keys_without_password, get_key_id, import_certificate,
@@ -273,7 +273,7 @@ impl AuthService {
                 .get_public_key()
                 .map_err(|e| format!("Failed to get public key: {}", e))?
         };
-        let encoded_public_key = encode(public_key);
+        let encoded_public_key = general_purpose::STANDARD.encode(public_key);
 
         Ok(encoded_public_key)
     }

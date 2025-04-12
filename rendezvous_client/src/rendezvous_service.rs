@@ -1,7 +1,6 @@
 use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::ConnectionType;
-use osvauld_core::models::user::User;
 use osvauld_services::UserService;
 // Import the User model
 use p2p_service::P2PService;
@@ -213,7 +212,7 @@ impl RendezvousService {
     async fn process_connection_string(
         p2p_service: &Arc<P2PService>,
         pending_first_connections: &Arc<Mutex<HashSet<String>>>,
-        user: &Arc<Mutex<Option<String>>>,
+        _user: &Arc<Mutex<Option<String>>>,
         response_user_id: &str,
         conn_string: String,
     ) {

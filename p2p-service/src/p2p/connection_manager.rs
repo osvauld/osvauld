@@ -2,7 +2,7 @@ use crate::p2p::peer_connection::PeerConnection;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use tracing::{debug, error, info, instrument, trace, warn};
 #[derive(Clone)]
 pub struct ConnectionManager {
     pub connections: Arc<Mutex<HashMap<String, Arc<PeerConnection>>>>,

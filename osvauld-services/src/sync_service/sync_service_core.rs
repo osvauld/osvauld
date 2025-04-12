@@ -2,8 +2,8 @@ use super::super::transaction_service::transaction_service::TransactionService;
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
-    DeviceRepository, FolderRepository, RepositoryError, ResourceRepository, ShareRepository,
-    StoreRepository, SyncRepository, UserRepository, VectorClockRepository,
+    DeviceRepository, FolderRepository, ResourceRepository, ShareRepository, StoreRepository,
+    SyncRepository, UserRepository, VectorClockRepository,
 };
 
 use std::sync::Arc;

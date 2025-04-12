@@ -7,7 +7,7 @@ use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message, SyncPayload, PhaseType, Phase, PhaseAction};
+use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message,  PhaseType, Phase, PhaseAction};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
@@ -68,7 +68,6 @@ impl P2PService {
             current_user: Arc::new(RwLock::new(None)),
             current_device: Arc::new(RwLock::new(None)),
         };
-        let service_clone = service.clone();
 
         debug!("P2P service instance created successfully");
         (service, receiver, p2p_sender, incoming_receiver)
@@ -168,23 +167,7 @@ impl P2PService {
                 )));
             }
         };
-        let self_clone = self.clone();
-        let get_current_user = Arc::new(move || {
-            // Use block_on from futures-lite or similar mechanism
-            // or a more manual approach using runtime handles
-            let rt = tokio::runtime::Handle::current();
-            match rt.block_on(self_clone.current_user.read()) {
-                user_guard => user_guard.clone(),
-            }
-        });
 
-        let self_clone = self.clone();
-        let get_current_device = Arc::new(move || {
-            let rt = tokio::runtime::Handle::current();
-            match rt.block_on(self_clone.current_device.read()) {
-                device_guard => device_guard.clone(),
-            }
-        });
         let service_context = Arc::new(ServiceContext {
             auth_service: self.auth_service.clone(),
             user_service: self.user_service.clone(),

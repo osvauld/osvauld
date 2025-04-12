@@ -29,9 +29,6 @@ impl PeerConnection {
     pub async fn start_device_sync(&self) -> Result<(), String> {
         info!("Starting device sync phase");
 
-        // Get current device with early return pattern
-        let current_device = self.ensure_current_device().await?;
-
         // Get current span for context propagation
         let current_span = Span::current();
 

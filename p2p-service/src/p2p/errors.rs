@@ -1,4 +1,3 @@
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 /// Comprehensive error type for P2P operations
 #[derive(Error, Debug)]

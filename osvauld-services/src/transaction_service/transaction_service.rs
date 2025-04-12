@@ -1,7 +1,7 @@
 use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
-use osvauld_core::models::share_record::{self, ShareRecord};
+use osvauld_core::models::share_record::ShareRecord;
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::{
@@ -11,7 +11,7 @@ use osvauld_core::repositories::{
 
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::resource_key::ResourceKey;
-use osvauld_core::models::sync_record::{DeviceRecordSet, SyncRecordSet, SyncUpdateData};
+use osvauld_core::models::sync_record::{DeviceRecordSet, SyncRecordSet};
 use std::sync::Arc;
 pub struct TransactionService {
     pub resource_repository: Arc<dyn ResourceRepository>,
@@ -98,9 +98,6 @@ impl TransactionService {
         encrypted_data: &str,
         current_device: &Device,
     ) -> Result<(), RepositoryError> {
-        // Use diesel transaction if your database supports it
-        // For SQLite, you might need to implement your own transaction mechanism
-
         // 1. Update the resource data
         self.resource_repository
             .update_resource(encrypted_data, resource_id)
@@ -112,24 +109,6 @@ impl TransactionService {
         Ok(())
     }
 
-    pub async fn share_resource(
-        &self,
-        resource_key: ResourceKey,
-        vector_clock: ResourceVectorClock,
-        // user_record: UserRecordSet,
-        resource_id: String,
-    ) -> Result<(), RepositoryError> {
-        log::info!("vecoor {:?}", vector_clock);
-        self.resource_key_repository.save(&resource_key).await?;
-        // self.share_repository
-        //     .update_user_record_set(user_record)
-        //     .await?;
-        // Update the resource's vector clock
-        // self.resource_repository
-        //     .update_resource_vector_clock(&resource_id, &vector_clock)
-        //     .await?;
-        Ok(())
-    }
     pub async fn handle_add_folder_transaction(
         &self,
         folder: &Folder,

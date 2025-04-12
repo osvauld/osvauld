@@ -3,7 +3,7 @@ use crate::p2p::peer_connection::PeerConnection;
 use osvauld_core::models::p2p::{Message, Phase, PhaseAction, PhaseType}; // Updated imports
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{Level, Span, debug, error, info, instrument, span, trace, warn};
+use tracing::{Level,  debug, error, info, instrument, span, trace, warn};
 
 // PhaseState struct to encapsulate phase state
 #[derive(Clone)]

@@ -1,6 +1,5 @@
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use tokio::sync::mpsc;
-use tracing::{debug, error, info};
 
 /// Events that can be received and processed by the P2P service
 #[derive(Debug)]

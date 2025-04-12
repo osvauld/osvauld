@@ -9,7 +9,6 @@ use crate::models::{
         DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord,
         SyncRecordSet,
     },
-    sync_types::OperationType,
     user::User,
     vector_clock::ResourceVectorClock,
 };

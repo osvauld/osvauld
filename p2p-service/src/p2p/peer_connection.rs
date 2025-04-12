@@ -267,8 +267,7 @@ impl PeerConnection {
                 self.ack_complete(device_sync_record_ids.clone()).await
             }
             Message::SyncEvent { event, payload } => {
-                info!("Received SyncEvent: {:?}", payload);
-                // self.handle_sync_event(event, payload.clone()).await
+                info!("Received SyncEvent: {:?}", event);
                 self.event_emitter.emit(P2PEvent::EditingEvent { payload: payload.clone() });
                 Ok(())
             }

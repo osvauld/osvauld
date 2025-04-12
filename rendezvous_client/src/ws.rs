@@ -5,8 +5,7 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, broadcast};
 use tokio_tungstenite::{
-    MaybeTlsStream, WebSocketStream, connect_async,
-    tungstenite::{Error as WsError, protocol::Message},
+    MaybeTlsStream, WebSocketStream, connect_async, tungstenite::protocol::Message,
 };
 
 // Only import what we need, and be explicit

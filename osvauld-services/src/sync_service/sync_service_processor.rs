@@ -2,9 +2,9 @@ use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
 use osvauld_core::models::p2p::{SyncAckType, SyncPayload};
 use osvauld_core::models::resource::{Resource, ResourceKeyPair};
-use osvauld_core::models::share_record::{self, ShareRecord};
+use osvauld_core::models::share_record::ShareRecord;
 use osvauld_core::models::sync_record::{
-    self, DeviceRecord, DeviceRecordStatus, SyncRecord, SyncRecordSet
+     DeviceRecord, DeviceRecordStatus, SyncRecord, SyncRecordSet
 };
 use osvauld_core::models::sync_types::SyncMergeResult;
 use osvauld_core::models::sync_types::SyncOperations;
