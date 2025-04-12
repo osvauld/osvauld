@@ -91,7 +91,7 @@ class DataState {
   switchNote(note: Note) {
     this.currentNote = note;
     uiState.toggleNoteViewLayout(true);
-    StoreService.setCurrentNote(note);
+    StoreService.setCurrentNoteId(note.id);
   }
   updateNoteFavorite(noteId: string) {
     const noteIndex = this.notes.findIndex(n => n.id === noteId);
@@ -104,7 +104,7 @@ class DataState {
   clearCurrentNote() {
     this.currentNote = null;
     uiState.toggleNoteViewLayout(false);
-    StoreService.setCurrentNote(null);
+    StoreService.setCurrentNoteId(null);
   }
 
   // Toggle favorite view filter
@@ -140,16 +140,16 @@ class DataState {
         }
       }
 
-      // Try to get saved note
-      const savedNote = await StoreService.getCurrentNote();
+      // Try to get saved note ID
+      const savedNoteId = await StoreService.getCurrentNoteId();
 
-      if (savedNote) {
-        // Find if the saved note exists in the current notes list
-        const noteExists = this.notes.some(n => n.id === savedNote.id);
+      if (savedNoteId) {
+        // Find the note with this ID in the current notes
+        const noteExists = this.notes.some(n => n.id === savedNoteId);
 
         if (noteExists) {
-          // Find the actual note from the current notes (for fresh data)
-          const freshNote = this.notes.find(n => n.id === savedNote.id) || null;
+          // Get the fresh note data
+          const freshNote = this.notes.find(n => n.id === savedNoteId) || null;
 
           if (freshNote) {
             this.currentNote = freshNote;
