@@ -1,4 +1,4 @@
-use crypto_utils::{CryptoUtils, encrypt_data_for_users, get_key_id, types::UserPublicKey};
+use crypto_utils::{CryptoUtils, encrypt_data_for_user, get_key_id};
 use osvauld_core::models::device::Device;
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
@@ -79,27 +79,21 @@ impl ResourceService {
         ),
         ResourceServiceError,
     > {
-        // Encrypt the resource
-        let user_pub_key = UserPublicKey {
-            user_id: user.id.clone(),
-            public_key: user.public_key.clone(),
-            access: "owner".to_string(),
-        };
-        let encrypted = encrypt_data_for_users(&resource_payload, &[user_pub_key])
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+        // Encrypt the resource using the new function
+        let (encrypted_data, encrypted_key) =
+            encrypt_data_for_user(&resource_payload, &user.public_key)
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
         let resource = Resource::new(
             resource_type,
-            encrypted.encrypted_data,
+            encrypted_data,
             folder_id,
             "signature".to_string(), // TODO: Implement proper signing
         );
-        let resource_key = ResourceKey::new(
-            resource.id.clone(),
-            user.id.clone(),
-            encrypted.access_list[0].encrypted_key.clone(),
-            true,
-        );
+
+        let resource_key =
+            ResourceKey::new(resource.id.clone(), user.id.clone(), encrypted_key, true);
+
         let share_record = ShareRecord::prepare_share_record(
             resource.id.clone(),
             user.id.clone(),
@@ -107,9 +101,11 @@ impl ResourceService {
             PermissionLevel::Admin,
             "signature".to_string(),
         );
+
         let (sync_record_set, share_record_set, vector_clocks) = self
             .prepare_resource_to_sync(&resource, &share_record, &user.id, current_device_id)
             .await?;
+
         Ok((
             resource,
             resource_key,
@@ -214,54 +210,41 @@ impl ResourceService {
         self.decrypt_resources(resources_with_keys).await
     }
 
-    // Helper method to handle decryption (reduces duplication)
     async fn decrypt_resources(
         &self,
         resources_with_keys: Vec<ResourceWithKey>,
     ) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
-        // Convert to format needed for decryption
-        let crypto_resources: Vec<crypto_utils::types::ResourceWithEncryptedKey> =
-            resources_with_keys
-                .into_iter()
-                .map(|rk| crypto_utils::types::ResourceWithEncryptedKey {
-                    id: rk.resource.id,
-                    resource_type: rk.resource.resource_type,
-                    data: rk.resource.data,
-                    signature: rk.resource.signature,
-                    encrypted_key: rk.encrypted_key,
-                    last_accessed: rk.resource.last_accessed,
-                    favourite: rk.resource.favourite,
-                    folder_id: rk.resource.folder_id,
-                })
-                .collect();
-        // Decrypt and convert to domain model
-        let decrypted_resources = {
-            let crypto = self.crypto_utils.lock().await;
-            crypto
-                .decrypt_resources(&crypto_resources)
-                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
-        };
+        // Initialize vector to store decrypted resources
+        let mut decrypted_resources = Vec::with_capacity(resources_with_keys.len());
 
-        // Convert to domain model
-        let resources = decrypted_resources
-            .into_iter()
-            .map(|res| {
-                let parsed_data: Value = serde_json::from_str(&res.data).unwrap_or_else(
-                    |_| serde_json::json!({"error": "Failed to parse resource data"}),
-                );
+        // Lock crypto_utils once before the loop
+        let crypto = self.crypto_utils.lock().await;
 
-                DecryptedResource {
-                    id: res.id,
-                    resource_type: res.resource_type,
-                    data: parsed_data,
-                    last_accessed: res.last_accessed,
-                    favourite: res.favourite,
-                    folder_id: res.folder_id,
-                }
-            })
-            .collect();
+        // Process each resource
+        for rk in resources_with_keys {
+            // Decrypt the resource data using the single-resource function
+            let decrypted_data = crypto
+                .decrypt_resource(&rk.resource.data, &rk.encrypted_key)
+                .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
 
-        Ok(resources)
+            // Parse the JSON data
+            let parsed_data: Value = serde_json::from_str(&decrypted_data)
+                .unwrap_or_else(|_| serde_json::json!({"error": "Failed to parse resource data"}));
+
+            // Create the DecryptedResource
+            let decrypted_resource = DecryptedResource {
+                id: rk.resource.id,
+                resource_type: rk.resource.resource_type,
+                data: parsed_data,
+                last_accessed: rk.resource.last_accessed,
+                favourite: rk.resource.favourite,
+                folder_id: rk.resource.folder_id,
+            };
+
+            decrypted_resources.push(decrypted_resource);
+        }
+
+        Ok(decrypted_resources)
     }
 
     // Helper to get current user ID
