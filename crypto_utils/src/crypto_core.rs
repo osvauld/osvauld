@@ -5,7 +5,7 @@ use aes_gcm::{
 };
 use anyhow::Result;
 use argon2::Argon2;
-use base64::{decode, encode};
+use base64::{engine::general_purpose, Engine as _};
 use openpgp::{
     armor::{Kind::Signature, Writer as ArmorWriter},
     cert::{CertBuilder, CipherSuite},
@@ -27,7 +27,7 @@ use openpgp::{
     Cert,
 };
 use rand::rngs::OsRng;
-use sequoia_openpgp::serialize::stream::Encryptor2;
+use sequoia_openpgp::serialize::stream::Encryptor;
 use sequoia_openpgp::{self as openpgp};
 use std::error::Error;
 use std::io::Write;
@@ -70,11 +70,11 @@ pub fn encrypt_certificate(
         .encrypt(nonce, data)
         .map_err(|e| AesError::EncryptionError(e.to_string()))?;
 
-    Ok(encode(encrypted_data))
+    Ok(general_purpose::STANDARD.encode(encrypted_data))
 }
 
 pub fn get_salt_arr(salt_b64: &str) -> Result<[u8; 16], Box<dyn Error>> {
-    let salt = decode(salt_b64)?;
+    let salt = general_purpose::STANDARD.decode(salt_b64)?;
 
     if salt.len() != 16 {
         return Err("Invalid salt length".into());
@@ -88,8 +88,9 @@ pub fn decrypt_certificate(
     salt_b64: &str,
     password: &str,
 ) -> Result<Cert, AesError> {
-    let encrypted_data =
-        decode(encrypted_cert_b64).map_err(|e| AesError::Base64DecodeError(e.to_string()))?;
+    let encrypted_data = general_purpose::STANDARD
+        .decode(encrypted_cert_b64)
+        .map_err(|e| AesError::Base64DecodeError(e.to_string()))?;
 
     let salt_array = get_salt_arr(salt_b64).unwrap();
 
@@ -123,9 +124,17 @@ pub fn encrypt_text_pgp(
     let mut encrypted = Vec::new();
     {
         let message = Message::new(&mut encrypted);
-        let message = Encryptor2::for_recipients(message, vec![recipient])
+
+        let recipient_obj = openpgp::serialize::stream::Recipient::new(
+            openpgp::types::Features::empty(),
+            recipient.key_handle(),
+            recipient,
+        );
+
+        let message = Encryptor::for_recipients(message, vec![recipient_obj])
             .build()
             .map_err(|e| PgpError::EncryptorCreationError(e.to_string()))?;
+
         let mut writer = LiteralWriter::new(message)
             .build()
             .map_err(|e| PgpError::LiteralWriterCreationError(e.to_string()))?;
@@ -188,18 +197,17 @@ struct DecryptionHelperStruct {
         openpgp::packet::key::UnspecifiedRole,
     >,
 }
-
 impl DecryptionHelper for DecryptionHelperStruct {
-    fn decrypt<D>(
+    fn decrypt(
         &mut self,
         pkesks: &[openpgp::packet::PKESK],
         _skesks: &[openpgp::packet::SKESK],
         sym_algo: Option<openpgp::types::SymmetricAlgorithm>,
-        mut decrypt: D,
-    ) -> openpgp::Result<Option<openpgp::Fingerprint>>
-    where
-        D: FnMut(openpgp::types::SymmetricAlgorithm, &openpgp::crypto::SessionKey) -> bool,
-    {
+        decrypt: &mut dyn FnMut(
+            Option<openpgp::types::SymmetricAlgorithm>,
+            &openpgp::crypto::SessionKey,
+        ) -> bool,
+    ) -> openpgp::Result<Option<openpgp::Cert>> {
         if pkesks.is_empty() {
             return Err(anyhow::anyhow!("No PKESKs provided"));
         }
@@ -214,7 +222,8 @@ impl DecryptionHelper for DecryptionHelperStruct {
         for pkesk in pkesks {
             if let Some((algo, session_key)) = pkesk.decrypt(&mut pair, sym_algo) {
                 if decrypt(algo, &session_key) {
-                    return Ok(Some(self.decrypt_key.fingerprint()));
+                    // Return None instead of a Fingerprint as we don't have a Cert
+                    return Ok(None);
                 }
             }
         }
@@ -224,17 +233,16 @@ impl DecryptionHelper for DecryptionHelperStruct {
     }
 }
 pub fn hash_text_sha512(text: &str) -> Result<Vec<u8>, PgpError> {
-    let mut ctx = HashAlgorithm::SHA512
+    let builder = HashAlgorithm::SHA512
         .context()
         .map_err(|e| PgpError::HashContextCreationError(e.to_string()))?;
 
-    ctx.update(text.as_bytes());
+    let mut context = builder.for_digest();
+    context.update(text.as_bytes());
 
-    let mut digest = vec![0; ctx.digest_size()];
-    ctx.digest(&mut digest)
-        .map_err(|e| PgpError::DigestComputationError(e.to_string()))?;
-
-    Ok(digest)
+    context
+        .into_digest()
+        .map_err(|e| PgpError::DigestComputationError(e.to_string()))
 }
 
 pub fn get_recipient(public_key: &str) -> Result<Key<PublicParts, UnspecifiedRole>, PgpError> {
@@ -244,7 +252,6 @@ pub fn get_recipient(public_key: &str) -> Result<Key<PublicParts, UnspecifiedRol
 
     // Create a policy for key selection
     let policy = &StandardPolicy::new();
-
     // Find a suitable encryption key
     cert.keys()
         .with_policy(policy, None)
@@ -295,10 +302,14 @@ pub fn sign_message(keypair: &KeyPair, message: &str) -> Result<Vec<u8>, PgpErro
     let mut signature = Vec::new();
     {
         let message_writer = Message::new(&mut signature);
-        let mut signer = Signer::new(message_writer, keypair.clone())
+        let signer = Signer::new(message_writer, keypair.clone())
+            .map_err(|e| PgpError::SignerCreationError(e.to_string()))?;
+
+        let mut signer = signer
             .detached()
             .build()
             .map_err(|e| PgpError::SignerCreationError(e.to_string()))?;
+
         signer
             .write_all(message.as_bytes())
             .map_err(|e| PgpError::MessageWriteError(e.to_string()))?;
@@ -321,7 +332,6 @@ pub fn sign_message(keypair: &KeyPair, message: &str) -> Result<Vec<u8>, PgpErro
 
     Ok(armored_signature)
 }
-
 pub fn generate_aes_key() -> Aes_Key<Aes256Gcm> {
     Aes256Gcm::generate_key(OsRng)
 }
@@ -337,14 +347,16 @@ pub fn encrypt_with_aes(key: &Aes_Key<Aes256Gcm>, plaintext: &str) -> Result<Str
     let mut combined = nonce.to_vec();
     combined.extend_from_slice(&ciphertext);
 
-    Ok(encode(combined))
+    Ok(general_purpose::STANDARD.encode(combined))
 }
 
 pub fn decrypt_with_aes(key_bytes: &[u8], encoded: &str) -> Result<String, AesError> {
     let key = Aes_Key::<Aes256Gcm>::from_slice(key_bytes);
     let cipher = Aes256Gcm::new(key);
 
-    let decoded = decode(encoded).map_err(|e| AesError::Base64DecodeError(e.to_string()))?;
+    let decoded = general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|e| AesError::Base64DecodeError(e.to_string()))?;
 
     if decoded.len() < 12 {
         return Err(AesError::DecryptionError("Invalid ciphertext".to_string()));
