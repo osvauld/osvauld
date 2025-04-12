@@ -74,9 +74,9 @@
 	});
 </script>
 
-<div class="grow max-h-full overflow-hidden px-11 py-4 relative">
+<div class="grow max-h-full overflow-hidden px-11 py-4 relative flex flex-col">
 	<NoteListPanel />
-	<div class="h-full pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
+	<div class="grow pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
 		{#if dataState.isDataLoading}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">Loading notes...</div>
