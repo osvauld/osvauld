@@ -1,7 +1,7 @@
 import { sendMessage } from "@osvauld/password-manager-common";
 import { uiState } from './ui.svelte';
 import { listen } from "@tauri-apps/api/event";
-
+import { StoreService } from './storeService';
 // Define interfaces
 export interface Vault {
   id: string;
@@ -84,12 +84,14 @@ class DataState {
   // Switch to a different vault
   switchVault(vault: Vault) {
     this.currentVault = vault;
+    StoreService.setCurrentVault(vault);
   }
 
   // Switch to a different note
   switchNote(note: Note) {
     this.currentNote = note;
     uiState.toggleNoteViewLayout(true);
+    StoreService.setCurrentNoteId(note.id);
   }
   updateNoteFavorite(noteId: string) {
     const noteIndex = this.notes.findIndex(n => n.id === noteId);
@@ -102,6 +104,7 @@ class DataState {
   clearCurrentNote() {
     this.currentNote = null;
     uiState.toggleNoteViewLayout(false);
+    StoreService.setCurrentNoteId(null);
   }
 
   // Toggle favorite view filter
@@ -116,8 +119,46 @@ class DataState {
       await this.fetchVaults();
       await this.fetchAllNotes();
       this.setupReactiveUpdates();
+      await this.restoreSavedSelections();
     } finally {
       this.isDataLoading = false;
+    }
+  }
+  // Restore saved selections from storage
+  async restoreSavedSelections() {
+    try {
+      // Try to get saved vault
+      const savedVault = await StoreService.getCurrentVault();
+
+      if (savedVault) {
+        // Find if the saved vault exists in the current vaults list
+        const vaultExists = this.vaults.some(v => v.id === savedVault.id);
+
+        if (vaultExists) {
+          // Apply the saved vault if it exists
+          this.currentVault = savedVault;
+        }
+      }
+
+      // Try to get saved note ID
+      const savedNoteId = await StoreService.getCurrentNoteId();
+
+      if (savedNoteId) {
+        // Find the note with this ID in the current notes
+        const noteExists = this.notes.some(n => n.id === savedNoteId);
+
+        if (noteExists) {
+          // Get the fresh note data
+          const freshNote = this.notes.find(n => n.id === savedNoteId) || null;
+
+          if (freshNote) {
+            this.currentNote = freshNote;
+            uiState.toggleNoteViewLayout(true);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error restoring saved selections:", error);
     }
   }
 
