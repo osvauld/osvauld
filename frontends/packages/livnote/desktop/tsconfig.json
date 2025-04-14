@@ -50,7 +50,8 @@
     "components/**/*.js",
     "components/**/*.svelte",
     "types/**/*.ts",
-		 "state/**/*.ts"
+		 "state/**/*.ts",
+
   ],
 	"exclude": [
 		"node_modules/*"
