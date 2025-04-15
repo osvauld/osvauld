@@ -85,6 +85,7 @@ class DataState {
   switchVault(vault: Vault) {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
+    uiState.toggleNoteViewLayout(false);
   }
 
   // Switch to a different note
