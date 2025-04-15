@@ -25,6 +25,7 @@
 	let showDownloadTooltip = $state(false);
 	let isPdfGenerating = $state(false);
 	let saved = $state(false);
+	let lastModifiedTimestamp = $state<number | undefined>(undefined);
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
@@ -82,6 +83,14 @@
 			saved = false;
 		}, 1000);
 	};
+
+	// Update lastModifiedTimestamp whenever currentNote changes
+	$effect(() => {
+		const currentTimestamp = dataState.currentNote?.data?.last_modified;
+		if (currentTimestamp) {
+			lastModifiedTimestamp = currentTimestamp;
+		}
+	});
 </script>
 
 <div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
@@ -164,12 +173,8 @@
 	<div
 		class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
 		<p class="text-statusColor">
-			Last edited : {dataState.currentNote?.data
-				? getLastModifiedDate(
-						dataState.currentNote.data.last_modified ||
-							dataState.currentNote.data.last_accessed ||
-							0,
-					)
+			Last modified : {dataState.currentNote?.data
+				? getLastModifiedDate(lastModifiedTimestamp)
 				: "Not available"}
 		</p>
 	</div>
