@@ -84,23 +84,23 @@ export function addFormattingItems(container: HTMLElement, schema: Schema, view:
     group.appendChild(italicButton);
   }
 
-  // Paragraph
-  if (schema.nodes.paragraph) {
-    const paragraphButton = document.createElement("button");
-    paragraphButton.className = "editor-general-button menu-paragraph";
-    paragraphButton.title = "Paragraph";
-    paragraphButton.dataset.nodeType = "paragraph";
-    paragraphButton.innerHTML = `
-      <svg width="24px" height="24px" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-        <text x="50%" y="50%" font-family="Arial" font-size="100" font-weight="light" fill="#85889C" dominant-baseline="central" text-anchor="middle">P</text>
-      </svg>
-    `;
-    paragraphButton.addEventListener("click", () => {
-      setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
-      view.focus();
-    });
-    group.appendChild(paragraphButton);
-  }
+  // // Paragraph
+  // if (schema.nodes.paragraph) {
+  //   const paragraphButton = document.createElement("button");
+  //   paragraphButton.className = "editor-general-button menu-paragraph";
+  //   paragraphButton.title = "Paragraph";
+  //   paragraphButton.dataset.nodeType = "paragraph";
+  //   paragraphButton.innerHTML = `
+  //     <svg width="24px" height="24px" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  //       <text x="50%" y="50%" font-family="Arial" font-size="100" font-weight="light" fill="#85889C" dominant-baseline="central" text-anchor="middle">P</text>
+  //     </svg>
+  //   `;
+  //   paragraphButton.addEventListener("click", () => {
+  //     setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+  //     view.focus();
+  //   });
+  //   group.appendChild(paragraphButton);
+  // }
 
   if (group.children.length > 0) {
     container.appendChild(group);

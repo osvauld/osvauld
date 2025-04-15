@@ -85,6 +85,7 @@ class DataState {
   switchVault(vault: Vault) {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
+    uiState.toggleNoteViewLayout(false);
   }
 
   // Switch to a different note
@@ -189,7 +190,10 @@ class DataState {
           ...this.notes.slice(resourceIndex + 1)
         ];
 
-
+        // Also update currentNote if it's the same note that was updated
+        if (this.currentNote && this.currentNote.id === updatedResource.id) {
+          this.currentNote = updatedResource;
+        }
       } else {
         // If the resource doesn't exist in the notes array, add it
         console.log("Updated resource not found in notes array, adding it");
