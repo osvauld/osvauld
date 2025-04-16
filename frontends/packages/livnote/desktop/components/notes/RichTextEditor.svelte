@@ -358,6 +358,6 @@
 			<div class="error-message">{error}</div>
 		{/if}
 
-		<div bind:this={element} class="h-full"></div>
+		<div bind:this={element} class="h-full max-h-full overflow-y-scroll scrollbar-thin"></div>
 	</div>
 </div>

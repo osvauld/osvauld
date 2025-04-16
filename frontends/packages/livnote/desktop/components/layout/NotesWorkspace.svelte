@@ -164,7 +164,7 @@
 		</div>
 
 		<!-- Editor Component -->
-		<div class="grow relative p-4">
+		<div class="flex-1 min-h-0 relative p-4">
 			<RichTextEditor />
 		</div>
 	</div>
