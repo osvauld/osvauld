@@ -10,6 +10,7 @@ import { EditorState } from "prosemirror-state";
 import { slashCommandPlugin } from "./slashCommandPlugin";
 import { fixedMenuPlugin } from "./fixedMenuPlugin";
 import { floatingMenuPlugin } from "./floatingMenuPlugin";
+import { clipboardImagePlugin } from "./clipboardImagePlugin";
 import {
   wrapInList,
   splitListItem,
@@ -81,6 +82,7 @@ export class Notes {
     this.initYjs();
   }
 
+
   private initSchema(): void {
     // Get the base paragraph node spec from the schema
     const nodes = schema.spec.nodes;
@@ -124,6 +126,34 @@ export class Notes {
         return [nodeSpec.parseDOM?.[0]?.tag || "p", attrs, 0] as [string, Object, number];
       },
     });
+    const imageSpec: NodeSpec = {
+      inline: true,
+      attrs: {
+        src: {},
+        alt: { default: null },
+        title: { default: null },
+        width: { default: null },
+        height: { default: null }
+      },
+      group: "inline",
+      draggable: true,
+      parseDOM: [{
+        tag: "img[src]",
+        getAttrs(dom: HTMLElement) {
+          return {
+            src: dom.getAttribute("src"),
+            alt: dom.getAttribute("alt"),
+            title: dom.getAttribute("title"),
+            width: dom.getAttribute("width"),
+            height: dom.getAttribute("height")
+          };
+        }
+      }],
+      toDOM(node) {
+        return ["img", node.attrs];
+      }
+    };
+
 
     // Get the heading node spec and modify it
     const headingSpec = nodes.get("heading");
@@ -178,7 +208,8 @@ export class Notes {
 
     // Add list nodes to our modified nodes
     this.editorSchema = new Schema({
-      nodes: addListNodes(modifiedNodes, "paragraph block*", "block"),
+      nodes: addListNodes(modifiedNodes, "paragraph block*", "block")
+        .addToEnd("image", imageSpec),
       marks: schema.spec.marks,
     });
 
@@ -397,6 +428,7 @@ export class Notes {
         schema: this.editorSchema,
         doc: doc,
         plugins: [
+          clipboardImagePlugin(),
           slashCommandPlugin(this.editorSchema),
           listKeymap,
           hardBreakKeymap,
