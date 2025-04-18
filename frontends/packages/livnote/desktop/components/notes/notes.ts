@@ -241,7 +241,7 @@ export class Notes {
     // Set up observer for document updates with origin tracking
     this.ydoc.on("update", (update: Uint8Array, origin: any) => {
       // Only handle updates that originated locally (not from sync)
-      if (origin !== "sync") {
+      if (origin !== "sync" && origin !== "loading") {
         void this.handleCollaborationUpdate(update);
       }
     });
@@ -591,7 +591,7 @@ export class Notes {
         );
         try {
           const yjs_state = new Uint8Array(noteContent.yjs_state);
-          Y.applyUpdate(this.ydoc, yjs_state);
+          Y.applyUpdate(this.ydoc, yjs_state, "loading");
           console.log("YJS state applied successfully");
 
           // Log the YJS document content after applying the update

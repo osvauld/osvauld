@@ -41,7 +41,7 @@ pub struct LogConfig {
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
-            level: Level::DEBUG,
+            level: Level::INFO,
             log_to_file: false,
             log_dir: None,
             file_prefix: None,

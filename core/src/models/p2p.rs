@@ -167,3 +167,13 @@ pub struct Phase {
     pub action: PhaseAction,
     pub phase_type: PhaseType,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionAction {
+    /// Sync device data between peers
+    DeviceSync,
+    /// Initialize first connection between user devices
+    UserFirstConnection,
+    /// Add a new device to the user's account
+    AddDevice,
+}

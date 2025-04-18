@@ -199,3 +199,9 @@ pub struct UserDetails {
     pub device_public_key: String,
     pub username: String,
 }
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCurrentNoteInput {
+    pub note_id: Option<String>,
+}

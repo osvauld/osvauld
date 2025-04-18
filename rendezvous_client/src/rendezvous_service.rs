@@ -1,6 +1,6 @@
 use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
-use osvauld_core::models::p2p::ConnectionType;
+use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
 use osvauld_services::UserService;
 // Import the User model
 use p2p_service::P2PService;
@@ -208,7 +208,6 @@ impl RendezvousService {
         }
     }
 
-    // Extract connection string processing into a separate function
     async fn process_connection_string(
         p2p_service: &Arc<P2PService>,
         pending_first_connections: &Arc<Mutex<HashSet<String>>>,
@@ -234,31 +233,34 @@ impl RendezvousService {
         // Create connection ID using the response_user_id
         let connection_id = format!("{}", response_user_id);
 
+        // Determine the appropriate action based on whether this is a first connection
+        let action = if is_first_connection {
+            info!("This is a first connection with user: {}", response_user_id);
+            Some(ConnectionAction::UserFirstConnection)
+        } else {
+            info!(
+                "This is a regular connection with user: {}",
+                response_user_id
+            );
+            Some(ConnectionAction::DeviceSync)
+        };
+
         info!(
-            "Processing connection string for user: {}",
-            response_user_id
+            "Processing connection string for user: {}, action: {:?}",
+            response_user_id, action
         );
 
         tokio::spawn(async move {
             match p2p_service_clone
-                .connect_with_ticket(&ticket, connection_type, Some(&connection_id))
+                .connect_with_ticket(&ticket, connection_type, Some(&connection_id), action)
                 .await
             {
-                Ok(Some(connection)) => {
-                    // We successfully created a new connection
-                    if is_first_connection {
-                        info!("starting first device sync");
-
-                        if let Err(e) = connection.initiate_user_first_connection().await {
-                            error!("Failed to initialize first user connection: {}", e);
-                        }
-                    } else {
-                        info!("Successfully connected to peer using ticket");
-                        // For regular connections, start device sync
-                        if let Err(e) = connection.start_device_sync().await {
-                            error!("Failed to initialize sync with user devices: {}", e);
-                        }
-                    }
+                Ok(Some(_connection)) => {
+                    // The action is executed as part of connect_with_ticket via execute_connection_action
+                    info!(
+                        "Successfully connected to user {} and initiated action",
+                        user_id
+                    );
                 }
                 Ok(None) => {
                     // Connection already exists or is being established
@@ -274,7 +276,6 @@ impl RendezvousService {
         });
     }
     /// Handle incoming connection request
-    ///
     async fn handle_connection_request(
         client: &Arc<Mutex<WsClient>>,
         p2p_service: &Arc<P2PService>,

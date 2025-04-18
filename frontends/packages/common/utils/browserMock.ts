@@ -102,7 +102,10 @@ const tauriBrowser = {
           shareResource: (data: any) =>
             invoke("share_resource", { input: data }),
           getUserDetailsForShare: (data: any) =>
-            invoke("get_details_for_share")
+            invoke("get_details_for_share"),
+          updateCurrentNote: (data: any) => {
+            invoke('update_current_note', { input: data })
+          }
         };
 
         const handler = handlerMap[action];

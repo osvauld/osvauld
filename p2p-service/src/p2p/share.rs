@@ -78,11 +78,6 @@ impl PeerConnection {
 
         // Send the phase message to set the remote phase
         self.send_message(phase_message).await?;
-
-        // Note: We don't send the actual UserConnection message here
-        // That will be handled by start_first_user_connection when called by the phase management system
-        // after the remote peer acknowledges the phase change
-
         Ok(())
     }
     pub async fn start_first_user_connection(&self) -> Result<(), String> {

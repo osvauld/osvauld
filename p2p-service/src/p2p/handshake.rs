@@ -2,14 +2,14 @@ use crate::p2p::constants::*;
 use crate::p2p::errors::{ P2PError, HandshakeError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
-use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, HandshakeMessage};
+use osvauld_core::models::p2p::{ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage};
 use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
-use iroh::{ NodeAddr};
+use iroh:: NodeAddr;
 
 impl P2PService {
     /// Performs the handshake process and creates a peer connection
@@ -25,6 +25,7 @@ impl P2PService {
         conn: &Connection,
         is_initiator: bool,
         connection_type: Option<ConnectionType>,
+        action: Option<ConnectionAction>,
     ) -> Result<Arc<PeerConnection>, P2PError> {
         debug!("Opening bi-directional stream for handshake");
         
@@ -102,7 +103,9 @@ impl P2PService {
             state.service_context.clone(),
             self.event_emitter.clone(),
             resources_needing_update,
+            action,
         );
+        peer_connection.execute_connection_action().await?;
 
         let peer_connection_arc = Arc::new(peer_connection);
         debug!("Created peer connection: {}", peer_connection_arc.get_id());
@@ -121,7 +124,6 @@ impl P2PService {
         // Emit connected event
         debug!("Emitting connection events");
         self.event_emitter.emit(P2PEvent::Connected);
-        self.event_emitter.emit(P2PEvent::HandshakeCompleted);
 
         info!("Handshake and peer creation successful: {}", peer_connection_arc.get_id());
         Ok(peer_connection_arc)
@@ -468,7 +470,8 @@ impl P2PService {
         &self,
         ticket_str: &str,
         conn_type: ConnectionType,
-        connection_id: Option<&str>, // Optional connection ID to check for duplicates
+        connection_id: Option<&str>,
+        action: Option<ConnectionAction>
     ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
         trace!("Using ticket: {}", ticket_str);
@@ -611,7 +614,7 @@ impl P2PService {
 
         // Perform handshake
         let handshake_result = self
-            .perform_handshake_and_create_peer(&conn, true, Some(conn_type))
+            .perform_handshake_and_create_peer(&conn, true, Some(conn_type), action)
             .instrument(handshake_span)
             .await;
 
