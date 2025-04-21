@@ -4,6 +4,7 @@ use crate::types::{
 };
 use crate::user_state::UserState;
 use log::{error, info};
+use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
 use osvauld_services::{AuthService, FolderService, TransactionService, UserService};
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
@@ -208,7 +209,14 @@ pub async fn handle_add_device(
         .map_err(|e| e.to_string())?;
 
     auth_service.load_certificate(&input.passphrase).await?;
-    p2p_service.add_device(input.ticket).await?;
+    p2p_service
+        .connect_with_ticket(
+            &input.ticket,
+            ConnectionType::Device,
+            None,
+            Some(ConnectionAction::AddDevice),
+        )
+        .await?;
     Ok(CryptoResponse::Success)
 }
 

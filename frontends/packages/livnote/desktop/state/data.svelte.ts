@@ -1,6 +1,6 @@
 import { sendMessage } from "@osvauld/password-manager-common";
 import { uiState } from './ui.svelte';
-import { listen } from "@tauri-apps/api/event";
+import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
 // Define interfaces
 export interface Vault {
@@ -101,6 +101,14 @@ class DataState {
     this.currentNote = note;
     uiState.toggleNoteViewLayout(true);
     StoreService.setCurrentNoteId(note.id);
+    if (note.id) {
+
+      emit("note-change", {
+        noteId: note.id
+      }).catch(error => {
+        console.error("Error updating current note:", error);
+      });
+    }
   }
   updateNoteFavorite(noteId: string) {
     const noteIndex = this.notes.findIndex(n => n.id === noteId);
@@ -114,6 +122,11 @@ class DataState {
     this.currentNote = null;
     uiState.toggleNoteViewLayout(false);
     StoreService.setCurrentNoteId(null);
+    emit("note-change", {
+      noteId: null
+    }).catch(error => {
+      console.error("Error clearing current note:", error);
+    });
   }
 
   // Toggle favorite view filter
@@ -161,7 +174,7 @@ class DataState {
           const freshNote = this.notes.find(n => n.id === savedNoteId) || null;
 
           if (freshNote) {
-            this.currentNote = freshNote;
+            this.switchNote(freshNote);
             uiState.toggleNoteViewLayout(true);
           }
         }

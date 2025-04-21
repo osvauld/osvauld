@@ -1,6 +1,7 @@
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
-    ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput, UpdateResources,
+    ResourceResponse, ShareResource, ToggleFavInput, UpdateCurrentNoteInput,
+    UpdateLastAccessedInput, UpdateResources,
 };
 use crate::user_state::UserState;
 use log::info;

@@ -10,8 +10,6 @@ pub enum P2PEvent {
     /// Type of connection established (user or device)
     /// Emitted when a connection is terminated
     Disconnected,
-    /// Emitted when a handshake is completed successfully
-    HandshakeCompleted,
     /// Emitted when a handshake fails
     HandshakeFailed {
         /// Description of the error

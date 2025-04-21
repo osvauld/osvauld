@@ -2,7 +2,7 @@ use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use crate::p2p::phase_management::PhaseState;
 use iroh::endpoint::Connection;
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{ConnectionType, Message};
+use osvauld_core::models::p2p::{ConnectionAction, ConnectionType,PhaseType, Phase,PhaseAction, Message};
 use osvauld_core::models::user::User;
 use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
@@ -46,6 +46,7 @@ pub struct PeerConnection {
 
     pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
     pub phase: PhaseState,
+    pub action: Option<ConnectionAction>
 
 }
 
@@ -68,6 +69,7 @@ impl PeerConnection {
         context: Arc<ServiceContext>,
         event_emitter: P2PEventEmitter,
         pending_resource_ids: Vec<String>,
+        action: Option<ConnectionAction>
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -86,6 +88,7 @@ impl PeerConnection {
             event_emitter,
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
             phase: PhaseState::new(),
+            action,
         };
 
         debug!("Starting message handler for the connection");
@@ -366,6 +369,7 @@ impl PeerConnection {
             event_emitter: self.event_emitter.clone(),
             pending_resource_ids: self.pending_resource_ids.clone(),
             phase: self.phase.clone(),
+            action: self.action.clone()
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {
@@ -377,4 +381,48 @@ impl PeerConnection {
         let device_guard = self.context.current_device.read().await;
         device_guard.clone()
     }
+
+     #[instrument(skip(self), fields(action = ?self.action, is_initiator = self.is_initiator), level = "info")]
+    pub async fn execute_connection_action(&self) -> Result<(), String> {
+        // Only execute if we have an action and we're the initiator
+        if let Some(action) = &self.action {
+            if !self.is_initiator {
+                info!("Not executing action {:?} as this peer is not the initiator", action);
+                return Ok(());
+            }
+
+            info!("Executing connection action: {:?}", action);
+            
+            // Execute the appropriate action
+            match action {
+                ConnectionAction::DeviceSync => {
+                    info!("Initiator: Starting device sync phase");
+                    self.start_phased_sync().await
+                   
+                }
+                ConnectionAction::UserFirstConnection => {
+                    info!("Initiator: Starting user first connection phase");
+                    // Use the existing method which already handles phase management
+                    self.initiate_user_first_connection().await
+                }
+                ConnectionAction::AddDevice => {
+                    info!("Initiator: Starting add device phase");
+                    self.phase.reset_for_new_phase(PhaseType::AddDevice).await;
+                    
+                    // Send the Phase message to notify the other side
+                    let phase_message = Message::Phase(Phase {
+                        action: PhaseAction::Init,
+                        phase_type: PhaseType::AddDevice,
+                    });
+                    
+                    self.send_message(phase_message).await
+                }
+            }
+        } else {
+            debug!("No connection action to execute");
+            Ok(())
+        }
+    }
+
+
 }

@@ -187,7 +187,7 @@ impl PeerConnection {
                     // Send acknowledgment
                     debug!("Sending Phase Ack message");
                     self.send_message(Message::Phase(Phase {
-                        action: PhaseAction::Ack,
+                        action: PhaseAction::CompleteAck,
                         phase_type: phase.phase_type.clone(),
                     }))
                     .await?;
@@ -274,7 +274,7 @@ impl PeerConnection {
         let current_phase = self.phase.get_current_phase().await;
         debug!(current_phase = ?current_phase, "Checking if phase is complete and can transition");
 
-        if self.phase.is_complete().await {
+        if self.phase.is_complete().await && self.is_initiator {
             debug!("Current phase is complete, checking if we should initiate next phase");
 
                 let next_phase = self.phase.get_next_phase().await;
@@ -294,6 +294,7 @@ impl PeerConnection {
                 .await?;
 
                 info!("Transitioning to next phase");
+
                 self.transition_to_phase(next_phase).await?;
         } else {
             trace!("Current phase not yet complete, no transition needed");
@@ -401,7 +402,9 @@ impl PeerConnection {
 
         // Check if we can transition to next phase
         debug!("Checking if we can transition to next phase");
+        if self.is_initiator {
         Box::pin(self.check_phase_transition()).await?;
+        }
 
         info!("Current phase marked as complete successfully");
         Ok(())

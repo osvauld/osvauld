@@ -219,7 +219,7 @@ impl P2PService {
                                             info!("Connection established, initiating handshake");
                                             // Perform handshake as the receiver (non-initiator)
                                             match self_clone
-                                                .perform_handshake_and_create_peer(&conn, false, None)
+                                                .perform_handshake_and_create_peer(&conn, false, None, None)
                                                 .await
                                             {
                                                 Ok(peer) => {
@@ -306,152 +306,8 @@ impl P2PService {
         }
     }
 
-    /// Starts a user synchronization with the specified user
-    #[instrument(skip(self), fields(user_id = %user_id), level = "info")]
-    pub async fn start_user_sync(&self, user_id: &str) -> Result<(), P2PError> {
-        info!("Starting user sync with user: {}", user_id);
 
-        // Find all connections for this user
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        let connections = state.connections.get_connections_by_user(user_id).await;
 
-        if connections.is_empty() {
-            let err = format!("No connections found for user: {}", user_id);
-            warn!("{}", err);
-            return Err(P2PError::PeerConnection(err));
-        }
-
-        debug!("Found {} connections for user", connections.len());
-
-        // For now, just use the first connection
-        let connection = &connections[0];
-        debug!("Using connection: {}", connection.get_id());
-
-        // Start the sync process
-        // match connection.start_user_sync().await {
-        //     Ok(_) => {
-        //         info!("User sync initiated successfully");
-        //         Ok(())
-        //     }
-        //     Err(e) => {
-        //         error!("Failed to start user sync: {}", e);
-        //         Err(P2PError::SyncService(e))
-        //     }
-        // }
-        todo!()
-    }
-
-    /// Adds a device to the network
-    #[instrument(skip(self,  ticket), fields(ticket_len = ticket.len()), level = "info")]
-    pub async fn add_device(
-        &self,
-        ticket: String,
-    ) -> Result<(), P2PError> {
-        info!("Adding device using ticket");
-
-        match self
-            .connect_with_ticket(&ticket, ConnectionType::Device, None)
-            .await?
-        {
-            Some(peer_connection) => {
-                // Initialize the phase as AddDevice
-                peer_connection.phase.reset_for_new_phase(PhaseType::AddDevice).await;
-                
-                // Send the Phase message first to notify the other side
-                let phase_message = Message::Phase(Phase {
-                    action: PhaseAction::Init,
-                    phase_type: PhaseType::AddDevice,
-                });
-                
-                if let Err(e) = peer_connection.send_message(phase_message).await {
-                    error!("Failed to send Phase initialization message: {}", e);
-                    return Err(P2PError::Message(e));
-                }
-                Ok(())
-                
-            }
-            None => {
-                // Connection already exists or is being established
-                error!("Connection already exists or is being established");
-                Err(P2PError::Connection(
-                    "Connection already exists or is being established".into(),
-                ))
-            }
-        }
-    }
-
-    /// Starts device synchronization with a specific connection
-    #[instrument(skip(self), fields(connection_id = %connection_id), level = "info")]
-    pub async fn start_device_sync(&self, connection_id: &str) -> Result<(), P2PError> {
-        info!("Starting device sync with connection: {}", connection_id);
-
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-
-        let connection = match state.connections.get_peer_connection(connection_id).await {
-            Ok(conn) => {
-                debug!("Found connection: {}", conn.get_id());
-                conn
-            }
-            Err(e) => {
-                error!("Connection not found: {}", e);
-                return Err(P2PError::PeerConnection(e));
-            }
-        };
-
-        // Start the sync process
-        match connection.start_device_sync().await {
-            Ok(_) => {
-                info!("Device sync initiated successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!("Failed to start device sync: {}", e);
-                Err(P2PError::SyncService(e))
-            }
-        }
-    }
-
-    /// Starts device synchronization with all devices of a user
-    #[instrument(skip(self), fields(user_id = %user_id), level = "info")]
-    pub async fn start_device_sync_for_user(&self, user_id: &str) -> Result<(), P2PError> {
-        info!("Starting device sync for user: {}", user_id);
-
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-
-        // Find all connections for this user
-        let connections = state.connections.get_connections_by_user(user_id).await;
-
-        if connections.is_empty() {
-            let err = format!("No connections found for user: {}", user_id);
-            warn!("{}", err);
-            return Err(P2PError::PeerConnection(err));
-        }
-
-        debug!("Found {} connections for user", connections.len());
-
-        // Start sync on all devices
-        let mut errors = Vec::new();
-        for connection in connections {
-            debug!("Starting sync for device: {}", connection.device.id);
-            if let Err(e) = connection.start_device_sync().await {
-                let err_msg = format!("Failed to sync device {}: {}", connection.get_id(), e);
-                error!("{}", err_msg);
-                errors.push(err_msg);
-            }
-        }
-
-        if errors.is_empty() {
-            info!("Device sync initiated successfully for all devices");
-            Ok(())
-        } else {
-            let err = format!("Sync errors: {}", errors.join(", "));
-            error!("{}", err);
-            Err(P2PError::SyncService(err))
-        }
-    }
 
     #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
     pub async fn get_connection_by_id(
