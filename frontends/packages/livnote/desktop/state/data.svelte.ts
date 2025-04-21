@@ -48,7 +48,15 @@ class DataState {
       ? favFilter
       : favFilter.filter(note => note.folderId === this.currentVault.id);
   });
-
+  /**
+   * Get a note by its ID from the cached notes
+   * @param id The ID of the note to find
+   * @returns The note object if found, null otherwise
+   */
+  getNoteById(id: string): Note | null {
+    const note = this.notes.find(note => note.id === id);
+    return note || null;
+  }
   // Fetch vaults from backend
   async fetchVaults() {
     try {
