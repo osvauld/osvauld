@@ -23,8 +23,8 @@ export const extractTitle = (content: string): string => {
 	return "Untitled Note";
 };
 
-export const getLastModifiedDate = (timestamp: number | string | null | undefined): string => {
-	if (!timestamp) return "Never";
+export const getLastModifiedDate = (timestamp: number | undefined): string => {
+	if (!timestamp) return "Not available";
 	const date = new Date(timestamp);
 	return date.toLocaleDateString() + " " + date.toLocaleTimeString();
 };

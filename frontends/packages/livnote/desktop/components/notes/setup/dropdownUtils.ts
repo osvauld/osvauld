@@ -36,7 +36,6 @@ export const dropdownStyle = `
     font-size: 14px;
     z-index: 100;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    overflow: hidden;
   }
   
   .dropdown-item {
@@ -58,7 +57,7 @@ export const dropdownStyle = `
   
   .submenu {
     position: absolute;
-    left: 102%;
+    left: 100%;
     top: 0;
     min-width: 160px;
     background: #2a2b2f;
@@ -67,7 +66,7 @@ export const dropdownStyle = `
     font-size: 14px;
     display: none;
     z-index: 101;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.3);
     overflow: hidden;
   }
   

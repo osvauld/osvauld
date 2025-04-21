@@ -28,8 +28,6 @@
 				folderId: dataState.currentVault.id,
 			});
 
-			// Update state with the new note
-			await dataState.fetchAllNotes();
 			const newNote = dataState.notes.find((note) => note.id === noteId);
 
 			if (newNote) {
@@ -45,7 +43,7 @@
 <div class="py-10 px-11 flex items-center justify-start shrink-0">
 	<div class="relative shrink-0">
 		<button
-			class="min-w-[20.25rem] text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
+			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
 			aria-label="Switch Vault"
 			aria-expanded={uiState.vaultManagerActive}
 			onclick={() => uiState.toggleVaultManager()}>
@@ -61,7 +59,7 @@
 			</span>
 		</button>
 		{#if uiState.vaultManagerActive}
-			<VaultManager position="noteList"/>
+			<VaultManager position="noteList" />
 		{/if}
 	</div>
 	<div
