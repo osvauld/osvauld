@@ -1,13 +1,14 @@
 use crate::current_note_state::CurrentNoteState;
+use crate::user_state::UserState;
 use log::{error, info};
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
-use osvauld_services::ResourceService;
+use osvauld_services::{ResourceService, UserService};
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
 use serde::Deserialize;
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Listener};
+use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::mpsc;
 
 /// Initializes all listeners for the application
@@ -18,6 +19,7 @@ pub struct EventManager {
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
+    user_service: Arc<UserService>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +39,7 @@ impl EventManager {
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         resource_service: Arc<ResourceService>,
         p2p_sender: P2PSender,
+        user_service: Arc<UserService>,
     ) -> Self {
         Self {
             app_handle,
@@ -44,6 +47,7 @@ impl EventManager {
             resource_service,
             p2p_sender,
             current_note_state: CurrentNoteState::new(),
+            user_service,
         }
     }
 
@@ -95,17 +99,66 @@ impl EventManager {
 
     fn setup_note_change_listener(&self) {
         let current_note_state = self.current_note_state.clone();
+        let user_service = self.user_service.clone();
 
+        let app_handle = self.app_handle.clone();
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
-
+            let user_service = user_service.clone();
+            let app_handle_clone = app_handle.clone();
             // Remove quotes if they exist (payload might be a JSON string)
             let note_id = payload.trim_matches('"').to_string();
 
             info!("Received note-change event with note_id: {}", note_id);
 
-            note_state.set_current_note(Some(note_id));
+            // Clear previous shared users state
+            note_state.clear_shared_users();
+
+            // Set current note
+            note_state.set_current_note(Some(note_id.clone()));
+
+            // Clone what we need for the async block
+            let note_state = note_state.clone();
+            let note_id = note_id.clone();
+
+            // Spawn an async task to fetch shared users
+            tokio::spawn(async move {
+                // Get current user to exclude from the shared list
+
+                let user_state = app_handle_clone.state::<UserState>();
+
+                // Get current user to exclude from the shared list
+                let current_user = match user_state.get_user().await {
+                    Ok(user) => Some(user),
+                    Err(e) => {
+                        error!("Failed to get current user: {}", e);
+                        None
+                    }
+                };
+
+                // Current user ID to exclude
+                let current_user_id = match current_user {
+                    Some(user) => user.id.clone(),
+                    None => {
+                        error!("No current user found, cannot fetch shared users");
+                        return;
+                    }
+                };
+                // Use UserService to get shared users for the note
+                match user_service
+                    .get_shared_users_for_note(&note_id, &current_user_id)
+                    .await
+                {
+                    Ok(shared_users) => {
+                        // Update the note state with the shared users
+                        note_state.set_shared_users(shared_users.clone());
+                    }
+                    Err(e) => {
+                        error!("Failed to get shared users for note {}: {}", note_id, e);
+                    }
+                }
+            });
         });
     }
 

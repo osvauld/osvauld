@@ -22,6 +22,10 @@ pub async fn get_next_pending_sync(
     let _guard = current_span.enter();
     
     match current_phase {
+        PhaseType::UserSync => {
+            debug!("Checking for user syncs for UserSync phase");
+                self.get_user_sync_for_device(device).await
+            }
         PhaseType::DeviceSync => {
             debug!("Checking for device syncs for DeviceSync phase");
             self.get_device_sync_for_device(device).await

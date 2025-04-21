@@ -33,6 +33,7 @@ impl UserRepository for SqliteUserRepository {
         let mut conn = self.connection.lock().await;
 
         let user_models = users::table
+            .filter(users::owner.eq(false))
             .load::<UserModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 

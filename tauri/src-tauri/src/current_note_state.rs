@@ -6,6 +6,7 @@ pub struct CurrentNoteState {
     note_id: Arc<Mutex<Option<String>>>,
     current_yjs_state: Arc<Mutex<Option<Vec<u8>>>>,
     previous_yjs_state: Arc<Mutex<Option<Vec<u8>>>>,
+    shared_users: Arc<Mutex<Vec<String>>>,
 }
 
 impl Default for CurrentNoteState {
@@ -14,6 +15,7 @@ impl Default for CurrentNoteState {
             note_id: Arc::new(Mutex::new(None)),
             current_yjs_state: Arc::new(Mutex::new(None)),
             previous_yjs_state: Arc::new(Mutex::new(None)),
+            shared_users: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -86,5 +88,19 @@ impl CurrentNoteState {
             *previous = None;
         }
         info!("Yjs state buffers cleared");
+    }
+    pub fn set_shared_users(&self, users: Vec<String>) {
+        let mut shared_users = self.shared_users.lock().unwrap();
+        *shared_users = users.clone();
+        info!("Set shared users: {:?}", users);
+    }
+    pub fn get_shared_users(&self) -> Vec<String> {
+        let shared_users = self.shared_users.lock().unwrap();
+        shared_users.clone()
+    }
+    pub fn clear_shared_users(&self) {
+        let mut shared_users = self.shared_users.lock().unwrap();
+        shared_users.clear();
+        info!("Cleared shared users for note");
     }
 }

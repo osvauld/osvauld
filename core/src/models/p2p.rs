@@ -143,7 +143,7 @@ pub enum PhaseType {
     AddDevice,
     FirstUserConnection,
     DeviceSync,
-    // UserSync,
+    UserSync,
     FolderSync,
     ResourceSync,
     ShareSync,

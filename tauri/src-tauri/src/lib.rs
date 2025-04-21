@@ -80,7 +80,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("mobile.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop1.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -147,6 +147,7 @@ pub fn run() {
                         sync_repo.clone(),
                         device_repo.clone(),
                         vector_clock_repo.clone(),
+                        share_repo.clone(),
                     ));
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),
@@ -172,12 +173,14 @@ pub fn run() {
                             incoming_receiver,
                         );
                     });
+                    let user_state = UserState::new();
                     // Initialize event manager and start listening
                     let event_manager = EventManager::new(
                         handle.clone(),
                         p2p_receiver,
                         resource_service.clone(),
                         p2p_sender,
+                        user_service.clone(),
                     );
                     rt.spawn(async move {
                         event_manager.start_listening();
@@ -187,7 +190,6 @@ pub fn run() {
                         "ws://0.0.0.0:3030/ws",
                         user_service.clone(),
                     ));
-                    let user_state = UserState::new();
 
                     // Manage all services
 

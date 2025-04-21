@@ -688,7 +688,9 @@ impl SyncService {
             // Only add the user if they don't already exist
             if !user_exists {
                 trace!(user_id = %user.id, "Adding user to users_to_add");
-                users_to_add.push(user.clone());
+                let mut user_clone = user.clone();
+                user_clone.owner = false;
+                users_to_add.push(user_clone);
                 devices_to_add.extend(devices.clone());
             }
             

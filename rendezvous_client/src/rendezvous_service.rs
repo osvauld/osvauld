@@ -14,7 +14,7 @@ pub struct RendezvousService {
     p2p_service: Arc<P2PService>,
     ws_url: String,
     pending_first_connections: Arc<Mutex<HashSet<String>>>,
-    connection_id: Arc<Mutex<Option<String>>>, // Store the entire User object
+    connection_id: Arc<Mutex<Option<String>>>,
     user_service: Arc<UserService>,
 }
 

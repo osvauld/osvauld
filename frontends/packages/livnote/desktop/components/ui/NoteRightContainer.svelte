@@ -96,20 +96,20 @@
 <div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
-		on:click={saveNoteManual}
-		class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]">
-		{#if saved}
-			<span class="whitespace-nowrap flex items-center justify-center">
-				<span class="text-[#9DD062] mr-2">Saved</span>
-				<Tick color="#9DD062" />
-			</span>
-		{:else}
-			<span>Save</span>
-		{/if}
-	</button>
+			onclick={saveNoteManual}
+			class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]">
+			{#if saved}
+				<span class="whitespace-nowrap flex items-center justify-center">
+					<span class="text-[#9DD062] mr-2">Saved</span>
+					<Tick color="#9DD062" />
+				</span>
+			{:else}
+				<span>Save</span>
+			{/if}
+		</button>
 		<button
 			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-			on:click={handleCopyNote}>
+			onclick={handleCopyNote}>
 			{#if noteCopied}
 				<Tick color="#a6e3a1" />
 			{:else}
@@ -118,21 +118,21 @@
 		</button>
 		<button
 			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-			on:click={(e) => handleDeleteBtn("note")}>
+			onclick={(e) => handleDeleteBtn("note")}>
 			<Bin size={24} />
 		</button>
 
 		<div class="relative flex justify-center items-center">
 			<button
 				class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-				on:mouseenter={() => (showDownloadTooltip = true)}
-				on:mouseleave={() => (showDownloadTooltip = false)}
-				on:click={handleDownloadPdf}
+				onmouseenter={() => (showDownloadTooltip = true)}
+				onmouseleave={() => (showDownloadTooltip = false)}
+				onclick={handleDownloadPdf}
 				aria-label="Download as PDF">
 				{#if isPdfGenerating}
 					<Loader color="#85889C" />
 				{:else}
-					<DownloadIcon  />
+					<DownloadIcon />
 				{/if}
 			</button>
 
@@ -143,14 +143,12 @@
 				</div>
 			{/if}
 		</div>
-
-
 	</div>
 
 	<div class="flex-1 w-full">
 		<div class="relative">
 			<button
-				on:click={() => (showShareList = true)}
+				onclick={() => (showShareList = true)}
 				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				aria-label="share with users">
 				<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
@@ -161,7 +159,7 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					on:click={(e) => {
+					onclick={(e) => {
 						e.stopPropagation();
 						showShareList = false;
 					}}>

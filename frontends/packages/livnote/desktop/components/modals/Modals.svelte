@@ -11,7 +11,8 @@
 
 	const handleAddUser = async (event: any) => {
 		try {
-			const userResponse = await sendMessage("addKnownUser", event.detail);
+			console.log(event);
+			const userResponse = await sendMessage("addKnownUser", event);
 			console.log("initiating first connection");
 			const firstConnectionResponse = await sendMessage(
 				"initiateFirstConnection",
