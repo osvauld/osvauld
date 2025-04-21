@@ -1,6 +1,7 @@
 use log::error;
 use osvauld_db::{DbConnection, initialize_database};
 use tauri::Manager;
+pub mod current_note_state;
 pub mod handlers;
 pub mod listners;
 mod types;

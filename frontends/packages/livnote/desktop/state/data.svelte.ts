@@ -103,9 +103,8 @@ class DataState {
     StoreService.setCurrentNoteId(note.id);
     if (note.id) {
 
-      emit("note-change", {
-        noteId: note.id
-      }).catch(error => {
+      emit("note-change", note.id
+      ).catch(error => {
         console.error("Error updating current note:", error);
       });
     }
@@ -122,9 +121,7 @@ class DataState {
     this.currentNote = null;
     uiState.toggleNoteViewLayout(false);
     StoreService.setCurrentNoteId(null);
-    emit("note-change", {
-      noteId: null
-    }).catch(error => {
+    emit("note-change", null).catch(error => {
       console.error("Error clearing current note:", error);
     });
   }

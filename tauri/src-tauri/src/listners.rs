@@ -1,43 +1,15 @@
+use crate::current_note_state::CurrentNoteState;
 use log::{error, info};
-use serde::Deserialize;
-
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_services::ResourceService;
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
+use serde::Deserialize;
+use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter, Listener};
 use tokio::sync::mpsc;
 
-#[derive(Debug, Clone)]
-pub struct CurrentNoteState {
-    note_id: Arc<Mutex<Option<String>>>,
-}
-
-impl Default for CurrentNoteState {
-    fn default() -> Self {
-        Self {
-            note_id: Arc::new(Mutex::new(None)),
-        }
-    }
-}
-
-impl CurrentNoteState {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn set_current_note(&self, note_id: Option<String>) {
-        let mut current = self.note_id.lock().unwrap();
-        *current = note_id;
-        info!("Current note set to: {:?}", current);
-    }
-
-    pub fn get_current_note(&self) -> Option<String> {
-        let current = self.note_id.lock().unwrap();
-        current.clone()
-    }
-}
 /// Initializes all listeners for the application
 /// This connects the Tauri event system with the P2P event system
 pub struct EventManager {
@@ -91,6 +63,34 @@ impl EventManager {
         self.setup_sync_update_listener();
         self.setup_merge_complete_listener();
         self.setup_note_change_listener();
+        self.setup_resource_update_complete_listener();
+    }
+    /// Setup listener for resource-update-complete events
+    fn setup_resource_update_complete_listener(&self) {
+        let current_note_state = self.current_note_state.clone();
+
+        self.app_handle
+            .listen("resource-update-complete", move |event| {
+                let note_state = current_note_state.clone();
+
+                let payload = event.payload();
+                if let Ok(json) = serde_json::from_str::<Value>(payload) {
+                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                        // Only move current to previous if it's for the current note
+                        if let Some(current_id) = note_state.get_current_note() {
+                            if current_id == id {
+                                note_state.move_current_to_previous();
+                                info!(
+                                    "Moved current to previous buffer after resource update: {}",
+                                    id
+                                );
+                            } else {
+                                info!("Ignoring buffer update for non-active note: {}", id);
+                            }
+                        }
+                    }
+                }
+            });
     }
 
     fn setup_note_change_listener(&self) {
@@ -105,13 +105,7 @@ impl EventManager {
 
             info!("Received note-change event with note_id: {}", note_id);
 
-            // Here we can add any additional logic before setting the note
-
-            // Set the current note ID
             note_state.set_current_note(Some(note_id));
-
-            // Here we can add any additional logic after setting the note
-            // For future implementation
         });
     }
 
@@ -123,13 +117,53 @@ impl EventManager {
     /// Setup listener for sync-update events
     fn setup_sync_update_listener(&self) {
         let p2p_sender = self.p2p_sender.clone();
+        let current_note_state = self.current_note_state.clone();
+
         self.app_handle.listen("sync-update", move |event| {
-            let payload_str = event.payload().to_string();
-            // Direct send without spawning a task for high-frequency events
+            let payload_str = event.payload();
+
+            // Try to parse the payload to extract update data and resource_id
+            match serde_json::from_str::<Value>(&payload_str) {
+                Ok(payload) => {
+                    if let (Some(update), Some(resource_id)) = (
+                        payload.get("update").and_then(|u| u.as_array()),
+                        payload.get("resource_id").and_then(|r| r.as_str()),
+                    ) {
+                        // Check if this update is for the current note
+                        if let Some(current_id) = current_note_state.get_current_note() {
+                            info!("current id is {}", current_id);
+                            if current_id == resource_id {
+                                // Convert update array to Vec<u8>
+                                let update_bytes: Vec<u8> = update
+                                    .iter()
+                                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                                    .collect();
+
+                                if !update_bytes.is_empty() {
+                                    // Update the buffer with the new state
+                                    current_note_state.update_yjs_state(update_bytes);
+                                    info!("Updated Yjs state buffer for note: {}", resource_id);
+                                } else {
+                                    info!("Empty update array received for note: {}", resource_id);
+                                }
+                            } else {
+                                info!("Ignoring update for non-active note: {}", resource_id);
+                            }
+                        } else {
+                            info!("Received update but no active note set: {}", resource_id);
+                        }
+                    } else {
+                        error!("Missing update or resource_id in sync-update payload");
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to parse sync-update payload: {}", e);
+                }
+            }
+
+            // Forward the event to P2P service if needed
             // if let Err(e) = p2p_sender.send_sync_update(payload_str) {
             //     error!("Failed to send sync update event: {}", e);
-            // } else {
-            //     debug!("Sent sync update event to P2P service"); // Using debug level for high-frequency events
             // }
         });
     }

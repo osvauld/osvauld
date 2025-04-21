@@ -584,6 +584,7 @@ export class Notes {
           yjs_state: Array.from(yjs_state),
         }),
       });
+      emit('resource-update-complete', { id: this.currentNoteId });
 
       console.log(`Saved note ${this.currentNoteId} successfully`);
     } catch (error) {
