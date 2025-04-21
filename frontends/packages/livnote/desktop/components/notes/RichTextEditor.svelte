@@ -128,10 +128,19 @@
 
 			// Create editor view with the loaded content
 			if (docInfo.editorState) {
+				console.time("editor-createView");
 				view = createEditorView(element, docInfo.editorState);
+				console.timeEnd("editor-createView");
 
 				// Mark this note as loaded
 				currentlyLoadedNoteId = id;
+				setTimeout(() => {
+					console.time("applyPendingState");
+					notesInstance.applyPendingYjsState(view);
+					console.timeEnd("applyPendingState");
+
+					// Position cursor at the end after content is loaded
+				}, 50);
 
 				setTimeout(() => {
 					if (view) {

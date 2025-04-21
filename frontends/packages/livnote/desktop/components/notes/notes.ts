@@ -26,12 +26,11 @@ import {
   yCursorPlugin,
   ySyncPlugin,
   yUndoPlugin,
-  yXmlFragmentToProsemirror,
-  prosemirrorToYXmlFragment,
   initProseMirrorDoc,
 } from "y-prosemirror";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+import { dataState } from "../../state";
 import type {
   NoteContent,
   CreateNoteParams,
@@ -75,6 +74,7 @@ export class Notes {
   private currentNoteId: string | null = null;
   private editorState: EditorState | null = null;
   private editorSchema!: Schema;
+  private pendingYjsState: Uint8Array | null = null;
 
   constructor() {
     this.clientID = Math.floor(Math.random() * 0xffffffff);
@@ -369,13 +369,10 @@ export class Notes {
       let prosemirrorDoc;
       try {
         // Try to initialize from the YJS content
-        prosemirrorDoc = yXmlFragmentToProsemirror(
-          this.editorSchema,
-          this.type,
-        );
+        const result = initProseMirrorDoc(this.type, this.editorSchema);
+        prosemirrorDoc = result.doc;
         console.log("Successfully created ProseMirror doc from YJS content");
 
-        // ADD THIS CODE: Check if the entire document is a single heading node
         if (
           prosemirrorDoc.childCount === 1 &&
           prosemirrorDoc.firstChild &&
@@ -596,12 +593,14 @@ export class Notes {
   }
 
   async loadNote(noteId: string): Promise<EditorDocumentState> {
+    console.time('notes-loadNote-total');
     try {
       console.log(`Loading note: ${noteId}`);
 
-      const response: NoteResponse = await sendMessage("getCredential", {
-        resourceId: noteId,
-      });
+      // Measure data fetch time
+      console.time('notes-fetchData');
+      const response = dataState.getNoteById(noteId);
+      console.timeEnd('notes-fetchData');
 
       if (!response || !response.data) {
         throw new Error("Note not found");
@@ -610,48 +609,57 @@ export class Notes {
       this.currentNoteId = noteId;
       const noteContent = response.data;
 
-      // console.log("Note data loaded:", noteContent);
-
-      // Reset the Yjs document
+      // Measure Yjs document initialization
+      console.time('notes-resetYdoc');
       this.ydoc.destroy();
       this.initYjs();
-
-      // Apply the saved Yjs state if available
+      console.timeEnd('notes-resetYdoc');
       if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
-        console.log(
-          `Applying YJS state with length: ${noteContent.yjs_state.length}`,
-        );
-        try {
-          const yjs_state = new Uint8Array(noteContent.yjs_state);
-          Y.applyUpdate(this.ydoc, yjs_state);
-          console.log("YJS state applied successfully");
-
-          // Log the YJS document content after applying the update
-          console.log("YJS document content after update:", this.type.toJSON());
-        } catch (err) {
-          console.error("Error applying YJS state:", err);
-        }
-      } else {
-        console.warn("No YJS state to apply");
+        this.pendingYjsState = new Uint8Array(noteContent.yjs_state);
       }
 
-      // Initialize the editor state AFTER applying the YJS state
+      // Measure editor state initialization
+      console.time('notes-initEditorState');
       this.initEditorState();
+      console.timeEnd('notes-initEditorState');
 
-      if (!this.editorState) {
-        throw new Error("Failed to initialize editor state");
-      }
-
-      console.log("Editor state initialized successfully");
-
-      // Return the document information for the editor component
       return this.getDoc();
     } catch (error) {
       console.error("Error loading note:", error);
       throw error;
+    } finally {
+      console.timeEnd('notes-loadNote-total');
     }
   }
 
+  applyPendingYjsState(view: any | null): void {
+    if (!this.pendingYjsState) {
+      console.log("No pending YJS state to apply");
+      return;
+    }
+
+    console.log(`Applying pending YJS state with length: ${this.pendingYjsState.length}`);
+
+    try {
+      // Apply the YJS state
+      console.time('applyYjsState');
+      Y.applyUpdate(this.ydoc, this.pendingYjsState, 'sync');
+      console.timeEnd('applyYjsState');
+
+      console.log("YJS state applied successfully");
+
+      // Update the view if provided
+      if (view) {
+        const tr = view.state.tr;
+        view.dispatch(tr);
+      }
+    } catch (err) {
+      console.error("Error applying pending YJS state:", err);
+    } finally {
+      // Clear the pending state
+      this.pendingYjsState = null;
+    }
+  }
   async handleCollaborationUpdate(update: Uint8Array): Promise<void> {
     try {
       if (!this.currentNoteId) {

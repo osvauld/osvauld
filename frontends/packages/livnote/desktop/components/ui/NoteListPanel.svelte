@@ -28,8 +28,6 @@
 				folderId: dataState.currentVault.id,
 			});
 
-			// Update state with the new note
-			await dataState.fetchAllNotes();
 			const newNote = dataState.notes.find((note) => note.id === noteId);
 
 			if (newNote) {
@@ -61,7 +59,7 @@
 			</span>
 		</button>
 		{#if uiState.vaultManagerActive}
-			<VaultManager position="noteList"/>
+			<VaultManager position="noteList" />
 		{/if}
 	</div>
 	<div
