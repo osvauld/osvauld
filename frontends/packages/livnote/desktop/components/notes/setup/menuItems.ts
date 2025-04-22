@@ -84,24 +84,6 @@ export function addFormattingItems(container: HTMLElement, schema: Schema, view:
     group.appendChild(italicButton);
   }
 
-  // // Paragraph
-  // if (schema.nodes.paragraph) {
-  //   const paragraphButton = document.createElement("button");
-  //   paragraphButton.className = "editor-general-button menu-paragraph";
-  //   paragraphButton.title = "Paragraph";
-  //   paragraphButton.dataset.nodeType = "paragraph";
-  //   paragraphButton.innerHTML = `
-  //     <svg width="24px" height="24px" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  //       <text x="50%" y="50%" font-family="Arial" font-size="100" font-weight="light" fill="#85889C" dominant-baseline="central" text-anchor="middle">P</text>
-  //     </svg>
-  //   `;
-  //   paragraphButton.addEventListener("click", () => {
-  //     setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
-  //     view.focus();
-  //   });
-  //   group.appendChild(paragraphButton);
-  // }
-
   if (group.children.length > 0) {
     container.appendChild(group);
   }
@@ -147,23 +129,23 @@ export function addListItems(container: HTMLElement, schema: Schema, view: Edito
     group.appendChild(orderedListButton);
   }
 
-  // Blockquote
-  if (schema.nodes.blockquote) {
-    const blockquoteButton = document.createElement("button");
-    blockquoteButton.className = "editor-general-button";
-    blockquoteButton.title = "Blockquote";
-    blockquoteButton.dataset.nodeType = "blockquote";
-    blockquoteButton.innerHTML = `
-      <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-        <path d="M0 448v256h256v-256h-128c0 0 0-128 128-128v-128c0 0-256 0-256 256zM640 320v-128c0 0-256 0-256 256v256h256v-256h-128c0 0 0-128 128-128z" fill="#85889C"/>
-      </svg>
-    `;
-    blockquoteButton.addEventListener("click", () => {
-      wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
-      view.focus();
-    });
-    group.appendChild(blockquoteButton);
-  }
+  // // Blockquote
+  // if (schema.nodes.blockquote) {
+  //   const blockquoteButton = document.createElement("button");
+  //   blockquoteButton.className = "editor-general-button";
+  //   blockquoteButton.title = "Blockquote";
+  //   blockquoteButton.dataset.nodeType = "blockquote";
+  //   blockquoteButton.innerHTML = `
+  //     <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+  //       <path d="M0 448v256h256v-256h-128c0 0 0-128 128-128v-128c0 0-256 0-256 256zM640 320v-128c0 0-256 0-256 256v256h256v-256h-128c0 0 0-128 128-128z" fill="#85889C"/>
+  //     </svg>
+  //   `;
+  //   blockquoteButton.addEventListener("click", () => {
+  //     wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
+  //     view.focus();
+  //   });
+  //   group.appendChild(blockquoteButton);
+  // }
 
   if (group.children.length > 0) {
     container.appendChild(group);
@@ -216,9 +198,9 @@ export function addIndentButtons(container: HTMLElement, schema: Schema, view: E
   });
   group.appendChild(indentLeftButton);
 
-  if (group.children.length > 0) {
-    container.appendChild(group);
-  }
+  // if (group.children.length > 0) {
+  //   container.appendChild(group);
+  // }
 }
 
 export function addAlignmentButtons(container: HTMLElement, schema: Schema, view: EditorView) {
@@ -290,7 +272,7 @@ export function addAlignmentButtons(container: HTMLElement, schema: Schema, view
   }
 }
 
-export function addFormatDropdown(container: HTMLElement, schema: Schema, view: EditorView) {
+export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, view: EditorView) {
   const group = document.createElement("div");
   group.className = "editor-menu-group";
 
@@ -301,7 +283,7 @@ export function addFormatDropdown(container: HTMLElement, schema: Schema, view: 
   const formatButton = document.createElement("button");
   formatButton.className = "format-dropdown-button";
   formatButton.innerHTML = `
-    <span>Formats</span>
+    <span>Paragraph</span>
     <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
       <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
     </svg>
@@ -312,71 +294,89 @@ export function addFormatDropdown(container: HTMLElement, schema: Schema, view: 
   dropdownMenu.className = "dropdown-menu";
   dropdownMenu.style.display = "none";
 
-  // Add menu items
-  const headingsItem = document.createElement("div");
-  headingsItem.className = "dropdown-item has-submenu";
-  headingsItem.innerHTML = `
-    <span>Headings</span>
-    <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
-      <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="#85889C"></path>
-    </svg>
-  `;
 
-  // Add headings submenu
-  const headingsSubmenu = createHeadingSubmenu(schema, view);
-  headingsItem.appendChild(headingsSubmenu);
-  dropdownMenu.appendChild(headingsItem);
+    // Add paragraph option
+    const paragraphItem = document.createElement("div");
+    paragraphItem.className = "dropdown-item";
+    paragraphItem.innerHTML = `<span>Paragraph</span>`;
+    paragraphItem.addEventListener("click", () => {
+      setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+      view.focus();
+      hideDropdowns();
+      formatButton.innerHTML = `
+        <span>Paragraph</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
+          <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
+        </svg>
+      `;
+    });
+    dropdownMenu.appendChild(paragraphItem);
 
-  // Add other menu items
-  const items = [
-    { text: "Inline", hasSubmenu: true },
-    { text: "Blocks", hasSubmenu: true },
-    { text: "Alignment", hasSubmenu: true },
+  // Add heading options
+  const headings = [
+    { level: 1, text: "Heading 1" },
+    { level: 2, text: "Heading 2" },
+    { level: 3, text: "Heading 3" },
+    { level: 4, text: "Heading 4" },
+    { level: 5, text: "Heading 5" },
+    { level: 6, text: "Heading 6" }
   ];
 
-  items.forEach((item) => {
-    const menuItem = document.createElement("div");
-    menuItem.className = "dropdown-item";
-    if (item.hasSubmenu) {
-      menuItem.classList.add("has-submenu");
-      menuItem.innerHTML = `
-        <span>${item.text}</span>
+  headings.forEach(heading => {
+    const headingItem = document.createElement("div");
+    headingItem.className = "dropdown-item";
+    headingItem.innerHTML = `<span>${heading.text}</span>`;
+    headingItem.addEventListener("click", () => {
+      setBlockType(schema.nodes.heading, { level: heading.level })(view.state, view.dispatch);
+      view.focus();
+      hideDropdowns();
+      formatButton.innerHTML = `
+        <span>${heading.text}</span>
         <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
-          <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" fill="#85889C"></path>
+          <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
+        </svg>
+      `;
+    });
+    dropdownMenu.appendChild(headingItem);
+  });
+
+
+
+  // Function to update button text based on current block type
+  const updateButtonText = () => {
+    const { $from } = view.state.selection;
+    const node = $from.node();
+    if (node.type === schema.nodes.heading) {
+      formatButton.innerHTML = `
+        <span>Heading ${node.attrs.level}</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
+          <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
         </svg>
       `;
     } else {
-      menuItem.textContent = item.text;
+      formatButton.innerHTML = `
+        <span>Paragraph</span>
+        <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
+          <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
+        </svg>
+      `;
     }
-    dropdownMenu.appendChild(menuItem);
-  });
+  };
 
   // Toggle dropdown on click
   formatButton.addEventListener("click", () => {
     const isVisible = dropdownMenu.style.display === "block";
     hideDropdowns();
     if (!isVisible) {
+      updateButtonText();
       dropdownMenu.style.display = "block";
-      // Force a reflow to make sure the browser applies the style change
       dropdownMenu.getBoundingClientRect();
     }
   });
 
-  // Show submenu on hover
-  headingsItem.addEventListener("mouseenter", () => {
-    const submenu = headingsItem.querySelector(".submenu");
-    if (submenu instanceof HTMLElement) {
-      submenu.style.display = "block";
-    }
-  });
-
-  // Hide submenu when leaving headings item
-  headingsItem.addEventListener("mouseleave", () => {
-    const submenu = headingsItem.querySelector(".submenu");
-    if (submenu instanceof HTMLElement) {
-      submenu.style.display = "none";
-    }
-  });
+  // Update button text when selection changes
+  view.dom.addEventListener("keyup", updateButtonText);
+  view.dom.addEventListener("mouseup", updateButtonText);
 
   // Close dropdown when clicking outside
   document.addEventListener("click", (e) => {
@@ -394,5 +394,123 @@ export function addFormatDropdown(container: HTMLElement, schema: Schema, view: 
   dropdownContainer.appendChild(formatButton);
   dropdownContainer.appendChild(dropdownMenu);
   group.appendChild(dropdownContainer);
+  container.appendChild(group);
+}
+
+// Add new function for text size controls
+export function addTextSizeControls(container: HTMLElement, schema: Schema, view: EditorView) {
+  const group = document.createElement("div");
+  group.className = "editor-menu-group";
+
+  // Create font size controls
+  const fontSizeControls = document.createElement("div");
+  fontSizeControls.className = "font-size-controls";
+  
+  const fontSizeInput = document.createElement("input");
+  fontSizeInput.type = "text";
+  fontSizeInput.className = "font-size-input";
+  fontSizeInput.value = "16px"; 
+
+  const decreaseButton = document.createElement("button");
+  decreaseButton.className = "size-adjust-button";
+  decreaseButton.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" focusable="false">
+      <path d="M19 13H5v-2h14v2z" fill="currentColor"/>
+    </svg>
+  `;
+  
+  const increaseButton = document.createElement("button");
+  increaseButton.className = "size-adjust-button";
+  increaseButton.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 24 24" focusable="false">
+      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/>
+    </svg>
+  `;
+
+  // --- Helper function to apply font size mark ---
+  const applyFontSize = (newSize: string) => {
+    const { state, dispatch } = view;
+    const { $from } = state.selection; // Get the resolved position for the start of the selection
+
+    // Determine the start and end positions of the node containing the cursor
+    const nodeStart = $from.start(); // Get the start position of the node
+    const nodeEnd = $from.end();   // Get the end position of the node
+
+    // Apply the mark to the entire node range
+    const tr = state.tr;
+    // Remove any existing fontSize mark from the node range first
+    tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
+    // Add the new mark to the node range
+    tr.addMark(nodeStart, nodeEnd, schema.marks.fontSize.create({ size: newSize }));
+    
+    dispatch(tr);
+    view.focus();
+  };
+
+  // --- Font size adjustment handlers ---
+  decreaseButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const currentSize = parseInt(fontSizeInput.value) || 16;
+    if (currentSize > 8) {
+      const newSize = `${currentSize - 1}px`;
+      fontSizeInput.value = newSize;
+      applyFontSize(newSize);
+    }
+  });
+
+  increaseButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const currentSize = parseInt(fontSizeInput.value) || 16;
+    if (currentSize < 72) {
+      const newSize = `${currentSize + 1}px`;
+      fontSizeInput.value = newSize;
+      applyFontSize(newSize);
+    }
+  });
+
+  fontSizeInput.addEventListener("change", () => {
+    let size = parseInt(fontSizeInput.value);
+    if (isNaN(size)) size = 16; // Default to 16 if input is invalid
+    size = Math.min(72, Math.max(8, size)); // Clamp between 8 and 72
+    const newSize = `${size}px`;
+    fontSizeInput.value = newSize; // Update input to clamped value
+    applyFontSize(newSize);
+  });
+
+  // --- Function to update display based on selection ---
+  const updateFontSizeDisplay = () => {
+    const { state } = view;
+    const { selection } = state;
+    const { $from } = selection;
+
+    // Get marks at the start of the selection
+    const marks = $from.marks();
+    const fontSizeMark = schema.marks.fontSize.isInSet(marks);
+
+    if (fontSizeMark && fontSizeMark.attrs.size) {
+      fontSizeInput.value = fontSizeMark.attrs.size;
+    } else {
+      // If no specific font size mark, check the node's default or use a base default
+      // For simplicity, defaulting to 16px if no mark is found
+      fontSizeInput.value = "16px"; 
+    }
+    
+    // Handle case where selection might span multiple sizes (optional, complex)
+    // Could check marks across the selection range, but for now, using $from is simpler.
+  };
+
+  // --- Initial setup and event listeners for updates ---
+  updateFontSizeDisplay(); // Set initial value
+
+  // Update display when selection changes
+  view.dom.addEventListener("keyup", updateFontSizeDisplay);
+  view.dom.addEventListener("mouseup", updateFontSizeDisplay);
+  // Consider adding 'focus' if needed, though mouseup/keyup cover most cases
+
+  // Append controls to the DOM
+  fontSizeControls.appendChild(decreaseButton);
+  fontSizeControls.appendChild(fontSizeInput);
+  fontSizeControls.appendChild(increaseButton);
+  group.appendChild(fontSizeControls);
   container.appendChild(group);
 }

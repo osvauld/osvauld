@@ -210,7 +210,42 @@ export class Notes {
     this.editorSchema = new Schema({
       nodes: addListNodes(modifiedNodes, "paragraph block*", "block")
         .addToEnd("image", imageSpec),
-      marks: schema.spec.marks,
+      marks: {
+        // Define marks explicitly
+        strong: {
+          parseDOM: [
+            { tag: "strong" },
+            {
+              tag: "span",
+              getAttrs: (node: HTMLElement) => node.style.fontWeight != "normal" && null,
+            },
+          ],
+          toDOM() {
+            return ["strong", 0];
+          },
+        },
+        em: {
+          parseDOM: [{ tag: "i" }, { tag: "em" }, { style: "font-style=italic" }],
+          toDOM() {
+            return ["em", 0];
+          },
+        },
+        fontSize: {
+          attrs: {
+            size: { default: null }
+          },
+          inclusive: true,
+          parseDOM: [{
+            style: "font-size",
+            getAttrs: (value) => value ? { size: value } : null
+          }],
+          toDOM(mark) {
+            return mark.attrs.size ? ["span", { style: `font-size: ${mark.attrs.size}` }] : ["span"];
+          }
+        }
+        // Assuming other marks like 'link' might be needed here if they were in the base schema
+        // link: { ...link definition... }
+      }
     });
 
     // Add CSS for indentation and alignment

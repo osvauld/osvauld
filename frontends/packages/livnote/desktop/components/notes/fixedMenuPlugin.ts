@@ -11,7 +11,8 @@ import {
 	addListItems,
 	addIndentButtons,
 	addAlignmentButtons,
-	addFormatDropdown,
+	addBlockFormatDropdown,
+	addTextSizeControls,
 } from "./setup/menuItems";
 
 // Add styles to document
@@ -37,11 +38,12 @@ export function fixedMenuPlugin(schema: Schema) {
 
 			// Add menu items
 			addHistoryItems(menuNode, schema, editorView);
+			addBlockFormatDropdown(menuNode, schema, editorView);
+			addTextSizeControls(menuNode, schema, editorView);
 			addFormattingItems(menuNode, schema, editorView);
-			addFormatDropdown(menuNode, schema, editorView);
 			addListItems(menuNode, schema, editorView);
-			addIndentButtons(menuNode, schema, editorView);
 			addAlignmentButtons(menuNode, schema, editorView);
+			addIndentButtons(menuNode, schema, editorView);
 
 			// Insert the menu at the top of the editor
 			const editorContainer = editorView.dom.closest(".editor-container");
