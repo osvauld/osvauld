@@ -74,7 +74,7 @@ export const dropdownStyle = `
   }
   
   .submenu-item {
-    padding: 8px 12px;
+    padding: 0;
     cursor: pointer;
     color: #bfc0cc;
     display: flex;
