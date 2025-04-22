@@ -5,6 +5,7 @@ use osvauld_core::models::resource::Resource;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_services::{ResourceService, UserService};
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
+use rendezvous_client::rendezvous_service::RendezvousService;
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub struct EventManager {
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
     user_service: Arc<UserService>,
+    rendezvous_service: Arc<RendezvousService>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -40,6 +42,7 @@ impl EventManager {
         resource_service: Arc<ResourceService>,
         p2p_sender: P2PSender,
         user_service: Arc<UserService>,
+        rendezvous_service: Arc<RendezvousService>,
     ) -> Self {
         Self {
             app_handle,
@@ -48,6 +51,7 @@ impl EventManager {
             p2p_sender,
             current_note_state: CurrentNoteState::new(),
             user_service,
+            rendezvous_service,
         }
     }
 
@@ -101,14 +105,15 @@ impl EventManager {
         let current_note_state = self.current_note_state.clone();
         let user_service = self.user_service.clone();
 
+        let rendezvous_service = self.rendezvous_service.clone();
         let app_handle = self.app_handle.clone();
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
             let user_service = user_service.clone();
             let app_handle_clone = app_handle.clone();
-            // Remove quotes if they exist (payload might be a JSON string)
             let note_id = payload.trim_matches('"').to_string();
+            let rendezvous_service = rendezvous_service.clone();
 
             info!("Received note-change event with note_id: {}", note_id);
 
@@ -151,6 +156,17 @@ impl EventManager {
                     .await
                 {
                     Ok(shared_users) => {
+                        if let Err(e) = rendezvous_service
+                            .initialize_live_editing(shared_users.clone())
+                            .await
+                        {
+                            error!("Failed to initialize live editing: {}", e);
+                        } else {
+                            info!(
+                                "Successfully initialized live editing for note: {}",
+                                note_id
+                            );
+                        }
                         // Update the note state with the shared users
                         note_state.set_shared_users(shared_users.clone());
                     }
@@ -304,6 +320,9 @@ impl EventManager {
                     self.handle_update_event(vector_clock, remote_resource, device_id, user_id)
                         .await
                 }
+                P2PEvent::LiveEditConnected { connection_id } => {
+                    self.handle_live_edit_connected(connection_id).await
+                }
             }
         }
 
@@ -315,6 +334,10 @@ impl EventManager {
         if let Err(e) = self.app_handle.emit("peer-connected", true) {
             error!("Failed to emit peer-connected event: {}", e);
         }
+    }
+
+    async fn handle_live_edit_connected(&self, connection_id: String) {
+        info!("event triggered *********");
     }
 
     /// Handle disconnected event

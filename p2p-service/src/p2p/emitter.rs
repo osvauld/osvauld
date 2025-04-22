@@ -37,6 +37,9 @@ pub enum P2PEvent {
         device_id: String,
         user_id: String,
     },
+    LiveEditConnected {
+        connection_id: String,
+    },
 }
 
 /// Handles event emission for the P2P service

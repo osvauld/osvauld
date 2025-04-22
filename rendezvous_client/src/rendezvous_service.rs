@@ -16,6 +16,7 @@ pub struct RendezvousService {
     pending_first_connections: Arc<Mutex<HashSet<String>>>,
     connection_id: Arc<Mutex<Option<String>>>,
     user_service: Arc<UserService>,
+    live_edit_connections: Arc<Mutex<HashSet<String>>>,
 }
 
 impl RendezvousService {
@@ -28,6 +29,7 @@ impl RendezvousService {
             pending_first_connections: Arc::new(Mutex::new(HashSet::new())),
             connection_id: Arc::new(Mutex::new(None)),
             user_service,
+            live_edit_connections: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -50,7 +52,8 @@ impl RendezvousService {
         let client = self.client.clone();
         let p2p_service = self.p2p_service.clone();
         let pending_first_connections = self.pending_first_connections.clone();
-        let user_arc = self.connection_id.clone(); // Pass the stored user
+        let live_edit_connections = self.live_edit_connections.clone();
+        let user_arc = self.connection_id.clone();
 
         // Start message handler in a separate task
         tokio::spawn(async move {
@@ -58,7 +61,8 @@ impl RendezvousService {
                 client,
                 p2p_service,
                 pending_first_connections,
-                user_arc, // Pass the user to the handler
+                &live_edit_connections,
+                user_arc,
             )
             .await;
         });
@@ -121,6 +125,7 @@ impl RendezvousService {
         client: Arc<Mutex<WsClient>>,
         p2p_service: Arc<P2PService>,
         pending_first_connections: Arc<Mutex<HashSet<String>>>,
+        live_edit_connections: &Arc<Mutex<HashSet<String>>>,
         user: Arc<Mutex<Option<String>>>,
     ) {
         let mut receiver = {
@@ -161,6 +166,7 @@ impl RendezvousService {
                                 Self::process_connection_string(
                                     &p2p_service,
                                     &pending_first_connections,
+                                    &live_edit_connections,
                                     &user,
                                     &user_id,
                                     conn_string,
@@ -211,6 +217,7 @@ impl RendezvousService {
     async fn process_connection_string(
         p2p_service: &Arc<P2PService>,
         pending_first_connections: &Arc<Mutex<HashSet<String>>>,
+        live_edit_connections: &Arc<Mutex<HashSet<String>>>,
         _user: &Arc<Mutex<Option<String>>>,
         response_user_id: &str,
         conn_string: String,
@@ -225,6 +232,12 @@ impl RendezvousService {
             is_first
         };
 
+        let is_live_edit = {
+            let live_edit = live_edit_connections.lock().await;
+            // Check if the exact user_id:device_id is in our live edit set
+            live_edit.contains(response_user_id)
+        };
+
         let connection_type = ConnectionType::User;
         let p2p_service_clone = p2p_service.clone();
         let ticket = conn_string.clone();
@@ -234,9 +247,16 @@ impl RendezvousService {
         let connection_id = format!("{}", response_user_id);
 
         // Determine the appropriate action based on whether this is a first connection
+
         let action = if is_first_connection {
             info!("This is a first connection with user: {}", response_user_id);
             Some(ConnectionAction::UserFirstConnection)
+        } else if is_live_edit {
+            info!(
+                "This is a live edit connection with user: {}",
+                response_user_id
+            );
+            Some(ConnectionAction::LiveEdit)
         } else {
             info!(
                 "This is a regular connection with user: {}",
@@ -383,6 +403,7 @@ impl RendezvousService {
             }
         }
     }
+
     pub async fn request_user_connection_notifications(
         &self,
         user_ids: Vec<String>,
@@ -393,5 +414,61 @@ impl RendezvousService {
             user_ids.len()
         );
         client.request_user_connection_notifications(user_ids).await
+    }
+
+    pub async fn initialize_live_editing(&self, shared_users: Vec<String>) -> Result<(), String> {
+        info!(
+            "Initializing live editing for {} shared users",
+            shared_users.len()
+        );
+
+        // Clear previous live edit connections
+        {
+            let mut live_edit = self.live_edit_connections.lock().await;
+            live_edit.clear();
+        }
+
+        // Process each shared user
+        for user_device_id in shared_users {
+            // First check if connection already exists
+            let connection_exists =
+                match self.p2p_service.get_connection_by_id(&user_device_id).await {
+                    Ok(_) => {
+                        info!("Connection already exists for {}", user_device_id);
+                        true
+                    }
+                    Err(_) => false,
+                };
+
+            // If connection doesn't exist, mark for live edit and request connection
+            if !connection_exists {
+                // Mark for live editing
+                {
+                    let mut live_edit = self.live_edit_connections.lock().await;
+                    live_edit.insert(user_device_id.clone());
+                }
+
+                // Request connection to this user:device
+                info!("Requesting connection for live editing: {}", user_device_id);
+                if let Err(e) = self.request_user_connection(&user_device_id).await {
+                    error!(
+                        "Failed to request connection to {} for live editing: {}",
+                        user_device_id, e
+                    );
+                    // Continue with other users even if one fails
+                }
+            } else {
+                // Even if connection exists, we still want to mark it for live edit
+                // in case it gets disconnected and reconnects
+                let mut live_edit = self.live_edit_connections.lock().await;
+                live_edit.insert(user_device_id.clone());
+                info!(
+                    "Marked existing connection for live editing: {}",
+                    user_device_id
+                );
+            }
+        }
+
+        Ok(())
     }
 }

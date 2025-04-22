@@ -338,7 +338,7 @@ pub async fn send_sync_update(&self, payload: Message) -> Result<(), String> {
     };
 
     // Get the connection from the connection manager
-    // Fix: Convert Option to Result with ok_or()
+    
     let connection = state.connections.get_first_active_connection().await
         .ok_or("No active connection found".to_string())?;
     

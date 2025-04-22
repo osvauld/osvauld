@@ -417,6 +417,12 @@ impl PeerConnection {
                     
                     self.send_message(phase_message).await
                 }
+                ConnectionAction::LiveEdit => {
+                    info!("live edit triggered");
+                    let connection_id = self.get_id();
+                    self.event_emitter.emit(P2PEvent::LiveEditConnected { connection_id });
+                    Ok(())
+                }
             }
         } else {
             debug!("No connection action to execute");
