@@ -227,6 +227,11 @@ async fn handle_register(user_id: String, handler: &ClientHandler) -> Result<(),
         user_id: user_id.clone(),
         client_id: handler.client_id.clone(),
     });
+    info!(
+        "Registering client id: {}, {:?}",
+        handler.client_id.clone(),
+        handler.user_mappings.lock().await
+    );
 
     match handler.storage.get_client_details(&user_id).await? {
         Some(client_info) => {
@@ -297,9 +302,43 @@ async fn handle_connection_notification_request(
 ) -> Result<(), AppError> {
     info!("Saving connection notification request");
     for id in user_ids {
-        handle_request_user_connection(id, handler).await?;
+        handle_connection_notification_for_user(id, handler).await?;
     }
     Ok(())
+}
+
+async fn handle_connection_notification_for_user(
+    target_user_id: String,
+    handler: &ClientHandler,
+) -> Result<(), AppError> {
+    info!("Online notification check for: {}", target_user_id);
+
+    match handler.storage.get_client_details(&target_user_id).await? {
+        Some(client_details) => match client_details.connection_status {
+            ConnectionStatus::Online => {
+                let ws_client_id = handler.client_id.clone();
+                let message = WsMessage::UserConnectionNotification {
+                    online_user_id: target_user_id.to_owned(),
+                };
+                if let Err(_err) =
+                    connection_service::send_message(&handler.clients, &ws_client_id, message).await
+                {
+                    error!("Error sending connection notification to: {}", ws_client_id)
+                }
+                Ok(())
+            }
+            ConnectionStatus::Offline => {
+                info!("No active connection found for user: {}", target_user_id);
+                handle_offline_connection_request(handler, &target_user_id).await?;
+                Ok(())
+            }
+        },
+        None => {
+            info!("No active connection found for user: {}", target_user_id);
+            handle_offline_connection_request(handler, &target_user_id).await?;
+            Ok(())
+        }
+    }
 }
 
 async fn handle_connection_response(
