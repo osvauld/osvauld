@@ -14,6 +14,7 @@ import {
 	addBlockFormatDropdown,
 	addTextSizeControls,
 	addSecondaryFormattingItems,
+	addBlockStyleItems,
 } from "./setup/menuItems";
 
 // Add styles to document
@@ -105,7 +106,11 @@ export function fixedMenuPlugin(schema: Schema) {
 			// Add "More Options" button
 			const moreOptionsButton = document.createElement("button");
 			moreOptionsButton.className = "menu-button more-options-button";
-			moreOptionsButton.innerHTML = "&#8942;"; // Ellipsis character
+			moreOptionsButton.innerHTML = `
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M5 10.5C5.82843 10.5 6.5 11.1716 6.5 12C6.5 12.8284 5.82843 13.5 5 13.5C4.17157 13.5 3.5 12.8284 3.5 12C3.5 11.1716 4.17157 10.5 5 10.5ZM12 10.5C12.8284 10.5 13.5 11.1716 13.5 12C13.5 12.8284 12.8284 13.5 12 13.5C11.1716 13.5 10.5 12.8284 10.5 12C10.5 11.1716 11.1716 10.5 12 10.5ZM19 10.5C19.8284 10.5 20.5 11.1716 20.5 12C20.5 12.8284 19.8284 13.5 19 13.5C18.1716 13.5 17.5 12.8284 17.5 12C17.5 11.1716 18.1716 10.5 19 10.5Z" fill="#85889C"/>
+</svg>
+`;
 			moreOptionsButton.title = "More options";
 			moreOptionsButton.onclick = (e) => {
 				e.preventDefault();
@@ -120,6 +125,7 @@ export function fixedMenuPlugin(schema: Schema) {
 			// Add placeholder items to the secondary menu
 			addIndentButtons(secondaryMenuNode, schema, editorView);
 			addSecondaryFormattingItems(secondaryMenuNode, schema, editorView);
+			addBlockStyleItems(secondaryMenuNode, schema, editorView);
 			// --- Add other secondary menu items here in the future ---
 
 			// Insert the menus into the DOM

@@ -100,8 +100,10 @@ export function addListItems(container: HTMLElement, schema: Schema, view: Edito
     bulletListButton.title = "Bullet list";
     bulletListButton.dataset.nodeType = "bullet_list";
     bulletListButton.innerHTML = `
-      <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+     <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+    <g transform="translate(140, 60)">
         <path d="M0 512h128v-128h-128v128zM0 256h128v-128h-128v128zM0 768h128v-128h-128v128zM256 512h512v-128h-512v128zM256 256h512v-128h-512v128zM256 768h512v-128h-512v128z" fill="#85889C"/>
+</g>
       </svg>
     `;
     bulletListButton.addEventListener("click", () => {
@@ -119,7 +121,9 @@ export function addListItems(container: HTMLElement, schema: Schema, view: Edito
     orderedListButton.dataset.nodeType = "ordered_list";
     orderedListButton.innerHTML = `
       <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+  <g transform="translate(140, 60)">
         <path d="M320 512h448v-128h-448v128zM320 768h448v-128h-448v128zM320 128v128h448v-128h-448zM79 384h78v-256h-36l-85 23v50l43-2v185zM189 590c0-36-12-78-96-78-33 0-64 6-83 16l1 66c21-10 42-15 67-15s32 11 32 28c0 26-30 58-110 112v50h192v-67l-91 2c49-30 87-66 87-113l1-1z" fill="#85889C"/>
+</g>
       </svg>
     `;
     orderedListButton.addEventListener("click", () => {
@@ -128,24 +132,6 @@ export function addListItems(container: HTMLElement, schema: Schema, view: Edito
     });
     group.appendChild(orderedListButton);
   }
-
-  // // Blockquote
-  // if (schema.nodes.blockquote) {
-  //   const blockquoteButton = document.createElement("button");
-  //   blockquoteButton.className = "editor-general-button";
-  //   blockquoteButton.title = "Blockquote";
-  //   blockquoteButton.dataset.nodeType = "blockquote";
-  //   blockquoteButton.innerHTML = `
-  //     <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
-  //       <path d="M0 448v256h256v-256h-128c0 0 0-128 128-128v-128c0 0-256 0-256 256zM640 320v-128c0 0-256 0-256 256v256h256v-256h-128c0 0 0-128 128-128z" fill="#85889C"/>
-  //     </svg>
-  //   `;
-  //   blockquoteButton.addEventListener("click", () => {
-  //     wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
-  //     view.focus();
-  //   });
-  //   group.appendChild(blockquoteButton);
-  // }
 
   if (group.children.length > 0) {
     container.appendChild(group);
@@ -555,4 +541,53 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 	if (group.children.length > 0) {
 		container.appendChild(group);
 	}
+}
+
+// Function to add blockquote and code block buttons
+export function addBlockStyleItems(container: HTMLElement, schema: Schema, view: EditorView) {
+  const group = document.createElement("div");
+  group.className = "editor-menu-group";
+
+  // Blockquote button
+  if (schema.nodes.blockquote) {
+    const blockquoteButton = document.createElement("button");
+    blockquoteButton.className = "editor-general-button";
+    blockquoteButton.title = "Blockquote";
+    blockquoteButton.dataset.nodeType = "blockquote";
+    blockquoteButton.innerHTML = `
+     <svg width="24" height="24" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
+  <g transform="translate(170, 60)">
+    <path d="M0 448v256h256v-256h-128c0 0 0-128 128-128v-128c0 0-256 0-256 256zM640 320v-128c0 0-256 0-256 256v256h256v-256h-128c0 0 0-128 128-128z" fill="#85889C"/>
+  </g>
+</svg>
+
+    `;
+    blockquoteButton.addEventListener("click", () => {
+      wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
+      view.focus();
+    });
+    group.appendChild(blockquoteButton);
+  }
+
+  // Code block button
+  if (schema.nodes.code_block) {
+    const codeBlockButton = document.createElement("button");
+    codeBlockButton.className = "editor-general-button";
+    codeBlockButton.title = "Code block";
+    codeBlockButton.dataset.nodeType = "code_block";
+    codeBlockButton.innerHTML = `
+      <svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z" fill="#85889C"/>
+      </svg>
+    `;
+    codeBlockButton.addEventListener("click", () => {
+      setBlockType(schema.nodes.code_block)(view.state, view.dispatch);
+      view.focus();
+    });
+    group.appendChild(codeBlockButton);
+  }
+
+  if (group.children.length > 0) {
+    container.appendChild(group);
+  }
 }
