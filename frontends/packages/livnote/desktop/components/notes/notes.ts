@@ -251,21 +251,33 @@ export class Notes {
           ],
           toDOM() {
             return ["u", 0];
-          }
+          },
         },
         // Add strikethrough mark
         strikethrough: {
           parseDOM: [
             { tag: "s" },
-            { tag: "strike" },
             { style: "text-decoration=line-through" }
           ],
           toDOM() {
             return ["s", 0];
           }
+        },
+        // Add textColor mark
+        textColor: {
+          attrs: {
+            color: { default: null } // Store the color value
+          },
+          inclusive: true, // Allow mark to span across nodes
+          parseDOM: [{
+            style: "color", // Read 'color' style attribute
+            getAttrs: (value) => value ? { color: value } : null // Extract color value
+          }],
+          toDOM(mark) {
+            // Render as a span with the color style if color attribute exists
+            return mark.attrs.color ? ["span", { style: `color: ${mark.attrs.color}` }] : ["span"];
+          }
         }
-        // Assuming other marks like 'link' might be needed here if they were in the base schema
-        // link: { ...link definition... }
       }
     });
 

@@ -15,6 +15,7 @@ import {
 	addTextSizeControls,
 	addSecondaryFormattingItems,
 	addBlockStyleItems,
+	addTextColorPicker,
 } from "./setup/menuItems";
 
 // Add styles to document
@@ -72,6 +73,53 @@ style.textContent += `
     font-weight: bold;
   }
 
+  /* Styles for the Text Color Picker */
+  .color-picker-dropdown {
+    display: grid; 
+    grid-template-columns: repeat(3, 2fr); /* 3 columns */
+    gap: 4px; /* Spacing between swatches */
+    padding: 6px;
+    background-color: #2c2c2e; /* Match dropdown background */
+    border: 1px solid #444;
+    border-radius: 4px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    position: absolute; /* Needed for positioning */
+    z-index: 100; /* Ensure it's above other elements */
+    width: auto; /* Adjust width based on content */
+    min-width: 80px; /* Minimum width */
+  }
+
+  .color-swatch {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    cursor: pointer;
+    border: 1px solid transparent; /* Default border */
+    box-sizing: border-box; /* Include border in size */
+  }
+
+  .color-swatch:hover {
+    border-color: #aaa; /* Highlight on hover */
+  }
+
+   .remove-color-button {
+    grid-column: span 3; /* Make it span all 3 columns */
+    text-align: center;
+    padding: 4px;
+    cursor: pointer;
+    background-color: #3a3a3c;
+    border: 1px solid #555;
+    border-radius: 3px;
+    color: #ccc;
+    margin-top: 4px;
+  }
+  .remove-color-button:hover {
+    background-color: #4a4a4c;
+  }
+
+  .text-color-button:disabled {
+      opacity: 0.5;
+  }
 `;
 
 // Remove any existing style element with the same ID to avoid duplicates
@@ -126,6 +174,7 @@ export function fixedMenuPlugin(schema: Schema) {
 			addIndentButtons(secondaryMenuNode, schema, editorView);
 			addSecondaryFormattingItems(secondaryMenuNode, schema, editorView);
 			addBlockStyleItems(secondaryMenuNode, schema, editorView);
+			addTextColorPicker(secondaryMenuNode, schema, editorView);
 			// --- Add other secondary menu items here in the future ---
 
 			// Insert the menus into the DOM

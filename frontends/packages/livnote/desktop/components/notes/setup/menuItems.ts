@@ -608,3 +608,211 @@ export function addBlockStyleItems(container: HTMLElement, schema: Schema, view:
     container.appendChild(group);
   }
 }
+
+// Function to add text color picker
+export function addTextColorPicker(container: HTMLElement, schema: Schema, view: EditorView) {
+  if (!schema.marks.textColor) return; // Don't add if mark is not defined
+
+  const group = document.createElement("div");
+  group.className = "editor-menu-group";
+
+  const dropdownContainer = document.createElement("div");
+  dropdownContainer.className = "dropdown-container";
+
+  // Main color picker button
+  const colorButton = document.createElement("button");
+  colorButton.className = "editor-general-button text-color-button";
+  colorButton.title = "Text color";
+  colorButton.innerHTML = `
+    <svg width="24" height="24" viewBox="0 0 24 24" focusable="false">
+      <path d="M8.7 16h-.8a.5.5 0 0 1-.5-.6l2.7-9c.1-.3.3-.4.5-.4h2.8c.2 0 .4.1.5.4l2.7 9a.5.5 0 0 1-.5.6h-.8a.5.5 0 0 1-.4-.4l-.7-2.2c0-.3-.3-.4-.5-.4h-3.4c-.2 0-.4.1-.5.4l-.7 2.2c0 .3-.2.4-.4.4Zm2.6-7.6-.6 2a.5.5 0 0 0 .5.6h1.6a.5.5 0 0 0 .5-.6l-.6-2c0-.3-.3-.4-.5-.4h-.4c-.2 0-.4.1-.5.4Z"  fill="#85889C"></path>
+      <rect x="4" y="19" width="16" height="1.5" rx="1" ry="1" class="color-indicator" fill="#000" />
+    </svg>
+  `;
+  const colorIndicator = colorButton.querySelector('.color-indicator') as SVGRectElement | null;
+
+  // Dropdown menu for colors
+  const dropdownMenu = document.createElement("div");
+  dropdownMenu.className = "dropdown-menu color-picker-dropdown";
+  dropdownMenu.style.display = "none";
+
+  const colors = [
+    "#000000", "#FF0000", "#FFA500", // Black, Red, Orange
+    "#FFFF00", "#008000", "#0000FF", // Yellow, Green, Blue
+    "#4B0082", "#EE82EE", "#FFFFFF"  // Indigo, Violet, White (adjust white if needed for visibility)
+    // Add a 'remove color' option?
+  ];
+
+  // Create color swatches
+  colors.forEach(color => {
+    const swatch = document.createElement("div");
+    swatch.className = "color-swatch";
+    swatch.style.backgroundColor = color;
+    if (color === "#FFFFFF") { // Add border for white swatch
+        swatch.style.border = "1px solid #ccc";
+    }
+    swatch.dataset.color = color;
+    swatch.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const { state, dispatch } = view;
+      const { from, to, empty } = state.selection;
+
+      if (empty) {
+        // Optionally apply to the current word or do nothing
+        // For now, we only apply if text is selected
+        console.warn("No text selected to apply color.");
+        hideDropdowns(); // Hide dropdown even if no action taken
+        return;
+      }
+
+      const tr = state.tr;
+      // Remove existing textColor mark from the selection
+      tr.removeMark(from, to, schema.marks.textColor);
+      // Add the new textColor mark
+      tr.addMark(from, to, schema.marks.textColor.create({ color }));
+      dispatch(tr);
+
+      // Update button indicator color
+      if (colorIndicator) {
+        colorIndicator.setAttribute('fill', color);
+      }
+
+      hideDropdowns();
+      view.focus();
+    });
+    dropdownMenu.appendChild(swatch);
+  });
+
+  // Add "Remove Color" button
+  const removeColorButton = document.createElement("button");
+  removeColorButton.className = "dropdown-item remove-color-button";
+  removeColorButton.textContent = "Remove Color";
+  removeColorButton.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const { state, dispatch } = view;
+      const { from, to, empty } = state.selection;
+
+      if (empty) {
+        console.warn("No text selected to remove color.");
+        hideDropdowns();
+        return;
+      }
+
+      const tr = state.tr;
+      // Remove existing textColor mark from the selection
+      tr.removeMark(from, to, schema.marks.textColor);
+      dispatch(tr);
+
+       // Reset button indicator color to default (e.g., black)
+      if (colorIndicator) {
+        colorIndicator.setAttribute('fill', '#000000'); // Or a different default
+      }
+
+      hideDropdowns();
+      view.focus();
+  });
+  dropdownMenu.appendChild(removeColorButton);
+
+
+  // Function to update button state based on selection
+  const updateButtonState = () => {
+    const { state } = view;
+    const { selection } = state;
+    const { empty, $from } = selection;
+
+    // Disable button if selection is empty
+    colorButton.disabled = empty;
+    colorButton.style.opacity = empty ? '0.5' : '1';
+
+    if (empty) {
+       if (colorIndicator) colorIndicator.setAttribute('fill', '#fff'); // Reset to default if empty
+       return;
+    }
+
+    // Update indicator color based on the mark at the start of selection
+    const marks = $from.marksAcross(selection.$to); // Get marks spanning the selection
+    let commonColor: string | null = null;
+    let first = true;
+
+    if (marks) {
+       for (const mark of marks) {
+           if (mark.type === schema.marks.textColor) {
+               const markColor = mark.attrs.color;
+               if (first) {
+                   commonColor = markColor;
+                   first = false;
+               } else if (commonColor !== markColor) {
+                   commonColor = null; // Multiple colors in selection
+                   break;
+               }
+           }
+       }
+    }
+
+
+    // If no textColor mark found across selection, check at cursor pos ($from)
+    if (commonColor === null && !first) { // 'first' is false if we entered the loop but found different colors
+       // Indicate multiple colors (optional, e.g., a gradient or default black)
+       if (colorIndicator) colorIndicator.setAttribute('fill', '#fff');
+    } else {
+         // Use the common color or the color at $from if no marks span the whole selection or selection is a cursor
+        const markAtCursor = schema.marks.textColor.isInSet($from.marks());
+        const finalColor = commonColor ?? (markAtCursor ? markAtCursor.attrs.color : null);
+
+        if (colorIndicator) {
+            colorIndicator.setAttribute('fill', finalColor || '#fff'); // Use found color or default to black
+        }
+    }
+  };
+
+  // Toggle dropdown on click
+  colorButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (view.state.selection.empty) return; // Don't open if nothing selected
+
+    const isVisible = dropdownMenu.style.display === "block";
+    hideDropdowns(); // Hide other dropdowns first
+    if (!isVisible) {
+      updateButtonState(); // Ensure button state is current before showing
+      // Set display to grid to enable grid layout defined in CSS
+      dropdownMenu.style.display = "grid"; 
+      dropdownMenu.style.position = "absolute"; // Ensure it positions correctly
+      dropdownMenu.style.top = `${colorButton.offsetTop + colorButton.offsetHeight}px`;
+      dropdownMenu.style.left = `${colorButton.offsetLeft}px`;
+      dropdownMenu.getBoundingClientRect(); // Force reflow
+    }
+  });
+
+  // Update button state when selection or marks change
+  view.dom.addEventListener("keyup", updateButtonState);
+  view.dom.addEventListener("mouseup", updateButtonState);
+  // Listen for transactions as marks can change programmatically
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+      originalDispatch(tr);
+      if (tr.docChanged || tr.selectionSet) {
+          updateButtonState();
+      }
+  };
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (e.target instanceof Node && !dropdownContainer.contains(e.target)) {
+      hideDropdowns();
+    }
+  });
+
+  // Stop event propagation when clicking on the dropdown menu
+  dropdownMenu.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
+  // Add elements to DOM
+  dropdownContainer.appendChild(colorButton);
+  dropdownContainer.appendChild(dropdownMenu);
+  group.appendChild(dropdownContainer);
+  container.appendChild(group);
+
+  // Initial button state
+  updateButtonState();
+}
