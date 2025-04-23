@@ -56,22 +56,21 @@ style.textContent += `
     /* Basic styling for buttons - adjust as needed */
     background: none;
     border: 1px solid transparent;
-    padding: 8px;
+    padding: 4px;
     margin: 2px;
     cursor: pointer;
     border-radius: 3px;
   }
   .menu-button:hover {
-    /* background-color: #e0e0e0; */ /* Revert to default hover state */
-    /* border-color: #bbb; */
+    background-color: rgb(58, 59, 68);
+  
   }
   .menu-button.active {
     /* background-color: #d0d0d0; */ /* Revert to default active state */
     /* border-color: #aaa; */
   }
-  .more-options-button {
-    font-weight: bold;
-  }
+
+
 
   /* Styles for the Text Color Picker */
   .color-picker-dropdown {
