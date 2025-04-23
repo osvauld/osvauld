@@ -242,6 +242,27 @@ export class Notes {
           toDOM(mark) {
             return mark.attrs.size ? ["span", { style: `font-size: ${mark.attrs.size}` }] : ["span"];
           }
+        },
+        // Add underline mark
+        underline: {
+          parseDOM: [
+            { tag: "u" },
+            { style: "text-decoration=underline" }
+          ],
+          toDOM() {
+            return ["u", 0];
+          }
+        },
+        // Add strikethrough mark
+        strikethrough: {
+          parseDOM: [
+            { tag: "s" },
+            { tag: "strike" },
+            { style: "text-decoration=line-through" }
+          ],
+          toDOM() {
+            return ["s", 0];
+          }
         }
         // Assuming other marks like 'link' might be needed here if they were in the base schema
         // link: { ...link definition... }

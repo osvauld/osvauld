@@ -70,6 +70,26 @@
     font-family: monospace;
 }
 
+/* Add styles for underline and strikethrough text */
+.ProseMirror u {
+    text-decoration: underline;
+}
+
+.ProseMirror s {
+    text-decoration: line-through;
+}
+
+/* Add styles for active underline and strikethrough buttons */
+.menu-underline.active {
+    background-color: #e0e0e0;
+    border-color: #bbb;
+}
+
+.menu-strikethrough.active {
+    background-color: #e0e0e0;
+    border-color: #bbb;
+}
+
 /* ProseMirror specific styles */
 .ProseMirror {
     position: relative;

@@ -13,6 +13,7 @@ import {
 	addAlignmentButtons,
 	addBlockFormatDropdown,
 	addTextSizeControls,
+	addSecondaryFormattingItems,
 } from "./setup/menuItems";
 
 // Add styles to document
@@ -69,6 +70,7 @@ style.textContent += `
   .more-options-button {
     font-weight: bold;
   }
+
 `;
 
 // Remove any existing style element with the same ID to avoid duplicates
@@ -98,7 +100,7 @@ export function fixedMenuPlugin(schema: Schema) {
 			addFormattingItems(menuNode, schema, editorView); // Keep in main for now
 			addListItems(menuNode, schema, editorView);
 			addAlignmentButtons(menuNode, schema, editorView);
-			addIndentButtons(menuNode, schema, editorView);
+			
 
 			// Add "More Options" button
 			const moreOptionsButton = document.createElement("button");
@@ -107,10 +109,7 @@ export function fixedMenuPlugin(schema: Schema) {
 			moreOptionsButton.title = "More options";
 			moreOptionsButton.onclick = (e) => {
 				e.preventDefault();
-				console.log("More options clicked. Toggling visibility.");
 				secondaryMenuNode.classList.toggle("visible");
-				console.log("Secondary menu visible class:", secondaryMenuNode.classList.contains("visible"));
-				// Update button states for the secondary menu if it becomes visible
 				if (secondaryMenuNode.classList.contains("visible")) {
 					updateButtonStates(secondaryMenuNode, editorView);
 					updateAlignmentButtonStates(secondaryMenuNode, editorView.state);
@@ -119,7 +118,8 @@ export function fixedMenuPlugin(schema: Schema) {
 			menuNode.appendChild(moreOptionsButton);
 
 			// Add placeholder items to the secondary menu
-			addFormattingItems(secondaryMenuNode, schema, editorView);
+			addIndentButtons(secondaryMenuNode, schema, editorView);
+			addSecondaryFormattingItems(secondaryMenuNode, schema, editorView);
 			// --- Add other secondary menu items here in the future ---
 
 			// Insert the menus into the DOM

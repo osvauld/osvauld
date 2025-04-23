@@ -198,9 +198,9 @@ export function addIndentButtons(container: HTMLElement, schema: Schema, view: E
   });
   group.appendChild(indentLeftButton);
 
-  // if (group.children.length > 0) {
-  //   container.appendChild(group);
-  // }
+  if (group.children.length > 0) {
+    container.appendChild(group);
+  }
 }
 
 export function addAlignmentButtons(container: HTMLElement, schema: Schema, view: EditorView) {
@@ -513,4 +513,46 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   fontSizeControls.appendChild(increaseButton);
   group.appendChild(fontSizeControls);
   container.appendChild(group);
+}
+
+// Function to add underline and strikethrough buttons
+export function addSecondaryFormattingItems(container: HTMLElement, schema: Schema, view: EditorView) {
+	const group = document.createElement("div");
+	group.className = "editor-menu-group";
+
+	// Underline button
+	if (schema.marks.underline) {
+		const underlineButton = document.createElement("button");
+		underlineButton.className = "editor-general-button menu-underline";
+		underlineButton.title = "Underline";
+		underlineButton.dataset.markType = "underline";
+		underlineButton.innerHTML = `
+     <svg width="24" height="24" focusable="false"><path d="M16 5c.6 0 1 .4 1 1v5.5a4 4 0 0 1-.4 1.8l-1 1.4a5.3 5.3 0 0 1-5.5 1 5 5 0 0 1-1.6-1c-.5-.4-.8-.9-1.1-1.4a4 4 0 0 1-.4-1.8V6c0-.6.4-1 1-1s1 .4 1 1v5.5c0 .3 0 .6.2 1l.6.7a3.3 3.3 0 0 0 2.2.8 3.4 3.4 0 0 0 2.2-.8c.3-.2.4-.5.6-.8l.2-.9V6c0-.6.4-1 1-1ZM8 17h8c.6 0 1 .4 1 1s-.4 1-1 1H8a1 1 0 0 1 0-2Z" fill-rule="evenodd" fill="#85889C"></path></svg>
+    `;
+		underlineButton.addEventListener("click", () => {
+			toggleMark(schema.marks.underline)(view.state, view.dispatch);
+			view.focus();
+		});
+		group.appendChild(underlineButton);
+	}
+
+	// Strikethrough button
+	if (schema.marks.strikethrough) {
+		const strikethroughButton = document.createElement("button");
+		strikethroughButton.className = "editor-general-button menu-strikethrough";
+		strikethroughButton.title = "Strikethrough";
+		strikethroughButton.dataset.markType = "strikethrough";
+		strikethroughButton.innerHTML = `
+      <svg width="24" height="24" focusable="false"><g fill-rule="evenodd"><path d="M15.6 8.5c-.5-.7-1-1.1-1.3-1.3-.6-.4-1.3-.6-2-.6-2.7 0-2.8 1.7-2.8 2.1 0 1.6 1.8 2 3.2 2.3 4.4.9 4.6 2.8 4.6 3.9 0 1.4-.7 4.1-5 4.1A6.2 6.2 0 0 1 7 16.4l1.5-1.1c.4.6 1.6 2 3.7 2 1.6 0 2.5-.4 3-1.2.4-.8.3-2-.8-2.6-.7-.4-1.6-.7-2.9-1-1-.2-3.9-.8-3.9-3.6C7.6 6 10.3 5 12.4 5c2.9 0 4.2 1.6 4.7 2.4l-1.5 1.1Z" fill="#85889C"></path><path d="M5 11h14a1 1 0 0 1 0 2H5a1 1 0 0 1 0-2Z" fill-rule="nonzero" fill="#85889C"></path></g></svg>
+    `;
+		strikethroughButton.addEventListener("click", () => {
+			toggleMark(schema.marks.strikethrough)(view.state, view.dispatch);
+			view.focus();
+		});
+		group.appendChild(strikethroughButton);
+	}
+
+	if (group.children.length > 0) {
+		container.appendChild(group);
+	}
 }
