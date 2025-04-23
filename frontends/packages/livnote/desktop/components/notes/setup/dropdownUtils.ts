@@ -145,7 +145,7 @@ export function hideDropdowns() {
 }
 
 // Helper function to get current heading level
-export function getCurrentHeadingLevel(state, schema) {
+export function getCurrentHeadingLevel(state: any, schema: Schema) {
   const { selection } = state;
   const { $from } = selection;
 

@@ -101,6 +101,7 @@
     background: #16171f;
     flex-grow: 1;
     overflow-y: auto;
+    font-size: 18px;
 }
 
 /* Link styling */

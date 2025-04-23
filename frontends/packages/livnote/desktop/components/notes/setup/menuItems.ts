@@ -350,13 +350,14 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
   };
 
   // Toggle dropdown on click
-  formatButton.addEventListener("click", () => {
+  formatButton.addEventListener("click", (e) => {
+    e.stopPropagation(); // Keep this to prevent event bubbling
     const isVisible = dropdownMenu.style.display === "block";
     hideDropdowns();
     if (!isVisible) {
       updateButtonText();
       dropdownMenu.style.display = "block";
-      dropdownMenu.getBoundingClientRect();
+      dropdownMenu.getBoundingClientRect(); // Force reflow
     }
   });
 
@@ -469,20 +470,36 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
     const { selection } = state;
     const { $from } = selection;
 
-    // Get marks at the start of the selection
+    // 1. Check for explicit fontSize mark at cursor position
     const marks = $from.marks();
     const fontSizeMark = schema.marks.fontSize.isInSet(marks);
 
     if (fontSizeMark && fontSizeMark.attrs.size) {
+      // Use the explicit mark's size if it exists
       fontSizeInput.value = fontSizeMark.attrs.size;
-    } else {
-      // If no specific font size mark, check the node's default or use a base default
-      // For simplicity, defaulting to 16px if no mark is found
-      fontSizeInput.value = "16px"; 
+      return;
     }
-    
-    // Handle case where selection might span multiple sizes (optional, complex)
-    // Could check marks across the selection range, but for now, using $from is simpler.
+
+    // 2. If no explicit mark, check if we're in a heading node
+    const node = $from.parent;
+    if (node.type === schema.nodes.heading) {
+      // Use the default size for the heading level (based on 18px base)
+      const headingLevel = node.attrs.level as 1 | 2 | 3 | 4 | 5 | 6;
+      // Map heading levels to font sizes in pixels (converted from em values in CSS, base 18px)
+      const headingSizes: Record<1 | 2 | 3 | 4 | 5 | 6, string> = {
+        1: "36px",  // 2em    (2 * 18px)
+        2: "27px",  // 1.5em  (1.5 * 18px)
+        3: "21px",  // 1.17em (1.17 * 18px ≈ 21.06)
+        4: "20px",  // 1.1em  (1.1 * 18px = 19.8)
+        5: "19px",  // 1.05em (1.05 * 18px = 18.9)
+        6: "18px"   // 1em    (1 * 18px)
+      };
+      fontSizeInput.value = headingSizes[headingLevel];
+      return;
+    }
+
+    // 3. If no mark and not a heading, default to base size (now 18px)
+    fontSizeInput.value = "18px";
   };
 
   // --- Initial setup and event listeners for updates ---
