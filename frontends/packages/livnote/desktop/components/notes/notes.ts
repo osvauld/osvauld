@@ -277,7 +277,27 @@ export class Notes {
             // Render as a span with the color style if color attribute exists
             return mark.attrs.color ? ["span", { style: `color: ${mark.attrs.color}` }] : ["span"];
           }
-        }
+        },
+        // Add link mark
+        link: {
+          attrs: {
+            href: {},
+            title: { default: null },
+          },
+          inclusive: false, // Link shouldn't automatically span across nodes
+          parseDOM: [{
+            tag: "a[href]",
+            getAttrs(dom: HTMLElement) {
+              return {
+                href: dom.getAttribute("href"),
+                title: dom.getAttribute("title"),
+              };
+            },
+          }],
+          toDOM(mark) {
+            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0]; // Open in new tab
+          },
+        },
       }
     });
 
