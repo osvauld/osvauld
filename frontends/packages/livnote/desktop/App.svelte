@@ -45,7 +45,13 @@
 			const unsubMergeUpdate = await listen("merge-update", async (event) => {
 				try {
 					// Handle merge updates
-					const payload = event.payload;
+					const payload = event.payload as {
+						local_resource: any;
+						remote_resource: any;
+						device_id: string;
+						user_id: string;
+						vector_clock: any;
+					}; // Assert payload type
 					let mergedDocument = mergeDocuments(
 						payload.local_resource,
 						payload.remote_resource,
