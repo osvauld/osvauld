@@ -119,7 +119,7 @@ export function floatingMenuPlugin(schema: Schema) {
 
     return menu;
   }
-  
+
   // --- Mode Switching Functions ---
   function switchToLinkInputMode() {
     if (!buttonsContainer || !linkInputContainer || !linkInput || !view) return;
@@ -324,7 +324,7 @@ export function floatingMenuPlugin(schema: Schema) {
     if (!scrollContainer) {
       console.warn("Floating menu: Could not find '.editor-main' scroll container.");
       hideMenu();
-      return;
+       return;
     }
     const offsetParent = menu.offsetParent as HTMLElement || document.body;
 
@@ -378,11 +378,33 @@ export function floatingMenuPlugin(schema: Schema) {
 
   // Handle clicks outside the menu
   function handleClickOutside(event: MouseEvent) {
-    if (!menu || !isMenuVisible) return;
+    if (!menu || !isMenuVisible || !view) return; // Check view as well
+    
     const target = event.target as Node;
-    // Hide if click is outside the menu AND not inside the editor (to allow selection changes)
-    if (!menu.contains(target) && !view?.dom.contains(target)) {
+
+    // Find the main editor menu element (assuming it has a class like 'editor-fixed-menu')
+    // Adjust selector based on your actual DOM structure for the fixed menu container
+    const fixedMenu = view.dom.closest('.editor-container')?.querySelector('.editor-fixed-menu'); 
+
+    // Check if the click target is inside the floating menu OR inside a button within the fixed menu
+    const isClickInsideFloatingMenu = menu.contains(target);
+    // Check if the target is inside the fixed menu *and* is a button or inside a button
+    const isClickInsideFixedMenuButton = fixedMenu?.contains(target) && !!(target as HTMLElement).closest('button'); 
+
+    // Check if the click is inside the editor content area itself (excluding the floating menu)
+    const isClickInsideEditor = view.dom.contains(target) && !isClickInsideFloatingMenu;
+
+    // Hide ONLY if the click is NOT inside the floating menu,
+    // NOT inside a fixed menu button,
+    // AND NOT inside the editor content area.
+    if (!isClickInsideFloatingMenu && !isClickInsideFixedMenuButton && !isClickInsideEditor) {
+      console.log("Hiding menu due to outside click (Not fixed menu button or editor content)");
       hideMenu();
+    } else {
+       // Log why we are *not* hiding (for debugging)
+       if (isClickInsideFloatingMenu) console.log("Click inside floating menu - not hiding.");
+       if (isClickInsideFixedMenuButton) console.log("Click inside fixed menu button - not hiding.");
+       if (isClickInsideEditor) console.log("Click inside editor content - not hiding.");
     }
   }
 

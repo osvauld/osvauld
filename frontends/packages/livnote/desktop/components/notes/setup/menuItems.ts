@@ -556,53 +556,6 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 		group.appendChild(strikethroughButton);
 	}
 
-  // Link button
-  if (schema.marks.link) {
-    const linkButton = document.createElement("button");
-    linkButton.className = "editor-general-button menu-link";
-    linkButton.title = "Add link";
-    linkButton.innerHTML = `
-      <svg width="24" height="24" viewBox="0 0 24 24" focusable="false">
-        <path d="M10.59 13.41c.44.44 1.16.44 1.6 0l3.82-3.82a4.003 4.003 0 0 0-5.66-5.66l-1.41 1.41a1 1 0 0 0 1.41 1.41l1.06-1.06c1.17-.88 2.77-.62 3.64.24.88.88.62 2.47-.24 3.64L13.4 12a1 1 0 0 0 0 1.41l.01.01zm2.82-1.41a1 1 0 0 0-1.41 0L10.6 13.4c-1.17.88-2.77.62-3.64-.24-.88-.88-.62-2.47.24-3.64l1.06-1.06a1 1 0 0 0-1.41-1.41L5.4 8.46a4.003 4.003 0 0 0 5.66 5.66l3.82-3.82a1 1 0 0 0-1.41-1.41l-.01-.01z" fill="#85889C"/>
-      </svg>
-    `;
-
-    linkButton.addEventListener("click", (e) => {
-      e.preventDefault();
-      console.log("Link button clicked"); // Log: Button click
-      const { state, dispatch } = view;
-      const { selection } = state;
-      const { $from } = selection;
-
-      // Check if link mark is active
-      const isLinkActive = state.doc.rangeHasMark(selection.$anchor.pos, selection.$head.pos, schema.marks.link);
-      console.log("Is link active?", isLinkActive); // Log: Link active status
-
-      if (isLinkActive) {
-        // If link is active, remove it
-        console.log("Removing link mark"); // Log: Removing link
-        toggleMark(schema.marks.link)(state, dispatch);
-        view.focus();
-      } else {
-        // If link is not active, emit an event to request the modal
-        console.log("Requesting link modal"); // Log: Requesting modal
-        const existingHref = schema.marks.link.isInSet($from.marks())?.attrs.href || "";
-        
-        // Emit event with selection details
-        void emit('request-link-modal', { 
-          from: selection.from, 
-          to: selection.to, 
-          existingHref 
-        });
-        
-        // Focus remains in the editor for now
-        view.focus(); 
-      }
-    });
-    group.appendChild(linkButton);
-  }
-  
-
   // Function to update button active state
   const updateButtonActiveState = () => {
     const { state } = view;
@@ -622,19 +575,6 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
       const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
       if (strikethroughButton) {
         strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
-      }
-    }
-
-    // Update Link Button
-    if (schema.marks.link) {
-      const linkButton = group.querySelector(".menu-link") as HTMLButtonElement;
-      if (linkButton) {
-        linkButton.disabled = empty;
-        linkButton.style.opacity = empty ? "0.5" : "1";
-        // Check if link mark is active at cursor/selection
-        const {$anchor, $head} = selection;
-        const isLinkActive = state.doc.rangeHasMark($anchor.pos, $head.pos, schema.marks.link);
-        linkButton.classList.toggle("is-active", isLinkActive);
       }
     }
   };
