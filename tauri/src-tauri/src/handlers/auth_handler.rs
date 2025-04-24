@@ -20,6 +20,19 @@ pub async fn check_signup_status(
 }
 
 #[tauri::command]
+pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<CryptoResponse, String> {
+    let user = user_state.get_user().await?;
+    let device = user_state.get_device().await?;
+    Ok(CryptoResponse::UserDetails {
+        user_id: user.id,
+        username: user.username,
+        device_id: device.id,
+        public_key: user.public_key,
+        device_key: device.device_key,
+    })
+}
+
+#[tauri::command]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
@@ -72,6 +85,7 @@ pub async fn handle_sign_up(
     p2p_service.set_current_user(user.clone()).await;
     p2p_service.set_current_device(device.clone()).await;
     // Spawn a background task to handle WebSocket connection
+    let user_id_clone = user_id.clone();
     tokio::spawn(async move {
         match rendezvous_clone
             .initialize(format!("{}:{}", user.id, device.id), &current_device.id)
@@ -80,7 +94,7 @@ pub async fn handle_sign_up(
             Ok(_) => {
                 info!(
                     "Successfully connected to rendezvous server with user ID: {}",
-                    user_id
+                    user_id_clone
                 );
             }
             Err(e) => {
@@ -95,6 +109,7 @@ pub async fn handle_sign_up(
         username: user.username,
         device_key: user.public_key.clone(),
         encryption_key: user.public_key,
+        user_id,
     })
 }
 
@@ -132,10 +147,12 @@ pub async fn login(
     p2p_service.set_current_device(current_device.clone()).await;
 
     // Spawn a background task to handle WebSocket connection
+
+    let user_id_clone = user_id.clone();
     tokio::spawn(async move {
         match rendezvous_clone
             .initialize(
-                format!("{}:{}", user.id, current_device.id),
+                format!("{}:{}", user.id.clone(), current_device.id),
                 &current_device.id,
             )
             .await
@@ -143,7 +160,7 @@ pub async fn login(
             Ok(_) => {
                 info!(
                     "Successfully connected to rendezvous server with user ID: {}",
-                    user_id
+                    user_id_clone
                 );
             }
             Err(e) => {
@@ -154,7 +171,11 @@ pub async fn login(
         }
     });
 
-    Ok(CryptoResponse::PublicKey(public_key))
+    Ok(CryptoResponse::User {
+        user_id,
+        username: user.username,
+        public_key: user.public_key,
+    })
 }
 
 #[tauri::command]

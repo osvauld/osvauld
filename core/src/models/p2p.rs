@@ -44,10 +44,7 @@ pub enum SyncPayload {
         share_record: ShareRecord,
     },
     StatusUpdate(Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>),
-    ResourceUpdate {
-        resource: Resource,
-        vector_clocks: Vec<ResourceVectorClock>,
-    },
+    ResourceMerge(ResourceUpdateMsg),
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum UserConnectionPayload {
@@ -91,7 +88,7 @@ pub enum Message {
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
-    UpdateResource(UpdateResource),
+    MergeUpdate(ResourceUpdateMsg),
     UserConnection(UserConnectionPayload),
     Phase(Phase),
 }
@@ -109,11 +106,28 @@ pub enum ConnectionType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UpdateResource {
-    pub encrypted_data: String,
-    pub add_vector_clock: Vec<ResourceVectorClock>,
-    pub update_vector_clock: Vec<ResourceVectorClock>,
-    pub resource_id: String,
+pub enum ResourceUpdateMsg {
+    // Initial message with state vector
+    StateVectorRequest {
+        resource_id: String,
+        state_vector: Vec<u8>,
+    },
+    // Response with updates and state vector
+    UpdatesResponse {
+        resource_id: String,
+        updates: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    // Final updates if needed
+    FinalUpdates {
+        resource_id: String,
+        updates: Vec<u8>,
+        vector_clocks: Vec<ResourceVectorClock>,
+    },
+    // Acknowledgment that sync is complete
+    SyncComplete {
+        resource_id: String,
+    },
 }
 
 // The HandshakeMessage type remains the same

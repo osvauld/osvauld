@@ -1,7 +1,8 @@
+use log::warn;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::folder::Folder;
 use osvauld_core::models::p2p::{SyncAckType, SyncPayload};
-use osvauld_core::models::resource::{Resource, ResourceKeyPair};
+use osvauld_core::models::resource::ResourceKeyPair;
 use osvauld_core::models::share_record::ShareRecord;
 use osvauld_core::models::sync_record::{
      DeviceRecord, DeviceRecordStatus, SyncRecord, SyncRecordSet
@@ -14,11 +15,11 @@ use osvauld_core::repositories::RepositoryError;
 
 use tracing::{Span, info, debug, error, instrument, trace};
 
-use super::sync_service_core::{SyncEvent, SyncService};
+use super::sync_service_core::SyncService;
 
 impl SyncService {
     #[instrument(
-        skip(self, payload, emit_event, current_span), 
+        skip(self, payload,  current_span), 
         fields(
             payload_type = ?std::mem::discriminant(payload),
             remote_user_id= %remote_user_id,
@@ -28,18 +29,15 @@ impl SyncService {
         ),
         level = "info"
     )]
-    pub async fn process_sync_payload<F>(
+    pub async fn process_sync_payload(
         &self,
         payload: &SyncPayload,
         remote_user_id: &str,
         device_id: &str,
-        emit_event: Option<F>,
         current_device_id: &str,
         current_user_id: &str,
         current_span: Span,
     ) -> Result<SyncAckType, RepositoryError>
-    where
-        F: Fn(SyncEvent) + Send + Sync,
     {
         // Enter the parent span
         let _guard = current_span.enter();
@@ -144,25 +142,7 @@ impl SyncService {
                     self.process_share_sync(sync_record, device_records, device_record_statuses,share_record, current_device_id, current_user_id).await
             }
 
-            SyncPayload::ResourceUpdate {
-                resource,
-                vector_clocks,
-            } => {
-                debug!(
-                    resource_id = %resource.id,
-                    vector_clocks = vector_clocks.len(),
-                    "Processing resource update sync"
-                );
-                
-                self.process_resource_update_sync(
-                    resource,
-                    device_id,
-                    current_user_id,
-                    vector_clocks,
-                    emit_event,
-                )
-                .await
-            }
+
 
             SyncPayload::StatusUpdate(payload) => {
                 debug!(
@@ -171,6 +151,13 @@ impl SyncService {
                 );
                 
                 self.process_status_update(payload, current_device_id).await
+            }
+            SyncPayload::ResourceMerge(payload) => {
+                info!("not used");
+                warn!("warning this shouldnt be called");
+                Ok(
+                    SyncAckType::UpdateRecieved("Nonte".to_string())
+                )
             }
         };
         
@@ -861,48 +848,6 @@ impl SyncService {
         Ok(SyncAckType::FullSync(combined_remote_operations))
     }
 
-    #[instrument(
-        skip(self, resource, vector_clock, emit_event), 
-        fields(
-            resource_id = %resource.id,
-            device_id = %device_id,
-            user_id = %user_id,
-            vector_clock_count = vector_clock.len()
-        ),
-        level = "debug"
-    )]
-    async fn process_resource_update_sync<F>(
-        &self,
-        resource: &Resource,
-        device_id: &str,
-        user_id: &str,
-        vector_clock: &[ResourceVectorClock],
-        emit_event: Option<F>,
-    ) -> Result<SyncAckType, RepositoryError>
-    where
-        F: Fn(SyncEvent) + Send + Sync,
-    {
-        debug!("Processing resource update sync");
-        
-        if let Some(emit) = &emit_event {
-            debug!("Emitting resource update event");
-            emit(SyncEvent::UpdateEvent {
-                remote_resource: resource.clone(),
-                user_id: user_id.to_string(),
-                device_id: device_id.to_string(),
-                vector_clock: vector_clock.to_vec(),
-            });
-            debug!("Event emitted");
-        } else {
-            debug!("No event emitter provided");
-        }
-        
-        info!(
-            resource_id = %resource.id,
-            "Resource update sync processed successfully"
-        );
-        Ok(SyncAckType::UpdateRecieved(resource.id.clone()))
-    }
 
     #[instrument(
         skip(self, sync_record, device_records, device_record_statuses, devices), 

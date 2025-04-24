@@ -433,7 +433,11 @@ impl RendezvousService {
             // First check if connection already exists
             let connection_exists =
                 match self.p2p_service.get_connection_by_id(&user_device_id).await {
-                    Ok(_) => {
+                    Ok(connection) => {
+                        let connection_id = connection.get_id();
+                        connection
+                            .event_emitter
+                            .emit(p2p_service::p2p::P2PEvent::LiveEditConnected { connection_id });
                         info!("Connection already exists for {}", user_device_id);
                         true
                     }

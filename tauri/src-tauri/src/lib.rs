@@ -7,8 +7,8 @@ pub mod listners;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
-    handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
+    check_private_key_loaded, check_signup_status, get_public_key, get_user_details, get_user_id,
+    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
     handle_sign_challenge, handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
@@ -129,6 +129,17 @@ pub fn run() {
                         folder_repo.clone(),
                         vector_clock_repo.clone(),
                     ));
+
+                    let resource_service = Arc::new(ResourceService::new(
+                        resource_repo.clone(),
+                        crypto_utils.clone(),
+                        vector_clock_repo.clone(),
+                        resource_key_repo.clone(),
+                        device_repo.clone(),
+                        user_repository.clone(),
+                        share_repo.clone(),
+                        sync_repo.clone(),
+                    ));
                     let sync_service = Arc::new(SyncService::new(
                         sync_repo.clone(),
                         folder_repo.clone(),
@@ -138,6 +149,7 @@ pub fn run() {
                         vector_clock_repo.clone(),
                         user_repository.clone(),
                         share_repo.clone(),
+                        resource_service.clone(),
                         transaction_service.clone(),
                     ));
 
@@ -148,16 +160,6 @@ pub fn run() {
                         device_repo.clone(),
                         vector_clock_repo.clone(),
                         share_repo.clone(),
-                    ));
-                    let resource_service = Arc::new(ResourceService::new(
-                        resource_repo.clone(),
-                        crypto_utils.clone(),
-                        vector_clock_repo.clone(),
-                        resource_key_repo.clone(),
-                        device_repo.clone(),
-                        user_repository.clone(),
-                        share_repo.clone(),
-                        sync_repo.clone(),
                     ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
                         P2PService::new(
@@ -254,6 +256,7 @@ pub fn run() {
             initiate_first_connection,
             share_resource,
             get_details_for_share,
+            get_user_details,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

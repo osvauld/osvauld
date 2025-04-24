@@ -2,6 +2,7 @@ import { sendMessage } from "@osvauld/password-manager-common";
 import { uiState } from './ui.svelte';
 import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
+import { notesInstance } from "../components/notes/notes";
 // Define interfaces
 export interface Vault {
   id: string;
@@ -25,6 +26,14 @@ export interface Note {
   folderId?: string;
 }
 
+export interface UserDetails {
+  userId: string,
+  deviceId: string,
+  username: string,
+  publicKey: string,
+  deviceKey: string,
+}
+
 // Data State class
 class DataState {
   // Core data state
@@ -36,6 +45,7 @@ class DataState {
   language = $state<string>("en");
   currentView = $state<string>("all");
   isDataLoading = $state<boolean>(false);
+  userDetails = $state<UserDetails | null>(null)
 
   // Derived values for filtering notes - declare as a class property with $derived
   filteredNotes = $derived.by(() => {
@@ -81,6 +91,7 @@ class DataState {
       const fetchedNotes = await sendMessage("getAllCredentials");
       // Filter for valid notes
       this.notes = fetchedNotes;
+      console.log(fetchedNotes);
     } catch (error) {
       console.error("Error fetching notes:", error);
       this.notes = [];
@@ -102,7 +113,6 @@ class DataState {
     uiState.toggleNoteViewLayout(true);
     StoreService.setCurrentNoteId(note.id);
     if (note.id) {
-
       emit("note-change", note.id
       ).catch(error => {
         console.error("Error updating current note:", error);
@@ -137,11 +147,25 @@ class DataState {
     try {
       await this.fetchVaults();
       await this.fetchAllNotes();
+      await this.getUserDetails();
       this.setupReactiveUpdates();
       await this.restoreSavedSelections();
     } finally {
       this.isDataLoading = false;
     }
+  }
+
+  async getUserDetails() {
+    this.userDetails = await sendMessage('getUserDetails');
+    const clientId = this.getClientId();
+    notesInstance.updateClientId(clientId);
+  }
+
+  getClientId(): number {
+    if (!this.userDetails) {
+      throw new Error("User details not available");
+    }
+    return parseInt(this.userDetails?.deviceId.substring(0, 8), 16)
   }
   // Restore saved selections from storage
   async restoreSavedSelections() {

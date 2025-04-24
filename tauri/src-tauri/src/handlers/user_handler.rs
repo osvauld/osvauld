@@ -1,5 +1,5 @@
 use crate::types::{CryptoResponse, UserDetails};
-use crate::user_state::UserState;
+use crate::user_state::{self, UserState};
 use base64::{Engine as _, engine::general_purpose};
 use osvauld_services::{TransactionService, UserService};
 use std::sync::Arc;
