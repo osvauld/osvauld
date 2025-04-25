@@ -1,5 +1,5 @@
 import { EditorView } from "prosemirror-view";
-import { Schema } from "prosemirror-model";
+import { Schema, Node as ProsemirrorNode } from "prosemirror-model";
 import { toggleMark, setBlockType, wrapIn } from "prosemirror-commands";
 import { wrapInList } from "prosemirror-schema-list";
 import { undo, redo } from "prosemirror-history";
@@ -7,6 +7,8 @@ import { indentRight, indentLeft } from "./indentUtils";
 import { setTextAlign } from "./alignmentUtils";
 import { createHeadingSubmenu, hideDropdowns } from "./dropdownUtils";
 import { emit } from "@tauri-apps/api/event";
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { readFile } from '@tauri-apps/plugin-fs';
 
 export function addHistoryItems(container: HTMLElement, schema: Schema, view: EditorView) {
   const group = document.createElement("div");
@@ -556,46 +558,100 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 		group.appendChild(strikethroughButton);
 	}
 
-  // Function to update button active state
-  const updateButtonActiveState = () => {
-    const { state } = view;
-    const { selection } = state;
-    const { $from, empty } = selection;
+	// --- Image Upload Button ---
+	if (schema.nodes.image) {
+		const imageButton = document.createElement("button");
+		imageButton.className = "editor-general-button menu-image";
+		imageButton.title = "Insert image";
+		imageButton.innerHTML = `
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" fill="#85889C"/>
+      </svg>
+    `;
+		imageButton.addEventListener("click", async () => {
+			try {
+				const selectedPath = await openDialog({
+					multiple: false,
+					filters: [{
+						name: 'Images',
+						extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
+					}]
+				});
 
-    // Update Underline Button
-    if (schema.marks.underline) {
-      const underlineButton = group.querySelector(".menu-underline") as HTMLButtonElement;
-      if (underlineButton) {
-        underlineButton.classList.toggle("is-active", !!schema.marks.underline.isInSet($from.marks()));
-      }
-    }
+				if (selectedPath && typeof selectedPath === 'string') {
+					const binaryData = await readFile(selectedPath);
 
-    // Update Strikethrough Button
-    if (schema.marks.strikethrough) {
-      const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
-      if (strikethroughButton) {
-        strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
-      }
-    }
-  };
+					// Function to convert Blob to Base64 Data URL using FileReader wrapped in a Promise
+					const blobToBase64 = (blob: Blob): Promise<string> => {
+						return new Promise((resolve, reject) => {
+							const reader = new FileReader();
+							reader.onloadend = () => resolve(reader.result as string);
+							reader.onerror = (error) => reject(error);
+							reader.readAsDataURL(blob);
+						});
+					};
 
-  // Initial state update
-  updateButtonActiveState();
+					// Create Blob and convert to Data URL
+					const blob = new Blob([binaryData]); // FileReader determines MIME type
+					const dataUrl = await blobToBase64(blob);
 
-  // Add event listeners to update state
-  view.dom.addEventListener("keyup", updateButtonActiveState);
-  view.dom.addEventListener("mouseup", updateButtonActiveState);
-  const originalDispatch = view.dispatch;
-  view.dispatch = (tr) => {
-    originalDispatch(tr);
-    if (tr.docChanged || tr.selectionSet) {
-      updateButtonActiveState();
-    }
-  };
+					// Create the image node
+					const imageNode = schema.nodes.image.create({ src: dataUrl });
 
-  if (group.children.length > 0) {
-    container.appendChild(group);
-  }
+					// Insert the image node at the current selection
+					const { state, dispatch } = view;
+					const transaction = state.tr.replaceSelectionWith(imageNode);
+					dispatch(transaction);
+					view.focus();
+				}
+			} catch (error) {
+				console.error("Error selecting or processing image:", error);
+				// Optionally: Show an error message to the user
+			}
+		});
+		group.appendChild(imageButton);
+	}
+
+	// Function to update button active state
+	const updateButtonActiveState = () => {
+		const { state } = view;
+		const { selection } = state;
+		const { $from, empty } = selection;
+
+		// Update Underline Button
+		if (schema.marks.underline) {
+			const underlineButton = group.querySelector(".menu-underline") as HTMLButtonElement;
+			if (underlineButton) {
+				underlineButton.classList.toggle("is-active", !!schema.marks.underline.isInSet($from.marks()));
+			}
+		}
+
+		// Update Strikethrough Button
+		if (schema.marks.strikethrough) {
+			const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
+			if (strikethroughButton) {
+				strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
+			}
+		}
+	};
+
+	// Initial state update
+	updateButtonActiveState();
+
+	// Add event listeners to update state
+	view.dom.addEventListener("keyup", updateButtonActiveState);
+	view.dom.addEventListener("mouseup", updateButtonActiveState);
+	const originalDispatch = view.dispatch;
+	view.dispatch = (tr) => {
+		originalDispatch(tr);
+		if (tr.docChanged || tr.selectionSet) {
+			updateButtonActiveState();
+		}
+	};
+
+	if (group.children.length > 0) {
+		container.appendChild(group);
+	}
 }
 
 // Function to add blockquote and code block buttons
