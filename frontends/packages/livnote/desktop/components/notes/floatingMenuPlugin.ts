@@ -61,9 +61,7 @@ export function floatingMenuPlugin(schema: Schema) {
     // Add Link Button to the regular buttons
     if (schema.marks.link) {
       linkButton = createButton("Link", 
-        `<svg width="16" height="16" viewBox="0 0 24 24" focusable="false" fill="currentColor">
-           <path d="M10.59 13.41c.44.44 1.16.44 1.6 0l3.82-3.82a4.003 4.003 0 0 0-5.66-5.66l-1.41 1.41a1 1 0 0 0 1.41 1.41l1.06-1.06c1.17-.88 2.77-.62 3.64.24.88.88.62 2.47-.24 3.64L13.4 12a1 1 0 0 0 0 1.41l.01.01zm2.82-1.41a1 1 0 0 0-1.41 0L10.6 13.4c-1.17.88-2.77.62-3.64-.24-.88-.88-.62-2.47.24-3.64l1.06-1.06a1 1 0 0 0-1.41-1.41L5.4 8.46a4.003 4.003 0 0 0 5.66 5.66l3.82-3.82a1 1 0 0 0-1.41-1.41l-.01-.01z"/>
-         </svg>`, 
+        `<svg width="16" height="16" viewBox="0 0 24 24" focusable="false" fill="currentColor"><path d="M6.2 12.3a1 1 0 0 1 1.4 1.4l-2 2a2 2 0 1 0 2.6 2.8l4.8-4.8a1 1 0 0 0 0-1.4 1 1 0 1 1 1.4-1.3 2.9 2.9 0 0 1 0 4L9.6 20a3.9 3.9 0 0 1-5.5-5.5l2-2Zm11.6-.6a1 1 0 0 1-1.4-1.4l2-2a2 2 0 1 0-2.6-2.8L11 10.3a1 1 0 0 0 0 1.4A1 1 0 1 1 9.6 13a2.9 2.9 0 0 1 0-4L14.4 4a3.9 3.9 0 0 1 5.5 5.5l-2 2Z" fill-rule="nonzero"></path></svg>`, 
         "link", 
         handleLinkButtonClick // Special handler
       );
