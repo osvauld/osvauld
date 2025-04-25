@@ -5,6 +5,21 @@ use tokio::sync::mpsc;
 pub enum IncomingEvent {
     /// Sent when a sync update occurs
     SyncUpdate { payload: String },
+    LiveEditDocumentCheck {
+        connection_id: String,
+        resource_id: String,
+    },
+    LiveEditDocumentCheckResponse {
+        connection_id: String,
+        resource_id: String,
+        is_match: bool,
+    },
+    LiveEditUpdateExchange {
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        buffer: Vec<u8>,
+    },
 }
 
 /// Sender for incoming events to be processed by the P2P service
@@ -30,5 +45,44 @@ impl P2PSender {
     /// Sends a sync update event
     pub fn send_sync_update(&self, payload: String) -> Result<(), String> {
         self.send(IncomingEvent::SyncUpdate { payload })
+    }
+
+    pub fn send_live_edit_document_check(
+        &self,
+        connection_id: String,
+        resource_id: String,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditDocumentCheck {
+            connection_id,
+            resource_id,
+        })
+    }
+
+    pub fn send_live_edit_document_check_response(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        is_match: bool,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditDocumentCheckResponse {
+            connection_id,
+            resource_id,
+            is_match,
+        })
+    }
+
+    pub fn send_live_edit_update_exchange(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        buffer: Vec<u8>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditUpdateExchange {
+            connection_id,
+            resource_id,
+            state_vector,
+            buffer,
+        })
     }
 }

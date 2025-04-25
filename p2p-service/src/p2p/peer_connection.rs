@@ -291,6 +291,9 @@ impl PeerConnection {
             Message::MergeUpdate(payload) => {
                 self.process_merge_payload(payload).await
             }
+            Message::LiveEdit(payload) => {
+                self.handle_live_edit_flow(payload).await
+            }
         }
     }
 

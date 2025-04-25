@@ -1,8 +1,9 @@
 use crate::p2p::peer_connection::PeerConnection;
-use osvauld_services::SyncEvent;
 
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{Message, ResourceUpdateMsg, SyncAckType, SyncPayload};
+use osvauld_core::models::p2p::{
+    LiveEditMessage, Message, ResourceUpdateMsg, SyncAckType, SyncPayload,
+};
 
 use super::P2PEvent;
 use tracing::{debug, error, info, instrument, Span};
@@ -395,6 +396,31 @@ impl PeerConnection {
                 error!("Failed to process resource merge message: {}", e);
                 Err(format!("Failed to process resource merge message: {}", e))
             }
+        }
+    }
+
+    #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
+    pub async fn handle_live_edit_flow(&self, message: &LiveEditMessage) -> Result<(), String> {
+        match message {
+            LiveEditMessage::DocumentCheck { resource_id } => {
+                self.event_emitter.emit(P2PEvent::DocumentCheck {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::StateVectorExchange {
+                resource_id,
+                state_vector,
+            } => {
+                self.event_emitter.emit(P2PEvent::UpdateRequest {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                    state_vector: state_vector.clone(),
+                });
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 }

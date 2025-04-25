@@ -1,11 +1,9 @@
 use crate::current_note_state::CurrentNoteState;
 use crate::user_state::UserState;
-use log::{error, info};
-use osvauld_core::models::vector_clock::ResourceVectorClock;
+use log::{error, info, warn};
 use osvauld_services::{ResourceService, UserService};
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
 use rendezvous_client::rendezvous_service::RendezvousService;
-use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -245,6 +243,18 @@ impl EventManager {
                 P2PEvent::LiveEditConnected { connection_id } => {
                     self.handle_live_edit_connected(connection_id).await
                 }
+                P2PEvent::DocumentCheck {
+                    resource_id,
+                    connection_id,
+                } => self.handle_document_check(resource_id, connection_id).await,
+                P2PEvent::UpdateRequest {
+                    resource_id,
+                    connection_id,
+                    state_vector,
+                } => {
+                    self.handle_document_update_request(resource_id, connection_id, state_vector)
+                        .await
+                }
             }
         }
 
@@ -259,7 +269,130 @@ impl EventManager {
     }
 
     async fn handle_live_edit_connected(&self, connection_id: String) {
-        info!("event triggered *********");
+        info!("Live edit connection established with: {}", connection_id);
+
+        // Get current note ID
+        let current_note_state = self.current_note_state.clone();
+        if let Some(resource_id) = current_note_state.get_current_note() {
+            info!("Initiating live editing for resource: {}", resource_id);
+
+            // Send document check to initiate live editing
+            if let Err(e) = self
+                .p2p_sender
+                .send_live_edit_document_check(connection_id.clone(), resource_id.clone())
+            {
+                error!("Failed to send live edit document check: {}", e);
+            } else {
+                info!("Sent document check for resource: {}", resource_id);
+            }
+
+            // Notify frontend that live editing has been initialized
+            if let Err(e) = self.app_handle.emit(
+                "live-edit-initialized",
+                serde_json::json!({
+                    "connection_id": connection_id,
+                    "resource_id": resource_id,
+                }),
+            ) {
+                error!("Failed to emit live-edit-initialized event: {}", e);
+            }
+        } else {
+            warn!("Cannot initiate live editing - no current note selected");
+        }
+    }
+
+    async fn handle_document_check(&self, resource_id: String, connection_id: String) {
+        info!("Received document check for resource: {}", resource_id);
+
+        // Check if we're currently editing this resource
+        let current_note_state = self.current_note_state.clone();
+        let is_match = if let Some(current_resource_id) = current_note_state.get_current_note() {
+            current_resource_id == resource_id
+        } else {
+            false
+        };
+
+        // Send the response
+        if let Err(e) = self.p2p_sender.send_live_edit_document_check_response(
+            connection_id.clone(),
+            resource_id.clone(),
+            is_match,
+        ) {
+            error!("Failed to send document check response: {}", e);
+        } else {
+            info!(
+                "Sent document check response for resource: {}, is_match: {}",
+                resource_id, is_match
+            );
+        }
+
+        // Notify frontend of document check
+        if let Err(e) = self.app_handle.emit(
+            "document-check",
+            serde_json::json!({
+                "connection_id": connection_id,
+                "resource_id": resource_id,
+                "is_match": is_match
+            }),
+        ) {
+            error!("Failed to emit document-check event: {}", e);
+        }
+    }
+
+    async fn handle_document_update_request(
+        &self,
+        resource_id: String,
+        connection_id: String,
+        state_vector: Vec<u8>,
+    ) {
+        info!("Received update request for resource: {}", resource_id);
+
+        // Verify this is the document we're currently editing
+        let current_note_state = self.current_note_state.clone();
+        if let Some(current_resource_id) = current_note_state.get_current_note() {
+            if current_resource_id != resource_id {
+                error!(
+                    "Resource ID mismatch in update request: expected {}, got {}",
+                    current_resource_id, resource_id
+                );
+                return;
+            }
+
+            // Combine current and previous buffers
+            let mut combined_buffer = Vec::new();
+
+            // First add current buffer if available
+            if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
+                info!(
+                    "Adding current buffer ({} bytes) to update exchange",
+                    current_buffer.len()
+                );
+                combined_buffer.extend_from_slice(&current_buffer);
+            }
+
+            // Then add previous buffer if available
+            if let Some(previous_buffer) = current_note_state.get_previous_yjs_state() {
+                info!(
+                    "Adding previous buffer ({} bytes) to update exchange",
+                    previous_buffer.len()
+                );
+                combined_buffer.extend_from_slice(&previous_buffer);
+            }
+
+            // Send the update exchange
+            if let Err(e) = self.p2p_sender.send_live_edit_update_exchange(
+                connection_id.clone(),
+                resource_id.clone(),
+                state_vector.clone(),
+                combined_buffer,
+            ) {
+                error!("Failed to send update exchange: {}", e);
+            } else {
+                info!("Sent update exchange for resource: {}", resource_id);
+            }
+        } else {
+            error!("No current document set, cannot handle update request");
+        }
     }
 
     /// Handle disconnected event

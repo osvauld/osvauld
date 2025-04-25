@@ -37,6 +37,15 @@ pub enum P2PEvent {
     LiveEditConnected {
         connection_id: String,
     },
+    DocumentCheck {
+        resource_id: String,
+        connection_id: String,
+    },
+    UpdateRequest {
+        resource_id: String,
+        connection_id: String,
+        state_vector: Vec<u8>,
+    },
 }
 
 /// Handles event emission for the P2P service
