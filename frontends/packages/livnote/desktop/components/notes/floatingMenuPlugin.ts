@@ -47,11 +47,21 @@ export function floatingMenuPlugin(schema: Schema) {
     buttonsContainer.style.gap = "4px";
 
     if (schema.marks.strong) {
-      const boldButton = createButton("Bold", "B", "strong", () => toggleMark(schema.marks.strong));
+      const boldButton = createButton("Bold", "B", "strong", () => {
+        if (view) {
+          toggleMark(schema.marks.strong)(view.state, view.dispatch);
+          view.focus();
+        }
+      });
       buttonsContainer.appendChild(boldButton);
     }
     if (schema.marks.em) {
-      const italicButton = createButton("Italic", "I", "em", () => toggleMark(schema.marks.em));
+      const italicButton = createButton("Italic", "I", "em", () => {
+        if (view) {
+          toggleMark(schema.marks.em)(view.state, view.dispatch);
+          view.focus();
+        }
+      });
       buttonsContainer.appendChild(italicButton);
     }
     if (schema.marks.code) {
