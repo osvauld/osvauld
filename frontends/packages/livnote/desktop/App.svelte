@@ -11,12 +11,9 @@
 	import { onMount, onDestroy } from "svelte";
 	import AppModals from "./components/modals/Modals.svelte";
 	import { dataState, uiState } from "./state/";
-	import { listen, emit } from "@tauri-apps/api/event";
-	import { mergeDocuments } from "./components/notes/documentUtils";
 
 	let signedUp = $state(false);
 	let isLoading = $state(true);
-	let unsubscribers = $state<Function[]>([]);
 
 	// Handle escape key to close modals
 	function handleKeydown(event: KeyboardEvent) {
@@ -34,41 +31,7 @@
 	const handleAuthenticated = async () => {
 		uiState.setWelcomeScreen(false);
 		await dataState.initializeState();
-
-		// Setup event listeners
-		await setupEventListeners();
 	};
-
-	async function setupEventListeners() {
-		try {
-			// Set up merge-update listener
-			const unsubMergeUpdate = await listen("merge-update", async (event) => {
-				try {
-					// Handle merge updates
-					const payload = event.payload;
-					let mergedDocument = mergeDocuments(
-						payload.local_resource,
-						payload.remote_resource,
-					);
-
-					emit("merge-complete", {
-						mergedDocument,
-						deviceId: payload.device_id,
-						userId: payload.user_id,
-						vectorClock: payload.vector_clock,
-						resourceId: mergedDocument.resource_id,
-					});
-				} catch (error) {
-					console.error("Error handling merge-update:", error);
-				}
-			});
-
-			// Store unsubscriber for cleanup
-			unsubscribers = [unsubMergeUpdate];
-		} catch (error) {
-			console.error("Failed to set up event listeners:", error);
-		}
-	}
 
 	onMount(async () => {
 		try {
@@ -95,15 +58,6 @@
 	onDestroy(() => {
 		// Clean up event listener
 		window.removeEventListener("keydown", handleKeydown);
-
-		// Clean up all event unsubscribers
-		unsubscribers.forEach((unsubscribe) => {
-			try {
-				unsubscribe();
-			} catch (err) {
-				console.error("Error unsubscribing from event:", err);
-			}
-		});
 	});
 </script>
 

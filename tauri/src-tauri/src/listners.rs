@@ -1,7 +1,6 @@
 use crate::current_note_state::CurrentNoteState;
 use crate::user_state::UserState;
 use log::{error, info};
-use osvauld_core::models::resource::Resource;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_services::{ResourceService, UserService};
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
@@ -22,16 +21,6 @@ pub struct EventManager {
     current_note_state: CurrentNoteState,
     user_service: Arc<UserService>,
     rendezvous_service: Arc<RendezvousService>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct MergeCompletePayload {
-    merged_document: serde_json::Value,
-    device_id: String,
-    user_id: String,
-    vector_clock: Vec<ResourceVectorClock>,
-    resource_id: String,
 }
 
 impl EventManager {
@@ -69,7 +58,6 @@ impl EventManager {
     /// Set up listeners for Tauri events
     fn setup_tauri_listeners(&self) {
         self.setup_sync_update_listener();
-        self.setup_merge_complete_listener();
         self.setup_note_change_listener();
         self.setup_resource_update_complete_listener();
     }
@@ -237,67 +225,6 @@ impl EventManager {
         });
     }
 
-    /// Setup listener for merge-complete events
-    fn setup_merge_complete_listener(&self) {
-        let p2p_sender = self.p2p_sender.clone();
-        let resource_service_clone = self.resource_service.clone();
-        self.app_handle.listen("merge-complete", move |event| {
-            let resource_service = resource_service_clone.clone();
-            let payload_str = event.payload().to_string();
-            let p2p_sender = p2p_sender.clone();
-
-            // Spawn a task for merge-complete since it involves resource service operations
-            tokio::spawn(async move {
-                info!(
-                    "Received merge-complete event with payload: {}",
-                    payload_str
-                );
-
-                match serde_json::from_str::<MergeCompletePayload>(&payload_str) {
-                    Ok(payload) => {
-                        info!(
-                            "Successfully parsed merge-complete payload for resource: {}",
-                            payload.resource_id
-                        );
-
-                        let merged_doc_str = serde_json::to_string(&payload.merged_document)
-                            .unwrap_or_else(|_| "{}".to_string());
-                        match resource_service
-                            .update_merged_payload(
-                                &merged_doc_str,
-                                &payload.vector_clock,
-                                &payload.resource_id,
-                            )
-                            .await
-                        {
-                            Ok((encrypted_data, (add_remote_vector, update_remote_vector))) => {
-                                // Send merge complete event to P2P service using P2PSender
-                                if let Err(e) = p2p_sender.send_merge_complete(
-                                    encrypted_data,
-                                    add_remote_vector,
-                                    update_remote_vector,
-                                    payload.resource_id,
-                                    payload.user_id,
-                                    payload.device_id,
-                                ) {
-                                    error!("Failed to send merge complete event: {}", e);
-                                } else {
-                                    info!("Successfully sent merge complete event to P2P service");
-                                }
-                            }
-                            Err(e) => {
-                                error!("Failed to update merged payload: {}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to parse merge-complete payload: {:?}", e);
-                    }
-                }
-            });
-        });
-    }
-
     /// Listen for P2P events and forward them to Tauri
     async fn listen_for_p2p_events(&mut self) {
         info!("Started listening for P2P events");
@@ -311,15 +238,10 @@ impl EventManager {
                 P2PEvent::ShareComplete => self.handle_share_complete_event(),
                 P2PEvent::EditingEvent { payload } => self.handle_editing_event(payload),
                 P2PEvent::Error { message, source } => self.handle_error_event(message, source),
-                P2PEvent::UpdateEvent {
-                    vector_clock,
-                    remote_resource,
-                    device_id,
-                    user_id,
-                } => {
-                    self.handle_update_event(vector_clock, remote_resource, device_id, user_id)
-                        .await
-                }
+                P2PEvent::UpdatesEvent {
+                    resource_id,
+                    updates,
+                } => self.handle_update_event(resource_id, updates).await,
                 P2PEvent::LiveEditConnected { connection_id } => {
                     self.handle_live_edit_connected(connection_id).await
                 }
@@ -388,62 +310,29 @@ impl EventManager {
         }
     }
 
-    /// Handle update event
-    async fn handle_update_event(
-        &self,
-        vector_clock: Vec<ResourceVectorClock>,
-        remote_resource: Resource,
-        device_id: String,
-        user_id: String,
-    ) {
+    /// Handle updates event
+    async fn handle_update_event(&self, resource_id: String, updates: Vec<u8>) {
         info!(
-            "Received update event from device {} for user {}: {:?}",
-            device_id, user_id, vector_clock
+            "Received updates event for resource {}, with {} bytes",
+            resource_id,
+            updates.len()
         );
 
-        // Handle the result from get_update_payload explicitly
-        match self
-            .resource_service
-            .get_update_payload(remote_resource)
-            .await
-        {
-            Ok((local_resource, remote_resource)) => {
-                // Now we have both decrypted resources, we can compare them
-                // or send them to the frontend for conflict resolution
-                info!("Successfully processed update event, got local and remote resources");
+        // Keep the updates as a Vec<u8> but send them as an array to JSON
+        // YJS expects Uint8Array and the frontend will convert it properly
+        let payload = serde_json::json!({
+            "resource_id": resource_id,
+            "updates": updates
+        });
 
-                // Create a payload with both resources for the frontend to handle
-                let payload = serde_json::json!({
-                    "local_resource": local_resource,
-                    "remote_resource": remote_resource,
-                    "device_id": device_id,
-                    "user_id": user_id,
-                    "vector_clock": vector_clock,
-                });
-
-                // Emit an event to the frontend with the resources
-                if let Err(e) = self.app_handle.emit("merge-update", payload) {
-                    error!("Failed to emit resource-update event: {}", e);
-                }
-            }
-            Err(e) => {
-                // Log the error and possibly notify the frontend
-                error!("Failed to process update event: {}", e);
-
-                // Notify the frontend about the failure
-                let error_payload = serde_json::json!({
-                    "error": e.to_string(),
-                    "device_id": device_id,
-                    "user_id": user_id
-                });
-
-                if let Err(emit_err) = self
-                    .app_handle
-                    .emit("resource-update-failed", error_payload)
-                {
-                    error!("Failed to emit resource-update-failed event: {}", emit_err);
-                }
-            }
+        // Emit to the frontend for direct application to the ProseMirror document
+        if let Err(e) = self.app_handle.emit("document-updates", payload) {
+            error!("Failed to emit document-updates event: {}", e);
+        } else {
+            info!(
+                "Successfully emitted document-updates event for resource: {}",
+                resource_id
+            );
         }
     }
 }

@@ -74,8 +74,8 @@ impl SyncService {
                 }
             }
             
-            SyncAckType::UpdateRecieved(resource_id) => {
-                info!(resource_id = %resource_id, "Update received at remote");
+            SyncAckType::UpdateRecieved => {
+                info!( "Update received at remote");
                 Ok(None)
             }
         }

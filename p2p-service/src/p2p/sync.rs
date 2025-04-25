@@ -329,7 +329,7 @@ impl PeerConnection {
                     updates: updates.clone(),
                 });
             }
-            ResourceUpdateMsg::FinalUpdates {
+            ResourceUpdateMsg::FinalUpdateMerge {
                 resource_id,
                 updates,
                 vector_clocks: _,
@@ -358,20 +358,36 @@ impl PeerConnection {
             .await
         {
             Ok(response_payload) => {
-                info!(
-                    response_type = ?std::mem::discriminant(&response_payload),
-                    "Sending merge response back to peer"
-                );
-                let response_message = Message::MergeUpdate(response_payload);
+                if let Some(response) = response_payload {
+                    info!(
 
-                match self.send_message(response_message).await {
-                    Ok(_) => {
-                        info!("Successfully sent merge response");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!("Failed to send merge response: {}", e);
-                        Err(format!("Failed to send merge response: {}", e))
+                        response_type = ?std::mem::discriminant(&response),
+                        "Sending merge response back to peer"
+                    );
+                    let response_message = Message::MergeUpdate(response);
+                    match self.send_message(response_message).await {
+                        Ok(_) => {
+                            info!("Successfully sent merge response");
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to send merge response: {}", e);
+                            Err(format!("Failed to send merge response: {}", e))
+                        }
+                    };
+                    return Ok(());
+                } else {
+                    let response_message = Message::SyncAck(SyncAckType::UpdateRecieved);
+
+                    match self.send_message(response_message).await {
+                        Ok(_) => {
+                            info!("Successfully sent merge response");
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to send merge response: {}", e);
+                            Err(format!("Failed to send merge response: {}", e))
+                        }
                     }
                 }
             }

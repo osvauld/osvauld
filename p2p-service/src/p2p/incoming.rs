@@ -1,18 +1,8 @@
-use osvauld_core::models::vector_clock::ResourceVectorClock;
 use tokio::sync::mpsc;
 
 /// Events that can be received and processed by the P2P service
 #[derive(Debug)]
 pub enum IncomingEvent {
-    /// Sent when a merge is completed
-    MergeComplete {
-        encrypted_doc: String,
-        add_vector_clock: Vec<ResourceVectorClock>,
-        update_vector_clock: Vec<ResourceVectorClock>,
-        resource_id: String,
-        user_id: String,
-        device_id: String,
-    },
     /// Sent when a sync update occurs
     SyncUpdate { payload: String },
 }
@@ -35,26 +25,6 @@ impl P2PSender {
         self.sender
             .send(event)
             .map_err(|e| format!("Failed to send event: {}", e))
-    }
-
-    /// Sends a merge complete event
-    pub fn send_merge_complete(
-        &self,
-        encrypted_doc: String,
-        add_vector_clock: Vec<ResourceVectorClock>,
-        update_vector_clock: Vec<ResourceVectorClock>,
-        resource_id: String,
-        user_id: String,
-        device_id: String,
-    ) -> Result<(), String> {
-        self.send(IncomingEvent::MergeComplete {
-            encrypted_doc,
-            add_vector_clock,
-            update_vector_clock,
-            resource_id,
-            user_id,
-            device_id,
-        })
     }
 
     /// Sends a sync update event

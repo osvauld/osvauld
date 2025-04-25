@@ -156,7 +156,7 @@ impl SyncService {
                 info!("not used");
                 warn!("warning this shouldnt be called");
                 Ok(
-                    SyncAckType::UpdateRecieved("Nonte".to_string())
+                    SyncAckType::UpdateRecieved
                 )
             }
         };

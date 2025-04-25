@@ -1,5 +1,5 @@
-use osvauld_core::models::document::{generate_updates_for_peer, get_state_vector};
 use osvauld_core::models::p2p::{ ResourceUpdateMsg, SyncPayload};
+use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::RepositoryError;
 use tracing::{debug, error, info, instrument, warn, Span};
 
@@ -7,50 +7,60 @@ use super::sync_service_core::SyncService;
 
 // Implement methods related to resource merge updates on SyncService
 impl SyncService {
-    /// Central method to process resource merge messages
-    /// Dispatches to specific handlers based on the message type
-    /// 
-    /// # Arguments
-    /// * `message` - The ResourceUpdateMsg to process
-    /// * `current_span` - The current tracing span
-    /// 
-    /// # Returns
-    /// * `Result<Message, RepositoryError>` - Response message or error
-    #[instrument(
-        skip(self, message, current_span), 
-        fields(
-            message_type = ?std::mem::discriminant(message)
-        ),
-        level = "info"
-    )]
-    pub async fn process_resource_merge_message(
-        &self,
-        message: &ResourceUpdateMsg,
-        current_span: Span,
-    ) -> Result<ResourceUpdateMsg, RepositoryError> {
-        let _guard = current_span.enter();
-        
-        info!("Processing resource merge message");
-        
-        match message {
-            ResourceUpdateMsg::StateVectorRequest{resource_id, state_vector} => {
-                debug!("Handling state vector request");
-                self.handle_state_vector_request(resource_id, state_vector).await
-            },
-            ResourceUpdateMsg::UpdatesResponse {resource_id,updates, state_vector } => {
-                debug!("Handling updates response");
-                self.handle_update_and_return_update(resource_id, updates, state_vector).await
-            },
-            ResourceUpdateMsg::FinalUpdates { .. } => {
-                debug!("Handling final updates");
-                todo!("Implementation for final updates pending")
-            },
-            ResourceUpdateMsg::SyncComplete { .. } => {
-                debug!("Handling sync complete");
-                todo!("Implementation for sync complete pending")
+/// Central method to process resource merge messages
+/// Dispatches to specific handlers based on the message type
+/// 
+/// # Arguments
+/// * `message` - The ResourceUpdateMsg to process
+/// * `current_span` - The current tracing span
+/// 
+/// # Returns
+/// * `Result<Option<ResourceUpdateMsg>, RepositoryError>` - Response message or None if process is complete
+#[instrument(
+    skip(self, message, current_span), 
+    fields(
+        message_type = ?std::mem::discriminant(message)
+    ),
+    level = "info"
+)]
+pub async fn process_resource_merge_message(
+    &self,
+    message: &ResourceUpdateMsg,
+    current_span: Span,
+) -> Result<Option<ResourceUpdateMsg>, RepositoryError> {
+    let _guard = current_span.enter();
+    
+    info!("Processing resource merge message");
+    
+    match message {
+        ResourceUpdateMsg::StateVectorRequest{resource_id, state_vector} => {
+            debug!("Handling state vector request");
+            let response = self.handle_state_vector_request(resource_id, state_vector).await?;
+            Ok(Some(response))
+        },
+        ResourceUpdateMsg::UpdatesResponse {resource_id, updates, state_vector} => {
+            debug!("Handling updates response");
+            let response = self.handle_update_and_return_update(resource_id, updates, state_vector).await?;
+            Ok(Some(response))
+        },
+        ResourceUpdateMsg::FinalUpdateMerge {resource_id, updates: _, vector_clocks} => {
+            debug!("Handling final update merge");
+            let response = self.merge_vector_clocks(resource_id, vector_clocks).await?;
+            Ok(Some(response))
+        },
+        ResourceUpdateMsg::VectorClockResponse {resource_id, update_clock, add_clock} => {
+            debug!("Handling vector clock response");
+            // Update vector clocks and return None to indicate sync is complete
+            match self.vector_clock_repository.update_vector_clocks(update_clock, add_clock).await {
+                Ok(_) => {
+                    info!("Vector clock sync complete for resource {}", resource_id);
+                    Ok(None) // Signal completion of the sync process
+                },
+                Err(e) => Err(e)
             }
         }
     }
+}
 
     /// Handle an incoming state vector request from a remote peer
     /// 
@@ -228,7 +238,7 @@ async fn handle_update_and_return_update(
             
             // Always send FinalUpdates, even if the updates are empty
             // This ensures the peer gets the latest vector clocks
-            Ok(ResourceUpdateMsg::FinalUpdates { 
+            Ok(ResourceUpdateMsg::FinalUpdateMerge  { 
                 resource_id: resource_id.to_string(),
                 updates: peer_updates,
                 vector_clocks,
@@ -244,4 +254,89 @@ async fn handle_update_and_return_update(
         }
     }
 }
+    /// Handle final updates from a peer and merge vector clocks
+/// 
+/// # Arguments
+/// * `resource_id` - The ID of the resource being updated
+/// * `vector_clocks` - The vector clocks received from the peer
+/// 
+/// # Returns
+/// * `Result<ResourceUpdateMsg, RepositoryError>` - Response with VectorClockResponse message
+#[instrument(
+    skip(self, vector_clocks), 
+    fields(
+        resource_id = %resource_id,
+        vector_clock_count = vector_clocks.len()
+    ),
+    level = "info"
+)]
+async fn merge_vector_clocks(
+    &self,
+    resource_id: &str,
+    vector_clocks: &Vec<ResourceVectorClock>,
+) -> Result<ResourceUpdateMsg, RepositoryError> {
+    info!("Merging vector clocks for resource {}", resource_id);
+    
+    // Get our local vector clocks for this resource
+    let local_vector_clocks = match self.vector_clock_repository
+        .get_vector_clocks_for_resource(resource_id).await 
+    {
+        Ok(clocks) => {
+            debug!(
+                local_clock_count = clocks.len(),
+                "Retrieved local vector clocks"
+            );
+            clocks
+        },
+        Err(e) => {
+            error!(
+                error = %e,
+                "Failed to retrieve local vector clocks"
+            );
+            return Err(e);
+        }
+    };
+    
+    // Perform the actual merge operation
+    debug!("Performing vector clock merge");
+    let merge_result = ResourceVectorClock::merge(&local_vector_clocks, vector_clocks);
+    
+    // If local clocks need updating, update our database
+    if merge_result.local_needs_update {
+        debug!(
+            updates = merge_result.update_local.len(),
+            additions = merge_result.add_local.len(),
+            "Updating local vector clocks"
+        );
+        
+        // Update existing vector clocks
+            match self.vector_clock_repository
+                .update_vector_clocks(&merge_result.update_local, &merge_result.add_local).await 
+            {
+                Ok(_) => debug!("Updated existing vector clocks"),
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        "Failed to update existing vector clocks"
+                    );
+                    return Err(e);
+                }
+            }
+        }
+    
+    // Return VectorClockResponse message with remote updates needed
+    info!(
+        update_count = merge_result.update_remote.len(),
+        add_count = merge_result.add_remote.len(),
+        "Vector clock merge complete for resource {}", 
+        resource_id
+    );
+    
+    Ok(ResourceUpdateMsg::VectorClockResponse { 
+        resource_id: resource_id.to_string(),
+        update_clock: merge_result.update_remote,
+        add_clock: merge_result.add_remote 
+    })
+}
+
 }

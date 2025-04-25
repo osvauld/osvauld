@@ -1,66 +1,119 @@
 import * as Y from 'yjs';
+import { EditorState } from 'prosemirror-state';
+import { Schema } from 'prosemirror-model';
+import { schema } from 'prosemirror-schema-basic';
+import { addListNodes } from 'prosemirror-schema-list';
+import { initProseMirrorDoc } from 'y-prosemirror';
+
+// Create a combined schema for our document (similar to what's in notes.ts)
+const editorSchema = new Schema({
+  nodes: addListNodes(schema.spec.nodes, "paragraph block*", "block"),
+  marks: schema.spec.marks,
+});
 
 /**
- * Merges a remote document update into a local document using Yjs CRDT capabilities
- * @param localResource The local version of the document
- * @param remoteResource The remote version of the document
- * @returns The merged document data without saving or updating current state
+ * Apply YJS updates to an existing document state
+ * @param currentState - The current YJS state as Uint8Array or array
+ * @param updates - The updates to apply
+ * @returns An object containing the new state and content
  */
-export function mergeDocuments(localResource, remoteResource) {
+export function applyYjsUpdates(currentState: Uint8Array | number[] | null, updates: Uint8Array): {
+  yjs_state: Uint8Array,
+  content: any,  // Using any to match the type in notes.ts
+  editor_state: any
+} {
+  // Create a new YDoc
+  const yDoc = new Y.Doc();
+
+  // Apply the existing state if it exists
+  if (currentState) {
+    const stateArray = currentState instanceof Uint8Array
+      ? currentState
+      : new Uint8Array(currentState);
+    Y.applyUpdate(yDoc, stateArray);
+  }
+
+  // Apply the new updates
+  Y.applyUpdate(yDoc, updates);
+
+  // Get the updated YJS state
+  const newState = Y.encodeStateAsUpdate(yDoc);
+
   try {
-    console.log("Merging document:", localResource);
+    // Try to access the YJS XML fragment
+    let type;
 
-    // Create a temporary Yjs document for merging
-    const tempDoc = new Y.Doc();
-    const tempType = tempDoc.getXmlFragment('prosemirror');
+    // First, check if the method exists on the prototype
+    if (typeof yDoc.getXmlFragment === 'function') {
+      // Use the method directly
+      type = yDoc.getXmlFragment('prosemirror');
+    } else {
+      // If getXmlFragment isn't available, fall back to using Y.XmlFragment directly
+      // Create a default XML fragment
+      type = new Y.XmlFragment();
 
-    // Convert states to Uint8Array if needed
-    const localState = Array.isArray(localResource.data.yjs_state)
-      ? new Uint8Array(localResource.data.yjs_state)
-      : localResource.data.yjs_state;
+      // Add some default content
+      type.insert(0, [new Y.XmlElement('paragraph')]);
+    }
 
-    const remoteState = Array.isArray(remoteResource.data.yjs_state)
-      ? new Uint8Array(remoteResource.data.yjs_state)
-      : remoteResource.data.yjs_state;
+    // Extract content from the XML fragment
+    const content = type.toJSON();
 
-    // Apply both states to our temporary document
-    // Order matters here - Yjs will automatically resolve conflicts
-    // based on the timestamp of each operation
-    Y.applyUpdate(tempDoc, localState);
-    Y.applyUpdate(tempDoc, remoteState);
+    try {
+      // Try to create a ProseMirror document from the XML fragment
+      const result = initProseMirrorDoc(type, editorSchema);
+      const prosemirrorDoc = result.doc;
 
-    // Extract the merged content
-    const mergedContent = tempType.toJSON();
+      // Create a selection
+      const selection = { type: "text", anchor: 1, head: 1 };
 
-    // Determine which resource is newer based on last_modified timestamp
-    const useRemoteEditorState =
-      remoteResource.data.last_modified > localResource.data.last_modified;
+      // Create an editor state structure
+      const editorStateJSON = {
+        doc: prosemirrorDoc.toJSON(),
+        selection: selection
+      };
 
-    // Use the editor state from the newer resource
-    const editorState = useRemoteEditorState
-      ? remoteResource.data.editor_state
-      : localResource.data.editor_state;
+      return {
+        yjs_state: newState,
+        content,
+        editor_state: editorStateJSON
+      };
+    } catch (docError) {
+      console.error("Error creating ProseMirror document:", docError);
 
-    // Create the merged document data
-    const mergedYjsState = Y.encodeStateAsUpdate(tempDoc);
-    const mergedNoteData = {
-      // Don't set client_id as it will be set when document is loaded normally
-      content: mergedContent,
-      editor_state: editorState,
-      yjs_state: Array.from(mergedYjsState), // Convert to array for storage
-      resource_id: localResource.id,
-      last_modified: Date.now(),
-      favourite: localResource.favourite, // Preserve favorite status
-      folder_id: localResource.folder_id
+      // Create a fallback editor state
+      const basicEditorState = {
+        doc: {
+          type: "doc",
+          content: [{ type: "paragraph", content: [] }]
+        },
+        selection: { type: "text", anchor: 1, head: 1 }
+      };
+
+      return {
+        yjs_state: newState,
+        content,
+        editor_state: basicEditorState
+      };
+    }
+  } catch (error) {
+    console.error("Error processing YJS document:", error);
+
+    // Create fallback content and state
+    const fallbackContent = [{ type: "paragraph", content: [] }];
+
+    const fallbackState = {
+      doc: {
+        type: "doc",
+        content: fallbackContent
+      },
+      selection: { type: "text", anchor: 1, head: 1 }
     };
 
-    // Clean up temp document
-    tempDoc.destroy();
-
-    // Return the merged data without saving or affecting current state
-    return mergedNoteData;
-  } catch (error) {
-    console.error("Error merging documents:", error);
-    throw error;
+    return {
+      yjs_state: newState,
+      content: fallbackContent,
+      editor_state: fallbackState
+    };
   }
 }

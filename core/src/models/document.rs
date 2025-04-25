@@ -34,11 +34,11 @@ pub async fn get_state_vector(full_yjs_state: &[u8]) -> Result<Vec<u8>, String> 
     }
 
     // Extract the state vector, and encode using v2 to match the JS implementation
-    // Using v2 because that's what the JS side uses with Y.encodeStateAsUpdate()
+    // Using v1 because that's what the JS side uses with Y.encodeStateAsUpdate()
     let txn = doc.transact().await;
     let sv = txn.state_vector();
 
-    Ok(sv.encode_v2())
+    Ok(sv.encode_v1())
 }
 
 /// Generate updates that need to be applied on a remote peer
@@ -93,7 +93,7 @@ pub async fn generate_updates_for_peer(
 
     // Generate only the diff the peer needs based on their state vector
     let txn = doc.transact().await;
-    Ok(txn.encode_diff_v2(&sv))
+    Ok(txn.encode_diff_v1(&sv))
 }
 
 /// Apply updates to a document and generate only the updates needed by peer
@@ -161,7 +161,7 @@ pub async fn apply_updates_and_generate_peer_updates(
     let txn = doc.transact().await;
 
     // Generate only the updates the peer needs based on their state vector
-    let updates_for_peer = txn.encode_diff_v2(&sv);
+    let updates_for_peer = txn.encode_diff_v1(&sv);
 
     Ok(updates_for_peer)
 }

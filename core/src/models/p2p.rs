@@ -118,15 +118,16 @@ pub enum ResourceUpdateMsg {
         updates: Vec<u8>,
         state_vector: Vec<u8>,
     },
-    // Final updates if needed
-    FinalUpdates {
+    FinalUpdateMerge {
         resource_id: String,
         updates: Vec<u8>,
         vector_clocks: Vec<ResourceVectorClock>,
     },
     // Acknowledgment that sync is complete
-    SyncComplete {
+    VectorClockResponse {
         resource_id: String,
+        update_clock: Vec<ResourceVectorClock>,
+        add_clock: Vec<ResourceVectorClock>,
     },
 }
 
@@ -149,7 +150,7 @@ pub struct SyncAckDeviceRecord {
 pub enum SyncAckType {
     FullSync(SyncOperations),
     DeviceSyncRecords(Vec<String>), // list of device_record_ids
-    UpdateRecieved(String),
+    UpdateRecieved,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
