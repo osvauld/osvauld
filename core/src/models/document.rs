@@ -95,7 +95,6 @@ pub async fn generate_updates_for_peer(
     let txn = doc.transact().await;
     Ok(txn.encode_diff_v1(&sv))
 }
-
 /// Apply updates to a document and generate only the updates needed by peer
 ///
 /// # Arguments
@@ -104,12 +103,12 @@ pub async fn generate_updates_for_peer(
 /// * `peer_state_vector` - State vector from the peer indicating what they have
 ///
 /// # Returns
-/// * `Result<Vec<u8>, String>` - Updates needed by the peer
+/// * `Result<(Vec<u8>, Vec<u8>), String>` - (Updates needed by peer, Current state vector)
 pub async fn apply_updates_and_generate_peer_updates(
     full_yjs_state: &[u8],
     received_updates: &[u8],
     peer_state_vector: &[u8],
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     // Create a temporary document
     let doc = Doc::new();
 
@@ -163,5 +162,8 @@ pub async fn apply_updates_and_generate_peer_updates(
     // Generate only the updates the peer needs based on their state vector
     let updates_for_peer = txn.encode_diff_v1(&sv);
 
-    Ok(updates_for_peer)
+    // Get the current state vector
+    let current_state_vector = txn.state_vector().encode_v1();
+
+    Ok((updates_for_peer, current_state_vector))
 }

@@ -679,13 +679,13 @@ impl ResourceService {
     /// * `peer_state_vector` - The state vector from the peer
     ///
     /// # Returns
-    /// * `Result<Vec<u8>, RepositoryError>` - Updates to send back to the peer, if any
+    /// * `Result<(Vec<u8>, Vec<u8>), RepositoryError>` - (Updates for peer, Current state vector)
     pub async fn apply_updates_and_get_peer_updates(
         &self,
         resource_id: &str,
         updates: &[u8],
         peer_state_vector: &[u8],
-    ) -> Result<Vec<u8>, RepositoryError> {
+    ) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
         // 1. Get the current resource with its YJS state
         let decrypted_resource = match self.get_resource(resource_id.to_string()).await {
             Ok(resource) => resource,
@@ -713,18 +713,18 @@ impl ResourceService {
         };
 
         // 3. Use document.rs to apply the updates and generate any updates for the peer
-        let peer_updates = match apply_updates_and_generate_peer_updates(
+        let (peer_updates, current_state_vector) = match apply_updates_and_generate_peer_updates(
             &current_yjs_state,
             updates,
             peer_state_vector,
         )
         .await
         {
-            Ok(updates) => updates,
+            Ok((updates, state_vector)) => (updates, state_vector),
             Err(e) => return Err(RepositoryError::CustomError(e)),
         };
 
-        // 4. Return the updates needed by the peer
-        Ok(peer_updates)
+        // 4. Return both the updates needed by the peer and the current state vector
+        Ok((peer_updates, current_state_vector))
     }
 }

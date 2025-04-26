@@ -212,7 +212,7 @@ async fn handle_update_and_return_update(
         updates, 
         state_vector
     ).await {
-        Ok(peer_updates) => {
+        Ok((peer_updates, _current_state_vector)) => {
             debug!(
                 updates_size = peer_updates.len(),
                 "Generated updates for peer"

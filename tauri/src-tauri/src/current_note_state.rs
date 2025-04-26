@@ -1,4 +1,5 @@
 use log::info;
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone)]
@@ -7,6 +8,7 @@ pub struct CurrentNoteState {
     current_yjs_state: Arc<Mutex<Option<Vec<u8>>>>,
     previous_yjs_state: Arc<Mutex<Option<Vec<u8>>>>,
     shared_users: Arc<Mutex<Vec<String>>>,
+    active_connections: Arc<Mutex<HashSet<String>>>,
 }
 
 impl Default for CurrentNoteState {
@@ -16,6 +18,7 @@ impl Default for CurrentNoteState {
             current_yjs_state: Arc::new(Mutex::new(None)),
             previous_yjs_state: Arc::new(Mutex::new(None)),
             shared_users: Arc::new(Mutex::new(Vec::new())),
+            active_connections: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 }
@@ -102,5 +105,29 @@ impl CurrentNoteState {
         let mut shared_users = self.shared_users.lock().unwrap();
         shared_users.clear();
         info!("Cleared shared users for note");
+    }
+
+    pub fn add_active_connection(&self, connection_id: String) {
+        let mut connections = self.active_connections.lock().unwrap();
+        info!("Added active connection: {}", connection_id);
+        connections.insert(connection_id);
+    }
+
+    pub fn get_active_connections(&self) -> Vec<String> {
+        let connections = self.active_connections.lock().unwrap();
+        connections.iter().cloned().collect()
+    }
+
+    pub fn remove_active_connection(&self, connection_id: &str) {
+        let mut connections = self.active_connections.lock().unwrap();
+        if connections.remove(connection_id) {
+            info!("Removed active connection: {}", connection_id);
+        }
+    }
+
+    pub fn clear_active_connections(&self) {
+        let mut connections = self.active_connections.lock().unwrap();
+        connections.clear();
+        info!("Cleared all active connections");
     }
 }

@@ -210,6 +210,15 @@ pub enum LiveEditMessage {
         buffer: Vec<u8>,
         state_vector: Vec<u8>,
     },
+    UpdateExhangeResponse {
+        resource_id: String,
+        updates: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    CurrentBufferExchange {
+        resource_id: String,
+        buffer: Vec<u8>,
+    },
     /// Stream real-time edits during active editing
     LiveUpdate {
         resource_id: String,

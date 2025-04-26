@@ -46,6 +46,18 @@ pub enum P2PEvent {
         connection_id: String,
         state_vector: Vec<u8>,
     },
+    ProcessUpdate {
+        resource_id: String,
+        connection_id: String,
+        state_vector: Vec<u8>,
+        updates: Vec<u8>,
+        buffer: Vec<u8>,
+    },
+    ProcessUpdateResponse {
+        resource_id: String,
+        connection_id: String,
+        updates: Vec<u8>,
+    },
 }
 
 /// Handles event emission for the P2P service

@@ -20,6 +20,22 @@ pub enum IncomingEvent {
         state_vector: Vec<u8>,
         buffer: Vec<u8>,
     },
+    LiveEditUpdateExchangeResponse {
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        remote_updates: Vec<u8>,
+        local_buffer: Vec<u8>,
+    },
+    DocumentChanged {
+        connection_id: String,
+        resource_id: String,
+    },
+    CurrentBufferExchange {
+        connection_id: String,
+        resource_id: String,
+        buffer: Vec<u8>,
+    },
 }
 
 /// Sender for incoming events to be processed by the P2P service
@@ -82,6 +98,45 @@ impl P2PSender {
             connection_id,
             resource_id,
             state_vector,
+            buffer,
+        })
+    }
+    pub fn send_document_changed(
+        &self,
+        connection_id: String,
+        resource_id: String,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::DocumentChanged {
+            connection_id,
+            resource_id,
+        })
+    }
+
+    pub fn send_live_edit_update_exchange_response(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        local_buffer: Vec<u8>,
+        remote_updates: Vec<u8>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditUpdateExchangeResponse {
+            connection_id,
+            resource_id,
+            state_vector,
+            local_buffer,
+            remote_updates,
+        })
+    }
+    pub fn send_current_buffer_exchange(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        buffer: Vec<u8>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::CurrentBufferExchange {
+            connection_id,
+            resource_id,
             buffer,
         })
     }

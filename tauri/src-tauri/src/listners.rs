@@ -255,6 +255,34 @@ impl EventManager {
                     self.handle_document_update_request(resource_id, connection_id, state_vector)
                         .await
                 }
+                P2PEvent::ProcessUpdate {
+                    resource_id,
+                    connection_id,
+                    state_vector,
+                    updates,
+                    buffer,
+                } => {
+                    self.handle_document_process_update(
+                        resource_id,
+                        connection_id,
+                        state_vector,
+                        buffer,
+                        updates,
+                    )
+                    .await
+                }
+                P2PEvent::ProcessUpdateResponse {
+                    resource_id,
+                    connection_id,
+                    updates,
+                } => {
+                    self.handle_document_process_update_response(
+                        resource_id,
+                        connection_id,
+                        updates,
+                    )
+                    .await
+                }
             }
         }
 
@@ -395,6 +423,180 @@ impl EventManager {
         }
     }
 
+    async fn handle_document_process_update(
+        &self,
+        resource_id: String,
+        connection_id: String,
+        state_vector: Vec<u8>,
+        buffer: Vec<u8>,
+        updates: Vec<u8>,
+    ) {
+        info!("Processing document update for resource: {}", resource_id);
+
+        // Get current note state
+        let current_note_state = self.current_note_state.clone();
+
+        // Check if this is the document we're currently editing
+        let is_current_document =
+            if let Some(current_resource_id) = current_note_state.get_current_note() {
+                current_resource_id == resource_id
+            } else {
+                false
+            };
+
+        // Combine remote updates (peer's buffer and updates)
+        let mut remote_updates = Vec::new();
+        remote_updates.extend_from_slice(&updates);
+        if !buffer.is_empty() {
+            remote_updates.extend_from_slice(&buffer);
+        }
+
+        if !is_current_document {
+            // Document mismatch - notify peer
+            info!(
+                "Document mismatch: current is {:?}, update is for {}",
+                current_note_state.get_current_note(),
+                resource_id
+            );
+
+            // Emit document changed event
+            if let Err(e) = self
+                .p2p_sender
+                .send_document_changed(connection_id.clone(), resource_id.clone())
+            {
+                error!("Failed to send document changed notification: {}", e);
+            }
+
+            // Still apply remote updates to frontend
+            if !remote_updates.is_empty() {
+                self.handle_update_event(resource_id.clone(), remote_updates.clone())
+                    .await;
+            }
+
+            // Send empty local buffer with remote updates back as response
+            if let Err(e) = self.p2p_sender.send_live_edit_update_exchange_response(
+                connection_id,
+                resource_id,
+                state_vector,
+                Vec::new(),     // Empty local buffer
+                remote_updates, // Include remote updates in response
+            ) {
+                error!("Failed to send update exchange response: {}", e);
+            }
+        } else {
+            // Current document matches - collect local buffer for response
+            let mut local_buffer = Vec::new();
+
+            // Add current buffer if available
+            if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
+                info!(
+                    "Including current buffer ({} bytes) in response",
+                    current_buffer.len()
+                );
+                local_buffer.extend_from_slice(&current_buffer);
+            }
+
+            // Add previous buffer if available
+            if let Some(previous_buffer) = current_note_state.get_previous_yjs_state() {
+                info!(
+                    "Including previous buffer ({} bytes) in response",
+                    previous_buffer.len()
+                );
+                local_buffer.extend_from_slice(&previous_buffer);
+            }
+
+            // Apply remote updates to frontend
+            if !remote_updates.is_empty() {
+                self.handle_update_event(resource_id.clone(), remote_updates.clone())
+                    .await;
+            }
+
+            // Send both local buffer and remote updates in response
+            if let Err(e) = self.p2p_sender.send_live_edit_update_exchange_response(
+                connection_id,
+                resource_id,
+                state_vector,
+                local_buffer,   // Send our local buffer
+                remote_updates, // Include remote updates in response
+            ) {
+                error!("Failed to send update exchange response: {}", e);
+            }
+        }
+    }
+
+    async fn handle_document_process_update_response(
+        &self,
+        resource_id: String,
+        connection_id: String,
+        updates: Vec<u8>,
+    ) {
+        info!(
+            "Processing update response for resource: {}, from connection: {}",
+            resource_id, connection_id
+        );
+
+        // Get current note state
+        let current_note_state = self.current_note_state.clone();
+
+        // Verify this is the document we're currently editing
+        if let Some(current_resource_id) = current_note_state.get_current_note() {
+            if current_resource_id != resource_id {
+                warn!(
+                    "Received update response for non-active document: {}, current is {}",
+                    resource_id, current_resource_id
+                );
+                return;
+            }
+
+            // Add this connection to active sessions for this resource
+            // (You'll need to add a method to track active connections in CurrentNoteState)
+            current_note_state.add_active_connection(connection_id.clone());
+
+            info!(
+                "Added connection {} to active sessions for resource {}",
+                connection_id, resource_id
+            );
+
+            // Apply updates to frontend if any
+            if !updates.is_empty() {
+                info!("Applying {} bytes of updates to frontend", updates.len());
+                self.handle_update_event(resource_id.clone(), updates).await;
+            }
+
+            // Get current buffer to send as final step
+            if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
+                // Only send if we have something
+                if !current_buffer.is_empty() {
+                    info!(
+                        "Sending final current buffer ({} bytes) exchange",
+                        current_buffer.len()
+                    );
+
+                    // Send current buffer to peer
+                    if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
+                        connection_id,
+                        resource_id,
+                        current_buffer,
+                    ) {
+                        error!("Failed to send current buffer: {}", e);
+                    }
+                }
+            }
+
+            // Notify frontend that live editing is now active with this peer
+            if let Err(e) = self.app_handle.emit(
+                "live-edit-active",
+                serde_json::json!({
+                    "connection_id": connection_id,
+                    "resource_id": resource_id,
+                }),
+            ) {
+                error!("Failed to emit live-edit-active event: {}", e);
+            }
+        } else {
+            warn!("No active document, ignoring update response");
+        }
+    }
     /// Handle disconnected event
     fn handle_disconnected_event(&self) {
         info!("Peer disconnected");

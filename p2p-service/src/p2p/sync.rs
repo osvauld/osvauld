@@ -420,6 +420,35 @@ impl PeerConnection {
                 });
                 Ok(())
             }
+            LiveEditMessage::UpdateExchange {
+                resource_id,
+                updates,
+                buffer,
+                state_vector,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::ProcessUpdate {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    state_vector: state_vector.clone(),
+                    updates: updates.clone(),
+                    buffer: buffer.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::UpdateExhangeResponse {
+                resource_id,
+                updates,
+                state_vector: _,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::ProcessUpdateResponse {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    updates: updates.clone(),
+                });
+                Ok(())
+            }
             _ => Ok(()),
         }
     }
