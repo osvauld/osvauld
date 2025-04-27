@@ -2,7 +2,7 @@ use crate::p2p::incoming::IncomingEvent;
 use crate::p2p::P2PService;
 use osvauld_core::models::p2p::{LiveEditMessage, Message};
 use tokio::sync::mpsc;
-use tracing::{error, info, instrument, warn};
+use tracing::{debug, error, info, instrument, warn};
 
 /// Implementation of P2PService methods for handling incoming events and event processing
 impl P2PService {
@@ -18,8 +18,13 @@ impl P2PService {
 
             while let Some(event) = receiver.recv().await {
                 match event {
-                    IncomingEvent::SyncUpdate { payload } => {
-                        service.handle_sync_update(payload).await;
+                    IncomingEvent::SyncUpdateBroadcast {
+                        connection_ids,
+                        payload,
+                    } => {
+                        service
+                            .handle_sync_update_broadcast(payload, connection_ids)
+                            .await;
                     }
                     IncomingEvent::LiveEditDocumentCheck {
                         connection_id,
@@ -92,27 +97,6 @@ impl P2PService {
 
             info!("Stopped processing incoming events");
         });
-    }
-
-    #[instrument(skip(self, payload), level = "info")]
-    pub async fn handle_sync_update(&self, payload: String) {
-        info!("Processing sync-update event");
-
-        // Get the current state
-
-        // let connection_id = format!("{}:{}", user_id, device_id);
-
-        // Create a message for the update
-        let message = Message::SyncEvent {
-            event: "sync-update".to_string(),
-            payload: payload.clone(),
-        };
-        // Remove the ? operator since this function returns ()
-        if let Err(e) = self.send_sync_update(message).await {
-            error!("Failed to send sync update: {}", e);
-        }
-
-        info!("Sync update processed and forwarded to all connections");
     }
 
     /// Handles a live edit document check event
@@ -214,8 +198,8 @@ impl P2PService {
     }
     async fn handle_live_edit_update_exchange(
         &self,
-        resource_id: String,
         connection_id: String,
+        resource_id: String,
         state_vector: Vec<u8>,
         buffer: Vec<u8>,
     ) {
@@ -342,7 +326,6 @@ impl P2PService {
             }
         }
     }
-    // In incoming_handler.rs
     async fn handle_current_buffer_exchange(
         &self,
         connection_id: String,
@@ -373,6 +356,70 @@ impl P2PService {
                     e
                 );
             }
+        }
+    }
+
+    #[instrument(skip(self, payload, connection_ids), fields(connections_count = connection_ids.len()), level = "info")]
+    pub async fn handle_sync_update_broadcast(&self, payload: String, connection_ids: Vec<String>) {
+        info!(
+            "Processing sync-update-broadcast event for {} connections",
+            connection_ids.len()
+        );
+
+        if connection_ids.is_empty() {
+            warn!("Empty connection IDs list, no broadcast performed");
+            return;
+        }
+
+        // Get the connections from the connection manager
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+
+        if connections.is_empty() {
+            warn!("No valid connections found for broadcasting");
+            return;
+        }
+
+        info!("Broadcasting to {} active connections", connections.len());
+
+        // Create a message for the update
+        let message = Message::SyncEvent {
+            event: "sync-update".to_string(),
+            payload: payload.clone(),
+        };
+
+        let mut success_count = 0;
+        let mut errors = Vec::new();
+        let connections_len = connections.len();
+        // Send to each connection
+        for connection in connections {
+            let conn_id = connection.get_id();
+            debug!("Sending sync update to: {}", conn_id);
+
+            match connection.send_message(message.clone()).await {
+                Ok(_) => {
+                    success_count += 1;
+                    debug!("Successfully sent update to connection: {}", conn_id);
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to send to {}: {}", conn_id, e);
+                    error!("{}", error_msg);
+                    errors.push(error_msg);
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            info!(
+                "Broadcast completed successfully to all {} connections",
+                success_count
+            );
+        } else {
+            error!(
+                "Broadcast partially successful: {}/{} connections succeeded, errors: {}",
+                success_count,
+                connections_len,
+                errors.join(", ")
+            );
         }
     }
 }

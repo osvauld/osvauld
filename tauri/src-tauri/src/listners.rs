@@ -216,13 +216,27 @@ impl EventManager {
                 }
             }
 
-            // Forward the event to P2P service if needed
-            // if let Err(e) = p2p_sender.send_sync_update(payload_str) {
-            //     error!("Failed to send sync update event: {}", e);
-            // }
+            // Get active connections from current note state
+            let active_connections = current_note_state.get_active_connections();
+            if !active_connections.is_empty() {
+                info!(
+                    "Broadcasting sync update to {} active connections",
+                    active_connections.len()
+                );
+
+                // Forward the event to P2P service for all active connections
+                if let Err(e) = p2p_sender
+                    .send_sync_update_to_connections(payload_str.to_string(), active_connections)
+                {
+                    error!("Failed to broadcast sync update: {}", e);
+                } else {
+                    info!("Successfully broadcasted sync update to all active connections");
+                }
+            } else {
+                info!("No active connections to broadcast update to");
+            }
         });
     }
-
     /// Listen for P2P events and forward them to Tauri
     async fn listen_for_p2p_events(&mut self) {
         info!("Started listening for P2P events");
@@ -282,6 +296,14 @@ impl EventManager {
                         updates,
                     )
                     .await
+                }
+                P2PEvent::CurrentBufferExchange {
+                    resource_id,
+                    connection_id,
+                    updates,
+                } => {
+                    self.handle_current_buffer_exchange(resource_id, connection_id, updates)
+                        .await
                 }
             }
         }
@@ -549,7 +571,6 @@ impl EventManager {
             }
 
             // Add this connection to active sessions for this resource
-            // (You'll need to add a method to track active connections in CurrentNoteState)
             current_note_state.add_active_connection(connection_id.clone());
 
             info!(
@@ -562,25 +583,22 @@ impl EventManager {
                 info!("Applying {} bytes of updates to frontend", updates.len());
                 self.handle_update_event(resource_id.clone(), updates).await;
             }
+            let current_buffer = current_note_state
+                .get_current_yjs_state()
+                .unwrap_or_default();
 
-            // Get current buffer to send as final step
-            if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
-                // Only send if we have something
-                if !current_buffer.is_empty() {
-                    info!(
-                        "Sending final current buffer ({} bytes) exchange",
-                        current_buffer.len()
-                    );
+            // Send current buffer to peer (now we always send, even if empty)
+            info!(
+                "Sending final current buffer ({} bytes) exchange",
+                current_buffer.len()
+            );
 
-                    // Send current buffer to peer
-                    if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
-                        connection_id,
-                        resource_id,
-                        current_buffer,
-                    ) {
-                        error!("Failed to send current buffer: {}", e);
-                    }
-                }
+            if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
+                connection_id.clone(),
+                resource_id.clone(),
+                current_buffer,
+            ) {
+                error!("Failed to send current buffer: {}", e);
             }
 
             // Notify frontend that live editing is now active with this peer
@@ -595,6 +613,93 @@ impl EventManager {
             }
         } else {
             warn!("No active document, ignoring update response");
+        }
+    }
+
+    async fn handle_current_buffer_exchange(
+        &self,
+        resource_id: String,
+        connection_id: String,
+        updates: Vec<u8>,
+    ) {
+        info!(
+            "Processing current buffer exchange for resource: {}, from connection: {}",
+            resource_id, connection_id
+        );
+
+        // Get current note state
+        let current_note_state = self.current_note_state.clone();
+
+        // Forward updates to the frontend
+        if !updates.is_empty() {
+            info!(
+                "Forwarding {} bytes of buffer updates to frontend",
+                updates.len()
+            );
+            self.handle_update_event(resource_id.clone(), updates).await;
+        }
+
+        // Verify this is the document we're currently editing
+        if let Some(current_resource_id) = current_note_state.get_current_note() {
+            if current_resource_id != resource_id {
+                warn!(
+                    "Received buffer exchange for non-active document: {}, current is {}",
+                    resource_id, current_resource_id
+                );
+                return;
+            }
+
+            // Check if this connection is already in active connections
+            let is_active = current_note_state.is_connection_active(&connection_id);
+
+            if !is_active {
+                // Add this connection to active sessions for this resource
+                current_note_state.add_active_connection(connection_id.clone());
+
+                info!(
+                    "Added connection {} to active sessions for resource {}",
+                    connection_id, resource_id
+                );
+
+                // Get current buffer to send back
+                if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
+                    // Only send if we have something
+                    if !current_buffer.is_empty() {
+                        info!(
+                            "Sending current buffer ({} bytes) exchange as response",
+                            current_buffer.len()
+                        );
+
+                        // Send current buffer to peer
+                        if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
+                            connection_id.clone(),
+                            resource_id.clone(),
+                            current_buffer,
+                        ) {
+                            error!("Failed to send current buffer response: {}", e);
+                        }
+                    }
+                }
+
+                // Notify frontend that live editing is now active with this peer
+                if let Err(e) = self.app_handle.emit(
+                    "live-edit-active",
+                    serde_json::json!({
+                        "connection_id": connection_id,
+                        "resource_id": resource_id,
+                    }),
+                ) {
+                    error!("Failed to emit live-edit-active event: {}", e);
+                }
+            } else {
+                // Connection is already active, no need to send anything back
+                info!(
+                    "Connection {} is already active for resource {}, no response needed",
+                    connection_id, resource_id
+                );
+            }
+        } else {
+            warn!("No active document, ignoring buffer exchange");
         }
     }
     /// Handle disconnected event

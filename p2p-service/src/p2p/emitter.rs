@@ -20,7 +20,6 @@ pub enum P2PEvent {
     ShareComplete,
     /// Emitted when a real-time editing event is received
     EditingEvent {
-        /// Content of the editing event
         payload: String,
     },
     /// Emitted when an error occurs
@@ -54,6 +53,11 @@ pub enum P2PEvent {
         buffer: Vec<u8>,
     },
     ProcessUpdateResponse {
+        resource_id: String,
+        connection_id: String,
+        updates: Vec<u8>,
+    },
+    CurrentBufferExchange {
         resource_id: String,
         connection_id: String,
         updates: Vec<u8>,

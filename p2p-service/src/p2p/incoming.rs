@@ -4,7 +4,10 @@ use tokio::sync::mpsc;
 #[derive(Debug)]
 pub enum IncomingEvent {
     /// Sent when a sync update occurs
-    SyncUpdate { payload: String },
+    SyncUpdateBroadcast {
+        connection_ids: Vec<String>,
+        payload: String,
+    },
     LiveEditDocumentCheck {
         connection_id: String,
         resource_id: String,
@@ -58,11 +61,16 @@ impl P2PSender {
             .map_err(|e| format!("Failed to send event: {}", e))
     }
 
-    /// Sends a sync update event
-    pub fn send_sync_update(&self, payload: String) -> Result<(), String> {
-        self.send(IncomingEvent::SyncUpdate { payload })
+    pub fn send_sync_update_to_connections(
+        &self,
+        payload: String,
+        connection_ids: Vec<String>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::SyncUpdateBroadcast {
+            payload,
+            connection_ids,
+        })
     }
-
     pub fn send_live_edit_document_check(
         &self,
         connection_id: String,

@@ -7,9 +7,11 @@ use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{ConnectionTicket, ConnectionType, Message,  PhaseType, Phase, PhaseAction};
+use osvauld_core::models::p2p::{
+    ConnectionTicket, ConnectionType, Message, Phase, PhaseAction, PhaseType,
+};
 use osvauld_core::models::user::User;
-use osvauld_services::{AuthService,  SyncService, UserService};
+use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
@@ -306,9 +308,6 @@ impl P2PService {
         }
     }
 
-
-
-
     #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
     pub async fn get_connection_by_id(
         &self,
@@ -327,25 +326,82 @@ impl P2PService {
         state.connections.get_peer_connection(connection_id).await
     }
 
-   
-pub async fn send_sync_update(&self, payload: Message) -> Result<(), String> {
-    let state_guard = self.state.lock().await;
 
+/// Get connections by IDs
+#[instrument(skip(self, connection_ids), level = "debug")]
+pub async fn get_connections_by_ids(
+    &self,
+    connection_ids: &[String],
+) -> Vec<Arc<PeerConnection>> {
+    debug!("Getting connections by IDs, count: {}", connection_ids.len());
+    
+    // Acquire the state lock
+    let state_guard = self.state.lock().await;
+    
     // Check if service is initialized
     let state = match state_guard.as_ref() {
         Some(s) => s,
-        None => return Err("P2P service not initialized".to_string()),
+        None => {
+            error!("P2P service not initialized");
+            return Vec::new();
+        }
     };
-
-    // Get the connection from the connection manager
     
-    let connection = state.connections.get_first_active_connection().await
-        .ok_or("No active connection found".to_string())?;
-    
-    if let Err(e) = connection.send_message(payload).await {
-        return Err(format!("Failed to send message: {}", e));
-    }
-    Ok(())
+    // Delegate to ConnectionManager
+    state.connections.get_connections_by_ids(connection_ids).await
 }
+    /// Broadcast sync update to multiple connections
+    #[instrument(skip(self, payload, connection_ids), level = "info")]
+    pub async fn broadcast_sync_update(
+        &self,
+        payload: String,
+        connection_ids: Vec<String>,
+    ) -> Result<(), String> {
+        info!(
+            "Broadcasting sync update to {} connections",
+            connection_ids.len()
+        );
 
+        // Get the connections
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+
+        if connections.is_empty() {
+            warn!("No valid connections found for broadcasting");
+            return Err("No valid connections found".to_string());
+        }
+
+        info!(
+            "Sending sync update to {} active connections",
+            connections.len()
+        );
+
+        // Create message for all connections
+        let message = Message::SyncEvent {
+            event: "sync-update".to_string(),
+            payload: payload.clone(),
+        };
+
+        let mut errors = Vec::new();
+
+        // Send to each connection
+        for connection in connections {
+            let conn_id = connection.get_id();
+            debug!("Sending sync update to: {}", conn_id);
+
+            if let Err(e) = connection.send_message(message.clone()).await {
+                let error_msg = format!("Failed to send to {}: {}", conn_id, e);
+                error!("{}", error_msg);
+                errors.push(error_msg);
+            }
+        }
+
+        if errors.is_empty() {
+            info!("Broadcast completed successfully");
+            Ok(())
+        } else {
+            let err_msg = format!("Broadcast errors: {}", errors.join(", "));
+            error!("{}", err_msg);
+            Err(err_msg)
+        }
+    }
 }

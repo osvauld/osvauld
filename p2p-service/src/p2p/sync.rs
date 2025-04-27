@@ -449,6 +449,18 @@ impl PeerConnection {
                 });
                 Ok(())
             }
+            LiveEditMessage::CurrentBufferExchange {
+                resource_id,
+                buffer,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::CurrentBufferExchange {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    updates: buffer.clone(),
+                });
+                Ok(())
+            }
             _ => Ok(()),
         }
     }

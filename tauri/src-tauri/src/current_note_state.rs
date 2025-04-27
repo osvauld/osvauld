@@ -117,6 +117,10 @@ impl CurrentNoteState {
         let connections = self.active_connections.lock().unwrap();
         connections.iter().cloned().collect()
     }
+    pub fn is_connection_active(&self, connection_id: &str) -> bool {
+        let connections = self.active_connections.lock().unwrap();
+        connections.contains(connection_id)
+    }
 
     pub fn remove_active_connection(&self, connection_id: &str) {
         let mut connections = self.active_connections.lock().unwrap();
