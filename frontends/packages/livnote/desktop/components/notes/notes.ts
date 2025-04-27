@@ -688,7 +688,7 @@ export class Notes {
       await emit("sync-update", {
         update: updateArray,
         clientID: this.clientID,
-        client_id: `client-${this.clientID}`,
+        client_id: this.clientID.toString(),
         resource_id: this.currentNoteId,
       } as CollaborationUpdateEvent);
     } catch (error) {
