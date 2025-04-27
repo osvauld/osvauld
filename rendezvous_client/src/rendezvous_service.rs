@@ -61,7 +61,7 @@ impl RendezvousService {
                 client,
                 p2p_service,
                 pending_first_connections,
-                &live_edit_connections,
+                live_edit_connections,
                 user_arc,
             )
             .await;
@@ -125,7 +125,7 @@ impl RendezvousService {
         client: Arc<Mutex<WsClient>>,
         p2p_service: Arc<P2PService>,
         pending_first_connections: Arc<Mutex<HashSet<String>>>,
-        live_edit_connections: &Arc<Mutex<HashSet<String>>>,
+        live_edit_connections: Arc<Mutex<HashSet<String>>>,
         user: Arc<Mutex<Option<String>>>,
     ) {
         let mut receiver = {

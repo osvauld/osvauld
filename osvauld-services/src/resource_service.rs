@@ -604,10 +604,23 @@ impl ResourceService {
             Some(state) => {
                 // Convert the JSON array to a Vec<u8>
                 match state.as_array() {
-                    Some(array) => array
-                        .iter()
-                        .filter_map(|v| v.as_u64().map(|n| n as u8))
-                        .collect::<Vec<u8>>(),
+                    Some(array) => {
+                        array
+                            .iter()
+                            .try_fold(Vec::new(), |mut acc, v| match v.as_u64() {
+                                Some(n) if n <= 255 => {
+                                    acc.push(n as u8);
+                                    Ok(acc)
+                                }
+                                Some(n) => Err(RepositoryError::CustomError(format!(
+                                    "yjs_state contains value {} which exceeds u8 range",
+                                    n
+                                ))),
+                                None => Err(RepositoryError::CustomError(
+                                    "yjs_state contains non-numeric value".to_string(),
+                                )),
+                            })?
+                    }
                     None => {
                         return Err(RepositoryError::CustomError(
                             "yjs_state is not an array".to_string(),

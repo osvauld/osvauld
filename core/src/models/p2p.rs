@@ -149,7 +149,7 @@ pub struct SyncAckDeviceRecord {
 pub enum SyncAckType {
     FullSync(SyncOperations),
     DeviceSyncRecords(Vec<String>), // list of device_record_ids
-    UpdateRecieved,
+    UpdateReceived,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -210,7 +210,7 @@ pub enum LiveEditMessage {
         buffer: Vec<u8>,
         state_vector: Vec<u8>,
     },
-    UpdateExhangeResponse {
+    UpdateExchangeResponse {
         resource_id: String,
         updates: Vec<u8>,
         state_vector: Vec<u8>,

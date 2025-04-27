@@ -298,7 +298,7 @@ impl P2PService {
                         info!("Generated {} bytes of updates for peer", updates.len());
 
                         // Create UpdateExchangeResponse message
-                        let live_edit_message = LiveEditMessage::UpdateExhangeResponse {
+                        let live_edit_message = LiveEditMessage::UpdateExchangeResponse {
                             resource_id,
                             updates,
                             state_vector: current_state_vector,

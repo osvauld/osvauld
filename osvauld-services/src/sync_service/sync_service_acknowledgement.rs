@@ -74,7 +74,7 @@ impl SyncService {
                 }
             }
             
-            SyncAckType::UpdateRecieved => {
+            SyncAckType::UpdateReceived => {
                 info!( "Update received at remote");
                 Ok(None)
             }

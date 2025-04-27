@@ -47,6 +47,7 @@ class DataState {
   currentView = $state<string>("all");
   isDataLoading = $state<boolean>(false);
   userDetails = $state<UserDetails | null>(null)
+  private _unlisteners: Array<() => void> = [];
 
   // Derived values for filtering notes - declare as a class property with $derived
   filteredNotes = $derived.by(() => {
@@ -146,10 +147,14 @@ class DataState {
   async initializeState() {
     this.isDataLoading = true;
     try {
-      await this.fetchVaults();
-      await this.fetchAllNotes();
-      await this.getUserDetails();
-      this.setupReactiveUpdates();
+      // Run these operations in parallel
+      await Promise.all([
+        this.fetchVaults(),
+        this.fetchAllNotes(),
+        this.getUserDetails(),
+        this.setupReactiveUpdates()
+      ]);
+
       await this.restoreSavedSelections();
     } finally {
       this.isDataLoading = false;
@@ -206,16 +211,38 @@ class DataState {
     }
   }
 
-  setupReactiveUpdates() {
-    listen("resource-added", this.handleResourceAdded.bind(this));
-    listen("resource-update", this.handleResourceUpdate.bind(this));
-    listen("document-updates", this.handleDocumentUpdates.bind(this));
+  async setupReactiveUpdates() {
+    // Clear any existing unlisteners first
+    this._unlisteners = [];
+
+    // Each listen() returns a Promise that resolves to an unlisten function
+    const resourceAddedUnlisten = await listen("resource-added", this.handleResourceAdded.bind(this));
+    const resourceUpdateUnlisten = await listen("resource-update", this.handleResourceUpdate.bind(this));
+    const documentUpdatesUnlisten = await listen("document-updates", this.handleDocumentUpdates.bind(this));
+
+    // Store all the unlisten functions
+    this._unlisteners.push(
+      resourceAddedUnlisten,
+      resourceUpdateUnlisten,
+      documentUpdatesUnlisten
+    );
   }
+  cleanupReactiveUpdates() {
+    // The listen function returns an unlisten function
+    if (this._unlisteners) {
+      for (const unlisten of this._unlisteners) {
+        unlisten();
+      }
+      this._unlisteners = [];
+    }
+  }
+
   handleResourceAdded(event) {
     const resource = event.payload;
     this.notes = [...this.notes, resource];
     console.log("Added new resource:", resource.id);
   }
+
   handleResourceUpdate(event) {
     console.log("Received resource-update event:", event);
     const updatedResource = event.payload;
@@ -286,10 +313,6 @@ class DataState {
 
       // Apply the updates to get the new state with content
       const { yjs_state: newYjsState, content, editor_state } = applyYjsUpdates(currentYjsState, updates);
-      console.log(`New YJS state size: ${newYjsState.length} bytes`);
-      console.log(`Generated content: `, content ? 'Successfully generated' : 'Failed to generate');
-      console.log("EDITOR STASTE", editor_state);
-
       // Verify state changed
       const changed = !currentYjsState ||
         JSON.stringify(newYjsState) !== JSON.stringify(Array.from(currentYjsState));

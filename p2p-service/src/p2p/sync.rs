@@ -378,7 +378,7 @@ impl PeerConnection {
                     };
                     return Ok(());
                 } else {
-                    let response_message = Message::SyncAck(SyncAckType::UpdateRecieved);
+                    let response_message = Message::SyncAck(SyncAckType::UpdateReceived);
 
                     match self.send_message(response_message).await {
                         Ok(_) => {
@@ -436,7 +436,7 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            LiveEditMessage::UpdateExhangeResponse {
+            LiveEditMessage::UpdateExchangeResponse {
                 resource_id,
                 updates,
                 state_vector: _,

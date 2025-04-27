@@ -122,17 +122,17 @@ pub async fn process_resource_merge_message(
                 }
             };
             
-            // Construct the response with updates and our state vector
-            let response = ResourceUpdateMsg::UpdatesResponse {
-                resource_id: resource_id.to_string(),
-                updates: updates.clone(),
-                state_vector: our_state_vector,
-            };
-            
             info!(
                 updates_size = updates.len(),
                 "Sending updates response"
             );
+            // Construct the response with updates and our state vector
+            let response = ResourceUpdateMsg::UpdatesResponse {
+                resource_id: resource_id.to_string(),
+                updates,
+                state_vector: our_state_vector,
+            };
+            
             
             Ok(response)
     }
