@@ -31,7 +31,7 @@
 	let existingCollaborators = $state<Collaborator[]>([]);
 
 	// Computed values
-	let availableCollaboratorsFiltered = $derived(() => {
+	let availableCollaboratorsFiltered = $derived.by(() => {
 		return query
 			? availableCollaborators.filter((c) =>
 					c.username.toLowerCase().includes(query.toLowerCase()),
@@ -42,14 +42,15 @@
 	async function fetchUsers() {
 		try {
 			const users = await sendMessage("getKnownUsers");
+			console.log(users);
 			availableCollaborators = users;
 
 			// Here you would typically also fetch existing collaborators for the note
 			if (dataState.currentNote?.id) {
-				const noteCollaborators = await sendMessage("getNoteCollaborators", {
-					noteId: dataState.currentNote.id,
-				}).catch(() => []);
-				existingCollaborators = noteCollaborators || [];
+				// const noteCollaborators = await sendMessage("getNoteCollaborators", {
+				// 	noteId: dataState.currentNote.id,
+				// }).catch(() => []);
+				existingCollaborators = [];
 			}
 		} catch (error) {
 			console.error("Error fetching users:", error);
@@ -184,9 +185,9 @@
 		);
 	};
 
-	const filterSelectedUsers = (users: Collaborator[]): Collaborator[] => {
-		return users.filter((user) => !selectedUsers.includes(user.username));
-	};
+	// const filterSelectedUsers = (users: Collaborator[]): Collaborator[] => {
+	// 	return users.filter((user) => !selectedUsers.includes(user.username));
+	// };
 
 	const autofocus = (): void => {
 		if (inputRef) inputRef.focus();
@@ -324,7 +325,7 @@
 					: 'h-[95%]'}  rounded-2xl p-3 border border-osvauld-activeBorder bg-osvauld-frameblack"
 				role="dialog"
 				aria-label="Available collaborators">
-				{#if availableCollaboratorsFiltered.length === 0 || filterSelectedUsers(availableCollaboratorsFiltered).length === 0}
+				{#if availableCollaboratorsFiltered.length === 0 || availableCollaboratorsFiltered.length === 0}
 					<div class="p-3">Users not found!</div>
 				{:else}
 					<div
@@ -332,7 +333,7 @@
 						class="max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
 						role="listbox"
 						aria-label="Available collaborators">
-						{#each sortOnlineCollaborators(filterSelectedUsers(availableCollaboratorsFiltered)) as collaborator, index}
+						{#each availableCollaboratorsFiltered as collaborator, index}
 							<button
 								type="button"
 								class="w-full text-left group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer {focusedIndex ===

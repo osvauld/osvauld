@@ -70,6 +70,7 @@ impl PhaseState {
         let current = self.current_phase.lock().await;
         let next_phase = match *current {
             PhaseType::AddDevice => PhaseType::DeviceSync,
+            PhaseType::UserSync => PhaseType::DeviceSync,
             PhaseType::FirstUserConnection => PhaseType::DeviceSync,
             PhaseType::DeviceSync => PhaseType::FolderSync,
             // PhaseType::UserSync => PhaseType::FolderSync,
@@ -124,12 +125,12 @@ impl PeerConnection {
         info!("Initiating phased sync process");
 
         // Reset phase state to the first phase
-        self.phase.reset_for_new_phase(PhaseType::DeviceSync).await;
+        self.phase.reset_for_new_phase(PhaseType::UserSync).await;
 
         // Send Init message to the peer
         let init_message = Message::Phase(Phase {
             action: PhaseAction::Init,
-            phase_type: PhaseType::DeviceSync,
+            phase_type: PhaseType::UserSync,
         });
 
         debug!("Sending Phase Init message for DeviceSync");
@@ -364,7 +365,7 @@ impl PeerConnection {
             PhaseType::AddDevice => self.start_add_device_sync().await,
             PhaseType::FirstUserConnection => self.start_first_user_connection().await,
             PhaseType::DeviceSync => self.start_device_sync().await,
-            // PhaseType::UserSync => self.start_user_sync().await,
+            PhaseType::UserSync => self.start_user_sync().await,
             PhaseType::FolderSync => self.start_folder_sync().await,
             PhaseType::ResourceSync => self.start_resource_sync().await,
             PhaseType::ShareSync => self.start_share_sync().await,
@@ -411,13 +412,12 @@ impl PeerConnection {
     }
 
     // Phase-specific sync methods (placeholders)
-    // #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
-    // async fn start_user_sync(&self) -> Result<(), String> {
-    //     info!("Starting user sync phase");
-    //     // Implementation pending
-    //     Ok(())
-    // }
-    //
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    async fn start_user_sync(&self) -> Result<(), String> {
+        info!("Starting user sync phase");
+        self.get_and_send_next_sync().await
+    }
+
     #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
     async fn start_resource_sync(&self) -> Result<(), String> {
         info!("Starting resource sync phase");

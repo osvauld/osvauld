@@ -1,6 +1,6 @@
 use osvauld_core::models::sync_types::OperationType;
 use osvauld_core::models::{device::Device, sync_types::ResourceType};
-use osvauld_core::models::p2p::{SyncPayload, PhaseType};
+use osvauld_core::models::p2p::{SyncPayload, PhaseType, ResourceUpdateMsg};
 use osvauld_core::models::sync_record::SyncRecordSet;
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::RepositoryError;
@@ -22,6 +22,10 @@ pub async fn get_next_pending_sync(
     let _guard = current_span.enter();
     
     match current_phase {
+        PhaseType::UserSync => {
+            debug!("Checking for user syncs for UserSync phase");
+                self.get_user_sync_for_device(device).await
+            }
         PhaseType::DeviceSync => {
             debug!("Checking for device syncs for DeviceSync phase");
             self.get_device_sync_for_device(device).await
@@ -476,61 +480,6 @@ pub async fn get_next_pending_sync(
         }
     }
 
-    #[instrument(
-        skip(self), 
-        fields(
-            resource_id = %resource_id
-        ),
-        level = "debug"
-    )]
-    async fn get_resource_for_update(
-        &self,
-        resource_id: &str,
-    ) -> Result<SyncPayload, RepositoryError> {
-        debug!("Getting resource for update");
-        
-        let resource = match self.resource_repository.find_by_id_raw(resource_id).await {
-            Ok(res) => {
-                debug!(
-                    resource_id = %res.id,
-                    "Retrieved resource data"
-                );
-                res
-            },
-            Err(e) => {
-                error!(
-                    error = %e,
-                    resource_id = %resource_id,
-                    "Failed to retrieve resource data"
-                );
-                return Err(e);
-            }
-        };
-        
-        let vector_clocks = match self.vector_clock_repository.get_vector_clocks_for_resource(resource_id).await {
-            Ok(clocks) => {
-                debug!(
-                    clock_count = clocks.len(),
-                    "Retrieved vector clocks"
-                );
-                clocks
-            },
-            Err(e) => {
-                error!(
-                    error = %e,
-                    resource_id = %resource_id,
-                    "Failed to retrieve vector clocks"
-                );
-                return Err(e);
-            }
-        };
-        
-        debug!("Prepared resource update payload");
-        Ok(SyncPayload::ResourceUpdate {
-            resource,
-            vector_clocks,
-        })
-    }
 
     #[instrument(
         skip(self, device), 

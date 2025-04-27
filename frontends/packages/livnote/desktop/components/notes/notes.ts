@@ -77,10 +77,17 @@ export class Notes {
   private pendingYjsState: Uint8Array | null = null;
 
   constructor() {
-    this.clientID = Math.floor(Math.random() * 0xffffffff);
+    this.clientID = 0;
     this.initSchema();
     this.initYjs();
   }
+
+  updateClientId(clientID: number): void {
+    // Update the client ID
+    this.clientID = clientID;
+
+  }
+
 
 
   private initSchema(): void {
@@ -489,7 +496,6 @@ export class Notes {
       }
 
       // Generate a client ID
-      const clientId = `client-${this.clientID}`;
 
       // Serialize the initial state
       const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
@@ -502,7 +508,7 @@ export class Notes {
         content,
         yjs_state,
         editor_state: editorJSON,
-        client_id: clientId,
+        client_id: this.clientID.toString(),
         resource_id: "pending", // Will be updated after we get the note ID
         last_modified: timestamp,
       };
@@ -533,6 +539,8 @@ export class Notes {
 
       // Set the current note ID and return it
       this.currentNoteId = noteId;
+
+      await emit("note-change", noteId);
       return noteId;
     } catch (error) {
       console.error("Error creating note:", error);
@@ -571,8 +579,8 @@ export class Notes {
         content,
         yjs_state,
         editor_state: editorJSON,
-        client_id: `client-${this.clientID}`,
-        resource_id: this.currentNoteId, // Use the noteId as resourceId
+        client_id: this.clientID.toString(),
+        resource_id: this.currentNoteId,
         last_modified: timestamp,
         title,
       };
@@ -584,6 +592,7 @@ export class Notes {
           yjs_state: Array.from(yjs_state),
         }),
       });
+      emit('resource-update-complete', { id: this.currentNoteId });
 
       console.log(`Saved note ${this.currentNoteId} successfully`);
     } catch (error) {
@@ -679,7 +688,7 @@ export class Notes {
       await emit("sync-update", {
         update: updateArray,
         clientID: this.clientID,
-        client_id: `client-${this.clientID}`,
+        client_id: this.clientID.toString(),
         resource_id: this.currentNoteId,
       } as CollaborationUpdateEvent);
     } catch (error) {

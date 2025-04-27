@@ -1,13 +1,14 @@
 use log::error;
 use osvauld_db::{DbConnection, initialize_database};
 use tauri::Manager;
+pub mod current_note_state;
 pub mod handlers;
 pub mod listners;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, get_public_key, get_user_id, handle_add_device,
-    handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
+    check_private_key_loaded, check_signup_status, get_public_key, get_user_details, get_user_id,
+    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
     handle_sign_challenge, handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
@@ -128,25 +129,7 @@ pub fn run() {
                         folder_repo.clone(),
                         vector_clock_repo.clone(),
                     ));
-                    let sync_service = Arc::new(SyncService::new(
-                        sync_repo.clone(),
-                        folder_repo.clone(),
-                        resource_repo.clone(),
-                        device_repo.clone(),
-                        store_repository.clone(),
-                        vector_clock_repo.clone(),
-                        user_repository.clone(),
-                        share_repo.clone(),
-                        transaction_service.clone(),
-                    ));
 
-                    let user_service = Arc::new(UserService::new(
-                        user_repository.clone(),
-                        crypto_utils.clone(),
-                        sync_repo.clone(),
-                        device_repo.clone(),
-                        vector_clock_repo.clone(),
-                    ));
                     let resource_service = Arc::new(ResourceService::new(
                         resource_repo.clone(),
                         crypto_utils.clone(),
@@ -156,6 +139,27 @@ pub fn run() {
                         user_repository.clone(),
                         share_repo.clone(),
                         sync_repo.clone(),
+                    ));
+                    let sync_service = Arc::new(SyncService::new(
+                        sync_repo.clone(),
+                        folder_repo.clone(),
+                        resource_repo.clone(),
+                        device_repo.clone(),
+                        store_repository.clone(),
+                        vector_clock_repo.clone(),
+                        user_repository.clone(),
+                        share_repo.clone(),
+                        resource_service.clone(),
+                        transaction_service.clone(),
+                    ));
+
+                    let user_service = Arc::new(UserService::new(
+                        user_repository.clone(),
+                        crypto_utils.clone(),
+                        sync_repo.clone(),
+                        device_repo.clone(),
+                        vector_clock_repo.clone(),
+                        share_repo.clone(),
                     ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
                         P2PService::new(
@@ -171,22 +175,24 @@ pub fn run() {
                             incoming_receiver,
                         );
                     });
+                    let user_state = UserState::new();
                     // Initialize event manager and start listening
-                    let event_manager = EventManager::new(
-                        handle.clone(),
-                        p2p_receiver,
-                        resource_service.clone(),
-                        p2p_sender,
-                    );
-                    rt.spawn(async move {
-                        event_manager.start_listening();
-                    });
                     let rendezvous_service = Arc::new(RendezvousService::new(
                         p2p_service.clone(),
                         "ws://0.0.0.0:3030/ws",
                         user_service.clone(),
                     ));
-                    let user_state = UserState::new();
+                    let event_manager = EventManager::new(
+                        handle.clone(),
+                        p2p_receiver,
+                        resource_service.clone(),
+                        p2p_sender,
+                        user_service.clone(),
+                        rendezvous_service.clone(),
+                    );
+                    rt.spawn(async move {
+                        event_manager.start_listening();
+                    });
 
                     // Manage all services
 
@@ -250,6 +256,7 @@ pub fn run() {
             initiate_first_connection,
             share_resource,
             get_details_for_share,
+            get_user_details,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

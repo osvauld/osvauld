@@ -1,20 +1,44 @@
-use osvauld_core::models::vector_clock::ResourceVectorClock;
 use tokio::sync::mpsc;
 
 /// Events that can be received and processed by the P2P service
 #[derive(Debug)]
 pub enum IncomingEvent {
-    /// Sent when a merge is completed
-    MergeComplete {
-        encrypted_doc: String,
-        add_vector_clock: Vec<ResourceVectorClock>,
-        update_vector_clock: Vec<ResourceVectorClock>,
-        resource_id: String,
-        user_id: String,
-        device_id: String,
-    },
     /// Sent when a sync update occurs
-    SyncUpdate { payload: String },
+    SyncUpdateBroadcast {
+        connection_ids: Vec<String>,
+        payload: String,
+    },
+    LiveEditDocumentCheck {
+        connection_id: String,
+        resource_id: String,
+    },
+    LiveEditDocumentCheckResponse {
+        connection_id: String,
+        resource_id: String,
+        is_match: bool,
+    },
+    LiveEditUpdateExchange {
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        buffer: Vec<u8>,
+    },
+    LiveEditUpdateExchangeResponse {
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        remote_updates: Vec<u8>,
+        local_buffer: Vec<u8>,
+    },
+    DocumentChanged {
+        connection_id: String,
+        resource_id: String,
+    },
+    CurrentBufferExchange {
+        connection_id: String,
+        resource_id: String,
+        buffer: Vec<u8>,
+    },
 }
 
 /// Sender for incoming events to be processed by the P2P service
@@ -37,28 +61,91 @@ impl P2PSender {
             .map_err(|e| format!("Failed to send event: {}", e))
     }
 
-    /// Sends a merge complete event
-    pub fn send_merge_complete(
+    pub fn send_sync_update_to_connections(
         &self,
-        encrypted_doc: String,
-        add_vector_clock: Vec<ResourceVectorClock>,
-        update_vector_clock: Vec<ResourceVectorClock>,
-        resource_id: String,
-        user_id: String,
-        device_id: String,
+        payload: String,
+        connection_ids: Vec<String>,
     ) -> Result<(), String> {
-        self.send(IncomingEvent::MergeComplete {
-            encrypted_doc,
-            add_vector_clock,
-            update_vector_clock,
+        self.send(IncomingEvent::SyncUpdateBroadcast {
+            payload,
+            connection_ids,
+        })
+    }
+    pub fn send_live_edit_document_check(
+        &self,
+        connection_id: String,
+        resource_id: String,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditDocumentCheck {
+            connection_id,
             resource_id,
-            user_id,
-            device_id,
         })
     }
 
-    /// Sends a sync update event
-    pub fn send_sync_update(&self, payload: String) -> Result<(), String> {
-        self.send(IncomingEvent::SyncUpdate { payload })
+    pub fn send_live_edit_document_check_response(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        is_match: bool,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditDocumentCheckResponse {
+            connection_id,
+            resource_id,
+            is_match,
+        })
+    }
+
+    pub fn send_live_edit_update_exchange(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        buffer: Vec<u8>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditUpdateExchange {
+            connection_id,
+            resource_id,
+            state_vector,
+            buffer,
+        })
+    }
+    pub fn send_document_changed(
+        &self,
+        connection_id: String,
+        resource_id: String,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::DocumentChanged {
+            connection_id,
+            resource_id,
+        })
+    }
+
+    pub fn send_live_edit_update_exchange_response(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        state_vector: Vec<u8>,
+        local_buffer: Vec<u8>,
+        remote_updates: Vec<u8>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::LiveEditUpdateExchangeResponse {
+            connection_id,
+            resource_id,
+            state_vector,
+            local_buffer,
+            remote_updates,
+        })
+    }
+    pub fn send_current_buffer_exchange(
+        &self,
+        connection_id: String,
+        resource_id: String,
+        buffer: Vec<u8>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::CurrentBufferExchange {
+            connection_id,
+            resource_id,
+            buffer,
+        })
     }
 }

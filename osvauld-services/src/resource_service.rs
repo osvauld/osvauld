@@ -1,5 +1,8 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_user, get_key_id};
 use osvauld_core::models::device::Device;
+use osvauld_core::models::document::{
+    apply_updates_and_generate_peer_updates, generate_updates_for_peer, get_state_vector,
+};
 use osvauld_core::models::resource::{DecryptedResource, Resource, ResourceWithKey};
 use osvauld_core::models::resource_key::ResourceKey;
 use osvauld_core::models::share_record::{PermissionLevel, ShareOperation, ShareRecord};
@@ -583,5 +586,158 @@ impl ResourceService {
             .ok_or(ResourceServiceError::CryptoError(
                 "Failed to decrypt resource".to_string(),
             ))
+    }
+
+    pub async fn get_resource_state_vector(
+        &self,
+        resource_id: &str,
+    ) -> Result<Vec<u8>, RepositoryError> {
+        // 1. Get the decrypted resource
+        let decrypted_resource = match self.get_resource(resource_id.to_string()).await {
+            Ok(resource) => resource,
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+
+        // 2. Extract yjs_state from the data field
+        // The data field is already parsed as a Value, so we can access it directly
+        let yjs_state = match decrypted_resource.data.get("yjs_state") {
+            Some(state) => {
+                // Convert the JSON array to a Vec<u8>
+                match state.as_array() {
+                    Some(array) => {
+                        array
+                            .iter()
+                            .try_fold(Vec::new(), |mut acc, v| match v.as_u64() {
+                                Some(n) if n <= 255 => {
+                                    acc.push(n as u8);
+                                    Ok(acc)
+                                }
+                                Some(n) => Err(RepositoryError::CustomError(format!(
+                                    "yjs_state contains value {} which exceeds u8 range",
+                                    n
+                                ))),
+                                None => Err(RepositoryError::CustomError(
+                                    "yjs_state contains non-numeric value".to_string(),
+                                )),
+                            })?
+                    }
+                    None => {
+                        return Err(RepositoryError::CustomError(
+                            "yjs_state is not an array".to_string(),
+                        ));
+                    }
+                }
+            }
+            None => {
+                return Err(RepositoryError::CustomError(
+                    "yjs_state not found in resource data".to_string(),
+                ));
+            }
+        };
+
+        // 3. Use document.rs to get the state vector
+        let state_vector = match get_state_vector(&yjs_state).await {
+            Ok(vector) => vector,
+            Err(e) => return Err(RepositoryError::CustomError(e)),
+        };
+
+        Ok(state_vector)
+    }
+
+    // Also update the generate_updates_for_peer function similarly
+    pub async fn generate_updates_for_peer(
+        &self,
+        resource_id: &str,
+        peer_state_vector: &[u8],
+    ) -> Result<Vec<u8>, RepositoryError> {
+        // 1. Get the decrypted resource
+        let decrypted_resource = match self.get_resource(resource_id.to_string()).await {
+            Ok(resource) => resource,
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+
+        // 2. Extract yjs_state from the data field
+        let yjs_state = match decrypted_resource.data.get("yjs_state") {
+            Some(state) => match state.as_array() {
+                Some(array) => array
+                    .iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                    .collect::<Vec<u8>>(),
+                None => {
+                    return Err(RepositoryError::CustomError(
+                        "yjs_state is not an array".to_string(),
+                    ));
+                }
+            },
+            None => {
+                return Err(RepositoryError::CustomError(
+                    "yjs_state not found in resource data".to_string(),
+                ));
+            }
+        };
+
+        // 3. Use document.rs to generate updates for the peer
+        let updates = match generate_updates_for_peer(&yjs_state, peer_state_vector).await {
+            Ok(updates) => updates,
+            Err(e) => return Err(RepositoryError::CustomError(e)),
+        };
+
+        Ok(updates)
+    }
+    /// Apply updates from a peer and generate any updates they might need in return
+    ///
+    /// # Arguments
+    /// * `resource_id` - The ID of the resource being updated
+    /// * `updates` - The updates received from the peer
+    /// * `peer_state_vector` - The state vector from the peer
+    ///
+    /// # Returns
+    /// * `Result<(Vec<u8>, Vec<u8>), RepositoryError>` - (Updates for peer, Current state vector)
+    pub async fn apply_updates_and_get_peer_updates(
+        &self,
+        resource_id: &str,
+        updates: &[u8],
+        peer_state_vector: &[u8],
+    ) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
+        // 1. Get the current resource with its YJS state
+        let decrypted_resource = match self.get_resource(resource_id.to_string()).await {
+            Ok(resource) => resource,
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+
+        // 2. Extract the current yjs_state from the data field
+        let current_yjs_state = match decrypted_resource.data.get("yjs_state") {
+            Some(state) => match state.as_array() {
+                Some(array) => array
+                    .iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                    .collect::<Vec<u8>>(),
+                None => {
+                    return Err(RepositoryError::CustomError(
+                        "yjs_state is not an array".to_string(),
+                    ));
+                }
+            },
+            None => {
+                return Err(RepositoryError::CustomError(
+                    "yjs_state not found in resource data".to_string(),
+                ));
+            }
+        };
+
+        // 3. Use document.rs to apply the updates and generate any updates for the peer
+        let (peer_updates, current_state_vector) = match apply_updates_and_generate_peer_updates(
+            &current_yjs_state,
+            updates,
+            peer_state_vector,
+        )
+        .await
+        {
+            Ok((updates, state_vector)) => (updates, state_vector),
+            Err(e) => return Err(RepositoryError::CustomError(e)),
+        };
+
+        // 4. Return both the updates needed by the peer and the current state vector
+        Ok((peer_updates, current_state_vector))
     }
 }

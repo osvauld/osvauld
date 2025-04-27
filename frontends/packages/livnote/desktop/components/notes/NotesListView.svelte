@@ -36,6 +36,7 @@
 
 	// Calculate grid layout
 	const getColumnCount = (): number => {
+		console.log("get column count called");
 		if (typeof window === "undefined") return 1;
 		if (window.innerWidth >= 1440) return 3;
 		if (window.innerWidth >= 1024) return 2;

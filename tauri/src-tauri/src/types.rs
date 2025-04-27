@@ -19,9 +19,18 @@ pub enum CryptoResponse {
         device_key: String,
         #[serde(rename = "encryptionKey")]
         encryption_key: String,
+        #[serde(rename = "userId")]
+        user_id: String,
     },
     CheckPvtKeyLoaded(bool),
     PublicKey(String),
+    User {
+        username: String,
+        #[serde(rename = "publicKey")]
+        public_key: String,
+        #[serde(rename = "userId")]
+        user_id: String,
+    },
     Signature(String),
 
     SignatureResponse {
@@ -33,6 +42,17 @@ pub enum CryptoResponse {
         #[serde(rename = "publicKey")]
         public_key: String,
         salt: String,
+    },
+    UserDetails {
+        #[serde(rename = "userId")]
+        user_id: String,
+        #[serde(rename = "deviceId")]
+        device_id: String,
+        username: String,
+        #[serde(rename = "publicKey")]
+        public_key: String,
+        #[serde(rename = "deviceKey")]
+        device_key: String,
     },
     UserId(String),
     ChangedPassphrase(String),
@@ -198,10 +218,4 @@ pub struct UserDetails {
     pub user_public_key: String,
     pub device_public_key: String,
     pub username: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateCurrentNoteInput {
-    pub note_id: Option<String>,
 }

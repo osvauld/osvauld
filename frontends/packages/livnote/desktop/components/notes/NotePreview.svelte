@@ -26,8 +26,7 @@
 	let element = $state<HTMLElement | null>(null);
 	let view = $state<EditorView | null>(null);
 
-	// Initialize the preview on mount
-	onMount(() => {
+	function updateEditorContent() {
 		if (!element) return;
 
 		try {
@@ -81,14 +80,35 @@
 				});
 			}
 
-			// Create a read-only view
-			view = new EditorView(element, {
-				state,
-				editable: () => false, // Make it read-only
-				dispatchTransaction: () => {}, // No-op since it's read-only
-			});
+			// If the view already exists, update it, otherwise create it
+			if (view) {
+				view.updateState(state);
+			} else {
+				view = new EditorView(element, {
+					state,
+					editable: () => false, // Make it read-only
+					dispatchTransaction: () => {}, // No-op since it's read-only
+				});
+			}
 		} catch (err) {
-			console.error("Error initializing note preview:", err);
+			console.error("Error initializing/updating note preview:", err);
+		}
+	}
+	// Initialize the preview on mount
+	onMount(() => {
+		updateEditorContent();
+	});
+
+	// Update the preview when props change
+	$effect(() => {
+		// Log to verify props changes are detected
+		console.log(
+			`NotePreview props changed - content length: ${content?.length}, editorState: ${!!editorState}`,
+		);
+
+		// Update the editor content when props change
+		if (view) {
+			updateEditorContent();
 		}
 	});
 

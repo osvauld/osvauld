@@ -285,12 +285,14 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::UpdateResource(payload) => {
-                info!("recived merge payload back");
-                self.handle_merge_update(payload).await
-            }
             Message::Phase(phase) => {
                 self.handle_phase_message(phase).await
+            }
+            Message::MergeUpdate(payload) => {
+                self.process_merge_payload(payload).await
+            }
+            Message::LiveEdit(payload) => {
+                self.handle_live_edit_flow(payload).await
             }
         }
     }
@@ -416,6 +418,12 @@ impl PeerConnection {
                     });
                     
                     self.send_message(phase_message).await
+                }
+                ConnectionAction::LiveEdit => {
+                    info!("live edit triggered");
+                    let connection_id = self.get_id();
+                    self.event_emitter.emit(P2PEvent::LiveEditConnected { connection_id });
+                    Ok(())
                 }
             }
         } else {

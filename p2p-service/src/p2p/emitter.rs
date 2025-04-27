@@ -1,5 +1,4 @@
 use log::{error, info};
-use osvauld_core::models::{resource::Resource, vector_clock::ResourceVectorClock};
 use tokio::sync::mpsc;
 
 /// Enum representing various P2P events that can be emitted
@@ -21,7 +20,6 @@ pub enum P2PEvent {
     ShareComplete,
     /// Emitted when a real-time editing event is received
     EditingEvent {
-        /// Content of the editing event
         payload: String,
     },
     /// Emitted when an error occurs
@@ -31,11 +29,38 @@ pub enum P2PEvent {
         /// Source of the error
         source: String,
     },
-    UpdateEvent {
-        vector_clock: Vec<ResourceVectorClock>,
-        remote_resource: Resource,
-        device_id: String,
-        user_id: String,
+    UpdatesEvent {
+        resource_id: String,
+        updates: Vec<u8>,
+    },
+    LiveEditConnected {
+        connection_id: String,
+    },
+    DocumentCheck {
+        resource_id: String,
+        connection_id: String,
+    },
+    UpdateRequest {
+        resource_id: String,
+        connection_id: String,
+        state_vector: Vec<u8>,
+    },
+    ProcessUpdate {
+        resource_id: String,
+        connection_id: String,
+        state_vector: Vec<u8>,
+        updates: Vec<u8>,
+        buffer: Vec<u8>,
+    },
+    ProcessUpdateResponse {
+        resource_id: String,
+        connection_id: String,
+        updates: Vec<u8>,
+    },
+    CurrentBufferExchange {
+        resource_id: String,
+        connection_id: String,
+        updates: Vec<u8>,
     },
 }
 

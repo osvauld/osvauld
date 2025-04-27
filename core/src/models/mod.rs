@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod device;
+pub mod document;
 pub mod folder;
 pub mod p2p;
 pub mod resource;

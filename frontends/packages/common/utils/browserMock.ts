@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { Store } from "@tauri-apps/plugin-store";
 import { invoke } from "@tauri-apps/api/core";
+import { getUserDetails } from "./storeHelper";
 const tauriBrowser = {
   storage: {
     local: {
@@ -105,7 +106,8 @@ const tauriBrowser = {
             invoke("get_details_for_share"),
           updateCurrentNote: (data: any) => {
             invoke('update_current_note', { input: data })
-          }
+          },
+          getUserDetails: () => invoke('get_user_details'),
         };
 
         const handler = handlerMap[action];

@@ -10,8 +10,6 @@ use super::user::User;
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
 
-use super::resource::Resource;
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum SyncPayload {
     DeviceSync {
@@ -44,10 +42,7 @@ pub enum SyncPayload {
         share_record: ShareRecord,
     },
     StatusUpdate(Vec<(DeviceRecord, Vec<DeviceRecordStatus>)>),
-    ResourceUpdate {
-        resource: Resource,
-        vector_clocks: Vec<ResourceVectorClock>,
-    },
+    ResourceMerge(ResourceUpdateMsg),
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum UserConnectionPayload {
@@ -91,9 +86,10 @@ pub enum Message {
     // FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
-    UpdateResource(UpdateResource),
+    MergeUpdate(ResourceUpdateMsg),
     UserConnection(UserConnectionPayload),
     Phase(Phase),
+    LiveEdit(LiveEditMessage),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -109,11 +105,29 @@ pub enum ConnectionType {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UpdateResource {
-    pub encrypted_data: String,
-    pub add_vector_clock: Vec<ResourceVectorClock>,
-    pub update_vector_clock: Vec<ResourceVectorClock>,
-    pub resource_id: String,
+pub enum ResourceUpdateMsg {
+    // Initial message with state vector
+    StateVectorRequest {
+        resource_id: String,
+        state_vector: Vec<u8>,
+    },
+    // Response with updates and state vector
+    UpdatesResponse {
+        resource_id: String,
+        updates: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    FinalUpdateMerge {
+        resource_id: String,
+        updates: Vec<u8>,
+        vector_clocks: Vec<ResourceVectorClock>,
+    },
+    // Acknowledgment that sync is complete
+    VectorClockResponse {
+        resource_id: String,
+        update_clock: Vec<ResourceVectorClock>,
+        add_clock: Vec<ResourceVectorClock>,
+    },
 }
 
 // The HandshakeMessage type remains the same
@@ -135,7 +149,7 @@ pub struct SyncAckDeviceRecord {
 pub enum SyncAckType {
     FullSync(SyncOperations),
     DeviceSyncRecords(Vec<String>), // list of device_record_ids
-    UpdateRecieved(String),
+    UpdateReceived,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -143,7 +157,7 @@ pub enum PhaseType {
     AddDevice,
     FirstUserConnection,
     DeviceSync,
-    // UserSync,
+    UserSync,
     FolderSync,
     ResourceSync,
     ShareSync,
@@ -170,10 +184,58 @@ pub struct Phase {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionAction {
-    /// Sync device data between peers
     DeviceSync,
-    /// Initialize first connection between user devices
     UserFirstConnection,
-    /// Add a new device to the user's account
     AddDevice,
+    LiveEdit,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum LiveEditMessage {
+    /// Verify both peers are editing the same document
+    DocumentCheck {
+        resource_id: String,
+    },
+    NotSameDocument,
+    /// Exchange document state vectors for comparison
+    StateVectorExchange {
+        resource_id: String,
+        state_vector: Vec<u8>,
+    },
+    /// Transfer document updates and pending changes
+    /// Contains the update data along with the current buffer state
+    UpdateExchange {
+        resource_id: String,
+        updates: Vec<u8>,
+        buffer: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    UpdateExchangeResponse {
+        resource_id: String,
+        updates: Vec<u8>,
+        state_vector: Vec<u8>,
+    },
+    CurrentBufferExchange {
+        resource_id: String,
+        buffer: Vec<u8>,
+    },
+    //TODO: implement these mesages
+    /// Stream real-time edits during active editing
+    LiveUpdate {
+        resource_id: String,
+        update: Vec<u8>,
+    },
+    /// Verify document synchronization with buffer state
+    VerificationRequest {
+        resource_id: String,
+        state_vector: Vec<u8>,
+        buffer: Vec<u8>,
+    },
+    /// Response to verification request
+    VerificationResponse {
+        resource_id: String,
+        state_vector: Vec<u8>,
+        is_match: bool,
+        buffer: Vec<u8>,
+    },
 }

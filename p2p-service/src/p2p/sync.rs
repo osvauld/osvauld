@@ -1,8 +1,9 @@
 use crate::p2p::peer_connection::PeerConnection;
-use osvauld_services::SyncEvent;
 
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{Message, SyncAckType, SyncPayload, UpdateResource};
+use osvauld_core::models::p2p::{
+    LiveEditMessage, Message, ResourceUpdateMsg, SyncAckType, SyncPayload,
+};
 
 use super::P2PEvent;
 use tracing::{debug, error, info, instrument, Span};
@@ -30,40 +31,7 @@ impl PeerConnection {
         info!("Starting device sync phase");
 
         // Get current span for context propagation
-        let current_span = Span::current();
-
-        // Get the current phase
-        let current_phase = self.phase.get_current_phase().await;
-
-        // Get next pending sync from sync service, specifying the current phase
-        match self
-            .context
-            .sync_service
-            .get_next_pending_sync(
-                &self.device,
-                &self.user,
-                Some(self.pending_resource_ids.clone()),
-                current_phase,
-                current_span,
-            )
-            .await
-        {
-            Ok(Some(payload)) => {
-                info!("Sending sync payload for device sync phase");
-                let message = Message::SyncResponse(payload);
-                self.send_message(message).await?;
-                Ok(())
-            }
-            Ok(None) => {
-                // No pending syncs for this phase
-                info!("No pending device syncs, completing phase");
-                self.complete_current_phase().await
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to get pending device syncs");
-                Err(format!("Failed to get pending device syncs: {}", e))
-            }
-        }
+        self.get_and_send_next_sync().await
     }
 
     #[instrument(skip(self, records), fields(
@@ -128,8 +96,21 @@ impl PeerConnection {
                     payload_type = ?std::mem::discriminant(&payload),
                     "Sending sync payload response"
                 );
-                let message = Message::SyncResponse(payload);
-                self.send_message(message).await?;
+
+                match payload {
+                    SyncPayload::ResourceMerge(resource_update_msg) => {
+                        info!("Sending MergeUpdate message for resource");
+                        // Send as MergeUpdate instead of SyncResponse
+                        let message = Message::MergeUpdate(resource_update_msg);
+                        self.send_message(message).await?;
+                    }
+                    _ => {
+                        // For all other types, use the regular SyncResponse
+                        info!("Sending standard SyncResponse message");
+                        let message = Message::SyncResponse(payload);
+                        self.send_message(message).await?;
+                    }
+                }
                 Ok(())
             }
             Ok(None) => {
@@ -204,7 +185,6 @@ impl PeerConnection {
         let current_span = Span::current();
 
         // Create event adapter
-        let event_adapter = self.sync_event_adapter();
 
         // Process sync payload
         let ack_message = match self
@@ -214,7 +194,6 @@ impl PeerConnection {
                 &payload,
                 &self.user.id,
                 &self.device.id,
-                Some(event_adapter),
                 &current_device.id,
                 &current_device.user_id,
                 current_span,
@@ -279,59 +258,6 @@ impl PeerConnection {
         Ok(())
     }
 
-    // Helper to adapt sync events to P2P events
-    fn sync_event_adapter(&self) -> impl Fn(SyncEvent) + Send + Sync {
-        let event_emitter = self.event_emitter.clone();
-
-        move |sync_event| {
-            // Map SyncEvent to P2PEvent
-            let p2p_event = match sync_event {
-                SyncEvent::UpdateEvent {
-                    remote_resource,
-                    vector_clock,
-                    device_id,
-                    user_id,
-                } => P2PEvent::UpdateEvent {
-                    remote_resource,
-                    vector_clock,
-                    device_id,
-                    user_id,
-                },
-            };
-            event_emitter.emit(p2p_event);
-        }
-    }
-
-    #[instrument(skip(self, payload), fields(
-        connection_id = %self.get_id(),
-        resource_id = %payload.resource_id
-    ), level = "info")]
-    pub async fn handle_merge_update(&self, payload: &UpdateResource) -> Result<(), String> {
-        info!("Processing merge update");
-
-        let current_span = Span::current();
-        match self
-            .context
-            .sync_service
-            .merge_updated_doc(
-                &payload.encrypted_data,
-                &payload.add_vector_clock,
-                &payload.update_vector_clock,
-                &payload.resource_id,
-                current_span,
-            )
-            .await
-        {
-            Ok(_) => {
-                info!("Merge update processed successfully");
-                Ok(())
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to merge updated document");
-                Err(format!("Failed to merge document: {}", e))
-            }
-        }
-    }
     #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
     pub async fn start_add_device_sync(&self) -> Result<(), String> {
         info!("Starting add device sync process");
@@ -379,6 +305,163 @@ impl PeerConnection {
                 error!(error = %e, "Failed to get add device payload");
                 Err(format!("Failed to get add device payload: {}", e))
             }
+        }
+    }
+
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "debug")]
+    pub async fn process_merge_payload(&self, payload: &ResourceUpdateMsg) -> Result<(), String> {
+        debug!("Processing merge update payload");
+
+        let current_span = Span::current();
+        match payload {
+            ResourceUpdateMsg::UpdatesResponse {
+                resource_id,
+                updates,
+                state_vector: _,
+            } => {
+                info!(
+                    "Received updates response for resource {}, emitting to frontend",
+                    resource_id
+                );
+
+                // Emit the updates to the frontend before processing
+                self.event_emitter.emit(P2PEvent::UpdatesEvent {
+                    resource_id: resource_id.clone(),
+                    updates: updates.clone(),
+                });
+            }
+            ResourceUpdateMsg::FinalUpdateMerge {
+                resource_id,
+                updates,
+                vector_clocks: _,
+            } => {
+                info!(
+                    "Received final updates for resource {}, emitting to frontend",
+                    resource_id
+                );
+
+                // Emit the final updates to the frontend before processing
+                self.event_emitter.emit(P2PEvent::UpdatesEvent {
+                    resource_id: resource_id.clone(),
+                    updates: updates.clone(),
+                });
+            }
+            _ => {
+                // No special handling needed for other message types
+                debug!("Processing other merge message type");
+            }
+        }
+
+        match self
+            .context
+            .sync_service
+            .process_resource_merge_message(payload, current_span)
+            .await
+        {
+            Ok(response_payload) => {
+                if let Some(response) = response_payload {
+                    info!(
+
+                        response_type = ?std::mem::discriminant(&response),
+                        "Sending merge response back to peer"
+                    );
+                    let response_message = Message::MergeUpdate(response);
+                    match self.send_message(response_message).await {
+                        Ok(_) => {
+                            info!("Successfully sent merge response");
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to send merge response: {}", e);
+                            Err(format!("Failed to send merge response: {}", e))
+                        }
+                    };
+                    return Ok(());
+                } else {
+                    let response_message = Message::SyncAck(SyncAckType::UpdateReceived);
+
+                    match self.send_message(response_message).await {
+                        Ok(_) => {
+                            info!("Successfully sent merge response");
+                            Ok(())
+                        }
+                        Err(e) => {
+                            error!("Failed to send merge response: {}", e);
+                            Err(format!("Failed to send merge response: {}", e))
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to process resource merge message: {}", e);
+                Err(format!("Failed to process resource merge message: {}", e))
+            }
+        }
+    }
+
+    #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
+    pub async fn handle_live_edit_flow(&self, message: &LiveEditMessage) -> Result<(), String> {
+        match message {
+            LiveEditMessage::DocumentCheck { resource_id } => {
+                self.event_emitter.emit(P2PEvent::DocumentCheck {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::StateVectorExchange {
+                resource_id,
+                state_vector,
+            } => {
+                self.event_emitter.emit(P2PEvent::UpdateRequest {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                    state_vector: state_vector.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::UpdateExchange {
+                resource_id,
+                updates,
+                buffer,
+                state_vector,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::ProcessUpdate {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    state_vector: state_vector.clone(),
+                    updates: updates.clone(),
+                    buffer: buffer.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::UpdateExchangeResponse {
+                resource_id,
+                updates,
+                state_vector: _,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::ProcessUpdateResponse {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    updates: updates.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::CurrentBufferExchange {
+                resource_id,
+                buffer,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::CurrentBufferExchange {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    updates: buffer.clone(),
+                });
+                Ok(())
+            }
+            _ => Ok(()),
         }
     }
 }
