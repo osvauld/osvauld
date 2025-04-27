@@ -57,6 +57,7 @@
 
 	onDestroy(() => {
 		// Clean up event listener
+		dataState.cleanupReactiveUpdates();
 		window.removeEventListener("keydown", handleKeydown);
 	});
 </script>
