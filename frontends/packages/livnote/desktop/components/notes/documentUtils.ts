@@ -47,10 +47,12 @@ export function applyYjsUpdates(currentState: Uint8Array | number[] | null, upda
   // Create a ProseMirror document from the XML fragment
   const result = initProseMirrorDoc(xmlFragment, editorSchema);
 
+  const pos = Math.min(1, result.doc.content.size);
+  const selection = { type: "text", anchor: pos, head: pos };
   // Create an editor state structure
   const editorStateJSON = {
     doc: result.doc.toJSON(),
-    selection: { type: "text", anchor: 1, head: 1 }
+    selection
   };
 
   return {
