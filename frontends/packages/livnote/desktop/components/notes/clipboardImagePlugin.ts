@@ -204,7 +204,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
  * Check if a blob is likely an image based on magic numbers/signatures
  */
 function isLikelyImage(blob: Blob): boolean {
-  return blob.size > 10 && blob.size < 50 * 1024 * 1024;
+  return blob.size > 10 && blob.size < 20 * 1024 * 1024;
 }
 
 /**
@@ -240,6 +240,18 @@ function isProbablyImageHeader(bytes: Uint8Array): boolean {
     return true;
   }
   
+  // SVG - starts with either '<svg' or '<?xml'
+  if (bytes.length >= 5) {
+    // Check for '<svg'
+    if (bytes[0] === 0x3C && bytes[1] === 0x73 && bytes[2] === 0x76 && bytes[3] === 0x67) {
+      return true;
+    }
+    // Check for '<?xml'
+    if (bytes[0] === 0x3C && bytes[1] === 0x3F && bytes[2] === 0x78 && bytes[3] === 0x6D && bytes[4] === 0x6C) {
+      return true;
+    }
+  }
+ 
   return false;
 }
 
