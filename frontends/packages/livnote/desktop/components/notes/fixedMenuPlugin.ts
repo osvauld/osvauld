@@ -119,6 +119,18 @@ style.textContent += `
   .text-color-button:disabled {
       opacity: 0.5;
   }
+
+  /* Styles for Code Blocks */
+  .ProseMirror pre {
+    background-color: #2a2b2f; /* Slightly different background */
+    color: #f0f0f0;           /* Light text color */
+    font-family: 'Courier New', Courier, monospace; /* Monospace font */
+    padding: 10px;            /* Padding inside the block */
+    border-radius: 4px;       /* Rounded corners */
+    margin: 1em 0;            /* Margin top/bottom */
+    white-space: pre-wrap;    /* Wrap long lines */
+    word-wrap: break-word;    /* Break long words */
+  }
 `;
 
 // Remove any existing style element with the same ID to avoid duplicates

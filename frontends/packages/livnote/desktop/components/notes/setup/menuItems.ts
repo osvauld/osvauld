@@ -1,6 +1,16 @@
 import { EditorView } from "prosemirror-view";
 import { Schema, Node as ProsemirrorNode } from "prosemirror-model";
-import { toggleMark, setBlockType, wrapIn } from "prosemirror-commands";
+import {
+	wrapIn,
+	setBlockType,
+	chainCommands,
+	toggleMark,
+	exitCode,
+	joinUp,
+	joinDown,
+	lift,
+	selectParentNode,
+} from "prosemirror-commands";
 import { wrapInList } from "prosemirror-schema-list";
 import { undo, redo } from "prosemirror-history";
 import { indentRight, indentLeft } from "./indentUtils";
@@ -674,7 +684,7 @@ export function addBlockStyleItems(container: HTMLElement, schema: Schema, view:
 
     `;
     blockquoteButton.addEventListener("click", () => {
-      wrapIn(schema.nodes.blockquote)(view.state, view.dispatch);
+      chainCommands(lift, wrapIn(schema.nodes.blockquote))(view.state, view.dispatch);
       view.focus();
     });
     group.appendChild(blockquoteButton);
@@ -692,7 +702,11 @@ export function addBlockStyleItems(container: HTMLElement, schema: Schema, view:
       </svg>
     `;
     codeBlockButton.addEventListener("click", () => {
-      setBlockType(schema.nodes.code_block)(view.state, view.dispatch);
+      const { $from } = view.state.selection;
+      const command = $from.parent.type === schema.nodes.code_block
+        ? setBlockType(schema.nodes.paragraph)
+        : setBlockType(schema.nodes.code_block);
+      command(view.state, view.dispatch);
       view.focus();
     });
     group.appendChild(codeBlockButton);
