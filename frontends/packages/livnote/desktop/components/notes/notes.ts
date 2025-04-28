@@ -4,7 +4,7 @@ import { baseKeymap, setBlockType, exitCode } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
 import type { NodeSpec } from "prosemirror-model";
-import { schema } from "prosemirror-schema-basic";
+import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
 import { slashCommandPlugin } from "./slashCommandPlugin";
@@ -85,7 +85,14 @@ export class Notes {
 
   private initSchema(): void {
     // Get the base paragraph node spec from the schema
-    const nodes = schema.spec.nodes;
+    const nodes = basicSchema.spec.nodes;
+    const baseMarks = basicSchema.spec.marks;
+
+    // Ensure the 'code' mark exists in the basic schema
+    const codeMarkSpec = baseMarks.get("code");
+    if (!codeMarkSpec) {
+      throw new Error("Base schema does not contain a 'code' mark spec.");
+    }
 
     // Helper function to add indent and align attributes to a node spec
     const addIndentAndAlignAttrs = (nodeSpec: NodeSpec): NodeSpec => ({
@@ -230,6 +237,7 @@ export class Notes {
             return ["em", 0];
           },
         },
+        code: codeMarkSpec,
         fontSize: {
           attrs: {
             size: { default: null }
@@ -240,7 +248,9 @@ export class Notes {
             getAttrs: (value) => value ? { size: value } : null
           }],
           toDOM(mark) {
-            return mark.attrs.size ? ["span", { style: `font-size: ${mark.attrs.size}` }] : ["span"];
+            return mark.attrs.size
+              ? ["span", { style: `font-size: ${mark.attrs.size}` }, 0]
+              : ["span", 0];
           }
         },
         // Add underline mark
@@ -275,16 +285,23 @@ export class Notes {
           }],
           toDOM(mark) {
             // Render as a span with the color style if color attribute exists
-            return mark.attrs.color ? ["span", { style: `color: ${mark.attrs.color}` }] : ["span"];
+            return mark.attrs.color
+              ? ["span", { style: `color: ${mark.attrs.color}` }, 0]
+              : ["span", 0];
           }
         },
-        // Add link mark
-        link: {
+        // Add link mark (reuse base spec, customize toDOM)
+        link: baseMarks.get("link") ? {
+          ...baseMarks.get("link")!.spec, // Get base spec
+          toDOM(mark) { // Override toDOM to add target="_blank" etc.
+            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
+          }
+        } : { // Fallback (shouldn't happen)
           attrs: {
             href: {},
             title: { default: null },
           },
-          inclusive: false, // Link shouldn't automatically span across nodes
+          inclusive: false,
           parseDOM: [{
             tag: "a[href]",
             getAttrs(dom: HTMLElement) {
@@ -295,7 +312,7 @@ export class Notes {
             },
           }],
           toDOM(mark) {
-            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0]; // Open in new tab
+            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
           },
         },
       }
@@ -347,6 +364,24 @@ export class Notes {
       .ProseMirror h5[data-indent="3"],
       .ProseMirror h6[data-indent="3"] {
         margin-left: 6em;
+      }
+
+      /* Inline code style */
+      .ProseMirror code {
+        background-color: #3a3b44; /* Slightly dark background */
+        padding: 0.1em 0.4em;
+        border-radius: 4px;
+        font-family: monospace; /* Explicitly set monospace font */
+        font-size: 0.9em; /* Slightly smaller font size */
+      }
+
+      /* Reset inline code styles when inside a pre (code block) */
+      .ProseMirror pre code {
+        background-color: initial; /* Reset background */
+        padding: initial; /* Reset padding */
+        border-radius: initial; /* Reset border-radius */
+        font-size: inherit; /* Inherit font size from pre */
+        /* font-family is likely already monospace via pre or global styles */
       }
     `;
     document.head.appendChild(styleElement);
