@@ -432,16 +432,18 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
     const { state, dispatch } = view;
     const { $from } = state.selection; // Get the resolved position for the start of the selection
 
-    // Determine the start and end positions of the node containing the cursor
-    const nodeStart = $from.start(); // Get the start position of the node
-    const nodeEnd = $from.end();   // Get the end position of the node
+    // Determine the start and end positions based on selection
+    const { from, to, empty } = state.selection;
+    const [markStart, markEnd] = empty
+      ? [$from.start(), $from.end()] // Apply to the whole node if selection is empty (cursor)
+      : [from, to]; // Apply only to the selected range if not empty
 
-    // Apply the mark to the entire node range
+    // Apply the mark to the determined range
     const tr = state.tr;
-    // Remove any existing fontSize mark from the node range first
-    tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
-    // Add the new mark to the node range
-    tr.addMark(nodeStart, nodeEnd, schema.marks.fontSize.create({ size: newSize }));
+    // Remove any existing fontSize mark from the range first
+    tr.removeMark(markStart, markEnd, schema.marks.fontSize);
+    // Add the new mark to the range
+    tr.addMark(markStart, markEnd, schema.marks.fontSize.create({ size: newSize }));
     
     dispatch(tr);
     view.focus();
@@ -588,8 +590,11 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 					}]
 				});
 
-				if (selectedPath && typeof selectedPath === 'string') {
-					const binaryData = await readFile(selectedPath);
+				// Handle both string and string[] return types
+				const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+
+				if (typeof path === 'string') {
+					const binaryData = await readFile(path);
 
 					// Function to convert Blob to Base64 Data URL using FileReader wrapped in a Promise
 					const blobToBase64 = (blob: Blob): Promise<string> => {
