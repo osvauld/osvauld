@@ -242,4 +242,35 @@ impl ConnectionManager {
 
         first_connection
     }
+    /// Get connections by their IDs
+    #[instrument(skip(self, connection_ids), level = "debug")]
+    pub async fn get_connections_by_ids(
+        &self,
+        connection_ids: &[String],
+    ) -> Vec<Arc<PeerConnection>> {
+        debug!(
+            "Getting connections by IDs, count: {}",
+            connection_ids.len()
+        );
+
+        let connections_lock = self.connections.lock().await;
+        let mut result = Vec::with_capacity(connection_ids.len());
+
+        for connection_id in connection_ids {
+            if let Some(connection) = connections_lock.get(connection_id) {
+                debug!("Found connection: {}", connection_id);
+                result.push(connection.clone());
+            } else {
+                warn!("Connection not found: {}", connection_id);
+            }
+        }
+
+        info!(
+            "Retrieved {} out of {} requested connections",
+            result.len(),
+            connection_ids.len()
+        );
+
+        result
+    }
 }

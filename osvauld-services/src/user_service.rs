@@ -1,9 +1,11 @@
 use crypto_utils::{CryptoUtils, get_key_id};
-use log::info;
+use log::{error, info};
 use osvauld_core::models::device::Device;
+use osvauld_core::models::share_record::ShareOperation;
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::{
-    DeviceRepository, RepositoryError, SyncRepository, UserRepository, VectorClockRepository,
+    DeviceRepository, RepositoryError, ShareRepository, SyncRepository, UserRepository,
+    VectorClockRepository,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,6 +26,7 @@ pub struct UserService {
     sync_repository: Arc<dyn SyncRepository>,
     device_repository: Arc<dyn DeviceRepository>,
     vector_clock_repo: Arc<dyn VectorClockRepository>,
+    share_repository: Arc<dyn ShareRepository>,
 }
 impl UserService {
     pub fn new(
@@ -32,6 +35,7 @@ impl UserService {
         sync_repository: Arc<dyn SyncRepository>,
         device_repository: Arc<dyn DeviceRepository>,
         vector_clock_repo: Arc<dyn VectorClockRepository>,
+        share_repository: Arc<dyn ShareRepository>,
     ) -> Self {
         Self {
             user_repository,
@@ -39,6 +43,7 @@ impl UserService {
             sync_repository,
             device_repository,
             vector_clock_repo,
+            share_repository,
         }
     }
 
@@ -173,5 +178,56 @@ impl UserService {
     pub async fn get_username(&self, user_id: &str) -> Result<String, RepositoryError> {
         let user = self.user_repository.get_user_by_id(user_id).await?;
         Ok(user.username)
+    }
+
+    pub async fn get_shared_users_for_note(
+        &self,
+        note_id: &str,
+        current_user_id: &str,
+    ) -> Result<Vec<String>, String> {
+        // Get all share records for this note
+        let share_records = self
+            .share_repository
+            .find_by_resource_and_operation(note_id, &ShareOperation::Share.to_string())
+            .await
+            .map_err(|e| e.to_string())?;
+
+        info!(
+            "Found {} share records for note {}",
+            share_records.len(),
+            note_id
+        );
+
+        let mut shared_users = Vec::new();
+
+        for record in share_records {
+            // Get the user_id from the record
+            let user_id = record.recipient_user_id;
+
+            // Skip if this is the current user
+            if user_id == current_user_id {
+                continue;
+            }
+
+            // Get all devices for this user
+            match self
+                .device_repository
+                .get_devices_by_user_id(&user_id)
+                .await
+            {
+                Ok(devices) => {
+                    for device in devices {
+                        // Create user_id:device_id format and add to shared_users
+                        let shared_id = format!("{}:{}", user_id, device.id);
+                        shared_users.push(shared_id);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to get devices for user {}: {:?}", user_id, e);
+                }
+            }
+        }
+
+        Ok(shared_users)
     }
 }

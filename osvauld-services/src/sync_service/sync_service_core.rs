@@ -1,3 +1,4 @@
+use super::super::ResourceService;
 use super::super::transaction_service::transaction_service::TransactionService;
 use osvauld_core::models::resource::Resource;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
@@ -26,6 +27,7 @@ pub struct SyncService {
     pub vector_clock_repository: Arc<dyn VectorClockRepository>,
     pub user_repository: Arc<dyn UserRepository>,
     pub share_repository: Arc<dyn ShareRepository>,
+    pub resource_service: Arc<ResourceService>,
     pub db: Arc<TransactionService>,
 }
 
@@ -39,6 +41,7 @@ impl SyncService {
         vector_clock_repository: Arc<dyn VectorClockRepository>,
         user_repository: Arc<dyn UserRepository>,
         share_repository: Arc<dyn ShareRepository>,
+        resource_service: Arc<ResourceService>,
         db: Arc<TransactionService>,
     ) -> Self {
         Self {
@@ -51,6 +54,7 @@ impl SyncService {
             user_repository,
             share_repository,
             db,
+            resource_service,
         }
     }
 }
