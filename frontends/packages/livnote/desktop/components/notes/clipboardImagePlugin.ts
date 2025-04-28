@@ -156,7 +156,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
           
           // Size-based heuristic for images
           if (isLikelyImage(file)) {
-            const headerBytes = await readFileHeader(file, 12);
+            const headerBytes = await readBlobHeader(file, 12);
             if (isProbablyImageHeader(headerBytes)) {
               const base64Data = await blobToBase64(file);
               insertImage(view, base64Data);
@@ -192,23 +192,6 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
  */
 function isLikelyImage(blob: Blob): boolean {
   return blob.size > 10 && blob.size < 50 * 1024 * 1024;
-}
-
-/**
- * Read the first few bytes of a file to analyze its header
- */
-async function readFileHeader(file: File, bytesToRead: number): Promise<Uint8Array> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const arrayBuffer = reader.result as ArrayBuffer;
-      resolve(new Uint8Array(arrayBuffer));
-    };
-    reader.onerror = () => reject(reader.error);
-    
-    const blob = file.slice(0, bytesToRead);
-    reader.readAsArrayBuffer(blob);
-  });
 }
 
 /**
@@ -339,7 +322,6 @@ function insertImage(view: EditorView, src: string): void {
     console.error("Error inserting image:", error);
   }
 }
-
 /**
  * Read the first few bytes of a blob to analyze its header
  */
@@ -356,3 +338,4 @@ async function readBlobHeader(blob: Blob, bytesToRead: number): Promise<Uint8Arr
     reader.readAsArrayBuffer(slicedBlob);
   });
 }
+
