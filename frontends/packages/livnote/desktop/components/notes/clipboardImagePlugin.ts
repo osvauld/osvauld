@@ -9,31 +9,34 @@ import { DOMParser } from "prosemirror-model";
 export function clipboardImagePlugin() {
   return new Plugin({
     props: {
-      handlePaste: async (view: EditorView, event: ClipboardEvent) => {
-        const clipboardData = event.clipboardData;
+      handlePaste: (view: EditorView, event: ClipboardEvent) => {
+        // Wrap async logic in an IIAFE
+        (async () => {
+          const clipboardData = event.clipboardData;
 
-        try {
-          // First try to handle with modern clipboard API
-          const apiHandled = await tryNavigatorClipboardApi(view);
-          
-          if (apiHandled) {
-            event.preventDefault();
-            return true;
-          }
-          
-          // If the clipboard API fails or isn't supported, fall back to event.clipboardData
-          if (clipboardData) {
-            const handled = await processClipboardEvent(view, event);
-            if (handled) {
-              event.preventDefault();
-              return true;
+          try {
+            // First try to handle with modern clipboard API
+            const apiHandled = await tryNavigatorClipboardApi(view, event); // Pass event
+
+            if (apiHandled) {
+              // preventDefault is called inside tryNavigatorClipboardApi if handled
+              return; // Exit IIAFE
             }
-          }
-        } catch (error) {
-          console.error("Error in paste handler:", error);
-        }
 
-        // Let other paste handlers process the event if we couldn't handle it
+            // If the clipboard API fails or isn't supported, fall back to event.clipboardData
+            if (clipboardData) {
+              const handled = await processClipboardEvent(view, event); // Pass event
+              if (handled) {
+                 // preventDefault is called inside processClipboardEvent if handled
+                return; // Exit IIAFE
+              }
+            }
+          } catch (error) {
+            console.error("Error in paste handler:", error);
+          }
+        })(); // Immediately invoke the async function
+
+        // Let ProseMirror continue for now; async task will prevent default if handled
         return false;
       }
     }
@@ -44,7 +47,7 @@ export function clipboardImagePlugin() {
  * Tries to process clipboard content using the navigator.clipboard API
  * Returns true if successful, false otherwise
  */
-async function tryNavigatorClipboardApi(view: EditorView): Promise<boolean> {
+async function tryNavigatorClipboardApi(view: EditorView, event: ClipboardEvent): Promise<boolean> {
   if (!navigator.clipboard?.read) {
     return false;
   }
@@ -78,6 +81,7 @@ async function tryNavigatorClipboardApi(view: EditorView): Promise<boolean> {
               const blob = await item.getType(imageType);
               const base64Data = await blobToBase64(blob);
               insertImage(view, base64Data);
+              event.preventDefault(); // Prevent default on success
               return true;
             } catch (error) {
               continue;
@@ -94,14 +98,17 @@ async function tryNavigatorClipboardApi(view: EditorView): Promise<boolean> {
             if (preferredType === 'text/html') {
               const html = await blob.text();
               await handleHtmlContent(view, html);
+              event.preventDefault(); // Prevent default on success
               return true;
             } else if (preferredType === 'text/plain') {
               const text = await blob.text();
               handleTextContent(view, text);
+              event.preventDefault(); // Prevent default on success
               return true;
             } else if (preferredType.startsWith('image/')) {
               const base64Data = await blobToBase64(blob);
               insertImage(view, base64Data);
+              event.preventDefault(); // Prevent default on success
               return true;
             } else if (preferredType === 'application/octet-stream') {
               if (isLikelyImage(blob)) {
@@ -109,6 +116,7 @@ async function tryNavigatorClipboardApi(view: EditorView): Promise<boolean> {
                 if (isProbablyImageHeader(headerBytes)) {
                   const base64Data = await blobToBase64(blob);
                   insertImage(view, base64Data);
+                  event.preventDefault(); // Prevent default on success
                   return true;
                 }
               }
@@ -142,6 +150,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
         if (file.type.startsWith('image/')) {
           const base64Data = await blobToBase64(file);
           insertImage(view, base64Data);
+          event.preventDefault(); // Prevent default on success
           return true;
         } 
         
@@ -151,6 +160,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
           if (file.name && /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(file.name)) {
             const base64Data = await blobToBase64(file);
             insertImage(view, base64Data);
+            event.preventDefault(); // Prevent default on success
             return true;
           }
           
@@ -160,6 +170,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
             if (isProbablyImageHeader(headerBytes)) {
               const base64Data = await blobToBase64(file);
               insertImage(view, base64Data);
+              event.preventDefault(); // Prevent default on success
               return true;
             }
           }
@@ -171,6 +182,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
     const html = event.clipboardData.getData('text/html');
     if (html) {
       await handleHtmlContent(view, html);
+      event.preventDefault(); // Prevent default on success
       return true;
     }
     
@@ -178,6 +190,7 @@ async function processClipboardEvent(view: EditorView, event: ClipboardEvent): P
     const text = event.clipboardData.getData('text/plain');
     if (text) {
       handleTextContent(view, text);
+      event.preventDefault(); // Prevent default on success
       return true;
     }
     
