@@ -441,11 +441,11 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // Create font size controls
   const fontSizeControls = document.createElement("div");
   fontSizeControls.className = "font-size-controls";
-  
+
   const fontSizeInput = document.createElement("input");
   fontSizeInput.type = "text";
   fontSizeInput.className = "font-size-input";
-  fontSizeInput.value = "16px"; 
+  fontSizeInput.value = "18px"; // Default changed to 18px to match update logic
 
   const decreaseButton = document.createElement("button");
   decreaseButton.className = "size-adjust-button";
@@ -454,7 +454,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
       <path d="M19 13H5v-2h14v2z" fill="currentColor"/>
     </svg>
   `;
-  
+
   const increaseButton = document.createElement("button");
   increaseButton.className = "size-adjust-button";
   increaseButton.innerHTML = `
@@ -466,29 +466,30 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // --- Helper function to apply font size mark ---
   const applyFontSize = (newSize: string) => {
     const { state, dispatch } = view;
-    const { $from } = state.selection; // Get the resolved position for the start of the selection
+    const { $from } = state.selection;
 
     // Determine the start and end positions based on selection
     const { from, to, empty } = state.selection;
-    const [markStart, markEnd] = empty
-      ? [$from.start(), $from.end()] // Apply to the whole node if selection is empty (cursor)
-      : [from, to]; // Apply only to the selected range if not empty
+    // If selection is empty, apply to the whole node content
+    const [markStart, markEnd] = empty ? [$from.start(), $from.end()] : [from, to];
 
     // Apply the mark to the determined range
     const tr = state.tr;
-    // Remove any existing fontSize mark from the range first
-    tr.removeMark(markStart, markEnd, schema.marks.fontSize);
-    // Add the new mark to the range
-    tr.addMark(markStart, markEnd, schema.marks.fontSize.create({ size: newSize }));
-    
-    dispatch(tr);
+    if (schema.marks.fontSize) {
+      // Remove any existing fontSize mark from the range first
+      tr.removeMark(markStart, markEnd, schema.marks.fontSize);
+      // Add the new mark to the range
+      tr.addMark(markStart, markEnd, schema.marks.fontSize.create({ size: newSize }));
+      dispatch(tr);
+    }
     view.focus();
   };
+
 
   // --- Font size adjustment handlers ---
   decreaseButton.addEventListener("click", (e) => {
     e.stopPropagation();
-    const currentSize = parseInt(fontSizeInput.value) || 16;
+    const currentSize = parseInt(fontSizeInput.value) || 18; // Use 18 as base default
     if (currentSize > 8) {
       const newSize = `${currentSize - 1}px`;
       fontSizeInput.value = newSize;
@@ -498,7 +499,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   increaseButton.addEventListener("click", (e) => {
     e.stopPropagation();
-    const currentSize = parseInt(fontSizeInput.value) || 16;
+    const currentSize = parseInt(fontSizeInput.value) || 18; // Use 18 as base default
     if (currentSize < 72) {
       const newSize = `${currentSize + 1}px`;
       fontSizeInput.value = newSize;
@@ -508,7 +509,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   fontSizeInput.addEventListener("change", () => {
     let size = parseInt(fontSizeInput.value);
-    if (isNaN(size)) size = 16; // Default to 16 if input is invalid
+    if (isNaN(size)) size = 18; // Default to 18 if input is invalid
     size = Math.min(72, Math.max(8, size)); // Clamp between 8 and 72
     const newSize = `${size}px`;
     fontSizeInput.value = newSize; // Update input to clamped value
@@ -517,19 +518,26 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   // --- Function to update display based on selection ---
   const updateFontSizeDisplay = () => {
+    // Check if the input element still exists in the DOM
+     if (!fontSizeInput || !fontSizeInput.isConnected) {
+      return; // Avoid errors if the menu is removed
+    }
+    
     const { state } = view;
     const { selection } = state;
     const { $from } = selection;
 
     // 1. Check for explicit fontSize mark at cursor position
     const marks = $from.marks();
-    const fontSizeMark = schema.marks.fontSize.isInSet(marks);
-
-    if (fontSizeMark && fontSizeMark.attrs.size) {
-      // Use the explicit mark's size if it exists
-      fontSizeInput.value = fontSizeMark.attrs.size;
-      return;
+    if (schema.marks.fontSize) {
+        const fontSizeMark = schema.marks.fontSize.isInSet(marks);
+        if (fontSizeMark && fontSizeMark.attrs.size) {
+          // Use the explicit mark's size if it exists
+          fontSizeInput.value = fontSizeMark.attrs.size;
+          return;
+        }
     }
+
 
     // 2. If no explicit mark, check if we're in a heading node
     const node = $from.parent;
@@ -556,10 +564,20 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // --- Initial setup and event listeners for updates ---
   updateFontSizeDisplay(); // Set initial value
 
-  // Update display when selection changes
-  view.dom.addEventListener("keyup", updateFontSizeDisplay);
-  view.dom.addEventListener("mouseup", updateFontSizeDisplay);
-  // Consider adding 'focus' if needed, though mouseup/keyup cover most cases
+  // Remove the previous keyup/mouseup listeners
+  // view.dom.removeEventListener("keyup", updateFontSizeDisplay);
+  // view.dom.removeEventListener("mouseup", updateFontSizeDisplay);
+
+  // Wrap the view's dispatch function to update on any relevant transaction
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    originalDispatch(tr); // Apply the transaction first
+    // Update the display if the document changed or the selection moved
+    if (tr.docChanged || tr.selectionSet) {
+      updateFontSizeDisplay();
+    }
+  };
+
 
   // Append controls to the DOM
   fontSizeControls.appendChild(decreaseButton);
