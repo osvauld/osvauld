@@ -299,7 +299,25 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
     paragraphItem.className = "dropdown-item";
     paragraphItem.innerHTML = `<span>Paragraph</span>`;
     paragraphItem.addEventListener("click", () => {
-      setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+      const { state, dispatch } = view;
+      // Apply the block type change first
+      setBlockType(schema.nodes.paragraph)(state, dispatch);
+
+      // After the block type changes, get the new state and remove the fontSize mark
+      const newState = view.state;
+      const { $from } = newState.selection;
+      const nodeStart = $from.start();
+      const nodeEnd = $from.end();
+
+      const tr = newState.tr;
+      if (schema.marks.fontSize) { // Check if fontSize mark exists
+        tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
+      }
+      // Only dispatch if the mark removal actually changed something
+      if (tr.docChanged) {
+        view.dispatch(tr);
+      }
+
       view.focus();
       hideDropdowns();
       formatButton.innerHTML = `
@@ -326,7 +344,25 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
     headingItem.className = "dropdown-item";
     headingItem.innerHTML = `<span>${heading.text}</span>`;
     headingItem.addEventListener("click", () => {
-      setBlockType(schema.nodes.heading, { level: heading.level })(view.state, view.dispatch);
+      const { state, dispatch } = view;
+      // Apply the block type change first
+      setBlockType(schema.nodes.heading, { level: heading.level })(state, dispatch);
+
+      // After the block type changes, get the new state and remove the fontSize mark
+      const newState = view.state;
+      const { $from } = newState.selection;
+      const nodeStart = $from.start();
+      const nodeEnd = $from.end();
+
+      const tr = newState.tr;
+       if (schema.marks.fontSize) { // Check if fontSize mark exists
+        tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
+      }
+       // Only dispatch if the mark removal actually changed something
+      if (tr.docChanged) {
+        view.dispatch(tr);
+      }
+
       view.focus();
       hideDropdowns();
       formatButton.innerHTML = `
