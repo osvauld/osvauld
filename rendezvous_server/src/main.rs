@@ -22,7 +22,7 @@ async fn main() {
         .with_max_level(tracing::Level::INFO)
         .init();
 
-    let storage = Arc::new(Storage::new("clients_db").unwrap());
+    let storage = Arc::new(Storage::new("osvauld_client_db").unwrap());
 
     let clients: Clients = Arc::new(Mutex::new(HashMap::new()));
     let user_mappings: UserClientMappings = Arc::new(Mutex::new(Vec::new()));
