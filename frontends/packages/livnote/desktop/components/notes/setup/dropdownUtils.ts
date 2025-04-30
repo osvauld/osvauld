@@ -41,6 +41,16 @@ export const dropdownStyle = `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   }
   
+  .dropdown-label {
+    padding: 6px 12px;
+    color: #85889C;
+    font-size: 12px;
+    background-color: #1c1d26;
+    border-bottom: 1px solid #2a2b2f;
+    border-top-left-radius: 4px;
+    border-top-right-radius: 4px;
+  }
+  
   .dropdown-item {
     padding: 8px 12px;
     cursor: pointer;
@@ -159,7 +169,17 @@ export function getCurrentHeadingLevel(state: any, schema: Schema) {
 }
 
 // Function to create heading submenu
-export function createHeadingSubmenu(schema: Schema, view: EditorView) {
+export function createHeadingSubmenu(container: HTMLElement, schema: Schema, view: EditorView) {
+  const dropdown = document.createElement("div");
+  dropdown.className = "heading-dropdown";
+  dropdown.id = "heading-dropdown";
+  
+  // Add a label at the top of the dropdown
+  const dropdownLabel = document.createElement("div");
+  dropdownLabel.className = "dropdown-label";
+  dropdownLabel.textContent = "Rich Text Area";
+  dropdown.appendChild(dropdownLabel);
+  
   const headingsSubmenu = document.createElement("div");
   headingsSubmenu.className = "submenu";
 
@@ -188,5 +208,6 @@ export function createHeadingSubmenu(schema: Schema, view: EditorView) {
     headingsSubmenu.appendChild(headingOption);
   });
 
-  return headingsSubmenu;
+  dropdown.appendChild(headingsSubmenu);
+  container.appendChild(dropdown);
 } 

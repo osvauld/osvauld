@@ -334,7 +334,7 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
     // Add paragraph option
     const paragraphItem = document.createElement("div");
     paragraphItem.className = "dropdown-item";
-    paragraphItem.innerHTML = `<span>Paragraph</span>`;
+    paragraphItem.innerHTML = `<span style="font-size: 1em;">Paragraph</span>`;
     paragraphItem.addEventListener("click", () => {
       const { state, dispatch } = view;
       // Apply the block type change first
@@ -379,7 +379,32 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
   headings.forEach(heading => {
     const headingItem = document.createElement("div");
     headingItem.className = "dropdown-item";
-    headingItem.innerHTML = `<span>${heading.text}</span>`;
+    
+    // Style the dropdown items to match the actual heading styles
+    let headingStyle = '';
+    switch(heading.level) {
+      case 1:
+        headingStyle = 'font-size: 2em; font-weight: bold;';
+        break;
+      case 2:
+        headingStyle = 'font-size: 1.5em; font-weight: bold;';
+        break;
+      case 3:
+        headingStyle = 'font-size: 1.17em; font-weight: bold;';
+        break;
+      case 4:
+        headingStyle = 'font-size: 1.1em; font-weight: bold;';
+        break;
+      case 5:
+        headingStyle = 'font-size: 1.05em; font-weight: bold;';
+        break;
+      case 6:
+        headingStyle = 'font-size: 1em; font-weight: bold;';
+        break;
+    }
+    
+    headingItem.innerHTML = `<span style="${headingStyle}">${heading.text}</span>`;
+    
     headingItem.addEventListener("click", () => {
       const { state, dispatch } = view;
       // Apply the block type change first
@@ -411,8 +436,6 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
     });
     dropdownMenu.appendChild(headingItem);
   });
-
-
 
   // Function to update button text based on current block type
   const updateButtonText = () => {

@@ -70,50 +70,47 @@ style.textContent += `
     /* border-color: #aaa; */
   }
 
-
-
   /* Styles for the Text Color Picker */
   .color-picker-dropdown {
     display: grid; 
-    grid-template-columns: repeat(3, 2fr); /* 3 columns */
-    gap: 4px; /* Spacing between swatches */
-    padding: 6px;
-    background-color: #2c2c2e; /* Match dropdown background */
-    border: 1px solid #444;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    padding: 12px;
+    background: #16171f;
+    border: 1px solid #2a2b2f;
     border-radius: 4px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-    position: absolute; /* Needed for positioning */
-    z-index: 100; /* Ensure it's above other elements */
-    width: auto; /* Adjust width based on content */
-    min-width: 80px; /* Minimum width */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    position: absolute;
+    z-index: 100;
+    width: auto;
   }
-
+  
   .color-swatch {
-    width: 20px;
-    height: 20px;
-    border-radius: 3px;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
     cursor: pointer;
-    border: 1px solid transparent; /* Default border */
-    box-sizing: border-box; /* Include border in size */
+    transition: transform 0.1s ease;
   }
-
+  
   .color-swatch:hover {
-    border-color: #aaa; /* Highlight on hover */
+    transform: scale(1.1);
   }
-
-   .remove-color-button {
-    grid-column: span 3; /* Make it span all 3 columns */
+  
+  .remove-color-button {
+    grid-column: 1 / -1;
+    margin-top: 8px;
     text-align: center;
-    padding: 4px;
+    padding: 6px;
+    background: #2a2b2f;
+    border: none;
+    border-radius: 4px;
+    color: #bfc0cc;
     cursor: pointer;
-    background-color: #3a3a3c;
-    border: 1px solid #555;
-    border-radius: 3px;
-    color: #ccc;
-    margin-top: 4px;
   }
+  
   .remove-color-button:hover {
-    background-color: #4a4a4c;
+    background: #3a3b44;
   }
 
   .text-color-button:disabled {
