@@ -11,7 +11,7 @@ import {
 	lift,
 	selectParentNode,
 } from "prosemirror-commands";
-import { wrapInList } from "prosemirror-schema-list";
+import { wrapInList, liftListItem } from "prosemirror-schema-list";
 import { undo, redo } from "prosemirror-history";
 import { indentRight, indentLeft } from "./indentUtils";
 import { setTextAlign } from "./alignmentUtils";
@@ -197,6 +197,43 @@ export function addIndentButtons(container: HTMLElement, schema: Schema, view: E
   });
   group.appendChild(indentLeftButton);
 
+  // --- Function to update button state ---
+  const updateIndentButtonsState = () => {
+    const { state } = view;
+    const { $from } = state.selection;
+    const node = $from.parent;
+
+    // Check 1: Node has indent attribute > 0
+    const hasIndent = node.attrs.indent && node.attrs.indent > 0;
+
+    // Check 2: liftListItem command is applicable
+    // We pass undefined for dispatch because we only want to check applicability
+    const canLiftList = schema.nodes.list_item && liftListItem(schema.nodes.list_item)(state, undefined);
+
+    const canIndentLeft = hasIndent || canLiftList;
+
+    // Update button appearance and state
+    indentLeftButton.disabled = !canIndentLeft;
+    indentLeftButton.style.opacity = canIndentLeft ? '1' : '0.5';
+  };
+
+  // --- Initial setup and event listeners ---
+  updateIndentButtonsState(); // Set initial state
+
+  // Update state on selection change
+  view.dom.addEventListener("keyup", updateIndentButtonsState);
+  view.dom.addEventListener("mouseup", updateIndentButtonsState);
+
+  // Wrap view.dispatch to update state after transactions
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    originalDispatch(tr); // Apply the transaction first
+    // Update the display if the document changed or the selection moved
+    if (tr.docChanged || tr.selectionSet) {
+      updateIndentButtonsState();
+    }
+  };
+
   if (group.children.length > 0) {
     container.appendChild(group);
   }
@@ -297,9 +334,27 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
     // Add paragraph option
     const paragraphItem = document.createElement("div");
     paragraphItem.className = "dropdown-item";
-    paragraphItem.innerHTML = `<span>Paragraph</span>`;
+    paragraphItem.innerHTML = `<span style="font-size: 1em;">Paragraph</span>`;
     paragraphItem.addEventListener("click", () => {
-      setBlockType(schema.nodes.paragraph)(view.state, view.dispatch);
+      const { state, dispatch } = view;
+      // Apply the block type change first
+      setBlockType(schema.nodes.paragraph)(state, dispatch);
+
+      // After the block type changes, get the new state and remove the fontSize mark
+      const newState = view.state;
+      const { $from } = newState.selection;
+      const nodeStart = $from.start();
+      const nodeEnd = $from.end();
+
+      const tr = newState.tr;
+      if (schema.marks.fontSize) { // Check if fontSize mark exists
+        tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
+      }
+      // Only dispatch if the mark removal actually changed something
+      if (tr.docChanged) {
+        view.dispatch(tr);
+      }
+
       view.focus();
       hideDropdowns();
       formatButton.innerHTML = `
@@ -324,9 +379,52 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
   headings.forEach(heading => {
     const headingItem = document.createElement("div");
     headingItem.className = "dropdown-item";
-    headingItem.innerHTML = `<span>${heading.text}</span>`;
+    
+    // Style the dropdown items to match the actual heading styles
+    let headingStyle = '';
+    switch(heading.level) {
+      case 1:
+        headingStyle = 'font-size: 2em; font-weight: bold;';
+        break;
+      case 2:
+        headingStyle = 'font-size: 1.5em; font-weight: bold;';
+        break;
+      case 3:
+        headingStyle = 'font-size: 1.17em; font-weight: bold;';
+        break;
+      case 4:
+        headingStyle = 'font-size: 1.1em; font-weight: bold;';
+        break;
+      case 5:
+        headingStyle = 'font-size: 1.05em; font-weight: bold;';
+        break;
+      case 6:
+        headingStyle = 'font-size: 1em; font-weight: bold;';
+        break;
+    }
+    
+    headingItem.innerHTML = `<span style="${headingStyle}">${heading.text}</span>`;
+    
     headingItem.addEventListener("click", () => {
-      setBlockType(schema.nodes.heading, { level: heading.level })(view.state, view.dispatch);
+      const { state, dispatch } = view;
+      // Apply the block type change first
+      setBlockType(schema.nodes.heading, { level: heading.level })(state, dispatch);
+
+      // After the block type changes, get the new state and remove the fontSize mark
+      const newState = view.state;
+      const { $from } = newState.selection;
+      const nodeStart = $from.start();
+      const nodeEnd = $from.end();
+
+      const tr = newState.tr;
+       if (schema.marks.fontSize) { // Check if fontSize mark exists
+        tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
+      }
+       // Only dispatch if the mark removal actually changed something
+      if (tr.docChanged) {
+        view.dispatch(tr);
+      }
+
       view.focus();
       hideDropdowns();
       formatButton.innerHTML = `
@@ -338,8 +436,6 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
     });
     dropdownMenu.appendChild(headingItem);
   });
-
-
 
   // Function to update button text based on current block type
   const updateButtonText = () => {
@@ -405,11 +501,11 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // Create font size controls
   const fontSizeControls = document.createElement("div");
   fontSizeControls.className = "font-size-controls";
-  
+
   const fontSizeInput = document.createElement("input");
   fontSizeInput.type = "text";
   fontSizeInput.className = "font-size-input";
-  fontSizeInput.value = "16px"; 
+  fontSizeInput.value = "18px"; // Default changed to 18px to match update logic
 
   const decreaseButton = document.createElement("button");
   decreaseButton.className = "size-adjust-button";
@@ -418,7 +514,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
       <path d="M19 13H5v-2h14v2z" fill="currentColor"/>
     </svg>
   `;
-  
+
   const increaseButton = document.createElement("button");
   increaseButton.className = "size-adjust-button";
   increaseButton.innerHTML = `
@@ -430,29 +526,30 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // --- Helper function to apply font size mark ---
   const applyFontSize = (newSize: string) => {
     const { state, dispatch } = view;
-    const { $from } = state.selection; // Get the resolved position for the start of the selection
+    const { $from } = state.selection;
 
     // Determine the start and end positions based on selection
     const { from, to, empty } = state.selection;
-    const [markStart, markEnd] = empty
-      ? [$from.start(), $from.end()] // Apply to the whole node if selection is empty (cursor)
-      : [from, to]; // Apply only to the selected range if not empty
+    // If selection is empty, apply to the whole node content
+    const [markStart, markEnd] = empty ? [$from.start(), $from.end()] : [from, to];
 
     // Apply the mark to the determined range
     const tr = state.tr;
-    // Remove any existing fontSize mark from the range first
-    tr.removeMark(markStart, markEnd, schema.marks.fontSize);
-    // Add the new mark to the range
-    tr.addMark(markStart, markEnd, schema.marks.fontSize.create({ size: newSize }));
-    
-    dispatch(tr);
+    if (schema.marks.fontSize) {
+      // Remove any existing fontSize mark from the range first
+      tr.removeMark(markStart, markEnd, schema.marks.fontSize);
+      // Add the new mark to the range
+      tr.addMark(markStart, markEnd, schema.marks.fontSize.create({ size: newSize }));
+      dispatch(tr);
+    }
     view.focus();
   };
+
 
   // --- Font size adjustment handlers ---
   decreaseButton.addEventListener("click", (e) => {
     e.stopPropagation();
-    const currentSize = parseInt(fontSizeInput.value) || 16;
+    const currentSize = parseInt(fontSizeInput.value) || 18; // Use 18 as base default
     if (currentSize > 8) {
       const newSize = `${currentSize - 1}px`;
       fontSizeInput.value = newSize;
@@ -462,7 +559,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   increaseButton.addEventListener("click", (e) => {
     e.stopPropagation();
-    const currentSize = parseInt(fontSizeInput.value) || 16;
+    const currentSize = parseInt(fontSizeInput.value) || 18; // Use 18 as base default
     if (currentSize < 72) {
       const newSize = `${currentSize + 1}px`;
       fontSizeInput.value = newSize;
@@ -472,7 +569,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   fontSizeInput.addEventListener("change", () => {
     let size = parseInt(fontSizeInput.value);
-    if (isNaN(size)) size = 16; // Default to 16 if input is invalid
+    if (isNaN(size)) size = 18; // Default to 18 if input is invalid
     size = Math.min(72, Math.max(8, size)); // Clamp between 8 and 72
     const newSize = `${size}px`;
     fontSizeInput.value = newSize; // Update input to clamped value
@@ -481,19 +578,26 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   // --- Function to update display based on selection ---
   const updateFontSizeDisplay = () => {
+    // Check if the input element still exists in the DOM
+     if (!fontSizeInput || !fontSizeInput.isConnected) {
+      return; // Avoid errors if the menu is removed
+    }
+    
     const { state } = view;
     const { selection } = state;
     const { $from } = selection;
 
     // 1. Check for explicit fontSize mark at cursor position
     const marks = $from.marks();
-    const fontSizeMark = schema.marks.fontSize.isInSet(marks);
-
-    if (fontSizeMark && fontSizeMark.attrs.size) {
-      // Use the explicit mark's size if it exists
-      fontSizeInput.value = fontSizeMark.attrs.size;
-      return;
+    if (schema.marks.fontSize) {
+        const fontSizeMark = schema.marks.fontSize.isInSet(marks);
+        if (fontSizeMark && fontSizeMark.attrs.size) {
+          // Use the explicit mark's size if it exists
+          fontSizeInput.value = fontSizeMark.attrs.size;
+          return;
+        }
     }
+
 
     // 2. If no explicit mark, check if we're in a heading node
     const node = $from.parent;
@@ -520,10 +624,20 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // --- Initial setup and event listeners for updates ---
   updateFontSizeDisplay(); // Set initial value
 
-  // Update display when selection changes
-  view.dom.addEventListener("keyup", updateFontSizeDisplay);
-  view.dom.addEventListener("mouseup", updateFontSizeDisplay);
-  // Consider adding 'focus' if needed, though mouseup/keyup cover most cases
+  // Remove the previous keyup/mouseup listeners
+  // view.dom.removeEventListener("keyup", updateFontSizeDisplay);
+  // view.dom.removeEventListener("mouseup", updateFontSizeDisplay);
+
+  // Wrap the view's dispatch function to update on any relevant transaction
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    originalDispatch(tr); // Apply the transaction first
+    // Update the display if the document changed or the selection moved
+    if (tr.docChanged || tr.selectionSet) {
+      updateFontSizeDisplay();
+    }
+  };
+
 
   // Append controls to the DOM
   fontSizeControls.appendChild(decreaseButton);
@@ -638,6 +752,9 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 			const underlineButton = group.querySelector(".menu-underline") as HTMLButtonElement;
 			if (underlineButton) {
 				underlineButton.classList.toggle("is-active", !!schema.marks.underline.isInSet($from.marks()));
+				// Add opacity effect when no text is selected
+				underlineButton.style.opacity = empty ? '0.5' : '1';
+				underlineButton.disabled = empty;
 			}
 		}
 
@@ -646,6 +763,9 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 			const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
 			if (strikethroughButton) {
 				strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
+				// Add opacity effect when no text is selected
+				strikethroughButton.style.opacity = empty ? '0.5' : '1';
+				strikethroughButton.disabled = empty;
 			}
 		}
 	};
