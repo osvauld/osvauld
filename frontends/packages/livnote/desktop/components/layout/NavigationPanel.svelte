@@ -4,15 +4,15 @@
 		MobileHome as Home,
 		Star,
 		MobileNote,
+		BlueClose,
 	} from "@osvauld/password-manager-common";
-
-	import { LL } from "@osvauld/password-manager-common/i18n/i18n-svelte";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
 
 	// Import VaultManager
 	import VaultManager from "../ui/VaultManager.svelte";
+	import { onMount, onDestroy } from "svelte";
 
 	// Define an enum for section selection
 	enum Section {
@@ -23,6 +23,7 @@
 	// Local UI state using $state
 	let selectedSection = $state<Section>(Section.HOME);
 	let hoveredCredential = $state<string | null>(null);
+	let windowWidth = $state(window.innerWidth);
 
 	// Handle section changes
 	function handleSectionChange(section: Section) {
@@ -33,14 +34,65 @@
 	}
 
 	// Function to handle note selection
-	function selectNote(note) {
+	function selectNote(note: any) {
 		dataState.switchNote(note);
 	}
+
+	// Toggle navigation panel (close)
+	function closeNavigationPanel() {
+		// First hide the panel
+		uiState.toggleNavigationPanel(false);
+		
+		// Clear the manually toggled flag so responsive behavior works again
+		uiState.resetNavigationPanelManualToggle();
+		
+		// Update CSS variable to allow editor to go below min width
+		document.documentElement.style.setProperty('--min-editor-width', '0px');
+	}
+
+	// Check if window is too narrow for both panels
+	function checkWindowSize() {
+		windowWidth = window.innerWidth;
+		
+		// Only auto-collapse if not manually toggled
+		if (!uiState.isNavigationPanelManuallyToggled) {
+			const navWidth = 360; // 22.5rem in pixels
+			const editorMinWidth = uiState.MIN_EDITOR_WIDTH;
+			const rightPanelWidth = 300; // Approximate width of right container
+			
+			// If window is too small to fit all panels with required min widths
+			const requiredWidth = navWidth + editorMinWidth + rightPanelWidth;
+			uiState.showNavigationPanel = windowWidth >= requiredWidth;
+		}
+	}
+
+	// Setup resize handler
+	onMount(() => {
+		window.addEventListener('resize', checkWindowSize);
+		checkWindowSize(); // Initial check
+	});
+
+	onDestroy(() => {
+		window.removeEventListener('resize', checkWindowSize);
+	});
 </script>
 
+<!-- Navigation panel that can be hidden -->
+{#if uiState.showNavigationPanel}
 <nav
-	class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap"
+	class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative"
 	aria-label="Main Navigation">
+	
+	<!-- Close button (only shown when manually toggled) -->
+	{#if uiState.isNavigationPanelManuallyToggled}
+	<button
+		aria-label="Close navigation panel"
+		class="absolute top-3 right-3 p-1.5 rounded-full bg-osvauld-fieldActive hover:bg-osvauld-iconblack transition-colors"
+		onclick={closeNavigationPanel}>
+		<BlueClose color="#F2F2F0" />
+	</button>
+	{/if}
+	
 	<div class="relative">
 		<button
 			class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize trun"
@@ -134,3 +186,4 @@
 		</ul>
 	{/if}
 </nav>
+{/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from "svelte";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import type { EditorState } from "prosemirror-state";
 	import { listen } from "@tauri-apps/api/event";
@@ -10,6 +10,7 @@
 	import "./rich-text-editor.css";
 
 	// Event dispatcher for collaboration updates
+	const dispatch = createEventDispatcher();
 
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
@@ -328,6 +329,7 @@
 		margin: 0 auto;
 		width: 100%;
 		height: 100%;
+		min-width: var(--min-editor-width, 715px);
 		background: #16171f;
 		color: white;
 		position: relative;

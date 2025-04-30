@@ -11,6 +11,7 @@
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
 	import { notesInstance } from "../notes/notes";
+	import Hamburger from "../icons/Hamburger.svelte";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
@@ -21,6 +22,22 @@
 
 	// Derived state for favorite status
 	let isFavourite = $derived(dataState.currentNote?.favourite ?? false);
+
+	// Toggle navigation panel
+	function toggleNavigationPanel() {
+		// Toggle the panel visibility through UI state
+		uiState.toggleNavigationPanel();
+		
+		// When manually toggling, we need to reset the auto-adjustment
+		// when the window is resized next time
+		if (!uiState.showNavigationPanel) {
+			// When hiding panel - set CSS var to 0 to allow editor to go under min width
+			document.documentElement.style.setProperty('--min-editor-width', '0px');
+		} else {
+			// When showing panel - restore the min width
+			document.documentElement.style.setProperty('--min-editor-width', `${uiState.MIN_EDITOR_WIDTH}px`);
+		}
+	}
 
 	// Title editing functions
 	function startEditingTitle() {
@@ -73,7 +90,7 @@
 		dataState.clearCurrentNote();
 	};
 
-	const toggleFav = async (e) => {
+	const toggleFav = async (e: Event) => {
 		e.stopPropagation();
 		if (!dataState.currentNote) return;
 
@@ -114,16 +131,36 @@
 
 	onMount(async () => {
 		userId = await sendMessage("getUserId");
+
+		// Set CSS variable for minimum editor width
+		document.documentElement.style.setProperty('--min-editor-width', `${uiState.MIN_EDITOR_WIDTH}px`);
 	});
 </script>
 
-<div class="flex grow max-h-full max-w-full">
+<style>
+	/* Add styles to handle the case when navigation panel is manually toggled */
+	:global(.manual-toggle) {
+		--min-editor-width: 0px;
+	}
+</style>
+
+<div class="flex grow max-h-full max-w-full" class:manual-toggle={uiState.isNavigationPanelManuallyToggled}>
 	<NavigationPanel />
 
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<!-- Header section with back button and title -->
 		<div class="py-10 px-11 flex items-center justify-start shrink-0">
 			<div class="flex justify-between items-center max-w-[44rem]">
+				<!-- Burger menu toggle - only show when navigation panel is hidden -->
+				{#if !uiState.showNavigationPanel}
+					<button
+						aria-label="Toggle navigation panel"
+						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						onclick={toggleNavigationPanel}>
+						<Hamburger />
+					</button>
+				{/if}
+				
 				<button
 					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					onclick={handleBackButton}>
@@ -147,7 +184,7 @@
 						tabindex="0"
 						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
 						ondblclick={startEditingTitle}
-						onkeydown={(e) => e.key === "Enter" && startEditingTitle()}>
+						onkeydown={(e: KeyboardEvent) => e.key === "Enter" && startEditingTitle()}>
 						{dataState.currentNote?.data?.title || "Untitled"}
 					</span>
 				{/if}
