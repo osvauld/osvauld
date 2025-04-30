@@ -76,6 +76,7 @@ export function indentRight(view: EditorView): boolean {
     // Apply the changes to the block node
     tr.setNodeMarkup(pos, null, attrs);
     if (dispatch) dispatch(tr);
+    view.focus();
     return true;
   }
 }
@@ -88,7 +89,9 @@ export function indentLeft(view: EditorView): boolean {
   // Check if we're in a list
   if (isInList(state)) {
     // Use ProseMirror's built-in list item lifting
-    return liftListItem(state.schema.nodes.list_item)(state, dispatch);
+    const result = liftListItem(state.schema.nodes.list_item)(state, dispatch);
+    if (result) view.focus();
+    return result;
   } else {
     // Apply custom outdentation for non-list content
     const tr = state.tr;
@@ -107,6 +110,8 @@ export function indentLeft(view: EditorView): boolean {
 
     // Get current indentation level from the block node
     const currentIndent = (node.attrs.indent as number) || 0;
+    if (currentIndent === 0) return false; // Can't outdent further
+
     const newIndent = Math.max(0, currentIndent - 1);
 
     // Prepare the attributes
@@ -127,6 +132,7 @@ export function indentLeft(view: EditorView): boolean {
     // Apply the changes to the block node
     tr.setNodeMarkup(pos, null, attrs);
     if (dispatch) dispatch(tr);
+    view.focus();
     return true;
   }
 } 
