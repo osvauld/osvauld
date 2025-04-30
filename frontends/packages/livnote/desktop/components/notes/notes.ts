@@ -4,7 +4,7 @@ import { baseKeymap, setBlockType, exitCode } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
 import type { NodeSpec } from "prosemirror-model";
-import { schema } from "prosemirror-schema-basic";
+import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { EditorState } from "prosemirror-state";
 import { slashCommandPlugin } from "./slashCommandPlugin";
@@ -92,7 +92,14 @@ export class Notes {
 
   private initSchema(): void {
     // Get the base paragraph node spec from the schema
-    const nodes = schema.spec.nodes;
+    const nodes = basicSchema.spec.nodes;
+    const baseMarks = basicSchema.spec.marks;
+
+    // Ensure the 'code' mark exists in the basic schema
+    const codeMarkSpec = baseMarks.get("code");
+    if (!codeMarkSpec) {
+      throw new Error("Base schema does not contain a 'code' mark spec.");
+    }
 
     // Helper function to add indent and align attributes to a node spec
     const addIndentAndAlignAttrs = (nodeSpec: NodeSpec): NodeSpec => ({
@@ -217,7 +224,105 @@ export class Notes {
     this.editorSchema = new Schema({
       nodes: addListNodes(modifiedNodes, "paragraph block*", "block")
         .addToEnd("image", imageSpec),
-      marks: schema.spec.marks,
+      marks: {
+        // Define marks explicitly
+        strong: {
+          parseDOM: [
+            { tag: "strong" },
+            {
+              tag: "span",
+              getAttrs: (node: HTMLElement) => node.style.fontWeight != "normal" && null,
+            },
+          ],
+          toDOM() {
+            return ["strong", 0];
+          },
+        },
+        em: {
+          parseDOM: [{ tag: "i" }, { tag: "em" }, { style: "font-style=italic" }],
+          toDOM() {
+            return ["em", 0];
+          },
+        },
+        code: codeMarkSpec,
+        fontSize: {
+          attrs: {
+            size: { default: null }
+          },
+          inclusive: true,
+          parseDOM: [{
+            style: "font-size",
+            getAttrs: (value) => value ? { size: value } : null
+          }],
+          toDOM(mark) {
+            return mark.attrs.size
+              ? ["span", { style: `font-size: ${mark.attrs.size}` }, 0]
+              : ["span", 0];
+          }
+        },
+        // Add underline mark
+        underline: {
+          parseDOM: [
+            { tag: "u" },
+            { style: "text-decoration=underline" }
+          ],
+          toDOM() {
+            return ["u", 0];
+          },
+        },
+        // Add strikethrough mark
+        strikethrough: {
+          parseDOM: [
+            { tag: "s" },
+            { style: "text-decoration=line-through" }
+          ],
+          toDOM() {
+            return ["s", 0];
+          }
+        },
+        // Add textColor mark
+        textColor: {
+          attrs: {
+            color: { default: null } // Store the color value
+          },
+          inclusive: true, // Allow mark to span across nodes
+          parseDOM: [{
+            style: "color", // Read 'color' style attribute
+            getAttrs: (value) => value ? { color: value } : null // Extract color value
+          }],
+          toDOM(mark) {
+            // Render as a span with the color style if color attribute exists
+            return mark.attrs.color
+              ? ["span", { style: `color: ${mark.attrs.color}` }, 0]
+              : ["span", 0];
+          }
+        },
+        // Add link mark (reuse base spec, customize toDOM)
+        link: baseMarks.get("link") ? {
+          ...baseMarks.get("link")!.spec, // Get base spec
+          toDOM(mark) { // Override toDOM to add target="_blank" etc.
+            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
+          }
+        } : { // Fallback (shouldn't happen)
+          attrs: {
+            href: {},
+            title: { default: null },
+          },
+          inclusive: false,
+          parseDOM: [{
+            tag: "a[href]",
+            getAttrs(dom: HTMLElement) {
+              return {
+                href: dom.getAttribute("href"),
+                title: dom.getAttribute("title"),
+              };
+            },
+          }],
+          toDOM(mark) {
+            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
+          },
+        },
+      }
     });
 
     // Add CSS for indentation and alignment
@@ -266,6 +371,24 @@ export class Notes {
       .ProseMirror h5[data-indent="3"],
       .ProseMirror h6[data-indent="3"] {
         margin-left: 6em;
+      }
+
+      /* Inline code style */
+      .ProseMirror code {
+        background-color: #3a3b44; /* Slightly dark background */
+        padding: 0.1em 0.4em;
+        border-radius: 4px;
+        font-family: monospace; /* Explicitly set monospace font */
+        font-size: 0.9em; /* Slightly smaller font size */
+      }
+
+      /* Reset inline code styles when inside a pre (code block) */
+      .ProseMirror pre code {
+        background-color: initial; /* Reset background */
+        padding: initial; /* Reset padding */
+        border-radius: initial; /* Reset border-radius */
+        font-size: inherit; /* Inherit font size from pre */
+        /* font-family is likely already monospace via pre or global styles */
       }
     `;
     document.head.appendChild(styleElement);

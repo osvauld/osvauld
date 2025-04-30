@@ -81,6 +81,25 @@ export function updateButtonStates(menuNode: HTMLElement, view: EditorView): voi
     }
   });
 
+  // Update font size input
+  const fontSizeInput = menuNode.querySelector<HTMLInputElement>(".font-size-input");
+  if (fontSizeInput) {
+    const { from, to, empty } = state.selection;
+    if (!empty) {
+      let fontSize = null;
+      state.doc.nodesBetween(from, to, (node) => {
+        node.marks.forEach(mark => {
+          if (mark.type === schema.marks.fontSize) {
+            fontSize = mark.attrs.size;
+          }
+        });
+      });
+      if (fontSize) {
+        fontSizeInput.value = fontSize;
+      }
+    }
+  }
+
   // Update node type buttons (headings, paragraph)
   menuNode.querySelectorAll<HTMLElement>("[data-node-type]").forEach((button) => {
     const nodeName = button.dataset.nodeType;

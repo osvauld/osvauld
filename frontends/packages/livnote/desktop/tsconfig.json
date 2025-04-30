@@ -11,7 +11,8 @@
 		"skipLibCheck": true,
 		"checkJs": true,
 		"types": [
-			"svelte"
+			"svelte",
+			"@tauri-apps/api"
 		],
 		"allowSyntheticDefaultImports": true,
 		"forceConsistentCasingInFileNames": true,

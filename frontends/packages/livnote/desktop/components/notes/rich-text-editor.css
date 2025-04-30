@@ -4,7 +4,7 @@
     width: 100%;
     height: 92px;
     border-bottom: 1px solid #2a2b2f;
-    padding: 10px 15px;
+    padding: 20px 15px 10px 15px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -70,6 +70,26 @@
     font-family: monospace;
 }
 
+/* Add styles for underline and strikethrough text */
+.ProseMirror u {
+    text-decoration: underline;
+}
+
+.ProseMirror s {
+    text-decoration: line-through;
+}
+
+/* Add styles for active underline and strikethrough buttons */
+.menu-underline.active {
+    background-color: #e0e0e0;
+    border-color: #bbb;
+}
+
+.menu-strikethrough.active {
+    background-color: #e0e0e0;
+    border-color: #bbb;
+}
+
 /* ProseMirror specific styles */
 .ProseMirror {
     position: relative;
@@ -81,6 +101,7 @@
     background: #16171f;
     flex-grow: 1;
     overflow-y: auto;
+    font-size: 18px;
 }
 
 /* Link styling */
@@ -258,4 +279,10 @@
 .floating-menu-button.active {
   background: #3a3b44 !important;
   box-shadow: 0px 2px 0px -1px rgb(124 145 249 / 1);
+}
+
+/* Style to mimic text selection when floating menu input is active */
+.pseudo-selection {
+  background-color: rgba(94, 129, 172, 0.5); /* Example: Use a semi-transparent blue */
+  /* You might need !important depending on specificity, but try without first */
 } 
