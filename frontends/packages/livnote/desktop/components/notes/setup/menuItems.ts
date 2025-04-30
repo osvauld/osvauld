@@ -11,7 +11,7 @@ import {
 	lift,
 	selectParentNode,
 } from "prosemirror-commands";
-import { wrapInList } from "prosemirror-schema-list";
+import { wrapInList, liftListItem } from "prosemirror-schema-list";
 import { undo, redo } from "prosemirror-history";
 import { indentRight, indentLeft } from "./indentUtils";
 import { setTextAlign } from "./alignmentUtils";
@@ -196,6 +196,43 @@ export function addIndentButtons(container: HTMLElement, schema: Schema, view: E
     indentLeft(view);
   });
   group.appendChild(indentLeftButton);
+
+  // --- Function to update button state ---
+  const updateIndentButtonsState = () => {
+    const { state } = view;
+    const { $from } = state.selection;
+    const node = $from.parent;
+
+    // Check 1: Node has indent attribute > 0
+    const hasIndent = node.attrs.indent && node.attrs.indent > 0;
+
+    // Check 2: liftListItem command is applicable
+    // We pass undefined for dispatch because we only want to check applicability
+    const canLiftList = schema.nodes.list_item && liftListItem(schema.nodes.list_item)(state, undefined);
+
+    const canIndentLeft = hasIndent || canLiftList;
+
+    // Update button appearance and state
+    indentLeftButton.disabled = !canIndentLeft;
+    indentLeftButton.style.opacity = canIndentLeft ? '1' : '0.5';
+  };
+
+  // --- Initial setup and event listeners ---
+  updateIndentButtonsState(); // Set initial state
+
+  // Update state on selection change
+  view.dom.addEventListener("keyup", updateIndentButtonsState);
+  view.dom.addEventListener("mouseup", updateIndentButtonsState);
+
+  // Wrap view.dispatch to update state after transactions
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    originalDispatch(tr); // Apply the transaction first
+    // Update the display if the document changed or the selection moved
+    if (tr.docChanged || tr.selectionSet) {
+      updateIndentButtonsState();
+    }
+  };
 
   if (group.children.length > 0) {
     container.appendChild(group);
@@ -692,6 +729,9 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 			const underlineButton = group.querySelector(".menu-underline") as HTMLButtonElement;
 			if (underlineButton) {
 				underlineButton.classList.toggle("is-active", !!schema.marks.underline.isInSet($from.marks()));
+				// Add opacity effect when no text is selected
+				underlineButton.style.opacity = empty ? '0.5' : '1';
+				underlineButton.disabled = empty;
 			}
 		}
 
@@ -700,6 +740,9 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
 			const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
 			if (strikethroughButton) {
 				strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
+				// Add opacity effect when no text is selected
+				strikethroughButton.style.opacity = empty ? '0.5' : '1';
+				strikethroughButton.disabled = empty;
 			}
 		}
 	};
