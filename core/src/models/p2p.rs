@@ -90,6 +90,8 @@ pub enum Message {
     UserConnection(UserConnectionPayload),
     Phase(Phase),
     LiveEdit(LiveEditMessage),
+    DisconnectRequest,
+    DisconnectResponse { approved: bool },
 }
 
 #[derive(Serialize, Deserialize)]

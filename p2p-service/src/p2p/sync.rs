@@ -407,6 +407,8 @@ impl PeerConnection {
                     resource_id: resource_id.clone(),
                     connection_id: self.get_id(),
                 });
+                //mark connection for live editing.
+                self.set_live_editing_active().await;
                 Ok(())
             }
             LiveEditMessage::StateVectorExchange {

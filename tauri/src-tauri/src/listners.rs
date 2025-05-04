@@ -320,7 +320,6 @@ impl EventManager {
 
     async fn handle_live_edit_connected(&self, connection_id: String) {
         info!("Live edit connection established with: {}", connection_id);
-
         // Get current note ID
         let current_note_state = self.current_note_state.clone();
         if let Some(resource_id) = current_note_state.get_current_note() {

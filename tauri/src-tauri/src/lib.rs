@@ -179,7 +179,7 @@ pub fn run() {
                     // Initialize event manager and start listening
                     let rendezvous_service = Arc::new(RendezvousService::new(
                         p2p_service.clone(),
-                        "ws://0.0.0.0:3030/ws",
+                        "ws://172.188.72.86:3030/ws",
                         user_service.clone(),
                     ));
                     let event_manager = EventManager::new(

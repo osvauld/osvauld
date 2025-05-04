@@ -8,6 +8,7 @@ use osvauld_services::{AuthService,  SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use iroh_quinn::VarInt;
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -46,13 +47,15 @@ pub struct PeerConnection {
 
     pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
     pub phase: PhaseState,
-    pub action: Option<ConnectionAction>
+    pub action: Option<ConnectionAction>,
+    pub is_live_editing: Arc<Mutex<bool>>,
+    pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
 
 }
 
 impl PeerConnection {
     /// Creates a new PeerConnection
-    #[instrument(skip(connection, device, user, context, event_emitter), 
+    #[instrument(skip(connection, device, user, context, event_emitter, on_close), 
         fields(
             connection_type = ?connection_type,
             device_id = %device.id,
@@ -69,7 +72,8 @@ impl PeerConnection {
         context: Arc<ServiceContext>,
         event_emitter: P2PEventEmitter,
         pending_resource_ids: Vec<String>,
-        action: Option<ConnectionAction>
+        action: Option<ConnectionAction>,
+            on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -89,6 +93,8 @@ impl PeerConnection {
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
             phase: PhaseState::new(),
             action,
+        is_live_editing: Arc::new(Mutex::new(false)),
+                    on_close: Arc::new(Mutex::new(on_close)),
         };
 
         debug!("Starting message handler for the connection");
@@ -106,6 +112,26 @@ impl PeerConnection {
     /// Gets the unique identifier for this connection (user_id:device_id)
     pub fn get_id(&self) -> String {
         format!("{}:{}", self.user.id, self.device.id)
+    }
+
+   // Add method to close the connection
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn close_connection(&self) -> Result<(), String> {
+        info!("Closing connection: {}", self.get_id());
+        
+        // Close the Iroh connection
+                self.connection.close(VarInt::from_u32(0), b"Connection closed normally");
+        
+        // Call the closure callback if set
+        let connection_id = self.get_id();
+        let on_close_guard = self.on_close.lock().await;
+        if let Some(callback) = &*on_close_guard {
+            info!("Executing connection closure callback for: {}", connection_id);
+            (callback)(connection_id);
+        }
+        
+        info!("Connection closed successfully: {}", self.get_id());
+        Ok(())
     }
 
     /// Starts the message handler task
@@ -371,7 +397,9 @@ impl PeerConnection {
             event_emitter: self.event_emitter.clone(),
             pending_resource_ids: self.pending_resource_ids.clone(),
             phase: self.phase.clone(),
-            action: self.action.clone()
+            action: self.action.clone(),
+            is_live_editing: self.is_live_editing.clone(),
+            on_close: self.on_close.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {
@@ -432,5 +460,32 @@ impl PeerConnection {
         }
     }
 
-
+#[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn set_live_editing_active(&self) {
+        let mut is_editing = self.is_live_editing.lock().await;
+        if !*is_editing {
+            info!("Setting connection as active for live editing: {}", self.get_id());
+            *is_editing = true;
+        }
+    }
+    
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn set_live_editing_inactive(&self) {
+        let mut is_editing = self.is_live_editing.lock().await;
+        if *is_editing {
+            info!("Setting connection as inactive for live editing: {}", self.get_id());
+            *is_editing = false;
+        }
+    }
+    
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "trace")]
+    pub async fn is_live_editing(&self) -> bool {
+        let is_editing = self.is_live_editing.lock().await;
+        trace!(
+            "Checking if connection is active for live editing: {}, result: {}",
+            self.get_id(),
+            *is_editing
+        );
+        *is_editing
+    }
 }

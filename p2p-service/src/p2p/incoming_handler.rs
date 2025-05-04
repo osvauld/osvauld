@@ -114,6 +114,8 @@ impl P2PService {
         // Get the connection from the connection manager
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
+                //mark connection for live editing.
+                connection.set_live_editing_active().await;
                 // Create a LiveEdit DocumentCheck message
                 let document_check = Message::LiveEdit(LiveEditMessage::DocumentCheck {
                     resource_id: resource_id.clone(),
@@ -147,13 +149,11 @@ impl P2PService {
             resource_id, is_match
         );
 
-        // Documents match, proceed with state vector exchange
-        info!("Document match confirmed, proceeding with state vector exchange");
-
         // Get the connection from the connection manager
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
                 if is_match {
+                    info!("Document match confirmed, proceeding with state vector exchange");
                     match self
                         .sync_service
                         .resource_service
