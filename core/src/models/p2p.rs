@@ -90,8 +90,13 @@ pub enum Message {
     UserConnection(UserConnectionPayload),
     Phase(Phase),
     LiveEdit(LiveEditMessage),
-    DisconnectRequest,
-    DisconnectResponse { approved: bool },
+    Disconnect(DisconnectStatus),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum DisconnectStatus {
+    Request,
+    Accepted,
+    Rejected(String), // Reason for rejection
 }
 
 #[derive(Serialize, Deserialize)]

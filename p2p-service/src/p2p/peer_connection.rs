@@ -120,7 +120,7 @@ impl PeerConnection {
         info!("Closing connection: {}", self.get_id());
         
         // Close the Iroh connection
-                self.connection.close(VarInt::from_u32(0), b"Connection closed normally");
+        self.connection.close(VarInt::from_u32(0), b"Connection closed normally");
         
         // Call the closure callback if set
         let connection_id = self.get_id();
@@ -319,6 +319,9 @@ impl PeerConnection {
             }
             Message::LiveEdit(payload) => {
                 self.handle_live_edit_flow(payload).await
+            }
+            Message::Disconnect(status) => {
+                self.handle_disconnect_message(status).await
             }
         }
     }
