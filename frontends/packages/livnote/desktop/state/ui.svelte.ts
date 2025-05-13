@@ -33,7 +33,7 @@ class UIState {
   // Navigation panel state
   showNavigationPanel = $state(true);
   isNavigationPanelManuallyToggled = $state(false);
-  readonly MIN_EDITOR_WIDTH = 715; // Minimum editor width in pixels
+  readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
 
   // Modal states
   toastMessage = $state<Toast>({

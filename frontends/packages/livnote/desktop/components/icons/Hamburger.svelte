@@ -1,5 +1,5 @@
 <script lang="ts">
-    const { color = "#F2F2F0", size = 24 } = $props();
+    const { color = "#85889C", size = 24 } = $props();
 </script>
 
 <svg 

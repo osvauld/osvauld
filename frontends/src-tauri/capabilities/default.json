@@ -1,0 +1,24 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "store:allow-get",
+    "store:allow-set",
+    "store:allow-save",
+    "store:allow-load",
+    "log:default",
+    "clipboard-manager:allow-write-text",
+    "store:default",
+    "dialog:default",
+    {
+      "identifier": "fs:allow-open",
+      "allow": [{ "path": "$DOCUMENT/*" }]
+    }
+  ]
+}
