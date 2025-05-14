@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy } from "svelte";
+	import { onMount, onDestroy, createEventDispatcher } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import type { EditorState } from "prosemirror-state";
 	import { listen } from "@tauri-apps/api/event";
@@ -10,6 +10,7 @@
 	import "./rich-text-editor.css";
 
 	// Event dispatcher for collaboration updates
+	const dispatch = createEventDispatcher();
 
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
@@ -21,6 +22,8 @@
 	let currentlyLoadedNoteId = $state<string | null>(null);
 	let loadingInProgress = $state(false);
 	let saved = $state(false);
+	let elementWidth = $state<number | undefined>(undefined);
+	let resizeTimeoutId: number | null = null;
 
 	// Copy content utilities
 	const fallbackCopy = (html: string): void => {
@@ -293,6 +296,30 @@
 
 		currentlyLoadedNoteId = null;
 	}
+
+	// Check if window is too narrow for both panels, with debouncing
+	function checkWindowSize() {
+		if (resizeTimeoutId) {
+			clearTimeout(resizeTimeoutId);
+		}
+		resizeTimeoutId = window.setTimeout(() => {
+			// Still capture elementWidth, might be useful for other things or logging
+			elementWidth = element?.getBoundingClientRect().width;
+			
+			const currentWindowWidth = window.innerWidth;
+			const NAV_PANEL_APPROX_WIDTH = 360; // Based on prior comments in file
+
+			// Only auto-collapse if not manually toggled
+			if (!uiState.isNavigationPanelManuallyToggled) {
+				// The threshold is the space needed for the nav panel plus the min space for the editor
+				const thresholdToShowNav = NAV_PANEL_APPROX_WIDTH + uiState.MIN_EDITOR_WIDTH;
+				
+				uiState.showNavigationPanel = currentWindowWidth >= thresholdToShowNav;
+			}
+			resizeTimeoutId = null; // Clear the ID after execution
+		}, 50); // User updated delay to 50ms
+	}
+
 	$effect(() => {
 		const currentNoteId = dataState.currentNote?.id;
 
@@ -300,6 +327,7 @@
 			loadNote(currentNoteId);
 		}
 	});
+
 	// Initialize when component mounts
 	onMount(async () => {
 		// Clear any state to ensure clean start
@@ -309,6 +337,9 @@
 			"request-editor-content",
 			copyContentListener as EventListener,
 		);
+
+		window.addEventListener('resize', checkWindowSize);
+		checkWindowSize(); // Initial check
 	});
 
 	// Clean up when component is destroyed
@@ -319,7 +350,12 @@
 			"request-editor-content",
 			copyContentListener as EventListener,
 		);
+		window.removeEventListener('resize', checkWindowSize);
+		if (resizeTimeoutId) {
+			clearTimeout(resizeTimeoutId);
+		}
 	});
+
 </script>
 
 <style>
