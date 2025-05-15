@@ -38,7 +38,6 @@
 			const response = await sendMessage("isSignedUp");
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
-			console.log(checkPvtLoad);
 
 			if (checkPvtLoad === false) {
 				uiState.setWelcomeScreen(true);

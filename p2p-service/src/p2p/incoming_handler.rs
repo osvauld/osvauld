@@ -82,7 +82,11 @@ impl P2PService {
                     IncomingEvent::DocumentChanged {
                         connection_id,
                         resource_id,
-                    } => {}
+                    } => {
+                        service
+                            .handle_document_changed(connection_id, resource_id)
+                            .await;
+                    }
                     IncomingEvent::CurrentBufferExchange {
                         connection_id,
                         resource_id,
@@ -184,6 +188,7 @@ impl P2PService {
                     }
                 } else {
                     let message = Message::LiveEdit(LiveEditMessage::NotSameDocument);
+                    connection.set_live_editing_inactive().await;
                     if let Err(e) = connection.send_message(message).await {
                         error!("Failed to send state vector exchange message: {}", e);
                     } else {
@@ -420,6 +425,42 @@ impl P2PService {
                 connections_len,
                 errors.join(", ")
             );
+        }
+    }
+    #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id), level = "info")]
+    pub async fn handle_document_changed(&self, connection_id: String, resource_id: String) {
+        info!(
+            "Handling document changed event for resource {} from connection {}",
+            resource_id, connection_id
+        );
+
+        // Get the connection
+        match self.get_connection_by_id(&connection_id).await {
+            Ok(connection) => {
+                // Cancel any existing disconnection timer
+                connection.cancel_disconnection_timer().await;
+
+                // Disable live editing for this connection
+                connection.set_live_editing_inactive().await;
+                // Start a fresh disconnection check with a new timer
+                let message = Message::LiveEdit(LiveEditMessage::DocumentChange { resource_id });
+
+                match connection.send_message(message).await {
+                    Ok(_) => {
+                        debug!("Successfully sent update to connection: {}", connection_id);
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Failed to send to {}: {}", connection_id, e);
+                        error!("{}", error_msg);
+                    }
+                }
+                if let Err(e) = connection.check_for_possible_disconnection().await {
+                    error!("Error checking for possible disconnection: {}", e);
+                }
+            }
+            Err(e) => {
+                error!("Failed to get connection {}: {}", connection_id, e);
+            }
         }
     }
 }

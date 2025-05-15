@@ -226,23 +226,7 @@ pub enum LiveEditMessage {
         resource_id: String,
         buffer: Vec<u8>,
     },
-    //TODO: implement these mesages
-    /// Stream real-time edits during active editing
-    LiveUpdate {
+    DocumentChange {
         resource_id: String,
-        update: Vec<u8>,
-    },
-    /// Verify document synchronization with buffer state
-    VerificationRequest {
-        resource_id: String,
-        state_vector: Vec<u8>,
-        buffer: Vec<u8>,
-    },
-    /// Response to verification request
-    VerificationResponse {
-        resource_id: String,
-        state_vector: Vec<u8>,
-        is_match: bool,
-        buffer: Vec<u8>,
     },
 }

@@ -62,6 +62,10 @@ pub enum P2PEvent {
         connection_id: String,
         updates: Vec<u8>,
     },
+    DocumentChanged {
+        resource_id: String,
+        connection_id: String,
+    },
 }
 
 /// Handles event emission for the P2P service

@@ -50,6 +50,7 @@ pub struct PeerConnection {
     pub action: Option<ConnectionAction>,
     pub is_live_editing: Arc<Mutex<bool>>,
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
+        pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
 }
 
@@ -95,6 +96,7 @@ impl PeerConnection {
             action,
         is_live_editing: Arc::new(Mutex::new(false)),
                     on_close: Arc::new(Mutex::new(on_close)),
+                    disconnection_timer: Arc::new(Mutex::new(None)),
         };
 
         debug!("Starting message handler for the connection");
@@ -403,6 +405,7 @@ impl PeerConnection {
             action: self.action.clone(),
             is_live_editing: self.is_live_editing.clone(),
             on_close: self.on_close.clone(),
+                    disconnection_timer: self.disconnection_timer.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {
