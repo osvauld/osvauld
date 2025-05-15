@@ -2,7 +2,6 @@ use log::{error, info};
 use osvauld_core::models::document::{apply_update_to_doc, merge_docs_as_update};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::Runtime;
 use yrs::Doc;
 
 #[derive(Debug, Clone)]
@@ -39,8 +38,6 @@ impl CurrentNoteState {
     pub fn set_current_note(&self, note_id: Option<String>) {
         let mut buffers = self.0.lock().unwrap();
         buffers.note_id = note_id.clone();
-        buffers.current_doc = Doc::new();
-        buffers.previous_doc = Doc::new();
         buffers.previous_doc = std::mem::replace(&mut buffers.current_doc, Doc::new());
         info!("Current note set to: {:?}", note_id);
     }
@@ -61,22 +58,18 @@ impl CurrentNoteState {
         if new_updates.is_empty() {
             return;
         }
-
         // Clone what we need outside the mutex
         let self_clone = self.clone();
-
         // Create temporary doc to avoid holding the lock during async operations
         let mut temp_doc = {
             let buffers = self_clone.0.lock().unwrap();
             buffers.current_doc.clone()
         };
-
         // Apply updates to the temporary doc
         if let Err(e) = apply_update_to_doc(&mut temp_doc, &new_updates).await {
             error!("Failed to apply updates to Yjs document: {}", e);
             return;
         }
-
         // Now update the actual doc with the modified temp doc
         let mut buffers = self_clone.0.lock().unwrap();
         buffers.current_doc = temp_doc;

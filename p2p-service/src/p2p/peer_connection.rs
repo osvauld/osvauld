@@ -120,6 +120,7 @@ impl PeerConnection {
     #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
     pub async fn close_connection(&self) -> Result<(), String> {
         info!("Closing connection: {}", self.get_id());
+        self.cancel_disconnection_timer().await;
         
         // Close the Iroh connection
         self.connection.close(VarInt::from_u32(0), b"Connection closed normally");

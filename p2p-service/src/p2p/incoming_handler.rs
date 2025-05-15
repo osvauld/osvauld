@@ -442,7 +442,6 @@ impl P2PService {
 
                 // Disable live editing for this connection
                 connection.set_live_editing_inactive().await;
-                // Start a fresh disconnection check with a new timer
                 let message = Message::LiveEdit(LiveEditMessage::DocumentChange { resource_id });
 
                 match connection.send_message(message).await {
@@ -454,6 +453,7 @@ impl P2PService {
                         error!("{}", error_msg);
                     }
                 }
+                // Start a fresh disconnection check with a new timer
                 if let Err(e) = connection.check_for_possible_disconnection().await {
                     error!("Error checking for possible disconnection: {}", e);
                 }

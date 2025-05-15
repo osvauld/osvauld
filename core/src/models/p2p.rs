@@ -96,7 +96,7 @@ pub enum Message {
 pub enum DisconnectStatus {
     Request,
     Accepted,
-    Rejected(String), // Reason for rejection
+    Rejected(String),
 }
 
 #[derive(Serialize, Deserialize)]
