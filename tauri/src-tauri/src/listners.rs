@@ -93,6 +93,7 @@ impl EventManager {
 
         let rendezvous_service = self.rendezvous_service.clone();
         let app_handle = self.app_handle.clone();
+        let p2p_sender = self.p2p_sender.clone();
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
@@ -100,8 +101,43 @@ impl EventManager {
             let app_handle_clone = app_handle.clone();
             let note_id = payload.trim_matches('"').to_string();
             let rendezvous_service = rendezvous_service.clone();
+            let p2p_sender_clone = p2p_sender.clone();
 
             info!("Received note-change event with note_id: {}", note_id);
+             let previous_note_id = note_state.get_current_note();
+        
+        // Check if we're actually changing documents (not just refreshing the same one)
+        if let Some(prev_id) = previous_note_id.clone() {
+            if prev_id != note_id {
+                info!("Document changing from {} to {}", prev_id, note_id);
+                
+                // Get active connections for the previous note before clearing
+                let active_connections = note_state.get_active_connections();
+                
+                if !active_connections.is_empty() {
+                    info!(
+                        "Found {} active connections for previous note, sending document changed notifications",
+                        active_connections.len()
+                    );
+                    
+                    // Send document changed notification to all active connections
+                    for connection_id in &active_connections {
+                        if let Err(e) = p2p_sender_clone.send_document_changed(
+                            connection_id.clone(), 
+                            prev_id.clone()
+                        ) {
+                            error!("Failed to notify connection {} about document change: {}", connection_id, e);
+                        } else {
+                            info!("Sent document change notification to connection: {}", connection_id);
+                        }
+                    }
+                    
+                    // Clear active connections for the previous note
+                    note_state.clear_active_connections();
+                    info!("Cleared all active connections for previous note: {}", prev_id);
+                }
+            }
+        }
 
             // Clear previous shared users state
             note_state.clear_shared_users();
@@ -195,9 +231,17 @@ impl EventManager {
                                     .collect();
 
                                 if !update_bytes.is_empty() {
+                                      let note_state = current_note_state.clone();
+                                let resource_id_clone = resource_id.to_string();
                                     // Update the buffer with the new state
-                                    current_note_state.update_yjs_state(update_bytes);
-                                    info!("Updated Yjs state buffer for note: {}", resource_id);
+                                     tokio::spawn(async move {
+                                    info!("Applying {} bytes of updates to Yjs buffer", update_bytes.len());
+                                    
+                                    // Now we can properly await the async function
+                                    note_state.merge_to_current(update_bytes).await;
+                                    
+                                    info!("Updated Yjs state buffer for note: {}", resource_id_clone);
+                                });
                                 } else {
                                     info!("Empty update array received for note: {}", resource_id);
                                 }
@@ -305,6 +349,13 @@ impl EventManager {
                     self.handle_current_buffer_exchange(resource_id, connection_id, updates)
                         .await
                 }
+                P2PEvent::DocumentChanged {
+                    resource_id,
+                    connection_id,
+                } => {
+                    self.handle_document_changed_event(resource_id, connection_id)
+                        .await;
+                }
             }
         }
 
@@ -320,7 +371,6 @@ impl EventManager {
 
     async fn handle_live_edit_connected(&self, connection_id: String) {
         info!("Live edit connection established with: {}", connection_id);
-
         // Get current note ID
         let current_note_state = self.current_note_state.clone();
         if let Some(resource_id) = current_note_state.get_current_note() {
@@ -409,32 +459,13 @@ impl EventManager {
             }
 
             // Combine current and previous buffers
-            let mut combined_buffer = Vec::new();
-
-            // First add current buffer if available
-            if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
-                info!(
-                    "Adding current buffer ({} bytes) to update exchange",
-                    current_buffer.len()
-                );
-                combined_buffer.extend_from_slice(&current_buffer);
-            }
-
-            // Then add previous buffer if available
-            if let Some(previous_buffer) = current_note_state.get_previous_yjs_state() {
-                info!(
-                    "Adding previous buffer ({} bytes) to update exchange",
-                    previous_buffer.len()
-                );
-                combined_buffer.extend_from_slice(&previous_buffer);
-            }
-
+        let combined_updates = current_note_state.get_combined_updates().await;
             // Send the update exchange
             if let Err(e) = self.p2p_sender.send_live_edit_update_exchange(
                 connection_id.clone(),
                 resource_id.clone(),
                 state_vector.clone(),
-                combined_buffer,
+                combined_updates,
             ) {
                 error!("Failed to send update exchange: {}", e);
             } else {
@@ -506,27 +537,8 @@ impl EventManager {
                 error!("Failed to send update exchange response: {}", e);
             }
         } else {
-            // Current document matches - collect local buffer for response
-            let mut local_buffer = Vec::new();
-
-            // Add current buffer if available
-            if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
-                info!(
-                    "Including current buffer ({} bytes) in response",
-                    current_buffer.len()
-                );
-                local_buffer.extend_from_slice(&current_buffer);
-            }
-
-            // Add previous buffer if available
-            if let Some(previous_buffer) = current_note_state.get_previous_yjs_state() {
-                info!(
-                    "Including previous buffer ({} bytes) in response",
-                    previous_buffer.len()
-                );
-                local_buffer.extend_from_slice(&previous_buffer);
-            }
-
+            
+        let local_buffer= current_note_state.get_combined_updates().await;
             // Apply remote updates to frontend
             if !remote_updates.is_empty() {
                 self.handle_update_event(resource_id.clone(), remote_updates.clone())
@@ -538,8 +550,8 @@ impl EventManager {
                 connection_id,
                 resource_id,
                 state_vector,
-                local_buffer,   // Send our local buffer
-                remote_updates, // Include remote updates in response
+                local_buffer,   
+                remote_updates,
             ) {
                 error!("Failed to send update exchange response: {}", e);
             }
@@ -583,9 +595,8 @@ impl EventManager {
                 info!("Applying {} bytes of updates to frontend", updates.len());
                 self.handle_update_event(resource_id.clone(), updates).await;
             }
-            let current_buffer = current_note_state
-                .get_current_yjs_state()
-                .unwrap_or_default();
+            //TODO: make this current buffer
+           let current_buffer = current_note_state.get_combined_updates().await; 
 
             // Send current buffer to peer (now we always send, even if empty)
             info!(
@@ -662,14 +673,8 @@ impl EventManager {
                 );
 
                 // Get current buffer to send back
-                if let Some(current_buffer) = current_note_state.get_current_yjs_state() {
-                    // Only send if we have something
-                    if !current_buffer.is_empty() {
-                        info!(
-                            "Sending current buffer ({} bytes) exchange as response",
-                            current_buffer.len()
-                        );
 
+                        let current_buffer = current_note_state.get_combined_updates().await;
                         // Send current buffer to peer
                         if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
                             connection_id.clone(),
@@ -678,8 +683,7 @@ impl EventManager {
                         ) {
                             error!("Failed to send current buffer response: {}", e);
                         }
-                    }
-                }
+                    
 
                 // Notify frontend that live editing is now active with this peer
                 if let Err(e) = self.app_handle.emit(
@@ -773,6 +777,48 @@ impl EventManager {
                 "Successfully emitted document-updates event for resource: {}",
                 resource_id
             );
+        }
+    }
+
+    async fn handle_document_changed_event(&self, resource_id: String, connection_id: String) {
+        info!(
+            "Received document changed event from connection {} for resource {}",
+            connection_id, resource_id
+        );
+
+        // Get current note state
+        let current_note_state = self.current_note_state.clone();
+        if let Some(current_resource_id) = current_note_state.get_current_note() {
+            if current_resource_id != resource_id {
+                warn!(
+                    "Resource ID mismatch in document changed event: expected {}, got {}. 
+                This might indicate state inconsistency.",
+                    current_resource_id, resource_id
+                );
+            }
+        } else {
+            warn!(
+                "Received document changed event for resource {} when no current document is set",
+                resource_id
+            );
+        }
+        // Remove this connection from active connections
+        current_note_state.remove_active_connection(&connection_id);
+
+        info!(
+            "Removed connection {} from active connections for resource {}",
+            connection_id, resource_id
+        );
+
+        // Notify frontend if needed
+        if let Err(e) = self.app_handle.emit(
+            "peer-document-changed",
+            serde_json::json!({
+                "connection_id": connection_id,
+                "resource_id": resource_id,
+            }),
+        ) {
+            error!("Failed to emit peer-document-changed event: {}", e);
         }
     }
 }

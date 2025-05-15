@@ -366,16 +366,8 @@ impl PeerConnection {
                         "Sending merge response back to peer"
                     );
                     let response_message = Message::MergeUpdate(response);
-                    match self.send_message(response_message).await {
-                        Ok(_) => {
-                            info!("Successfully sent merge response");
-                            Ok(())
-                        }
-                        Err(e) => {
-                            error!("Failed to send merge response: {}", e);
-                            Err(format!("Failed to send merge response: {}", e))
-                        }
-                    };
+                    self.send_message(response_message).await?;
+
                     return Ok(());
                 } else {
                     let response_message = Message::SyncAck(SyncAckType::UpdateReceived);
@@ -407,6 +399,8 @@ impl PeerConnection {
                     resource_id: resource_id.clone(),
                     connection_id: self.get_id(),
                 });
+                //mark connection for live editing.
+                self.set_live_editing_active().await;
                 Ok(())
             }
             LiveEditMessage::StateVectorExchange {
@@ -461,7 +455,27 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            _ => Ok(()),
+            LiveEditMessage::NotSameDocument => {
+                self.set_live_editing_inactive().await;
+                self.cancel_disconnection_timer().await;
+                self.check_for_possible_disconnection().await?;
+                Ok(())
+            }
+            LiveEditMessage::DocumentChange { resource_id } => {
+                info!("Peer changed document: {}", resource_id);
+
+                // Just set live editing inactive - the existing check_for_possible_disconnection
+                // will handle the timer on its own when needed
+                self.set_live_editing_inactive().await;
+
+                // Emit an event so the listener can remove this connection from active connections
+                self.event_emitter.emit(P2PEvent::DocumentChanged {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                });
+
+                Ok(())
+            }
         }
     }
 }

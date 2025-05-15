@@ -1,19 +1,30 @@
-use log::info;
+use log::{error, info};
+use osvauld_core::models::document::{apply_update_to_doc, merge_docs_as_update};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use yrs::Doc;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct Buffers {
     note_id: Option<String>,
-    current_yjs_state: Option<Vec<u8>>,
-    previous_yjs_state: Option<Vec<u8>>,
+    current_doc: Doc,
+    previous_doc: Doc,
     shared_users: Vec<String>,
     active_connections: HashSet<String>,
 }
-
+impl Default for Buffers {
+    fn default() -> Self {
+        Self {
+            note_id: None,
+            current_doc: Doc::new(),
+            previous_doc: Doc::new(),
+            shared_users: Vec::new(),
+            active_connections: HashSet::new(),
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub struct CurrentNoteState(Arc<Mutex<Buffers>>);
-
 impl Default for CurrentNoteState {
     fn default() -> Self {
         Self(Arc::new(Mutex::new(Buffers::default())))
@@ -24,12 +35,10 @@ impl CurrentNoteState {
     pub fn new() -> Self {
         Self::default()
     }
-
     pub fn set_current_note(&self, note_id: Option<String>) {
         let mut buffers = self.0.lock().unwrap();
         buffers.note_id = note_id.clone();
-        buffers.current_yjs_state = None;
-        buffers.previous_yjs_state = None;
+        buffers.previous_doc = std::mem::replace(&mut buffers.current_doc, Doc::new());
         info!("Current note set to: {:?}", note_id);
     }
 
@@ -40,45 +49,55 @@ impl CurrentNoteState {
 
     pub fn move_current_to_previous(&self) {
         let mut buffers = self.0.lock().unwrap();
-
-        // Atomic operation - move current to previous and clear current
-        buffers.previous_yjs_state = buffers.current_yjs_state.take();
+        buffers.previous_doc = std::mem::replace(&mut buffers.current_doc, Doc::new());
 
         info!("Moved current Yjs state to previous buffer");
     }
 
-    pub fn update_yjs_state(&self, new_state: Vec<u8>) {
-        let mut buffers = self.0.lock().unwrap();
-
-        // If there's an existing buffer, append to it, otherwise create new
-        if let Some(ref mut current_data) = buffers.current_yjs_state {
-            // Append the new state to the existing buffer
-            current_data.extend_from_slice(&new_state);
-            info!(
-                "Appended to current Yjs state buffer, new size: {} bytes",
-                current_data.len()
-            );
-        } else {
-            // No existing buffer, create new one
-            buffers.current_yjs_state = Some(new_state);
-            info!("Created new current Yjs state buffer");
+    pub async fn merge_to_current(&self, new_updates: Vec<u8>) {
+        if new_updates.is_empty() {
+            return;
         }
+        // Clone what we need outside the mutex
+        let self_clone = self.clone();
+        // Create temporary doc to avoid holding the lock during async operations
+        let mut temp_doc = {
+            let buffers = self_clone.0.lock().unwrap();
+            buffers.current_doc.clone()
+        };
+        // Apply updates to the temporary doc
+        if let Err(e) = apply_update_to_doc(&mut temp_doc, &new_updates).await {
+            error!("Failed to apply updates to Yjs document: {}", e);
+            return;
+        }
+        // Now update the actual doc with the modified temp doc
+        let mut buffers = self_clone.0.lock().unwrap();
+        buffers.current_doc = temp_doc;
+        info!("Successfully applied updates to current Yjs document");
     }
 
-    pub fn get_current_yjs_state(&self) -> Option<Vec<u8>> {
-        let buffers = self.0.lock().unwrap();
-        buffers.current_yjs_state.clone()
-    }
+    /// Combine the current and previous documents and return their merged state as an update array
+    pub async fn get_combined_updates(&self) -> Vec<u8> {
+        // Clone the docs outside the mutex
+        let (current_doc, previous_doc) = {
+            let buffers = self.0.lock().unwrap();
+            (buffers.current_doc.clone(), buffers.previous_doc.clone())
+        };
 
-    pub fn get_previous_yjs_state(&self) -> Option<Vec<u8>> {
-        let buffers = self.0.lock().unwrap();
-        buffers.previous_yjs_state.clone()
+        // Merge the cloned docs
+        let updates = merge_docs_as_update(&current_doc, &previous_doc).await;
+
+        info!(
+            "Combined current and previous docs into {} bytes of updates",
+            updates.len()
+        );
+        updates
     }
 
     pub fn clear_buffers(&self) {
         let mut buffers = self.0.lock().unwrap();
-        buffers.current_yjs_state = None;
-        buffers.previous_yjs_state = None;
+        buffers.current_doc = Doc::new();
+        buffers.previous_doc = Doc::new();
         info!("Yjs state buffers cleared");
     }
 

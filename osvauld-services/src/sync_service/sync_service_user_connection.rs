@@ -193,7 +193,7 @@ impl SyncService {
         // Create modified user with first_sync = false
         debug!("Creating modified user with first_sync = false");
         let mut new_user = user.clone();
-        new_user.first_sync = false;
+        new_user.first_sync = true;
         new_user.owner = false;
 
         // Get current user

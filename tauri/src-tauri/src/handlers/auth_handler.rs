@@ -70,46 +70,11 @@ pub async fn handle_sign_up(
         .handle_add_folder_transaction(&folder, &sync_record_set)
         .await
         .map_err(|e| e.to_string())?;
-    let (_, user_id) = auth_service.load_certificate(&input.passphrase).await?;
-    let rendezvous_clone = rendezvous_service.inner().clone();
-    //update the user state
-    let current_device = auth_service
-        .get_current_device()
-        .await
-        .map_err(|e| e.to_string())?;
-    {
-        let mut current_user_state = user_state.current_user.write().await;
-        current_user_state.user = Some(user.clone());
-        current_user_state.device = Some(current_device.clone());
-    }
-    p2p_service.set_current_user(user.clone()).await;
-    p2p_service.set_current_device(device.clone()).await;
-    // Spawn a background task to handle WebSocket connection
-    let user_id_clone = user_id.clone();
-    tokio::spawn(async move {
-        match rendezvous_clone
-            .initialize(format!("{}:{}", user.id, device.id), &current_device.id)
-            .await
-        {
-            Ok(_) => {
-                info!(
-                    "Successfully connected to rendezvous server with user ID: {}",
-                    user_id_clone
-                );
-            }
-            Err(e) => {
-                error!("Failed to connect to rendezvous server: {}", e);
-                // Connection failed, but we'll still let the login succeed
-                // The application can try to reconnect later if needed
-            }
-        }
-    });
-
     Ok(CryptoResponse::SavePassphrase {
         username: user.username,
         device_key: user.public_key.clone(),
         encryption_key: user.public_key,
-        user_id,
+        user_id: user.id,
     })
 }
 

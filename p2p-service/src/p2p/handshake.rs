@@ -93,7 +93,26 @@ impl P2PService {
         let connection_arc = Arc::new(conn.clone());
         debug!("Creating peer connection object");
         let resources_needing_update = self.sync_service.get_resources_needing_sync(&handshake_message.device.id).await.map_err(|e| P2PError::SyncService(e.to_string()))?;
-
+                let self_clone = self.clone();
+  let cleanup_callback = Box::new(move |connection_id: String| {
+            let service = self_clone.clone();
+            
+            // Spawn a task to handle the cleanup
+            tokio::spawn(async move {
+                info!("Connection cleanup callback triggered for: {}", connection_id);
+                
+                // Get lock on the state
+                let state_guard = service.state.lock().await;
+                if let Some(state) = state_guard.as_ref() {
+                    // Remove the connection
+                    if let Err(e) = state.connections.remove_connection(&connection_id).await {
+                        error!("Failed to remove connection {}: {}", connection_id, e);
+                    } else {
+                        info!("Successfully removed connection from manager: {}", connection_id);
+                    }
+                }
+            });
+        });
         let peer_connection = PeerConnection::new(
             connection_arc,
             handshake_message.connection_type.clone(),
@@ -104,6 +123,7 @@ impl P2PService {
             self.event_emitter.clone(),
             resources_needing_update,
             action,
+            Some(cleanup_callback),
         );
         peer_connection.execute_connection_action().await?;
 
