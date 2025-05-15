@@ -26,16 +26,16 @@
 		"svelte-preprocess": "^6.0.3",
 		"tailwindcss": "^4.1.3",
 		"typescript": "^5.8.3",
-		"vite": "^6.2.6"
+		"vite": "^6.2.7"
 	},
 	"dependencies": {
 		"@castlenine/svelte-qrcode": "^2.3.0",
 		"@osvauld/password-manager-common": "workspace:*",
 		"@tauri-apps/api": "^2.4.1",
 		"@tauri-apps/plugin-clipboard-manager": "^2.2.2",
+		"@tauri-apps/plugin-dialog": "^2.0.0",
 		"@tauri-apps/plugin-fs": "^2.2.1",
 		"@tauri-apps/plugin-store": "^2.2.0",
-		"dialog": "link:@tauri-apps/api/dialog",
 		"dompurify": "^3.2.5",
 		"jspdf": "^3.0.1",
 		"prosemirror-collab": "^1.3.1",

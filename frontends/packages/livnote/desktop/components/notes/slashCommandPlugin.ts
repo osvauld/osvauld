@@ -266,20 +266,22 @@ export function slashCommandPlugin(schema: Schema) {
 		}
 
 		// Also clean up the slash command if view is provided
-		if (view && isCursorSelection(view.state.selection)) {
+		if (view) {
 			const { state, dispatch } = view;
-			const tr = state.tr;
-			const $cursor = state.selection.$cursor;
+			const selection = state.selection;
 
-			if ($cursor && $cursor.nodeBefore) {
-				const text = $cursor.nodeBefore.text;
-				if (text) {
-					const slashPos = text.lastIndexOf("/");
-					if (slashPos > -1) {
-						const from =
-							$cursor.pos - ($cursor.nodeBefore.text.length - slashPos);
-						tr.delete(from, $cursor.pos);
-						dispatch(tr);
+			if (isCursorSelection(selection)) {
+				const $cursor = selection.$cursor; // Access $cursor safely after check
+
+				if ($cursor && $cursor.nodeBefore) {
+					const text = $cursor.nodeBefore.text;
+					if (text) {
+						const slashPos = text.lastIndexOf("/");
+						if (slashPos > -1) {
+							const from =
+								$cursor.pos - ($cursor.nodeBefore.text.length - slashPos);
+							dispatch(state.tr.delete(from, $cursor.pos));
+						}
 					}
 				}
 			}
@@ -323,7 +325,10 @@ export function slashCommandPlugin(schema: Schema) {
 						return;
 					}
 
+					// $cursor is guaranteed to exist here because isCursorSelection passed
 					const $cursor = selection.$cursor;
+
+					// Add explicit null check for $cursor to satisfy linter
 					if (!$cursor) {
 						closeMenu();
 						return;
@@ -595,7 +600,7 @@ function getCommands(schema: Schema): SlashCommandItem[] {
 				return toggleMark(schema.marks.code)(state, dispatch, view);
 			},
 		});
-
-		return commands;
 	}
+
+	return commands;
 }

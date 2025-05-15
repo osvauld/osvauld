@@ -29,6 +29,11 @@ class UIState {
   showWelcome = $state(true);
   showSyncQr = $state(false);
   vaultManagerActive = $state(false);
+  
+  // Navigation panel state
+  showNavigationPanel = $state(true);
+  isNavigationPanelManuallyToggled = $state(false);
+  readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
 
   // Modal states
   toastMessage = $state<Toast>({
@@ -136,6 +141,23 @@ class UIState {
   // Welcome screen management
   setWelcomeScreen(show: boolean) {
     this.showWelcome = show;
+  }
+
+  // Toggle navigation panel
+  toggleNavigationPanel(show?: boolean) {
+    if (show !== undefined) {
+      this.showNavigationPanel = show;
+    } else {
+      this.showNavigationPanel = !this.showNavigationPanel;
+    }
+    
+    // Mark panel as manually toggled
+    this.isNavigationPanelManuallyToggled = true;
+  }
+
+  // Reset manual toggle flag
+  resetNavigationPanelManualToggle() {
+    this.isNavigationPanelManuallyToggled = false;
   }
 }
 

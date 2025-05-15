@@ -15,6 +15,10 @@
     "log:default",
     "clipboard-manager:allow-write-text",
     "store:default",
+    "dialog:allow-open",
+    "fs:allow-read-file",
+    "fs:read-files",
+    "fs:read-all",
     {
       "identifier": "fs:allow-open",
       "allow": [{ "path": "$DOCUMENT/*" }]
