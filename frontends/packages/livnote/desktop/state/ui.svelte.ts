@@ -29,6 +29,7 @@ class UIState {
   showWelcome = $state(true);
   showSyncQr = $state(false);
   vaultManagerActive = $state(false);
+  noteSaved = $state(false);
   
   // Navigation panel state
   showNavigationPanel = $state(true);

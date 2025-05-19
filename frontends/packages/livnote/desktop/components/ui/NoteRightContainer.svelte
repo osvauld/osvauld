@@ -25,6 +25,7 @@
 	let showDownloadTooltip = $state(false);
 	let isPdfGenerating = $state(false);
 	let saved = $state(false);
+
 	let lastModifiedTimestamp = $state<number | undefined>(undefined);
 
 	// Handle PDF download
@@ -74,11 +75,12 @@
 	const saveNoteManual = () => {
 		if (!dataState.currentNote) return;
 
-		saved = true;
 		notesInstance
 			.saveNote(dataState.currentNote.data?.title || "Untitled")
 			.catch(console.error);
 
+		saved = true;
+		
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
@@ -90,6 +92,10 @@
 		if (currentTimestamp) {
 			lastModifiedTimestamp = currentTimestamp;
 		}
+	});
+
+	$effect(() => {
+		saved = uiState.noteSaved;
 	});
 </script>
 

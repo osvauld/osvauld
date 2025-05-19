@@ -15,13 +15,12 @@
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
 	let view = $state<EditorView | null>(null);
-	let autoSaveInterval = $state<number | null>(null);
+	let autoSaveInterval: number | null = null;
 	let unsubscribeUpdate = $state<UnlistenFn | null>(null);
 	let isLoading = $state(true);
 	let error = $state<string | null>(null);
 	let currentlyLoadedNoteId = $state<string | null>(null);
 	let loadingInProgress = $state(false);
-	let saved = $state(false);
 	let elementWidth = $state<number | undefined>(undefined);
 	let resizeTimeoutId: number | null = null;
 
@@ -178,14 +177,18 @@
 			}
 
 			autoSaveInterval = window.setInterval(() => {
+
 				if (dataState.currentNote) {
 					notesInstance
-						.saveNote(dataState.currentNote.data?.title || "Untitled")
-						.catch(console.error);
+					.saveNote(dataState.currentNote.data?.title || "Untitled")
+					.catch(console.error);
+					
+					// Below state is set for showing saved update
+					uiState.noteSaved = true;
 
-					saved = true;
+
 					setTimeout(() => {
-						saved = false;
+						uiState.noteSaved = false;
 					}, 1000);
 				}
 			}, 30000); // Auto-save every 30 seconds
