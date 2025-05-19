@@ -73,7 +73,8 @@
 	--color-liveGreen: #a6e3a1;
 	--color-statusColor: #757578;
 	--color-toolTipText: #b5b9d0;
-
+	--color-collaboratorBorder: #2D2D2D;
+	--color-collaboratorText: #767785;
 	/* Mobile Colors */
 	--color-mobile-bgPrimary: #000000;
 	--color-mobile-bgSeconary: #0d0e13;
