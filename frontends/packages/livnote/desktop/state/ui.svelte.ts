@@ -29,11 +29,12 @@ class UIState {
   showWelcome = $state(true);
   showSyncQr = $state(false);
   vaultManagerActive = $state(false);
+  noteSaved = $state(false);
   
   // Navigation panel state
   showNavigationPanel = $state(true);
   isNavigationPanelManuallyToggled = $state(false);
-  readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
+  readonly MIN_EDITOR_WIDTH = 1300; // Minimum editor width in pixels
 
   // Modal states
   toastMessage = $state<Toast>({

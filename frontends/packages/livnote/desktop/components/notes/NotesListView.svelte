@@ -14,6 +14,7 @@
 
 	// Local state for responsive grid
 	let resizeTimer = $state<number | null>(null);
+	let columnCount = $state<number>(1);
 
 	// Function to toggle favorite status
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
@@ -36,16 +37,14 @@
 
 	// Calculate grid layout
 	const getColumnCount = (): number => {
-		console.log("get column count called");
 		if (typeof window === "undefined") return 1;
 		if (window.innerWidth >= 1440) return 3;
 		if (window.innerWidth >= 1024) return 2;
 		return 1;
 	};
 
-	const getColumnItems = (items, colIndex: number) => {
-		const colCount = getColumnCount();
-		return items.filter((_, index) => index % colCount === colIndex);
+	const getColumnItems = (items: any[], colIndex: number) => {
+		return items.filter((_, index) => index % columnCount === colIndex);
 	};
 
 	// Handle window resize
@@ -56,12 +55,16 @@
 		}
 
 		resizeTimer = setTimeout(() => {
+			// Update column count
+			columnCount = getColumnCount();
 			// Force a re-render
 			dataState.notes = [...dataState.notes];
 		}, 250) as unknown as number;
 	}
 
 	onMount(() => {
+		// Initialize column count
+		columnCount = getColumnCount();
 		// Add resize listener
 		window.addEventListener("resize", handleResize);
 	});
@@ -90,7 +93,7 @@
 			</div>
 		{:else}
 			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-				{#each Array(getColumnCount()) as _, colIndex}
+				{#each Array(columnCount) as _, colIndex}
 					<div class="flex flex-col gap-6">
 						{#each getColumnItems(dataState.filteredNotes, colIndex) as note (note.id)}
 							<div

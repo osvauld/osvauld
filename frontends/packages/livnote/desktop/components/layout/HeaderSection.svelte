@@ -15,10 +15,8 @@
 		Devices,
 		QrScanner,
 		Logout,
-		Lens,
 		Profile,
 		Key,
-		RightArrow as Arrow,
 	} from "@osvauld/password-manager-common";
 
 	// Import the centralized state
@@ -110,7 +108,7 @@
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}>
 				<Profile color="#4D4F60" />
-				<span class="ml-2">John Doe</span>
+				<span class="ml-2 capitalize">{dataState.userDetails?.username}</span>
 				<span
 					class="ml-auto transition-transform ease-linear"
 					class:rotate-90={showDropdown}>
