@@ -92,7 +92,7 @@ impl SyncService {
         ),
         level = "debug"
     )]
-    async fn process_fullsync_acknowledgment(
+    pub async fn process_fullsync_acknowledgment(
         &self,
         operations: SyncOperations,
         current_device_id: &str,

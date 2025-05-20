@@ -270,9 +270,9 @@ impl PeerConnection {
                 info!("Received SyncAck");
                 self.handle_sync_ack(updated_data.clone()).await
             }
-            Message::AddDevice(records) => {
+            Message::FirstDeviceConnection(records) => {
                 info!("Received AddDevice request");
-                self.handle_add_device_request(records.clone()).await
+                self.process_first_device_connection(records).await
             }
             Message::AddDeviceAck => {
                 info!("Received AddDeviceAck");

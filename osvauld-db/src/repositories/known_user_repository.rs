@@ -66,4 +66,25 @@ impl UserRepository for SqliteUserRepository {
             })?;
         Ok(())
     }
+
+    async fn add_known_users_bulk(&self, users: &[User]) -> Result<(), RepositoryError> {
+        if users.is_empty() {
+            return Ok(());
+        }
+
+        let user_models: Vec<UserModel> = users.iter().map(UserModel::from).collect();
+        let mut conn = self.connection.lock().await;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            for user_model in &user_models {
+                diesel::insert_into(users::table)
+                    .values(user_model)
+                    .on_conflict(users::id) // Assuming id is the primary key
+                    .do_nothing() // Skip if the user already exists
+                    .execute(conn)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+    }
 }

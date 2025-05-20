@@ -37,10 +37,7 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
     folder_service: State<'_, Arc<FolderService>>,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
-    user_state: State<'_, UserState>,
     transaction_service: State<'_, Arc<TransactionService>>,
-    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     let (user, certificate) = auth_service
         .handle_sign_up(&input.username, &input.passphrase)

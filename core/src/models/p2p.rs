@@ -81,9 +81,7 @@ pub enum Message {
     SyncResponse(SyncPayload),
     SyncAck(SyncAckType),
     AckComplete(Vec<String>),
-    AddDevice(SyncPayload),
     AddDeviceAck,
-    // FileTransfer { name: String, data: Vec<u8> },
     Error,
     SyncEvent { event: String, payload: String },
     MergeUpdate(ResourceUpdateMsg),
@@ -91,6 +89,7 @@ pub enum Message {
     Phase(Phase),
     LiveEdit(LiveEditMessage),
     Disconnect(DisconnectStatus),
+    FirstDeviceConnection(DeviceConnection),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -228,5 +227,29 @@ pub enum LiveEditMessage {
     },
     DocumentChange {
         resource_id: String,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum DeviceConnection {
+    // Initial request with the new device
+    Request {
+        device: Device,
+        sync_record_set: SyncRecordSet,
+    },
+    // Comprehensive response with all known user devices
+    Response {
+        user_devices: Vec<Device>,
+        sync_record_sets: Vec<SyncRecordSet>,
+        external_users: Vec<User>,
+        external_devices: Vec<Device>,
+    },
+    // Acknowledgment of processing
+    Acknowledgment {
+        operations: Vec<SyncOperations>,
+    },
+    // Final confirmation
+    Complete {
+        device_record_status_ids: Vec<String>,
     },
 }
