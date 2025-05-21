@@ -78,6 +78,29 @@ const codeBlockRule = (schema: Schema) => {
   );
 };
 
+// Horizontal rule input rule
+const horizontalRuleRule = (schema: Schema) => {
+  return new InputRule(
+    /^[-*_]{3,}$/, // Matches 3 or more -, *, or _ characters at the start of a line
+    (state, match, start, end) => {
+      const { tr } = state;
+      
+      // Create a horizontal rule node
+      const horizontalRule = schema.nodes.horizontal_rule.create();
+      
+      // Replace the matched text with the horizontal rule
+      tr.replaceWith(start, end, horizontalRule);
+      
+      // Create a new paragraph after the horizontal rule
+      const newParagraph = schema.nodes.paragraph.create();
+      tr.insert(end, newParagraph);
+      
+      // Set selection at the start of the new paragraph
+      return tr.setSelection(TextSelection.create(tr.doc, end + 1));
+    }
+  );
+};
+
 // Create the markdown shortcuts plugin
 export const markdownShortcutsPlugin = (schema: Schema) => {
   const rules = [
@@ -100,6 +123,8 @@ export const markdownShortcutsPlugin = (schema: Schema) => {
     inlineCodeInputRule(schema),                                  // ``code``
     // Code block rule
     codeBlockRule(schema),                                       // ```
+    // Horizontal rule rule
+    horizontalRuleRule(schema),                                  // ---, ***, or ___
   ];
 
   const markdownInputRules = inputRules({ rules });
