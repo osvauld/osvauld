@@ -39,6 +39,7 @@ import type {
   NoteResponse,
   CollaborationUpdateEvent
 } from "../../types/notes.types";
+import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 
 // Type definitions for notes, states and other components
 
@@ -571,6 +572,7 @@ export class Notes {
             cursorBuilder: this.createBasicCustomCursor.bind(this),
           }),
           yUndoPlugin(),
+          markdownShortcutsPlugin(this.editorSchema),
           keymap({
             "Mod-z": undo,
             "Mod-y": redo,
