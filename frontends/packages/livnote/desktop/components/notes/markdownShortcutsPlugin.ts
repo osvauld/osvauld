@@ -19,6 +19,21 @@ const blockquoteRule = (schema: Schema) => {
   );
 };
 
+// List input rules
+const bulletListRule = (schema: Schema) => {
+  return wrappingInputRule(
+    /^\s*[-*]\s$/,
+    schema.nodes.bullet_list
+  );
+};
+
+const orderedListRule = (schema: Schema) => {
+  return wrappingInputRule(
+    /^\s*\d+\.\s$/,
+    schema.nodes.ordered_list
+  );
+};
+
 // Create the markdown shortcuts plugin
 export const markdownShortcutsPlugin = (schema: Schema) => {
   const rules = [
@@ -28,6 +43,9 @@ export const markdownShortcutsPlugin = (schema: Schema) => {
     headingRule(3, schema), // ### Heading
     // Blockquote rule
     blockquoteRule(schema),
+    // List rules
+    bulletListRule(schema),    // - or * for bullet lists
+    orderedListRule(schema),   // 1. for ordered lists
   ];
 
   const markdownInputRules = inputRules({ rules });
