@@ -70,6 +70,14 @@ const inlineCodeInputRule = (schema: Schema) => {
   );
 };
 
+// Code block input rule using textblockTypeInputRule
+const codeBlockRule = (schema: Schema) => {
+  return textblockTypeInputRule(
+    /^```$/,
+    schema.nodes.code_block
+  );
+};
+
 // Create the markdown shortcuts plugin
 export const markdownShortcutsPlugin = (schema: Schema) => {
   const rules = [
@@ -90,6 +98,8 @@ export const markdownShortcutsPlugin = (schema: Schema) => {
     inlineMarkRule(schema.marks.strikethrough, /~~([^~]+)~~$/),    // ~~text~~
     // Use specific rule for inline code
     inlineCodeInputRule(schema),                                  // ``code``
+    // Code block rule
+    codeBlockRule(schema),                                       // ```
   ];
 
   const markdownInputRules = inputRules({ rules });
@@ -99,7 +109,13 @@ export const markdownShortcutsPlugin = (schema: Schema) => {
     props: {
       ...markdownInputRules.props,
       handleKeyDown: (view, event) => {
-        return false;
+        if (event.key === 'Enter' && view.state.selection.$head.parent.type === schema.nodes.code_block) {
+          const { state, dispatch } = view;
+          const tr = state.tr.insertText('\n');
+          dispatch(tr);
+          return true; // Handled: Insert newline in code block
+        }
+        return false; // Not handled by this specific keydown logic
       }
     }
   });
