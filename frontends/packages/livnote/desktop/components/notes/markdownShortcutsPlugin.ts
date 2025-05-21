@@ -1,4 +1,4 @@
-import { Plugin } from "prosemirror-state";
+import { Plugin, TextSelection } from "prosemirror-state";
 import { inputRules, wrappingInputRule, textblockTypeInputRule, InputRule } from "prosemirror-inputrules";
 import type { Schema, MarkType } from "prosemirror-model";
 
@@ -34,7 +34,7 @@ const orderedListRule = (schema: Schema) => {
   );
 };
 
-// Helper for creating inline mark input rules
+// Helper for creating generic inline mark input rules (bold, italic, strikethrough)
 const inlineMarkRule = (markType: MarkType, regex: RegExp) => {
   return new InputRule(regex, (state, match, start, end) => {
     const content = match[1];
@@ -45,6 +45,29 @@ const inlineMarkRule = (markType: MarkType, regex: RegExp) => {
     
     return state.tr.replaceWith(start, end, textNode);
   });
+};
+
+// Specific input rule for inline code to handle trimming and cursor position
+const inlineCodeInputRule = (schema: Schema) => {
+  return new InputRule(
+    /``([^`]+)``$/, // User updated Regex: matches ``content``
+    (state, match, start, end) => {
+      const fullMatchContent = match[1]; 
+      if (!fullMatchContent) return null;
+
+      const trimmedContent = fullMatchContent.trim();
+      if (!trimmedContent) return null;
+
+      const mark = schema.marks.code.create();
+      const textNode = schema.text(trimmedContent, [mark]);
+      
+      const tr = state.tr.replaceWith(start, end, textNode);
+      const newPos = start + trimmedContent.length;
+      
+      // Set selection after the inserted code and clear stored marks
+      return tr.setSelection(TextSelection.create(tr.doc, newPos)).setStoredMarks([]);
+    }
+  );
 };
 
 // Create the markdown shortcuts plugin
@@ -64,6 +87,9 @@ export const markdownShortcutsPlugin = (schema: Schema) => {
     inlineMarkRule(schema.marks.strong, /__([^_]+)__$/),          // __text__
     inlineMarkRule(schema.marks.em, /(?<!\*)\*([^\*]+)\*(?!\*)$/),    // *text*
     inlineMarkRule(schema.marks.em, /(?<!_)_([^_]+)_(?!_)$/),      // _text_
+    inlineMarkRule(schema.marks.strikethrough, /~~([^~]+)~~$/),    // ~~text~~
+    // Use specific rule for inline code
+    inlineCodeInputRule(schema),                                  // ``code``
   ];
 
   const markdownInputRules = inputRules({ rules });
