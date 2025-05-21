@@ -1,6 +1,6 @@
 import { Plugin } from "prosemirror-state";
-import { inputRules, wrappingInputRule, textblockTypeInputRule } from "prosemirror-inputrules";
-import type { Schema } from "prosemirror-model";
+import { inputRules, wrappingInputRule, textblockTypeInputRule, InputRule } from "prosemirror-inputrules";
+import type { Schema, MarkType } from "prosemirror-model";
 
 // Helper function to create heading input rules
 const headingRule = (level: number, schema: Schema) => {
@@ -34,18 +34,36 @@ const orderedListRule = (schema: Schema) => {
   );
 };
 
+// Helper for creating inline mark input rules
+const inlineMarkRule = (markType: MarkType, regex: RegExp) => {
+  return new InputRule(regex, (state, match, start, end) => {
+    const content = match[1];
+    if (!content) return null;
+
+    const mark = markType.create();
+    const textNode = state.schema.text(content, [mark]);
+    
+    return state.tr.replaceWith(start, end, textNode);
+  });
+};
+
 // Create the markdown shortcuts plugin
 export const markdownShortcutsPlugin = (schema: Schema) => {
   const rules = [
     // Heading rules
-    headingRule(1, schema), // # Heading
-    headingRule(2, schema), // ## Heading
-    headingRule(3, schema), // ### Heading
+    headingRule(1, schema),
+    headingRule(2, schema),
+    headingRule(3, schema),
     // Blockquote rule
     blockquoteRule(schema),
     // List rules
-    bulletListRule(schema),    // - or * for bullet lists
-    orderedListRule(schema),   // 1. for ordered lists
+    bulletListRule(schema),
+    orderedListRule(schema),
+    // Inline formatting rules 
+    inlineMarkRule(schema.marks.strong, /\*\*([^\*]+)\*\*$/),      // **text**
+    inlineMarkRule(schema.marks.strong, /__([^_]+)__$/),          // __text__
+    inlineMarkRule(schema.marks.em, /(?<!\*)\*([^\*]+)\*(?!\*)$/),    // *text*
+    inlineMarkRule(schema.marks.em, /(?<!_)_([^_]+)_(?!_)$/),      // _text_
   ];
 
   const markdownInputRules = inputRules({ rules });
