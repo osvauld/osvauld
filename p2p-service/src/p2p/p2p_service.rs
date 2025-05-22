@@ -76,7 +76,7 @@ impl P2PService {
     }
 
     /// Sets the current user for the P2P service
-    #[instrument(skip(self, user), fields(user_id = %user.id), level = "debug")]
+    #[instrument(skip_all, level = "debug")]
     pub async fn set_current_user(&self, user: User) {
         debug!("Setting current user: {}", user.username);
         let mut user_guard = self.current_user.write().await;
@@ -85,7 +85,7 @@ impl P2PService {
     }
 
     /// Sets the current device for the P2P service
-    #[instrument(skip(self, device), fields(device_id = %device.id), level = "debug")]
+    #[instrument(skip_all, level = "debug")]
     pub async fn set_current_device(&self, device: Device) {
         debug!("Setting current device: {}", device.id);
         let mut device_guard = self.current_device.write().await;
@@ -326,30 +326,35 @@ impl P2PService {
         state.connections.get_peer_connection(connection_id).await
     }
 
+    /// Get connections by IDs
+    #[instrument(skip(self, connection_ids), level = "debug")]
+    pub async fn get_connections_by_ids(
+        &self,
+        connection_ids: &[String],
+    ) -> Vec<Arc<PeerConnection>> {
+        debug!(
+            "Getting connections by IDs, count: {}",
+            connection_ids.len()
+        );
 
-/// Get connections by IDs
-#[instrument(skip(self, connection_ids), level = "debug")]
-pub async fn get_connections_by_ids(
-    &self,
-    connection_ids: &[String],
-) -> Vec<Arc<PeerConnection>> {
-    debug!("Getting connections by IDs, count: {}", connection_ids.len());
-    
-    // Acquire the state lock
-    let state_guard = self.state.lock().await;
-    
-    // Check if service is initialized
-    let state = match state_guard.as_ref() {
-        Some(s) => s,
-        None => {
-            error!("P2P service not initialized");
-            return Vec::new();
-        }
-    };
-    
-    // Delegate to ConnectionManager
-    state.connections.get_connections_by_ids(connection_ids).await
-}
+        // Acquire the state lock
+        let state_guard = self.state.lock().await;
+
+        // Check if service is initialized
+        let state = match state_guard.as_ref() {
+            Some(s) => s,
+            None => {
+                error!("P2P service not initialized");
+                return Vec::new();
+            }
+        };
+
+        // Delegate to ConnectionManager
+        state
+            .connections
+            .get_connections_by_ids(connection_ids)
+            .await
+    }
     /// Broadcast sync update to multiple connections
     #[instrument(skip(self, payload, connection_ids), level = "info")]
     pub async fn broadcast_sync_update(

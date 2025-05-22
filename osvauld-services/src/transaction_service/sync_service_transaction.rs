@@ -413,4 +413,44 @@ impl TransactionService {
 
         Ok(())
     }
+
+    pub async fn commit_device_connection_response(
+        &self,
+        user_devices: &[Device],
+        external_devices: &[Device],
+        external_users: &[User],
+        record_sets_to_add: &[SyncRecordSet],
+        operations_to_apply: &[SyncOperations],
+    ) -> Result<(), RepositoryError> {
+        // Start a transaction
+        // 1. Save external users first
+        if !external_users.is_empty() {
+            self.user_repository
+                .add_known_users_bulk(external_users)
+                .await?;
+        }
+
+        // 2. Save all devices (both user devices and external devices)
+        let all_devices: Vec<Device> = user_devices
+            .iter()
+            .chain(external_devices.iter())
+            .cloned()
+            .collect();
+
+        if !all_devices.is_empty() {
+            self.device_repository.save_many(&all_devices).await?;
+        }
+
+        // 3. Add all new sync record sets
+        for record_set in record_sets_to_add {
+            self.sync_repository.add_sync_record_set(record_set).await?;
+        }
+
+        // 4. Apply all sync operations
+        for operation in operations_to_apply {
+            self.apply_sync_operations(operation).await?;
+        }
+
+        Ok(())
+    }
 }

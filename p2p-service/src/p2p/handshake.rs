@@ -1,25 +1,24 @@
+use crate::p2p::P2PEvent;
 use crate::p2p::constants::*;
-use crate::p2p::errors::{ P2PError, HandshakeError};
+use crate::p2p::errors::{HandshakeError, P2PError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
-use osvauld_core::models::p2p::{ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage};
-use crate::p2p::P2PEvent;
+use iroh::NodeAddr;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use osvauld_core::models::p2p::{
+    ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage,
+};
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
-use iroh:: NodeAddr;
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 
 impl P2PService {
     /// Performs the handshake process and creates a peer connection
-    /// 
+    ///
     /// This function handles both initiator and receiver sides of the handshake.
     /// It establishes a bi-directional stream, exchanges handshake messages,
     /// and creates a peer connection upon successful handshake.
-    #[instrument(skip(self, conn, is_initiator, connection_type), 
-        fields(initiator = is_initiator, connection_type = ?connection_type),
-        level = "info")]
     pub async fn perform_handshake_and_create_peer(
         &self,
         conn: &Connection,
@@ -28,7 +27,7 @@ impl P2PService {
         action: Option<ConnectionAction>,
     ) -> Result<Arc<PeerConnection>, P2PError> {
         debug!("Opening bi-directional stream for handshake");
-        
+
         let (mut send, mut recv) = match timeout(CONNECTION_TIMEOUT, async {
             if is_initiator {
                 trace!("Initiator: Opening bi-directional stream");
@@ -46,7 +45,10 @@ impl P2PService {
             }
             Ok(Err(e)) => {
                 error!("Failed to establish bi-directional stream: {}", e);
-                return Err(P2PError::Connection(format!("Stream establishment failed: {}", e)));
+                return Err(P2PError::Connection(format!(
+                    "Stream establishment failed: {}",
+                    e
+                )));
             }
             Err(e) => {
                 error!("Timeout while establishing bi-directional stream: {}", e);
@@ -57,8 +59,11 @@ impl P2PService {
         let handshake_message = if is_initiator {
             let conn_type = connection_type.unwrap_or(ConnectionType::Device);
             debug!("Initiating handshake as {:?}", conn_type);
-            
-            match self.initiate_handshake(&mut send, &mut recv, conn_type).await {
+
+            match self
+                .initiate_handshake(&mut send, &mut recv, conn_type)
+                .await
+            {
                 Ok(msg) => {
                     debug!("Handshake initiated successfully");
                     trace!("Received handshake response from user: {}", msg.user.id);
@@ -71,7 +76,7 @@ impl P2PService {
             }
         } else {
             debug!("Accepting incoming handshake");
-            
+
             match self.accept_handshake(&mut send, &mut recv).await {
                 Ok(msg) => {
                     debug!("Handshake accepted successfully");
@@ -92,15 +97,22 @@ impl P2PService {
         // Create the PeerConnection object with the new design
         let connection_arc = Arc::new(conn.clone());
         debug!("Creating peer connection object");
-        let resources_needing_update = self.sync_service.get_resources_needing_sync(&handshake_message.device.id).await.map_err(|e| P2PError::SyncService(e.to_string()))?;
-                let self_clone = self.clone();
-  let cleanup_callback = Box::new(move |connection_id: String| {
+        let resources_needing_update = self
+            .sync_service
+            .get_resources_needing_sync(&handshake_message.device.id)
+            .await
+            .map_err(|e| P2PError::SyncService(e.to_string()))?;
+        let self_clone = self.clone();
+        let cleanup_callback = Box::new(move |connection_id: String| {
             let service = self_clone.clone();
-            
+
             // Spawn a task to handle the cleanup
             tokio::spawn(async move {
-                info!("Connection cleanup callback triggered for: {}", connection_id);
-                
+                info!(
+                    "Connection cleanup callback triggered for: {}",
+                    connection_id
+                );
+
                 // Get lock on the state
                 let state_guard = service.state.lock().await;
                 if let Some(state) = state_guard.as_ref() {
@@ -108,7 +120,10 @@ impl P2PService {
                     if let Err(e) = state.connections.remove_connection(&connection_id).await {
                         error!("Failed to remove connection {}: {}", connection_id, e);
                     } else {
-                        info!("Successfully removed connection from manager: {}", connection_id);
+                        info!(
+                            "Successfully removed connection from manager: {}",
+                            connection_id
+                        );
                     }
                 }
             });
@@ -145,7 +160,10 @@ impl P2PService {
         debug!("Emitting connection events");
         self.event_emitter.emit(P2PEvent::Connected);
 
-        info!("Handshake and peer creation successful: {}", peer_connection_arc.get_id());
+        info!(
+            "Handshake and peer creation successful: {}",
+            peer_connection_arc.get_id()
+        );
         Ok(peer_connection_arc)
     }
 
@@ -185,7 +203,11 @@ impl P2PService {
 
                     // Check if we've exceeded max size
                     if buffer.len() > MAX_HANDSHAKE_SIZE {
-                        let err = format!("Message too large: {} bytes (max: {})", buffer.len(), MAX_HANDSHAKE_SIZE);
+                        let err = format!(
+                            "Message too large: {} bytes (max: {})",
+                            buffer.len(),
+                            MAX_HANDSHAKE_SIZE
+                        );
                         error!("{}", err);
                         return Err(HandshakeError::Connection(err));
                     }
@@ -195,7 +217,10 @@ impl P2PService {
                         match serde_json::from_str::<HandshakeMessage>(&message_str) {
                             Ok(_) => {
                                 // Success! We have a complete JSON message
-                                debug!("Successfully parsed complete JSON message ({} bytes)", message_str.len());
+                                debug!(
+                                    "Successfully parsed complete JSON message ({} bytes)",
+                                    message_str.len()
+                                );
                                 return Ok(message_str);
                             }
                             Err(e) if e.is_eof() || e.is_data() => {
@@ -238,7 +263,10 @@ impl P2PService {
         match String::from_utf8(buffer) {
             Ok(s) => {
                 let preview = if s.len() > 100 { &s[..100] } else { &s };
-                error!("Incomplete JSON after reading {} bytes. Preview: {}...", total_read, preview);
+                error!(
+                    "Incomplete JSON after reading {} bytes. Preview: {}...",
+                    total_read, preview
+                );
                 Err(HandshakeError::Connection(format!(
                     "Incomplete message: {} bytes read but no valid JSON",
                     total_read
@@ -257,7 +285,7 @@ impl P2PService {
     /// Initiates the handshake process by sending our handshake message and waiting for a response
     ///
     /// This is called by the party that initiated the connection.
-    #[instrument(skip(self, send, recv), fields(connection_type = ?connection_type), level = "debug")]
+    #[instrument(skip_all, level = "debug")]
     async fn initiate_handshake(
         &self,
         send: &mut SendStream,
@@ -265,13 +293,13 @@ impl P2PService {
         connection_type: ConnectionType,
     ) -> Result<HandshakeMessage, HandshakeError> {
         info!("Initiator: Sending handshake message");
-        
+
         // Get our device information
         let device = match self.auth_service.get_current_device().await {
             Ok(device) => {
                 debug!("Got current device: {}", device.id);
                 device
-            },
+            }
             Err(e) => {
                 error!("Failed to get current device: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
@@ -283,7 +311,7 @@ impl P2PService {
             Ok(cs) => {
                 debug!("Created and signed challenge");
                 cs
-            },
+            }
             Err(e) => {
                 error!("Failed to sign challenge: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
@@ -295,13 +323,13 @@ impl P2PService {
             Ok(user) => {
                 debug!("Got current user: {}", user.id);
                 user
-            },
+            }
             Err(e) => {
                 error!("Failed to get current user: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
             }
         };
-        
+
         // Construct the handshake message
         let handshake_message = HandshakeMessage {
             connection_type,
@@ -317,13 +345,13 @@ impl P2PService {
                 debug!("Serialized handshake message: {} bytes", json.len());
                 trace!("DIAGNOSTIC: Handshake message size is {} bytes", json.len());
                 json
-            },
+            }
             Err(e) => {
                 error!("Failed to serialize handshake message: {}", e);
                 return Err(HandshakeError::Serialization(e.to_string()));
             }
         };
-        
+
         // Write the message to the stream
         if let Err(e) = send.write_all(serialized.as_bytes()).await {
             error!("Failed to write handshake message: {}", e);
@@ -337,13 +365,13 @@ impl P2PService {
         }
 
         info!("Initiator: Waiting for handshake response");
-        
+
         // Read the response
         let message_str = match self.read_complete_message(recv).await {
             Ok(msg) => {
                 debug!("Received handshake response: {} bytes", msg.len());
                 msg
-            },
+            }
             Err(e) => {
                 error!("Failed to read handshake response: {}", e);
                 return Err(e);
@@ -355,7 +383,7 @@ impl P2PService {
             Ok(msg) => {
                 debug!("Successfully parsed handshake response");
                 msg
-            },
+            }
             Err(e) => {
                 error!("Failed to parse handshake response: {}", e);
                 return Err(HandshakeError::Deserialization(e));
@@ -363,7 +391,7 @@ impl P2PService {
         };
 
         // TODO: Verify the response signature here
-        
+
         info!("Initiator: Handshake completed successfully");
         Ok(response)
     }
@@ -384,7 +412,7 @@ impl P2PService {
             Ok(msg) => {
                 debug!("Received handshake message: {} bytes", msg.len());
                 msg
-            },
+            }
             Err(e) => {
                 error!("Failed to read handshake message: {}", e);
                 return Err(e);
@@ -392,19 +420,27 @@ impl P2PService {
         };
 
         // Parse the JSON once we have the complete message
-        let handshake_message: HandshakeMessage = match serde_json::from_str::<HandshakeMessage>(&message_str) {
-            Ok(msg) => {
-                debug!("Successfully parsed handshake message");
-                debug!("Connection type: {:?}", msg.connection_type);
-                trace!("From user: {}", msg.user.id);
-                msg
-            }
-            Err(e) => {
-                error!("Failed to parse handshake JSON: {}", e);
-                error!("Message preview: {}", if message_str.len() > 100 { &message_str[..100] } else { &message_str });
-                return Err(HandshakeError::Serialization(e.to_string()));
-            }
-        };
+        let handshake_message: HandshakeMessage =
+            match serde_json::from_str::<HandshakeMessage>(&message_str) {
+                Ok(msg) => {
+                    debug!("Successfully parsed handshake message");
+                    debug!("Connection type: {:?}", msg.connection_type);
+                    trace!("From user: {}", msg.user.id);
+                    msg
+                }
+                Err(e) => {
+                    error!("Failed to parse handshake JSON: {}", e);
+                    error!(
+                        "Message preview: {}",
+                        if message_str.len() > 100 {
+                            &message_str[..100]
+                        } else {
+                            &message_str
+                        }
+                    );
+                    return Err(HandshakeError::Serialization(e.to_string()));
+                }
+            };
 
         // TODO: Verify the incoming handshake signature here
 
@@ -415,7 +451,7 @@ impl P2PService {
             Ok(d) => {
                 debug!("Got current device: {}", d.id);
                 d
-            },
+            }
             Err(e) => {
                 error!("Failed to get current device: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
@@ -426,7 +462,7 @@ impl P2PService {
             Ok(u) => {
                 debug!("Got current user: {}", u.id);
                 u
-            },
+            }
             Err(e) => {
                 error!("Failed to get current user: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
@@ -437,7 +473,7 @@ impl P2PService {
             Ok(cs) => {
                 debug!("Created and signed challenge");
                 cs
-            },
+            }
             Err(e) => {
                 error!("Failed to sign challenge: {}", e);
                 return Err(HandshakeError::AuthService(e.to_string()));
@@ -460,7 +496,7 @@ impl P2PService {
             Ok(s) => {
                 debug!("Serialized response: {} bytes", s.len());
                 s
-            },
+            }
             Err(e) => {
                 error!("Failed to serialize response: {}", e);
                 return Err(HandshakeError::Serialization(e.to_string()));
@@ -481,17 +517,17 @@ impl P2PService {
 
         debug!("Sent handshake response successfully");
         info!("Receiver: Handshake completed successfully");
-        
+
         Ok(handshake_message)
     }
 
-    #[instrument(skip(self, ticket_str, conn_type, connection_id), fields(ticket_len = ticket_str.len(), conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
+    #[instrument(skip(self, ticket_str, conn_type, connection_id), fields( conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
     pub async fn connect_with_ticket(
         &self,
         ticket_str: &str,
         conn_type: ConnectionType,
         connection_id: Option<&str>,
-        action: Option<ConnectionAction>
+        action: Option<ConnectionAction>,
     ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
         trace!("Using ticket: {}", ticket_str);

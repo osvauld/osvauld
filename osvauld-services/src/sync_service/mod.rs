@@ -1,6 +1,6 @@
 pub mod sync_service_acknowledgement;
 pub mod sync_service_core;
-pub mod sync_service_entity;
+pub mod sync_service_device_connection;
 pub mod sync_service_merge;
 pub mod sync_service_processor;
 pub mod sync_service_sender;

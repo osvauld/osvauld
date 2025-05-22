@@ -9,13 +9,16 @@
 	};
 
 	const handleSubmit = async (e: any) => {
-		const passphrase = e.passphrase;
+		const passphrase = e.detail.passphrase;
 		let recovery = JSON.parse(recoveryData);
 		const result = await sendMessage("addDevice", {
 			passphrase,
-			...recovery,
+			certificate: recovery.certificate,
 		});
-		const pubkey = await sendMessage("login", { passphrase });
+		await sendMessage("login", { passphrase });
+		console.log("sending first device connect message");
+		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
+
 		onLogin?.(true);
 	};
 </script>
@@ -28,7 +31,7 @@
 	</div>
 
 	<label for="privateKey" class="font-normal mt-6 mb-2"
-		>Enter Recovery string</label>
+		>Enter Recovery stringwerwerw</label>
 	<textarea
 		class="text-osvauld-quarzowhite bg-osvauld-frameblack border border-osvauld-iconblack tracking-wider font-light text-sm font-mono focus:border-osvauld-iconblack focus:ring-0 resize-none w-[300px] min-h-[6rem] max-h-[10rem] rounded-lg scrollbar-thin overflow-y-scroll"
 		id="privateKey"

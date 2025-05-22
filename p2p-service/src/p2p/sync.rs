@@ -2,11 +2,12 @@ use crate::p2p::peer_connection::PeerConnection;
 
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{
-    LiveEditMessage, Message, ResourceUpdateMsg, SyncAckType, SyncPayload,
+    DeviceConnection, LiveEditMessage, Message, Phase, PhaseAction, PhaseType, ResourceUpdateMsg,
+    SyncAckType, SyncPayload,
 };
 
 use super::P2PEvent;
-use tracing::{debug, error, info, instrument, Span};
+use tracing::{Span, debug, error, info, instrument};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {
@@ -27,52 +28,58 @@ impl PeerConnection {
         }
     }
 
-    pub async fn start_device_sync(&self) -> Result<(), String> {
-        info!("Starting device sync phase");
+    #[instrument(skip(self, payload), fields(
+    connection_id = %self.get_id(),
+    payload_type = ?std::mem::discriminant(payload)
+), level = "info")]
+    pub async fn process_first_device_connection(
+        &self,
+        payload: &DeviceConnection,
+    ) -> Result<(), String> {
+        info!("Processing device connection payload");
 
-        // Get current span for context propagation
-        self.get_and_send_next_sync().await
-    }
+        // Get current device for context
+        let current_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => return Err("Local device not found".into()),
+        };
 
-    #[instrument(skip(self, records), fields(
-        connection_id = %self.get_id(),
-        record_count = ?{if let SyncPayload::DeviceSync { device_records, .. } = &records { device_records.len() } else { 0 }}
-    ), level = "info")]
-    pub async fn handle_add_device_request(&self, records: SyncPayload) -> Result<(), String> {
-        info!("Processing device addition request");
+        let current_span = tracing::Span::current();
 
-        let current_span = Span::current();
-
-        match self
+        // Process the payload with sync service
+        let return_payload = self
             .context
             .sync_service
-            .add_new_device_sync(records, self.user.id.clone(), current_span)
+            .process_device_connection_payload(
+                payload,
+                &current_device.user_id,
+                &current_device.id,
+                current_span,
+            )
             .await
-        {
-            Ok(_) => {
-                let ack_message = Message::AddDeviceAck;
-                match self.send_message(ack_message).await {
-                    Ok(_) => {
-                        info!("Device addition processed successfully");
+            .map_err(|e| e.to_string())?;
 
-                        // Mark the AddDevice phase as complete
-                        self.complete_current_phase().await?;
-
-                        // The phase transition logic will handle moving to DeviceSync
-
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!("Failed to send device add acknowledgment: {}", e);
-                        Err(format!("Failed to send acknowledgment: {}", e))
-                    }
-                }
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to add device sync records");
-                Err(format!("Failed to add device: {}", e))
-            }
+        // If there's a response to send
+        if let Some(response_payload) = return_payload {
+            // Send the response
+            let message = Message::FirstDeviceConnection(response_payload);
+            self.send_message(message).await?;
         }
+
+        //once you get the complete message transition to folder sync phase.
+        match payload {
+            DeviceConnection::Complete { .. } => {
+                self.phase.reset_for_new_phase(PhaseType::FolderSync).await;
+                self.send_message(Message::Phase(Phase {
+                    action: PhaseAction::Init,
+                    phase_type: PhaseType::FolderSync,
+                }))
+                .await?;
+            }
+            _ => {}
+        }
+
+        Ok(())
     }
 
     pub async fn get_and_send_next_sync(&self) -> Result<(), String> {
@@ -282,13 +289,11 @@ impl PeerConnection {
         {
             Ok(record_set) => {
                 info!("Add device sync payload retrieved successfully");
-                let add_device_payload = SyncPayload::DeviceSync {
-                    sync_record: record_set.sync_record,
-                    device_records: record_set.device_records,
-                    device_record_statuses: record_set.device_record_statuses,
+                let add_device_payload = DeviceConnection::Request {
                     device: current_device.clone(),
+                    sync_record_set: record_set,
                 };
-                let message = Message::AddDevice(add_device_payload);
+                let message = Message::FirstDeviceConnection(add_device_payload);
 
                 match self.send_message(message).await {
                     Ok(_) => {

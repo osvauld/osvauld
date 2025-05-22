@@ -13,9 +13,12 @@
 		let recovery = JSON.parse(recoveryData);
 		const result = await sendMessage("addDevice", {
 			passphrase,
-			...recovery,
+			certificate: recovery.certificate,
 		});
-		const pubkey = await sendMessage("login", { passphrase });
+		await sendMessage("login", { passphrase });
+		console.log("sending first device connect message");
+		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
+
 		onLogin?.(true);
 	};
 </script>

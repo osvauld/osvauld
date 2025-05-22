@@ -161,6 +161,11 @@ impl SyncService {
                     }
                 }
             }
+
+            UserConnectionPayload::FinalSyncAck => {
+                info!("Reached final sync part on initializer");
+                Ok(None)
+            }
         }
     }
 
@@ -549,6 +554,6 @@ impl SyncService {
         info!("User connection final sync processed successfully");
         
         // No further response needed
-        Ok(None)
+        Ok(Some(UserConnectionPayload::FinalSyncAck))
     }
 }

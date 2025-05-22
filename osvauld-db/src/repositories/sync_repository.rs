@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::sync_record::{
-    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
+    DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncAndDeviceRecord,
+    SyncRecord, SyncRecordSet,
 };
 use osvauld_core::repositories::{RepositoryError, SyncRepository};
 
@@ -53,16 +54,43 @@ impl SyncRepository for SqliteSyncRepository {
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
-    async fn get_all_sync_records(&self) -> Result<Vec<SyncRecord>, RepositoryError> {
+
+    async fn get_all_sync_records_with_device_records(
+        &self,
+    ) -> Result<Vec<SyncAndDeviceRecord>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        let models = sync_records::table
+        // First get all sync records
+        let sync_models = sync_records::table
             .order_by(sync_records::created_at.asc())
             .select(SyncRecordModel::as_select())
             .load::<SyncRecordModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-        Ok(models.iter().map(|m| m.to_domain()).collect())
+        let mut result = Vec::new();
+
+        // For each sync record, get its associated device records
+        for sync_model in sync_models {
+            let sync_record = sync_model.to_domain();
+
+            // Get all device records for this sync record
+            let device_record_models = device_records::table
+                .filter(device_records::sync_record_id.eq(&sync_record.id))
+                .select(DeviceRecordModel::as_select())
+                .load::<DeviceRecordModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+            // Convert to domain objects
+            let device_records = device_record_models.iter().map(|m| m.to_domain()).collect();
+
+            // Add to result
+            result.push(SyncAndDeviceRecord {
+                sync_record,
+                device_records,
+            });
+        }
+
+        Ok(result)
     }
 
     async fn update_device_record(
@@ -839,5 +867,87 @@ impl SyncRepository for SqliteSyncRepository {
             }
             None => Ok(None),
         }
+    }
+
+    async fn get_sync_records_for_new_device(
+        &self,
+        user_id: &str,
+        exclude_device_id: &str,
+    ) -> Result<Vec<SyncRecordSet>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // First get all devices for this user (except the excluded device)
+        let user_device_models = devices::table
+            .filter(devices::user_id.eq(user_id))
+            .filter(devices::id.ne(exclude_device_id))
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Get the device IDs
+        let device_ids: Vec<String> = user_device_models.iter().map(|d| d.id.clone()).collect();
+
+        if device_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut sync_record_models = Vec::new();
+        // Get sync records for these devices
+        let device_sync_record_models = sync_records::table
+            .filter(sync_records::resource_type.eq("device"))
+            .filter(sync_records::operation_type.eq("create"))
+            .filter(sync_records::resource_id.eq_any(device_ids))
+            .select(SyncRecordModel::as_select())
+            .load::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        sync_record_models.extend(device_sync_record_models);
+        let user_sync_record_models = sync_records::table
+            .filter(sync_records::resource_type.eq("user"))
+            .filter(sync_records::operation_type.eq("create"))
+            .select(SyncRecordModel::as_select())
+            .load::<SyncRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        sync_record_models.extend(user_sync_record_models);
+        let mut result = Vec::new();
+
+        // Get device records and statuses for each sync record
+        for sync_model in sync_record_models {
+            let sync_record = sync_model.to_domain();
+
+            // Get device records for this sync record
+            let device_record_models = device_records::table
+                .filter(device_records::sync_record_id.eq(&sync_record.id))
+                .select(DeviceRecordModel::as_select())
+                .load::<DeviceRecordModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+            if device_record_models.is_empty() {
+                continue;
+            }
+
+            // Get IDs for status lookup
+            let device_record_ids: Vec<String> = device_record_models
+                .iter()
+                .map(|dr| dr.id.clone())
+                .collect();
+
+            // Get statuses
+            let status_models = device_record_status::table
+                .filter(device_record_status::device_record_id.eq_any(&device_record_ids))
+                .select(DeviceRecordStatusModel::as_select())
+                .load::<DeviceRecordStatusModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+            // Convert to domain objects
+            let device_records = device_record_models.iter().map(|m| m.to_domain()).collect();
+            let device_statuses = status_models.iter().map(|m| m.to_domain()).collect();
+
+            result.push(SyncRecordSet {
+                sync_record,
+                device_records,
+                device_record_statuses: device_statuses,
+            });
+        }
+
+        Ok(result)
     }
 }

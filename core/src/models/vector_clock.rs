@@ -55,7 +55,7 @@ impl ResourceVectorClock {
     }
 
     //function to create vector clocks for resource when a new device imported by user
-    pub fn create_entires_for_new_device(
+    pub fn create_entries_for_new_device(
         resource_ids: &[String],
         device_id: &str,
     ) -> Vec<ResourceVectorClock> {

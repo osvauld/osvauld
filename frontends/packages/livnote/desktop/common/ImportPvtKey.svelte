@@ -3,10 +3,9 @@
 	import NewPassword from "./NewPassword.svelte";
 
 	// Using $props for component properties
-	let { recoveryData = "" } = $props();
-	
+	let { onLogin, recoveryData = "" } = $props();
+
 	// Using callback props instead of createEventDispatcher
-	let { onLogin } = $props();
 
 	const handleInputChange = (event: any) => {
 		recoveryData = event.target.value;
@@ -17,9 +16,12 @@
 		let recovery = JSON.parse(recoveryData);
 		const result = await sendMessage("addDevice", {
 			passphrase,
-			...recovery,
+			certificate: recovery.certificate,
 		});
-		const pubkey = await sendMessage("login", { passphrase });
+		await sendMessage("login", { passphrase });
+		console.log("sending first device connect message");
+		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
+
 		onLogin?.(true);
 	};
 </script>
@@ -39,7 +41,7 @@
 		value={recoveryData}
 		oninput={handleInputChange}></textarea>
 	<NewPassword submit={handleSubmit} />
-	
+
 	{#snippet additionalControls()}
 		<!-- This is where additional controls will be rendered -->
 	{/snippet}

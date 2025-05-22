@@ -1,6 +1,6 @@
 use crate::types::{
-    AddDeviceInput, CryptoResponse, ExportedCertificate, HashAndSignInput, LoadPvtKeyInput,
-    PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
+    AddDeviceInput, CryptoResponse, ExportedCertificate, FirstDeviceConnectInput, HashAndSignInput,
+    LoadPvtKeyInput, PasswordChangeInput, SavePassphraseInput, SignChallengeInput,
 };
 use crate::user_state::UserState;
 use log::{error, info};
@@ -37,10 +37,7 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     auth_service: State<'_, Arc<AuthService>>,
     folder_service: State<'_, Arc<FolderService>>,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
-    user_state: State<'_, UserState>,
     transaction_service: State<'_, Arc<TransactionService>>,
-    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     let (user, certificate) = auth_service
         .handle_sign_up(&input.username, &input.passphrase)
@@ -165,8 +162,6 @@ pub async fn handle_hash_and_sign(
 pub async fn handle_add_device(
     input: AddDeviceInput,
     auth_service: State<'_, Arc<AuthService>>,
-    p2p_service: State<'_, Arc<P2PService>>,
-    user_state: State<'_, UserState>,
     transaction_service: State<'_, Arc<TransactionService>>,
 ) -> Result<CryptoResponse, String> {
     let (user, certificate) = auth_service
@@ -175,14 +170,6 @@ pub async fn handle_add_device(
     let (device, device_certificate, sync_record_set) = auth_service
         .create_device_objects(&user.id, &user.username)
         .await?;
-    {
-        let mut current_user_state = user_state.current_user.write().await;
-        current_user_state.user = Some(user.clone());
-        current_user_state.device = Some(device.clone());
-    }
-
-    p2p_service.set_current_user(user.clone()).await;
-    p2p_service.set_current_device(device.clone()).await;
     transaction_service
         .handle_sign_up_transaction(
             &user,
@@ -194,15 +181,6 @@ pub async fn handle_add_device(
         .await
         .map_err(|e| e.to_string())?;
 
-    auth_service.load_certificate(&input.passphrase).await?;
-    p2p_service
-        .connect_with_ticket(
-            &input.ticket,
-            ConnectionType::Device,
-            None,
-            Some(ConnectionAction::AddDevice),
-        )
-        .await?;
     Ok(CryptoResponse::Success)
 }
 
@@ -227,6 +205,24 @@ pub async fn handle_change_passphrase(
     Ok(CryptoResponse::ChangedPassphrase(
         new_certificate.private_key,
     ))
+}
+
+#[tauri::command]
+pub async fn first_device_connect(
+    input: FirstDeviceConnectInput,
+    p2p_service: State<'_, Arc<P2PService>>,
+) -> Result<CryptoResponse, String> {
+    info!("attempting first device sync with peer");
+    p2p_service
+        .connect_with_ticket(
+            &input.ticket,
+            ConnectionType::Device,
+            None,
+            Some(ConnectionAction::AddDevice),
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(CryptoResponse::Success)
 }
 
 #[tauri::command]
