@@ -115,7 +115,7 @@ impl ConnectionManager {
     }
 
     /// Get all connections for a specific user
-    #[instrument(skip(self), , level = "debug")]
+    #[instrument(skip(self), level = "debug")]
     pub async fn get_connections_by_user(&self, user_id: &str) -> Vec<Arc<PeerConnection>> {
         debug!("Getting all connections for user: {}", user_id);
         let connections = self.connections.lock().await;

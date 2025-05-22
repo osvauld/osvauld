@@ -1,9 +1,9 @@
 use crate::p2p::emitter::P2PEvent;
 use crate::p2p::peer_connection::PeerConnection;
-use osvauld_core::models::p2p::{Message, Phase, PhaseAction, PhaseType, DisconnectStatus};
+use osvauld_core::models::p2p::{DisconnectStatus, Message, Phase, PhaseAction, PhaseType};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{Level,  debug, error, info, instrument, span, trace, warn};
+use tracing::{Level, debug, error, info, instrument, span, trace, warn};
 
 // PhaseState struct to encapsulate phase state
 #[derive(Clone)]
@@ -40,7 +40,6 @@ impl PhaseState {
         *local_complete = value;
     }
 
-
     #[instrument(skip(self), level = "trace")]
     pub async fn get_current_phase(&self) -> PhaseType {
         let phase = self.current_phase.lock().await;
@@ -69,7 +68,6 @@ impl PhaseState {
         next_phase
     }
 
-
     #[instrument(skip(self), fields(new_phase = ?new_phase), level = "info")]
     pub async fn reset_for_new_phase(&self, new_phase: PhaseType) {
         let mut phase = self.current_phase.lock().await;
@@ -90,13 +88,11 @@ impl PhaseState {
         debug!("Setting local and remote completion to false for new phase");
         self.set_local_complete(false).await;
         self.set_remote_complete(false).await;
-        
     }
 }
 
 // Implement phase-related methods for PeerConnection
 impl PeerConnection {
-
     // Handler for phase-related messages
     #[instrument(
         skip(self, phase), 
@@ -144,19 +140,21 @@ impl PeerConnection {
                         phase_type: phase.phase_type.clone(),
                     }))
                     .await?;
-                    
+
                     if self.is_initiator {
                         let next_phase = self.phase.get_next_phase().await;
                         self.phase.reset_for_new_phase(next_phase.clone()).await;
                         let message = Message::Phase(Phase {
                             action: PhaseAction::Init,
-                            phase_type: next_phase
+                            phase_type: next_phase,
                         });
                         self.send_message(message).await?;
-                    }else {
-                        self.start_phase_sync().await;
+                    } else {
+                        if let Err(e) = self.start_phase_sync().await {
+                            error!("Failed to start phase sync after PhaseComplete: {}", e);
+                            return Err(e);
+                        }
                     }
-
                 } else {
                     warn!(
                         "Received PhaseComplete for wrong phase. Current: {:?}, Received: {:?}",
@@ -198,11 +196,7 @@ impl PeerConnection {
         }
     }
 
-
-    #[instrument(
-        skip_all, 
-        level = "debug"
-    )]
+    #[instrument(skip_all, level = "debug")]
     async fn start_phase_sync(&self) -> Result<(), String> {
         let current_phase = self.phase.get_current_phase().await;
         debug!(current_phase = ?current_phase, "Starting sync for current phase");
@@ -234,7 +228,7 @@ impl PeerConnection {
     }
 
     // Mark current phase as complete
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     pub async fn complete_current_phase(&self) -> Result<(), String> {
         let current_phase = self.phase.get_current_phase().await;
         info!("Marking current phase as complete: {:?}", current_phase);
@@ -250,13 +244,12 @@ impl PeerConnection {
         }))
         .await?;
 
-
         info!("Current phase marked as complete successfully");
         Ok(())
     }
 
     // Phase-specific sync methods (placeholders)
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     async fn start_user_sync(&self) -> Result<(), String> {
         info!("Starting user sync phase");
         self.get_and_send_next_sync().await
@@ -270,187 +263,203 @@ impl PeerConnection {
     #[instrument(skip(self), level = "info")]
     async fn start_resource_sync(&self) -> Result<(), String> {
         info!("Starting resource sync phase");
-            self.get_and_send_next_sync().await
+        self.get_and_send_next_sync().await
     }
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     async fn complete_sync(&self) -> Result<(), String> {
         info!("completed everything......");
-        self.context.user_service.update_device_last_synced(&self.device.id).await.map_err(|e| e.to_string())?;
-            self.event_emitter.emit(P2PEvent::SyncComplete);
-            if self.is_initiator {
+        self.context
+            .user_service
+            .update_device_last_synced(&self.device.id)
+            .await
+            .map_err(|e| e.to_string())?;
+        self.event_emitter.emit(P2PEvent::SyncComplete);
+        if self.is_initiator {
             let _ = self.check_for_possible_disconnection().await?;
-            }
+        }
         Ok(())
     }
 
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     async fn start_folder_sync(&self) -> Result<(), String> {
         info!("Starting folder sync phase");
-            self.get_and_send_next_sync().await
+        self.get_and_send_next_sync().await
     }
 
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     async fn start_share_sync(&self) -> Result<(), String> {
         info!("Starting share sync phase");
-            self.get_and_send_next_sync().await
+        self.get_and_send_next_sync().await
     }
 
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     async fn start_update_sync(&self) -> Result<(), String> {
         info!("Starting update sync phase");
-            self.get_and_send_next_sync().await
+        self.get_and_send_next_sync().await
     }
-    #[instrument(skip(self),  level = "info")]
+    #[instrument(skip(self), level = "info")]
     async fn start_device_record_sync(&self) -> Result<(), String> {
         info!("Starting device record sync phase");
-            self.get_and_send_next_sync().await
+        self.get_and_send_next_sync().await
     }
 
-#[instrument(skip(self),  level = "info")]
-pub async fn request_disconnection(&self) -> Result<(), String> {
-    info!("Requesting disconnection from peer: {}", self.get_id());
+    #[instrument(skip(self), level = "info")]
+    pub async fn request_disconnection(&self) -> Result<(), String> {
+        info!("Requesting disconnection from peer: {}", self.get_id());
         if !self.can_close_connection().await {
-        debug!("Connection not ready to be closed yet");
-        return Ok(());
-    }
-    
-    // Send disconnect request message
-    let disconnect_request = Message::Disconnect(DisconnectStatus::Request);
-    self.send_message(disconnect_request).await?;
-    
-    info!("Disconnection request sent");
-    Ok(())
-}
-#[instrument(skip(self),  level = "debug")]
-pub async fn check_for_possible_disconnection(&self) -> Result<(), String> {
-    // Only check for possible disconnection if sync is complete
-    let is_editing = self.is_live_editing().await;
-    
-    if !is_editing {
-        debug!("Sync complete and no live editing active, scheduling disconnection after timeout");
-        
-        // Cancel existing timer if there is one
-        self.cancel_disconnection_timer().await;
-        
-        // Get current connection ID (for logging)
-        let connection_id = self.get_id();
-        
-        // Clone what we need for the async task
-        let self_clone = self.clone();
-        
-        // Spawn timeout task
-        let task = tokio::spawn(async move {
-            // Sleep for 2 minutes
-            tokio::time::sleep(std::time::Duration::from_secs(120)).await;
-            
-            // After timeout, check if we should still disconnect
-            let is_editing = self_clone.is_live_editing().await;
-            let current_phase = self_clone.phase.get_current_phase().await;
-            
-            if !is_editing && current_phase == PhaseType::Complete {
-                info!("Disconnection timeout reached for {}, initiating disconnection", connection_id);
-                
-                // Request disconnection after timeout
-                if let Err(e) = self_clone.request_disconnection().await {
-                    error!("Failed to request disconnection: {}", e);
-                }
-            } else {
-                info!("Disconnection cancelled for connection {}: live_editing={}, phase={:?}", 
-                     connection_id, is_editing, current_phase);
-            }
-        });
-        
-        // Store the task handle
-        let mut timer_guard = self.disconnection_timer.lock().await;
-        *timer_guard = Some(task);
-    } else {
-        debug!("Live editing still active, cannot disconnect yet");
-    }
-    
-    Ok(())
-}
-#[instrument(skip(self),  level = "debug")]
-pub async fn cancel_disconnection_timer(&self) -> bool {
-    let mut timer_guard = self.disconnection_timer.lock().await;
-    
-    if let Some(handle) = timer_guard.take() {
-        debug!("Cancelling existing disconnection timer for {}", self.get_id());
-        handle.abort();
-        true
-    } else {
-        debug!("No existing disconnection timer to cancel for {}", self.get_id());
-        false
-    }
-}
+            debug!("Connection not ready to be closed yet");
+            return Ok(());
+        }
 
-    #[instrument(skip(self, status),  level = "info")]
-pub async fn handle_disconnect_message(&self, status: &DisconnectStatus) -> Result<(), String> {
-    match status {
-        DisconnectStatus::Request => {
-            info!("Received disconnection request");
-            
-            // Check if we can allow disconnection
-            let can_disconnect = self.can_close_connection().await;
-            
-            if can_disconnect {
-                info!("Accepting disconnection request");
-                // Send acceptance
-                let response = Message::Disconnect(DisconnectStatus::Accepted);
-                self.send_message(response).await?;
-                
-                // Close our side of the connection
-                info!("Closing connection after accepting disconnect request");
-                self.close_connection().await?;
-            } else {
-                // Determine reason for rejection
-                let current_phase = self.phase.get_current_phase().await;
-                let is_editing = self.is_live_editing().await;
-                
-                let reason = if current_phase != PhaseType::Complete {
-                    format!("Sync not complete (current phase: {:?})", current_phase)
-                } else if is_editing {
-                    "Live editing is still active".to_string()
+        // Send disconnect request message
+        let disconnect_request = Message::Disconnect(DisconnectStatus::Request);
+        self.send_message(disconnect_request).await?;
+
+        info!("Disconnection request sent");
+        Ok(())
+    }
+    #[instrument(skip(self), level = "debug")]
+    pub async fn check_for_possible_disconnection(&self) -> Result<(), String> {
+        // Only check for possible disconnection if sync is complete
+        let is_editing = self.is_live_editing().await;
+
+        if !is_editing {
+            debug!(
+                "Sync complete and no live editing active, scheduling disconnection after timeout"
+            );
+
+            // Cancel existing timer if there is one
+            self.cancel_disconnection_timer().await;
+
+            // Get current connection ID (for logging)
+            let connection_id = self.get_id();
+
+            // Clone what we need for the async task
+            let self_clone = self.clone();
+
+            // Spawn timeout task
+            let task = tokio::spawn(async move {
+                // Sleep for 2 minutes
+                tokio::time::sleep(std::time::Duration::from_secs(120)).await;
+
+                // After timeout, check if we should still disconnect
+                let is_editing = self_clone.is_live_editing().await;
+                let current_phase = self_clone.phase.get_current_phase().await;
+
+                if !is_editing && current_phase == PhaseType::Complete {
+                    info!(
+                        "Disconnection timeout reached for {}, initiating disconnection",
+                        connection_id
+                    );
+
+                    // Request disconnection after timeout
+                    if let Err(e) = self_clone.request_disconnection().await {
+                        error!("Failed to request disconnection: {}", e);
+                    }
                 } else {
-                    "Cannot disconnect at this time".to_string()
-                };
-                
-                info!("Rejecting disconnection request: {}", reason);
-                let response = Message::Disconnect(DisconnectStatus::Rejected(reason));
-                self.send_message(response).await?;
-            }
-            
-            Ok(())
-        },
-        DisconnectStatus::Accepted => {
-            info!("Peer accepted disconnection request");
-            // Close our side of the connection
-            self.close_connection().await
-        },
-        DisconnectStatus::Rejected(reason) => {
-            info!("Peer rejected disconnection request: {}", reason);
-            // Don't close the connection
-            Ok(())
+                    info!(
+                        "Disconnection cancelled for connection {}: live_editing={}, phase={:?}",
+                        connection_id, is_editing, current_phase
+                    );
+                }
+            });
+
+            // Store the task handle
+            let mut timer_guard = self.disconnection_timer.lock().await;
+            *timer_guard = Some(task);
+        } else {
+            debug!("Live editing still active, cannot disconnect yet");
+        }
+
+        Ok(())
+    }
+    #[instrument(skip(self), level = "debug")]
+    pub async fn cancel_disconnection_timer(&self) -> bool {
+        let mut timer_guard = self.disconnection_timer.lock().await;
+
+        if let Some(handle) = timer_guard.take() {
+            debug!(
+                "Cancelling existing disconnection timer for {}",
+                self.get_id()
+            );
+            handle.abort();
+            true
+        } else {
+            debug!(
+                "No existing disconnection timer to cancel for {}",
+                self.get_id()
+            );
+            false
         }
     }
-}
-    #[instrument(skip(self),  level = "debug")]
-pub async fn can_close_connection(&self) -> bool {
-    // Check if sync is complete
-    let current_phase = self.phase.get_current_phase().await;
-    let sync_complete = current_phase == PhaseType::Complete;
-    
-    // Check if live editing is inactive
-    let is_editing = self.is_live_editing().await;
-    
-    let can_close = sync_complete && !is_editing;
-    debug!(
-        sync_complete = sync_complete,
-        is_editing = is_editing,
-        can_close = can_close,
-        "Checking if connection can be closed"
-    );
-    
-    can_close
-}
 
+    #[instrument(skip(self, status), level = "info")]
+    pub async fn handle_disconnect_message(&self, status: &DisconnectStatus) -> Result<(), String> {
+        match status {
+            DisconnectStatus::Request => {
+                info!("Received disconnection request");
+
+                // Check if we can allow disconnection
+                let can_disconnect = self.can_close_connection().await;
+
+                if can_disconnect {
+                    info!("Accepting disconnection request");
+                    // Send acceptance
+                    let response = Message::Disconnect(DisconnectStatus::Accepted);
+                    self.send_message(response).await?;
+
+                    // Close our side of the connection
+                    info!("Closing connection after accepting disconnect request");
+                    self.close_connection().await?;
+                } else {
+                    // Determine reason for rejection
+                    let current_phase = self.phase.get_current_phase().await;
+                    let is_editing = self.is_live_editing().await;
+
+                    let reason = if current_phase != PhaseType::Complete {
+                        format!("Sync not complete (current phase: {:?})", current_phase)
+                    } else if is_editing {
+                        "Live editing is still active".to_string()
+                    } else {
+                        "Cannot disconnect at this time".to_string()
+                    };
+
+                    info!("Rejecting disconnection request: {}", reason);
+                    let response = Message::Disconnect(DisconnectStatus::Rejected(reason));
+                    self.send_message(response).await?;
+                }
+
+                Ok(())
+            }
+            DisconnectStatus::Accepted => {
+                info!("Peer accepted disconnection request");
+                // Close our side of the connection
+                self.close_connection().await
+            }
+            DisconnectStatus::Rejected(reason) => {
+                info!("Peer rejected disconnection request: {}", reason);
+                // Don't close the connection
+                Ok(())
+            }
+        }
+    }
+    #[instrument(skip(self), level = "debug")]
+    pub async fn can_close_connection(&self) -> bool {
+        // Check if sync is complete
+        let current_phase = self.phase.get_current_phase().await;
+        let sync_complete = current_phase == PhaseType::Complete;
+
+        // Check if live editing is inactive
+        let is_editing = self.is_live_editing().await;
+
+        let can_close = sync_complete && !is_editing;
+        debug!(
+            sync_complete = sync_complete,
+            is_editing = is_editing,
+            can_close = can_close,
+            "Checking if connection can be closed"
+        );
+
+        can_close
+    }
 }

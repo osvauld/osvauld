@@ -326,30 +326,35 @@ impl P2PService {
         state.connections.get_peer_connection(connection_id).await
     }
 
+    /// Get connections by IDs
+    #[instrument(skip(self, connection_ids), level = "debug")]
+    pub async fn get_connections_by_ids(
+        &self,
+        connection_ids: &[String],
+    ) -> Vec<Arc<PeerConnection>> {
+        debug!(
+            "Getting connections by IDs, count: {}",
+            connection_ids.len()
+        );
 
-/// Get connections by IDs
-#[instrument(skip(self, connection_ids), level = "debug")]
-pub async fn get_connections_by_ids(
-    &self,
-    connection_ids: &[String],
-) -> Vec<Arc<PeerConnection>> {
-    debug!("Getting connections by IDs, count: {}", connection_ids.len());
-    
-    // Acquire the state lock
-    let state_guard = self.state.lock().await;
-    
-    // Check if service is initialized
-    let state = match state_guard.as_ref() {
-        Some(s) => s,
-        None => {
-            error!("P2P service not initialized");
-            return Vec::new();
-        }
-    };
-    
-    // Delegate to ConnectionManager
-    state.connections.get_connections_by_ids(connection_ids).await
-}
+        // Acquire the state lock
+        let state_guard = self.state.lock().await;
+
+        // Check if service is initialized
+        let state = match state_guard.as_ref() {
+            Some(s) => s,
+            None => {
+                error!("P2P service not initialized");
+                return Vec::new();
+            }
+        };
+
+        // Delegate to ConnectionManager
+        state
+            .connections
+            .get_connections_by_ids(connection_ids)
+            .await
+    }
     /// Broadcast sync update to multiple connections
     #[instrument(skip(self, payload, connection_ids), level = "info")]
     pub async fn broadcast_sync_update(

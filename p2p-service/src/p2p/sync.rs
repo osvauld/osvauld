@@ -7,7 +7,7 @@ use osvauld_core::models::p2p::{
 };
 
 use super::P2PEvent;
-use tracing::{debug, error, info, instrument, Span};
+use tracing::{Span, debug, error, info, instrument};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {
