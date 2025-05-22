@@ -121,7 +121,6 @@ pub struct UpdateLastAccessedInput {
 pub struct AddDeviceInput {
     pub certificate: String,
     pub passphrase: String,
-    pub ticket: String,
 }
 
 #[derive(Deserialize)]
@@ -134,6 +133,10 @@ pub struct ExportedCertificate {
 pub struct PasswordChangeInput {
     pub old_password: String,
     pub new_password: String,
+}
+#[derive(Deserialize)]
+pub struct FirstDeviceConnectInput {
+    pub ticket: String,
 }
 
 // pub struct ResourceType {

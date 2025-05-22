@@ -108,6 +108,9 @@ const tauriBrowser = {
             invoke('update_current_note', { input: data })
           },
           getUserDetails: () => invoke('get_user_details'),
+          firstDeviceConnect: (data: any) => {
+            invoke('first_device_connect', { input: data });
+          }
         };
 
         const handler = handlerMap[action];

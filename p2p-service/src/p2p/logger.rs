@@ -47,7 +47,7 @@ impl Default for LogConfig {
             file_prefix: None,
             log_to_stdout: true,
             show_line_numbers: true,
-            log_spans: true,
+            log_spans: false,
         }
     }
 }
@@ -141,10 +141,10 @@ pub fn init_tracing(config: LogConfig) -> Result<Option<WorkerGuard>, LoggingErr
         let subscriber = fmt::Subscriber::builder()
             .with_env_filter(create_filter())
             .with_ansi(true)
-            .with_span_events(span_events)
-            .with_line_number(config.show_line_numbers)
-            .with_thread_names(true)
-            .with_thread_ids(true)
+            .with_span_events(fmt::format::FmtSpan::NONE) // Disable span events entirely
+            .with_line_number(false) // Disable line numbers
+            .with_thread_names(false) // Disable thread names
+            .with_thread_ids(false) // Disable thread IDs
             .pretty()
             .finish();
 

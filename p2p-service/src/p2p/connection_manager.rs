@@ -20,7 +20,7 @@ impl ConnectionManager {
     }
 
     /// Get a connection by its ID (user_id:device_id)
-    #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
+    #[instrument(skip(self), level = "debug")]
     pub async fn get_peer_connection(
         &self,
         connection_id: &str,
@@ -41,7 +41,7 @@ impl ConnectionManager {
     }
 
     /// Check if a connection is active (either established or in the connecting state)
-    #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
+    #[instrument(skip(self), level = "debug")]
     pub async fn is_connection_active(&self, connection_id: &str) -> bool {
         // First check if it's an established connection
         let connections = self.connections.lock().await;
@@ -66,7 +66,7 @@ impl ConnectionManager {
     }
 
     /// Mark a connection as being in the connecting state
-    #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
+    #[instrument(skip(self), level = "debug")]
     pub async fn mark_as_connecting(&self, connection_id: &str) -> Result<(), String> {
         // First check if it's already an established connection
         let connections = self.connections.lock().await;
@@ -92,7 +92,7 @@ impl ConnectionManager {
     }
 
     /// Remove from connecting state (used in error scenarios or when done connecting)
-    #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
+    #[instrument(skip(self), level = "debug")]
     pub async fn remove_from_connecting(&self, connection_id: &str) {
         let mut connecting = self.connecting.lock().await;
         if connecting.remove(connection_id) {
@@ -103,7 +103,7 @@ impl ConnectionManager {
     }
 
     /// Get a connection by user ID and device ID
-    #[instrument(skip(self), fields(user_id = %user_id, device_id = %device_id), level = "debug")]
+    #[instrument(skip(self), level = "debug")]
     pub async fn get_connection_by_user_device(
         &self,
         user_id: &str,
@@ -115,7 +115,7 @@ impl ConnectionManager {
     }
 
     /// Get all connections for a specific user
-    #[instrument(skip(self), fields(user_id = %user_id), level = "debug")]
+    #[instrument(skip(self), , level = "debug")]
     pub async fn get_connections_by_user(&self, user_id: &str) -> Vec<Arc<PeerConnection>> {
         debug!("Getting all connections for user: {}", user_id);
         let connections = self.connections.lock().await;
@@ -138,7 +138,7 @@ impl ConnectionManager {
     }
 
     /// Insert a connection
-    #[instrument(skip(self, connection), fields(connection_type = ?connection.connection_type), level = "info")]
+    #[instrument(skip(self, connection), level = "info")]
     pub async fn insert_connection(&self, connection: Arc<PeerConnection>) -> Result<(), String> {
         // Create connection ID from the connection's user and device info
         let connection_id = connection.get_id();
@@ -161,7 +161,7 @@ impl ConnectionManager {
     }
 
     /// Remove a connection
-    #[instrument(skip(self), fields(connection_id = %connection_id), level = "info")]
+    #[instrument(skip(self), , level = "info")]
     pub async fn remove_connection(&self, connection_id: &str) -> Result<(), String> {
         debug!("Attempting to remove connection: {}", connection_id);
         let mut connections = self.connections.lock().await;

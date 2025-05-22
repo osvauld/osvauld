@@ -448,33 +448,7 @@ impl TransactionService {
 
         // 4. Apply all sync operations
         for operation in operations_to_apply {
-            // Add new device records
-            if !operation.records_to_add.is_empty() {
-                self.sync_repository
-                    .add_device_records_bulk(&operation.records_to_add)
-                    .await?;
-            }
-
-            // Add new status records
-            if !operation.status_records_to_add.is_empty() {
-                self.sync_repository
-                    .add_device_record_statuses_bulk(&operation.status_records_to_add)
-                    .await?;
-            }
-
-            // Update existing records
-            if !operation.record_ids_to_update.is_empty() {
-                self.sync_repository
-                    .update_device_records_synced_bulk(&operation.record_ids_to_update)
-                    .await?;
-            }
-
-            // Update existing statuses
-            if !operation.status_ids_to_update.is_empty() {
-                self.sync_repository
-                    .update_device_record_statuses_synced_bulk(&operation.status_ids_to_update)
-                    .await?;
-            }
+            self.apply_sync_operations(operation).await?;
         }
 
         Ok(())

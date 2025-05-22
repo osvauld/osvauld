@@ -120,6 +120,7 @@ pub async fn process_device_connection_payload(
             match self.process_device_connection_complete(
                 device_record_status_ids,
                 current_device_id,
+                    current_span.clone(),
             ).await {
                 Ok(_) => {
                     info!("Device connection complete processed successfully");
@@ -157,7 +158,7 @@ async fn process_first_device_connection(
     let external_users = self.user_repository.get_known_users().await?;
     let external_user_ids: Vec<String> = external_users.iter().map(|user| user.id.clone()).collect();
     let external_devices = self.device_repository.get_devices_by_user_ids(&external_user_ids).await?; 
-        all_devices.extend(external_devices);
+        all_devices.extend(external_devices.clone());
     let all_sync_and_device_records = self.sync_repository.get_all_sync_records_with_device_records().await?;
     
     let device_sync_set = SyncRecord::create_initial_device_sync_records(
@@ -171,7 +172,7 @@ async fn process_first_device_connection(
 let resource_ids: Vec<String> = all_sync_and_device_records
     .iter()
     .filter_map(|record_pair| {
-        if record_pair.sync_record.resource_type == ResourceType::Resource 
+        if record_pair.sync_record.resource_type== ResourceType::Resource 
            && record_pair.sync_record.operation_type == OperationType::Create {
             Some(record_pair.sync_record.resource_id.clone())
         } else {
@@ -183,7 +184,6 @@ let resource_ids: Vec<String> = all_sync_and_device_records
     
     self.db.save_device_sync(device, &device_sync_set, &vector_clocks).await?;
     let sync_record_sets= self.sync_repository.get_sync_records_for_new_device(user_id, &device.id).await?;
-    let external_devices = self.device_repository.get_devices_by_user_except(user_id, &[device.id.clone()]).await?;
     Ok(DeviceConnection::Response { user_devices, sync_record_sets, external_devices, external_users })
 }
 
@@ -223,7 +223,7 @@ pub async fn process_device_connection_response(
         }
     };
     
-    let all_devices = Vec::new();
+    let mut all_devices = Vec::new();
     all_devices.extend(current_device);
     all_devices.extend(user_devices.clone());
     all_devices.extend(external_devices.clone());
@@ -266,7 +266,7 @@ pub async fn process_device_connection_response(
         }
             return_payload.push(merge_result.remote_operations);
         }
-        self.db.commit_device_connection_response(devices, &record_sets_to_add, &operations_to_apply).await?;
+        self.db.commit_device_connection_response(&user_devices,&external_devices,&external_users, &record_sets_to_add, &operations_to_apply).await?;
         Ok(DeviceConnection::Acknowledgment { operations: return_payload })
     }
 #[instrument(
@@ -327,5 +327,21 @@ async fn handle_device_connection_ack(
         device_record_status_ids: all_device_record_status_ids,
     })
 }
+    #[instrument(
+    skip(self, device_record_status_ids, current_device_id, current_span),
+    fields(
+        current_device_id = %current_device_id,
+        status_id_count = device_record_status_ids.len()
+    ),
+    level = "info"
+)]
+pub async fn process_device_connection_complete(
+    &self,
+    device_record_status_ids: &[String],
+    current_device_id: &str,
+    current_span: Span,
+) -> Result<(), RepositoryError> {
+        self.handle_ack_complete(device_record_status_ids.to_vec(), current_span).await
+    }
 
 }

@@ -76,7 +76,7 @@ impl P2PService {
     }
 
     /// Sets the current user for the P2P service
-    #[instrument(skip(self, user), fields(user_id = %user.id), level = "debug")]
+    #[instrument(skip_all, level = "debug")]
     pub async fn set_current_user(&self, user: User) {
         debug!("Setting current user: {}", user.username);
         let mut user_guard = self.current_user.write().await;
@@ -85,7 +85,7 @@ impl P2PService {
     }
 
     /// Sets the current device for the P2P service
-    #[instrument(skip(self, device), fields(device_id = %device.id), level = "debug")]
+    #[instrument(skip_all, level = "debug")]
     pub async fn set_current_device(&self, device: Device) {
         debug!("Setting current device: {}", device.id);
         let mut device_guard = self.current_device.write().await;

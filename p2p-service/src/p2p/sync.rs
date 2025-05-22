@@ -2,7 +2,8 @@ use crate::p2p::peer_connection::PeerConnection;
 
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{
-    DeviceConnection, LiveEditMessage, Message, ResourceUpdateMsg, SyncAckType, SyncPayload,
+    DeviceConnection, LiveEditMessage, Message, Phase, PhaseAction, PhaseType, ResourceUpdateMsg,
+    SyncAckType, SyncPayload,
 };
 
 use super::P2PEvent;
@@ -27,13 +28,6 @@ impl PeerConnection {
         }
     }
 
-    pub async fn start_device_sync(&self) -> Result<(), String> {
-        info!("Starting device sync phase");
-
-        // Get current span for context propagation
-        self.get_and_send_next_sync().await
-    }
-
     #[instrument(skip(self, payload), fields(
     connection_id = %self.get_id(),
     payload_type = ?std::mem::discriminant(payload)
@@ -52,15 +46,6 @@ impl PeerConnection {
 
         let current_span = tracing::Span::current();
 
-        // Phase management based on payload type
-        match payload {
-            DeviceConnection::Complete { .. } | DeviceConnection::Acknowledgment { .. } => {
-                // Mark remote phase as complete for these message types
-                self.phase.set_remote_complete(true).await;
-            }
-            _ => {}
-        }
-
         // Process the payload with sync service
         let return_payload = self
             .context
@@ -76,21 +61,23 @@ impl PeerConnection {
 
         // If there's a response to send
         if let Some(response_payload) = return_payload {
-            // Handle phase management for response types that complete the phase
-            match &response_payload {
-                DeviceConnection::Complete { .. } | DeviceConnection::Acknowledgment { .. } => {
-                    self.phase.set_local_complete(true).await;
-                }
-                _ => {}
-            }
-
             // Send the response
             let message = Message::FirstDeviceConnection(response_payload);
             self.send_message(message).await?;
         }
 
-        // Check phase transition after processing
-        self.check_phase_transition().await?;
+        //once you get the complete message transition to folder sync phase.
+        match payload {
+            DeviceConnection::Complete { .. } => {
+                self.phase.reset_for_new_phase(PhaseType::FolderSync).await;
+                self.send_message(Message::Phase(Phase {
+                    action: PhaseAction::Init,
+                    phase_type: PhaseType::FolderSync,
+                }))
+                .await?;
+            }
+            _ => {}
+        }
 
         Ok(())
     }

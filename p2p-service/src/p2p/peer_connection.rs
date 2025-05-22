@@ -1,14 +1,16 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use crate::p2p::phase_management::PhaseState;
 use iroh::endpoint::Connection;
+use iroh_quinn::VarInt;
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{ConnectionAction, ConnectionType,PhaseType, Phase,PhaseAction, Message};
+use osvauld_core::models::p2p::{
+    ConnectionAction, ConnectionType, Message, Phase, PhaseAction, PhaseType,
+};
 use osvauld_core::models::user::User;
-use osvauld_services::{AuthService,  SyncService, UserService};
+use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use iroh_quinn::VarInt;
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -50,20 +52,12 @@ pub struct PeerConnection {
     pub action: Option<ConnectionAction>,
     pub is_live_editing: Arc<Mutex<bool>>,
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
-        pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-
+    pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 impl PeerConnection {
     /// Creates a new PeerConnection
-    #[instrument(skip(connection, device, user, context, event_emitter, on_close), 
-        fields(
-            connection_type = ?connection_type,
-            device_id = %device.id,
-            user_id = %user.id,
-            is_initiator = is_initiator
-        ),
-        level = "info")]
+    #[instrument(skip_all, level = "info")]
     pub fn new(
         connection: Arc<Connection>,
         connection_type: ConnectionType,
@@ -74,7 +68,7 @@ impl PeerConnection {
         event_emitter: P2PEventEmitter,
         pending_resource_ids: Vec<String>,
         action: Option<ConnectionAction>,
-            on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
+        on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -94,9 +88,9 @@ impl PeerConnection {
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
             phase: PhaseState::new(),
             action,
-        is_live_editing: Arc::new(Mutex::new(false)),
-                    on_close: Arc::new(Mutex::new(on_close)),
-                    disconnection_timer: Arc::new(Mutex::new(None)),
+            is_live_editing: Arc::new(Mutex::new(false)),
+            on_close: Arc::new(Mutex::new(on_close)),
+            disconnection_timer: Arc::new(Mutex::new(None)),
         };
 
         debug!("Starting message handler for the connection");
@@ -116,23 +110,27 @@ impl PeerConnection {
         format!("{}:{}", self.user.id, self.device.id)
     }
 
-   // Add method to close the connection
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    // Add method to close the connection
+    #[instrument(skip(self), level = "info")]
     pub async fn close_connection(&self) -> Result<(), String> {
         info!("Closing connection: {}", self.get_id());
         self.cancel_disconnection_timer().await;
-        
+
         // Close the Iroh connection
-        self.connection.close(VarInt::from_u32(0), b"Connection closed normally");
-        
+        self.connection
+            .close(VarInt::from_u32(0), b"Connection closed normally");
+
         // Call the closure callback if set
         let connection_id = self.get_id();
         let on_close_guard = self.on_close.lock().await;
         if let Some(callback) = &*on_close_guard {
-            info!("Executing connection closure callback for: {}", connection_id);
+            info!(
+                "Executing connection closure callback for: {}",
+                connection_id
+            );
             (callback)(connection_id);
         }
-        
+
         info!("Connection closed successfully: {}", self.get_id());
         Ok(())
     }
@@ -143,21 +141,15 @@ impl PeerConnection {
         let self_clone = self.clone();
         let conn_id = self.get_id();
 
-        // Create the span first, before the value is moved
-        let span = info_span!("message_handler", connection_id = %conn_id);
-
-        tokio::spawn(
-            async move {
-                info!("Starting message listener for connection {}", conn_id);
-                self_clone.handle_messages().await;
-                info!("Message listener stopped for connection {}", conn_id);
-            }
-            .instrument(span),
-        )
+        tokio::spawn(async move {
+            info!("Starting message listener for connection {}", conn_id);
+            self_clone.handle_messages().await;
+            info!("Message listener stopped for connection {}", conn_id);
+        })
     }
 
     /// Handles incoming messages from the peer
-    #[instrument(skip(self), level = "debug")]
+    #[instrument(skip_all, level = "debug")]
     async fn handle_messages(&self) {
         let conn_id = self.get_id();
         info!("Message handler started for connection {}", conn_id);
@@ -208,6 +200,7 @@ impl PeerConnection {
                                                     source: "message_handler".to_string(),
                                                 });
                                             }
+                                            buffer.clear();
                                             break;
                                         }
                                         Err(e) if e.is_eof() => {
@@ -300,12 +293,12 @@ impl PeerConnection {
             }
             Message::SyncEvent { event, payload } => {
                 info!("Received SyncEvent: {:?}", event);
-                self.event_emitter.emit(P2PEvent::EditingEvent { payload: payload.clone() });
+                self.event_emitter.emit(P2PEvent::EditingEvent {
+                    payload: payload.clone(),
+                });
                 Ok(())
             }
-            Message::UserConnection(payload) => {
-                self.process_user_connection_payload(payload).await
-            }
+            Message::UserConnection(payload) => self.process_user_connection_payload(payload).await,
             Message::Error => {
                 error!("Received error message from peer");
                 self.event_emitter.emit(P2PEvent::Error {
@@ -314,18 +307,10 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::Phase(phase) => {
-                self.handle_phase_message(phase).await
-            }
-            Message::MergeUpdate(payload) => {
-                self.process_merge_payload(payload).await
-            }
-            Message::LiveEdit(payload) => {
-                self.handle_live_edit_flow(payload).await
-            }
-            Message::Disconnect(status) => {
-                self.handle_disconnect_message(status).await
-            }
+            Message::Phase(phase) => self.handle_phase_message(phase).await,
+            Message::MergeUpdate(payload) => self.process_merge_payload(payload).await,
+            Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
+            Message::Disconnect(status) => self.handle_disconnect_message(status).await,
         }
     }
 
@@ -346,9 +331,7 @@ impl PeerConnection {
         };
 
         let (mut send, _) = match self.connection.open_bi().await {
-            Ok(stream) => {
-                stream
-            }
+            Ok(stream) => stream,
             Err(e) => {
                 error!("Failed to open bi-directional stream: {}", e);
                 return Err(format!("Failed to open bi-directional stream: {}", e));
@@ -406,7 +389,7 @@ impl PeerConnection {
             action: self.action.clone(),
             is_live_editing: self.is_live_editing.clone(),
             on_close: self.on_close.clone(),
-                    disconnection_timer: self.disconnection_timer.clone(),
+            disconnection_timer: self.disconnection_timer.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {
@@ -419,45 +402,39 @@ impl PeerConnection {
         device_guard.clone()
     }
 
-     #[instrument(skip(self), fields(action = ?self.action, is_initiator = self.is_initiator), level = "info")]
+    #[instrument(skip(self), fields(action = ?self.action, is_initiator = self.is_initiator), level = "info")]
     pub async fn execute_connection_action(&self) -> Result<(), String> {
         // Only execute if we have an action and we're the initiator
         if let Some(action) = &self.action {
             if !self.is_initiator {
-                info!("Not executing action {:?} as this peer is not the initiator", action);
+                info!(
+                    "Not executing action {:?} as this peer is not the initiator",
+                    action
+                );
                 return Ok(());
             }
 
             info!("Executing connection action: {:?}", action);
-            
+
             // Execute the appropriate action
             match action {
                 ConnectionAction::DeviceSync => {
-                    info!("Initiator: Starting device sync phase");
-                    self.start_phased_sync().await
-                   
+                    self.send_connection_action(PhaseType::UserSync).await
                 }
                 ConnectionAction::UserFirstConnection => {
                     info!("Initiator: Starting user first connection phase");
-                    // Use the existing method which already handles phase management
-                    self.initiate_user_first_connection().await
+                    self.send_connection_action(PhaseType::FirstUserConnection)
+                        .await
                 }
                 ConnectionAction::AddDevice => {
                     info!("Initiator: Starting add device phase");
-                    self.phase.reset_for_new_phase(PhaseType::AddDevice).await;
-                    
-                    // Send the Phase message to notify the other side
-                    let phase_message = Message::Phase(Phase {
-                        action: PhaseAction::Init,
-                        phase_type: PhaseType::AddDevice,
-                    });
-                    
-                    self.send_message(phase_message).await
+                    self.send_connection_action(PhaseType::AddDevice).await
                 }
                 ConnectionAction::LiveEdit => {
                     info!("live edit triggered");
                     let connection_id = self.get_id();
-                    self.event_emitter.emit(P2PEvent::LiveEditConnected { connection_id });
+                    self.event_emitter
+                        .emit(P2PEvent::LiveEditConnected { connection_id });
                     Ok(())
                 }
             }
@@ -467,25 +444,43 @@ impl PeerConnection {
         }
     }
 
-#[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn send_connection_action(&self, phase: PhaseType) -> Result<(), String> {
+        self.phase.reset_for_new_phase(phase.clone()).await;
+
+        // Send the Phase message to notify the other side
+        let phase_message = Message::Phase(Phase {
+            action: PhaseAction::Init,
+            phase_type: phase,
+        });
+
+        self.send_message(phase_message).await
+    }
+
+    #[instrument(skip(self), level = "info")]
     pub async fn set_live_editing_active(&self) {
         let mut is_editing = self.is_live_editing.lock().await;
         if !*is_editing {
-            info!("Setting connection as active for live editing: {}", self.get_id());
+            info!(
+                "Setting connection as active for live editing: {}",
+                self.get_id()
+            );
             *is_editing = true;
         }
     }
-    
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+
+    #[instrument(skip(self), level = "info")]
     pub async fn set_live_editing_inactive(&self) {
         let mut is_editing = self.is_live_editing.lock().await;
         if *is_editing {
-            info!("Setting connection as inactive for live editing: {}", self.get_id());
+            info!(
+                "Setting connection as inactive for live editing: {}",
+                self.get_id()
+            );
             *is_editing = false;
         }
     }
-    
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "trace")]
+
+    #[instrument(skip(self), level = "trace")]
     pub async fn is_live_editing(&self) -> bool {
         let is_editing = self.is_live_editing.lock().await;
         trace!(

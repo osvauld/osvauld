@@ -40,23 +40,6 @@ impl PhaseState {
         *local_complete = value;
     }
 
-    #[instrument(skip(self), level = "debug")]
-    pub async fn is_complete(&self) -> bool {
-        let local_complete = *self.local_phase_complete.lock().await;
-        let remote_complete = *self.remote_phase_complete.lock().await;
-        let current_phase = self.get_current_phase().await;
-
-        let is_complete = local_complete && remote_complete;
-        debug!(
-            phase = ?current_phase,
-            local_complete = local_complete,
-            remote_complete = remote_complete,
-            is_complete = is_complete,
-            "Checking if current phase is complete"
-        );
-
-        is_complete
-    }
 
     #[instrument(skip(self), level = "trace")]
     pub async fn get_current_phase(&self) -> PhaseType {
@@ -86,13 +69,6 @@ impl PhaseState {
         next_phase
     }
 
-    #[instrument(skip(self), fields(next_phase = ?next_phase), level = "debug")]
-    pub async fn is_valid_next_phase(&self, next_phase: &PhaseType) -> bool {
-        let next = self.get_next_phase().await;
-        let is_valid = *next_phase == next;
-        debug!(expected_next = ?next, requested_next = ?next_phase, is_valid = is_valid, "Validating requested next phase");
-        is_valid
-    }
 
     #[instrument(skip(self), fields(new_phase = ?new_phase), level = "info")]
     pub async fn reset_for_new_phase(&self, new_phase: PhaseType) {
@@ -114,41 +90,17 @@ impl PhaseState {
         debug!("Setting local and remote completion to false for new phase");
         self.set_local_complete(false).await;
         self.set_remote_complete(false).await;
+        
     }
 }
 
 // Implement phase-related methods for PeerConnection
 impl PeerConnection {
-    // New method to start the phased sync process
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn start_phased_sync(&self) -> Result<(), String> {
-        info!("Initiating phased sync process");
-
-        // Reset phase state to the first phase
-        self.phase.reset_for_new_phase(PhaseType::UserSync).await;
-
-        // Send Init message to the peer
-        let init_message = Message::Phase(Phase {
-            action: PhaseAction::Init,
-            phase_type: PhaseType::UserSync,
-        });
-
-        debug!("Sending Phase Init message for DeviceSync");
-        self.send_message(init_message).await?;
-
-        // Start the first phase sync process
-        info!("Starting initial phase sync");
-        self.start_phase_sync().await?;
-
-        info!("Phased sync process initiated successfully");
-        Ok(())
-    }
 
     // Handler for phase-related messages
     #[instrument(
         skip(self, phase), 
         fields(
-            connection_id = %self.get_id(),
             phase_action = ?phase.action, 
             phase_type = ?phase.phase_type
         ), 
@@ -192,12 +144,19 @@ impl PeerConnection {
                         phase_type: phase.phase_type.clone(),
                     }))
                     .await?;
+                    
+                    if self.is_initiator {
+                        let next_phase = self.phase.get_next_phase().await;
+                        self.phase.reset_for_new_phase(next_phase.clone()).await;
+                        let message = Message::Phase(Phase {
+                            action: PhaseAction::Init,
+                            phase_type: next_phase
+                        });
+                        self.send_message(message).await?;
+                    }else {
+                        self.start_phase_sync().await;
+                    }
 
-                    // Check if we can transition to next phase
-                    debug!("Checking if we can transition to next phase");
-                    self.check_phase_transition().await?;
-
-                    info!("PhaseComplete handled successfully");
                 } else {
                     warn!(
                         "Received PhaseComplete for wrong phase. Current: {:?}, Received: {:?}",
@@ -236,125 +195,12 @@ impl PeerConnection {
 
                 Ok(())
             }
-
-            PhaseAction::Initiate => {
-                info!("Received PhaseInitiate for phase: {:?}", phase.phase_type);
-
-                // Validate phase transition
-                let next_phase = self.phase.get_next_phase().await;
-                let current_phase = self.phase.get_current_phase().await;
-
-                debug!(
-                    current_phase = ?current_phase,
-                    expected_next = ?next_phase,
-                    requested_next = ?phase.phase_type,
-                    "Validating phase transition request"
-                );
-
-                if phase.phase_type == next_phase {
-                    // Transition to the new phase
-                    info!("Phase transition request is valid, transitioning to new phase");
-                    self.transition_to_phase(phase.phase_type.clone()).await?;
-
-                    info!("PhaseInitiate handled successfully");
-                } else {
-                    warn!(
-                        "Received invalid phase transition request. Current: {:?}, Next expected: {:?}, Requested: {:?}",
-                        current_phase, next_phase, phase.phase_type
-                    );
-                }
-
-                Ok(())
-            }
         }
-    }
-
-    // Helper methods for phase management
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
-    pub async fn check_phase_transition(&self) -> Result<(), String> {
-        let current_phase = self.phase.get_current_phase().await;
-        debug!(current_phase = ?current_phase, "Checking if phase is complete and can transition");
-
-        if self.phase.is_complete().await && self.is_initiator {
-            debug!("Current phase is complete, checking if we should initiate next phase");
-
-                let next_phase = self.phase.get_next_phase().await;
-
-                info!(
-                    current_phase = ?current_phase,
-                    next_phase = ?next_phase,
-                    "Initiating transition to next phase"
-                );
-
-                // Use new message structure
-                debug!("Sending Phase Initiate message");
-                self.send_message(Message::Phase(Phase {
-                    action: PhaseAction::Initiate,
-                    phase_type: next_phase.clone(),
-                }))
-                .await?;
-
-                info!("Transitioning to next phase");
-
-                self.transition_to_phase(next_phase).await?;
-        } else {
-            trace!("Current phase not yet complete, no transition needed");
-            let local_complete = *self.phase.local_phase_complete.lock().await;
-        
-        if !local_complete {
-            debug!("Local phase not complete, starting phase sync");
-            self.start_phase_sync().await?;
-        } else {
-            trace!("Waiting for remote to complete phase");
-        }
-        }
-
-        Ok(())
     }
 
 
     #[instrument(
-        skip(self, new_phase), 
-        fields(
-            connection_id = %self.get_id(),
-            new_phase = ?new_phase
-        ), 
-        level = "info"
-    )]
-    async fn transition_to_phase(&self, new_phase: PhaseType) -> Result<(), String> {
-        let current_phase = self.phase.get_current_phase().await;
-        info!(
-            "Transitioning from phase {:?} to {:?}",
-            current_phase, new_phase
-        );
-
-        // Reset phase state for the new phase
-        debug!("Resetting phase state for new phase");
-        self.phase.reset_for_new_phase(new_phase.clone()).await;
-
-        // If this is the Complete phase, emit a SyncComplete event
-        if new_phase == PhaseType::Complete {
-            info!("Reached Complete phase, emitting SyncComplete event");
-            self.context.user_service.update_device_last_synced(&self.device.id).await.map_err(|e| e.to_string())?;
-            self.event_emitter.emit(P2PEvent::SyncComplete);
-            if self.is_initiator {
-            let _ = self.check_for_possible_disconnection().await?;
-            }
-        } else {
-            // Initiate synchronization for the new phase
-            info!("Starting sync for new phase: {:?}", new_phase);
-            self.start_phase_sync().await?;
-        }
-
-        info!("Phase transition completed successfully");
-        Ok(())
-    }
-
-    #[instrument(
-        skip(self), 
-        fields(
-            connection_id = %self.get_id()
-        ), 
+        skip_all, 
         level = "debug"
     )]
     async fn start_phase_sync(&self) -> Result<(), String> {
@@ -388,7 +234,7 @@ impl PeerConnection {
     }
 
     // Mark current phase as complete
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     pub async fn complete_current_phase(&self) -> Result<(), String> {
         let current_phase = self.phase.get_current_phase().await;
         info!("Marking current phase as complete: {:?}", current_phase);
@@ -404,58 +250,63 @@ impl PeerConnection {
         }))
         .await?;
 
-        // Check if we can transition to next phase
-        debug!("Checking if we can transition to next phase");
-        if self.is_initiator {
-        Box::pin(self.check_phase_transition()).await?;
-        }
 
         info!("Current phase marked as complete successfully");
         Ok(())
     }
 
     // Phase-specific sync methods (placeholders)
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     async fn start_user_sync(&self) -> Result<(), String> {
         info!("Starting user sync phase");
         self.get_and_send_next_sync().await
     }
 
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn start_device_sync(&self) -> Result<(), String> {
+        info!("Starting device sync phase");
+        self.get_and_send_next_sync().await
+    }
+
+    #[instrument(skip(self), level = "info")]
     async fn start_resource_sync(&self) -> Result<(), String> {
         info!("Starting resource sync phase");
             self.get_and_send_next_sync().await
     }
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     async fn complete_sync(&self) -> Result<(), String> {
         info!("completed everything......");
+        self.context.user_service.update_device_last_synced(&self.device.id).await.map_err(|e| e.to_string())?;
+            self.event_emitter.emit(P2PEvent::SyncComplete);
+            if self.is_initiator {
+            let _ = self.check_for_possible_disconnection().await?;
+            }
         Ok(())
     }
 
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     async fn start_folder_sync(&self) -> Result<(), String> {
         info!("Starting folder sync phase");
             self.get_and_send_next_sync().await
     }
 
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     async fn start_share_sync(&self) -> Result<(), String> {
         info!("Starting share sync phase");
             self.get_and_send_next_sync().await
     }
 
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     async fn start_update_sync(&self) -> Result<(), String> {
         info!("Starting update sync phase");
             self.get_and_send_next_sync().await
     }
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self),  level = "info")]
     async fn start_device_record_sync(&self) -> Result<(), String> {
         info!("Starting device record sync phase");
             self.get_and_send_next_sync().await
     }
 
-#[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+#[instrument(skip(self),  level = "info")]
 pub async fn request_disconnection(&self) -> Result<(), String> {
     info!("Requesting disconnection from peer: {}", self.get_id());
         if !self.can_close_connection().await {
@@ -470,7 +321,7 @@ pub async fn request_disconnection(&self) -> Result<(), String> {
     info!("Disconnection request sent");
     Ok(())
 }
-#[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+#[instrument(skip(self),  level = "debug")]
 pub async fn check_for_possible_disconnection(&self) -> Result<(), String> {
     // Only check for possible disconnection if sync is complete
     let is_editing = self.is_live_editing().await;
@@ -518,7 +369,7 @@ pub async fn check_for_possible_disconnection(&self) -> Result<(), String> {
     
     Ok(())
 }
-#[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+#[instrument(skip(self),  level = "debug")]
 pub async fn cancel_disconnection_timer(&self) -> bool {
     let mut timer_guard = self.disconnection_timer.lock().await;
     
@@ -532,7 +383,7 @@ pub async fn cancel_disconnection_timer(&self) -> bool {
     }
 }
 
-    #[instrument(skip(self, status), fields(connection_id = %self.get_id()), level = "info")]
+    #[instrument(skip(self, status),  level = "info")]
 pub async fn handle_disconnect_message(&self, status: &DisconnectStatus) -> Result<(), String> {
     match status {
         DisconnectStatus::Request => {
@@ -582,7 +433,7 @@ pub async fn handle_disconnect_message(&self, status: &DisconnectStatus) -> Resu
         }
     }
 }
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+    #[instrument(skip(self),  level = "debug")]
 pub async fn can_close_connection(&self) -> bool {
     // Check if sync is complete
     let current_phase = self.phase.get_current_phase().await;

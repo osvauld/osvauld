@@ -71,6 +71,7 @@ pub enum UserConnectionPayload {
     FinalSync {
         device_record_status_id: Option<String>,
     },
+    FinalSyncAck,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -178,7 +179,6 @@ pub enum PhaseAction {
     Ack,
     Complete,
     CompleteAck,
-    Initiate,
 }
 
 // Combined into a single Phase message

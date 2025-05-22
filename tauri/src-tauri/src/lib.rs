@@ -7,9 +7,9 @@ pub mod listners;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, get_public_key, get_user_details, get_user_id,
-    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_hash_and_sign,
-    handle_sign_challenge, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, first_device_connect, get_public_key,
+    get_user_details, get_user_id, handle_add_device, handle_change_passphrase,
+    handle_export_certificate, handle_hash_and_sign, handle_sign_challenge, handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
@@ -82,7 +82,7 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop.db").to_str().unwrap().to_string();
+            let db_path = app_dir.join("desktop2.db").to_str().unwrap().to_string();
 
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
@@ -259,6 +259,7 @@ pub fn run() {
             share_resource,
             get_details_for_share,
             get_user_details,
+            first_device_connect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
