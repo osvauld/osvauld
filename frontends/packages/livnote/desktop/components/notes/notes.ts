@@ -43,6 +43,7 @@ import type {
   CommentMarkAttrs
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
+import { CommentsService } from "./commentsService";
 
 // Type definitions for notes, states and other components
 
@@ -73,6 +74,8 @@ import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 export class Notes {
   private ydoc!: Y.Doc;
   private type!: Y.XmlFragment;
+  private commentsMap!: Y.Map<CommentThread>;
+  private commentsService!: CommentsService;
   private awareness!: Awareness;
   private clientID: number;
   private currentNoteId: string | null = null;
@@ -438,7 +441,11 @@ export class Notes {
   private initYjs(): void {
     this.ydoc = new Y.Doc();
     this.type = this.ydoc.getXmlFragment("prosemirror");
+    this.commentsMap = this.ydoc.getMap("comments");
     this.awareness = new Awareness(this.ydoc);
+
+    // Initialize comments service
+    this.commentsService = new CommentsService(this.commentsMap);
 
     // Set up observer for document updates with origin tracking
     this.ydoc.on("update", (update: Uint8Array, origin: any) => {
@@ -466,6 +473,13 @@ export class Notes {
         color: userColor,
         id: this.clientID,
       } as UserInfo,
+    });
+
+    // Set current user for comments service
+    this.commentsService.setCurrentUser({
+      name: `User ${this.clientID}`,
+      color: userColor,
+      id: this.clientID,
     });
   }
 
@@ -542,17 +556,12 @@ export class Notes {
         // Try to initialize from the YJS content
         const result = initProseMirrorDoc(this.type, this.editorSchema);
         prosemirrorDoc = result.doc;
-        console.log("Successfully created ProseMirror doc from YJS content");
 
         if (
           prosemirrorDoc.childCount === 1 &&
           prosemirrorDoc.firstChild &&
           prosemirrorDoc.firstChild.type.name === "heading"
         ) {
-          console.log(
-            "Fixing document structure - converting from single heading to multiple paragraphs",
-          );
-
           // Get the text content from the heading
           const headingContent = prosemirrorDoc.firstChild.textContent;
 
@@ -574,12 +583,6 @@ export class Notes {
 
           // Create a new document with proper paragraph structure
           prosemirrorDoc = this.editorSchema.node("doc", {}, paragraphNodes);
-
-          console.log(
-            "Document structure fixed with " +
-            paragraphNodes.length +
-            " paragraphs",
-          );
         }
       } catch (err) {
         console.error("Error creating ProseMirror doc from YJS:", err);
@@ -587,7 +590,6 @@ export class Notes {
         prosemirrorDoc = this.editorSchema.node("doc", null, [
           this.editorSchema.node("paragraph", null, [])
         ]);
-        console.log("Created empty ProseMirror doc instead");
       }
 
       // Create the editor state with the document
@@ -620,8 +622,6 @@ export class Notes {
           }),
         ],
       });
-
-      console.log("Successfully initialized editor state with Yjs content");
     } catch (error) {
       console.error("Error initializing editor state:", error);
       // Create a backup state without Yjs content
@@ -758,8 +758,6 @@ export class Notes {
         }),
       });
       emit('resource-update-complete', { id: this.currentNoteId });
-
-      console.log(`Saved note ${this.currentNoteId} successfully`);
     } catch (error) {
       console.error("Error saving note:", error);
       throw error;
@@ -767,14 +765,8 @@ export class Notes {
   }
 
   async loadNote(noteId: string): Promise<EditorDocumentState> {
-    console.time('notes-loadNote-total');
     try {
-      console.log(`Loading note: ${noteId}`);
-
-      // Measure data fetch time
-      console.time('notes-fetchData');
       const response = dataState.getNoteById(noteId);
-      console.timeEnd('notes-fetchData');
 
       if (!response || !response.data) {
         throw new Error("Note not found");
@@ -783,45 +775,29 @@ export class Notes {
       this.currentNoteId = noteId;
       const noteContent = response.data;
 
-      // Measure Yjs document initialization
-      console.time('notes-resetYdoc');
       this.ydoc.destroy();
       this.initYjs();
-      console.timeEnd('notes-resetYdoc');
       if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
         this.pendingYjsState = new Uint8Array(noteContent.yjs_state);
-
       }
 
-      // Measure editor state initialization
-      console.time('notes-initEditorState');
       this.initEditorState();
-      console.timeEnd('notes-initEditorState');
 
       return this.getDoc();
     } catch (error) {
       console.error("Error loading note:", error);
       throw error;
-    } finally {
-      console.timeEnd('notes-loadNote-total');
     }
   }
 
   applyPendingYjsState(view: any | null): void {
     if (!this.pendingYjsState) {
-      console.log("No pending YJS state to apply");
       return;
     }
 
-    console.log(`Applying pending YJS state with length: ${this.pendingYjsState.length}`);
-
     try {
       // Apply the YJS state
-      console.time('applyYjsState');
       Y.applyUpdate(this.ydoc, this.pendingYjsState, 'sync');
-      console.timeEnd('applyYjsState');
-
-      console.log("YJS state applied successfully");
 
       // Update the view if provided
       if (view) {
@@ -835,6 +811,7 @@ export class Notes {
       this.pendingYjsState = null;
     }
   }
+
   async handleCollaborationUpdate(update: Uint8Array): Promise<void> {
     try {
       if (!this.currentNoteId) {
@@ -848,7 +825,6 @@ export class Notes {
       }
 
       const updateArray = Array.from(update);
-      console.log("Sending collaboration update:", updateArray.length, "bytes");
 
       await emit("sync-update", {
         update: updateArray,
@@ -863,7 +839,6 @@ export class Notes {
 
   applyUpdate(update: Uint8Array | number[], sender: number): void {
     if (sender === this.clientID) {
-      console.log("Ignoring own update");
       return;
     }
 
@@ -876,11 +851,8 @@ export class Notes {
         return;
       }
 
-      console.log("Applying remote update:", updateArray.length, "bytes");
       // Apply update with 'sync' origin to prevent loop
       Y.applyUpdate(this.ydoc, updateArray, "sync");
-
-      console.log("Remote update applied successfully");
     } catch (error) {
       console.error("Error applying update:", error);
     }
@@ -890,6 +862,90 @@ export class Notes {
     if (this.ydoc) {
       this.ydoc.destroy();
     }
+  }
+
+  // === Comment System Methods ===
+
+  /**
+   * Get the comments service instance
+   */
+  getCommentsService(): CommentsService {
+    return this.commentsService;
+  }
+
+  /**
+   * Create a new comment thread
+   */
+  createCommentThread(position: CommentPosition, content: string): string {
+    try {
+      const threadId = this.commentsService.createThread(position, content);
+      return threadId;
+    } catch (error) {
+      console.error('Notes: Error creating comment thread:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Add a reply to an existing comment thread
+   */
+  addCommentReply(threadId: string, content: string): string | null {
+    return this.commentsService.addComment(threadId, content);
+  }
+
+  /**
+   * Get all comment threads
+   */
+  getAllCommentThreads(): CommentThread[] {
+    return this.commentsService.getAllThreads();
+  }
+
+  /**
+   * Get comment thread by ID
+   */
+  getCommentThread(threadId: string): CommentThread | null {
+    return this.commentsService.getThread(threadId);
+  }
+
+  /**
+   * Resolve or unresolve a comment thread
+   */
+  resolveCommentThread(threadId: string, resolved: boolean): boolean {
+    const result = this.commentsService.resolveThread(threadId, resolved);
+    
+    if (result) {
+      // Emit event to update comment marks in the editor
+      const updateMarkEvent = new CustomEvent('update-comment-mark-resolved', {
+        detail: { threadId, resolved }
+      });
+      
+      if (typeof document !== 'undefined') {
+        document.dispatchEvent(updateMarkEvent);
+      }
+    }
+    
+    return result;
+  }
+
+  /**
+   * Update comment thread position (for document changes)
+   */
+  updateCommentThreadPosition(threadId: string, newPosition: CommentPosition): boolean {
+    return this.commentsService.updateThreadPosition(threadId, newPosition);
+  }
+
+  /**
+   * Subscribe to comment events
+   */
+  onCommentUpdate(eventType: string, callback: Function): void {
+    this.commentsService.onUpdate(eventType, callback);
+  }
+
+  /**
+   * Unsubscribe from comment events
+   */
+  offCommentUpdate(eventType: string, callback: Function): void {
+    this.commentsService.offUpdate(eventType, callback);
   }
 }
 

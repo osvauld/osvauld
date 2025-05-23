@@ -304,12 +304,12 @@
 
 /* Resolved comments styling */
 .livnote-comment-highlight.resolved {
-  border-bottom: 2px solid #888;
-  background: rgba(136, 136, 136, 0.1);
+  border-bottom: 2px solid #666;
+  background: rgba(102, 102, 102, 0.1);
 }
 
 .livnote-comment-highlight.resolved:hover {
-  background: rgba(136, 136, 136, 0.2);
+  background: rgba(102, 102, 102, 0.15);
 }
 
 /* Comment indicator dot */
@@ -337,9 +337,9 @@
   background: #f44336;
 }
 
-/* Resolved comment indicators */
+/* Hide indicator dot for resolved comments */
 .livnote-comment-highlight.resolved::after {
-  background: #888;
+  display: none;
 }
 
 /* Hide comment formatting when printing or copying */
@@ -358,4 +358,73 @@
 .livnote-comment-highlight[data-copying="true"] {
   border-bottom: none;
   background: transparent;
+}
+
+/* Comment highlighting animation for reverse selection */
+.comment-text-highlight {
+    animation: commentTextBlink 3s ease-in-out;
+}
+
+@keyframes commentTextBlink {
+    0% { 
+        background: rgba(255, 215, 0, 0.8) !important;
+        transform: scale(1.1);
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+    }
+    10% { 
+        background: rgba(255, 215, 0, 0.2) !important;
+        transform: scale(1);
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+    20% { 
+        background: rgba(255, 215, 0, 0.8) !important;
+        transform: scale(1.08);
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+    }
+    30% { 
+        background: rgba(255, 215, 0, 0.2) !important;
+        transform: scale(1);
+        box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);
+    }
+    40% { 
+        background: rgba(255, 215, 0, 0.6) !important;
+        transform: scale(1.05);
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
+    }
+    50% { 
+        background: rgba(255, 215, 0, 0.1) !important;
+        transform: scale(1);
+        box-shadow: none;
+    }
+    60% { 
+        background: rgba(255, 215, 0, 0.4) !important;
+        transform: scale(1.02);
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+    70% { 
+        background: rgba(255, 215, 0, 0.1) !important;
+        transform: scale(1);
+        box-shadow: none;
+    }
+    80% { 
+        background: rgba(255, 215, 0, 0.2) !important;
+        transform: scale(1.01);
+        box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);
+    }
+    90% { 
+        background: rgba(255, 215, 0, 0.05) !important;
+        transform: scale(1);
+        box-shadow: none;
+    }
+    100% { 
+        background: transparent !important;
+        transform: scale(1);
+        box-shadow: none;
+    }
+}
+
+/* Override copying behavior */
+.livnote-comment-highlight[data-copying="true"] {
+    border-bottom: none !important;
+    background: transparent !important;
 } 

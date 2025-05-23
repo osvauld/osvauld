@@ -213,35 +213,31 @@ export function floatingMenuPlugin(schema: Schema) {
   // --- Event Handlers for Comment UI ---
   function handleCommentButtonClick() {
     if (!view) return;
-    console.log("Comment button clicked");
     
-    const { state, dispatch } = view;
+    const { state } = view;
     const { selection } = state;
     
     if (selection.empty) {
       console.warn("No text selected for commenting");
       return;
     }
-    
-    // Generate a unique thread ID
-    const threadId = generateThreadId();
-    
-    // Apply the comment mark to the selected text
-    const commentMark = schema.marks.comment.create({
-      threadId,
-      commentIds: [],
-      resolved: false,
-      author: null // Will be set when first comment is added
+
+    // Get the selected text to show in the modal
+    const selectedText = state.doc.textBetween(selection.from, selection.to, ' ');
+
+    // Dispatch a custom event to open the comment modal
+    const commentEvent = new CustomEvent('open-comment-modal', {
+      detail: {
+        selectedText,
+        position: {
+          from: selection.from,
+          to: selection.to
+        }
+      }
     });
-    
-    const tr = state.tr.addMark(selection.from, selection.to, commentMark);
-    dispatch(tr);
-    
-    // TODO: Open comment creation dialog
-    console.log("Comment mark applied with thread ID:", threadId);
-    
+    document.dispatchEvent(commentEvent);
+
     hideMenu();
-    view.focus();
   }
 
   // Helper function to generate unique thread IDs
