@@ -285,4 +285,77 @@
 .pseudo-selection {
   background-color: rgba(94, 129, 172, 0.5); /* Example: Use a semi-transparent blue */
   /* You might need !important depending on specificity, but try without first */
+}
+
+/* === Comment System Styles === */
+
+/* Comment highlighting - only works in our app */
+.livnote-comment-highlight {
+  border-bottom: 2px solid #ffd700;
+  background: rgba(255, 215, 0, 0.1);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.livnote-comment-highlight:hover {
+  background: rgba(255, 215, 0, 0.2);
+}
+
+/* Resolved comments styling */
+.livnote-comment-highlight.resolved {
+  border-bottom: 2px solid #888;
+  background: rgba(136, 136, 136, 0.1);
+}
+
+.livnote-comment-highlight.resolved:hover {
+  background: rgba(136, 136, 136, 0.2);
+}
+
+/* Comment indicator dot */
+.livnote-comment-highlight::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  background: #ffd700;
+  border-radius: 50%;
+  border: 1px solid #16171f;
+  z-index: 10;
+}
+
+/* Multiple comments indicators */
+.livnote-comment-highlight[data-livnote-comment-count="2"]::after {
+  background: #ff9800;
+}
+
+.livnote-comment-highlight[data-livnote-comment-count="3"]::after,
+.livnote-comment-highlight[data-livnote-comment-count="4"]::after,
+.livnote-comment-highlight[data-livnote-comment-count="5"]::after {
+  background: #f44336;
+}
+
+/* Resolved comment indicators */
+.livnote-comment-highlight.resolved::after {
+  background: #888;
+}
+
+/* Hide comment formatting when printing or copying */
+@media print {
+  .livnote-comment-highlight {
+    border-bottom: none !important;
+    background: transparent !important;
+  }
+  
+  .livnote-comment-highlight::after {
+    display: none !important;
+  }
+}
+
+/* Ensure comment marks don't interfere with text selection */
+.livnote-comment-highlight[data-copying="true"] {
+  border-bottom: none;
+  background: transparent;
 } 

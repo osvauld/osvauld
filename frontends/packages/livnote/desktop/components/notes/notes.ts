@@ -37,7 +37,10 @@ import type {
   UserInfo,
   EditorDocumentState,
   NoteResponse,
-  CollaborationUpdateEvent
+  CollaborationUpdateEvent,
+  CommentThread,
+  CommentPosition,
+  CommentMarkAttrs
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 
@@ -323,6 +326,43 @@ export class Notes {
             return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
           },
         },
+        // Add comment mark for collaborative commenting
+        comment: {
+          attrs: {
+            threadId: {},
+            commentIds: { default: [] },
+            resolved: { default: false },
+            author: { default: null }
+          },
+          inclusive: false,
+          excludes: "", // Allow stacking with other marks
+          parseDOM: [{
+            tag: "span[data-livnote-comment]",
+            getAttrs(dom: HTMLElement) {
+              return {
+                threadId: dom.getAttribute("data-livnote-comment"),
+                commentIds: JSON.parse(dom.getAttribute("data-livnote-comment-ids") || "[]"),
+                resolved: dom.getAttribute("data-livnote-resolved") === "true",
+                author: dom.getAttribute("data-livnote-author") || null
+              };
+            }
+          }],
+          toDOM(mark) {
+            const { threadId, commentIds, resolved, author } = mark.attrs;
+            return ["span", {
+              "data-livnote-comment": threadId,
+              "data-livnote-comment-ids": JSON.stringify(commentIds),
+              "data-livnote-comment-count": commentIds.length.toString(),
+              "data-livnote-resolved": resolved ? "true" : "false",
+              "data-livnote-author": author || "",
+              "data-livnote-internal": "true", // Mark as internal
+              class: `livnote-comment-highlight ${resolved ? 'resolved' : 'active'}`,
+              style: resolved 
+                ? "border-bottom: 2px solid #888; background: rgba(136, 136, 136, 0.1);"
+                : "border-bottom: 2px solid #ffd700; background: rgba(255, 215, 0, 0.1);"
+            }, 0];
+          }
+        }
       }
     });
 

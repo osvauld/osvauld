@@ -84,6 +84,18 @@ export function floatingMenuPlugin(schema: Schema) {
       );
       buttonsContainer.appendChild(linkButton);
     }
+    
+    // Add Comment Button
+    if (schema.marks.comment) {
+      const commentButton = createButton("Add Comment", 
+        `<svg width="16" height="16" viewBox="0 0 24 24" fill="#85889C">
+          <path d="M21.99 4c0-1.1-.89-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.89 2 2 2h14l4 4-.01-18z"/>
+        </svg>`, 
+        "comment", 
+        handleCommentButtonClick
+      );
+      buttonsContainer.appendChild(commentButton);
+    }
     menu.appendChild(buttonsContainer);
 
     // --- Link Input Container (initially hidden) ---
@@ -196,6 +208,45 @@ export function floatingMenuPlugin(schema: Schema) {
     
     switchToButtonsMode();
     hideMenu(); // Hide menu after action is done
+  }
+
+  // --- Event Handlers for Comment UI ---
+  function handleCommentButtonClick() {
+    if (!view) return;
+    console.log("Comment button clicked");
+    
+    const { state, dispatch } = view;
+    const { selection } = state;
+    
+    if (selection.empty) {
+      console.warn("No text selected for commenting");
+      return;
+    }
+    
+    // Generate a unique thread ID
+    const threadId = generateThreadId();
+    
+    // Apply the comment mark to the selected text
+    const commentMark = schema.marks.comment.create({
+      threadId,
+      commentIds: [],
+      resolved: false,
+      author: null // Will be set when first comment is added
+    });
+    
+    const tr = state.tr.addMark(selection.from, selection.to, commentMark);
+    dispatch(tr);
+    
+    // TODO: Open comment creation dialog
+    console.log("Comment mark applied with thread ID:", threadId);
+    
+    hideMenu();
+    view.focus();
+  }
+
+  // Helper function to generate unique thread IDs
+  function generateThreadId(): string {
+    return 'thread_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
 
   // Helper to create a button (now includes markType for state updates)
