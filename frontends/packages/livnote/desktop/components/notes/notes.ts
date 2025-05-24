@@ -40,7 +40,8 @@ import type {
   CollaborationUpdateEvent,
   CommentThread,
   CommentPosition,
-  CommentMarkAttrs
+  CommentMarkAttrs,
+  CommentUpdateCallback
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { CommentsService } from "./commentsService";
@@ -937,14 +938,14 @@ export class Notes {
   /**
    * Subscribe to comment events
    */
-  onCommentUpdate(eventType: string, callback: Function): void {
+  onCommentUpdate(eventType: string, callback: CommentUpdateCallback): void {
     this.commentsService.onUpdate(eventType, callback);
   }
 
   /**
    * Unsubscribe from comment events
    */
-  offCommentUpdate(eventType: string, callback: Function): void {
+  offCommentUpdate(eventType: string, callback: CommentUpdateCallback): void {
     this.commentsService.offUpdate(eventType, callback);
   }
 }

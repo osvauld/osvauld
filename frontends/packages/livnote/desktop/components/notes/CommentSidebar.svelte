@@ -18,9 +18,9 @@
 	let selectedThreadId = $state<string | null>(null);
 	let showResolved = $state(false);
 	let highlightedThreadId = $state<string | null>(null);
-	let highlightTimeoutId: number | null = null;
+	let highlightTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let animatingThreadId = $state<string | null>(null);
-	let animationTimeoutId: number | null = null;
+	let animationTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 	// Derived values
 	const sortedThreads = $derived.by(() => {
@@ -51,7 +51,7 @@
 		}
 	}
 
-	function handleThreadUpdate(data: any) {
+	function handleThreadUpdate() {
 		loadThreads(); // Reload all threads when any thread updates
 	}
 

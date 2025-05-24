@@ -168,4 +168,21 @@ export interface CommentMarkAttrs {
 	commentIds: string[];
 	resolved?: boolean;
 	author?: string;
-} 
+}
+
+/**
+ * Comment update callback function signature
+ */
+export type CommentUpdateCallback = (eventData?: any) => void;
+
+/**
+ * Comment event handler map for type-safe event handling
+ */
+export type CommentEventHandlers = {
+	thread_added: CommentUpdateCallback;
+	thread_updated: CommentUpdateCallback;
+	thread_deleted: CommentUpdateCallback;
+	comment_added: CommentUpdateCallback;
+	comment_updated: CommentUpdateCallback;
+	comment_deleted: CommentUpdateCallback;
+}; 

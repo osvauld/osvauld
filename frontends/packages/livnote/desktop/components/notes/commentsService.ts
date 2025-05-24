@@ -6,12 +6,13 @@ import type {
   CreateCommentParams,
   UpdateCommentParams,
   CommentEvent,
-  UserInfo
+  UserInfo,
+  CommentUpdateCallback
 } from "../../types/notes.types";
 
 export class CommentsService {
   private commentsMap: Y.Map<CommentThread>;
-  private callbacks: Map<string, Function[]> = new Map();
+  private callbacks: Map<string, CommentUpdateCallback[]> = new Map();
   private currentUser: UserInfo | null = null;
 
   constructor(commentsMap: Y.Map<CommentThread>) {
@@ -222,7 +223,7 @@ export class CommentsService {
   /**
    * Subscribe to comment updates
    */
-  onUpdate(eventType: string, callback: Function): void {
+  onUpdate(eventType: string, callback: CommentUpdateCallback): void {
     if (!this.callbacks.has(eventType)) {
       this.callbacks.set(eventType, []);
     }
@@ -232,7 +233,7 @@ export class CommentsService {
   /**
    * Unsubscribe from comment updates
    */
-  offUpdate(eventType: string, callback: Function): void {
+  offUpdate(eventType: string, callback: CommentUpdateCallback): void {
     const callbacks = this.callbacks.get(eventType);
     if (callbacks) {
       const index = callbacks.indexOf(callback);

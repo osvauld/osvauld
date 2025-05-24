@@ -32,11 +32,6 @@
 	let commentSidebarRef = $state<any>(null);
 	let activeCommentsCount = $state(0);
 
-	// Expose notes instance globally for plugins to access
-	if (typeof window !== 'undefined') {
-		(window as any).notesInstance = notesInstance;
-	}
-
 	// Copy content utilities
 	const fallbackCopy = (html: string): void => {
 		const tempElement = document.createElement("div");
@@ -222,13 +217,6 @@
 				const tr = view.state.tr;
 				view.dispatch(tr);
 			}
-			
-			// Refresh comment sidebar after note is loaded
-			setTimeout(() => {
-				if (commentSidebarRef && commentSidebarRef.loadThreads) {
-					commentSidebarRef.loadThreads();
-				}
-			}, 100);
 		} catch (err) {
 			console.error("Error loading note:", err);
 			error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
@@ -336,43 +324,25 @@
 		}
 	});
 
-	// Refresh sidebar when note changes
+	// Consolidated reactive effect for comment sidebar and count updates
 	$effect(() => {
 		const currentNoteId = dataState.currentNote?.id;
+		
 		if (currentNoteId && commentSidebarRef) {
-			// Small delay to ensure everything is loaded
-			setTimeout(() => {
-				if (commentSidebarRef.loadThreads) {
-					commentSidebarRef.loadThreads();
-				}
-			}, 200);
+			// Refresh sidebar when note is loaded
+			if (commentSidebarRef.loadThreads) {
+				commentSidebarRef.loadThreads();
+			}
+			
+			// Update active comments count
+			try {
+				const threads = notesInstance.getAllCommentThreads();
+				activeCommentsCount = threads.filter(t => !t.resolved).length;
+			} catch (error) {
+				activeCommentsCount = 0;
+			}
 		}
 	});
-
-	// Update active comments count
-	$effect(() => {
-		if (commentSidebarRef) {
-			// Get active comments count from the sidebar
-			setTimeout(() => {
-				try {
-					const threads = notesInstance.getAllCommentThreads();
-					activeCommentsCount = threads.filter(t => !t.resolved).length;
-				} catch (error) {
-					activeCommentsCount = 0;
-				}
-			}, 100);
-		}
-	});
-
-	// Update comments count when creating new comments
-	function updateCommentsCount() {
-		try {
-			const threads = notesInstance.getAllCommentThreads();
-			activeCommentsCount = threads.filter(t => !t.resolved).length;
-		} catch (error) {
-			activeCommentsCount = 0;
-		}
-	}
 
 	function toggleCommentSidebar() {
 		showCommentSidebar = !showCommentSidebar;
@@ -475,9 +445,6 @@
 			if (commentSidebarRef && commentSidebarRef.loadThreads) {
 				commentSidebarRef.loadThreads();
 			}
-			
-			// Update comments count
-			updateCommentsCount();
 		} catch (error) {
 			console.error('Error creating comment:', error);
 		}
@@ -577,8 +544,6 @@
 
 			if (marksRemoved) {
 				dispatch(tr);
-				// Update comments count
-				updateCommentsCount();
 			}
 		} catch (error) {
 			console.error('Error removing comment mark:', error);
@@ -620,8 +585,6 @@
 
 			if (marksUpdated) {
 				dispatch(tr);
-				// Update comments count
-				updateCommentsCount();
 			}
 		} catch (error) {
 			console.error('Error updating comment mark resolved status:', error);
