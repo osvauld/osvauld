@@ -167,7 +167,8 @@ pub async fn get_next_pending_sync(
         debug!("Looking for pending user syncs");
         
         // Get all pending user sync records for this device
-        match self.sync_repository.get_all_pending_syncs_by_type(&device.id, "user").await {
+        // TODO: change this to proper type
+        match self.sync_repository.get_all_pending_syncs_by_type(&device.id, "user","create").await {
             Ok(Some(sync_data)) => {
                 debug!(
                     sync_data_count = sync_data.len(),
@@ -175,12 +176,7 @@ pub async fn get_next_pending_sync(
                 );
                 
                 // Extract all unique user IDs from the sync records
-                let user_ids: Vec<String> = sync_data
-                    .iter()
-                    .map(|(record, _, _)| record.resource_id.clone())
-                    .collect::<std::collections::HashSet<String>>()
-                    .into_iter()
-                    .collect();
+                let user_ids: Vec<String> = SyncRecordSet::extract_resource_ids(&sync_data); 
                 
                 debug!(
                     unique_user_ids = user_ids.len(),

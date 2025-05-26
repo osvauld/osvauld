@@ -2,12 +2,12 @@ use crate::p2p::peer_connection::PeerConnection;
 
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{
-    DeviceConnection, LiveEditMessage, Message, Phase, PhaseAction, PhaseType, ResourceUpdateMsg,
-    SyncAckType, SyncPayload,
+    DeviceConnection, DeviceSyncPayload, LiveEditMessage, Message, Phase, PhaseAction, PhaseType,
+    ResourceUpdateMsg, SyncAckType, SyncPayload,
 };
 
 use super::P2PEvent;
-use tracing::{Span, debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, Span};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {
@@ -482,5 +482,45 @@ impl PeerConnection {
                 Ok(())
             }
         }
+    }
+    #[instrument(skip(self, payload), fields(
+    connection_id = %self.get_id(),
+    payload_type = ?std::mem::discriminant(payload)
+), level = "info")]
+    pub async fn process_device_sync_payload(
+        &self,
+        payload: &DeviceSyncPayload,
+    ) -> Result<(), String> {
+        info!("Processing device sync payload");
+
+        // Get current device for context
+        let current_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => return Err("Local device not found".into()),
+        };
+
+        let current_span = tracing::Span::current();
+
+        // Process the payload with sync service
+        let return_payload = self
+            .context
+            .sync_service
+            .process_device_sync_payload(
+                payload,
+                &current_device.user_id,
+                &current_device.id,
+                current_span,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // If there's a response to send
+        if let Some(response_payload) = return_payload {
+            // Send the response
+            let message = Message::DeviceSync(response_payload);
+            self.send_message(message).await?;
+        }
+
+        Ok(())
     }
 }

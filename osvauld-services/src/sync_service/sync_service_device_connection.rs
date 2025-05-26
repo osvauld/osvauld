@@ -1,6 +1,6 @@
 use super::sync_service_core::SyncService;
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::DeviceConnection;
+use osvauld_core::models::p2p::{DeviceConnection, DeviceSyncPayload};
 use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
 use osvauld_core::models::sync_types::{OperationType, ResourceType, SyncOperations};
 use osvauld_core::models::user::User;
@@ -396,4 +396,195 @@ impl SyncService {
         self.handle_ack_complete(device_record_status_ids.to_vec(), current_span)
             .await
     }
+
+      #[instrument(
+        skip(self, current_span),
+        fields(peer_device_id = %peer_device_id),
+        level = "info"
+    )]
+    pub async fn get_device_sync_request_payload(
+        &self,
+        peer_device_id: &str,
+        current_span: Span,
+    ) -> Result<DeviceSyncPayload, RepositoryError> {
+        let _guard = current_span.enter();
+        info!("Preparing device sync request payload (Phase 1) for peer device");
+
+        // Get all device sync records that are pending for the peer device, specifically "create" operations
+        debug!("Getting all pending device sync records for peer device");
+        let device_sync_data = match self
+            .sync_repository
+            .get_all_pending_syncs_by_type(peer_device_id, "device", "create")
+            .await
+        {
+            Ok(Some(data)) => {
+                debug!(sync_data_count = data.len(), "Found pending device sync records");
+                data
+            }
+            Ok(None) => {
+                debug!("No pending device sync records found");
+                Vec::new()
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to get pending device sync records");
+                return Err(e);
+            }
+        };
+
+        // Extract unique device IDs from sync records to get the actual device objects
+        debug!("Extracting device IDs from sync records");
+        let device_ids: Vec<String> = SyncRecordSet::extract_resource_ids(&device_sync_data);
+
+        debug!(device_id_count = device_ids.len(), "Found unique device IDs");
+
+        // Get all device objects in a single batch call
+        let devices = match self.device_repository.get_devices_by_ids(&device_ids).await {
+            Ok(devices) => {
+                debug!(devices_retrieved = devices.len(), "Retrieved device data in batch");
+                devices
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to retrieve devices in batch");
+                return Err(e);
+            }
+        };
+
+
+        Ok(DeviceSyncPayload::Request {
+            record_sets: device_sync_data,
+            devices,
+        })
+    }
+  #[instrument(
+        skip(self, payload, current_span),
+        fields(
+            user_id = %user_id,
+            device_id = %current_device_id,
+            payload_type = ?std::mem::discriminant(payload)
+        ),
+        level = "info"
+    )]
+    pub async fn process_device_sync_payload(
+        &self,
+        payload: &DeviceSyncPayload,
+        user_id: &str,
+        current_device_id: &str,
+        current_span: Span,
+    ) -> Result<Option<DeviceSyncPayload>, RepositoryError> {
+        let _guard = current_span.enter();
+        info!("Processing device sync payload");
+
+        match payload {
+            DeviceSyncPayload::Request {
+                record_sets,
+                devices,
+            } => {
+                info!(
+                    sync_records = record_sets.len(),
+                    devices = devices.len(),
+                    "Processing device sync request (Phase 1)"
+                );
+
+                // Process the request and generate response
+                match self
+                    .process_device_sync_request(
+                        record_sets,
+                        devices,
+                        user_id,
+                        current_device_id,
+                    )
+                    .await
+                {
+                    Ok(response) => {
+                        info!("Device sync request processed successfully");
+                        Ok(Some(response))
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to process device sync request");
+                        Err(e)
+                    }
+                }
+            }
+
+            DeviceSyncPayload::Response { .. } => {
+                info!("Processing device sync response (Phase 2) - TODO");
+                // TODO: Implement Phase 2 processing
+                Ok(None)
+            }
+
+            DeviceSyncPayload::SyncRecordExchange { .. } => {
+                info!("Processing sync record exchange (Phase 3) - TODO");
+                // TODO: Implement Phase 3 processing
+                Ok(None)
+            }
+
+            DeviceSyncPayload::DeviceRecordRequest { .. } => {
+                info!("Processing device record request (Phase 4) - TODO");
+                // TODO: Implement Phase 4 processing
+                Ok(None)
+            }
+
+            DeviceSyncPayload::DeviceRecordExchange { .. } => {
+                info!("Processing device record exchange (Phase 5) - TODO");
+                // TODO: Implement Phase 5 processing
+                Ok(None)
+            }
+
+            DeviceSyncPayload::Acknowledgment { .. } => {
+                info!("Processing acknowledgment (Phase 6) - TODO");
+                // TODO: Implement Phase 6 processing
+                Ok(None)
+            }
+
+            DeviceSyncPayload::Complete => {
+                info!("Device sync complete");
+                Ok(None)
+            }
+        }
+    }
+
+    /// Process Phase 1: Device Discovery Request
+    #[instrument(
+        skip_all,
+        level = "info"
+    )]
+    async fn process_device_sync_request(
+        &self,
+        record_sets: &[SyncRecordSet],
+        devices: &[Device],
+        user_id: &str,
+        current_device_id: &str,
+    ) -> Result<DeviceSyncPayload, RepositoryError> {
+        info!("Processing device sync request - identifying new devices");
+
+        // Step 1: Identify which devices are new (not in local database)
+        let mut new_devices = Vec::new();
+        let mut new_devices_acknowledged = Vec::new();
+
+        for device in devices {
+            match self.device_repository.find_by_id(&device.id).await {
+                Ok(_) => {
+                    debug!(device_id = %device.id, "Device already exists locally");
+                }
+                Err(RepositoryError::NotFound) => {
+                    debug!(device_id = %device.id, "New device discovered");
+                    new_devices.push(device.clone());
+                    new_devices_acknowledged.push(device.id.clone());
+                }
+                Err(e) => {
+                    error!(error = %e, device_id = %device.id, "Error checking device existence");
+                    return Err(e);
+                }
+            }
+        }
+
+        // Step 2: Store new devices if any
+        if !new_devices.is_empty() {
+            info!(new_device_count = new_devices.len(), "Storing new devices");
+            self.device_repository.save_many(&new_devices).await?;
+        }
+
+        todo!()
+    }
+
 }

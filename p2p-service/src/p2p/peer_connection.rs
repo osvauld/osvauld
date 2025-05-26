@@ -10,7 +10,7 @@ use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -310,6 +310,7 @@ impl PeerConnection {
             Message::Phase(phase) => self.handle_phase_message(phase).await,
             Message::MergeUpdate(payload) => self.process_merge_payload(payload).await,
             Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
+            Message::DeviceSync(payload) => self.process_device_sync_payload(payload).await,
             Message::Disconnect(status) => self.handle_disconnect_message(status).await,
         }
     }

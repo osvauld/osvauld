@@ -146,10 +146,8 @@ pub trait SyncRepository: Send + Sync {
         &self,
         device_id: &str,
         resource_type: &str,
-    ) -> Result<
-        Option<Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>>,
-        RepositoryError,
-    >;
+        operation_type: &str,
+    ) -> Result<Option<Vec<SyncRecordSet>>, RepositoryError>;
 
     async fn get_device_record_by_id(
         &self,
@@ -265,6 +263,10 @@ pub trait DeviceRepository: Send + Sync {
         user_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
     async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError>;
+    async fn get_devices_by_ids(
+        &self,
+        device_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError>;
 }
 
 #[async_trait]

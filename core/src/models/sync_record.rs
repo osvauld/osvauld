@@ -3,6 +3,7 @@ use crate::models::resource::Resource;
 use crate::models::sync_types::{OperationType, ResourceType, SyncMergeResult, SyncStatus};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 pub enum SyncUpdateData {
@@ -48,6 +49,18 @@ pub struct SyncRecordSet {
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
 
+impl SyncRecordSet {
+    /// Extract unique resource IDs from a slice of SyncRecordSet
+    pub fn extract_resource_ids(record_sets: &[SyncRecordSet]) -> Vec<String> {
+        record_sets
+            .iter()
+            .map(|record_set| record_set.sync_record.resource_id.clone())
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect()
+    }
+}
+
 pub struct DeviceRecordSet {
     pub device_records: Vec<DeviceRecord>,
     pub device_record_statuses: Vec<DeviceRecordStatus>,
@@ -70,6 +83,26 @@ pub struct InitialDeviceSyncSet {
     pub device_record_statuses: Vec<DeviceRecordStatus>,
 }
 impl SyncRecord {
+    pub fn create_device_record_statuses(
+        device_record_id: &str,
+        devices: &[Device],
+        current_device_id: &str,
+    ) -> Vec<DeviceRecordStatus> {
+        let mut records = Vec::new();
+
+        let now = Local::now().timestamp_millis();
+        for device in devices {
+            records.push(DeviceRecordStatus {
+                id: Uuid::new_v4().to_string(),
+                device_record_id: device_record_id.to_string(),
+                aware_device_id: device.id.clone(),
+                synced: current_device_id == device.id,
+                created_at: now,
+                updated_at: now,
+            })
+        }
+        records
+    }
     pub fn create_folder_sync_record(
         resource_id: String,
         current_device_id: String,
@@ -469,6 +502,7 @@ impl SyncRecord {
     pub fn create_device_sync_records(
         sync_record_id: String,
         target_devices: &[Device],
+        all_devices: &[Device],
         current_device_id: String,
     ) -> DeviceRecordSet {
         let now = Local::now().timestamp_millis();
@@ -487,26 +521,16 @@ impl SyncRecord {
                 updated_at: now,
             };
 
-            // Create status records for each device record
-            // Current device knows about these records
-            device_record_statuses.push(DeviceRecordStatus {
-                id: Uuid::new_v4().to_string(),
-                device_record_id: device_record.id.clone(),
-                aware_device_id: current_device_id.clone(),
-                synced: true,
-                created_at: now,
-                updated_at: now,
-            });
-
-            // Each target device also needs a status record (starts unaware)
-            device_record_statuses.push(DeviceRecordStatus {
-                id: Uuid::new_v4().to_string(),
-                device_record_id: device_record.id.clone(),
-                aware_device_id: device.id.clone(),
-                synced: false,
-                created_at: now,
-                updated_at: now,
-            });
+            for device in all_devices {
+                device_record_statuses.push(DeviceRecordStatus {
+                    id: Uuid::new_v4().to_string(),
+                    device_record_id: device_record.id.clone(),
+                    aware_device_id: device.id.clone(),
+                    synced: device.id == current_device_id,
+                    created_at: now,
+                    updated_at: now,
+                });
+            }
 
             // Add the device record to our collection
             device_records.push(device_record);

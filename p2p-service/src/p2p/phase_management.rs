@@ -255,11 +255,29 @@ impl PeerConnection {
         self.get_and_send_next_sync().await
     }
 
-    pub async fn start_device_sync(&self) -> Result<(), String> {
-        info!("Starting device sync phase");
-        self.get_and_send_next_sync().await
+pub async fn start_device_sync(&self) -> Result<(), String> {
+    info!("Starting multi-phase device sync");
+    
+    let current_span = tracing::Span::current();
+    
+    // Get Phase 1 payload from sync service for the peer device we're connected to
+    match self
+        .context
+        .sync_service
+        .get_device_sync_request_payload(&self.device.id, current_span)
+        .await
+    {
+        Ok(payload) => {
+            info!("Sending device sync request (Phase 1) for peer device: {}", self.device.id);
+            let message = Message::DeviceSync(payload);
+            self.send_message(message).await
+        }
+        Err(e) => {
+            error!(error = %e, "Failed to get device sync request payload");
+            Err(format!("Failed to get device sync request payload: {}", e))
+        }
     }
-
+}
     #[instrument(skip(self), level = "info")]
     async fn start_resource_sync(&self) -> Result<(), String> {
         info!("Starting resource sync phase");

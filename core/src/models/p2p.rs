@@ -19,7 +19,7 @@ pub enum SyncPayload {
         device: Device,
     },
     UserSync {
-        sync_data: Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>,
+        sync_data: Vec<SyncRecordSet>,
         user_data: Vec<(User, Vec<Device>)>,
     },
     ResourceSync {
@@ -91,7 +91,9 @@ pub enum Message {
     LiveEdit(LiveEditMessage),
     Disconnect(DisconnectStatus),
     FirstDeviceConnection(DeviceConnection),
+    DeviceSync(DeviceSyncPayload),
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
     Request,
@@ -252,4 +254,40 @@ pub enum DeviceConnection {
     Complete {
         device_record_status_ids: Vec<String>,
     },
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum DeviceSyncPayload {
+    Request {
+        record_sets: Vec<SyncRecordSet>,
+        devices: Vec<Device>,
+    },
+
+    Response {
+        record_sets: Vec<SyncRecordSet>,
+        devices: Vec<Device>,
+        new_devices_acknowledged: Vec<String>,
+    },
+
+    SyncRecordExchange {
+        all_sync_record_ids: Vec<String>,
+    },
+
+    DeviceRecordRequest {
+        sync_record_ids: Vec<String>,
+        target_device_ids: Vec<String>,
+    },
+
+    DeviceRecordExchange {
+        device_records: Vec<DeviceRecord>,
+        device_record_statuses: Vec<DeviceRecordStatus>,
+    },
+
+    Acknowledgment {
+        processed_device_record_ids: Vec<String>,
+        processed_status_ids: Vec<String>,
+        conflicts_resolved: Vec<String>,
+    },
+
+    // Final completion signal
+    Complete,
 }

@@ -655,10 +655,8 @@ impl SyncRepository for SqliteSyncRepository {
         &self,
         device_id: &str,
         resource_type: &str,
-    ) -> Result<
-        Option<Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>>,
-        RepositoryError,
-    > {
+        operation_type: &str,
+    ) -> Result<Option<Vec<SyncRecordSet>>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
         // Get all sync records with pending device records for this device and resource type
@@ -667,6 +665,7 @@ impl SyncRepository for SqliteSyncRepository {
             .filter(device_records::device_id.eq(device_id))
             .filter(device_records::synced.eq(false))
             .filter(sync_records::resource_type.eq(resource_type))
+            .filter(sync_records::operation_type.eq(operation_type))
             .select(SyncRecordModel::as_select())
             .distinct()
             .load::<SyncRecordModel>(&mut *conn)
@@ -705,9 +704,13 @@ impl SyncRepository for SqliteSyncRepository {
             // Convert models to domain objects
             let device_records = device_record_models.iter().map(|m| m.to_domain()).collect();
 
-            let device_statuses = status_models.iter().map(|m| m.to_domain()).collect();
+            let device_record_statuses = status_models.iter().map(|m| m.to_domain()).collect();
 
-            result.push((sync_record, device_records, device_statuses));
+            result.push(SyncRecordSet {
+                sync_record,
+                device_records,
+                device_record_statuses,
+            });
         }
 
         Ok(Some(result))

@@ -633,7 +633,7 @@ impl SyncService {
     )]
     async fn process_user_sync(
         &self,
-        sync_data: &Vec<(SyncRecord, Vec<DeviceRecord>, Vec<DeviceRecordStatus>)>,
+        sync_data: &Vec<SyncRecordSet>,
         user_data: &Vec<(User, Vec<Device>)>,
         current_device_id: &str,
         current_user_id: &str,
@@ -711,20 +711,20 @@ impl SyncService {
 
         // Process all sync records
         debug!(sync_data_count = sync_data.len(), "Processing sync records");
-        for (i, (sync_record, device_records, device_record_statuses)) in sync_data.iter().enumerate() {
+        for (i, record_set) in sync_data.iter().enumerate() {
             trace!(
                 index = i,
-                sync_record_id = %sync_record.id,
-                device_records = device_records.len(),
-                status_records = device_record_statuses.len(),
+                sync_record_id = %record_set.sync_record.id,
+                device_records = record_set.device_records.len(),
+                status_records = record_set.device_record_statuses.len(),
                 "Processing sync record"
             );
             
             let (merge_result, record_exists) = match self
                 .prepare_common_sync_data(
-                    sync_record,
-                    device_records,
-                    device_record_statuses,
+                    &record_set.sync_record,
+                    &record_set.device_records,
+                    &record_set.device_record_statuses,
                     current_device_id,
                     all_devices.clone(),
                 )
@@ -741,7 +741,7 @@ impl SyncService {
                     Err(e) => {
                         error!(
                             error = %e,
-                            sync_record_id = %sync_record.id,
+                            sync_record_id = %record_set.sync_record.id,
                             "Failed to prepare common sync data"
                         );
                         return Err(e);
@@ -750,12 +750,12 @@ impl SyncService {
 
             if !record_exists {
                 trace!(
-                    sync_record_id = %sync_record.id,
+                    sync_record_id = %record_set.sync_record.id,
                     "Record doesn't exist, creating sync record set"
                 );
                 // Create sync record set for new records
                 let record_set = SyncRecordSet {
-                    sync_record: sync_record.clone(),
+                    sync_record: record_set.sync_record.clone(),
                     device_records: merge_result.local_operations.records_to_add.clone(),
                     device_record_statuses: merge_result
                         .local_operations
@@ -766,7 +766,7 @@ impl SyncService {
                 record_sets_to_add.push(record_set);
             } else {
                 trace!(
-                    sync_record_id = %sync_record.id,
+                    sync_record_id = %record_set.sync_record.id,
                     "Record exists, storing operations to apply"
                 );
                 // Store operations to apply for existing records
@@ -775,7 +775,7 @@ impl SyncService {
 
             // Combine remote operations
             trace!(
-                sync_record_id = %sync_record.id,
+                sync_record_id = %record_set.sync_record.id,
                 "Combining remote operations"
             );
             combined_remote_operations
@@ -870,7 +870,7 @@ impl SyncService {
     ) -> Result<(SyncMergeResult, bool), RepositoryError> {
         debug!("Preparing common sync data");
         
-        let mut add_sync_record = false;
+        let mut record_exists= false;
         
         // Check if this sync record already exists by ID directly
         debug!("Checking if sync record exists");
@@ -891,7 +891,7 @@ impl SyncService {
         // If the sync record exists, fetch existing device records and statuses
         if existing_record.is_some() {
             debug!("Sync record exists, fetching device records and statuses");
-            add_sync_record = true;
+            record_exists = true;
             
             // Get existing device records and statuses in one call
             let (local_device_records, local_device_statuses) = match self
@@ -935,7 +935,7 @@ impl SyncService {
             );
 
             // Return the merge result directly
-            return Ok((merge_result, add_sync_record));
+            return Ok((merge_result, record_exists));
         }
 
         // If no existing record was found, this is a new sync record
@@ -1011,7 +1011,7 @@ impl SyncService {
         );
         
         info!("Common sync data prepared successfully");
-        Ok((merge_result, add_sync_record))
+        Ok((merge_result, record_exists))
     }
 
 
