@@ -99,10 +99,6 @@
 
 	// Update the preview when props change
 	$effect(() => {
-		// Log to verify props changes are detected
-		console.log(
-			`NotePreview props changed - content length: ${content?.length}, editorState: ${!!editorState}`,
-		);
 
 		// Update the editor content when props change
 		if (view) {

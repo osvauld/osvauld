@@ -1,33 +1,27 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
-
 	// Props
 	interface Props {
 		isVisible: boolean;
 		selectedText?: string;
+		onSave: (content: string) => void;
+		onCancel: () => void;
 	}
 	
-	const { isVisible, selectedText = '' }: Props = $props();
+	const { isVisible, selectedText = '', onSave, onCancel }: Props = $props();
 
 	// State
 	let commentText = $state('');
 	let textareaRef = $state<HTMLTextAreaElement>();
 
-	// Events
-	const dispatch = createEventDispatcher<{
-		save: { content: string };
-		cancel: void;
-	}>();
-
 	function handleSave() {
 		if (commentText.trim()) {
-			dispatch('save', { content: commentText.trim() });
+			onSave(commentText.trim());
 			commentText = '';
 		}
 	}
 
 	function handleCancel() {
-		dispatch('cancel');
+		onCancel();
 		commentText = '';
 	}
 

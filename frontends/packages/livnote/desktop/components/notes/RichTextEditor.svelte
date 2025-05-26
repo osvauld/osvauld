@@ -413,8 +413,7 @@
 		showCommentModal = true;
 	}
 
-	function handleSaveComment(event: CustomEvent) {
-		const { content } = event.detail;
+	function handleSaveComment(content: string) {
 		
 		if (!pendingCommentPosition || !view) {
 			console.error('No pending comment position or view');
@@ -720,6 +719,6 @@
 <CommentModal 
 	isVisible={showCommentModal}
 	selectedText={modalSelectedText}
-	on:save={handleSaveComment}
-	on:cancel={handleCancelComment}
+	onSave={handleSaveComment}
+	onCancel={handleCancelComment}
 />
