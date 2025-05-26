@@ -93,4 +93,96 @@ export interface NoteFolder {
 	name: string;
 	parent_id?: string;
 	created_at?: number;
-} 
+}
+
+// === Comment System Types ===
+
+/**
+ * Position information for comments in the document
+ */
+export interface CommentPosition {
+	from: number;
+	to: number;
+	node_path?: number[]; // Path to the node for resilient positioning
+}
+
+/**
+ * Individual comment within a thread
+ */
+export interface Comment {
+	id: string;
+	thread_id: string;
+	author: UserInfo;
+	content: string;
+	timestamp: number;
+	edited_at?: number;
+	resolved?: boolean;
+}
+
+/**
+ * Comment thread containing multiple comments
+ */
+export interface CommentThread {
+	id: string;
+	comments: Comment[];
+	resolved: boolean;
+	position: CommentPosition;
+	created_at: number;
+	updated_at: number;
+}
+
+/**
+ * Comment creation parameters
+ */
+export interface CreateCommentParams {
+	thread_id?: string; // If replying to existing thread
+	content: string;
+	position?: CommentPosition; // Required for new threads
+}
+
+/**
+ * Comment update parameters
+ */
+export interface UpdateCommentParams {
+	content?: string;
+	resolved?: boolean;
+}
+
+/**
+ * Comment events for real-time collaboration
+ */
+export interface CommentEvent {
+	type: 'comment_added' | 'comment_updated' | 'comment_deleted' | 'thread_resolved' | 'thread_deleted';
+	thread_id: string;
+	comment_id?: string;
+	author: UserInfo;
+	timestamp: number;
+	data?: any;
+}
+
+/**
+ * Comment mark attributes for ProseMirror schema
+ */
+export interface CommentMarkAttrs {
+	threadId: string;
+	commentIds: string[];
+	resolved?: boolean;
+	author?: string;
+}
+
+/**
+ * Comment update callback function signature
+ */
+export type CommentUpdateCallback = (eventData?: any) => void;
+
+/**
+ * Comment event handler map for type-safe event handling
+ */
+export type CommentEventHandlers = {
+	thread_added: CommentUpdateCallback;
+	thread_updated: CommentUpdateCallback;
+	thread_deleted: CommentUpdateCallback;
+	comment_added: CommentUpdateCallback;
+	comment_updated: CommentUpdateCallback;
+	comment_deleted: CommentUpdateCallback;
+}; 

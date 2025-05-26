@@ -285,4 +285,146 @@
 .pseudo-selection {
   background-color: rgba(94, 129, 172, 0.5); /* Example: Use a semi-transparent blue */
   /* You might need !important depending on specificity, but try without first */
+}
+
+/* === Comment System Styles === */
+
+/* Comment highlighting - only works in our app */
+.livnote-comment-highlight {
+  border-bottom: 2px solid #ffd700;
+  background: rgba(255, 215, 0, 0.1);
+  position: relative;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.livnote-comment-highlight:hover {
+  background: rgba(255, 215, 0, 0.2);
+}
+
+/* Resolved comments styling */
+.livnote-comment-highlight.resolved {
+  border-bottom: 2px solid #666;
+  background: rgba(102, 102, 102, 0.1);
+}
+
+.livnote-comment-highlight.resolved:hover {
+  background: rgba(102, 102, 102, 0.15);
+}
+
+/* Comment indicator dot */
+.livnote-comment-highlight::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  background: #ffd700;
+  border-radius: 50%;
+  border: 1px solid #16171f;
+  z-index: 10;
+}
+
+/* Multiple comments indicators */
+.livnote-comment-highlight[data-livnote-comment-count="2"]::after {
+  background: #ff9800;
+}
+
+.livnote-comment-highlight[data-livnote-comment-count="3"]::after,
+.livnote-comment-highlight[data-livnote-comment-count="4"]::after,
+.livnote-comment-highlight[data-livnote-comment-count="5"]::after {
+  background: #f44336;
+}
+
+/* Hide indicator dot for resolved comments */
+.livnote-comment-highlight.resolved::after {
+  display: none;
+}
+
+/* Hide comment formatting when printing or copying */
+@media print {
+  .livnote-comment-highlight {
+    border-bottom: none !important;
+    background: transparent !important;
+  }
+  
+  .livnote-comment-highlight::after {
+    display: none !important;
+  }
+}
+
+/* Ensure comment marks don't interfere with text selection */
+.livnote-comment-highlight[data-copying="true"] {
+  border-bottom: none;
+  background: transparent;
+}
+
+/* Comment highlighting animation for reverse selection */
+.livnote-comment-highlight.comment-text-highlight {
+    animation: commentTextBlink 3s ease-in-out;
+}
+
+@keyframes commentTextBlink {
+    0% { 
+        background: rgba(255, 215, 0, 0.8);
+        transform: scale(1.1);
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+    }
+    10% { 
+        background: rgba(255, 215, 0, 0.2);
+        transform: scale(1);
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+    20% { 
+        background: rgba(255, 215, 0, 0.8);
+        transform: scale(1.08);
+        box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+    }
+    30% { 
+        background: rgba(255, 215, 0, 0.2);
+        transform: scale(1);
+        box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);
+    }
+    40% { 
+        background: rgba(255, 215, 0, 0.6);
+        transform: scale(1.05);
+        box-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
+    }
+    50% { 
+        background: rgba(255, 215, 0, 0.1);
+        transform: scale(1);
+        box-shadow: none;
+    }
+    60% { 
+        background: rgba(255, 215, 0, 0.4);
+        transform: scale(1.02);
+        box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+    }
+    70% { 
+        background: rgba(255, 215, 0, 0.1);
+        transform: scale(1);
+        box-shadow: none;
+    }
+    80% { 
+        background: rgba(255, 215, 0, 0.2);
+        transform: scale(1.01);
+        box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);
+    }
+    90% { 
+        background: rgba(255, 215, 0, 0.05);
+        transform: scale(1);
+        box-shadow: none;
+    }
+    100% { 
+        background: transparent;
+        transform: scale(1);
+        box-shadow: none;
+    }
+}
+
+/* Override copying behavior */
+.livnote-comment-highlight[data-copying="true"] {
+    border-bottom: none !important;
+    background: transparent !important;
 } 

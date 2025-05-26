@@ -84,6 +84,18 @@ export function floatingMenuPlugin(schema: Schema) {
       );
       buttonsContainer.appendChild(linkButton);
     }
+    
+    // Add Comment Button
+    if (schema.marks.comment) {
+      const commentButton = createButton("Add Comment", 
+        `<svg width="16" height="16" viewBox="0 0 24 24" fill="#85889C">
+          <path d="M21.99 4c0-1.1-.89-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.89 2 2 2h14l4 4-.01-18z"/>
+        </svg>`, 
+        "comment", 
+        handleCommentButtonClick
+      );
+      buttonsContainer.appendChild(commentButton);
+    }
     menu.appendChild(buttonsContainer);
 
     // --- Link Input Container (initially hidden) ---
@@ -196,6 +208,41 @@ export function floatingMenuPlugin(schema: Schema) {
     
     switchToButtonsMode();
     hideMenu(); // Hide menu after action is done
+  }
+
+  // --- Event Handlers for Comment UI ---
+  function handleCommentButtonClick() {
+    if (!view) return;
+    
+    const { state } = view;
+    const { selection } = state;
+    
+    if (selection.empty) {
+      console.warn("No text selected for commenting");
+      return;
+    }
+
+    // Get the selected text to show in the modal
+    const selectedText = state.doc.textBetween(selection.from, selection.to, ' ');
+
+    // Dispatch a custom event to open the comment modal
+    const commentEvent = new CustomEvent('open-comment-modal', {
+      detail: {
+        selectedText,
+        position: {
+          from: selection.from,
+          to: selection.to
+        }
+      }
+    });
+    document.dispatchEvent(commentEvent);
+
+    hideMenu();
+  }
+
+  // Helper function to generate unique thread IDs
+  function generateThreadId(): string {
+    return 'thread_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
 
   // Helper to create a button (now includes markType for state updates)

@@ -93,7 +93,6 @@ class DataState {
       const fetchedNotes = await sendMessage("getAllCredentials");
       // Filter for valid notes
       this.notes = fetchedNotes;
-      console.log(fetchedNotes);
     } catch (error) {
       console.error("Error fetching notes:", error);
       this.notes = [];
@@ -237,14 +236,12 @@ class DataState {
     }
   }
 
-  handleResourceAdded(event) {
+  handleResourceAdded(event: any) {
     const resource = event.payload;
     this.notes = [...this.notes, resource];
-    console.log("Added new resource:", resource.id);
   }
 
-  handleResourceUpdate(event) {
-    console.log("Received resource-update event:", event);
+  handleResourceUpdate(event: any) {
     const updatedResource = event.payload;
     const resourceIndex = this.notes.findIndex(note => note.id === updatedResource.id);
 
@@ -262,14 +259,12 @@ class DataState {
       }
     } else {
       // If the resource doesn't exist in the notes array, add it
-      console.log("Updated resource not found in notes array, adding it");
       this.notes = [...this.notes, updatedResource];
     }
   }
 
-  async handleDocumentUpdates(event) {
+  async handleDocumentUpdates(event: any) {
     try {
-      console.log("Received document-updates event:", event);
       const { resource_id, updates } = event.payload;
 
       // Find the note with this resource ID
@@ -280,14 +275,10 @@ class DataState {
         return;
       }
 
-      // Log whether this is the current note
-      const isCurrentNote = this.currentNote?.id === resource_id;
-      console.log(`Found note with ID ${resource_id}, isCurrentNote: ${isCurrentNote}`);
-
       // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
 
-      if (isCurrentNote && notesInstance) {
+      if (notesInstance) {
         // If this is the current note, apply the updates directly to the editor
         console.log("Applying updates directly to current editor");
         notesInstance.applyUpdate(updatesArray, 0);
