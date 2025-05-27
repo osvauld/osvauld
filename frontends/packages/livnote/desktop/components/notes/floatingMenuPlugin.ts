@@ -377,6 +377,13 @@ export function floatingMenuPlugin(schema: Schema) {
       return;
     }
     
+    // Check if the selection contains any actual text content
+    const selectedText = state.doc.textBetween(selection.from, selection.to, ' ');
+    if (!selectedText.trim()) {
+      hideMenu();
+      return;
+    }
+    
     // Update button states *before* positioning and showing
     if (currentMode === "buttons") {
       updateButtonStates(editorView);
