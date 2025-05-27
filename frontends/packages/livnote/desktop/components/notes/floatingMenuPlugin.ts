@@ -488,6 +488,15 @@ export function floatingMenuPlugin(schema: Schema) {
       // Add event listeners
       document.addEventListener("mousedown", handleClickOutside, true); // Use capture phase
       editorView.dom.addEventListener("scroll", handleScroll);
+      
+      // Find the actual scrolling container - look for the element with scrollbar-thin class
+      // which is the direct parent of the ProseMirror editor
+      const actualScrollContainer = editorView.dom.parentElement;
+      if (actualScrollContainer && actualScrollContainer.classList.contains('scrollbar-thin')) {
+        actualScrollContainer.addEventListener("scroll", handleScroll);
+      }
+      
+      // Also add to .editor-main as fallback
       const editorContainer = editorView.dom.closest(".editor-main");
       if (editorContainer) {
         editorContainer.addEventListener("scroll", handleScroll);
@@ -518,6 +527,14 @@ export function floatingMenuPlugin(schema: Schema) {
         destroy() {
           document.removeEventListener("mousedown", handleClickOutside, true);
           editorView.dom.removeEventListener("scroll", handleScroll);
+          
+          // Remove from actual scroll container
+          const actualScrollContainer = editorView.dom.parentElement;
+          if (actualScrollContainer && actualScrollContainer.classList.contains('scrollbar-thin')) {
+            actualScrollContainer.removeEventListener("scroll", handleScroll);
+          }
+          
+          // Remove from .editor-main
           const editorContainer = editorView.dom.closest(".editor-main");
           if (editorContainer) {
             editorContainer.removeEventListener("scroll", handleScroll);
