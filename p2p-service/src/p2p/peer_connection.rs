@@ -10,7 +10,7 @@ use osvauld_core::models::user::User;
 use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -290,13 +290,6 @@ impl PeerConnection {
             }
             Message::AckComplete(device_sync_record_ids) => {
                 self.ack_complete(device_sync_record_ids.clone()).await
-            }
-            Message::SyncEvent { event, payload } => {
-                info!("Received SyncEvent: {:?}", event);
-                self.event_emitter.emit(P2PEvent::EditingEvent {
-                    payload: payload.clone(),
-                });
-                Ok(())
             }
             Message::UserConnection(payload) => self.process_user_connection_payload(payload).await,
             Message::Error => {

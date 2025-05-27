@@ -21,6 +21,29 @@ pub struct EventManager {
     rendezvous_service: Arc<RendezvousService>,
 }
 
+#[derive(Debug, Clone)]
+enum UpdateType {
+    SyncUpdate,
+    AwarenessUpdate,
+}
+
+impl UpdateType {
+    fn event_name(&self) -> &'static str {
+        match self {
+            UpdateType::SyncUpdate => "sync-update",
+            UpdateType::AwarenessUpdate => "awareness-update",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            UpdateType::SyncUpdate => "sync update",
+            UpdateType::AwarenessUpdate => "awareness update",
+        }
+    }
+}
+
+
 impl EventManager {
     /// Create a new EventManager that handles bidirectional events
     pub fn new(
@@ -55,10 +78,135 @@ impl EventManager {
 
     /// Set up listeners for Tauri events
     fn setup_tauri_listeners(&self) {
-        self.setup_sync_update_listener();
+        self.setup_update_listener(UpdateType::SyncUpdate);
+        self.setup_update_listener(UpdateType::AwarenessUpdate);
         self.setup_note_change_listener();
         self.setup_resource_update_complete_listener();
     }
+fn setup_update_listener(&self, update_type: UpdateType) {
+        let p2p_sender = self.p2p_sender.clone();
+        let current_note_state = self.current_note_state.clone();
+        let event_name = update_type.event_name();
+        let description = update_type.description();
+
+        self.app_handle.listen(event_name, move |event| {
+            let payload_str = event.payload();
+            let update_type = update_type.clone();
+            let p2p_sender = p2p_sender.clone();
+            let current_note_state = current_note_state.clone();
+
+            // Try to parse the payload to extract update data and resource_id
+            match serde_json::from_str::<Value>(&payload_str) {
+                Ok(payload) => {
+                    if let (Some(update), Some(resource_id), Some(client_id)) = (
+                        payload.get("update").and_then(|u| u.as_array()),
+                        payload.get("resource_id").and_then(|r| r.as_str()),
+                        payload.get("clientID").and_then(|c| c.as_u64()),
+                    ) {
+                        // Check if this update is for the current note
+                        if let Some(current_id) = current_note_state.get_current_note() {
+                            if current_id == resource_id {
+                                // Convert update array to Vec<u8>
+                                let update_bytes: Vec<u8> = update
+                                    .iter()
+                                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                                    .collect();
+
+                                if !update_bytes.is_empty() {
+                                    // Handle sync updates differently - they need buffer management
+                                    if matches!(update_type, UpdateType::SyncUpdate) {
+                                        let note_state = current_note_state.clone();
+                                        let resource_id_clone = resource_id.to_string();
+                                        
+                                        let update_bytes_clone = update_bytes.clone();
+                                        // Update the buffer with the new state (only for sync updates)
+                                        tokio::spawn(async move {
+                                            info!("Applying {} bytes of {} to Yjs buffer", update_bytes_clone.clone().len(), description);
+                                            note_state.merge_to_current(update_bytes_clone.clone()).await;
+                                            info!("Updated Yjs state buffer for note: {}", resource_id_clone);
+                                        });
+                                    }
+
+                                    // Broadcast to active connections (both sync and awareness)
+                                    Self::broadcast_update_to_connections(
+                                        &p2p_sender,
+                                        &current_note_state,
+                                        &update_type,
+                                        resource_id.to_string(),
+                                        client_id as u32,
+                                        update_bytes,
+                                        description,
+                                    );
+                                } else {
+                                    info!("Empty update array received for {} on note: {}", description, resource_id);
+                                }
+                            } else {
+                                info!("Ignoring {} for non-active note: {}", description, resource_id);
+                            }
+                        } else {
+                            info!("Received {} but no active note set: {}", description, resource_id);
+                        }
+                    } else {
+                        error!("Missing update, resource_id, or clientID in {} payload", description);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to parse {} payload: {}", description, e);
+                }
+            }
+        });
+    }
+
+    // Helper function to broadcast updates to active connections
+    fn broadcast_update_to_connections(
+        p2p_sender: &P2PSender,
+        current_note_state: &CurrentNoteState,
+        update_type: &UpdateType,
+        resource_id: String,
+        client_id: u32,
+        update_bytes: Vec<u8>,
+        description: &str,
+    ) {
+        let active_connections = current_note_state.get_active_connections();
+        if !active_connections.is_empty() {
+            info!(
+                "Broadcasting {} to {} active connections",
+                description,
+                active_connections.len()
+            );
+
+            let result = match update_type {
+                UpdateType::SyncUpdate => {
+                    p2p_sender.send_sync_update_to_connections(
+                        resource_id,
+                        client_id,
+                        update_bytes,
+                        active_connections,
+                    )
+                }
+                UpdateType::AwarenessUpdate => {
+                    p2p_sender.send_awareness_update_to_connections(
+                        resource_id,
+                        client_id,
+                        update_bytes,
+                        active_connections,
+                    )
+                }
+            };
+
+            match result {
+                Ok(_) => {
+                    info!("Successfully broadcasted {} to all active connections", description);
+                }
+                Err(e) => {
+                    error!("Failed to broadcast {}: {}", description, e);
+                }
+            }
+        } else {
+            info!("No active connections to broadcast {} to", description);
+        }
+    }
+
     /// Setup listener for resource-update-complete events
     fn setup_resource_update_complete_listener(&self) {
         let current_note_state = self.current_note_state.clone();
@@ -206,82 +354,6 @@ impl EventManager {
     }
 
     /// Setup listener for sync-update events
-    fn setup_sync_update_listener(&self) {
-        let p2p_sender = self.p2p_sender.clone();
-        let current_note_state = self.current_note_state.clone();
-
-        self.app_handle.listen("sync-update", move |event| {
-            let payload_str = event.payload();
-
-            // Try to parse the payload to extract update data and resource_id
-            match serde_json::from_str::<Value>(&payload_str) {
-                Ok(payload) => {
-                    if let (Some(update), Some(resource_id)) = (
-                        payload.get("update").and_then(|u| u.as_array()),
-                        payload.get("resource_id").and_then(|r| r.as_str()),
-                    ) {
-                        // Check if this update is for the current note
-                        if let Some(current_id) = current_note_state.get_current_note() {
-                            info!("current id is {}", current_id);
-                            if current_id == resource_id {
-                                // Convert update array to Vec<u8>
-                                let update_bytes: Vec<u8> = update
-                                    .iter()
-                                    .filter_map(|v| v.as_u64().map(|n| n as u8))
-                                    .collect();
-
-                                if !update_bytes.is_empty() {
-                                      let note_state = current_note_state.clone();
-                                let resource_id_clone = resource_id.to_string();
-                                    // Update the buffer with the new state
-                                     tokio::spawn(async move {
-                                    info!("Applying {} bytes of updates to Yjs buffer", update_bytes.len());
-                                    
-                                    // Now we can properly await the async function
-                                    note_state.merge_to_current(update_bytes).await;
-                                    
-                                    info!("Updated Yjs state buffer for note: {}", resource_id_clone);
-                                });
-                                } else {
-                                    info!("Empty update array received for note: {}", resource_id);
-                                }
-                            } else {
-                                info!("Ignoring update for non-active note: {}", resource_id);
-                            }
-                        } else {
-                            info!("Received update but no active note set: {}", resource_id);
-                        }
-                    } else {
-                        error!("Missing update or resource_id in sync-update payload");
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to parse sync-update payload: {}", e);
-                }
-            }
-
-            // Get active connections from current note state
-            let active_connections = current_note_state.get_active_connections();
-            if !active_connections.is_empty() {
-                info!(
-                    "Broadcasting sync update to {} active connections",
-                    active_connections.len()
-                );
-
-                // Forward the event to P2P service for all active connections
-                if let Err(e) = p2p_sender
-                    .send_sync_update_to_connections(payload_str.to_string(), active_connections)
-                {
-                    error!("Failed to broadcast sync update: {}", e);
-                } else {
-                    info!("Successfully broadcasted sync update to all active connections");
-                }
-            } else {
-                info!("No active connections to broadcast update to");
-            }
-        });
-    }
-    /// Listen for P2P events and forward them to Tauri
     async fn listen_for_p2p_events(&mut self) {
         info!("Started listening for P2P events");
 
@@ -292,7 +364,8 @@ impl EventManager {
                 P2PEvent::HandshakeFailed { error } => self.handle_handshake_failed_event(error),
                 P2PEvent::SyncComplete => self.handle_sync_complete_event(),
                 P2PEvent::ShareComplete => self.handle_share_complete_event(),
-                P2PEvent::EditingEvent { payload } => self.handle_editing_event(payload),
+                P2PEvent::EditingEvent{ resource_id, client_id, updates} => self.handle_editing_event(resource_id, client_id, updates).await,
+                P2PEvent::AwarenessEvent { resource_id, client_id, awareness_data } => self.handle_awareness_event(resource_id, client_id, awareness_data).await,
                 P2PEvent::Error { message, source } => self.handle_error_event(message, source),
                 P2PEvent::UpdatesEvent {
                     resource_id,
@@ -738,11 +811,89 @@ impl EventManager {
         }
     }
 
-    /// Handle editing event
-    fn handle_editing_event(&self, payload: String) {
-        info!("Received editing event");
-        if let Err(e) = self.app_handle.emit("sync-update-be", payload) {
-            error!("Failed to emit sync-update-be event: {}", e);
+     async fn handle_editing_event(
+        &self,
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+    ) {
+        info!(
+            "Received editing event for resource {}, from client {}, with {} bytes",
+            resource_id, client_id, updates.len()
+        );
+
+        // Check if this is for the current document
+        let current_note_state = self.current_note_state.clone();
+        if let Some(current_resource_id) = current_note_state.get_current_note() {
+            if current_resource_id != resource_id {
+                info!(
+                    "Received editing event for non-active document: {}, current is {}",
+                    resource_id, current_resource_id
+                );
+                return;
+            }
+
+            // Create payload for frontend
+            let payload = serde_json::json!({
+                "resource_id": resource_id,
+                "updates": updates,
+                "client_id": client_id.to_string()
+            });
+
+            // Emit to the frontend for direct application to the ProseMirror document
+            if let Err(e) = self.app_handle.emit("live-updates", payload) {
+                error!("Failed to emit document-updates event: {}", e);
+            } else {
+                info!(
+                    "Successfully emitted document-updates event for resource: {}",
+                    resource_id
+                );
+            }
+        } else {
+            info!("No active document, ignoring editing event");
+        }
+    }
+
+    async fn handle_awareness_event(
+        &self,
+        resource_id: String,
+        client_id: u32,
+        awareness_data: Vec<u8>,
+    ) {
+        info!(
+            "Received awareness event for resource {}, from client {}, with {} bytes",
+            resource_id, client_id, awareness_data.len()
+        );
+
+        // Check if this is for the current document
+        let current_note_state = self.current_note_state.clone();
+        if let Some(current_resource_id) = current_note_state.get_current_note() {
+            if current_resource_id != resource_id {
+                info!(
+                    "Received awareness event for non-active document: {}, current is {}",
+                    resource_id, current_resource_id
+                );
+                return;
+            }
+
+            // Create payload for frontend with client_id as string for consistency with existing code
+            let payload = serde_json::json!({
+                "resource_id": resource_id,
+                "updates": awareness_data,
+                "client_id": client_id.to_string()
+            });
+
+            // Emit to the frontend for application to awareness
+            if let Err(e) = self.app_handle.emit("awareness-updates", payload) {
+                error!("Failed to emit awareness-updates event: {}", e);
+            } else {
+                info!(
+                    "Successfully emitted awareness-updates event for resource: {}",
+                    resource_id
+                );
+            }
+        } else {
+            info!("No active document, ignoring awareness event");
         }
     }
 

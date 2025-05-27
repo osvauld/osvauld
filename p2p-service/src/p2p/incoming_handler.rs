@@ -1,5 +1,5 @@
-use crate::p2p::P2PService;
 use crate::p2p::incoming::IncomingEvent;
+use crate::p2p::P2PService;
 use osvauld_core::models::p2p::{LiveEditMessage, Message};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
@@ -20,12 +20,36 @@ impl P2PService {
                 match event {
                     IncomingEvent::SyncUpdateBroadcast {
                         connection_ids,
-                        payload,
+                        resource_id,
+                        client_id,
+                        updates,
                     } => {
                         service
-                            .handle_sync_update_broadcast(payload, connection_ids)
+                            .handle_sync_update_broadcast(
+                                connection_ids,
+                                resource_id,
+                                client_id,
+                                updates,
+                            )
                             .await;
                     }
+
+                    IncomingEvent::AwarenessUpdateBroadcast {
+                        connection_ids,
+                        resource_id,
+                        client_id,
+                        awareness_data,
+                    } => {
+                        service
+                            .handle_awareness_update_broadcast(
+                                connection_ids,
+                                resource_id,
+                                client_id,
+                                awareness_data,
+                            )
+                            .await;
+                    }
+
                     IncomingEvent::LiveEditDocumentCheck {
                         connection_id,
                         resource_id,
@@ -364,69 +388,6 @@ impl P2PService {
         }
     }
 
-    #[instrument(skip(self, payload, connection_ids), fields(connections_count = connection_ids.len()), level = "info")]
-    pub async fn handle_sync_update_broadcast(&self, payload: String, connection_ids: Vec<String>) {
-        info!(
-            "Processing sync-update-broadcast event for {} connections",
-            connection_ids.len()
-        );
-
-        if connection_ids.is_empty() {
-            warn!("Empty connection IDs list, no broadcast performed");
-            return;
-        }
-
-        // Get the connections from the connection manager
-        let connections = self.get_connections_by_ids(&connection_ids).await;
-
-        if connections.is_empty() {
-            warn!("No valid connections found for broadcasting");
-            return;
-        }
-
-        info!("Broadcasting to {} active connections", connections.len());
-
-        // Create a message for the update
-        let message = Message::SyncEvent {
-            event: "sync-update".to_string(),
-            payload: payload.clone(),
-        };
-
-        let mut success_count = 0;
-        let mut errors = Vec::new();
-        let connections_len = connections.len();
-        // Send to each connection
-        for connection in connections {
-            let conn_id = connection.get_id();
-            debug!("Sending sync update to: {}", conn_id);
-
-            match connection.send_message(message.clone()).await {
-                Ok(_) => {
-                    success_count += 1;
-                    debug!("Successfully sent update to connection: {}", conn_id);
-                }
-                Err(e) => {
-                    let error_msg = format!("Failed to send to {}: {}", conn_id, e);
-                    error!("{}", error_msg);
-                    errors.push(error_msg);
-                }
-            }
-        }
-
-        if errors.is_empty() {
-            info!(
-                "Broadcast completed successfully to all {} connections",
-                success_count
-            );
-        } else {
-            error!(
-                "Broadcast partially successful: {}/{} connections succeeded, errors: {}",
-                success_count,
-                connections_len,
-                errors.join(", ")
-            );
-        }
-    }
     #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id), level = "info")]
     pub async fn handle_document_changed(&self, connection_id: String, resource_id: String) {
         info!(
@@ -462,5 +423,138 @@ impl P2PService {
                 error!("Failed to get connection {}: {}", connection_id, e);
             }
         }
+    }
+    #[instrument(skip(self, connection_ids, message), fields(connections_count = connection_ids.len(), message_type = %message_type), level = "info")]
+    async fn broadcast_live_edit_message(
+        &self,
+        connection_ids: Vec<String>,
+        message: Message,
+        message_type: &str,
+        resource_id: &str,
+        client_id: u32,
+    ) {
+        info!(
+            "Processing {} broadcast for resource {} from client {} to {} connections",
+            message_type,
+            resource_id,
+            client_id,
+            connection_ids.len()
+        );
+
+        if connection_ids.is_empty() {
+            warn!(
+                "Empty connection IDs list, no {} broadcast performed",
+                message_type
+            );
+            return;
+        }
+
+        // Get the connections from the connection manager
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+
+        if connections.is_empty() {
+            warn!(
+                "No valid connections found for {} broadcasting",
+                message_type
+            );
+            return;
+        }
+
+        info!(
+            "Broadcasting {} to {} active connections",
+            message_type,
+            connections.len()
+        );
+
+        let mut success_count = 0;
+        let mut errors = Vec::new();
+        let connections_len = connections.len();
+
+        // Send to each connection
+        for connection in connections {
+            let conn_id = connection.get_id();
+            debug!("Sending {} to: {}", message_type, conn_id);
+
+            match connection.send_message(message.clone()).await {
+                Ok(_) => {
+                    success_count += 1;
+                    debug!(
+                        "Successfully sent {} to connection: {}",
+                        message_type, conn_id
+                    );
+                }
+                Err(e) => {
+                    let error_msg =
+                        format!("Failed to send {} to {}: {}", message_type, conn_id, e);
+                    error!("{}", error_msg);
+                    errors.push(error_msg);
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            info!(
+                "{} broadcast completed successfully to all {} connections",
+                message_type, success_count
+            );
+        } else {
+            error!(
+                "{} broadcast partially successful: {}/{} connections succeeded, errors: {}",
+                message_type,
+                success_count,
+                connections_len,
+                errors.join(", ")
+            );
+        }
+    }
+
+    // Simplified sync update handler using the generic function
+    #[instrument(skip(self, updates, connection_ids), fields(connections_count = connection_ids.len()), level = "info")]
+    pub async fn handle_sync_update_broadcast(
+        &self,
+        connection_ids: Vec<String>,
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+    ) {
+        let message = Message::LiveEdit(LiveEditMessage::DocumentUpdate {
+            resource_id: resource_id.clone(),
+            client_id,
+            updates,
+        });
+
+        self.broadcast_live_edit_message(
+            connection_ids,
+            message,
+            "sync update",
+            &resource_id,
+            client_id,
+        )
+        .await;
+    }
+
+    // Simplified awareness update handler using the generic function
+    #[instrument(skip(self, awareness_data, connection_ids), fields(connections_count = connection_ids.len()), level = "info")]
+    pub async fn handle_awareness_update_broadcast(
+        &self,
+        connection_ids: Vec<String>,
+        resource_id: String,
+        client_id: u32,
+        awareness_data: Vec<u8>,
+    ) {
+        let message = Message::LiveEdit(LiveEditMessage::AwarenessUpdate {
+            resource_id: resource_id.clone(),
+            client_id,
+            awareness_data,
+        });
+
+        self.broadcast_live_edit_message(
+            connection_ids,
+            message,
+            "awareness update",
+            &resource_id,
+            client_id,
+        )
+        .await;
     }
 }

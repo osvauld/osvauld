@@ -7,7 +7,7 @@ use osvauld_core::models::p2p::{
 };
 
 use super::P2PEvent;
-use tracing::{Span, debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, Span};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {
@@ -479,6 +479,30 @@ impl PeerConnection {
                     connection_id: self.get_id(),
                 });
 
+                Ok(())
+            }
+            LiveEditMessage::DocumentUpdate {
+                updates,
+                resource_id,
+                client_id,
+            } => {
+                self.event_emitter.emit(P2PEvent::EditingEvent {
+                    updates: updates.to_vec(),
+                    resource_id: resource_id.to_string(),
+                    client_id: client_id.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::AwarenessUpdate {
+                resource_id,
+                client_id,
+                awareness_data,
+            } => {
+                self.event_emitter.emit(P2PEvent::AwarenessEvent {
+                    awareness_data: awareness_data.to_vec(),
+                    resource_id: resource_id.to_string(),
+                    client_id: client_id.clone(),
+                });
                 Ok(())
             }
         }

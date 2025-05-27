@@ -4,10 +4,6 @@ use tokio::sync::mpsc;
 #[derive(Debug)]
 pub enum IncomingEvent {
     /// Sent when a sync update occurs
-    SyncUpdateBroadcast {
-        connection_ids: Vec<String>,
-        payload: String,
-    },
     LiveEditDocumentCheck {
         connection_id: String,
         resource_id: String,
@@ -39,6 +35,19 @@ pub enum IncomingEvent {
         resource_id: String,
         buffer: Vec<u8>,
     },
+    SyncUpdateBroadcast {
+        connection_ids: Vec<String>,
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+    },
+
+    AwarenessUpdateBroadcast {
+        connection_ids: Vec<String>,
+        resource_id: String,
+        client_id: u32,
+        awareness_data: Vec<u8>,
+    },
 }
 
 /// Sender for incoming events to be processed by the P2P service
@@ -61,16 +70,6 @@ impl P2PSender {
             .map_err(|e| format!("Failed to send event: {}", e))
     }
 
-    pub fn send_sync_update_to_connections(
-        &self,
-        payload: String,
-        connection_ids: Vec<String>,
-    ) -> Result<(), String> {
-        self.send(IncomingEvent::SyncUpdateBroadcast {
-            payload,
-            connection_ids,
-        })
-    }
     pub fn send_live_edit_document_check(
         &self,
         connection_id: String,
@@ -146,6 +145,35 @@ impl P2PSender {
             connection_id,
             resource_id,
             buffer,
+        })
+    }
+    pub fn send_sync_update_to_connections(
+        &self,
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+        connection_ids: Vec<String>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::SyncUpdateBroadcast {
+            resource_id,
+            client_id,
+            updates,
+            connection_ids,
+        })
+    }
+
+    pub fn send_awareness_update_to_connections(
+        &self,
+        resource_id: String,
+        client_id: u32,
+        awareness_data: Vec<u8>,
+        connection_ids: Vec<String>,
+    ) -> Result<(), String> {
+        self.send(IncomingEvent::AwarenessUpdateBroadcast {
+            resource_id,
+            client_id,
+            awareness_data,
+            connection_ids,
         })
     }
 }
