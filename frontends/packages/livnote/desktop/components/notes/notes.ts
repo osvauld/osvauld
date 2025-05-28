@@ -439,6 +439,11 @@ export class Notes {
         font-size: inherit; /* Inherit font size from pre */
         /* font-family is likely already monospace via pre or global styles */
       }
+
+      /* Hide ProseMirror separator and trailing break elements that cause line height issues */
+      .ProseMirror-separator {
+        display: none !important;
+      }
     `;
     document.head.appendChild(styleElement);
   }

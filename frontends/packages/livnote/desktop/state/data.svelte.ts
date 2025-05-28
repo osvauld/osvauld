@@ -229,7 +229,7 @@ class DataState {
 
       if (notesInstance) {
         // Apply the awareness updates to the current editor
-        console.log(`Applying awareness updates from client ${senderId} for resource ${resource_id}`);
+        // console.log(`Applying awareness updates from client ${senderId} for resource ${resource_id}`);
         notesInstance.applyAwarenessUpdate(updatesArray, senderId);
       } else {
         console.warn("Notes instance not available for awareness updates");
@@ -257,7 +257,7 @@ class DataState {
 
       if (notesInstance) {
         // Apply the live updates directly to the current editor
-        console.log(`Applying live updates from client ${senderId} to current editor for resource ${resource_id}`);
+        // console.log(`Applying live updates from client ${senderId} to current editor for resource ${resource_id}`);
         notesInstance.applyUpdate(updatesArray, senderId);
 
         // No need to save here - the editor handles auto-save
