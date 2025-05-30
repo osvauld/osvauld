@@ -6,7 +6,7 @@ import { DOMParser } from "prosemirror-model";
  * Creates a ProseMirror plugin that handles clipboard content
  * using the navigator.clipboard API
  */
-export function clipboardImagePlugin() {
+export function pasteHandlerPlugin() {
   return new Plugin({
     props: {
       handlePaste: (view: EditorView, event: ClipboardEvent) => {
@@ -37,7 +37,7 @@ export function clipboardImagePlugin() {
         })(); // Immediately invoke the async function
 
         // Let ProseMirror continue for now; async task will prevent default if handled
-        return false;
+        return true; // Indicate that the plugin will handle the paste
       }
     }
   });
@@ -362,5 +362,4 @@ async function readBlobHeader(blob: Blob, bytesToRead: number): Promise<Uint8Arr
     const slicedBlob = blob.slice(0, bytesToRead);
     reader.readAsArrayBuffer(slicedBlob);
   });
-}
-
+} 

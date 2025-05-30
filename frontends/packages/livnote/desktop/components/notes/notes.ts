@@ -10,7 +10,7 @@ import { EditorState } from "prosemirror-state";
 import { slashCommandPlugin } from "./slashCommandPlugin";
 import { fixedMenuPlugin } from "./fixedMenuPlugin";
 import { floatingMenuPlugin } from "./floatingMenuPlugin";
-import { clipboardImagePlugin } from "./clipboardImagePlugin";
+import { pasteHandlerPlugin } from "./pasteHandlerPlugin";
 import {
   wrapInList,
   splitListItem,
@@ -599,7 +599,7 @@ export class Notes {
         schema: this.editorSchema,
         doc: doc,
         plugins: [
-          clipboardImagePlugin(),
+          pasteHandlerPlugin(),
           slashCommandPlugin(this.editorSchema),
           listKeymap,
           hardBreakKeymap,
