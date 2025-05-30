@@ -276,6 +276,64 @@ async function handleHtmlContent(view: EditorView, html: string): Promise<void> 
     const domElement = document.createElement('div');
     domElement.innerHTML = html;
 
+    // Pre-processing step for links wrapped in underline spans
+    const spansToProcess = domElement.querySelectorAll('span[style*="text-decoration"]');
+    spansToProcess.forEach(span => {
+      if (span instanceof HTMLElement && span.style.textDecoration.includes('underline')) {
+        // Check if the span's only significant child is a single <a> tag
+        let childLinkElement: HTMLAnchorElement | null = null;
+        let hasOtherSignificantContent = false;
+
+        const significantChildNodes = Array.from(span.childNodes).filter(node => {
+          if (node.nodeType === Node.ELEMENT_NODE) return true;
+          if (node.nodeType === Node.TEXT_NODE && node.textContent?.trim()) return true;
+          return false;
+        });
+
+        if (significantChildNodes.length === 1 && 
+            significantChildNodes[0].nodeName === 'A' && 
+            (significantChildNodes[0] as HTMLAnchorElement).hasAttribute('href')) {
+          childLinkElement = significantChildNodes[0] as HTMLAnchorElement;
+        } else {
+          hasOtherSignificantContent = true;
+        }
+
+        if (childLinkElement && !hasOtherSignificantContent) {
+          const newLink = childLinkElement.cloneNode(true) as HTMLAnchorElement;
+          
+          let existingLinkStyle = newLink.getAttribute('style') || '';
+          if (existingLinkStyle && !existingLinkStyle.trim().endsWith(';')) {
+            existingLinkStyle += '; ';
+          }
+          if (!newLink.style.textDecoration.includes('underline')) {
+             newLink.setAttribute('style', `${existingLinkStyle}text-decoration: underline;`);
+          }
+
+          if (span.parentNode) {
+            span.parentNode.replaceChild(newLink, span);
+          }
+        }
+      }
+    });
+
+    // Second pre-processing step: Remove underline style from <a> tags directly
+    // This prevents the underline mark from being applied on top of the link's default underline.
+    const allAnchors = domElement.querySelectorAll('a');
+    allAnchors.forEach(anchor => {
+      if (anchor.style.textDecoration.includes('underline')) {
+        anchor.style.textDecoration = anchor.style.textDecoration.replace(/underline/g, '').trim();
+        // If textDecoration becomes empty, remove the style attribute
+        if (anchor.style.textDecoration === '') {
+          anchor.removeAttribute('style');
+        }
+        // If style attribute becomes empty, remove it. Check after potential modification.
+        const styleAttr = anchor.getAttribute('style');
+        if (styleAttr && styleAttr.trim() === ''){
+            anchor.removeAttribute('style');
+        }
+      }
+    });
+
     // Process embedded images to ensure they're properly handled
     const images = domElement.querySelectorAll('img');
 

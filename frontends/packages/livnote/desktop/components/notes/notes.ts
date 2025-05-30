@@ -308,30 +308,48 @@ export class Notes {
               : ["span", 0];
           }
         },
-        // Add link mark (reuse base spec, customize toDOM)
-        link: baseMarks.get("link") ? {
-          ...baseMarks.get("link")!.spec, // Get base spec
-          toDOM(mark) { // Override toDOM to add target="_blank" etc.
-            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
-          }
-        } : { // Fallback (shouldn't happen)
+        // Add link mark explicitly, not relying on baseMarks.get("link") for the core definition
+        link: {
           attrs: {
-            href: {},
-            title: { default: null },
+            href: { default: null },
+            title: { default: null }
           },
           inclusive: false,
+          excludes: "underline",
           parseDOM: [{
             tag: "a[href]",
             getAttrs(dom: HTMLElement) {
+              const href = dom.getAttribute("href");
+              const dataMceHref = dom.getAttribute("data-mce-href");
+              let finalHref = href;
+
+              if (!href || href.trim() === "" || href.trim() === "#") {
+                if (dataMceHref && dataMceHref.trim() !== "") {
+                  finalHref = dataMceHref;
+                }
+              }
+
+              if (!finalHref || finalHref.trim() === "") {
+                return false; 
+              }
+
               return {
-                href: dom.getAttribute("href"),
-                title: dom.getAttribute("title"),
+                href: finalHref,
+                title: dom.getAttribute("title") || dom.textContent?.trim() || "",
               };
             },
           }],
           toDOM(mark) {
-            return ["a", { href: mark.attrs.href, title: mark.attrs.title, target: "_blank", rel: "noopener noreferrer" }, 0];
-          },
+            // The `attrs` definition ensures `href` and `title` have defaults (null).
+            // `getAttrs` returns false if a valid href isn't found, preventing mark creation.
+            // So, if the mark exists, `mark.attrs.href` should be a valid string.
+            return ["a", { 
+              href: mark.attrs.href, 
+              title: mark.attrs.title, 
+              target: "_blank", 
+              rel: "noopener noreferrer" 
+            }, 0];
+          }
         },
         // Add comment mark for collaborative commenting
         comment: {
