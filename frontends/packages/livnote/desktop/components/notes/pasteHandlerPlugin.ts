@@ -1,6 +1,6 @@
 import { Plugin } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
-import { DOMParser } from "prosemirror-model";
+import { DOMParser, Fragment, Slice, Node as PMNode } from "prosemirror-model";
 
 /**
  * Creates a ProseMirror plugin that handles clipboard content
@@ -295,11 +295,12 @@ async function handleHtmlContent(view: EditorView, html: string): Promise<void> 
               const dataUrl = await blobToBase64(blob);
               img.setAttribute('src', dataUrl);
             } catch (error) {
-              img.remove();
+              img.remove(); // Remove if blob fetch fails
             }
           }
+          // else, it might be a regular URL, leave it as is for now or decide on a strategy
         } else {
-          img.remove();
+          img.remove(); // Remove if no src
         }
       }
     }
@@ -309,8 +310,35 @@ async function handleHtmlContent(view: EditorView, html: string): Promise<void> 
     const parser = DOMParser.fromSchema(schema);
     const slice = parser.parseSlice(domElement);
 
-    // Insert the content with processed images
-    const tr = view.state.tr.replaceSelection(slice);
+    // Filter out empty paragraph nodes
+    const filteredNodes: PMNode[] = [];
+    slice.content.forEach(node => {
+      if (node.type === schema.nodes.paragraph) {
+        // A paragraph is considered empty if it has no content OR its text content is just whitespace.
+        // This also implicitly handles paragraphs that might only contain a <br> tag if that <br>
+        // doesn't result in meaningful textContent after trimming.
+        if (node.content.size > 0 && node.textContent.trim() !== '') {
+          filteredNodes.push(node);
+        }
+      } else {
+        // Keep non-paragraph nodes
+        filteredNodes.push(node);
+      }
+    });
+
+    if (filteredNodes.length === 0 && slice.content.size > 0) {
+        // If all top-level nodes were empty paragraphs and originally there was content,
+        // it's better to insert nothing than to potentially alter slice.openStart/End incorrectly
+        // with an empty fragment if the original slice had depth.
+        // For simple pastes, this means nothing gets inserted, which is correct.
+        return; // Nothing to insert
+    }
+
+    const newFragment = Fragment.fromArray(filteredNodes);
+    const newSlice = new Slice(newFragment, slice.openStart, slice.openEnd);
+
+    // Insert the content with processed images and filtered paragraphs
+    const tr = view.state.tr.replaceSelection(newSlice);
     view.dispatch(tr);
   } catch (error) {
     console.error("Error handling HTML content:", error);

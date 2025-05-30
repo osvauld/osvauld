@@ -237,6 +237,7 @@ export class Notes {
         strong: {
           parseDOM: [
             { tag: "strong" },
+            { tag: "b" },
             {
               tag: "span",
               getAttrs: (node: HTMLElement) => node.style.fontWeight != "normal" && null,
@@ -282,6 +283,8 @@ export class Notes {
         strikethrough: {
           parseDOM: [
             { tag: "s" },
+            { tag: "strike" },
+            { tag: "del" },
             { style: "text-decoration=line-through" }
           ],
           toDOM() {
@@ -585,6 +588,7 @@ export class Notes {
           // Create a new document with proper paragraph structure
           prosemirrorDoc = this.editorSchema.node("doc", {}, paragraphNodes);
         }
+        
       } catch (err) {
         console.error("Error creating ProseMirror doc from YJS:", err);
         // If that fails, create a new empty document
