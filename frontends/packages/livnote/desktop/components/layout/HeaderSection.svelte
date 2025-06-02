@@ -28,6 +28,7 @@
 
 	// Menu items definition
 	const MENUITEMS = [
+		{ id: "settings", label: "Settings", icon: Sync },
 		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
 		{ id: "add", label: "Add Device", icon: QrScanner },
@@ -74,6 +75,9 @@
 				break;
 			case "change":
 				uiState.showPasswordPrompt(true);
+				break;
+			case "settings":
+				uiState.toggleProfileViewLayout(true);
 				break;
 		}
 		showDropdown = false;

@@ -26,6 +26,7 @@ type ModalKey = 'showConnector' | 'showAddUser' | 'showSyncQr';
 class UIState {
   // Layout state
   noteViewLayout = $state(false);
+  profileViewLayout = $state(false);
   showWelcome = $state(true);
   showSyncQr = $state(false);
   vaultManagerActive = $state(false);
@@ -137,6 +138,10 @@ class UIState {
     } else {
       this.noteViewLayout = !this.noteViewLayout;
     }
+  }
+
+  toggleProfileViewLayout() {
+      this.profileViewLayout = !this.profileViewLayout;
   }
 
   // Welcome screen management
