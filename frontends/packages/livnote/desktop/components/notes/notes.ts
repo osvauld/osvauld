@@ -11,6 +11,7 @@ import { slashCommandPlugin } from "./slashCommandPlugin";
 import { fixedMenuPlugin } from "./fixedMenuPlugin";
 import { floatingMenuPlugin } from "./floatingMenuPlugin";
 import { pasteHandlerPlugin } from "./pasteHandlerPlugin";
+import { encodeAwarenessUpdate, applyAwarenessUpdate } from 'y-protocols/awareness';
 import {
   wrapInList,
   splitListItem,
@@ -87,12 +88,15 @@ export class Notes {
   constructor() {
     this.clientID = 0;
     this.initSchema();
-    this.initYjs();
   }
 
   updateClientId(clientID: number): void {
     // Update the client ID
     this.clientID = clientID;
+    if (this.ydoc) {
+      this.ydoc.destroy();
+    }
+    this.initYjs();
 
   }
 
@@ -382,7 +386,7 @@ export class Notes {
               "data-livnote-author": author || "",
               "data-livnote-internal": "true", // Mark as internal
               class: `livnote-comment-highlight ${resolved ? 'resolved' : 'active'}`,
-              style: resolved 
+              style: resolved
                 ? "border-bottom: 2px solid #888; background: rgba(136, 136, 136, 0.1);"
                 : "border-bottom: 2px solid #ffd700; background: rgba(255, 215, 0, 0.1);"
             }, 0];
@@ -456,6 +460,11 @@ export class Notes {
         font-size: inherit; /* Inherit font size from pre */
         /* font-family is likely already monospace via pre or global styles */
       }
+
+      /* Hide ProseMirror separator and trailing break elements that cause line height issues */
+      .ProseMirror-separator {
+        display: none !important;
+      }
     `;
     document.head.appendChild(styleElement);
   }
@@ -477,6 +486,12 @@ export class Notes {
       }
     });
 
+    this.awareness.on('change', (changes: { added: number[], updated: number[], removed: number[] }, origin: string) => {
+      if (origin === 'local') {
+        void this.handleAwarenessUpdate(changes);
+      }
+    });
+
     // Generate a better color for this user
     const colors = [
       "#FF5630", // Red
@@ -487,11 +502,11 @@ export class Notes {
       "#FF7452", // Orange
     ];
     const userColor = colors[Math.floor(Math.random() * colors.length)];
-
+    const username = dataState.userDetails?.username || `User ${this.clientID}`;
     // Set enhanced local user state
     this.awareness.setLocalState({
       user: {
-        name: `User ${this.clientID}`,
+        name: username,
         color: userColor,
         id: this.clientID,
       } as UserInfo,
@@ -499,7 +514,7 @@ export class Notes {
 
     // Set current user for comments service
     this.commentsService.setCurrentUser({
-      name: `User ${this.clientID}`,
+      name: username,
       color: userColor,
       id: this.clientID,
     });
@@ -521,6 +536,24 @@ export class Notes {
     cursor.style.position = 'relative';
     cursor.style.height = '1.2em';
     cursor.style.display = 'inline-block';
+    const banner = document.createElement('div');
+    banner.textContent = user.name;
+    banner.style.position = 'absolute';
+    banner.style.top = '-1.8em';
+    banner.style.left = '-1px';
+    banner.style.fontSize = '12px';
+    banner.style.backgroundColor = user.color;
+    banner.style.fontFamily = '"Inter", "Segoe UI", sans-serif';
+    banner.style.fontWeight = '500';
+    banner.style.lineHeight = 'normal';
+    banner.style.userSelect = 'none';
+    banner.style.color = 'white';
+    banner.style.padding = '3px 8px';
+    banner.style.borderRadius = '4px';
+    banner.style.whiteSpace = 'nowrap';
+    banner.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.2)';
+    banner.style.zIndex = '21';
+    cursor.appendChild(banner);
     return cursor;
   }
 
@@ -851,12 +884,36 @@ export class Notes {
 
       await emit("sync-update", {
         update: updateArray,
-        clientID: this.clientID,
-        client_id: this.clientID.toString(),
+        clientID: this.clientID,           // Keep only this one (number)
         resource_id: this.currentNoteId,
-      } as CollaborationUpdateEvent);
+      });
     } catch (error) {
       console.error("Error handling collaboration update:", error);
+    }
+  }
+
+  private async handleAwarenessUpdate(changes: { added: number[], updated: number[], removed: number[] }): Promise<void> {
+    try {
+      if (!this.currentNoteId) {
+        console.warn("No current note ID, skipping awareness update");
+        return;
+      }
+
+      // Get all client IDs that changed
+      const clients = [...changes.added, ...changes.updated, ...changes.removed];
+      if (clients.length === 0) return;
+
+      // Encode awareness update using YJS awareness protocol
+      const update = encodeAwarenessUpdate(this.awareness, clients);
+
+      await emit("awareness-update", {
+        update: Array.from(update),
+        clientID: this.clientID,           // Keep only this one (number)
+        resource_id: this.currentNoteId,
+        changes
+      });
+    } catch (error) {
+      console.error("Error handling awareness update:", error);
     }
   }
 
@@ -878,6 +935,26 @@ export class Notes {
       Y.applyUpdate(this.ydoc, updateArray, "sync");
     } catch (error) {
       console.error("Error applying update:", error);
+    }
+  }
+
+  applyAwarenessUpdate(update: Uint8Array | number[], sender: number): void {
+    if (sender === this.clientID) {
+      return; // Don't apply our own updates
+    }
+
+    try {
+      const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
+
+      if (updateArray.length === 0) {
+        console.warn("Received empty awareness update");
+        return;
+      }
+
+      // Apply awareness update using YJS built-in function
+      applyAwarenessUpdate(this.awareness, updateArray, 'remote');
+    } catch (error) {
+      console.error("Error applying awareness update:", error);
     }
   }
 
@@ -935,18 +1012,18 @@ export class Notes {
    */
   resolveCommentThread(threadId: string, resolved: boolean): boolean {
     const result = this.commentsService.resolveThread(threadId, resolved);
-    
+
     if (result) {
       // Emit event to update comment marks in the editor
       const updateMarkEvent = new CustomEvent('update-comment-mark-resolved', {
         detail: { threadId, resolved }
       });
-      
+
       if (typeof document !== 'undefined') {
         document.dispatchEvent(updateMarkEvent);
       }
     }
-    
+
     return result;
   }
 

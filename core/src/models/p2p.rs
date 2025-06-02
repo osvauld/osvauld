@@ -84,7 +84,6 @@ pub enum Message {
     AckComplete(Vec<String>),
     AddDeviceAck,
     Error,
-    SyncEvent { event: String, payload: String },
     MergeUpdate(ResourceUpdateMsg),
     UserConnection(UserConnectionPayload),
     Phase(Phase),
@@ -227,6 +226,17 @@ pub enum LiveEditMessage {
     },
     DocumentChange {
         resource_id: String,
+    },
+
+    DocumentUpdate {
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+    },
+    AwarenessUpdate {
+        resource_id: String,
+        client_id: u32,
+        awareness_data: Vec<u8>,
     },
 }
 

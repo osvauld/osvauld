@@ -20,11 +20,18 @@ pub enum P2PEvent {
     ShareComplete,
     /// Emitted when a real-time editing event is received
     EditingEvent {
-        payload: String,
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+    },
+    AwarenessEvent {
+        resource_id: String,
+        client_id: u32,
+        awareness_data: Vec<u8>,
     },
     /// Emitted when an error occurs
     Error {
-        /// Description of the error
+        /// Description of the error  
         message: String,
         /// Source of the error
         source: String,
