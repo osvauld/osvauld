@@ -427,4 +427,9 @@
 .livnote-comment-highlight[data-copying="true"] {
     border-bottom: none !important;
     background: transparent !important;
-} 
+}
+
+/* Hide ProseMirror separator and trailing break elements that cause line height issues */
+.ProseMirror-separator {
+    display: none !important;
+}

@@ -209,6 +209,67 @@ class DataState {
       console.error("Error restoring saved selections:", error);
     }
   }
+  async handleAwarenessUpdates(event: any) {
+    try {
+      const { resource_id, connection_id, updates, client_id } = event.payload;
+
+      // Find the note with this resource ID
+      const note = this.getNoteById(resource_id);
+
+      if (!note) {
+        console.warn(`Note with ID ${resource_id} not found for awareness updates`);
+        return;
+      }
+
+      // Convert the updates array to Uint8Array for YJS
+      const updatesArray = new Uint8Array(updates);
+
+      // Parse client_id to number for sender identification
+      const senderId = parseInt(client_id, 10);
+
+      if (notesInstance) {
+        // Apply the awareness updates to the current editor
+        // console.log(`Applying awareness updates from client ${senderId} for resource ${resource_id}`);
+        notesInstance.applyAwarenessUpdate(updatesArray, senderId);
+      } else {
+        console.warn("Notes instance not available for awareness updates");
+      }
+    } catch (error) {
+      console.error("Error handling awareness-updates:", error);
+    }
+  }
+
+  async handleLiveUpdates(event: any) {
+    try {
+      const { resource_id, updates, client_id } = event.payload;
+
+      // Check if this is for the current note
+      if (!this.currentNote || this.currentNote.id !== resource_id) {
+        console.log(`Received live update for non-active note: ${resource_id}`);
+        return;
+      }
+
+      // Convert the updates array to Uint8Array for YJS
+      const updatesArray = new Uint8Array(updates);
+
+      // Parse client_id to number for sender identification
+      const senderId = parseInt(client_id, 10);
+
+      if (notesInstance) {
+        // Apply the live updates directly to the current editor
+        // console.log(`Applying live updates from client ${senderId} to current editor for resource ${resource_id}`);
+        notesInstance.applyUpdate(updatesArray, senderId);
+
+        // No need to save here - the editor handles auto-save
+      } else {
+        console.warn("Notes instance not available for live updates");
+      }
+    } catch (error) {
+      console.error("Error handling live-updates:", error);
+    }
+  }
+
+
 
   async setupReactiveUpdates() {
     // Clear any existing unlisteners first
@@ -218,12 +279,15 @@ class DataState {
     const resourceAddedUnlisten = await listen("resource-added", this.handleResourceAdded.bind(this));
     const resourceUpdateUnlisten = await listen("resource-update", this.handleResourceUpdate.bind(this));
     const documentUpdatesUnlisten = await listen("document-updates", this.handleDocumentUpdates.bind(this));
+    const awarenessUpdatesUnlisten = await listen("awareness-updates", this.handleAwarenessUpdates.bind(this));
+    const liveUpdatesUnlisten = await listen("live-updates", this.handleLiveUpdates.bind(this));
 
     // Store all the unlisten functions
     this._unlisteners.push(
       resourceAddedUnlisten,
       resourceUpdateUnlisten,
-      documentUpdatesUnlisten
+      documentUpdatesUnlisten,
+      awarenessUpdatesUnlisten,
     );
   }
   cleanupReactiveUpdates() {
