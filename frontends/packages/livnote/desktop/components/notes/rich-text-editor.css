@@ -368,57 +368,46 @@
 @keyframes commentTextBlink {
     0% { 
         background: rgba(255, 215, 0, 0.8);
-        transform: scale(1.1);
         box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
     }
     10% { 
         background: rgba(255, 215, 0, 0.2);
-        transform: scale(1);
         box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
     }
     20% { 
         background: rgba(255, 215, 0, 0.8);
-        transform: scale(1.08);
         box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
     }
     30% { 
         background: rgba(255, 215, 0, 0.2);
-        transform: scale(1);
         box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);
     }
     40% { 
         background: rgba(255, 215, 0, 0.6);
-        transform: scale(1.05);
         box-shadow: 0 0 15px rgba(255, 215, 0, 0.4);
     }
     50% { 
         background: rgba(255, 215, 0, 0.1);
-        transform: scale(1);
         box-shadow: none;
     }
     60% { 
         background: rgba(255, 215, 0, 0.4);
-        transform: scale(1.02);
         box-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
     }
     70% { 
         background: rgba(255, 215, 0, 0.1);
-        transform: scale(1);
         box-shadow: none;
     }
     80% { 
         background: rgba(255, 215, 0, 0.2);
-        transform: scale(1.01);
         box-shadow: 0 0 5px rgba(255, 215, 0, 0.2);
     }
     90% { 
         background: rgba(255, 215, 0, 0.05);
-        transform: scale(1);
         box-shadow: none;
     }
     100% { 
         background: transparent;
-        transform: scale(1);
         box-shadow: none;
     }
 }
