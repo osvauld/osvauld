@@ -28,7 +28,7 @@ export function floatingMenuPlugin(schema: Schema) {
 
     menu = document.createElement("div");
     menu.className = "floating-menu";
-    menu.style.position = "absolute";
+    menu.style.position = "fixed"; // Changed from absolute to fixed
     menu.style.zIndex = "50";
     menu.style.background = "#16171f";
     menu.style.border = "1px solid #2a2b2f";
@@ -192,14 +192,12 @@ export function floatingMenuPlugin(schema: Schema) {
 
   // --- Event Handlers for Link UI ---
   function handleLinkButtonClick() {
-    console.log("Floating Link button clicked");
     switchToLinkInputMode();
   }
 
   function handleLinkDoneClick() {
     if (!linkInput || !view) return;
     const href = linkInput.value.trim();
-    console.log("Link Done clicked, URL:", href);
 
     const { state, dispatch } = view;
     
@@ -324,7 +322,6 @@ export function floatingMenuPlugin(schema: Schema) {
 
   function hideMenu() {
     if (!menu || !isMenuVisible) return;
-    console.log("Hiding floating menu");
     menu.style.opacity = "0";
     menu.style.transform = "translateY(8px)";
     
@@ -349,7 +346,6 @@ export function floatingMenuPlugin(schema: Schema) {
 
   function showMenu() {
     if (!menu || isMenuVisible) return;
-    console.log("Showing floating menu");
     menu.style.display = "flex";
     // Ensure correct UI is visible based on mode *before* showing
     if (currentMode === 'buttons') {
@@ -366,82 +362,138 @@ export function floatingMenuPlugin(schema: Schema) {
     isMenuVisible = true;
   }
 
+  // Handle scroll events
+  function handleScroll() {
+    if (isMenuVisible) {
+      hideMenu();
+    }
+  }
+
   // Position the menu near the selection
   function positionMenu(editorView: EditorView) {
     if (!menu) return;
 
     const { state } = editorView;
     const { selection } = state;
+    const { from, to } = selection;
+
     if (selection.empty) {
       hideMenu();
       return;
     }
-    
-    // Check if the selection contains any actual text content
-    const selectedText = state.doc.textBetween(selection.from, selection.to, ' ');
+
+    const selectedText = state.doc.textBetween(from, to, ' ');
+
     if (!selectedText.trim()) {
       hideMenu();
       return;
     }
-    
-    // Update button states *before* positioning and showing
+
     if (currentMode === "buttons") {
       updateButtonStates(editorView);
     }
 
-    const scrollContainer = editorView.dom.closest<HTMLElement>('.editor-main');
-    if (!scrollContainer) {
-      console.warn("Floating menu: Could not find '.editor-main' scroll container.");
-      hideMenu();
-       return;
+    // Determine the scroll container: prioritize '.scrollbar-thin' parent, fallback to '.editor-main'
+    let scrollContainer = editorView.dom.parentElement;
+    if (!scrollContainer || !scrollContainer.classList.contains('scrollbar-thin')) {
+        scrollContainer = editorView.dom.closest<HTMLElement>('.editor-main');
     }
-    const offsetParent = menu.offsetParent as HTMLElement || document.body;
+    
+    if (!scrollContainer) {
+      console.warn("Floating menu: Could not find scroll container.");
+      hideMenu();
+      return;
+    }
 
-    const { from, to } = selection;
+    // Since we're using position: fixed, we don't need offset parent calculations
     const startCoords = editorView.coordsAtPos(from);
     const endCoords = editorView.coordsAtPos(to);
-    const scrollContainerRect = scrollContainer.getBoundingClientRect();
-    const offsetParentRect = offsetParent.getBoundingClientRect();
     
-    // Use measured height if visible, otherwise estimate
-    const menuHeight = isMenuVisible ? menu.getBoundingClientRect().height : 36; // Estimate height if hidden
-    const menuWidth = isMenuVisible ? menu.getBoundingClientRect().width : 150; // Estimate width
+    const scrollContainerRect = scrollContainer.getBoundingClientRect();
 
-    // Visibility Check
-    const selectionStartVisible = startCoords.top >= scrollContainerRect.top && startCoords.bottom <= scrollContainerRect.bottom;
-    if (!selectionStartVisible) {
+    // Temporarily display menu to get accurate dimensions if it's currently hidden
+    const wasMenuHidden = menu.style.display === 'none';
+    if (wasMenuHidden) {
+        menu.style.visibility = 'hidden'; // Avoid flicker
+        menu.style.display = 'flex';
+    }
+    const menuRect = menu.getBoundingClientRect();
+    if (wasMenuHidden) {
+        menu.style.display = 'none';
+        menu.style.visibility = 'visible';
+    }
+    
+    const menuHeight = menuRect.height || 36; // Fallback height
+    const menuWidth = menuRect.width || 150;  // Fallback width
+
+    // If selection is completely outside the scroll container's visible area, hide menu
+    if (endCoords.bottom < scrollContainerRect.top || startCoords.top > scrollContainerRect.bottom) {
         hideMenu();
         return;
     }
 
-    // Calculate Target Position (relative to window)
-    const horizontalCenter = (startCoords.left + endCoords.left) / 2;
-    let targetTopWindow = startCoords.top - menuHeight - 10;
-    let targetLeftWindow = horizontalCenter - menuWidth / 2;
+    const M_MARGIN = 10; // Desired gap (8-12px)
 
-    // Adjust for Viewport Overflow
-    const spaceAbove = startCoords.top - scrollContainerRect.top;
-    if (spaceAbove < menuHeight + 10) {
-        const spaceBelow = scrollContainerRect.bottom - endCoords.bottom;
-        if (spaceBelow >= menuHeight + 10) {
-            targetTopWindow = endCoords.bottom + 10;
-        } else {
-            targetTopWindow = scrollContainerRect.top + 5;
-        }
+    let targetTopWindow: number;
+
+    // Calculate available space relative to the scroll container
+    const spaceAboveSelection = startCoords.top - scrollContainerRect.top;
+    const spaceBelowSelection = scrollContainerRect.bottom - endCoords.bottom;
+
+    // --- Vertical Placement ---
+    // Primary: Place above selection if enough space within container above selection
+    if (spaceAboveSelection >= menuHeight + M_MARGIN) {
+      targetTopWindow = startCoords.top - menuHeight - M_MARGIN;
+    } 
+    // Fallback: Place below selection if enough space within container below selection
+    else if (spaceBelowSelection >= menuHeight + M_MARGIN) {
+      targetTopWindow = endCoords.bottom + M_MARGIN;
+    } 
+    // Constrained: Not enough ideal space above or below.
+    // Decide based on more available relative space, or if one side can fit at least half.
+    else {
+      const canFitAtLeastHalfAbove = spaceAboveSelection >= menuHeight / 2 + M_MARGIN;
+      const canFitAtLeastHalfBelow = spaceBelowSelection >= menuHeight / 2 + M_MARGIN;
+
+      if (canFitAtLeastHalfAbove && (!canFitAtLeastHalfBelow || spaceAboveSelection > spaceBelowSelection)) {
+        // Prefer above if it has more space or only it can fit half
+        targetTopWindow = startCoords.top - menuHeight - M_MARGIN;
+      } else if (canFitAtLeastHalfBelow) {
+        // Prefer below if it has more space or only it can fit half (or if above wasn't preferred)
+        targetTopWindow = endCoords.bottom + M_MARGIN;
+      } else {
+        // Very constrained. Default to attempting below, then clamp.
+        // This handles cases where selection is very large or container very small.
+        targetTopWindow = endCoords.bottom + M_MARGIN;
+      }
     }
-    if (targetLeftWindow < scrollContainerRect.left) {
-        targetLeftWindow = scrollContainerRect.left + 5;
-    } else if (targetLeftWindow + menuWidth > scrollContainerRect.right) {
-        targetLeftWindow = scrollContainerRect.right - menuWidth - 5;
-    }
 
-    // Convert Window Coordinates to Offset Parent Coordinates
-    const finalTop = targetTopWindow - offsetParentRect.top;
-    const finalLeft = targetLeftWindow - offsetParentRect.left;
+    // --- Horizontal Placement (Center with selection) ---
+    const selectionCenterX = (startCoords.left + endCoords.right) / 2;
+    let targetLeftWindow = selectionCenterX - menuWidth / 2;
 
-    // Apply Styles
+    // --- Apply Container Constraints & Edge Handling ---
+    // Adjust horizontal position to stay within scroll container
+    targetLeftWindow = Math.max(targetLeftWindow, scrollContainerRect.left + M_MARGIN);
+    targetLeftWindow = Math.min(targetLeftWindow, scrollContainerRect.right - menuWidth - M_MARGIN);
+
+    // Adjust vertical position to stay within scroll container (final clamping)
+    targetTopWindow = Math.max(targetTopWindow, scrollContainerRect.top + M_MARGIN);
+    targetTopWindow = Math.min(targetTopWindow, scrollContainerRect.bottom - menuHeight - M_MARGIN);
+    
+    // Additional viewport constraints to ensure menu stays on screen
+    targetTopWindow = Math.max(targetTopWindow, M_MARGIN);
+    targetTopWindow = Math.min(targetTopWindow, window.innerHeight - menuHeight - M_MARGIN);
+    targetLeftWindow = Math.max(targetLeftWindow, M_MARGIN);
+    targetLeftWindow = Math.min(targetLeftWindow, window.innerWidth - menuWidth - M_MARGIN);
+
+    // Since we're using position: fixed, use window coordinates directly
+    const finalTop = targetTopWindow;
+    const finalLeft = targetLeftWindow;
+
     menu.style.top = `${finalTop}px`;
     menu.style.left = `${finalLeft}px`;
+
     showMenu();
   }
 
@@ -467,19 +519,6 @@ export function floatingMenuPlugin(schema: Schema) {
     // NOT inside a fixed menu button,
     // AND NOT inside the editor content area.
     if (!isClickInsideFloatingMenu && !isClickInsideFixedMenuButton && !isClickInsideEditor) {
-      console.log("Hiding menu due to outside click (Not fixed menu button or editor content)");
-      hideMenu();
-    } else {
-       // Log why we are *not* hiding (for debugging)
-       if (isClickInsideFloatingMenu) console.log("Click inside floating menu - not hiding.");
-       if (isClickInsideFixedMenuButton) console.log("Click inside fixed menu button - not hiding.");
-       if (isClickInsideEditor) console.log("Click inside editor content - not hiding.");
-    }
-  }
-
-  // Handle scroll events
-  function handleScroll() {
-    if (isMenuVisible) {
       hideMenu();
     }
   }
@@ -489,8 +528,22 @@ export function floatingMenuPlugin(schema: Schema) {
     view(editorView) {
       view = editorView;
       menu = createMenu();
-      // Append to the parent of the editor's DOM element, or body as fallback
-      (editorView.dom.parentNode || document.body).appendChild(menu);
+      
+      // Find the best container for the menu - prefer editor containers over body
+      let menuContainer = document.body; // fallback
+      
+      // Try to find a better container in this order of preference:
+      const editorContainer = editorView.dom.closest('.editor-container') || 
+                             editorView.dom.closest('.editor-main') || 
+                             editorView.dom.closest('[data-editor]');
+      
+      if (editorContainer) {
+        menuContainer = editorContainer as HTMLElement;
+      } else if (editorView.dom.parentNode) {
+        menuContainer = editorView.dom.parentNode as HTMLElement;
+      }
+      
+      menuContainer.appendChild(menu);
 
       // Add event listeners
       document.addEventListener("mousedown", handleClickOutside, true); // Use capture phase
@@ -504,9 +557,9 @@ export function floatingMenuPlugin(schema: Schema) {
       }
       
       // Also add to .editor-main as fallback
-      const editorContainer = editorView.dom.closest(".editor-main");
-      if (editorContainer) {
-        editorContainer.addEventListener("scroll", handleScroll);
+      const editorMainContainer = editorView.dom.closest(".editor-main");
+      if (editorMainContainer) {
+        editorMainContainer.addEventListener("scroll", handleScroll);
       }
 
       return {
@@ -542,10 +595,11 @@ export function floatingMenuPlugin(schema: Schema) {
           }
           
           // Remove from .editor-main
-          const editorContainer = editorView.dom.closest(".editor-main");
-          if (editorContainer) {
-            editorContainer.removeEventListener("scroll", handleScroll);
+          const editorMainContainer = editorView.dom.closest(".editor-main");
+          if (editorMainContainer) {
+            editorMainContainer.removeEventListener("scroll", handleScroll);
           }
+          
           if (menu && menu.parentNode) {
             menu.parentNode.removeChild(menu);
           }
