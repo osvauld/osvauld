@@ -149,7 +149,7 @@ export function floatingMenuPlugin(schema: Schema) {
 
   // --- Mode Switching Functions ---
   function switchToLinkInputMode() {
-    if (!buttonsContainer || !linkInputContainer || !linkInput || !view) return;
+    if (!buttonsContainer || !linkInputContainer || !linkInput || !linkDoneButton || !view) return;
     
     const { state, dispatch } = view;
     const { selection } = state;
@@ -161,18 +161,57 @@ export function floatingMenuPlugin(schema: Schema) {
     dispatch(state.tr); // Dispatch an empty transaction just to update decorations
 
     // Pre-fill input with existing link if present
-    const existingMark = schema.marks.link.isInSet($from.marksAcross(selection.$to) || []); // Check across selection
+    let existingMark: Mark | null = null;
+    
+    if (!selection.empty) {
+      // For non-empty selections, check if the entire range has the link mark
+      state.doc.nodesBetween(from, to, (node, pos) => {
+        if (!existingMark && node.isText) {
+          const linkMark = schema.marks.link.isInSet(node.marks);
+          if (linkMark) {
+            existingMark = linkMark;
+            return false; // Stop iteration once we find a link mark
+          }
+        }
+      });
+    } else {
+      // For cursor position, check stored marks or marks at the position
+      existingMark = schema.marks.link.isInSet($from.marks()) || null;
+    }
+    
+    const hasExistingLink = !!existingMark;
     linkInput.value = existingMark?.attrs.href || "";
+
+    // Configure input and button based on whether this is an existing link
+    if (hasExistingLink) {
+      // Read-only mode for existing links
+      linkInput.readOnly = true;
+      linkInput.placeholder = "Link URL (read-only)";
+      linkDoneButton.style.display = "none";
+    } else {
+      // Editable mode for new links
+      linkInput.readOnly = false;
+      linkInput.placeholder = "Enter Link";
+      linkDoneButton.style.display = "block";
+    }
 
     buttonsContainer.style.display = "none";
     linkInputContainer.style.display = "flex";
     currentMode = "linkInput";
     linkInput.focus(); // Focus the input
-    linkInput.select();
+    if (hasExistingLink) {
+      linkInput.select(); // Select text for easy copying
+    }
   }
 
   function switchToButtonsMode() {
-    if (!buttonsContainer || !linkInputContainer) return;
+    if (!buttonsContainer || !linkInputContainer || !linkInput || !linkDoneButton) return;
+    
+    // Reset link input to default editable state
+    linkInput.readOnly = false;
+    linkInput.placeholder = "Enter Link";
+    linkDoneButton.style.display = "block";
+    
     buttonsContainer.style.display = "flex";
     linkInputContainer.style.display = "none";
     currentMode = "buttons";
