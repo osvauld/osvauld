@@ -20,7 +20,7 @@ interface PasswordPrompt {
 
 
 // Modal registry type to make modal management more structured
-type ModalKey = 'showConnector' | 'showAddUser' | 'showSyncQr';
+type ModalKey = 'showConnector' |  'showSyncQr';
 
 // UI State class
 class UIState {
@@ -53,13 +53,11 @@ class UIState {
 
   // Simple boolean modals
   showConnector = $state(false);
-  showAddUser = $state(false);
 
   // Modal registry for type-safe modal management
   get modalRegistry(): Record<ModalKey, boolean> {
     return {
       showConnector: this.showConnector,
-      showAddUser: this.showAddUser,
       showSyncQr: this.showSyncQr
     };
   }
@@ -104,14 +102,12 @@ class UIState {
     this.passwordPromptModal.show = false;
   }
 
+
   // Generic modal toggle function
   toggleModal(modalKey: ModalKey, value?: boolean) {
     switch (modalKey) {
       case 'showConnector':
         this.showConnector = value !== undefined ? value : !this.showConnector;
-        break;
-      case 'showAddUser':
-        this.showAddUser = value !== undefined ? value : !this.showAddUser;
         break;
       case 'showSyncQr':
         this.showSyncQr = value !== undefined ? value : !this.showSyncQr;

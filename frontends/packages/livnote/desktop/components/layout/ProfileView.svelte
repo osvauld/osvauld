@@ -9,6 +9,7 @@
 		Key,
 		Settings,
 	} from "@osvauld/password-manager-common";
+	import AddUserForm from "../forms/AddUserForm.svelte";
 
 	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
@@ -23,9 +24,13 @@
 	// Extract the union type from MENUITEMS for type safety
 	type MenuItemId = typeof MENUITEMS[number]['id'];
 
+	// Single state to track the currently active menu item
+	let activeMenuItem = $state<MenuItemId | null>("addUser");
+
 	const handleSettingSelection = (id: MenuItemId) => {
-		console.log(id);
-	};
+		activeMenuItem = id;
+	}
+
 </script>
 
 <div class="grow max-h-full overflow-hidden flex text-4xl text-white">
@@ -37,6 +42,9 @@
 		{#each MENUITEMS as { id, label, icon: Icon }}
 			<button
 				class="group w-full flex items-center gap-3 p-3 rounded-lg text-osvauld-fieldText transition-colors cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive"
+				class:text-osvauld-sideListTextActive={id === activeMenuItem}
+				class:bg-osvauld-fieldActive={id === activeMenuItem}
+				aria-label={label}
 				onclick={() => handleSettingSelection(id)}>
 				<span >
 					<Icon color="currentColor" size={24} />
@@ -46,7 +54,18 @@
 		{/each}
 		</div>
 	</nav>
-	<div class="flex-1 flex justify-center items-center py-10 px-4 overflow-hidden">
-			Profile section
+	<div class="flex-1 min-w-[25rem] py-10 px-8 overflow-hidden">
+		{#if activeMenuItem === "addUser"}
+			<AddUserForm />
+		{/if}
+		<!-- Add other forms here as you implement them -->
+		<!-- 
+		{#if activeMenuItem === "devices"}
+			<DevicesForm />
+		{/if}
+		{#if activeMenuItem === "change"}
+			<ChangePasswordForm />
+		{/if}
+		-->
 	</div>
 </div>
