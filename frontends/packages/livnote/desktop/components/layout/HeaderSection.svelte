@@ -17,6 +17,7 @@
 		Logout,
 		Profile,
 		Key,
+		Settings,
 	} from "@osvauld/password-manager-common";
 
 	// Import the centralized state
@@ -26,9 +27,9 @@
 	let showDropdown = $state(false);
 	let hoveredItem = $state("");
 
-	// Menu items definition
+	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
-		{ id: "settings", label: "Settings", icon: Sync },
+		{ id: "settings", label: "Settings", icon: Settings },
 		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
 		{ id: "add", label: "Add Device", icon: QrScanner },
@@ -37,10 +38,13 @@
 		{ id: "change", label: "Change Password", icon: Key },
 		{ id: "export", label: "Emergency Key", icon: DownloadIcon },
 		{ id: "logout", label: "Logout", icon: Logout },
-	];
+	] as const;
+
+	// Extract the union type from MENUITEMS for type safety
+	type MenuItemId = typeof MENUITEMS[number]['id'];
 
 	// Handle dropdown menu item clicks
-	const handleDropDownClick = async (id: string) => {
+	const handleDropDownClick = async (id: MenuItemId) => {
 		switch (id) {
 			case "add":
 				// Old: addDeviceModal.set(true);
@@ -51,11 +55,8 @@
 				await sendMessage("logout");
 				uiState.setWelcomeScreen(true);
 				break;
-			case "sync":
-				uiState.toggleModal("showSyncQr", true);
-				break;
 			case "connect":
-				uiState.toggleModal("showConnector", true);
+				uiState.toggleModal("showSyncQr", true);
 				break;
 			case "userid":
 				try {
@@ -77,7 +78,7 @@
 				uiState.showPasswordPrompt(true);
 				break;
 			case "settings":
-				uiState.toggleProfileViewLayout(true);
+				uiState.toggleProfileViewLayout();
 				break;
 		}
 		showDropdown = false;
@@ -91,7 +92,7 @@
 
 <div class="h-32 w-full border-b border-osvauld-borderColor flex">
 	<span
-		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-4xl font-bold text-osvauld-sideListTextActive">
+		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight" onclick={() => uiState.toggleProfileViewLayout(false)}	>
 		Livnote
 	</span>
 	<div class="grow py-10 px-16 flex items-center justify-start">

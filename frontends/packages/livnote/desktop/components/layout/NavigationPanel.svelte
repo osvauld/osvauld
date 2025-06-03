@@ -67,7 +67,7 @@
 		
 		<div class="relative">
 			<button
-				class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize trun"
+				class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
 				aria-label="Switch Vault"
 				aria-controls="vaultSelector"
 				aria-expanded={uiState.vaultManagerActive}

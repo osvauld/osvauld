@@ -102,3 +102,4 @@ export { default as BackArrow } from './icons/backArrow.svelte';
 export { default as VerticalMenu } from './icons/verticalMenu.svelte';
 export { default as DownloadIcon } from './icons/downloadIcon.svelte';
 export { default as SavedTick } from './icons/savedTick.svelte';
+export { default as Settings } from './icons/settings.svelte';

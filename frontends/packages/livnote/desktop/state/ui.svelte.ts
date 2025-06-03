@@ -140,8 +140,12 @@ class UIState {
     }
   }
 
-  toggleProfileViewLayout() {
+  toggleProfileViewLayout(show?: boolean) {
+    if (show !== undefined) {
+      this.profileViewLayout = show;
+    } else {
       this.profileViewLayout = !this.profileViewLayout;
+    }
   }
 
   // Welcome screen management
