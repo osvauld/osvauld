@@ -1,20 +1,18 @@
 <script lang="ts">
 	import {
-		CopyIcon,
 		DownloadIcon,
 		UserPlus,
-		Sync,
 		Devices,
 		QrScanner,
 		Key,
 		Settings,
 	} from "@osvauld/password-manager-common";
 	import { uiState } from "../../state/ui.svelte";
-	import AddUserForm from "../forms/AddUserForm.svelte";
+	import AddUserForm from "../ui/AddUserForm.svelte";
+	import AddDevice from "../ui/AddDevice.svelte";
 
 	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
-		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
 		{ id: "addUser", label: "Add User", icon: UserPlus },
@@ -30,7 +28,6 @@
 
 	const handleSettingSelection = (id: MenuItemId) => {
 		switch (id) {
-			case "connect":
 			case "add":
 			case "devices":
 			case "addUser":
@@ -72,14 +69,8 @@
 		{#if activeMenuItem === "addUser"}
 			<AddUserForm />
 		{/if}
-		<!-- Add other forms here as you implement them -->
-		<!-- 
-		{#if activeMenuItem === "devices"}
-			<DevicesForm />
+		{#if activeMenuItem === "add"}
+			<AddDevice />
 		{/if}
-		{#if activeMenuItem === "change"}
-			<ChangePasswordForm />
-		{/if}
-		-->
 	</div>
 </div>
