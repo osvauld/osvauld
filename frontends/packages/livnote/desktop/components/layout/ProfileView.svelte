@@ -9,6 +9,7 @@
 		Key,
 		Settings,
 	} from "@osvauld/password-manager-common";
+	import { uiState } from "../../state/ui.svelte";
 	import AddUserForm from "../forms/AddUserForm.svelte";
 
 	// Menu items definition with const assertion for better type safety
@@ -28,7 +29,20 @@
 	let activeMenuItem = $state<MenuItemId | null>("addUser");
 
 	const handleSettingSelection = (id: MenuItemId) => {
-		activeMenuItem = id;
+		switch (id) {
+			case "connect":
+			case "add":
+			case "devices":
+			case "addUser":
+				activeMenuItem = id;
+				break;
+			case "export":
+				uiState.showPasswordPrompt(false);
+				break;
+			case "change":
+				uiState.showPasswordPrompt(true);
+				break;
+		}
 	}
 
 </script>

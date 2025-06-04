@@ -308,7 +308,7 @@ export const pdfGenerator = async (content: string, givenTitle?: string): Promis
 							write: true,
 							create: true,
 							truncate: true,
-							baseDir: BaseDirectory.Document,
+							baseDir: BaseDirectory.Download,
 						});
 
 						await file.write(pdfBuffer);
@@ -316,7 +316,7 @@ export const pdfGenerator = async (content: string, givenTitle?: string): Promis
 
 						resolve({
 							show: true,
-							message: `Note exported as PDF to Documents folder: ${uniqueFileName}`,
+							message: `Note exported as PDF to Downloads folder: ${uniqueFileName}`,
 							success: true,
 						});
 					} catch (error: unknown) {

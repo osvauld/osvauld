@@ -52,29 +52,29 @@
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
 		<h1 class="text-2xl font-semibold text-white mb-2">Add User</h1>
 		<p class="text-osvauld-fieldText text-sm">
-			Add a new user to your workspace by entering their public key below.
+			Add a new user to your workspace by entering their user id below.
 		</p>
 	</div>
 
 	<!-- Form Section -->
 	<div class="flex-1">
 		<form onsubmit={handleSubmit} class="space-y-6 flex flex-col h-full">
-			<div class="space-y-2">
+			<div class="space-y-2 grow flex flex-col">
 				<label
 					for="userDetails"
 					class="block text-sm font-medium text-white">
-					Public Key
+					User ID
 				</label>
 				<textarea
 					id="userDetails"
 					bind:value={userDetails}
-					placeholder="Paste the user's public key here..."
+					placeholder="Paste user id here..."
 					rows="10"
 					required
-					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:border-transparent resize-none transition-colors"
+					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:border-transparent resize-none transition-colors grow"
 				></textarea>
 				<p class="text-xs text-osvauld-fieldText">
-					The public key should be in the correct format provided by the user.
+					The user id is a unique public key and used to identify them over internet. It should be in the correct format as provided.
 				</p>
 			</div>
 

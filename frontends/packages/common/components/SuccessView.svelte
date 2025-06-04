@@ -102,7 +102,7 @@
 				stroke-linejoin="round"
 				class="tick"></polyline>
 		</svg>
-		<p class="success">
+		<p class="success ">
 			{changePassword
 				? "Passphrase Changed"
 				: message

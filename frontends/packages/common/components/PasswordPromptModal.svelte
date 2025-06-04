@@ -143,7 +143,7 @@
 		{:else if success}
 			<SuccessView
 				status={true}
-				message={changePassword ? "Password Changed" : "Export complete"} />
+				message={changePassword ? "Password Changed" : "Exported to downloads"} />
 		{:else if newPasswordView}
 			<NewPassword onSubmit={handlePasswordChangeSubmit} />
 		{:else}

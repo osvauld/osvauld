@@ -30,13 +30,11 @@
 	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
 		{ id: "settings", label: "Settings", icon: Settings },
-		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
+		{ id: "logout", label: "Logout", icon: Logout },
+		{ id: "connect", label: "Connect", icon: Sync },
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
-		{ id: "change", label: "Change Password", icon: Key },
-		{ id: "export", label: "Emergency Key", icon: DownloadIcon },
-		{ id: "logout", label: "Logout", icon: Logout },
 	] as const;
 
 	// Extract the union type from MENUITEMS for type safety
