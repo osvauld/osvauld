@@ -8,15 +8,9 @@
 
 	import {
 		CopyIcon,
-		DownloadIcon,
-		UserPlus,
 		RightArrow,
-		Sync,
-		Devices,
-		QrScanner,
 		Logout,
 		Profile,
-		Key,
 		Settings,
 	} from "@osvauld/password-manager-common";
 
@@ -32,9 +26,6 @@
 		{ id: "settings", label: "Settings", icon: Settings },
 		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
 		{ id: "logout", label: "Logout", icon: Logout },
-		{ id: "connect", label: "Connect", icon: Sync },
-		{ id: "add", label: "Add Device", icon: QrScanner },
-		{ id: "devices", label: "My Devices", icon: Devices },
 	] as const;
 
 	// Extract the union type from MENUITEMS for type safety
@@ -43,17 +34,9 @@
 	// Handle dropdown menu item clicks
 	const handleDropDownClick = async (id: MenuItemId) => {
 		switch (id) {
-			case "add":
-				// Old: addDeviceModal.set(true);
-				// TODO: Update with your new state management
-				// when you implement this feature
-				break;
 			case "logout":
 				await sendMessage("logout");
 				uiState.setWelcomeScreen(true);
-				break;
-			case "connect":
-				uiState.toggleModal("showSyncQr", true);
 				break;
 			case "userid":
 				try {
@@ -64,12 +47,6 @@
 					console.error("Error copying user ID:", error);
 					uiState.showToast("Failed to copy UserID", false);
 				}
-				break;
-			case "export":
-				uiState.showPasswordPrompt(false);
-				break;
-			case "change":
-				uiState.showPasswordPrompt(true);
 				break;
 			case "settings":
 				uiState.toggleProfileViewLayout();

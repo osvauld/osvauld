@@ -1,73 +1,62 @@
 <script lang="ts">
+	import { onMount } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
 
 	let connectionTicket = "";
 	let copied = $state(false);
 	let isKeyRevealed = $state(false);
-	let passwordCollected = $state("");
-	let error = $state("");
 	let isLoading = $state(false);
 	let certificate = $state("");
 	let recoveryString = $state("");
-	let isPassphraseSubmitted = $state(false);
+	let showPasswordInputForReveal = $state(false);
+	let revealPasswordValue = $state("");
+	let revealError = $state("");
 
-	const SAMPLE_IDENTIFICATION_KEY = 'eyJ1c2VyX3B1YmxpY19rZXkiOiItLS0tLUJFR0lOIFBHUCBQVUJMSUMgS0VZIEJMT0NLLS0tLS1cbkNvbW1lbnQ6IDg0RTggMDU4NiBBRTZFIENBOEUgRDkzOSAgRTQ4QyAxMzg0IDk1OEEgNTQ3MSA2RjMyXG5Db21tZW50OiBqa2sxXG5cbnhqTUVhRFJIUkJZSkt3WUJCQUhhUnc4QkFRZEE1Q3R1MDRwVkI1Z3R6V3A1V2lYUEVRQi8vZTVKdHJLT09zTzBcblhtdHFLRURDd0FzRUh4WUtBSDBGZ21nMFIwUURDd2tIQ1JBVGhKV0tWSEZ2TWtjVUFBQUFBQUFlQUNCellXeDBcblFHNXZkR0YwYVc5dWN5NXpaWEYxYjJsaExYQm5jQzV2Y21mQnZxZVNYRmYvMWpuaVRWNzJjSnA0bVRNaWhrVkZcblZvM1NCRlpsMkN5b1lBTVZDZ2dDbXdFQ0hna1dJUVNFNkFXR3JtN0tqdGs1NUl3VGhKV0tWSEZ2TWdBQUJCb0JcbkFNMEdhdXB5MFJBYkhHZnpjVjBsT1lGNDZJU0hJQlk3eXVUQkt0dG1MK3JjQVFEOEdyWFNyYkFmb3p1OXNMVERcbjVFTkxOV1lKKzNpOFVPMkVBdWZFbGhJeEM4MEVhbXRyTWNMQURnUVRGZ29BZ0FXQ2FEUkhSQU1MQ1FjSkVCT0VcbmxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo5VGlcbjFOeUNObzU4V0lMbnhRSWJQdGd4VDhPYTFWVzRnK2FpRWVwTXJsYlVBeFVLQ0FLWkFRS2JBUUllQ1JZaEJJVG9cbkJZYXVic3FPMlRua2pCT0VsWXBVY1c4eUFBQ1EzUUQvY08yT3VBajRNK1NUWVZ1UHlsOFpsZXNsenA5bkczZ0lcbkIxUDA5UTBpaEhzQS8xMGpDaDJBNlZlVGZjd0kwMGtmZ0VkUURKQmhHdUFyNkJUUG1UTEh4eVlNempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBUUNpcHZFcHk5b3ZHNGpoQSs3M1dsR1RyWlFNYU9sSkJqSjBQK0xWRFJsYkNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUJPRWxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo1bVZcbmtyM0FDM2pZNE1MY0s2cXZ2VWdVcDNHeVBtalVaRmtjNi8zRXQvNTlBeFVLQ0FLWkFRS2JBUUllQ1JZaEJGUzVcbng4MENHYU1EYUFMS1BYeTFqdjlBRTRtc0FBQTdCZ0VBdXZRaStGVUQrb3JOMG1hSzlCWXhZckV6UHRaSkJGY2RcbmJuelJPMzJlRmY0QkFOWTZZQ29MaTBiVjRlMXdyMTNIN0RUcEl5QmIza2laajJnNmlHSVBYWG9QempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBSCtwM3orR3NnNFRHNHlVWFBQamo0OEhydHVvSHBMVkJOa28wZnJETDZoakNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUh5MWp2OUFFNG1zUnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpcbkxuTmxjWFZ2YVdFdGNHZHdMbTl5Wnk2d1FrZGp4bHU1SzZ5NDQ0ZUNCcDkzWFk4SklMZnpaNS96VnY0c0dyVDBcbkFwc0N2cUFFR1JZS0FHOEZnbWcwUjBRSkVIeTFqdjlBRTRtc1J4UUFBQUFBQUI0QUlITmhiSFJBYm05MFlYUnBcbmIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo2NG4wQ3M2OHJDZTU5cmVOWHpNVW5Wb2hwVmJNaGd2aVlyaFBEYUVcbkZYUnFGaUVFdkVwZlU5VkE5UlI1UXpTUWpaOWhCbEE1Z3VZQUFQN0RBUDQ1KzQrY2dPRlA4TWJhTU1GTzNPNDFcblN5MlZONk8vM2lvcmN5dEUranp2NUFEL1l2a3hvYnVLWmRHa0wvdldEaSt6d2U3VUhKQTIycGIrSkFaQlRNYnhcbklna1dJUVJVdWNmTkFobWpBMmdDeWoxOHRZNy9RQk9KckFBQU9xVUEvM3FjVUd6Lzd6OGF3M0o3MEN6cmoydERcbldDd0xlZDROOWdaOVFyVDRRNEw5QVFDSTlzR3Z4TjRXcmMvUDJxY0VxektQY0M5WU03SHFlTWZudTVRR3R1ckNcbkNjNDRCR2cwUjBRU0Npc0dBUVFCbDFVQkJRRUJCMEE4TFNUS0IycS9ObUprNkdXSHNRUWc2Q0ZpWmFGNjFwVTFcbmVKY2IwVG9VWXdNQkNBZkN3QUFFR0JZS0FISUZnbWcwUjBRSkVIeTFqdjlBRTRtc1J4UUFBQUFBQUI0QUlITmhiSFJBYm05MFlYUnBcbmIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVorMjVxTytuL3hCbFc0dm5TcVI2UVRPOCtwUHdcbmZyR1phWVF1Ym84OG1ZY3BBcHNJRmlFRVZMbkh6UUlab3dOb0FzbzlmTFdPLzBBVGlhd0FBT0RMQVA5Q1A1RVJcblZEMjZHenB6aDBhdXJGSHRVRGg5ZjBQK01nQ0pSVmV2MnA0YlFnRUE3SzJMb29TL09WVmdTaklwbzJINXV0TDJcbjU4M2paRXRqUFJteUJaaWx2QWc9XG49TjBOVVxuLS'; // Sample
-
+	const SAMPLE_IDENTIFICATION_KEY = 'eyJ1c2VyX3B1YmxpY19rZXkiOiItLS0tLUJFR0lOIFBHUCBQVUJMSUMgS0VZIEJMT0NLLS0tLS1cbkNvbW1lbnQ6IDg0RTggMDU4NiBBRTZFIENBOEUgRDkzOSAgRTQ4QyAxMzg0IDk1OEEgNTQ3MSA2RjMyXG5Db21tZW50OiBqa2sxXG5cbnhqTUVhRFJIUkJZSkt3WUJCQUhhUnc4QkFRZEE1Q3R1MDRwVkI1Z3R6V3A1V2lYUEVRQi8vZTVKdHJLT09zTzBcblhtdHFLRURDd0FzRUh4WUtBSDBGZ21nMFIwUURDd2tIQ1JBVGhKV0tWSEZ2TWtjVUFBQUFBQUFlQUNCellXeDBcblFHNXZkR0YwYVc5dWN5NXpaWEYxYjJsaExYQm5jQzV2Y21mQnZxZVNYRmYvMWpuaVRWNzJjSnA0bVRNaWhrVkZcblZvM1NCRlpsMkN5b1lBTVZDZ2dDbXdFQ0hna1dJUVNFNkFXR3JtN0tqdGs1NUl3VGhKV0tWSEZ2TWdBQUJCb0JcbkFNMEdhdXB5MFJBYkhHZnpjVjBsT1lGNDZJU0hJQlk3eXVUQkt0dG1MK3JjQVFEOEdyWFNyYkFmb3p1OXNMVERcbjVFTkxOV1lKKzNpOFVPMkVBdWZFbGhJeEM4MEVhbXRyTWNMQURnUVRGZ29BZ0FXQ2FEUkhSQU1MQ1FjSkVCT0VcbmxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo5VGlcbjFOeUNObzU4V0lMbnhRSWJQdGd4VDhPYTFWVzRnK2FpRWVwTXJsYlVBeFVLQ0FLWkFRS2JBUUllQ1JZaEJJVG9cbkJZYXVic3FPMlRua2pCT0VsWXBVY1c4eUFBQ1EzUUQvY08yT3VBajRNK1NUWVZ1UHlsOFpsZXNsenA5bkczZ0lcbkIxUDA5UTBpaEhzQS8xMGpDaDJBNlZlVGZjd0kwMGtmZ0VkUURKQmhHdUFyNkJUUG1UTEh4eVlNempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBUUNpcHZFcHk5b3ZHNGpoQSs3M1dsR1RyWlFNYU9sSkJqSjBQK0xWRFJsYkNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUJPRWxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo1bVZcbmtyM0FDM2pZNE1MY0s2cXZ2VWdVcDNHeVBtalVaRmtjNi8zRXQvNTlBeFVLQ0FLWkFRS2JBUUllQ1JZaEJGUzVcbng4MENHYU1EYUFMS1BYeTFqdjlBRTRtc0FBQTdCZ0VBdXZRaStGVUQrb3JOMG1hSzlCWXhZckV6UHRaSkJGY2RcbmJuelJPMzJlRmY0QkFOWTZZQ29MaTBiVjRlMXdyMTNIN0RUcEl5QmIza2laajJnNmlHSVBYWG9QempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBSCtwM3orR3NnNFRHNHlVWFBQamo0OEhydHVvSHBMVkJOa28wZnJETDZoakNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUh5MWp2OUFFNG1zUnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpcbkxuTmxjWFZ2YVdFdGNHZHdMbTl5Wnk2d1FrZGp4bHU1SzZ5NDQ0ZUNCcDkzWFk4SklMZnpaNS96VnY0c0dyVDBcbkFwc0N2cUFFR1JZS0FHOEZnbWcwUjBRSkVIeTFq'; // Sample
 
 	let { identificationKey = SAMPLE_IDENTIFICATION_KEY } = $props<{ identificationKey?: string }>();
 
-
-	function revealKey() {
-		isKeyRevealed = true;
+	function displayPasswordPrompt() {
+		showPasswordInputForReveal = true;
+		revealError = ""; // Clear previous errors
 	}
 
-	async function initializeConnection() {
-		try {
-			connectionTicket = await sendMessage("getTicket");
-		} catch (err) {
-		}
-	}
-
-	async function handlePassphraseSubmit() {
-		if (!passwordCollected.trim()) {
-			error = "Please enter your passphrase";
+	async function handleSubmitRevealPassword() {
+		
+		if (!revealPasswordValue.trim()) {
+			revealError = "Password cannot be empty.";
 			return;
 		}
 
 		try {
 			isLoading = true;
-			error = ""; // Clear any previous errors
 
 			certificate = await sendMessage("exportCertificate", {
-				passphrase: passwordCollected,
+				passphrase: revealPasswordValue,
 			});
+
+			if (!certificate) {
+				throw new Error("No certificate received");
+			}
 
 			recoveryString = JSON.stringify({
 				ticket: connectionTicket,
 				certificate: certificate,
 			});
 
-			isPassphraseSubmitted = true;
-
-
+			identificationKey = recoveryString;
+			isKeyRevealed = true;
+			showPasswordInputForReveal = false;
 			isLoading = false;
-		} catch (err) {
-			error = `Failed to export certificate: ${err.toString()}`;
+			revealError = "";
+		} catch (err: any) {
+			revealError = "Try again";
 			isLoading = false;
 		}
+		revealPasswordValue = ""; 	
 	}
 
-
 	async function handleCopy() {
-		// Here you would typically trigger your password modal
-		// For demonstration, we'll assume password validation is successful
-		// and then proceed to copy.
-
-		// const passwordIsValid = await showPasswordModal(); // Your actual password modal logic
-		// if (!passwordIsValid) {
-		// return;
-		// }
-
 		try {
 			await navigator.clipboard.writeText(identificationKey);
 			copied = true;
@@ -76,9 +65,12 @@
 			}, 2000); // Reset message after 2 seconds
 		} catch (err) {
 			console.error('Failed to copy: ', err);
-			// Handle error (e.g., show an error message to the user)
 		}
 	}
+
+	onMount(async () => {
+		connectionTicket = await sendMessage("getTicket");
+	})
 </script>
 
 <div class="h-full flex flex-col text-base">
@@ -94,7 +86,7 @@
 	<!-- Form Section -->
 	<div class="flex-1 flex flex-col items-center justify-center">
 		<div class="w-full grow flex flex-col items-center justify-center">
-			<p class="text-sm text-osvauld-fieldText mb-2">Your unique identification key:</p>
+			<p class="text-sm text-osvauld-fieldText mb-2">Your cryptographically secure unique identification key:</p>
 			<!-- Key Display Area Container -->
 			<div
 				class="w-full bg-osvauld-bgDarker border border-osvauld-borderColor rounded-md font-mono break-words mb-4 overflow-y-auto grow relative text-white max-h-[25rem] overflow-y-auto"
@@ -102,7 +94,7 @@
 			>
 				{#if isKeyRevealed}
 					<!-- Revealed Key -->
-					<div class="p-4 select-all whitespace-pre-wrap">
+					<div class="p-4 select-all whitespace-pre-wrap" role="textbox" aria-label="Identification key">
 						{identificationKey}
 					</div>
 				{:else}
@@ -113,34 +105,82 @@
 						{identificationKey}
 					</div>
 
-					<!-- Translucent Overlay with Text -->
-					<div
-						class="absolute inset-0  flex flex-col items-center justify-center z-10 cursor-pointer bg-black/55 transition-colors"
-						onclick={revealKey}
-						role="button"
-						tabindex="0"
-						onkeydown={(e) => e.key === 'Enter' && revealKey()}
-					>
-						<!-- Lock Icon -->
-						<svg
-							xmlns="http://www.w3.org/2000/svg"
-							fill="none"
-							viewBox="0 0 24 24"
-							stroke-width="1.5"
-							stroke="currentColor"
-							class="w-10 h-10 text-osvauld-fieldText mb-3"
+					<!-- Translucent Overlay with Text or Password Input -->
+					{#if showPasswordInputForReveal}
+						<div class="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black/75 p-4">
+							{#if isLoading}
+								<div class="flex flex-col items-center justify-center" role="status" aria-label="Loading">
+									<div class="animate-spin rounded-full h-12 w-12 border-b-2 border-osvauld-carolinablue mb-4" aria-hidden="true"></div>
+									<p class="text-osvauld-fieldText">Exporting certificate...</p>
+								</div>
+							{:else}
+								<form 
+									onsubmit={(e) => {
+										e.preventDefault();
+										handleSubmitRevealPassword();
+									}}
+									class="flex flex-col items-center w-full max-w-xs"
+								>
+									<input
+										type="password"
+										bind:value={revealPasswordValue}
+										autofocus
+										placeholder="Enter password to reveal key"
+										class="bg-osvauld-bgDarker border border-osvauld-borderColor text-white placeholder:text-osvauld-fieldText/70 rounded-md p-3 mb-3 w-full text-sm"
+										aria-label="Password for revealing identification key"
+										aria-invalid={!!revealError}
+										aria-describedby={revealError ? "password-error" : undefined}
+									/>
+									{#if revealError}
+										<p id="password-error" class="text-red-500 text-xs mb-2" role="alert">{revealError}</p>
+									{/if}
+									<div class="flex flex-col w-full gap-2">
+										<button
+											type="submit"
+											class="bg-osvauld-carolinablue text-osvauld-frameblack font-semibold py-2 px-4 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors text-sm"
+										>
+											Submit & Reveal
+										</button>
+										<button
+											type="button"
+											onclick={() => { showPasswordInputForReveal = false; revealPasswordValue = ''; revealError = ''; }}
+											class="text-osvauld-fieldText hover:text-white text-xs underline"
+										>
+											Cancel
+										</button>
+									</div>
+								</form>
+							{/if}
+						</div>
+					{:else}
+						<div
+							class="absolute inset-0 flex flex-col items-center justify-center z-10 cursor-pointer bg-black/55 transition-colors hover:bg-black/45"
+							onclick={displayPasswordPrompt}
+							role="button"
+							tabindex="0"
+							onkeydown={(e) => e.key === 'Enter' && displayPasswordPrompt()}
+							aria-label="Click to unlock identification key"
 						>
-							<path
-								stroke-linecap="round"
-								stroke-linejoin="round"
-								d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
-							/>
-						</svg>
-						<span class="text-osvauld-fieldText italic text-base px-4 text-center"
-							>Click to Unlock identification key</span
-						>
-					
-					</div>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="1.5"
+								stroke="currentColor"
+								class="w-10 h-10 text-osvauld-fieldText mb-3"
+								aria-hidden="true"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+								/>
+							</svg>
+							<span class="text-osvauld-fieldText italic text-base px-4 text-center"
+								>Click to Unlock identification key</span
+							>
+						</div>
+					{/if}
 				{/if}
 			</div>
 
@@ -148,15 +188,15 @@
 				type="button"
 				onclick={handleCopy}
 				disabled={!isKeyRevealed || copied}
-				class="w-full max-w-[20rem] bg-osvauld-carolinablue text-osvauld-frameblack disabled:text-white font-semibold mt-6 py-4 px-6 rounded-md  cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors disabled:bg-osvauld-fieldActive disabled:cursor-not-allowed"
+				class="w-full max-w-[20rem] bg-osvauld-carolinablue text-osvauld-frameblack disabled:text-white font-semibold mt-6 py-4 px-6 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors disabled:bg-osvauld-fieldActive disabled:cursor-not-allowed"
+				aria-label={copied ? "Copied to clipboard" : "Copy identification key"}
 			>
 				{#if copied}
-						Copied to clipboard!
+					Copied to clipboard!
 				{:else}
-					  Copy Key
+					Copy Key
 				{/if}
 			</button>
-		
 		</div>
 
 		<div class="text-xs text-osvauld-fieldText text-center max-w-md mt-4">

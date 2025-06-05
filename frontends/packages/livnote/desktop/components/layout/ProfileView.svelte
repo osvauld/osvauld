@@ -29,9 +29,11 @@
 	const handleSettingSelection = (id: MenuItemId) => {
 		switch (id) {
 			case "add":
-			case "devices":
 			case "addUser":
 				activeMenuItem = id;
+				break;
+			case "devices":
+				activeMenuItem = "addUser";
 				break;
 			case "export":
 				uiState.showPasswordPrompt(false);
