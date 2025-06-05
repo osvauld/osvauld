@@ -1,11 +1,14 @@
 use crate::database::schema::users;
+use crate::models::DeviceModel;
 use crate::models::UserModel;
 use chrono::Local;
+use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::{RepositoryError, UserRepository};
 
 use crate::DbConnection;
 use async_trait::async_trait;
+use diesel::associations::GroupedBy;
 use diesel::prelude::*;
 
 pub struct SqliteUserRepository {
@@ -86,5 +89,42 @@ impl UserRepository for SqliteUserRepository {
             Ok(())
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+    }
+    async fn get_users_and_devices_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<(User, Vec<Device>)>, RepositoryError> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Get users
+        let user_models = users::table
+            .filter(users::id.eq_any(user_ids))
+            .load::<UserModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Get associated devices using the relationship
+        let device_models = DeviceModel::belonging_to(&user_models)
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Group devices by user
+        let devices_per_user = device_models.grouped_by(&user_models);
+
+        // Convert to domain objects
+        let result = user_models
+            .into_iter()
+            .zip(devices_per_user)
+            .map(|(user_model, device_models)| {
+                let user = User::from(user_model);
+                let devices = DeviceModel::to_domain_devices(device_models);
+                (user, devices)
+            })
+            .collect();
+
+        Ok(result)
     }
 }

@@ -2,7 +2,7 @@ use crate::p2p::peer_connection::PeerConnection;
 
 use osvauld_core::models::device::Device;
 use osvauld_core::models::p2p::{
-    DeviceConnection, DeviceSyncPayload, LiveEditMessage, Message, Phase, PhaseAction, PhaseType,
+    DeviceConnection, LiveEditMessage, Message, NetworkSyncPayload, Phase, PhaseAction, PhaseType,
     ResourceUpdateMsg, SyncAckType, SyncPayload,
 };
 
@@ -489,7 +489,7 @@ impl PeerConnection {
 ), level = "info")]
     pub async fn process_device_sync_payload(
         &self,
-        payload: &DeviceSyncPayload,
+        payload: &NetworkSyncPayload,
     ) -> Result<(), String> {
         info!("Processing device sync payload");
 
@@ -498,6 +498,7 @@ impl PeerConnection {
             Some(device) => device,
             None => return Err("Local device not found".into()),
         };
+        let peer_device_id = &self.device.id;
 
         let current_span = tracing::Span::current();
 
@@ -505,10 +506,11 @@ impl PeerConnection {
         let return_payload = self
             .context
             .sync_service
-            .process_device_sync_payload(
+            .process_network_sync_payload(
                 payload,
                 &current_device.user_id,
                 &current_device.id,
+                &peer_device_id,
                 current_span,
             )
             .await
@@ -517,7 +519,7 @@ impl PeerConnection {
         // If there's a response to send
         if let Some(response_payload) = return_payload {
             // Send the response
-            let message = Message::DeviceSync(response_payload);
+            let message = Message::NetworkSync(response_payload);
             self.send_message(message).await?;
         }
 

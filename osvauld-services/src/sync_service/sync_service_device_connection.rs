@@ -1,13 +1,21 @@
 use super::sync_service_core::SyncService;
 use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{DeviceConnection, DeviceSyncPayload};
+use osvauld_core::models::p2p::{DeviceConnection, NetworkSyncPayload};
 use osvauld_core::models::sync_record::{SyncRecord, SyncRecordSet};
 use osvauld_core::models::sync_types::{OperationType, ResourceType, SyncOperations};
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::repositories::RepositoryError;
+use std::collections::HashSet;
 use tracing::{Span, debug, error, info, instrument};
 
+#[derive(Debug)]
+pub struct ProcessedRecordResult {
+    pub updated_record_set: SyncRecordSet,
+    pub local_operations: SyncOperations,
+    pub remote_operations: SyncOperations,
+    pub record_exists: bool,
+}
 impl SyncService {
     #[instrument(
     skip(self, payload, current_span), 
@@ -187,8 +195,13 @@ impl SyncService {
             device.clone(),
             current_device_id.to_string(),
             &all_sync_and_device_records,
-            &all_devices,
+            &user_devices,
             sync_record_set.clone(),
+        );
+        let network_awareness_set = SyncRecord::create_network_device_sync_record(
+            device.id.clone(),
+            current_device_id.to_string(),
+            &all_devices,
         );
 
         let resource_ids: Vec<String> = all_sync_and_device_records
@@ -207,7 +220,12 @@ impl SyncService {
             ResourceVectorClock::create_entries_for_new_device(&resource_ids, &device.id);
 
         self.db
-            .save_device_sync(device, &device_sync_set, &vector_clocks)
+            .save_device_sync(
+                device,
+                &device_sync_set,
+                &vector_clocks,
+                &network_awareness_set,
+            )
             .await?;
         let sync_record_sets = self
             .sync_repository
@@ -397,65 +415,69 @@ impl SyncService {
             .await
     }
 
-      #[instrument(
+    #[instrument(
         skip(self, current_span),
         fields(peer_device_id = %peer_device_id),
         level = "info"
     )]
-    pub async fn get_device_sync_request_payload(
+    pub async fn get_network_sync_request_payload(
         &self,
         peer_device_id: &str,
         current_span: Span,
-    ) -> Result<DeviceSyncPayload, RepositoryError> {
+    ) -> Result<NetworkSyncPayload, RepositoryError> {
         let _guard = current_span.enter();
-        info!("Preparing device sync request payload (Phase 1) for peer device");
 
-        // Get all device sync records that are pending for the peer device, specifically "create" operations
-        debug!("Getting all pending device sync records for peer device");
-        let device_sync_data = match self
+        let new_device_record_sets = self
             .sync_repository
             .get_all_pending_syncs_by_type(peer_device_id, "device", "create")
-            .await
-        {
-            Ok(Some(data)) => {
-                debug!(sync_data_count = data.len(), "Found pending device sync records");
-                data
-            }
-            Ok(None) => {
-                debug!("No pending device sync records found");
-                Vec::new()
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to get pending device sync records");
-                return Err(e);
-            }
-        };
+            .await?
+            .unwrap_or_default();
 
-        // Extract unique device IDs from sync records to get the actual device objects
-        debug!("Extracting device IDs from sync records");
-        let device_ids: Vec<String> = SyncRecordSet::extract_resource_ids(&device_sync_data);
+        // 2. Get user sync records
+        let new_user_record_sets = self
+            .sync_repository
+            .get_all_pending_syncs_by_type(peer_device_id, "user", "create")
+            .await?
+            .unwrap_or_default();
 
-        debug!(device_id_count = device_ids.len(), "Found unique device IDs");
+        // 3. Get network device sync records
+        let network_device_record_sets = self
+            .sync_repository
+            .get_all_pending_syncs_by_type(peer_device_id, "network_device", "create")
+            .await?
+            .unwrap_or_default();
+        let device_ids = SyncRecordSet::extract_resource_ids(&new_device_record_sets);
+        let unknown_devices = self
+            .device_repository
+            .get_devices_by_ids(&device_ids)
+            .await?;
+        let known_devices = self
+            .device_repository
+            .get_all_devices_except(&device_ids)
+            .await?;
+        let user_ids = SyncRecordSet::extract_resource_ids(&new_user_record_sets);
+        let new_users = self
+            .user_repository
+            .get_users_and_devices_by_user_ids(&user_ids)
+            .await?;
+        let network_device_ids = SyncRecordSet::extract_resource_ids(&network_device_record_sets);
+        let network_devices = self
+            .device_repository
+            .get_devices_by_ids(&network_device_ids)
+            .await?;
 
-        // Get all device objects in a single batch call
-        let devices = match self.device_repository.get_devices_by_ids(&device_ids).await {
-            Ok(devices) => {
-                debug!(devices_retrieved = devices.len(), "Retrieved device data in batch");
-                devices
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to retrieve devices in batch");
-                return Err(e);
-            }
-        };
-
-
-        Ok(DeviceSyncPayload::Request {
-            record_sets: device_sync_data,
-            devices,
+        Ok(NetworkSyncPayload::Request {
+            new_device_record_sets,
+            known_devices,
+            unknown_devices,
+            new_user_record_sets,
+            new_users,
+            network_device_record_sets,
+            network_devices,
         })
     }
-  #[instrument(
+
+    #[instrument(
         skip(self, payload, current_span),
         fields(
             user_id = %user_id,
@@ -464,34 +486,40 @@ impl SyncService {
         ),
         level = "info"
     )]
-    pub async fn process_device_sync_payload(
+    pub async fn process_network_sync_payload(
         &self,
-        payload: &DeviceSyncPayload,
+        payload: &NetworkSyncPayload,
         user_id: &str,
         current_device_id: &str,
+        peer_device_id: &str,
         current_span: Span,
-    ) -> Result<Option<DeviceSyncPayload>, RepositoryError> {
+    ) -> Result<Option<NetworkSyncPayload>, RepositoryError> {
         let _guard = current_span.enter();
         info!("Processing device sync payload");
 
         match payload {
-            DeviceSyncPayload::Request {
-                record_sets,
-                devices,
+            NetworkSyncPayload::Request {
+                new_device_record_sets,
+                known_devices,
+                unknown_devices,
+                new_user_record_sets,
+                new_users,
+                network_device_record_sets,
+                network_devices,
             } => {
-                info!(
-                    sync_records = record_sets.len(),
-                    devices = devices.len(),
-                    "Processing device sync request (Phase 1)"
-                );
-
                 // Process the request and generate response
                 match self
                     .process_device_sync_request(
-                        record_sets,
-                        devices,
+                        new_device_record_sets,
+                        known_devices,
+                        unknown_devices,
+                        new_user_record_sets,
+                        new_users,
+                        network_device_record_sets,
+                        network_devices,
                         user_id,
                         current_device_id,
+                        peer_device_id,
                     )
                     .await
                 {
@@ -506,37 +534,37 @@ impl SyncService {
                 }
             }
 
-            DeviceSyncPayload::Response { .. } => {
+            NetworkSyncPayload::Response { .. } => {
                 info!("Processing device sync response (Phase 2) - TODO");
                 // TODO: Implement Phase 2 processing
                 Ok(None)
             }
 
-            DeviceSyncPayload::SyncRecordExchange { .. } => {
+            NetworkSyncPayload::SyncRecordExchange { .. } => {
                 info!("Processing sync record exchange (Phase 3) - TODO");
                 // TODO: Implement Phase 3 processing
                 Ok(None)
             }
 
-            DeviceSyncPayload::DeviceRecordRequest { .. } => {
+            NetworkSyncPayload::DeviceRecordRequest { .. } => {
                 info!("Processing device record request (Phase 4) - TODO");
                 // TODO: Implement Phase 4 processing
                 Ok(None)
             }
 
-            DeviceSyncPayload::DeviceRecordExchange { .. } => {
+            NetworkSyncPayload::DeviceRecordExchange { .. } => {
                 info!("Processing device record exchange (Phase 5) - TODO");
                 // TODO: Implement Phase 5 processing
                 Ok(None)
             }
 
-            DeviceSyncPayload::Acknowledgment { .. } => {
+            NetworkSyncPayload::Acknowledgment { .. } => {
                 info!("Processing acknowledgment (Phase 6) - TODO");
                 // TODO: Implement Phase 6 processing
                 Ok(None)
             }
 
-            DeviceSyncPayload::Complete => {
+            NetworkSyncPayload::Complete => {
                 info!("Device sync complete");
                 Ok(None)
             }
@@ -544,47 +572,422 @@ impl SyncService {
     }
 
     /// Process Phase 1: Device Discovery Request
-    #[instrument(
-        skip_all,
-        level = "info"
-    )]
+    #[instrument(skip_all, level = "info")]
     async fn process_device_sync_request(
         &self,
-        record_sets: &[SyncRecordSet],
-        devices: &[Device],
+        remote_device_record_sets: &[SyncRecordSet],
+        initiator_devices_known_by_acceptor: &[Device],
+        initiator_devices_unknown_to_acceptor: &[Device],
+        remote_user_record_sets: &[SyncRecordSet],
+        remote_unknown_users: &Vec<(User, Vec<Device>)>,
+        remote_network_device_record_sets: &[SyncRecordSet],
+        remote_network_devices: &[Device],
         user_id: &str,
         current_device_id: &str,
-    ) -> Result<DeviceSyncPayload, RepositoryError> {
+        peer_device_id: &str,
+    ) -> Result<NetworkSyncPayload, RepositoryError> {
         info!("Processing device sync request - identifying new devices");
 
-        // Step 1: Identify which devices are new (not in local database)
-        let mut new_devices = Vec::new();
-        let mut new_devices_acknowledged = Vec::new();
+        // Step 1: Get what B thinks A doesn't know about (B's perspective)
+        debug!("Getting what B thinks A doesn't know about");
+        let acceptor_payload = self
+            .get_network_sync_request_payload(
+                peer_device_id, // A's device ID - get pending syncs for A
+                tracing::Span::current(),
+            )
+            .await?;
 
-        for device in devices {
-            match self.device_repository.find_by_id(&device.id).await {
-                Ok(_) => {
-                    debug!(device_id = %device.id, "Device already exists locally");
-                }
-                Err(RepositoryError::NotFound) => {
-                    debug!(device_id = %device.id, "New device discovered");
-                    new_devices.push(device.clone());
-                    new_devices_acknowledged.push(device.id.clone());
-                }
-                Err(e) => {
-                    error!(error = %e, device_id = %device.id, "Error checking device existence");
-                    return Err(e);
-                }
+        let (
+            local_device_record_sets,
+            acceptor_devices_unknown_to_initiator,
+            acceptor_devices_known_by_initiator,
+            local_user_record_sets,
+            acceptor_unknown_users,
+            local_network_device_record_sets,
+            local_network_devices,
+        ) = if let NetworkSyncPayload::Request {
+            new_device_record_sets,
+            known_devices,
+            unknown_devices,
+            new_user_record_sets,
+            new_users,
+            network_device_record_sets,
+            network_devices,
+        } = acceptor_payload
+        {
+            // Early termination check - both sides have empty unknown lists
+            
+            (
+                new_device_record_sets,
+                unknown_devices,
+                known_devices,
+                new_user_record_sets,
+                new_users,
+                network_device_record_sets,
+                network_devices,
+            )
+        } else {
+            return Err(RepositoryError::CustomError(
+                "Expected Request payload".to_string(),
+            ));
+        };
+
+        debug!("Categorizing devices into 4 buckets using both A and B perspectives");
+        let all_acceptor_devices: Vec<Device> = acceptor_devices_known_by_initiator
+            .iter()
+            .chain(acceptor_devices_unknown_to_initiator.iter())
+            .cloned()
+            .collect();
+
+        let all_initiator_devices: Vec<Device> = initiator_devices_unknown_to_acceptor
+            .iter()
+            .chain(initiator_devices_known_by_acceptor.iter())
+            .cloned()
+            .collect();
+
+        let mut seen = HashSet::new();
+        let all_devices: Vec<Device> = all_acceptor_devices
+            .iter()
+            .chain(all_initiator_devices.iter())
+            .filter(|device| seen.insert(device.id.clone()))
+            .cloned()
+            .collect();
+
+        // What B doesn't know vs awareness gap (from A's request)
+        let (devices_acceptor_doesnt_know, _devices_initiator_thinks_acceptor_doesnt_know) = self
+            .categorize_devices_from_perspective(
+                initiator_devices_unknown_to_acceptor,
+                &all_acceptor_devices,
+            )
+            .await;
+
+        // What A doesn't know vs awareness gap (from B's request)
+        let (devices_initiator_doesnt_know, _devices_acceptor_thinks_initiator_doesnt_know) = self
+            .categorize_devices_from_perspective(
+                &acceptor_devices_unknown_to_initiator,
+                &all_initiator_devices,
+            )
+            .await;
+
+        // Process remote device record sets
+        let mut updated_remote_device_record_sets = Vec::new();
+        let mut all_local_operations = SyncOperations::new();
+        let mut all_remote_operations = SyncOperations::new();
+
+        for remote_record in remote_device_record_sets {
+            let result = self
+                .process_remote_sync_record_set(
+                    remote_record,
+                    &devices_acceptor_doesnt_know,
+                    &all_devices,
+                    current_device_id,
+                )
+                .await?;
+
+            updated_remote_device_record_sets.push(result.updated_record_set);
+            all_local_operations.merge(result.local_operations);
+            all_remote_operations.merge(result.remote_operations);
+        }
+
+        // Process remote user record sets
+        let mut updated_remote_user_record_sets = Vec::new();
+        for remote_record in remote_user_record_sets {
+            let result = self
+                .process_remote_sync_record_set(
+                    remote_record,
+                    &devices_acceptor_doesnt_know,
+                    &all_devices,
+                    current_device_id,
+                )
+                .await?;
+
+            updated_remote_user_record_sets.push(result.updated_record_set);
+            all_local_operations.merge(result.local_operations);
+            all_remote_operations.merge(result.remote_operations);
+        }
+
+        // Process remote network device record sets
+        let mut updated_remote_network_device_record_sets = Vec::new();
+        for remote_record in remote_network_device_record_sets {
+            let result = self
+                .process_remote_sync_record_set(
+                    remote_record,
+                    &devices_acceptor_doesnt_know,
+                    &all_devices,
+                    current_device_id,
+                )
+                .await?;
+
+            updated_remote_network_device_record_sets.push(result.updated_record_set);
+            all_local_operations.merge(result.local_operations);
+            all_remote_operations.merge(result.remote_operations);
+        }
+
+        // Process local device record sets (for response payload)
+        let mut to_merge_local_record_sets = Vec::new();
+        let mut updated_local_device_record_sets = Vec::new();
+        for local_record in &local_device_record_sets {
+            let is_true_unknown_device = devices_initiator_doesnt_know
+                .iter()
+                .any(|device| device.id == local_record.sync_record.resource_id);
+
+            if is_true_unknown_device {
+                let (updated_record, local_ops) = Self::process_local_record_set(
+                    local_record,
+                    initiator_devices_unknown_to_acceptor,
+                    &all_devices,
+                    current_device_id,
+                )
+                .await?;
+
+                updated_local_device_record_sets.push(updated_record);
+                all_local_operations.merge(local_ops);
+            }else {
+                to_merge_local_record_sets.push(local_record);
             }
         }
 
-        // Step 2: Store new devices if any
-        if !new_devices.is_empty() {
-            info!(new_device_count = new_devices.len(), "Storing new devices");
-            self.device_repository.save_many(&new_devices).await?;
+        // Process local user record sets (for response payload)
+        let mut updated_local_user_record_sets = Vec::new();
+        for local_record in &local_user_record_sets {
+            let (updated_record, local_ops) = Self::process_local_record_set(
+                local_record,
+                initiator_devices_unknown_to_acceptor,
+                &all_devices,
+                current_device_id,
+            )
+            .await?;
+
+            updated_local_user_record_sets.push(updated_record);
+            all_local_operations.merge(local_ops);
+        }
+
+        // Process local network device record sets (for response payload)
+        let mut updated_local_network_device_record_sets = Vec::new();
+        for local_record in &local_network_device_record_sets {
+            let (updated_record, local_ops) = Self::process_local_record_set(
+                local_record,
+                initiator_devices_unknown_to_acceptor,
+                &all_devices,
+                current_device_id,
+            )
+            .await?;
+
+            updated_local_network_device_record_sets.push(updated_record);
+            all_local_operations.merge(local_ops);
         }
 
         todo!()
+        // Return response payload
+        // Ok(NetworkSyncPayload::Response {
+        //     // Device sync data
+        //     device_record_sets: updated_local_device_record_sets,
+        //     unknown_devices: devices_initiator_doesnt_know,
+        //     known_devices: all_initiator_devices
+        //         .into_iter()
+        //         .filter(|d| !devices_initiator_doesnt_know.iter().any(|unknown| unknown.id == d.id))
+        //         .collect(),
+        //
+        //     // User sync data
+        //     user_record_sets: updated_local_user_record_sets,
+        //     unknown_users: acceptor_unknown_users,
+        //     known_users: acceptor_known_users,
+        //
+        //     // Network device sync data
+        //     network_device_record_sets: updated_local_network_device_record_sets,
+        //
+        //     // Operations for remote to apply
+        //     remote_operations: all_remote_operations,
+        // })
+    }
+    async fn categorize_devices_from_perspective(
+        &self,
+        sender_thinks_receiver_doesnt_know: &[Device], // Devices A is sending to B
+        all_receiver_devices: &[Device],               // All devices B knows about
+    ) -> (Vec<Device>, Vec<Device>) {
+        // (unknown, awareness_gap)
+
+        let receiver_device_ids: std::collections::HashSet<String> =
+            all_receiver_devices.iter().map(|d| d.id.clone()).collect();
+
+        let mut unknown_devices = Vec::new();
+        let mut awareness_gap_devices = Vec::new();
+
+        for device in sender_thinks_receiver_doesnt_know {
+            if receiver_device_ids.contains(&device.id) {
+                // Receiver actually knows this device - awareness gap
+                awareness_gap_devices.push(device.clone());
+            } else {
+                // Receiver actually doesn't know - unknown device
+                unknown_devices.push(device.clone());
+            }
+        }
+
+        (unknown_devices, awareness_gap_devices)
     }
 
+    async fn process_remote_sync_record_set(
+        &self,
+        record_set: &SyncRecordSet,
+        unknown_devices_on_other_side: &[Device],
+        all_devices: &[Device],
+        current_device_id: &str,
+    ) -> Result<ProcessedRecordResult, RepositoryError> {
+        let mut updated_record = SyncRecordSet::empty(record_set.sync_record.clone());
+        let mut local_operations = SyncOperations::new();
+        let mut remote_operations = SyncOperations::new();
+        let does_record_exist_locally = self
+            .sync_repository
+            .get_sync_record_by_id(&record_set.sync_record.id)
+            .await?;
+        let mut record_exists = false;
+
+        if does_record_exist_locally.is_none() {
+            // Record doesn't exist locally - this is a true unknown
+
+            // Step 1: Process device records and create completion
+            let (
+                processed_device_records,
+                processed_record_status,
+                updated_record_ids,
+                updated_status_ids,
+            ) = SyncRecord::process_device_records(
+                &record_set.device_records,
+                &record_set.device_record_statuses,
+                current_device_id,
+            );
+
+            updated_record.extend_device_records_and_statuses(
+                processed_device_records,
+                processed_record_status,
+            );
+
+            remote_operations.add_ids_to_update(updated_record_ids, updated_status_ids);
+
+            // Step 2: Create completion record
+            let completion_record = SyncRecord::create_completion_records(
+                updated_record.sync_record.id.clone(),
+                current_device_id.to_string(),
+                &all_devices,
+            );
+
+            updated_record.add_device_record_with_statuses(
+                completion_record.device_record.clone(),
+                completion_record.device_record_statuses.clone(),
+            );
+
+            remote_operations.add_single_record_with_statuses(
+                completion_record.device_record,
+                completion_record.device_record_statuses,
+            );
+
+            // Step 3: Create cross-device records if there are unknown devices on other side
+            if !unknown_devices_on_other_side.is_empty() {
+                let (device_record_set, device_record_statuses) =
+                    SyncRecord::create_cross_device_records_for_targets(
+                        &record_set.sync_record.id,
+                        &record_set.device_records,
+                        &all_devices,
+                        &unknown_devices_on_other_side,
+                        current_device_id,
+                    );
+
+                let mut combined_statuses = device_record_set.device_record_statuses.clone();
+                combined_statuses.extend(device_record_statuses.clone());
+
+                updated_record.extend_device_records_and_statuses(
+                    device_record_set.device_records.clone(),
+                    combined_statuses.clone(),
+                );
+
+                remote_operations
+                    .add_records_and_statuses(device_record_set.device_records, combined_statuses);
+            }
+        } else {
+            record_exists = true;
+            // Record exists locally - merge with existing records
+            let (local_device_records, local_device_statuses) = self
+                .sync_repository
+                .get_device_records_and_statuses_by_sync_record(&record_set.sync_record.id)
+                .await?;
+
+            let merged_records = SyncRecord::merge_sync_records(
+                &local_device_records,
+                &local_device_statuses,
+                &record_set.device_records,
+                &record_set.device_record_statuses,
+                current_device_id,
+            );
+
+            // Add remote operations (what to send back to remote)
+            remote_operations.add_records_and_statuses(
+                merged_records.remote_operations.records_to_add,
+                merged_records.remote_operations.status_records_to_add,
+            );
+            remote_operations.add_ids_to_update(
+                merged_records.remote_operations.record_ids_to_update,
+                merged_records.remote_operations.status_ids_to_update,
+            );
+
+            local_operations.add_records_and_statuses(
+                merged_records.local_operations.records_to_add,
+                merged_records.local_operations.status_records_to_add,
+            );
+
+            // Add local operations (what to update in our own database)
+            local_operations.add_ids_to_update(
+                merged_records.local_operations.record_ids_to_update,
+                merged_records.local_operations.status_ids_to_update,
+            );
+            #[derive(Debug, Clone)]
+            pub enum ProcessingMode {
+                Remote, // Processing incoming records from remote peer
+                Local,  // Processing local records for outgoing payload
+            }
+        }
+        Ok(ProcessedRecordResult {
+            updated_record_set: updated_record,
+            local_operations,
+            remote_operations,
+            record_exists,
+        })
+    }
+
+    pub async fn process_local_record_set(
+        record_set: &SyncRecordSet,
+        unknown_devices_on_other_side: &[Device],
+        all_devices: &[Device],
+        current_device_id: &str,
+    ) -> Result<(SyncRecordSet, SyncOperations), RepositoryError> {
+        let mut updated_record = SyncRecordSet::empty(record_set.sync_record.clone());
+        let mut local_operations = SyncOperations::new();
+        updated_record.extend_device_records_and_statuses(
+            record_set.device_records.clone(),
+            record_set.device_record_statuses.clone(),
+        );
+
+        // Create cross-device records only if there are unknown devices on remote side
+        if !unknown_devices_on_other_side.is_empty() {
+            let (device_record_set, device_record_statuses) =
+                SyncRecord::create_cross_device_records_for_targets(
+                    &record_set.sync_record.id,
+                    &record_set.device_records,
+                    &all_devices,
+                    &unknown_devices_on_other_side,
+                    current_device_id,
+                );
+
+            let mut combined_statuses = device_record_set.device_record_statuses.clone();
+            combined_statuses.extend(device_record_statuses.clone());
+
+            updated_record.extend_device_records_and_statuses(
+                device_record_set.device_records.clone(),
+                combined_statuses.clone(),
+            );
+
+            local_operations
+                .add_records_and_statuses(device_record_set.device_records, combined_statuses);
+        }
+        Ok((updated_record, local_operations))
+    }
 }

@@ -20,6 +20,7 @@ impl TransactionService {
         device: &Device,
         sync_record_set: &SyncRecordSet,
         vector_clocks: &[ResourceVectorClock],
+        networ_awareness_set: &SyncRecordSet,
     ) -> Result<(), RepositoryError> {
         // Save the device first
         self.device_repository.save(device).await?;
@@ -27,6 +28,9 @@ impl TransactionService {
         // Add the sync record set
         self.sync_repository
             .add_sync_record_set(sync_record_set)
+            .await?;
+        self.sync_repository
+            .add_sync_record_set(networ_awareness_set)
             .await?;
 
         // Save vector clocks if any

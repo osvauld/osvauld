@@ -91,7 +91,7 @@ pub enum Message {
     LiveEdit(LiveEditMessage),
     Disconnect(DisconnectStatus),
     FirstDeviceConnection(DeviceConnection),
-    DeviceSync(DeviceSyncPayload),
+    NetworkSync(NetworkSyncPayload),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -256,10 +256,15 @@ pub enum DeviceConnection {
     },
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum DeviceSyncPayload {
+pub enum NetworkSyncPayload {
     Request {
-        record_sets: Vec<SyncRecordSet>,
-        devices: Vec<Device>,
+        new_device_record_sets: Vec<SyncRecordSet>,
+        known_devices: Vec<Device>,
+        unknown_devices: Vec<Device>,
+        new_user_record_sets: Vec<SyncRecordSet>,
+        new_users: Vec<(User, Vec<Device>)>,
+        network_device_record_sets: Vec<SyncRecordSet>,
+        network_devices: Vec<Device>,
     },
 
     Response {

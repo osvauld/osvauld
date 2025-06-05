@@ -269,7 +269,7 @@ pub async fn start_device_sync(&self) -> Result<(), String> {
     {
         Ok(payload) => {
             info!("Sending device sync request (Phase 1) for peer device: {}", self.device.id);
-            let message = Message::DeviceSync(payload);
+            let message = Message::NetworkSync(payload);
             self.send_message(message).await
         }
         Err(e) => {

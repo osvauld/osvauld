@@ -286,6 +286,10 @@ pub trait UserRepository: Send + Sync {
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
     async fn complete_user_addtion(&self, user_id: &str) -> Result<(), RepositoryError>;
     async fn add_known_users_bulk(&self, users: &[User]) -> Result<(), RepositoryError>;
+    async fn get_users_and_devices_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<(User, Vec<Device>)>, RepositoryError>;
 }
 
 #[async_trait]

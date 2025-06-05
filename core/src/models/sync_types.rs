@@ -9,6 +9,7 @@ pub enum ResourceType {
     Device,
     User,
     Share,
+    NetworkDevice,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -36,6 +37,7 @@ impl ToString for ResourceType {
             ResourceType::Device => "device".to_string(),
             ResourceType::User => "user".to_string(),
             ResourceType::Share => "share".to_string(),
+            ResourceType::NetworkDevice => "network_device".to_string(),
         }
     }
 }
@@ -68,6 +70,7 @@ impl From<String> for ResourceType {
             "device" => ResourceType::Device,
             "user" => ResourceType::User,
             "share" => ResourceType::Share,
+            "network_device" => ResourceType::NetworkDevice,
             _ => ResourceType::Resource,
         }
     }
@@ -126,6 +129,41 @@ impl SyncOperations {
             && self.status_records_to_add.is_empty()
             && self.record_ids_to_update.is_empty()
             && self.status_ids_to_update.is_empty()
+    }
+
+    /// Add records and statuses to be added
+    pub fn add_records_and_statuses(
+        &mut self,
+        records: Vec<DeviceRecord>,
+        statuses: Vec<DeviceRecordStatus>,
+    ) {
+        self.records_to_add.extend(records);
+        self.status_records_to_add.extend(statuses);
+    }
+
+    /// Add a single record and its statuses
+    pub fn add_single_record_with_statuses(
+        &mut self,
+        record: DeviceRecord,
+        statuses: Vec<DeviceRecordStatus>,
+    ) {
+        self.records_to_add.push(record);
+        self.status_records_to_add.extend(statuses);
+    }
+
+    /// Add IDs to be updated
+    pub fn add_ids_to_update(&mut self, record_ids: Vec<String>, status_ids: Vec<String>) {
+        self.record_ids_to_update.extend(record_ids);
+        self.status_ids_to_update.extend(status_ids);
+    }
+    pub fn merge(&mut self, operations: SyncOperations) {
+        self.status_records_to_add
+            .extend(operations.status_records_to_add);
+        self.status_ids_to_update
+            .extend(operations.status_ids_to_update);
+        self.records_to_add.extend(operations.records_to_add);
+        self.record_ids_to_update
+            .extend(operations.record_ids_to_update);
     }
 }
 

@@ -3,7 +3,7 @@ use osvauld_core::models::p2p::SyncAckType;
 use osvauld_core::models::sync_types::SyncOperations;
 use osvauld_core::repositories::RepositoryError;
 
-use tracing::{Span, info, debug, error, instrument, trace};
+use tracing::{Span, debug, error, info, instrument, trace};
 
 use super::sync_service_core::SyncService;
 
@@ -26,9 +26,9 @@ impl SyncService {
     ) -> Result<Option<Vec<String>>, RepositoryError> {
         // Enter the parent span
         let _guard = current_span.enter();
-        
+
         info!("Processing acknowledgement");
-        
+
         //TODO: we need to send the pending device record id as well for which it was completed
         match ack {
             SyncAckType::FullSync(operations) => {
@@ -39,48 +39,55 @@ impl SyncService {
                     status_ids_to_update = operations.status_ids_to_update.len(),
                     "Processing full sync acknowledgment"
                 );
-                
-                let result = self.process_fullsync_acknowledgment(operations, current_device_id)
+
+                let result = self
+                    .process_fullsync_acknowledgment(operations, current_device_id)
                     .await;
-                    
+
                 match &result {
                     Ok(Some(ids)) => {
-                        info!(record_ids = ids.len(), "Full sync acknowledgment processed with record IDs");
-                    },
+                        info!(
+                            record_ids = ids.len(),
+                            "Full sync acknowledgment processed with record IDs"
+                        );
+                    }
                     Ok(None) => {
                         info!("Full sync acknowledgment processed with no record IDs");
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to process full sync acknowledgment");
                     }
                 }
-                
+
                 result
             }
 
             SyncAckType::DeviceSyncRecords(records) => {
-                debug!(record_count = records.len(), "Processing device sync records acknowledgment");
-                
+                debug!(
+                    record_count = records.len(),
+                    "Processing device sync records acknowledgment"
+                );
+
                 // Use db transaction method for updating device sync records
                 match self.db.update_device_sync_records(&records).await {
                     Ok(_) => {
                         info!("Device sync records updated successfully");
                         Ok(None)
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to update device sync records");
                         Err(e)
                     }
                 }
             }
-            
+
             SyncAckType::UpdateReceived => {
-                info!( "Update received at remote");
+                info!("Update received at remote");
                 Ok(None)
             }
         }
     }
-    
+
     #[instrument(
         skip(self, operations), 
         fields(
@@ -98,7 +105,7 @@ impl SyncService {
         current_device_id: &str,
     ) -> Result<Option<Vec<String>>, RepositoryError> {
         debug!("Processing full sync acknowledgment");
-        
+
         // First, update any status records for the current device to have synced=true
         let mut modified_operations = operations.clone();
 
@@ -106,7 +113,11 @@ impl SyncService {
         let mut synced_device_record_ids = Vec::new();
 
         debug!("Marking current device status records as synced");
-        for (i, status) in modified_operations.status_records_to_add.iter_mut().enumerate() {
+        for (i, status) in modified_operations
+            .status_records_to_add
+            .iter_mut()
+            .enumerate()
+        {
             if status.aware_device_id == current_device_id {
                 trace!(
                     index = i,
@@ -118,7 +129,7 @@ impl SyncService {
                 synced_device_record_ids.push(status.id.clone());
             }
         }
-        
+
         debug!(
             synced_records = synced_device_record_ids.len(),
             "Applying sync operations to database"
@@ -138,7 +149,10 @@ impl SyncService {
             info!("No device record IDs synced");
             Ok(None)
         } else {
-            info!(record_ids = synced_device_record_ids.len(), "Device record IDs synced");
+            info!(
+                record_ids = synced_device_record_ids.len(),
+                "Device record IDs synced"
+            );
             Ok(Some(synced_device_record_ids))
         }
     }
@@ -157,20 +171,22 @@ impl SyncService {
         status_record_ids: Vec<String>,
     ) -> Result<(), RepositoryError> {
         info!("Updating sync status");
-        
+
         // Use db transaction method for updating sync status
-        match self.db
+        match self
+            .db
             .update_sync_status(device_record_ids, status_record_ids)
-            .await {
-                Ok(_) => {
-                    info!("Sync status updated successfully");
-                    Ok(())
-                },
-                Err(e) => {
-                    error!(error = %e, "Failed to update sync status");
-                    Err(e)
-                }
+            .await
+        {
+            Ok(_) => {
+                info!("Sync status updated successfully");
+                Ok(())
             }
+            Err(e) => {
+                error!(error = %e, "Failed to update sync status");
+                Err(e)
+            }
+        }
     }
 
     #[instrument(
@@ -187,18 +203,18 @@ impl SyncService {
     ) -> Result<(), RepositoryError> {
         // Enter the parent span
         let _guard = current_span.enter();
-        
+
         info!(
             record_ids = ?device_sync_record_ids,
             "Handling acknowledgment complete"
         );
-        
+
         // Use db transaction method for completing acknowledgment
         match self.db.complete_ack(device_sync_record_ids).await {
             Ok(_) => {
                 info!("Acknowledgment complete handled successfully");
                 Ok(())
-            },
+            }
             Err(e) => {
                 error!(error = %e, "Failed to complete acknowledgment");
                 Err(e)

@@ -4,7 +4,7 @@ use osvauld_core::models::p2p::UserConnectionPayload;
 use osvauld_core::models::sync_record::{StatusChangeSet, SyncRecord, SyncRecordSet};
 use osvauld_core::models::user::User;
 use osvauld_core::repositories::RepositoryError;
-use tracing::{Span, info, debug, error, instrument};
+use tracing::{Span, debug, error, info, instrument};
 
 use super::sync_service_core::SyncService;
 
@@ -19,9 +19,9 @@ impl SyncService {
     ) -> Result<Option<UserConnectionPayload>, RepositoryError> {
         // Enter the parent span context
         let _enter = current_span.enter();
-        
+
         info!("Processing user connection payload");
-        
+
         match payload {
             UserConnectionPayload::Request { user, devices } => {
                 info!(
@@ -29,18 +29,21 @@ impl SyncService {
                     device_count = devices.len(),
                     "Processing user connection request"
                 );
-                
+
                 // Process request and get response
-                match self.process_first_user_connection(
-                    user,
-                    devices,
-                    current_user_id,
-                    current_device_id,
-                ).await {
+                match self
+                    .process_first_user_connection(
+                        user,
+                        devices,
+                        current_user_id,
+                        current_device_id,
+                    )
+                    .await
+                {
                     Ok(response) => {
                         info!("User connection request processed successfully");
                         Ok(Some(response))
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to process user connection request");
                         Err(e)
@@ -58,19 +61,22 @@ impl SyncService {
                     device_count = devices.len(),
                     "Processing user connection response"
                 );
-                
+
                 // Process response and get acknowledgment
-                match self.process_first_user_connection_response(
-                    user,
-                    devices,
-                    user_addition_record,
-                    current_user_id,
-                    current_device_id,
-                ).await {
+                match self
+                    .process_first_user_connection_response(
+                        user,
+                        devices,
+                        user_addition_record,
+                        current_user_id,
+                        current_device_id,
+                    )
+                    .await
+                {
                     Ok(ack) => {
                         info!("User connection response processed successfully");
                         Ok(Some(ack))
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to process user connection response");
                         Err(e)
@@ -89,21 +95,24 @@ impl SyncService {
                     remote_user_id = %user_id,
                     "Processing user connection acknowledgment"
                 );
-                
+
                 // Process acknowledgment and get complete message
-                match self.handle_user_add_ack(
-                    user_id,
-                    user_addition_records,
-                    completion_record,
-                    current_device_id,
-                    current_user_id,
-                    updated_device_record_ids,
-                    updated_device_record_status_ids,
-                ).await {
+                match self
+                    .handle_user_add_ack(
+                        user_id,
+                        user_addition_records,
+                        completion_record,
+                        current_device_id,
+                        current_user_id,
+                        updated_device_record_ids,
+                        updated_device_record_status_ids,
+                    )
+                    .await
+                {
                     Ok(complete) => {
                         info!("User connection acknowledgment processed successfully");
                         Ok(Some(complete))
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to process user connection acknowledgment");
                         Err(e)
@@ -121,19 +130,22 @@ impl SyncService {
                     device_record_status = ?device_record_status_id,
                     "Processing user connection complete message"
                 );
-                
+
                 // Process complete message and maybe get final sync
-                match self.process_user_connection_complete(
-                    completion_record,
-                    device_record_status_id,
-                    current_device_id,
-                    updated_device_record_ids,
-                    updated_device_record_status_ids,
-                ).await {
+                match self
+                    .process_user_connection_complete(
+                        completion_record,
+                        device_record_status_id,
+                        current_device_id,
+                        updated_device_record_ids,
+                        updated_device_record_status_ids,
+                    )
+                    .await
+                {
                     Ok(response) => {
                         info!("User connection complete processed successfully");
                         Ok(response)
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to process user connection complete message");
                         Err(e)
@@ -148,13 +160,16 @@ impl SyncService {
                     device_record_status = ?device_record_status_id,
                     "Processing user connection final sync"
                 );
-                
+
                 // Process final sync (no response)
-                match self.process_user_connection_final_sync(device_record_status_id).await {
+                match self
+                    .process_user_connection_final_sync(device_record_status_id)
+                    .await
+                {
                     Ok(result) => {
                         info!("User connection final sync processed successfully");
                         Ok(result)
-                    },
+                    }
                     Err(e) => {
                         error!(error = %e, "Failed to process user connection final sync");
                         Err(e)
@@ -178,22 +193,23 @@ impl SyncService {
         current_device_id: &str,
     ) -> Result<UserConnectionPayload, RepositoryError> {
         debug!("Getting current user's devices");
-        
+
         // Get current user's devices current device is already added when we add the user first
         // time.
         let user_devices = match self
             .device_repository
             .get_devices_by_user_id(current_user_id)
-            .await {
-                Ok(devices) => {
-                    debug!(device_count = devices.len(), "Retrieved user devices");
-                    devices
-                },
-                Err(e) => {
-                    error!(error = %e, "Failed to get user devices");
-                    return Err(e);
-                }
-            };
+            .await
+        {
+            Ok(devices) => {
+                debug!(device_count = devices.len(), "Retrieved user devices");
+                devices
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to get user devices");
+                return Err(e);
+            }
+        };
 
         // Create modified user with first_sync = false
         debug!("Creating modified user with first_sync = false");
@@ -207,7 +223,7 @@ impl SyncService {
             Ok(user) => {
                 debug!("Retrieved current user");
                 user
-            },
+            }
             Err(e) => {
                 error!(error = %e, "Failed to get current user");
                 return Err(e);
@@ -230,19 +246,25 @@ impl SyncService {
 
         // Save to database
         debug!("Saving to database");
-        match self.db
+        match self
+            .db
             .sync_add_new_user(&new_user, devices, &user_addition_record)
-            .await {
-                Ok(_) => debug!("Data saved to database"),
-                Err(e) => {
-                    error!(error = %e, "Failed to save data to database");
-                    return Err(e);
-                }
-            };
-        let other_user_devices: Vec<Device> = user_devices.iter().filter(|ud|ud.id != current_device_id).cloned().collect();
+            .await
+        {
+            Ok(_) => debug!("Data saved to database"),
+            Err(e) => {
+                error!(error = %e, "Failed to save data to database");
+                return Err(e);
+            }
+        };
+        let other_user_devices: Vec<Device> = user_devices
+            .iter()
+            .filter(|ud| ud.id != current_device_id)
+            .cloned()
+            .collect();
 
         info!("First user connection processed successfully");
-        
+
         // Return the Response payload directly
         Ok(UserConnectionPayload::Response {
             user: current_user,
@@ -271,16 +293,17 @@ impl SyncService {
         let user_devices = match self
             .device_repository
             .get_devices_by_user_id(current_user_id)
-            .await {
-                Ok(devices) => {
-                    debug!(device_count = devices.len(), "Retrieved user devices");
-                    devices
-                },
-                Err(e) => {
-                    error!(error = %e, "Failed to get user devices");
-                    return Err(e);
-                }
-            };
+            .await
+        {
+            Ok(devices) => {
+                debug!(device_count = devices.len(), "Retrieved user devices");
+                devices
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to get user devices");
+                return Err(e);
+            }
+        };
 
         // Combine all devices
         debug!("Combining devices");
@@ -304,17 +327,17 @@ impl SyncService {
                 current_device_id,
             );
         debug!(
-            record_count = processed_records.len(), 
+            record_count = processed_records.len(),
             status_count = processed_statuses.len(),
             "Device records processed"
         );
-        
+
         let updated_user_addition_record = SyncRecordSet {
             sync_record: user_addition_record.sync_record.clone(),
             device_records: processed_records,
             device_record_statuses: processed_statuses,
         };
-        
+
         // Create completion record
         debug!("Creating completion record");
         let completion_record = SyncRecord::create_completion_records(
@@ -326,7 +349,8 @@ impl SyncService {
 
         // Save to database
         debug!("Saving to database");
-        match self.db
+        match self
+            .db
             .complete_new_user_add(
                 &user.id,
                 devices,
@@ -334,16 +358,17 @@ impl SyncService {
                 &remote_user_addition_record,
                 &completion_record,
             )
-            .await {
-                Ok(_) => debug!("Data saved to database"),
-                Err(e) => {
-                    error!(error = %e, "Failed to save data to database");
-                    return Err(e);
-                }
-            };
+            .await
+        {
+            Ok(_) => debug!("Data saved to database"),
+            Err(e) => {
+                error!(error = %e, "Failed to save data to database");
+                return Err(e);
+            }
+        };
 
         info!("User connection response processed successfully");
-        
+
         // Return the Acknowledgment payload directly
         Ok(UserConnectionPayload::Acknowledgment {
             user_id: current_user_id.to_string(),
@@ -371,11 +396,11 @@ impl SyncService {
         updated_device_record_status_ids: &[String],
     ) -> Result<UserConnectionPayload, RepositoryError> {
         debug!("Processing completion record");
-        
+
         // Process completion record
         let (updated_completion_record, device_record_status_id) =
             SyncRecord::process_completion_record(completion_record, current_device_id);
-        
+
         debug!(status_id = ?device_record_status_id, "Processed completion record");
 
         debug!("Processing device records");
@@ -385,49 +410,57 @@ impl SyncService {
                 &user_addition_record.device_record_statuses,
                 current_device_id,
             );
-        
+
         debug!(
             processed_records = processed_records.len(),
             processed_statuses = processed_statuses.len(),
             "Device records processed"
         );
-        
+
         let updated_user_addition_record = SyncRecordSet {
             sync_record: user_addition_record.sync_record.clone(),
             device_records: processed_records,
             device_record_statuses: processed_statuses,
         };
-        
+
         // Get devices from both users
         debug!("Getting remote user devices");
         let remote_devices = match self
             .device_repository
             .get_devices_by_user_id(remote_user_id)
-            .await {
-                Ok(devices) => {
-                    debug!(device_count = devices.len(), "Retrieved remote user devices");
-                    devices
-                },
-                Err(e) => {
-                    error!(error = %e, "Failed to get remote user devices");
-                    return Err(e);
-                }
-            };
-            
+            .await
+        {
+            Ok(devices) => {
+                debug!(
+                    device_count = devices.len(),
+                    "Retrieved remote user devices"
+                );
+                devices
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to get remote user devices");
+                return Err(e);
+            }
+        };
+
         debug!("Getting current user devices");
         let user_devices = match self
             .device_repository
             .get_devices_by_user_id(current_user_id)
-            .await {
-                Ok(devices) => {
-                    debug!(device_count = devices.len(), "Retrieved current user devices");
-                    devices
-                },
-                Err(e) => {
-                    error!(error = %e, "Failed to get current user devices");
-                    return Err(e);
-                }
-            };
+            .await
+        {
+            Ok(devices) => {
+                debug!(
+                    device_count = devices.len(),
+                    "Retrieved current user devices"
+                );
+                devices
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to get current user devices");
+                return Err(e);
+            }
+        };
 
         // Combine all devices
         debug!("Combining devices");
@@ -436,7 +469,7 @@ impl SyncService {
             .chain(remote_devices.iter())
             .cloned()
             .collect();
-            
+
         debug!(device_count = all_devices.len(), "Combined devices");
 
         // Create local completion record
@@ -450,7 +483,8 @@ impl SyncService {
 
         // Save to database
         debug!("Saving to database");
-        match self.db
+        match self
+            .db
             .handle_user_add_ack(
                 remote_user_id,
                 &updated_user_addition_record,
@@ -459,16 +493,17 @@ impl SyncService {
                 updated_device_record_ids,
                 updated_device_record_status_ids,
             )
-            .await {
-                Ok(_) => debug!("Data saved to database"),
-                Err(e) => {
-                    error!(error = %e, "Failed to save data to database");
-                    return Err(e);
-                }
-            };
+            .await
+        {
+            Ok(_) => debug!("Data saved to database"),
+            Err(e) => {
+                error!(error = %e, "Failed to save data to database");
+                return Err(e);
+            }
+        };
 
         info!("User add acknowledgment processed successfully");
-        
+
         // Return the Complete payload directly
         Ok(UserConnectionPayload::Complete {
             completion_record: local_completion_record,
@@ -477,7 +512,7 @@ impl SyncService {
             updated_device_record_status_ids: updated_status_ids,
         })
     }
-    
+
     #[instrument(skip(self, completion_record, updated_device_record_status_ids, updated_device_record_ids), fields(
         current_device_id = %current_device_id,
         device_record_status = ?device_sync_record_id,
@@ -493,43 +528,45 @@ impl SyncService {
         updated_device_record_ids: &[String],
     ) -> Result<Option<UserConnectionPayload>, RepositoryError> {
         debug!("Processing completion record");
-        
+
         // Process the completion record
         let (updated_completion_record, updated_device_sync_record_id) =
             SyncRecord::process_completion_record(completion_record, current_device_id);
-            
+
         debug!(
             status_id = ?updated_device_sync_record_id,
             "Processed completion record"
         );
-        
+
         // Save to database
         debug!("Handling user connection complete in database");
-        match self.db
+        match self
+            .db
             .handle_user_connection_complete(
                 &updated_completion_record,
                 device_sync_record_id.clone(),
                 updated_device_record_ids,
                 updated_device_record_status_ids,
             )
-            .await {
-                Ok(_) => debug!("User connection complete saved to database"),
-                Err(e) => {
-                    error!(error = %e, "Failed to handle user connection complete");
-                    return Err(e);
-                }
-            };
-            
+            .await
+        {
+            Ok(_) => debug!("User connection complete saved to database"),
+            Err(e) => {
+                error!(error = %e, "Failed to handle user connection complete");
+                return Err(e);
+            }
+        };
+
         info!(
             device_record_status = ?updated_device_sync_record_id,
             "Sending final acknowledgment"
         );
-        
+
         Ok(Some(UserConnectionPayload::FinalSync {
             device_record_status_id: updated_device_sync_record_id,
         }))
     }
-    
+
     #[instrument(skip(self), fields(device_record_status = ?device_sync_record))]
     pub async fn process_user_connection_final_sync(
         &self,
@@ -538,21 +575,23 @@ impl SyncService {
         // Save the final device record
         if let Some(device_sync_record_status) = device_sync_record {
             debug!("Updating device sync record status");
-            match self.sync_repository
+            match self
+                .sync_repository
                 .update_device_sync_record_status(device_sync_record_status.clone())
-                .await {
-                    Ok(_) => debug!("Device sync record status updated"),
-                    Err(e) => {
-                        error!(error = %e, "Failed to update device sync record status");
-                        return Err(e);
-                    }
-                };
+                .await
+            {
+                Ok(_) => debug!("Device sync record status updated"),
+                Err(e) => {
+                    error!(error = %e, "Failed to update device sync record status");
+                    return Err(e);
+                }
+            };
         } else {
             debug!("No device sync record status to update");
         }
 
         info!("User connection final sync processed successfully");
-        
+
         // No further response needed
         Ok(Some(UserConnectionPayload::FinalSyncAck))
     }
