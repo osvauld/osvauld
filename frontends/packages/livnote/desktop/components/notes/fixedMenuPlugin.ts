@@ -16,6 +16,7 @@ import {
 	addSecondaryFormattingItems,
 	addBlockStyleItems,
 	addTextColorPicker,
+	addFontFamilyDropdown,
 } from "./setup/menuItems";
 
 // Add styles to document
@@ -128,6 +129,84 @@ style.textContent += `
     white-space: pre-wrap;    /* Wrap long lines */
     word-wrap: break-word;    /* Break long words */
   }
+
+  /* Styles for Font Family Dropdown */
+  .font-family-dropdown-button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #2a2b2f;
+    border: 1px solid #3a3b44;
+    border-radius: 4px;
+    color: #bfc0cc;
+    cursor: pointer;
+    font-size: 14px;
+    min-width: 100px;
+    transition: background-color 0.1s ease;
+  }
+
+  .font-family-dropdown-button:hover {
+    background: #3a3b44;
+  }
+
+  .font-family-dropdown-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .font-family-dropdown-button .font-name {
+    flex: 1;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .font-family-dropdown {
+    background: #16171f;
+    border: 1px solid #2a2b2f;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    position: absolute;
+    z-index: 100;
+    width: 200px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+
+  .font-family-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+    color: #bfc0cc;
+    border-bottom: 1px solid #2a2b2f;
+  }
+
+  .font-family-item:hover {
+    background: #2a2b2f;
+  }
+
+  .font-family-item:last-of-type {
+    border-bottom: none;
+  }
+
+  .remove-font-button {
+    padding: 8px 16px;
+    background: #2a2b2f;
+    border: none;
+    border-top: 1px solid #3a3b44;
+    color: #bfc0cc;
+    cursor: pointer;
+    width: 100%;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  .remove-font-button:hover {
+    background: #3a3b44;
+  }
 `;
 
 // Remove any existing style element with the same ID to avoid duplicates
@@ -183,6 +262,7 @@ export function fixedMenuPlugin(schema: Schema) {
 			addSecondaryFormattingItems(secondaryMenuNode, schema, editorView);
 			addBlockStyleItems(secondaryMenuNode, schema, editorView);
 			addTextColorPicker(secondaryMenuNode, schema, editorView);
+			addFontFamilyDropdown(secondaryMenuNode, schema, editorView);
 			// --- Add other secondary menu items here in the future ---
 
 			// Insert the menus into the DOM
