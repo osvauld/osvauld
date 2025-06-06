@@ -1007,11 +1007,7 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
     hideDropdowns(); // Hide other dropdowns first
     if (!isVisible) {
       updateButtonState(); // Ensure button state is current before showing
-      // Set display to grid to enable grid layout defined in CSS
-      dropdownMenu.style.display = "grid"; 
-      dropdownMenu.style.position = "absolute"; // Ensure it positions correctly
-      dropdownMenu.style.top = `${colorButton.offsetTop + colorButton.offsetHeight}px`;
-      dropdownMenu.style.left = `${colorButton.offsetLeft}px`;
+      dropdownMenu.style.display = "block";
       dropdownMenu.getBoundingClientRect(); // Force reflow
     }
   });
@@ -1042,6 +1038,237 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
 
   // Add elements to DOM
   dropdownContainer.appendChild(colorButton);
+  dropdownContainer.appendChild(dropdownMenu);
+  group.appendChild(dropdownContainer);
+  container.appendChild(group);
+
+  // Initial button state
+  updateButtonState();
+}
+
+export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, view: EditorView) {
+  if (!schema.marks.fontFamily) return; // Don't add if mark is not defined
+
+  const group = document.createElement("div");
+  group.className = "editor-menu-group";
+
+  const dropdownContainer = document.createElement("div");
+  dropdownContainer.className = "dropdown-container";
+
+  // Main font family button
+  const fontButton = document.createElement("button");
+  fontButton.className = "font-family-dropdown-button";
+  fontButton.title = "Font family";
+  fontButton.innerHTML = `
+    <span class="font-name">Arial</span>
+    <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
+      <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
+    </svg>
+  `;
+
+  // Dropdown menu for font families
+  const dropdownMenu = document.createElement("div");
+  dropdownMenu.className = "dropdown-menu font-family-dropdown";
+  dropdownMenu.style.display = "none";
+
+  // Common font families list
+  const fontFamilies = [
+    { name: "Arial", value: "Arial, sans-serif" },
+    { name: "Arial Black", value: "'Arial Black', sans-serif" },
+    { name: "Comic Sans MS", value: "'Comic Sans MS', cursive" },
+    { name: "Courier New", value: "'Courier New', monospace" },
+    { name: "Helvetica Neue", value: "'Helvetica Neue', sans-serif" },
+    { name: "Helvetica", value: "Helvetica, sans-serif" },
+    { name: "Impact", value: "Impact, sans-serif" },
+    { name: "Lucida Grande", value: "'Lucida Grande', sans-serif" },
+    { name: "Tahoma", value: "Tahoma, sans-serif" },
+    { name: "Times New Roman", value: "'Times New Roman', serif" },
+    { name: "Verdana", value: "Verdana, sans-serif" }
+  ];
+
+  // Create font family options
+  fontFamilies.forEach(font => {
+    const fontItem = document.createElement("div");
+    fontItem.className = "dropdown-item font-family-item";
+    fontItem.style.fontFamily = font.value;
+    fontItem.textContent = font.name;
+    fontItem.dataset.fontFamily = font.value;
+    fontItem.dataset.fontName = font.name;
+    
+    fontItem.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const { state, dispatch } = view;
+      const { from, to, empty } = state.selection;
+
+      const tr = state.tr;
+      
+      if (empty) {
+        // No text selected - apply font family to cursor position for future typing
+        tr.addStoredMark(schema.marks.fontFamily.create({ family: font.value }));
+      } else {
+        // Text is selected - apply font family to selected text
+        tr.removeMark(from, to, schema.marks.fontFamily);
+        tr.addMark(from, to, schema.marks.fontFamily.create({ family: font.value }));
+      }
+      
+      dispatch(tr);
+
+      // Update button text
+      const fontNameSpan = fontButton.querySelector('.font-name');
+      if (fontNameSpan) {
+        fontNameSpan.textContent = font.name;
+      }
+
+      hideDropdowns();
+      view.focus();
+    });
+    dropdownMenu.appendChild(fontItem);
+  });
+
+  // Add "Remove Font" button
+  const removeFontButton = document.createElement("button");
+  removeFontButton.className = "dropdown-item remove-font-button";
+  removeFontButton.textContent = "Remove Font";
+  removeFontButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const { state, dispatch } = view;
+    const { from, to, empty } = state.selection;
+
+    const tr = state.tr;
+    
+    if (empty) {
+      // No text selected - remove font family from cursor position for future typing
+      tr.removeStoredMark(schema.marks.fontFamily);
+    } else {
+      // Text is selected - remove font family from selected text
+      tr.removeMark(from, to, schema.marks.fontFamily);
+    }
+    
+    dispatch(tr);
+
+    // Reset button text to default
+    const fontNameSpan = fontButton.querySelector('.font-name');
+    if (fontNameSpan) {
+      fontNameSpan.textContent = "Arial";
+    }
+
+    hideDropdowns();
+    view.focus();
+  });
+  dropdownMenu.appendChild(removeFontButton);
+
+  // Function to update button state based on selection
+  const updateButtonState = () => {
+    const { state } = view;
+    const { selection } = state;
+    const { empty, $from } = selection;
+
+    // Enable button regardless of selection state
+    fontButton.disabled = false;
+    fontButton.style.opacity = '1';
+
+    if (empty) {
+      // No text selected - check for stored marks (for future typing)
+      const storedMarks = state.storedMarks || $from.marks();
+      const fontFamilyMark = schema.marks.fontFamily.isInSet(storedMarks);
+      
+      const fontNameSpan = fontButton.querySelector('.font-name');
+      if (fontNameSpan) {
+        if (fontFamilyMark) {
+          // Find the display name for this font family
+          const fontMatch = fontFamilies.find(f => f.value === fontFamilyMark.attrs.family);
+          fontNameSpan.textContent = fontMatch ? fontMatch.name : "Custom";
+        } else {
+          fontNameSpan.textContent = "Arial";
+        }
+      }
+      return;
+    }
+
+    // Check for fontFamily mark in selection
+    const marks = $from.marksAcross(selection.$to);
+    let commonFont: string | null = null;
+    let first = true;
+
+    if (marks) {
+      for (const mark of marks) {
+        if (mark.type === schema.marks.fontFamily) {
+          const markFont = mark.attrs.family;
+          if (first) {
+            commonFont = markFont;
+            first = false;
+          } else if (commonFont !== markFont) {
+            commonFont = null; // Multiple fonts in selection
+            break;
+          }
+        }
+      }
+    }
+
+    // If no fontFamily mark found across selection, check at cursor position
+    if (commonFont === null && !first) {
+      // Multiple fonts in selection
+      const fontNameSpan = fontButton.querySelector('.font-name');
+      if (fontNameSpan) fontNameSpan.textContent = "Mixed";
+    } else {
+      // Use the common font or check at cursor position
+      const markAtCursor = schema.marks.fontFamily.isInSet($from.marks());
+      const finalFont = commonFont ?? (markAtCursor ? markAtCursor.attrs.family : null);
+
+      const fontNameSpan = fontButton.querySelector('.font-name');
+      if (fontNameSpan) {
+        if (finalFont) {
+          // Find the display name for this font family
+          const fontMatch = fontFamilies.find(f => f.value === finalFont);
+          fontNameSpan.textContent = fontMatch ? fontMatch.name : "Custom";
+        } else {
+          fontNameSpan.textContent = "Arial";
+        }
+      }
+    }
+  };
+
+  // Toggle dropdown on click
+  fontButton.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Remove the check for empty selection - allow dropdown to open always
+
+    const isVisible = dropdownMenu.style.display === "block";
+    hideDropdowns(); // Hide other dropdowns first
+    if (!isVisible) {
+      updateButtonState(); // Ensure button state is current before showing
+      dropdownMenu.style.display = "block";
+      dropdownMenu.getBoundingClientRect(); // Force reflow
+    }
+  });
+
+  // Update button state when selection or marks change
+  view.dom.addEventListener("keyup", updateButtonState);
+  view.dom.addEventListener("mouseup", updateButtonState);
+  
+  // Listen for transactions as marks can change programmatically
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    originalDispatch(tr);
+    if (tr.docChanged || tr.selectionSet) {
+      updateButtonState();
+    }
+  };
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (e.target instanceof Node && !dropdownContainer.contains(e.target)) {
+      hideDropdowns();
+    }
+  });
+
+  // Stop event propagation when clicking on the dropdown menu
+  dropdownMenu.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
+  // Add elements to DOM
+  dropdownContainer.appendChild(fontButton);
   dropdownContainer.appendChild(dropdownMenu);
   group.appendChild(dropdownContainer);
   container.appendChild(group);

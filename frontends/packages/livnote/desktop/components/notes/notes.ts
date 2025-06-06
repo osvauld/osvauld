@@ -312,6 +312,23 @@ export class Notes {
               : ["span", 0];
           }
         },
+        // Add fontFamily mark
+        fontFamily: {
+          attrs: {
+            family: { default: null } // Store the font family value
+          },
+          inclusive: true, // Allow mark to span across nodes
+          parseDOM: [{
+            style: "font-family", // Read 'font-family' style attribute
+            getAttrs: (value) => value ? { family: value } : null // Extract font family value
+          }],
+          toDOM(mark) {
+            // Render as a span with the font-family style if family attribute exists
+            return mark.attrs.family
+              ? ["span", { style: `font-family: ${mark.attrs.family}` }, 0]
+              : ["span", 0];
+          }
+        },
         // Add link mark explicitly, not relying on baseMarks.get("link") for the core definition
         link: {
           attrs: {
