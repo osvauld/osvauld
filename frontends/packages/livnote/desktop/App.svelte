@@ -8,6 +8,7 @@
 	import NotesListView from "./components/notes/NotesListView.svelte";
 	import NotesWorkspace from "./components/layout/NotesWorkspace.svelte";
 	import HeaderSection from "./components/layout/HeaderSection.svelte";
+	import ProfileView from "./components/layout/ProfileView.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import AppModals from "./components/modals/Modals.svelte";
 	import { dataState, uiState } from "./state/";
@@ -89,7 +90,9 @@
 			<AppModals />
 
 			<div class="grow flex overflow-hidden">
-				{#if uiState.noteViewLayout}
+				{#if uiState.profileViewLayout}
+					<ProfileView />
+				{:else if uiState.noteViewLayout}
 					<!-- Note editing mode: Show NotesWorkspace with its own Navigation panel -->
 					<NotesWorkspace />
 				{:else}
