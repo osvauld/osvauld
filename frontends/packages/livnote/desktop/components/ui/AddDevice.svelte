@@ -12,14 +12,14 @@
 	let revealPasswordValue = $state("");
 	let revealError = $state("");
 
-	const SAMPLE_IDENTIFICATION_KEY = 'eyJ1c2VyX3B1YmxpY19rZXkiOiItLS0tLUJFR0lOIFBHUCBQVUJMSUMgS0VZIEJMT0NLLS0tLS1cbkNvbW1lbnQ6IDg0RTggMDU4NiBBRTZFIENBOEUgRDkzOSAgRTQ4QyAxMzg0IDk1OEEgNTQ3MSA2RjMyXG5Db21tZW50OiBqa2sxXG5cbnhqTUVhRFJIUkJZSkt3WUJCQUhhUnc4QkFRZEE1Q3R1MDRwVkI1Z3R6V3A1V2lYUEVRQi8vZTVKdHJLT09zTzBcblhtdHFLRURDd0FzRUh4WUtBSDBGZ21nMFIwUURDd2tIQ1JBVGhKV0tWSEZ2TWtjVUFBQUFBQUFlQUNCellXeDBcblFHNXZkR0YwYVc5dWN5NXpaWEYxYjJsaExYQm5jQzV2Y21mQnZxZVNYRmYvMWpuaVRWNzJjSnA0bVRNaWhrVkZcblZvM1NCRlpsMkN5b1lBTVZDZ2dDbXdFQ0hna1dJUVNFNkFXR3JtN0tqdGs1NUl3VGhKV0tWSEZ2TWdBQUJCb0JcbkFNMEdhdXB5MFJBYkhHZnpjVjBsT1lGNDZJU0hJQlk3eXVUQkt0dG1MK3JjQVFEOEdyWFNyYkFmb3p1OXNMVERcbjVFTkxOV1lKKzNpOFVPMkVBdWZFbGhJeEM4MEVhbXRyTWNMQURnUVRGZ29BZ0FXQ2FEUkhSQU1MQ1FjSkVCT0VcbmxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo5VGlcbjFOeUNObzU4V0lMbnhRSWJQdGd4VDhPYTFWVzRnK2FpRWVwTXJsYlVBeFVLQ0FLWkFRS2JBUUllQ1JZaEJJVG9cbkJZYXVic3FPMlRua2pCT0VsWXBVY1c4eUFBQ1EzUUQvY08yT3VBajRNK1NUWVZ1UHlsOFpsZXNsenA5bkczZ0lcbkIxUDA5UTBpaEhzQS8xMGpDaDJBNlZlVGZjd0kwMGtmZ0VkUURKQmhHdUFyNkJUUG1UTEh4eVlNempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBUUNpcHZFcHk5b3ZHNGpoQSs3M1dsR1RyWlFNYU9sSkJqSjBQK0xWRFJsYkNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUJPRWxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo1bVZcbmtyM0FDM2pZNE1MY0s2cXZ2VWdVcDNHeVBtalVaRmtjNi8zRXQvNTlBeFVLQ0FLWkFRS2JBUUllQ1JZaEJGUzVcbng4MENHYU1EYUFMS1BYeTFqdjlBRTRtc0FBQTdCZ0VBdXZRaStGVUQrb3JOMG1hSzlCWXhZckV6UHRaSkJGY2RcbmJuelJPMzJlRmY0QkFOWTZZQ29MaTBiVjRlMXdyMTNIN0RUcEl5QmIza2laajJnNmlHSVBYWG9QempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBSCtwM3orR3NnNFRHNHlVWFBQamo0OEhydHVvSHBMVkJOa28wZnJETDZoakNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUh5MWp2OUFFNG1zUnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpcbkxuTmxjWFZ2YVdFdGNHZHdMbTl5Wnk2d1FrZGp4bHU1SzZ5NDQ0ZUNCcDkzWFk4SklMZnpaNS96VnY0c0dyVDBcbkFwc0N2cUFFR1JZS0FHOEZnbWcwUjBRSkVIeTFq'; // Sample
+	const SAMPLE_IDENTIFICATION_KEY = 'eyJ1c2VyX3B1YmxpY19rZXkiOiItLS0tLUJFR0lOIFBHUCBQVUJMSUMgS0VZIEJMT0NLLS0tLS1cbkNvbW1lbnQ6IDg0RTggMDU4NiBBRTZFIENBOEUgRDkzOSAgRTQ4QyAxMzg0IDk1OEEgNTQ3MSA2RjMyXG5Db21tZW50OiBqa2sxXG5cbnhqTUVhRFJIUkJZSkt3WUJCQUhhUnc4QkFRZEE1Q3R1MDRwVkI1Z3R6V3A1V2lYUEVRQi8vZTVKdHJLT09zTzBcblhtdHFLRURDd0FzRUh4WUtBSDBGZ21nMFIwUURDd2tIQ1JBVGhKV0tWSEZ2TWtjVUFBQUFBQUFlQUNCellXeDBcblFHNXZkR0YwYVc5dWN5NXpaWEYxYjJsaExYQm5jQzV2Y21mQnZxZVNYRmYvMWpuaVRWNzJjSnA0bVRNaWhrVkZcblZvM1NCRlpsMkN5b1lBTVZDZ2dDbXdFQ0hna1dJUVNFNkFXR3JtN0tqdGs1NUl3VGhKV0tWSEZ2TWdBQUJCb0JcbkFNMEdhdXB5MFJBYkhHZnpjVjBsT1lGNDZJU0hJQlk3eXVUQkt0dG1MK3JjQVFEOEdyWFNyYkFmb3p1OXNMVERcbjVFTkxOV1lKKzNpOFVPMkVBdWZFbGhJeEM4MEVhbXRyTWNMQURnUVRGZ29BZ0FXQ2FEUkhSQU1MQ1FjSkVCT0VcbmxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo5VGlcbjFOeUNObzU4V0lMbnhRSWJQdGd4VDhPYTFWVzRnK2FpRWVwTXJsYlVBeFVLQ0FLWkFRS2JBUUllQ1JZaEJJVG9cbkJZYXVic3FPMlRua2pCT0VsWXBVY1c4eUFBQ1EzUUQvY08yT3VBajRNK1NUWVZ1UHlsOFpsZXNsenA5bkczZ0lcbkIxUDA5UTBpaEhzQS8xMGpDaDJBNlZlVGZjd0kwMGtmZ0VkUURKQmhHdUFyNkJUUG1UTEh4eVlNempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBUUNpcHZFcHk5b3ZHNGpoQSs3M1dsR1RyWlFNYU9sSkJqSjBQK0xWRFJsYkNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUJPRWxZcFVjVzh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpMbk5sY1hWdmFXRXRjR2R3TG05eVo1bVZcbmtyM0FDM2pZNE1MY0s2cXZ2VWdVcDNHeVBtalVaRmtjNi8zRXQvNTlBeFVLQ0FLWkFRS2JBUUllQ1JZaEJGUzVcbng4MENHYU1EYUFMS1BYeTFqdjlBRTRtc0FBQTdCZ0VBdXZRaStGVUQrb3JOMG1hSzlCWXhZckV6UHRaSkJGY2RcbmJuelJPMzJlRmY0QkFOWTZZQ29MaTBiVjRlMXdyMTNIN0RUcEl5QmIza2laajJnNmlHSVBYWG9QempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBSCtwM3orR3NnNFRHNHlVWFBQamo0OEhydHVvSHBMVkJOa28wZnJETDZoakNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUh5MWp2OUFFNG1zUnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpcbkxuTmxjWFZ2YVdFdGNHZHdMbTl5Wnk2d1FrZGp4bHU1SzZ5NDQ0ZUNCcDkzWFk4SklMZnpaNS96VnY0c0dyVDBcbkFwc0N2cUFFR1JZS0FHOEZnbWcwUjBRSkVIeTFqJnNmlHSVBYWG9QempNRWFEUkhcblJCWUpLd1lCQkFIYVJ3OEJBUWRBSCtwM3orR3NnNFRHNHlVWFBQamo0OEhydHVvSHBMVkJOa28wZnJETDZoakNcbndMOEVHQllLQVRFRmdtZzBSMFFKRUh5MWp2OUFFNG1zUnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhScGIyNXpcbkxuTmxjWFZ2YVdFdGNHZHdMbTl5Wnk2d1FrZGp4bHU1SzZ5NDQ0ZUNCcDkzWFk4SklMZnpaNS96VnY0c0dyVDBcbkFwc0N2cUFFR1JZS0FHOEZnbWcwUjBRSkVIeTFqh5UnhRQUFBQUFBQjRBSUhOaGJIUkFibTkwWVhSSs3M1dsR1RyWlFNYU9sSkJqSjBQK0xWRFJsYkNcbndMOEVHQl'; // Sample
 
 	let { identificationKey = SAMPLE_IDENTIFICATION_KEY } = $props<{ identificationKey?: string }>();
 
 	function displayPasswordPrompt() {
 		showPasswordInputForReveal = true;
-		revealError = ""; // Clear previous errors
 	}
+
 
 	async function handleSubmitRevealPassword() {
 		
@@ -47,13 +47,13 @@
 			identificationKey = recoveryString;
 			isKeyRevealed = true;
 			showPasswordInputForReveal = false;
-			isLoading = false;
 			revealError = "";
 		} catch (err: any) {
-			revealError = "Try again";
+			revealError = err.message || "Failed to export certificate. Please check your password and try again.";
+		} finally {
 			isLoading = false;
+			revealPasswordValue = ""; 	
 		}
-		revealPasswordValue = ""; 	
 	}
 
 	async function handleCopy() {
@@ -69,8 +69,14 @@
 	}
 
 	onMount(async () => {
-		connectionTicket = await sendMessage("getTicket");
+		try {
+       connectionTicket = await sendMessage("getTicket");
+    } catch (err) {
+        console.error('Failed to get connection ticket:', err);
+        revealError = "Failed to initialize device connection. Please refresh and try again.";
+    }
 	})
+
 </script>
 
 <div class="h-full flex flex-col text-base">
@@ -201,8 +207,8 @@
 
 		<div class="text-xs text-osvauld-fieldText text-center max-w-md mt-4">
 			<p>
-				Clicking "Copy Key" will prompt for your password. Upon successful verification, the key
-				will be copied to your clipboard.
+				Click the unlock icon to reveal your identification key. After entering your password and successful verification,
+     you can copy the key to your clipboard
 			</p>
 			<p class="mt-2">
 				You can then paste this key into the corresponding field on your new device to link it.

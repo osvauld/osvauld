@@ -12,9 +12,9 @@
 		userDetails = ""; // Clear the textarea
 	}
 
-	const handleAddUser = async (event: any) => {
+	const handleAddUser = async (userKey: string) => {
 		try {
-			const userResponse = await sendMessage("addKnownUser", event);
+			const userResponse = await sendMessage("addKnownUser", userKey);
 			console.log("initiating first connection");
 			const firstConnectionResponse = await sendMessage(
 				"initiateFirstConnection",
