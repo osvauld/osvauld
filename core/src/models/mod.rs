@@ -10,3 +10,16 @@ pub mod sync_record;
 pub mod sync_types;
 pub mod user;
 pub mod vector_clock;
+
+pub use auth::*;
+pub use device::*;
+pub use document::*;
+pub use folder::*;
+pub use p2p::*;
+pub use resource::*;
+pub use resource_key::*;
+pub use share_record::*;
+pub use sync_record::*;
+pub use sync_types::*;
+pub use user::*;
+pub use vector_clock::*;

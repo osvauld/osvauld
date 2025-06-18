@@ -1,7 +1,7 @@
-use crate::database::schema::users;
-use crate::models::UserModel;
+use crate::database::schema::{devices, store_items, users};
+use crate::models::{DeviceModel, UserModel};
 use chrono::Local;
-use osvauld_core::models::user::User;
+use osvauld_core::models::{Certificate, Device, User};
 use osvauld_core::repositories::{RepositoryError, UserRepository};
 
 use crate::DbConnection;
@@ -86,5 +86,77 @@ impl UserRepository for SqliteUserRepository {
             Ok(())
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+    }
+    async fn commit_signup_transaction(
+        &self,
+        user: &User,
+        primary_certificate: &Certificate,
+        device: &Device,
+        device_certificate: &Certificate,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let now = Local::now().timestamp_millis();
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // 1. Add the user
+            let user_model = UserModel::from(user);
+            diesel::insert_into(users::table)
+                .values(user_model)
+                .execute(conn)?;
+
+            // 2. Store primary certificate
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("primary_key"),
+                    store_items::value.eq(&primary_certificate.private_key),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
+
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("primary_key_salt"),
+                    store_items::value.eq(&primary_certificate.salt),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
+
+            // 3. Store device certificate
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("device_key"),
+                    store_items::value.eq(&device_certificate.private_key),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
+
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("device_key_salt"),
+                    store_items::value.eq(&device_certificate.salt),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
+
+            // 4. Store device key ID
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("device_id"),
+                    store_items::value.eq(&device.id),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
+
+            // 5. Save device
+            let device_model = DeviceModel::from(device);
+            diesel::insert_into(devices::table)
+                .values(&device_model)
+                .execute(conn)?;
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
     }
 }

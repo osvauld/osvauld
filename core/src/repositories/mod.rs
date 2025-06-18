@@ -284,6 +284,13 @@ pub trait UserRepository: Send + Sync {
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
     async fn complete_user_addtion(&self, user_id: &str) -> Result<(), RepositoryError>;
     async fn add_known_users_bulk(&self, users: &[User]) -> Result<(), RepositoryError>;
+    async fn commit_signup_transaction(
+        &self,
+        user: &User,
+        primary_certificate: &Certificate,
+        device: &Device,
+        device_certificate: &Certificate,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

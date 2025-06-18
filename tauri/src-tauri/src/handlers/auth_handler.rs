@@ -5,6 +5,8 @@ use crate::types::{
 use crate::user_state::UserState;
 use log::{error, info};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
+use osvauld_db::database::RepositoryContext;
+use osvauld_services::handle_signup;
 use osvauld_services::{AuthService, FolderService, TransactionService, UserService};
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
@@ -35,44 +37,19 @@ pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<Crypto
 #[tauri::command]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
-    auth_service: State<'_, Arc<AuthService>>,
-    folder_service: State<'_, Arc<FolderService>>,
-    transaction_service: State<'_, Arc<TransactionService>>,
+    repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
-    let (user, certificate) = auth_service
-        .handle_sign_up(&input.username, &input.passphrase)
-        .await?;
-    let (device, device_certificate, sync_record_set) = auth_service
-        .create_device_objects(&user.id, &input.username)
-        .await?;
-    info!("device, {:?}", device);
-    info!("user: {:?}", user);
+    let _result = handle_signup(&input.username, &input.passphrase, &*repo_ctx).await?;
 
-    transaction_service
-        .handle_sign_up_transaction(
-            &user,
-            &certificate,
-            &device,
-            &device_certificate,
-            &sync_record_set,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let (folder, sync_record_set) = folder_service
-        .create_default_folder(&device.id, &user.id)
-        .await
-        .map_err(|e| e.to_string())?;
-    transaction_service
-        .handle_add_folder_transaction(&folder, &sync_record_set)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(CryptoResponse::SavePassphrase {
-        username: user.username,
-        device_key: user.public_key.clone(),
-        encryption_key: user.public_key,
-        user_id: user.id,
-    })
+    // let (folder, sync_record_set) = folder_service
+    //     .create_default_folder(&device.id, &user.id)
+    //     .await
+    //     .map_err(|e| e.to_string())?;
+    // transaction_service
+    //     .handle_add_folder_transaction(&folder, &sync_record_set)
+    //     .await
+    //     .map_err(|e| e.to_string())?;
+    Ok(CryptoResponse::Success)
 }
 
 #[tauri::command]

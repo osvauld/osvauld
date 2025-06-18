@@ -1,5 +1,5 @@
 use log::error;
-use osvauld_db::{DbConnection, initialize_database};
+use osvauld_db::{DbConnection, database::initialize_repositories, initialize_database};
 use tauri::Manager;
 pub mod current_note_state;
 pub mod handlers;
@@ -98,7 +98,8 @@ pub fn run() {
             match db_connection {
                 Ok(connection) => {
                     app.manage(connection.clone());
-
+                    let repo_ctx = initialize_repositories(connection.clone());
+                    app.manage(repo_ctx);
                     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
                     let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
                     let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
