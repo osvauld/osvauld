@@ -7,10 +7,9 @@ use crypto_utils::CryptoUtils;
 use log::{error, info};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
 use osvauld_db::database::RepositoryContext;
-use osvauld_services::{AuthService, FolderService, TransactionService, UserService};
 use osvauld_services::{
-    change_passphrase, export_certificate, handle_signup, import_user, is_signed_up,
-    load_certificate,
+    change_passphrase, create_default_folder, export_certificate, handle_signup, import_user,
+    is_signed_up, load_certificate,
 };
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
@@ -45,15 +44,9 @@ pub async fn handle_sign_up(
     repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
     let _result = handle_signup(&input.username, &input.passphrase, &*repo_ctx).await?;
-
-    // let (folder, sync_record_set) = folder_service
-    //     .create_default_folder(&device.id, &user.id)
-    //     .await
-    //     .map_err(|e| e.to_string())?;
-    // transaction_service
-    //     .handle_add_folder_transaction(&folder, &sync_record_set)
-    //     .await
-    //     .map_err(|e| e.to_string())?;
+    let _ = create_default_folder(&repo_ctx)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }
 

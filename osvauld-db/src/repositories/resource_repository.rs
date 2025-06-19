@@ -1,12 +1,13 @@
 use crate::DbConnection;
-use crate::database::schema::{resource_keys, resources};
-use crate::models::{ResourceKeyModel, ResourceModel};
+use crate::database::schema::{resource_keys, resource_vector_clocks, resources, share_records};
+use crate::models::{ResourceKeyModel, ResourceModel, ResourceVectorClockModel, ShareRecordModel};
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::QueryDsl;
 use diesel::prelude::*;
-use osvauld_core::models::resource::{Resource, ResourceKeyPair, ResourceWithKey};
-use osvauld_core::models::resource_key::ResourceKey;
+use osvauld_core::models::{
+    Resource, ResourceKey, ResourceKeyPair, ResourceVectorClock, ResourceWithKey, ShareRecord,
+};
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 
 pub struct SqliteResourceRepository {
@@ -301,5 +302,87 @@ impl ResourceRepository for SqliteResourceRepository {
             })?;
 
         Ok(resource_model.into())
+    }
+    async fn save_resource_with_dependencies(
+        &self,
+        resource: &Resource,
+        resource_key: &ResourceKey,
+        share_record: &ShareRecord,
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Use a transaction to ensure all operations succeed or fail together
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // 1. Insert the resource
+            let resource_model = ResourceModel::from(resource);
+            diesel::insert_into(resources::table)
+                .values(&resource_model)
+                .execute(conn)?;
+
+            // 2. Insert the resource key
+            let resource_key_model = ResourceKeyModel::from(resource_key);
+            diesel::insert_into(resource_keys::table)
+                .values(&resource_key_model)
+                .execute(conn)?;
+
+            // 3. Insert the share record
+            let share_record_model = ShareRecordModel::from(share_record);
+            diesel::insert_into(share_records::table)
+                .values(&share_record_model)
+                .execute(conn)?;
+
+            // 4. Insert vector clocks if any
+            if !vector_clocks.is_empty() {
+                let vector_clock_models =
+                    ResourceVectorClockModel::from_domain_vector_clocks(vector_clocks);
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&vector_clock_models)
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn share_resource_transaction(
+        &self,
+        resource_key: &ResourceKey,
+        share_record: &ShareRecord,
+        recipient_vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Use a transaction to ensure all operations succeed or fail together
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // 1. Save the resource key for the recipient
+            let resource_key_model = ResourceKeyModel::from(resource_key);
+            diesel::insert_into(resource_keys::table)
+                .values(&resource_key_model)
+                .execute(conn)?;
+
+            // 2. Save the share record
+            let share_record_model = ShareRecordModel::from(share_record);
+            diesel::insert_into(share_records::table)
+                .values(&share_record_model)
+                .execute(conn)?;
+
+            // 3. Save the vector clocks for recipient devices (if any)
+            if !recipient_vector_clocks.is_empty() {
+                let vector_clock_models =
+                    ResourceVectorClockModel::from_domain_vector_clocks(recipient_vector_clocks);
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&vector_clock_models)
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
     }
 }

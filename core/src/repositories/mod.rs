@@ -241,6 +241,19 @@ pub trait ResourceRepository: Send + Sync {
         key: &ResourceKey,
     ) -> Result<(), RepositoryError>;
     async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError>;
+    async fn save_resource_with_dependencies(
+        &self,
+        resource: &Resource,
+        resource_key: &ResourceKey,
+        share_record: &ShareRecord,
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
+    async fn share_resource_transaction(
+        &self,
+        resource_key: &ResourceKey,
+        share_record: &ShareRecord,
+        recipient_vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

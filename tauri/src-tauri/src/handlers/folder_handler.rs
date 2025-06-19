@@ -1,29 +1,15 @@
 use crate::types::{AddFolderInput, CryptoResponse, FolderResponse, SoftDeleteFolder};
-use crate::user_state::UserState;
-use osvauld_services::{FolderService, TransactionService};
-use std::sync::Arc;
+use osvauld_db::database::RepositoryContext;
+use osvauld_services::{create_folder, get_all_folders, soft_delete_folder};
 use tauri::State;
 
 #[tauri::command]
 pub async fn handle_add_folder(
     input: AddFolderInput,
-    folder_service: State<'_, Arc<FolderService>>,
-    transaction_service: State<'_, Arc<TransactionService>>,
-    user_state: State<'_, UserState>,
+    repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
     log::info!("Adding folder: ");
-    let current_device = user_state.get_device().await?;
-    let (folder, sync_record_set) = folder_service
-        .create_folder(
-            input.name,
-            Some(input.description),
-            &current_device.id,
-            &current_device.user_id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    transaction_service
-        .add_folder_transaction(&folder, &sync_record_set)
+    let folder = create_folder(input.name, Some(input.description), &repo_ctx)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -32,10 +18,9 @@ pub async fn handle_add_folder(
 
 #[tauri::command]
 pub async fn handle_get_folders(
-    folder_service: State<'_, Arc<FolderService>>,
+    repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
-    let folders = folder_service
-        .get_all_folders()
+    let folders = get_all_folders(&repo_ctx)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -52,13 +37,11 @@ pub async fn handle_get_folders(
 }
 
 #[tauri::command]
-pub async fn soft_delete_folder(
+pub async fn handle_soft_delete_folder(
     input: SoftDeleteFolder,
-    folder_service: State<'_, Arc<FolderService>>,
-    // sync_service: State<'_, Arc<SyncService>>,
+    repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
-    folder_service
-        .soft_delete_folder(&input.folder_id)
+    soft_delete_folder(&input.folder_id, &repo_ctx)
         .await
         .map_err(|e| e.to_string())?;
     // sync_service

@@ -10,14 +10,17 @@ use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, first_device_connect, get_user_details,
     handle_add_device, handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
 };
-use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
+use crate::handlers::folder_handler::{
+    handle_add_folder, handle_get_folders, handle_soft_delete_folder,
+};
 use crate::handlers::p2p_handlers::{
     connect_with_device, get_system_locale, get_ticket, initiate_first_connection, send_message,
     start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
-    get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
-    share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
+    handle_add_resource, handle_get_all_resources, handle_get_resource,
+    handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
+    handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
 use crate::handlers::user_handler::{add_known_user, get_details_for_share, get_known_users};
 use crate::user_state::UserState;
@@ -244,16 +247,16 @@ pub fn run() {
             connect_with_device,
             start_p2p_listener,
             soft_delete_resource,
-            soft_delete_folder,
-            toggle_fav,
-            update_last_accessed,
-            get_all_resources,
-            update_resource,
-            get_resource,
+            handle_soft_delete_folder,
+            handle_toggle_fav,
+            handle_update_last_accessed,
+            handle_get_all_resources,
+            handle_update_resource,
+            handle_get_resource,
             add_known_user,
             get_known_users,
             initiate_first_connection,
-            share_resource,
+            handle_share_resource,
             get_details_for_share,
             get_user_details,
             first_device_connect,
