@@ -26,8 +26,8 @@ pub struct RepositoryContext {
     pub device_repo: Arc<dyn DeviceRepository>,
     pub share_repo: Arc<dyn ShareRepository>,
     pub resource_key_repo: Arc<dyn ResourceKeyRepository>,
-    pub store_repository: Arc<dyn StoreRepository>,
-    pub user_repository: Arc<dyn UserRepository>,
+    pub store_repo: Arc<dyn StoreRepository>,
+    pub user_repo: Arc<dyn UserRepository>,
     pub vector_clock_repo: Arc<dyn VectorClockRepository>,
 }
 pub async fn connect_database(db_path: &str) -> Result<DbConnection, diesel::result::Error> {
@@ -42,8 +42,8 @@ pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
     let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
     let resource_key_repo = Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
-    let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
-    let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
+    let store_repo = Arc::new(SqliteStoreRepository::new(connection.clone()));
+    let user_repo = Arc::new(SqliteUserRepository::new(connection.clone()));
     let vector_clock_repo = Arc::new(SqliteVectorClockRepository::new(connection.clone()));
 
     RepositoryContext {
@@ -53,8 +53,8 @@ pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
         device_repo,
         share_repo,
         resource_key_repo,
-        store_repository,
-        user_repository,
+        store_repo,
+        user_repo,
         vector_clock_repo,
     }
 }

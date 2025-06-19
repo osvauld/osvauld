@@ -7,9 +7,8 @@ pub mod listners;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, first_device_connect, get_public_key,
-    get_user_details, get_user_id, handle_add_device, handle_change_passphrase,
-    handle_export_certificate, handle_hash_and_sign, handle_sign_challenge, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, first_device_connect, get_user_details,
+    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
 use crate::handlers::p2p_handlers::{
@@ -200,6 +199,7 @@ pub fn run() {
                     // Manage all services
 
                     app.manage(user_state);
+                    app.manage(crypto_utils);
                     app.manage(folder_service);
                     app.manage(auth_service);
                     app.manage(resource_service);
@@ -232,9 +232,7 @@ pub fn run() {
             handle_sign_up,
             check_private_key_loaded,
             login,
-            handle_sign_challenge,
             handle_add_resource,
-            handle_hash_and_sign,
             handle_add_device,
             handle_export_certificate,
             handle_change_passphrase,
@@ -250,12 +248,10 @@ pub fn run() {
             toggle_fav,
             update_last_accessed,
             get_all_resources,
-            get_user_id,
             update_resource,
             get_resource,
             add_known_user,
             get_known_users,
-            get_public_key,
             initiate_first_connection,
             share_resource,
             get_details_for_share,

@@ -63,12 +63,8 @@ const tauriBrowser = {
           savePassphrase: (data) => invoke("handle_sign_up", { input: data }),
           checkPvtLoaded: () => invoke("check_private_key_loaded"),
           login: (data) => invoke("login", { input: data }),
-          signChallenge: (data) =>
-            invoke("handle_sign_challenge", { input: data }),
           addCredential: (data) =>
             invoke("handle_add_resource", { input: data }),
-          hashAndSign: (data) =>
-            invoke("handle_hash_and_sign", { input: data }),
           addDevice: (data) => invoke("handle_add_device", { input: data }),
           exportCertificate: (data) =>
             invoke("handle_export_certificate", { input: data }),
@@ -89,7 +85,6 @@ const tauriBrowser = {
           getAllCredentials: () =>
             invoke("get_all_resources"),
           logout: () => invoke("logout"),
-          getUserId: () => invoke("get_user_id"),
           sendSnapshot: (data) => invoke("send_snapshot", { snapshot: data }),
           updateCredential: (data: any) =>
             invoke("update_resource", { input: data }),
@@ -97,7 +92,6 @@ const tauriBrowser = {
           addKnownUser: (data: any) =>
             invoke("add_known_user", { input: data }),
           getKnownUsers: () => invoke("get_known_users"),
-          getPublicKey: () => invoke("get_public_key"),
           initiateFirstConnection: (data: any) =>
             invoke("initiate_first_connection", { input: data }),
           shareResource: (data: any) =>
