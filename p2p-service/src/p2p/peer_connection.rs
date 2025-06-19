@@ -1,5 +1,6 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
 use crate::p2p::phase_management::PhaseState;
+use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
 use osvauld_core::models::device::Device;
@@ -7,6 +8,7 @@ use osvauld_core::models::p2p::{
     ConnectionAction, ConnectionType, Message, Phase, PhaseAction, PhaseType,
 };
 use osvauld_core::models::user::User;
+use osvauld_db::database::RepositoryContext;
 use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -53,6 +55,8 @@ pub struct PeerConnection {
     pub is_live_editing: Arc<Mutex<bool>>,
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pub crypto_utils: Arc<Mutex<CryptoUtils>>,
+    pub repo_ctx: RepositoryContext,
 }
 
 impl PeerConnection {
@@ -69,6 +73,8 @@ impl PeerConnection {
         pending_resource_ids: Vec<String>,
         action: Option<ConnectionAction>,
         on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
+        crypto_utils: Arc<Mutex<CryptoUtils>>,
+        repo_ctx: RepositoryContext,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -91,6 +97,8 @@ impl PeerConnection {
             is_live_editing: Arc::new(Mutex::new(false)),
             on_close: Arc::new(Mutex::new(on_close)),
             disconnection_timer: Arc::new(Mutex::new(None)),
+            repo_ctx,
+            crypto_utils,
         };
 
         debug!("Starting message handler for the connection");
@@ -304,6 +312,7 @@ impl PeerConnection {
             Message::MergeUpdate(payload) => self.process_merge_payload(payload).await,
             Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
             Message::Disconnect(status) => self.handle_disconnect_message(status).await,
+            Message::DeviceManifestRequest(paylaod) => self.handle_manifest_payload(payload).await,
         }
     }
 
@@ -383,6 +392,8 @@ impl PeerConnection {
             is_live_editing: self.is_live_editing.clone(),
             on_close: self.on_close.clone(),
             disconnection_timer: self.disconnection_timer.clone(),
+            repo_ctx: self.repo_ctx.clone(),
+            crypto_utils: self.crypto_utils.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {

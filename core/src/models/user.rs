@@ -41,3 +41,8 @@ impl User {
         }
     }
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserWithDeviceIds {
+    pub user_id: String,
+    pub device_ids: Vec<String>,
+}

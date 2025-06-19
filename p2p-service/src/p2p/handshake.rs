@@ -1,17 +1,17 @@
-use crate::p2p::P2PEvent;
 use crate::p2p::constants::*;
 use crate::p2p::errors::{HandshakeError, P2PError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
-use iroh::NodeAddr;
+use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::NodeAddr;
 use osvauld_core::models::p2p::{
     ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage,
 };
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 impl P2PService {
     /// Performs the handshake process and creates a peer connection
@@ -139,6 +139,8 @@ impl P2PService {
             resources_needing_update,
             action,
             Some(cleanup_callback),
+            self.crypto_utils.clone(),
+            self.repo_ctx.clone(),
         );
         peer_connection.execute_connection_action().await?;
 

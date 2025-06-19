@@ -1,4 +1,5 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_user};
+use log::info;
 use osvauld_core::models::user::User;
 use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::models::{
@@ -44,6 +45,7 @@ pub async fn create_resource(
         folder_id,
         "signature".to_string(),
     );
+    info!("{:?}", resource);
     let signature = {
         let crypto = crypto_utils.lock().await;
         crypto
@@ -84,15 +86,12 @@ pub async fn create_resource(
         .get_devices_by_user_id(&user.id)
         .await?;
 
-    let device_ids: Vec<String> = user_devices
-        .iter()
-        .map(|d| d.id.clone())
-        .chain(std::iter::once(current_device_id.to_string()))
-        .collect();
+    let device_ids: Vec<String> = user_devices.iter().map(|d| d.id.clone()).collect();
 
     // Create initial vector clocks for all user's devices
     let vector_clocks =
         ResourceVectorClock::create_initial_entries(&resource.id, &device_ids, current_device_id);
+    info!(" vecto clocks{:?}", vector_clocks);
 
     // Save everything in a single transaction
     repo_ctx

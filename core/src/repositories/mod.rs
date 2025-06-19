@@ -1,16 +1,8 @@
 use crate::models::{
-    auth::Certificate,
-    device::Device,
-    folder::Folder,
-    resource::{Resource, ResourceKeyPair, ResourceWithKey},
-    resource_key::ResourceKey,
-    share_record::ShareRecord,
-    sync_record::{
-        DeviceRecord, DeviceRecordSet, DeviceRecordStatus, StatusChangeSet, SyncAndDeviceRecord,
-        SyncRecord, SyncRecordSet,
-    },
-    user::User,
-    vector_clock::ResourceVectorClock,
+    Certificate, Device, DeviceRecord, DeviceRecordSet, DeviceRecordStatus, Folder, Resource,
+    ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceVectorClock, ResourceWithKey,
+    ShareRecord, StatusChangeSet, SyncAndDeviceRecord, SyncRecord, SyncRecordSet, User,
+    UserWithDeviceIds,
 };
 use async_trait::async_trait;
 use thiserror::Error;
@@ -254,6 +246,14 @@ pub trait ResourceRepository: Send + Sync {
         share_record: &ShareRecord,
         recipient_vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError>;
+    async fn add_device_with_vector_clocks(
+        &self,
+        device: &Device,
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
+    async fn get_all_resource_manifest_data(
+        &self,
+    ) -> Result<Vec<ResourceManifestData>, RepositoryError>;
 }
 
 #[async_trait]
@@ -278,6 +278,10 @@ pub trait DeviceRepository: Send + Sync {
         user_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
     async fn save_many(&self, devices: &[Device]) -> Result<(), RepositoryError>;
+    async fn get_device_ids_by_user_id(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<String>, RepositoryError>;
 }
 
 #[async_trait]
@@ -304,6 +308,9 @@ pub trait UserRepository: Send + Sync {
         device: &Device,
         device_certificate: &Certificate,
     ) -> Result<(), RepositoryError>;
+    async fn get_other_users_with_device_ids(
+        &self,
+    ) -> Result<Vec<UserWithDeviceIds>, RepositoryError>;
 }
 
 #[async_trait]

@@ -31,7 +31,6 @@ impl SyncService {
         match payload {
             DeviceConnection::Request {
                 device,
-                sync_record_set,
             } => {
                 info!(
                     device_id = %device.id,
@@ -39,24 +38,7 @@ impl SyncService {
                 );
 
                 // Process request and generate comprehensive response
-                match self
-                    .process_first_device_connection(
-                        device,
-                        sync_record_set,
-                        user_id,
-                        current_device_id,
-                    )
-                    .await
-                {
-                    Ok(response) => {
-                        info!("Device connection request processed successfully");
-                        Ok(Some(response))
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to process device connection request");
-                        Err(e)
-                    }
-                }
+               todo!() 
             }
 
             DeviceConnection::Response {

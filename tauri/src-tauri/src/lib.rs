@@ -101,7 +101,6 @@ pub fn run() {
                 Ok(connection) => {
                     app.manage(connection.clone());
                     let repo_ctx = initialize_repositories(connection.clone());
-                    app.manage(repo_ctx);
                     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
                     let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
                     let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
@@ -171,6 +170,8 @@ pub fn run() {
                             sync_service.clone(),
                             auth_service.clone(),
                             user_service.clone(),
+                            repo_ctx.clone(),
+                            crypto_utils.clone(),
                         );
                     let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
@@ -211,6 +212,7 @@ pub fn run() {
                     app.manage(user_service);
                     app.manage(transaction_service);
                     app.manage(rendezvous_service);
+                    app.manage(repo_ctx);
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);

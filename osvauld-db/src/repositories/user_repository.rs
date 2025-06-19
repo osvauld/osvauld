@@ -1,12 +1,12 @@
+use crate::DbConnection;
 use crate::database::schema::{devices, store_items, users};
 use crate::models::{DeviceModel, UserModel};
-use chrono::Local;
-use osvauld_core::models::{Certificate, Device, User};
-use osvauld_core::repositories::{RepositoryError, UserRepository};
-
-use crate::DbConnection;
 use async_trait::async_trait;
+use chrono::Local;
 use diesel::prelude::*;
+use osvauld_core::models::{Certificate, Device, User, UserWithDeviceIds};
+use osvauld_core::repositories::{RepositoryError, UserRepository};
+use std::collections::HashMap;
 
 pub struct SqliteUserRepository {
     connection: DbConnection,
@@ -158,5 +158,38 @@ impl UserRepository for SqliteUserRepository {
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(())
+    }
+    async fn get_other_users_with_device_ids(
+        &self,
+    ) -> Result<Vec<UserWithDeviceIds>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Get all devices for other users (non-owner users only)
+        let user_devices: Vec<(String, String)> = devices::table
+            .inner_join(users::table.on(devices::user_id.eq(users::id)))
+            .filter(users::owner.eq(false))
+            .select((devices::user_id, devices::id))
+            .load::<(String, String)>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Group device IDs by user ID
+        let mut user_device_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (user_id, device_id) in user_devices {
+            user_device_map
+                .entry(user_id)
+                .or_insert_with(Vec::new)
+                .push(device_id);
+        }
+
+        // Convert to Vec<UserWithDeviceIds>
+        let result: Vec<UserWithDeviceIds> = user_device_map
+            .into_iter()
+            .map(|(user_id, device_ids)| UserWithDeviceIds {
+                user_id,
+                device_ids,
+            })
+            .collect();
+
+        Ok(result)
     }
 }

@@ -1,14 +1,20 @@
 use crate::DbConnection;
-use crate::database::schema::{resource_keys, resource_vector_clocks, resources, share_records};
-use crate::models::{ResourceKeyModel, ResourceModel, ResourceVectorClockModel, ShareRecordModel};
+use crate::database::schema::{
+    devices, resource_keys, resource_vector_clocks, resources, share_records,
+};
+use crate::models::{
+    DeviceModel, ResourceKeyModel, ResourceModel, ResourceVectorClockModel, ShareRecordModel,
+};
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::QueryDsl;
 use diesel::prelude::*;
 use osvauld_core::models::{
-    Resource, ResourceKey, ResourceKeyPair, ResourceVectorClock, ResourceWithKey, ShareRecord,
+    Device, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceVectorClock,
+    ResourceWithKey, ShareRecord,
 };
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
+use std::collections::HashMap;
 
 pub struct SqliteResourceRepository {
     connection: DbConnection,
@@ -384,5 +390,100 @@ impl ResourceRepository for SqliteResourceRepository {
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(())
+    }
+    async fn add_device_with_vector_clocks(
+        &self,
+        device: &Device,
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Use a transaction to ensure all operations succeed or fail together
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // 1. Insert the device
+            let device_model = DeviceModel::from(device);
+            diesel::insert_into(devices::table)
+                .values(&device_model)
+                .execute(conn)?;
+
+            // 2. Insert vector clocks if any
+            if !vector_clocks.is_empty() {
+                let vector_clock_models =
+                    ResourceVectorClockModel::from_domain_vector_clocks(vector_clocks);
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&vector_clock_models)
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+    async fn get_all_resource_manifest_data(
+        &self,
+    ) -> Result<Vec<ResourceManifestData>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Get all resource IDs (non-deleted)
+        let resource_ids: Vec<String> = resources::table
+            .filter(resources::deleted.eq(false))
+            .select(resources::id)
+            .load::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        if resource_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Get all share records for these resources in one query
+        let share_records: Vec<(String, String)> = share_records::table
+            .filter(share_records::resource_id.eq_any(&resource_ids))
+            .select((share_records::resource_id, share_records::id))
+            .load::<(String, String)>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Get all vector clocks for these resources in one query
+        let vector_clock_models: Vec<ResourceVectorClockModel> = resource_vector_clocks::table
+            .filter(resource_vector_clocks::resource_id.eq_any(&resource_ids))
+            .select(ResourceVectorClockModel::as_select())
+            .load::<ResourceVectorClockModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Group share records by resource_id
+        let mut share_records_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (resource_id, share_record_id) in share_records {
+            share_records_map
+                .entry(resource_id)
+                .or_insert_with(Vec::new)
+                .push(share_record_id);
+        }
+
+        // Group vector clocks by resource_id
+        let mut vector_clocks_map: HashMap<String, Vec<ResourceVectorClock>> = HashMap::new();
+        for vector_clock_model in vector_clock_models {
+            let resource_id = vector_clock_model.resource_id.clone();
+            vector_clocks_map
+                .entry(resource_id)
+                .or_insert_with(Vec::new)
+                .push(vector_clock_model.into());
+        }
+
+        // Build the final result
+        let result: Vec<ResourceManifestData> = resource_ids
+            .into_iter()
+            .map(|resource_id| {
+                let share_record_ids = share_records_map.remove(&resource_id).unwrap_or_default();
+                let vector_clocks = vector_clocks_map.remove(&resource_id).unwrap_or_default();
+                ResourceManifestData {
+                    resource_id,
+                    share_record_ids,
+                    vector_clocks,
+                }
+            })
+            .collect();
+
+        Ok(result)
     }
 }

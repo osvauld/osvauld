@@ -1,12 +1,12 @@
 use super::device::Device;
 use super::folder::Folder;
-use super::resource::ResourceKeyPair;
+use super::resource::{ResourceKeyPair, ResourceManifestData};
 use super::share_record::ShareRecord;
 use super::sync_record::{
     DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
 use super::sync_types::SyncOperations;
-use super::user::User;
+use super::user::{User, UserWithDeviceIds};
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
 
@@ -90,6 +90,7 @@ pub enum Message {
     LiveEdit(LiveEditMessage),
     Disconnect(DisconnectStatus),
     FirstDeviceConnection(DeviceConnection),
+    DeviceManifestRequest(DeviceManifestRequestPayload),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -245,7 +246,6 @@ pub enum DeviceConnection {
     // Initial request with the new device
     Request {
         device: Device,
-        sync_record_set: SyncRecordSet,
     },
     // Comprehensive response with all known user devices
     Response {
@@ -262,4 +262,11 @@ pub enum DeviceConnection {
     Complete {
         device_record_status_ids: Vec<String>,
     },
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceManifestRequestPayload {
+    pub known_device_ids: Vec<String>,
+    pub other_users: Vec<UserWithDeviceIds>,
+    pub folder_ids: Vec<String>,
+    pub resources: Vec<ResourceManifestData>,
 }

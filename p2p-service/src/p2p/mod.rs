@@ -11,6 +11,7 @@ pub mod peer_connection;
 pub mod phase_management;
 pub mod share;
 pub mod sync;
+pub mod sync2;
 
 pub use emitter::{P2PEvent, P2PEventEmitter};
 pub use p2p_service::P2PService;

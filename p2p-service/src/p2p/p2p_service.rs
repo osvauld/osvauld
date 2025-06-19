@@ -6,17 +6,15 @@ use crate::p2p::incoming::{IncomingEvent, P2PSender};
 use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
-use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{
-    ConnectionTicket, ConnectionType, Message, Phase, PhaseAction, PhaseType,
-};
-use osvauld_core::models::user::User;
+use osvauld_core::models::{User, ConnectionTicket, Device};
+use osvauld_db::database::RepositoryContext;
 use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use crypto_utils::CryptoUtils;
 
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
@@ -31,6 +29,8 @@ pub struct P2PService {
     pub sync_service: Arc<SyncService>,
     pub auth_service: Arc<AuthService>,
     pub user_service: Arc<UserService>,
+    pub crypto_utils: Arc<Mutex<CryptoUtils>>,
+    pub repo_ctx: RepositoryContext,
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
@@ -43,6 +43,8 @@ impl P2PService {
         sync_service: Arc<SyncService>,
         auth_service: Arc<AuthService>,
         user_service: Arc<UserService>,
+        repo_ctx: RepositoryContext,
+        crypto_utils: Arc<Mutex<CryptoUtils>>
     ) -> (
         Self,
         mpsc::UnboundedReceiver<P2PEvent>,
@@ -69,6 +71,8 @@ impl P2PService {
             event_emitter: emitter,
             current_user: Arc::new(RwLock::new(None)),
             current_device: Arc::new(RwLock::new(None)),
+            repo_ctx,
+            crypto_utils
         };
 
         debug!("P2P service instance created successfully");

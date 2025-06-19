@@ -6,6 +6,7 @@ mod folder_service2;
 mod resource_service;
 mod resource_service2;
 mod sync_service;
+mod sync_service2;
 mod transaction_service;
 mod user_service;
 
@@ -16,5 +17,6 @@ pub use folder_service2::*;
 pub use resource_service::ResourceService;
 pub use resource_service2::*;
 pub use sync_service::{SyncEvent, SyncService};
+pub use sync_service2::*;
 pub use transaction_service::TransactionService;
 pub use user_service::UserService;

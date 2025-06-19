@@ -47,37 +47,6 @@ impl PeerConnection {
         let current_span = tracing::Span::current();
 
         // Process the payload with sync service
-        let return_payload = self
-            .context
-            .sync_service
-            .process_device_connection_payload(
-                payload,
-                &current_device.user_id,
-                &current_device.id,
-                current_span,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
-
-        // If there's a response to send
-        if let Some(response_payload) = return_payload {
-            // Send the response
-            let message = Message::FirstDeviceConnection(response_payload);
-            self.send_message(message).await?;
-        }
-
-        //once you get the complete message transition to folder sync phase.
-        match payload {
-            DeviceConnection::Complete { .. } => {
-                self.phase.reset_for_new_phase(PhaseType::FolderSync).await;
-                self.send_message(Message::Phase(Phase {
-                    action: PhaseAction::Init,
-                    phase_type: PhaseType::FolderSync,
-                }))
-                .await?;
-            }
-            _ => {}
-        }
 
         Ok(())
     }
@@ -281,36 +250,7 @@ impl PeerConnection {
         };
 
         // Get the add device payload from the sync service
-        match self
-            .context
-            .sync_service
-            .get_add_device_record_set(&current_device.id)
-            .await
-        {
-            Ok(record_set) => {
-                info!("Add device sync payload retrieved successfully");
-                let add_device_payload = DeviceConnection::Request {
-                    device: current_device.clone(),
-                    sync_record_set: record_set,
-                };
-                let message = Message::FirstDeviceConnection(add_device_payload);
-
-                match self.send_message(message).await {
-                    Ok(_) => {
-                        info!("Add device sync message sent successfully");
-                        Ok(())
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to send add device message");
-                        Err(format!("Failed to send add device message: {}", e))
-                    }
-                }
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to get add device payload");
-                Err(format!("Failed to get add device payload: {}", e))
-            }
-        }
+        Ok(())
     }
 
     #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "debug")]

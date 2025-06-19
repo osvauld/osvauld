@@ -4761,6 +4761,7 @@ name = "p2p_service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crypto_utils",
  "futures-lite",
  "iroh",
  "iroh-base",
@@ -4768,6 +4769,7 @@ dependencies = [
  "iroh-quinn",
  "log",
  "osvauld_core",
+ "osvauld_db",
  "osvauld_services",
  "rand 0.8.5",
  "serde",

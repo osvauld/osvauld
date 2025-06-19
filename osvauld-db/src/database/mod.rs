@@ -19,6 +19,7 @@ pub mod schema;
 pub type DbConnection = Arc<Mutex<SqliteConnection>>;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+#[derive(Clone)]
 pub struct RepositoryContext {
     pub folder_repo: Arc<dyn FolderRepository>,
     pub sync_repo: Arc<dyn SyncRepository>,
