@@ -677,7 +677,7 @@ impl ResourceService {
         };
 
         // 3. Use document.rs to generate updates for the peer
-        let updates = match generate_updates_for_peer(&yjs_state, peer_state_vector).await {
+        let (updates, _) = match generate_updates_for_peer(&yjs_state, peer_state_vector).await {
             Ok(updates) => updates,
             Err(e) => return Err(RepositoryError::CustomError(e)),
         };

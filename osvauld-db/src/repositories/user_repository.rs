@@ -3,11 +3,11 @@ use crate::database::schema::{devices, store_items, users};
 use crate::models::{DeviceModel, UserModel};
 use async_trait::async_trait;
 use chrono::Local;
+use diesel::BelongingToDsl;
 use diesel::prelude::*;
-use osvauld_core::models::{Certificate, Device, User, UserWithDeviceIds};
+use osvauld_core::models::{Certificate, Device, User, UserWithDeviceIds, UserWithDevices};
 use osvauld_core::repositories::{RepositoryError, UserRepository};
 use std::collections::HashMap;
-
 pub struct SqliteUserRepository {
     connection: DbConnection,
 }
@@ -191,5 +191,72 @@ impl UserRepository for SqliteUserRepository {
             .collect();
 
         Ok(result)
+    }
+    async fn get_users_with_devices_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<UserWithDevices>, RepositoryError> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        let user_models = users::table
+            .filter(users::id.eq_any(user_ids))
+            .load::<UserModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        let device_models = DeviceModel::belonging_to(&user_models)
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        let grouped_devices = device_models.grouped_by(&user_models);
+
+        let result: Vec<UserWithDevices> = user_models
+            .into_iter()
+            .zip(grouped_devices)
+            .map(|(user_model, device_models)| {
+                let user: User = user_model.into();
+                let devices: Vec<Device> = device_models.into_iter().map(Into::into).collect();
+                UserWithDevices { user, devices }
+            })
+            .collect();
+
+        Ok(result)
+    }
+    async fn add_users_with_devices_bulk(
+        &self,
+        users_with_devices: &[UserWithDevices],
+    ) -> Result<(), RepositoryError> {
+        if users_with_devices.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            for user_with_devices in users_with_devices {
+                // 1. Insert the user
+                let user_model = UserModel::from(&user_with_devices.user);
+                diesel::insert_into(users::table)
+                    .values(&user_model)
+                    .on_conflict(users::id)
+                    .do_nothing()
+                    .execute(conn)?;
+
+                // 2. Insert associated devices
+                for device in &user_with_devices.devices {
+                    let device_model = DeviceModel::from(device);
+                    diesel::insert_into(devices::table)
+                        .values(&device_model)
+                        .on_conflict(devices::id)
+                        .do_nothing()
+                        .execute(conn)?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
 }

@@ -39,6 +39,21 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         Ok(())
     }
 
+    async fn save_vector_clock(
+        &self,
+        vector_clock: &ResourceVectorClock,
+    ) -> Result<(), RepositoryError> {
+        let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
+        let mut conn = self.connection.lock().await;
+
+        diesel::insert_into(resource_vector_clocks::table)
+            .values(&vector_clock_model)
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
     async fn increment_vector_clock(
         &self,
         resource_id: &str,

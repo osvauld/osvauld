@@ -1,13 +1,13 @@
 use crypto_utils::{CryptoUtils, encrypt_data_for_user};
 use log::info;
-use osvauld_core::models::user::User;
-use osvauld_core::models::vector_clock::ResourceVectorClock;
 use osvauld_core::models::{
-    DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceWithKey, ShareRecord,
+    DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
+    ResourceWithKey, ShareRecord, User, document,
 };
 use osvauld_core::repositories::RepositoryError;
 use osvauld_db::database::RepositoryContext;
 use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -388,4 +388,258 @@ pub async fn share_resource(
         .await?;
 
     Ok(())
+}
+
+pub async fn get_resource_state_vector(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<Vec<u8>, RepositoryError> {
+    // 1. Get the decrypted resource
+    let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
+    {
+        Ok(resource) => resource,
+        Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+    };
+
+    // 2. Extract yjs_state from the data field
+    // The data field is already parsed as a Value, so we can access it directly
+    let yjs_state = match decrypted_resource.data.get("yjs_state") {
+        Some(state) => {
+            // Convert the JSON array to a Vec<u8>
+            match state.as_array() {
+                Some(array) => {
+                    array
+                        .iter()
+                        .try_fold(Vec::new(), |mut acc, v| match v.as_u64() {
+                            Some(n) if n <= 255 => {
+                                acc.push(n as u8);
+                                Ok(acc)
+                            }
+                            Some(n) => Err(RepositoryError::CustomError(format!(
+                                "yjs_state contains value {} which exceeds u8 range",
+                                n
+                            ))),
+                            None => Err(RepositoryError::CustomError(
+                                "yjs_state contains non-numeric value".to_string(),
+                            )),
+                        })?
+                }
+                None => {
+                    return Err(RepositoryError::CustomError(
+                        "yjs_state is not an array".to_string(),
+                    ));
+                }
+            }
+        }
+        None => {
+            return Err(RepositoryError::CustomError(
+                "yjs_state not found in resource data".to_string(),
+            ));
+        }
+    };
+
+    // 3. Use document.rs to get the state vector
+    let state_vector = match document::get_state_vector(&yjs_state).await {
+        Ok(vector) => vector,
+        Err(e) => return Err(RepositoryError::CustomError(e)),
+    };
+
+    Ok(state_vector)
+}
+
+// Also update the generate_updates_for_peer function similarly
+pub async fn generate_updates_for_peer(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    peer_state_vector: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
+    // 1. Get the decrypted resource
+    let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
+    {
+        Ok(resource) => resource,
+        Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+    };
+
+    // 2. Extract yjs_state from the data field
+    let yjs_state = match decrypted_resource.data.get("yjs_state") {
+        Some(state) => match state.as_array() {
+            Some(array) => array
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .collect::<Vec<u8>>(),
+            None => {
+                return Err(RepositoryError::CustomError(
+                    "yjs_state is not an array".to_string(),
+                ));
+            }
+        },
+        None => {
+            return Err(RepositoryError::CustomError(
+                "yjs_state not found in resource data".to_string(),
+            ));
+        }
+    };
+
+    // 3. Use document.rs to generate updates for the peer
+    let (updates, state_vector) =
+        match document::generate_updates_for_peer(&yjs_state, peer_state_vector).await {
+            Ok(updates) => updates,
+            Err(e) => return Err(RepositoryError::CustomError(e)),
+        };
+
+    Ok((updates, state_vector))
+}
+/// Apply updates from a peer and generate any updates they might need in return
+///
+/// # Arguments
+/// * `resource_id` - The ID of the resource being updated
+/// * `updates` - The updates received from the peer
+/// * `peer_state_vector` - The state vector from the peer
+///
+/// # Returns
+/// * `Result<(Vec<u8>, Vec<u8>), RepositoryError>` - (Updates for peer, Current state vector)
+pub async fn apply_updates_and_get_peer_updates(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    updates: &[u8],
+    peer_state_vector: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
+    // 1. Get the current resource with its YJS state
+    let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
+    {
+        Ok(resource) => resource,
+        Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+    };
+
+    // 2. Extract the current yjs_state from the data field
+    let current_yjs_state = match decrypted_resource.data.get("yjs_state") {
+        Some(state) => match state.as_array() {
+            Some(array) => array
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .collect::<Vec<u8>>(),
+            None => {
+                return Err(RepositoryError::CustomError(
+                    "yjs_state is not an array".to_string(),
+                ));
+            }
+        },
+        None => {
+            return Err(RepositoryError::CustomError(
+                "yjs_state not found in resource data".to_string(),
+            ));
+        }
+    };
+
+    // 3. Use document.rs to apply the updates and generate any updates for the peer
+    let (peer_updates, current_state_vector) =
+        match document::apply_updates_and_generate_peer_updates(
+            &current_yjs_state,
+            updates,
+            peer_state_vector,
+        )
+        .await
+        {
+            Ok((updates, state_vector)) => (updates, state_vector),
+            Err(e) => return Err(RepositoryError::CustomError(e)),
+        };
+
+    // 4. Return both the updates needed by the peer and the current state vector
+    Ok((peer_updates, current_state_vector))
+}
+pub async fn get_share_records_for_resource(
+    resource_id: &str,
+    repo_ctx: &RepositoryContext,
+) -> Result<Vec<ShareRecord>, RepositoryError> {
+    repo_ctx.share_repo.find_by_resource(resource_id).await
+}
+pub async fn get_vector_clocks_for_resource(
+    resource_id: &str,
+    repo_ctx: &RepositoryContext,
+) -> Result<Vec<ResourceVectorClock>, RepositoryError> {
+    repo_ctx
+        .vector_clock_repo
+        .get_vector_clocks_for_resource(resource_id)
+        .await
+}
+
+pub async fn merge_vector_clocks(
+    resource_id: &str,
+    vector_clocks: &Vec<ResourceVectorClock>,
+    repo_ctx: &RepositoryContext,
+) -> Result<(Vec<ResourceVectorClock>, Vec<ResourceVectorClock>), RepositoryError> {
+    info!("Merging vector clocks for resource {}", resource_id);
+
+    // Get our local vector clocks for this resource
+    let local_vector_clocks = repo_ctx
+        .vector_clock_repo
+        .get_vector_clocks_for_resource(resource_id)
+        .await?;
+
+    let merge_result = ResourceVectorClock::merge(&local_vector_clocks, vector_clocks);
+
+    // If local clocks need updating, update our database
+    if merge_result.local_needs_update {
+        // Update existing vector clocks
+        repo_ctx
+            .vector_clock_repo
+            .update_vector_clocks(&merge_result.update_local, &merge_result.add_local)
+            .await?;
+    }
+    Ok((merge_result.add_remote, merge_result.update_remote))
+}
+
+pub async fn merge_share_records(
+    resource_id: &str,
+    remote_share_records: &[ShareRecord],
+    repo_ctx: &RepositoryContext,
+) -> Result<Vec<ShareRecord>, RepositoryError> {
+    let local_share_records = repo_ctx.share_repo.find_by_resource(resource_id).await?;
+    let local_set: HashSet<String> = local_share_records
+        .iter()
+        .map(|record| record.id.clone())
+        .collect();
+
+    let remote_set: HashSet<String> = remote_share_records
+        .iter()
+        .map(|record| record.id.clone())
+        .collect();
+
+    // Find share records that exist in remote but not in local
+    let remote_only_records: Vec<ShareRecord> = remote_share_records
+        .iter()
+        .filter(|record| !local_set.contains(&record.id))
+        .cloned()
+        .collect();
+
+    repo_ctx.share_repo.save_many(&remote_only_records).await?;
+    // Find share records that exist in local but not in remote
+    let local_only_records: Vec<ShareRecord> = local_share_records
+        .iter()
+        .filter(|record| !remote_set.contains(&record.id))
+        .cloned()
+        .collect();
+    Ok(local_only_records)
+}
+pub async fn update_vector_clocks(
+    add_clock: &[ResourceVectorClock],
+    update_clock: &[ResourceVectorClock],
+    repo_ctx: &RepositoryContext,
+) -> Result<(), RepositoryError> {
+    repo_ctx
+        .vector_clock_repo
+        .update_vector_clocks(&update_clock, &add_clock)
+        .await
+}
+pub async fn add_share_records(
+    share_records: &[ShareRecord],
+    repo_ctx: &RepositoryContext,
+) -> Result<(), RepositoryError> {
+    repo_ctx.share_repo.save_many(share_records).await
 }

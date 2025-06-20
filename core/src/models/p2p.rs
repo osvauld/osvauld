@@ -1,3 +1,4 @@
+use super::ResourceSyncData;
 use super::device::Device;
 use super::folder::Folder;
 use super::resource::{ResourceKeyPair, ResourceManifestData};
@@ -6,7 +7,7 @@ use super::sync_record::{
     DeviceRecord, DeviceRecordStatus, StatusChangeSet, SyncRecord, SyncRecordSet,
 };
 use super::sync_types::SyncOperations;
-use super::user::{User, UserWithDeviceIds};
+use super::user::{User, UserWithDeviceIds, UserWithDevices};
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
 
@@ -91,6 +92,12 @@ pub enum Message {
     Disconnect(DisconnectStatus),
     FirstDeviceConnection(DeviceConnection),
     DeviceManifestRequest(DeviceManifestRequestPayload),
+    DeviceManifestResponse(ManifestComparisonResult),
+    DeviceNetworkSync(DeviceNetworkSyncPayload),
+    DeviceManifestAck,
+    DeviceNetworkSyncAck,
+    ResourceAddtionRequest(ResourceSyncData),
+    ResourceAddtionComplete,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -128,12 +135,14 @@ pub enum ResourceUpdateMsg {
         resource_id: String,
         updates: Vec<u8>,
         vector_clocks: Vec<ResourceVectorClock>,
+        share_records: Vec<ShareRecord>,
     },
     // Acknowledgment that sync is complete
     VectorClockResponse {
         resource_id: String,
         update_clock: Vec<ResourceVectorClock>,
         add_clock: Vec<ResourceVectorClock>,
+        share_records: Vec<ShareRecord>,
     },
 }
 
@@ -269,4 +278,40 @@ pub struct DeviceManifestRequestPayload {
     pub other_users: Vec<UserWithDeviceIds>,
     pub folder_ids: Vec<String>,
     pub resources: Vec<ResourceManifestData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestDifferences {
+    pub unknown_users: Vec<String>,
+    pub unknown_devices_from_common_users: Vec<UserWithDeviceIds>,
+    pub unknown_devices_from_current_user: Vec<String>,
+    pub unknown_resources: Vec<String>,
+    pub unknown_folders: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestComparisonResult {
+    pub local_missing: ManifestDifferences,
+    pub remote_missing: ManifestDifferences,
+    pub resources_requiring_sync: Vec<String>,
+}
+
+impl ManifestComparisonResult {
+    /// Inverse the perspective for sending to remote peer
+    /// What's local_missing becomes remote_missing and vice versa
+    pub fn inverse(&self) -> ManifestComparisonResult {
+        ManifestComparisonResult {
+            local_missing: self.remote_missing.clone(),
+            remote_missing: self.local_missing.clone(),
+            resources_requiring_sync: self.resources_requiring_sync.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeviceNetworkSyncPayload {
+    pub unknown_users_with_devices: Vec<UserWithDevices>,
+    pub unknown_devices_from_common_users: Vec<Device>,
+    pub unknown_devices_from_current_user: Vec<Device>,
+    pub unknown_folders: Vec<Folder>,
 }

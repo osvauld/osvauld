@@ -279,6 +279,7 @@ impl PeerConnection {
                 resource_id,
                 updates,
                 vector_clocks: _,
+                share_records: _,
             } => {
                 info!(
                     "Received final updates for resource {}, emitting to frontend",

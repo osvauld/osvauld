@@ -2,6 +2,7 @@ use crate::database::schema::{
     device_record_status, device_records, devices, folders, resource_keys, resource_vector_clocks,
     resources, share_records, sync_records, users,
 };
+use diesel::associations::Associations;
 use diesel::prelude::*;
 use osvauld_core::models::{
     device::Device as DomainDevice,
@@ -178,7 +179,7 @@ impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable)]
+#[derive(Queryable, Insertable, Identifiable, Selectable)]
 #[diesel(table_name = resources)]
 pub struct ResourceModel {
     pub id: String,
@@ -245,7 +246,8 @@ impl ResourceModel {
     }
 }
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(UserModel, foreign_key = user_id))]
 #[diesel(table_name = devices)]
 pub struct DeviceModel {
     pub id: String,
@@ -294,7 +296,7 @@ impl DeviceModel {
     }
 }
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Identifiable)]
 #[diesel(table_name = users)]
 pub struct UserModel {
     pub id: String,
@@ -348,7 +350,8 @@ impl UserModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable)]
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
 #[diesel(table_name = resource_keys)]
 pub struct ResourceKeyModel {
     pub id: String,
@@ -393,7 +396,8 @@ impl ResourceKeyModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable, Debug)]
+#[derive(Queryable, Insertable, Identifiable, Associations, Selectable)]
+#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
 #[diesel(table_name = resource_vector_clocks)]
 pub struct ResourceVectorClockModel {
     pub id: String,
@@ -452,7 +456,8 @@ impl ResourceVectorClockModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable, Debug)]
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
 #[diesel(table_name = share_records)]
 pub struct ShareRecordModel {
     pub id: String,

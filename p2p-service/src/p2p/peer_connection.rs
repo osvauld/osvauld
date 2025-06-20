@@ -3,11 +3,10 @@ use crate::p2p::phase_management::PhaseState;
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
-use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{
-    ConnectionAction, ConnectionType, Message, Phase, PhaseAction, PhaseType,
+use osvauld_core::models::{
+    ConnectionAction, ConnectionType, Device, ManifestComparisonResult, Message, Phase,
+    PhaseAction, PhaseType, User,
 };
-use osvauld_core::models::user::User;
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
@@ -57,6 +56,7 @@ pub struct PeerConnection {
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub crypto_utils: Arc<Mutex<CryptoUtils>>,
     pub repo_ctx: RepositoryContext,
+    pub manifest_result: Arc<Mutex<Option<ManifestComparisonResult>>>,
 }
 
 impl PeerConnection {
@@ -99,6 +99,7 @@ impl PeerConnection {
             disconnection_timer: Arc::new(Mutex::new(None)),
             repo_ctx,
             crypto_utils,
+            manifest_result: Arc::new(Mutex::new(None)),
         };
 
         debug!("Starting message handler for the connection");
@@ -112,7 +113,10 @@ impl PeerConnection {
         );
         peer_connection
     }
-
+    pub async fn set_manifest_comparison_result(&self, result: ManifestComparisonResult) {
+        let mut manifest_guard = self.manifest_result.lock().await;
+        *manifest_guard = Some(result);
+    }
     /// Gets the unique identifier for this connection (user_id:device_id)
     pub fn get_id(&self) -> String {
         format!("{}:{}", self.user.id, self.device.id)
@@ -309,10 +313,20 @@ impl PeerConnection {
                 Ok(())
             }
             Message::Phase(phase) => self.handle_phase_message(phase).await,
-            Message::MergeUpdate(payload) => self.process_merge_payload(payload).await,
+            Message::MergeUpdate(payload) => self.process_resource_update_message(payload).await,
             Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
             Message::Disconnect(status) => self.handle_disconnect_message(status).await,
-            Message::DeviceManifestRequest(paylaod) => self.handle_manifest_payload(payload).await,
+            Message::DeviceManifestRequest(payload) => self.handle_manifest_request(payload).await,
+            Message::DeviceManifestResponse(payload) => {
+                self.handle_manifest_response(payload).await
+            }
+            Message::DeviceNetworkSync(payload) => self.handle_device_network_sync(payload).await,
+            Message::DeviceManifestAck => self.handle_manifest_ack().await,
+            Message::DeviceNetworkSyncAck => self.send_resources().await,
+            Message::ResourceAddtionRequest(payload) => {
+                self.process_resource_addition_request(payload).await
+            }
+            Message::ResourceAddtionComplete => self.process_resource_addition_complete().await,
         }
     }
 
@@ -383,7 +397,7 @@ impl PeerConnection {
             device: self.device.clone(),
             user: self.user.clone(),
             is_initiator: self.is_initiator,
-            task_handle: tokio::spawn(async {}), // Create a dummy task handle
+            task_handle: tokio::spawn(async {}),
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
             pending_resource_ids: self.pending_resource_ids.clone(),
@@ -394,6 +408,7 @@ impl PeerConnection {
             disconnection_timer: self.disconnection_timer.clone(),
             repo_ctx: self.repo_ctx.clone(),
             crypto_utils: self.crypto_utils.clone(),
+            manifest_result: self.manifest_result.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {

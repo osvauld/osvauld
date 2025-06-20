@@ -10,8 +10,8 @@ use chrono::Local;
 use diesel::QueryDsl;
 use diesel::prelude::*;
 use osvauld_core::models::{
-    Device, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceVectorClock,
-    ResourceWithKey, ShareRecord,
+    Device, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceSyncData,
+    ResourceVectorClock, ResourceWithKey, ShareRecord,
 };
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 use std::collections::HashMap;
@@ -485,5 +485,104 @@ impl ResourceRepository for SqliteResourceRepository {
             .collect();
 
         Ok(result)
+    }
+    async fn get_resource_sync_data(
+        &self,
+        resource_id: &str,
+    ) -> Result<ResourceSyncData, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // 1. Get the resource
+        let resource_model = resources::table
+            .filter(resources::id.eq(resource_id))
+            .first::<ResourceModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        // 2. Get resource keys belonging to this resource
+        let resource_key_models = ResourceKeyModel::belonging_to(&resource_model)
+            .load::<ResourceKeyModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // 3. Get share records belonging to this resource
+        let share_record_models = ShareRecordModel::belonging_to(&resource_model)
+            .load::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // 4. Get vector clocks belonging to this resource
+        let vector_clock_models = ResourceVectorClockModel::belonging_to(&resource_model)
+            .load::<ResourceVectorClockModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // 5. Convert to domain objects
+        let resource: Resource = resource_model.into();
+        let resource_keys: Vec<ResourceKey> =
+            resource_key_models.into_iter().map(Into::into).collect();
+        let share_records: Vec<ShareRecord> = share_record_models
+            .into_iter()
+            .map(|m| m.to_domain())
+            .collect();
+        let vector_clocks: Vec<ResourceVectorClock> =
+            vector_clock_models.into_iter().map(Into::into).collect();
+
+        Ok(ResourceSyncData {
+            resource,
+            resource_keys,
+            share_records,
+            vector_clocks,
+        })
+    }
+    async fn save_resource_sync_data(
+        &self,
+        sync_data: &ResourceSyncData,
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // 1. Insert the resource
+            let resource_model = ResourceModel::from(&sync_data.resource);
+            diesel::insert_into(resources::table)
+                .values(&resource_model)
+                .on_conflict(resources::id)
+                .do_nothing()
+                .execute(conn)?;
+
+            // 2. Insert resource keys
+            for resource_key in &sync_data.resource_keys {
+                let resource_key_model = ResourceKeyModel::from(resource_key);
+                diesel::insert_into(resource_keys::table)
+                    .values(&resource_key_model)
+                    .on_conflict(resource_keys::id)
+                    .do_nothing()
+                    .execute(conn)?;
+            }
+
+            // 3. Insert share records
+            for share_record in &sync_data.share_records {
+                let share_record_model = ShareRecordModel::from(share_record);
+                diesel::insert_into(share_records::table)
+                    .values(&share_record_model)
+                    .on_conflict(share_records::id)
+                    .do_nothing()
+                    .execute(conn)?;
+            }
+
+            // 4. Insert vector clocks
+            for vector_clock in &sync_data.vector_clocks {
+                let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&vector_clock_model)
+                    .on_conflict(resource_vector_clocks::id)
+                    .do_nothing()
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
     }
 }

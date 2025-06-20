@@ -71,6 +71,9 @@ impl ResourceVectorClock {
 
         vector_clocks
     }
+    pub fn create_entry_for_new_device(resource_id: &str, device_id: &str) -> ResourceVectorClock {
+        ResourceVectorClock::new(resource_id.to_string(), device_id.to_string(), 0)
+    }
 
     pub fn create_entries_for_sharing(
         resource_id: &str,

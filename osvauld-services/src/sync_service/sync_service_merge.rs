@@ -43,12 +43,12 @@ pub async fn process_resource_merge_message(
             let response = self.handle_update_and_return_update(resource_id, updates, state_vector).await?;
             Ok(Some(response))
         },
-        ResourceUpdateMsg::FinalUpdateMerge {resource_id, updates: _, vector_clocks} => {
+        ResourceUpdateMsg::FinalUpdateMerge {resource_id, updates: _, vector_clocks, share_records} => {
             debug!("Handling final update merge");
             let response = self.merge_vector_clocks(resource_id, vector_clocks).await?;
             Ok(Some(response))
         },
-        ResourceUpdateMsg::VectorClockResponse {resource_id, update_clock, add_clock} => {
+        ResourceUpdateMsg::VectorClockResponse {resource_id, update_clock, add_clock, share_records: _} => {
             debug!("Handling vector clock response");
             // Update vector clocks and return None to indicate sync is complete
             match self.vector_clock_repository.update_vector_clocks(update_clock, add_clock).await {
@@ -242,6 +242,7 @@ async fn handle_update_and_return_update(
                 resource_id: resource_id.to_string(),
                 updates: peer_updates,
                 vector_clocks,
+                share_records: Vec::new()
             })
         },
         Err(e) => {
@@ -335,7 +336,8 @@ async fn merge_vector_clocks(
     Ok(ResourceUpdateMsg::VectorClockResponse { 
         resource_id: resource_id.to_string(),
         update_clock: merge_result.update_remote,
-        add_clock: merge_result.add_remote 
+        add_clock: merge_result.add_remote ,
+            share_records: Vec::new(),
     })
 }
 

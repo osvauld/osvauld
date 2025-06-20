@@ -100,17 +100,21 @@ impl DeviceRepository for SqliteDeviceRepository {
         if devices.is_empty() {
             return Ok(());
         }
-
         let mut conn = self.connection.lock().await;
-
-        // Convert all domain devices to database models
         let device_models: Vec<DeviceModel> = devices.iter().map(DeviceModel::from).collect();
 
-        // Use a batch insert
-        diesel::insert_into(devices::table)
-            .values(&device_models)
-            .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        // SQLite doesn't support batch insert with on_conflict, so use transaction with individual inserts
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            for device_model in &device_models {
+                diesel::insert_into(devices::table)
+                    .values(device_model)
+                    .on_conflict(devices::id)
+                    .do_nothing()
+                    .execute(conn)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(())
     }
@@ -148,5 +152,25 @@ impl DeviceRepository for SqliteDeviceRepository {
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         Ok(device_ids)
+    }
+
+    async fn get_devices_by_ids(
+        &self,
+        device_ids: &[String],
+    ) -> Result<Vec<Device>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // If the device_ids array is empty, return an empty vector
+        if device_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let device_models = devices::table
+            .filter(devices::id.eq_any(device_ids))
+            .load::<DeviceModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Convert models to domain objects
+        Ok(DeviceModel::to_domain_devices(device_models))
     }
 }

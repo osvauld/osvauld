@@ -102,4 +102,42 @@ impl FolderRepository for SqliteFolderRepository {
 
         Ok(folder_model.into())
     }
+    async fn get_folders_by_ids(
+        &self,
+        folder_ids: &[String],
+    ) -> Result<Vec<Folder>, RepositoryError> {
+        if folder_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        let folder_models = folders::table
+            .filter(folders::id.eq_any(folder_ids))
+            .filter(folders::deleted.eq(false))
+            .load::<FolderModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(folder_models.into_iter().map(Into::into).collect())
+    }
+    async fn add_folders_bulk(&self, folders: &[Folder]) -> Result<(), RepositoryError> {
+        if folders.is_empty() {
+            return Ok(());
+        }
+
+        let folder_models: Vec<FolderModel> = folders.iter().map(FolderModel::from).collect();
+        let mut conn = self.connection.lock().await;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            for folder_model in &folder_models {
+                diesel::insert_into(folders::table)
+                    .values(folder_model)
+                    .on_conflict(folders::id) // Assuming id is the primary key
+                    .do_nothing() // Skip if the folder already exists
+                    .execute(conn)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+    }
 }
