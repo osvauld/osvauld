@@ -24,6 +24,7 @@ use crate::handlers::resource_handler::{
 };
 use crate::handlers::user_handler::{add_known_user, get_details_for_share, get_known_users};
 use crate::user_state::UserState;
+use clap::Parser;
 use crypto_utils::CryptoUtils;
 use osvauld_db::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
@@ -41,8 +42,15 @@ use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, default_value = "desktop")]
+    db_name: String,
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args = Args::parse();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init());
@@ -73,7 +81,7 @@ pub fn run() {
                 })
                 .build(),
         )
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
 
@@ -84,8 +92,11 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop30.db").to_str().unwrap().to_string();
-
+            let db_path = app_dir
+                .join(format!("{}.db", args.db_name))
+                .to_str()
+                .unwrap()
+                .to_string();
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
 
