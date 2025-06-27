@@ -303,10 +303,6 @@ impl RendezvousService {
         user: &Arc<Mutex<Option<String>>>,
     ) -> Result<(), String> {
         // Start P2P listener
-        if let Err(e) = p2p_service.start_listening().await {
-            return Err(format!("Failed to start P2P listener: {}", e));
-        }
-        // Get connection ticket from P2P service
         let ticket = match p2p_service.get_connection_ticket().await {
             Ok(ticket) => ticket,
             Err(e) => return Err(format!("Failed to get connection ticket: {}", e)),

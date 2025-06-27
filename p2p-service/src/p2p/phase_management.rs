@@ -205,7 +205,7 @@ impl PeerConnection {
         let _enter = span.enter();
 
         let result = match current_phase {
-            PhaseType::AddDevice => self.start_add_device_sync().await,
+            PhaseType::AddDevice => self.start_add_device_process().await,
             PhaseType::FirstUserConnection => self.start_first_user_connection().await,
             PhaseType::DeviceSync => self.start_device_sync().await,
             PhaseType::UserSync => self.start_user_sync().await,

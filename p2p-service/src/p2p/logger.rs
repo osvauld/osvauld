@@ -2,7 +2,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Errors that can occur during logging setup
 #[derive(Error, Debug)]
@@ -41,7 +41,7 @@ pub struct LogConfig {
 impl Default for LogConfig {
     fn default() -> Self {
         Self {
-            level: Level::INFO,
+            level: Level::DEBUG,
             log_to_file: false,
             log_dir: None,
             file_prefix: None,

@@ -361,11 +361,10 @@ impl P2PService {
         }
 
         // Ensure the message is sent
-        if let Err(e) = send.flush().await {
-            error!("Failed to flush handshake message: {}", e);
+        if let Err(e) = send.finish() {
+            error!("Failed to finish sending handshake message: {}", e);
             return Err(HandshakeError::Connection(e.to_string()));
         }
-
         info!("Initiator: Waiting for handshake response");
 
         // Read the response
@@ -512,8 +511,8 @@ impl P2PService {
         }
 
         // Ensure the response is sent
-        if let Err(e) = send.flush().await {
-            error!("Failed to flush response: {}", e);
+        if let Err(e) = send.finish() {
+            error!("Failed to finish sending response: {}", e);
             return Err(HandshakeError::Connection(e.to_string()));
         }
 
@@ -540,6 +539,10 @@ impl P2PService {
         // Get the state for access to connections
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+        debug!(
+            "Connector using endpoint with node ID: {}",
+            state.endpoint.node_id()
+        );
 
         // If a connection ID was provided, check if the connection is already active
         if let Some(id) = connection_id {
@@ -640,6 +643,9 @@ impl P2PService {
         let connection_span = info_span!("endpoint_connect", 
         remote_node_id = %node_addr.node_id,
         addresses = ?node_addr.direct_addresses.len());
+        debug!("Attempting connection to node_id: {}", node_id);
+        debug!("NodeAddr created: {:?}", node_addr);
+        debug!("Using ALPN: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
 
         let connect_result = state
             .endpoint

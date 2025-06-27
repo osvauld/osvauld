@@ -234,25 +234,6 @@ impl PeerConnection {
         Ok(())
     }
 
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn start_add_device_sync(&self) -> Result<(), String> {
-        info!("Starting add device sync process");
-
-        // For non-initiators, there's nothing to do - we wait for the AddDevice message
-        if !self.is_initiator {
-            debug!("This connection is not the initiator, waiting for AddDevice message");
-            return Ok(());
-        }
-
-        let current_device = match self.get_local_device().await {
-            Some(device) => device,
-            None => return Err("Local device not found".into()),
-        };
-
-        // Get the add device payload from the sync service
-        Ok(())
-    }
-
     #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "debug")]
     pub async fn process_merge_payload(&self, payload: &ResourceUpdateMsg) -> Result<(), String> {
         debug!("Processing merge update payload");

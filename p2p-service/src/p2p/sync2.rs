@@ -7,16 +7,22 @@ use osvauld_core::models::{
 };
 use osvauld_services::{
     add_resource_sync, add_share_records, apply_updates_and_get_peer_updates,
-    create_network_sync_payload, generate_updates_for_peer, get_resource_for_remote_addition,
-    get_resource_state_vector, get_share_records_for_resource, get_vector_clocks_for_resource,
-    merge_share_records, merge_vector_clocks, process_device_manifest_request,
-    process_network_sync, update_vector_clocks,
+    create_network_sync_payload, generate_updates_for_peer, get_device_manifest,
+    get_resource_for_remote_addition, get_resource_state_vector, get_share_records_for_resource,
+    get_vector_clocks_for_resource, merge_share_records, merge_vector_clocks,
+    process_device_manifest_request, process_network_sync, update_vector_clocks,
 };
 
 use tracing::{debug, error, info, instrument, Span};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {
+    pub async fn start_add_device_process(&self) -> Result<(), String> {
+        let manifest = get_device_manifest(&self.repo_ctx, &self.user.id).await?;
+        self.send_message(Message::DeviceManifestRequest(manifest))
+            .await?;
+        Ok(())
+    }
     pub async fn handle_manifest_request(
         &self,
         payload: &DeviceManifestRequestPayload,
@@ -50,7 +56,7 @@ impl PeerConnection {
         let manifest_result = self.manifest_result.lock().await;
         if let Some(ref manifest_diff) = *manifest_result {
             let device_network_payload =
-                create_network_sync_payload(&manifest_diff.local_missing, &self.repo_ctx).await?;
+                create_network_sync_payload(&manifest_diff.remote_missing, &self.repo_ctx).await?;
             self.send_message(Message::DeviceNetworkSync(device_network_payload))
                 .await?;
         }

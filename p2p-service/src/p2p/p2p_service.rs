@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
+use n0_watcher::Watcher;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 use crypto_utils::CryptoUtils;
 
@@ -192,15 +193,14 @@ impl P2PService {
         Ok(())
     }
 
-    /// Starts listening for incoming connections
+    /// Starts listening for inceming connections
     pub async fn start_listening(&self) -> Result<(), P2PError> {
-        // Ensure P2P is initialized
-        self.ensure_initialized().await?;
 
         info!("Starting P2P listener");
 
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+        debug!("Listener using endpoint with node ID: {}", state.endpoint.node_id());
         let endpoint = state.endpoint.clone();
         let self_clone = self.clone(); // Clone self for use in the spawned task
 
@@ -265,53 +265,51 @@ impl P2PService {
 
     /// Gets a connection ticket that can be used to connect to this node
     #[instrument(skip(self), level = "debug")]
-    pub async fn get_connection_ticket(&self) -> Result<String, P2PError> {
-        debug!("Generating connection ticket");
-
-        self.ensure_initialized().await?;
+pub async fn get_connection_ticket(&self) -> Result<String, P2PError> {
+    debug!("Generating connection ticket");
+    self.ensure_initialized().await?;
+    
+    let ticket = {
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-
-        let node_addr = match state.endpoint.node_addr().await {
-            Ok(addr) => {
-                debug!(
-                    "Got node address with {} direct addresses",
-                    addr.direct_addresses.len()
-                );
-                addr
-            }
-            Err(e) => {
-                error!("Failed to get node address: {}", e);
-                return Err(P2PError::Connection(e.to_string()));
-            }
-        };
-
-        let addrs = node_addr
-            .direct_addresses
+        
+        // Get addresses while holding the lock
+        let direct_addresses = state.endpoint
+            .direct_addresses()
+            .initialized()
+            .await
+            .map_err(|e| {
+                error!("Failed to get initialized node address: {}", e);
+                P2PError::Connection(e.to_string())
+            })?;
+        
+        let addrs = direct_addresses
             .into_iter()
-            .map(|e| e.to_string())
+            .map(|addr| addr.addr.to_string())
             .collect::<Vec<_>>();
-
+        
         debug!("Addresses included in ticket: {:?}", addrs);
-
-        let ticket = ConnectionTicket {
+        
+        ConnectionTicket {
             node_id: state.endpoint.node_id().to_string(),
             addresses: addrs,
-        };
-
-        match serde_json::to_string(&ticket) {
-            Ok(ticket_str) => {
-                info!("Connection ticket generated successfully");
-                trace!("Ticket content: {}", ticket_str);
-                Ok(ticket_str)
-            }
-            Err(e) => {
-                error!("Failed to serialize connection ticket: {}", e);
-                Err(P2PError::Serialization(e.to_string()))
-            }
+        }
+    };
+    
+    self.start_listening().await?;
+    
+    match serde_json::to_string(&ticket) {
+        Ok(ticket_str) => {
+            info!("Connection ticket generated successfully {}", ticket_str);
+            trace!("Ticket content: {}", ticket_str);
+            Ok(ticket_str)
+        }
+        Err(e) => {
+            error!("Failed to serialize connection ticket: {}", e);
+            Err(P2PError::Serialization(e.to_string()))
         }
     }
-
+}
     #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
     pub async fn get_connection_by_id(
         &self,
