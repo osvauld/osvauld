@@ -421,32 +421,44 @@ impl ResourceRepository for SqliteResourceRepository {
 
         Ok(())
     }
-    async fn get_all_resource_manifest_data(
+    async fn get_resource_manifest_data(
         &self,
+        resource_ids: Option<&[String]>,
     ) -> Result<Vec<ResourceManifestData>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        // Get all resource IDs (non-deleted)
-        let resource_ids: Vec<String> = resources::table
-            .filter(resources::deleted.eq(false))
-            .select(resources::id)
-            .load::<String>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        // Get resource IDs based on parameter
+        let target_resource_ids: Vec<String> = match resource_ids {
+            Some(ids) => {
+                if ids.is_empty() {
+                    return Ok(Vec::new());
+                }
+                ids.to_vec()
+            }
+            None => {
+                // Get all resource IDs (non-deleted) if no specific IDs provided
+                resources::table
+                    .filter(resources::deleted.eq(false))
+                    .select(resources::id)
+                    .load::<String>(&mut *conn)
+                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?
+            }
+        };
 
-        if resource_ids.is_empty() {
+        if target_resource_ids.is_empty() {
             return Ok(Vec::new());
         }
 
         // Get all share records for these resources in one query
         let share_records: Vec<(String, String)> = share_records::table
-            .filter(share_records::resource_id.eq_any(&resource_ids))
+            .filter(share_records::resource_id.eq_any(&target_resource_ids))
             .select((share_records::resource_id, share_records::id))
             .load::<(String, String)>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
         // Get all vector clocks for these resources in one query
         let vector_clock_models: Vec<ResourceVectorClockModel> = resource_vector_clocks::table
-            .filter(resource_vector_clocks::resource_id.eq_any(&resource_ids))
+            .filter(resource_vector_clocks::resource_id.eq_any(&target_resource_ids))
             .select(ResourceVectorClockModel::as_select())
             .load::<ResourceVectorClockModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
@@ -471,7 +483,7 @@ impl ResourceRepository for SqliteResourceRepository {
         }
 
         // Build the final result
-        let result: Vec<ResourceManifestData> = resource_ids
+        let result: Vec<ResourceManifestData> = target_resource_ids
             .into_iter()
             .map(|resource_id| {
                 let share_record_ids = share_records_map.remove(&resource_id).unwrap_or_default();
@@ -486,6 +498,7 @@ impl ResourceRepository for SqliteResourceRepository {
 
         Ok(result)
     }
+
     async fn get_resource_sync_data(
         &self,
         resource_id: &str,

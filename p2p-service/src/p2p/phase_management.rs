@@ -206,9 +206,14 @@ impl PeerConnection {
 
         let result = match current_phase {
             PhaseType::AddDevice => self.start_add_device_process().await,
-            PhaseType::FirstUserConnection => self.start_first_user_connection().await,
+            PhaseType::FirstUserConnection => {
+                if self.is_initiator {
+                self.send_first_user_connection_payload(true).await?;
+                }
+                Ok(())
+            },
             PhaseType::DeviceSync => self.start_device_sync().await,
-            PhaseType::UserSync => self.start_user_sync().await,
+            PhaseType::UserSync => self.start_add_device_process().await,
             PhaseType::FolderSync => self.start_folder_sync().await,
             PhaseType::ResourceSync => self.start_resource_sync().await,
             PhaseType::ShareSync => self.start_share_sync().await,

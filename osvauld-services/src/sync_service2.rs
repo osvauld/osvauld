@@ -1,7 +1,7 @@
 use osvauld_core::models::{
     Device, DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ManifestComparisonResult,
     ManifestDifferences, ResourceManifestData, ResourceSyncData, ResourceVectorClock,
-    UserWithDeviceIds,
+    UserWithDeviceIds, UserWithDevices,
 };
 use osvauld_db::database::RepositoryContext;
 use std::collections::{HashMap, HashSet};
@@ -18,7 +18,7 @@ pub async fn get_device_manifest(
 ) -> Result<DeviceManifestRequestPayload, String> {
     let resource_manfest = repo_ctx
         .resource_repo
-        .get_all_resource_manifest_data()
+        .get_resource_manifest_data(None)
         .await
         .map_err(|e| e.to_string())?;
     let user_and_devices = repo_ctx
@@ -393,4 +393,70 @@ pub async fn add_resource_sync(
         .save_resource_sync_data(payload)
         .await
         .map_err(|e| e.to_string())
+}
+
+pub async fn get_rendezvous_payload(
+    current_device_id: &str,
+    repo_ctx: &RepositoryContext,
+) -> Result<Vec<String>, String> {
+    let device_mapping = repo_ctx
+        .user_repo
+        .get_user_device_mapping()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut payload = Vec::new();
+
+    for (user_id, device_ids) in device_mapping {
+        for device_id in device_ids {
+            // Skip the current device
+            if device_id != current_device_id {
+                payload.push(format!("{}:{}", user_id, device_id));
+            }
+        }
+    }
+    Ok(payload)
+}
+
+pub async fn process_first_user_connection_request(
+    user_with_devices: UserWithDevices,
+    repo_ctx: &RepositoryContext,
+) -> Result<(), String> {
+    repo_ctx
+        .user_repo
+        .add_users_with_devices_bulk(&[user_with_devices])
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn get_user_manifest(
+    repo_ctx: &RepositoryContext,
+    current_user_id: &str,
+    peer_user_id: &str,
+) -> Result<(), String> {
+    let share_records = repo_ctx
+        .share_repo
+        .get_user_share_records(peer_user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut unique_resource_ids = HashSet::new();
+    let mut unique_user_ids = HashSet::new();
+    for record in share_records {
+        unique_user_ids.insert(record.recipient_user_id);
+        unique_resource_ids.insert(record.resource_id);
+    }
+    let unique_user_ids_vec: Vec<String> = unique_user_ids.into_iter().collect();
+    let unique_resource_ids_vec: Vec<String> = unique_resource_ids.into_iter().collect();
+    let user_manifest = repo_ctx
+        .user_repo
+        .get_users_with_devices_by_user_ids(&unique_user_ids_vec)
+        .await
+        .map_err(|e| e.to_string())?;
+    let resource_manifest = repo_ctx
+        .resource_repo
+        .get_resource_manifest_data(Some(&unique_resource_ids_vec))
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }

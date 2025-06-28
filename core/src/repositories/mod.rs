@@ -5,6 +5,7 @@ use crate::models::{
     User, UserWithDeviceIds, UserWithDevices,
 };
 use async_trait::async_trait;
+use std::collections::HashMap;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -256,8 +257,9 @@ pub trait ResourceRepository: Send + Sync {
         device: &Device,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError>;
-    async fn get_all_resource_manifest_data(
+    async fn get_resource_manifest_data(
         &self,
+        resource_ids: Option<&[String]>,
     ) -> Result<Vec<ResourceManifestData>, RepositoryError>;
     async fn get_resource_sync_data(
         &self,
@@ -339,6 +341,13 @@ pub trait UserRepository: Send + Sync {
         &self,
         users_with_devices: &[UserWithDevices],
     ) -> Result<(), RepositoryError>;
+    async fn get_user_device_mapping(
+        &self,
+    ) -> Result<HashMap<String, Vec<String>>, RepositoryError>;
+    async fn get_users_with_device_ids_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<UserWithDeviceIds>, RepositoryError>;
 }
 
 #[async_trait]
@@ -431,4 +440,8 @@ pub trait ShareRepository: Send + Sync {
     ) -> Result<Vec<ShareRecord>, RepositoryError>;
     async fn find_by_id(&self, id: &str) -> Result<ShareRecord, RepositoryError>;
     async fn save_many(&self, share_records: &[ShareRecord]) -> Result<(), RepositoryError>;
+    async fn get_user_share_records(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError>;
 }

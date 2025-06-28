@@ -9,6 +9,7 @@ mod sync_service;
 mod sync_service2;
 mod transaction_service;
 mod user_service;
+mod user_service2;
 
 pub use auth_service::AuthService;
 pub use auth_service2::*;
@@ -20,3 +21,4 @@ pub use sync_service::{SyncEvent, SyncService};
 pub use sync_service2::*;
 pub use transaction_service::TransactionService;
 pub use user_service::UserService;
+pub use user_service2::*;

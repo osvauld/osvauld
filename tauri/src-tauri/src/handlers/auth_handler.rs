@@ -8,8 +8,8 @@ use log::{error, info};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{
-    change_passphrase, create_default_folder, export_certificate, handle_signup, import_user,
-    is_signed_up, load_certificate,
+    change_passphrase, create_default_folder, export_certificate, get_rendezvous_payload,
+    handle_signup, import_user, is_signed_up, load_certificate,
 };
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
@@ -82,11 +82,13 @@ pub async fn login(
     // Spawn a background task to handle WebSocket connection
 
     let user_clone = user.clone();
+    let rendezvous_payload = get_rendezvous_payload(&current_device.id, &repo_ctx).await?;
+
     tokio::spawn(async move {
         match rendezvous_clone
             .initialize(
-                format!("{}:{}", user_clone.id.clone(), current_device.id),
-                &current_device.id,
+                format!("{}:{}", user_clone.id.clone(), current_device.id.clone()),
+                rendezvous_payload,
             )
             .await
         {

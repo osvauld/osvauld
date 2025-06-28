@@ -1,7 +1,7 @@
 use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
-use osvauld_services::UserService;
+use osvauld_services::{UserService, get_rendezvous_payload};
 // Import the User model
 use p2p_service::P2PService;
 use std::collections::HashSet;
@@ -34,7 +34,11 @@ impl RendezvousService {
     }
 
     /// Initialize the service with the provided user
-    pub async fn initialize(&self, user: String, current_device_id: &str) -> Result<(), String> {
+    pub async fn initialize(
+        &self,
+        user: String,
+        connection_strings: Vec<String>,
+    ) -> Result<(), String> {
         // Store the user in the service state
         {
             let mut user_lock = self.connection_id.lock().await;
@@ -66,7 +70,8 @@ impl RendezvousService {
             )
             .await;
         });
-        self.initialize_sync_with_pending_devices(current_device_id)
+
+        self.request_user_connection_notifications(connection_strings)
             .await?;
 
         Ok(())
@@ -330,74 +335,6 @@ impl RendezvousService {
     ) -> Result<Vec<UserConnectionStatus>, String> {
         let client = self.client.lock().await;
         client.get_connection_status(user_ids).await
-    }
-
-    pub async fn initialize_sync_with_pending_devices(
-        &self,
-        current_device_id: &str,
-    ) -> Result<(), String> {
-        info!("Checking for devices with pending syncs...");
-        // Get devices with pending syncs
-        match self
-            .user_service
-            .get_users_with_pending_syncs(current_device_id)
-            .await
-        {
-            Ok(users_with_devices) => {
-                info!(
-                    "Found {} users with devices that have pending syncs",
-                    users_with_devices.len()
-                );
-                if !users_with_devices.is_empty() {
-                    // Process each user's devices
-                    for (sync_user_id, devices) in &users_with_devices {
-                        if !devices.is_empty() {
-                            info!(
-                                "User {} has {} devices with pending syncs",
-                                sync_user_id,
-                                devices.len()
-                            );
-                        }
-                    }
-
-                    // Create user_id:device_id format for each device
-                    let mut user_device_ids: Vec<String> = Vec::new();
-                    for (user_id, devices) in &users_with_devices {
-                        for device in devices {
-                            user_device_ids.push(format!("{}:{}", user_id, device.id));
-                        }
-                    }
-
-                    // Request connection notifications for these user:device combinations
-                    if !user_device_ids.is_empty() {
-                        info!(
-                            "Setting up connection notifications for {} user-device combinations with pending syncs",
-                            user_device_ids.len()
-                        );
-                        if let Err(e) = self
-                            .request_user_connection_notifications(user_device_ids)
-                            .await
-                        {
-                            error!("Failed to set up connection notifications: {}", e);
-                            return Err(format!(
-                                "Failed to set up connection notifications: {}",
-                                e
-                            ));
-                        }
-                        info!(
-                            "Successfully set up connection notifications for users with pending syncs"
-                        );
-                    }
-                } else {
-                    info!("No users with pending syncs found");
-                }
-                Ok(())
-            }
-            Err(e) => {
-                error!("Failed to get devices with pending syncs: {}", e);
-                Err(e)
-            }
-        }
     }
 
     pub async fn request_user_connection_notifications(

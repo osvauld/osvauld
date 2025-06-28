@@ -80,7 +80,7 @@ export class Notes {
   private commentsService!: CommentsService;
   private awareness!: Awareness;
   private clientID: number;
-  private currentNoteId: string | null = null;
+  public currentNoteId: string | null = null;
   private editorState: EditorState | null = null;
   private editorSchema!: Schema;
   private pendingYjsState: Uint8Array | null = null;
@@ -351,7 +351,7 @@ export class Notes {
               }
 
               if (!finalHref || finalHref.trim() === "") {
-                return false; 
+                return false;
               }
 
               return {
@@ -364,11 +364,11 @@ export class Notes {
             // The `attrs` definition ensures `href` and `title` have defaults (null).
             // `getAttrs` returns false if a valid href isn't found, preventing mark creation.
             // So, if the mark exists, `mark.attrs.href` should be a valid string.
-            return ["a", { 
-              href: mark.attrs.href, 
-              title: mark.attrs.title, 
-              target: "_blank", 
-              rel: "noopener noreferrer" 
+            return ["a", {
+              href: mark.attrs.href,
+              title: mark.attrs.title,
+              target: "_blank",
+              rel: "noopener noreferrer"
             }, 0];
           }
         },
@@ -656,7 +656,7 @@ export class Notes {
           // Create a new document with proper paragraph structure
           prosemirrorDoc = this.editorSchema.node("doc", {}, paragraphNodes);
         }
-        
+
       } catch (err) {
         console.error("Error creating ProseMirror doc from YJS:", err);
         // If that fails, create a new empty document

@@ -1,12 +1,9 @@
 <script lang="ts">
-
 	import { sendMessage } from "@osvauld/password-manager-common";
 	import { uiState } from "../../state/ui.svelte";
 
-
 	let userDetails = $state("");
 	let isSubmitting = $state(false);
-
 
 	function handleClear() {
 		userDetails = ""; // Clear the textarea
@@ -14,16 +11,8 @@
 
 	const handleAddUser = async (userKey: string) => {
 		try {
-			const userResponse = await sendMessage("addKnownUser", userKey);
+			await sendMessage("addKnownUser", userKey);
 			console.log("initiating first connection");
-			const firstConnectionResponse = await sendMessage(
-				"initiateFirstConnection",
-				{
-					user: userResponse.user,
-					device: userResponse.device,
-				},
-			);
-			console.log(firstConnectionResponse);
 			uiState.showToast("User added successfully", true);
 		} catch (error) {
 			uiState.showToast("Failed to add user", false);
@@ -31,11 +20,10 @@
 		}
 	};
 
-
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		if (!userDetails.trim()) return;
-		
+
 		isSubmitting = true;
 		try {
 			await handleAddUser(userDetails.trim());
@@ -44,7 +32,6 @@
 			isSubmitting = false;
 		}
 	}
-
 </script>
 
 <div class="h-full flex flex-col text-base">
@@ -60,9 +47,7 @@
 	<div class="flex-1">
 		<form onsubmit={handleSubmit} class="space-y-6 flex flex-col h-full">
 			<div class="space-y-2 grow flex flex-col">
-				<label
-					for="userDetails"
-					class="block text-sm font-medium text-white">
+				<label for="userDetails" class="block text-sm font-medium text-white">
 					User ID
 				</label>
 				<textarea
@@ -74,7 +59,8 @@
 					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:border-transparent resize-none transition-colors grow"
 				></textarea>
 				<p class="text-xs text-osvauld-fieldText">
-					The user id is a unique public key and used to identify them over internet. It should be in the correct format as provided.
+					The user id is a unique public key and used to identify them over
+					internet. It should be in the correct format as provided.
 				</p>
 			</div>
 
@@ -87,11 +73,11 @@
 					Clear
 				</button>
 				<button
-				type="submit"
-				disabled={!userDetails.trim() || isSubmitting}
-				class=" bg-osvauld-carolinablue  disabled:bg-gray-600 disabled:cursor-not-allowed text-osvauld-frameblack font-bold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
-				{isSubmitting ? 'Adding User...' : 'Add User'}
-			</button>
+					type="submit"
+					disabled={!userDetails.trim() || isSubmitting}
+					class=" bg-osvauld-carolinablue disabled:bg-gray-600 disabled:cursor-not-allowed text-osvauld-frameblack font-bold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
+					{isSubmitting ? "Adding User..." : "Add User"}
+				</button>
 			</div>
 		</form>
 	</div>

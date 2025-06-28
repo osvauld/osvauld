@@ -259,4 +259,66 @@ impl UserRepository for SqliteUserRepository {
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
     }
+    async fn get_user_device_mapping(
+        &self,
+    ) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Get all devices with their user IDs (excluding owner users)
+        let user_devices: Vec<(String, String)> = devices::table
+            .inner_join(users::table.on(devices::user_id.eq(users::id)))
+            .select((devices::user_id, devices::id))
+            .load::<(String, String)>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Group device IDs by user ID
+        let mut user_device_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (user_id, device_id) in user_devices {
+            user_device_map
+                .entry(user_id)
+                .or_insert_with(Vec::new)
+                .push(device_id);
+        }
+
+        Ok(user_device_map)
+    }
+
+    async fn get_users_with_device_ids_by_user_ids(
+        &self,
+        user_ids: &[String],
+    ) -> Result<Vec<UserWithDeviceIds>, RepositoryError> {
+        if user_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Get all devices for the specified user IDs
+        let user_devices: Vec<(String, String)> = devices::table
+            .inner_join(users::table.on(devices::user_id.eq(users::id)))
+            .filter(users::id.eq_any(user_ids))
+            .select((devices::user_id, devices::id))
+            .load::<(String, String)>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        // Group device IDs by user ID
+        let mut user_device_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (user_id, device_id) in user_devices {
+            user_device_map
+                .entry(user_id)
+                .or_insert_with(Vec::new)
+                .push(device_id);
+        }
+
+        // Convert to Vec<UserWithDeviceIds>
+        let result: Vec<UserWithDeviceIds> = user_device_map
+            .into_iter()
+            .map(|(user_id, device_ids)| UserWithDeviceIds {
+                user_id,
+                device_ids,
+            })
+            .collect();
+
+        Ok(result)
+    }
 }

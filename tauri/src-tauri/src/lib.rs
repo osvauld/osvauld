@@ -14,15 +14,14 @@ use crate::handlers::folder_handler::{
     handle_add_folder, handle_get_folders, handle_soft_delete_folder,
 };
 use crate::handlers::p2p_handlers::{
-    connect_with_device, get_system_locale, get_ticket, initiate_first_connection, send_message,
-    start_p2p_listener,
+    connect_with_device, get_system_locale, get_ticket, send_message, start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
     handle_add_resource, handle_get_all_resources, handle_get_resource,
     handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
     handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
-use crate::handlers::user_handler::{add_known_user, get_details_for_share, get_known_users};
+use crate::handlers::user_handler::{handle_add_user, handle_get_known_users};
 use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
@@ -266,11 +265,9 @@ pub fn run() {
             handle_get_all_resources,
             handle_update_resource,
             handle_get_resource,
-            add_known_user,
-            get_known_users,
-            initiate_first_connection,
+            handle_add_user,
+            handle_get_known_users,
             handle_share_resource,
-            get_details_for_share,
             get_user_details,
             first_device_connect,
         ])

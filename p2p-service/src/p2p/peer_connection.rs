@@ -327,6 +327,9 @@ impl PeerConnection {
                 self.process_resource_addition_request(payload).await
             }
             Message::ResourceAddtionComplete => self.process_resource_addition_complete().await,
+            Message::FirstUserConnection(payload) => {
+                self.process_first_connection_exchange(payload).await
+            }
         }
     }
 

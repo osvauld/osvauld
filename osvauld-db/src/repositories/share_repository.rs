@@ -108,4 +108,23 @@ impl ShareRepository for SqliteShareRepository {
         // Convert database model to domain model
         Ok(share_record_model.to_domain())
     }
+    async fn get_user_share_records(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // Get all share records involving this user (either as sharer or shared_with)
+        let share_record_models = share_records::table
+            .filter(share_records::recipient_user_id.eq(user_id))
+            .load::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        let share_records = share_record_models
+            .into_iter()
+            .map(|model| model.to_domain())
+            .collect();
+
+        Ok(share_records)
+    }
 }

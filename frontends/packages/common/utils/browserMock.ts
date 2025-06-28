@@ -90,14 +90,10 @@ const tauriBrowser = {
             invoke("handle_update_resource", { input: data }),
           getCredential: (data: any) => invoke("handle_get_resource", { input: data }),
           addKnownUser: (data: any) =>
-            invoke("add_known_user", { input: data }),
-          getKnownUsers: () => invoke("get_known_users"),
-          initiateFirstConnection: (data: any) =>
-            invoke("initiate_first_connection", { input: data }),
+            invoke("handle_add_user", { input: data }),
+          getKnownUsers: () => invoke("handle_get_known_users"),
           shareResource: (data: any) =>
             invoke("handle_share_resource", { input: data }),
-          getUserDetailsForShare: (data: any) =>
-            invoke("get_details_for_share"),
           updateCurrentNote: (data: any) => {
             invoke('update_current_note', { input: data })
           },

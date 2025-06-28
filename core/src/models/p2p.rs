@@ -98,6 +98,12 @@ pub enum Message {
     DeviceNetworkSyncAck,
     ResourceAddtionRequest(ResourceSyncData),
     ResourceAddtionComplete,
+    FirstUserConnection(FirstUserExchange),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FirstUserExchange {
+    Request(UserWithDevices),
+    Response(UserWithDevices),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -277,6 +283,11 @@ pub struct DeviceManifestRequestPayload {
     pub known_device_ids: Vec<String>,
     pub other_users: Vec<UserWithDeviceIds>,
     pub folder_ids: Vec<String>,
+    pub resources: Vec<ResourceManifestData>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserManifestRequestPayload {
+    pub user: Vec<UserWithDeviceIds>,
     pub resources: Vec<ResourceManifestData>,
 }
 
