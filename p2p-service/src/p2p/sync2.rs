@@ -2,16 +2,18 @@ use crate::p2p::peer_connection::PeerConnection;
 
 use super::P2PEvent;
 use osvauld_core::models::{
-    DeviceManifestRequestPayload, DeviceNetworkSyncPayload, FirstUserExchange,
-    ManifestComparisonResult, Message, ResourceSyncData, ResourceUpdateMsg, UserWithDevices,
+    ConnectionType, DeviceManifestComparisonResult, DeviceManifestRequestPayload,
+    DeviceNetworkSyncPayload, FirstUserExchange, Message, ResourceSyncData, ResourceUpdateMsg,
+    User, UserManifestPayload, UserNetworkSyncPayload, UserWithDevices,
 };
 use osvauld_services::{
     add_resource_sync, add_share_records, apply_updates_and_get_peer_updates,
-    create_network_sync_payload, generate_updates_for_peer, get_device_manifest,
-    get_my_user_devices, get_resource_for_remote_addition, get_resource_state_vector,
-    get_share_records_for_resource, get_vector_clocks_for_resource, merge_share_records,
-    merge_vector_clocks, process_device_manifest_request, process_network_sync,
-    update_vector_clocks,
+    create_device_network_sync_payload, create_user_network_sync_payload,
+    generate_updates_for_peer, get_device_manifest, get_my_user_devices,
+    get_resource_for_remote_addition, get_resource_state_vector, get_share_records_for_resource,
+    get_user_manifest, get_vector_clocks_for_resource, merge_share_records, merge_vector_clocks,
+    process_device_manifest_request, process_network_sync, process_user_manifest_request,
+    process_user_network_sync_payload, update_vector_clocks,
 };
 
 use tracing::{debug, error, info, instrument, Span};
@@ -118,7 +120,7 @@ impl PeerConnection {
             Ok(_) => {
                 info!("Device manifest response sent successfully");
                 debug!("Setting manifest comparison result");
-                self.set_manifest_comparison_result(result).await;
+                self.set_device_manifest_comparison_result(result).await;
                 Ok(())
             }
             Err(e) => {
@@ -144,7 +146,7 @@ impl PeerConnection {
     ), level = "info")]
     pub async fn handle_manifest_response(
         &self,
-        payload: &ManifestComparisonResult,
+        payload: &DeviceManifestComparisonResult,
     ) -> Result<(), String> {
         info!("Processing device manifest response");
         debug!(
@@ -185,7 +187,8 @@ impl PeerConnection {
             "Manifest result inverted for local perspective"
         );
 
-        self.set_manifest_comparison_result(manifest_result).await;
+        self.set_device_manifest_comparison_result(manifest_result)
+            .await;
 
         match self.send_message(Message::DeviceManifestAck).await {
             Ok(_) => {
@@ -197,43 +200,35 @@ impl PeerConnection {
             }
         }
 
-        let manifest_result = self.manifest_result.lock().await;
-        if let Some(ref manifest_diff) = *manifest_result {
-            debug!(
-                remote_missing_count = manifest_diff.remote_missing.unknown_resources.len(),
-                "Creating network sync payload for remote missing resources"
-            );
-
-            let device_network_payload =
-                match create_network_sync_payload(&manifest_diff.remote_missing, &self.repo_ctx)
-                    .await
-                {
-                    Ok(payload) => {
-                        debug!("Network sync payload created successfully");
-                        payload
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to create network sync payload");
-                        return Err(format!("Failed to create network sync payload: {}", e));
-                    }
-                };
-
-            match self
-                .send_message(Message::DeviceNetworkSync(device_network_payload))
-                .await
-            {
-                Ok(_) => {
-                    info!("Device network sync message sent successfully");
-                    Ok(())
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to send device network sync");
-                    Err(format!("Failed to send device network sync: {}", e))
-                }
+        let manifest = self.get_device_manifest_result().await?;
+        let device_network_payload = match create_device_network_sync_payload(
+            &manifest.remote_missing,
+            &self.repo_ctx,
+        )
+        .await
+        {
+            Ok(payload) => {
+                debug!("Network sync payload created successfully");
+                payload
             }
-        } else {
-            debug!("No manifest comparison result available");
-            Ok(())
+            Err(e) => {
+                error!(error = %e, "Failed to create network sync payload");
+                return Err(format!("Failed to create network sync payload: {}", e));
+            }
+        };
+
+        match self
+            .send_message(Message::DeviceNetworkSync(device_network_payload))
+            .await
+        {
+            Ok(_) => {
+                info!("Device network sync message sent successfully");
+                Ok(())
+            }
+            Err(e) => {
+                error!(error = %e, "Failed to send device network sync");
+                Err(format!("Failed to send device network sync: {}", e))
+            }
         }
     }
 
@@ -241,44 +236,27 @@ impl PeerConnection {
     pub async fn handle_manifest_ack(&self) -> Result<(), String> {
         info!("Processing device manifest acknowledgment");
 
-        let manifest_result = self.manifest_result.lock().await;
-        if let Some(ref manifest_diff) = *manifest_result {
-            debug!(
-                remote_missing_count = manifest_diff.remote_missing.unknown_resources.len(),
-                "Creating network sync payload for manifest ack response"
-            );
+        let manifest = self.get_device_manifest_result().await?;
 
-            let device_network_payload =
-                match create_network_sync_payload(&manifest_diff.remote_missing, &self.repo_ctx)
-                    .await
-                {
-                    Ok(payload) => {
-                        debug!("Network sync payload created successfully for ack response");
-                        payload
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to create network sync payload for ack");
-                        return Err(format!("Failed to create network sync payload: {}", e));
-                    }
-                };
-
-            match self
-                .send_message(Message::DeviceNetworkSync(device_network_payload))
-                .await
-            {
-                Ok(_) => {
-                    info!("Device network sync sent successfully in response to ack");
-                    Ok(())
-                }
-                Err(e) => {
-                    error!(error = %e, "Failed to send device network sync for ack");
-                    Err(format!("Failed to send device network sync: {}", e))
-                }
+        let device_network_payload = match create_device_network_sync_payload(
+            &manifest.remote_missing,
+            &self.repo_ctx,
+        )
+        .await
+        {
+            Ok(payload) => {
+                debug!("Network sync payload created successfully for ack response");
+                payload
             }
-        } else {
-            debug!("No manifest comparison result available for ack processing");
-            Ok(())
-        }
+            Err(e) => {
+                error!(error = %e, "Failed to create network sync payload for ack");
+                return Err(format!("Failed to create network sync payload: {}", e));
+            }
+        };
+
+        self.send_message(Message::DeviceNetworkSync(device_network_payload))
+            .await?;
+        Ok(())
     }
 
     #[instrument(skip(self, payload), fields(
@@ -331,95 +309,86 @@ impl PeerConnection {
     pub async fn send_resources(&self) -> Result<(), String> {
         info!("Starting resource transmission process");
 
-        let device = self.device.clone();
-        let manifest_result = self.manifest_result.lock().await;
-
-        if let Some(ref manifest_diff) = *manifest_result {
-            debug!(
-                remote_missing_resources = manifest_diff.remote_missing.unknown_resources.len(),
-                local_missing_resources = manifest_diff.local_missing.unknown_resources.len(),
-                "Processing resource addition requirements"
-            );
-
-            // Collect resource IDs to avoid borrowing issues
-            let resource_ids: Vec<_> = manifest_diff.remote_missing.unknown_resources.clone();
-
-            if manifest_diff.local_missing.unknown_resources.is_empty() {
-                info!("No local missing resources, sending completion signal");
-                match self.send_message(Message::ResourceAddtionComplete).await {
-                    Ok(_) => debug!("Resource addition complete message sent"),
-                    Err(e) => {
-                        error!(error = %e, "Failed to send resource addition complete");
-                        return Err(format!("Failed to send resource addition complete: {}", e));
-                    }
+        // Collect resource IDs to avoid borrowing issues
+        let resource_ids: Vec<String> = match self.connection_type {
+            ConnectionType::Device => {
+                let manifest = self.get_device_manifest_result().await?;
+                if manifest.local_missing.unknown_resources.is_empty() {
+                    self.send_message(Message::ResourceAddtionComplete).await?;
                 }
+                manifest
+                    .remote_missing
+                    .unknown_resources
+                    .iter()
+                    .cloned()
+                    .collect()
             }
+            ConnectionType::User => {
+                let manifest = self.get_user_manifest_result().await?;
+                if manifest.local_missing.unknown_resources.is_empty() {
+                    self.send_message(Message::ResourceAddtionComplete).await?;
+                }
+                manifest
+                    .remote_missing
+                    .unknown_resources
+                    .iter()
+                    .cloned()
+                    .collect()
+            }
+        };
 
-            drop(manifest_result);
-
-            info!(
-                resource_count = resource_ids.len(),
-                "Sending resources to peer"
+        for (index, resource_id) in resource_ids.iter().enumerate() {
+            debug!(
+                resource_index = index + 1,
+                total_resources = resource_ids.len(),
+                resource_id = %resource_id,
+                "Processing resource for transmission"
             );
-            for (index, resource_id) in resource_ids.iter().enumerate() {
-                debug!(
-                    resource_index = index + 1,
-                    total_resources = resource_ids.len(),
-                    resource_id = %resource_id,
-                    "Processing resource for transmission"
-                );
 
-                let resource_payload =
-                    match get_resource_for_remote_addition(resource_id, &device, &self.repo_ctx)
-                        .await
-                    {
-                        Ok(payload) => {
-                            debug!(
-                                resource_id = %resource_id,
-                                "Resource payload prepared for transmission"
-                            );
-                            payload
-                        }
-                        Err(e) => {
-                            error!(
-                                error = %e,
-                                resource_id = %resource_id,
-                                "Failed to get resource for remote addition"
-                            );
-                            return Err(format!(
-                                "Failed to get resource for remote addition: {}",
-                                e
-                            ));
-                        }
-                    };
-
-                match self
-                    .send_message(Message::ResourceAddtionRequest(resource_payload))
+            let resource_payload =
+                match get_resource_for_remote_addition(resource_id, &self.device, &self.repo_ctx)
                     .await
                 {
-                    Ok(_) => {
-                        info!(
+                    Ok(payload) => {
+                        debug!(
                             resource_id = %resource_id,
-                            progress = format!("{}/{}", index + 1, resource_ids.len()),
-                            "Resource addition request sent successfully"
+                            "Resource payload prepared for transmission"
                         );
+                        payload
                     }
                     Err(e) => {
                         error!(
                             error = %e,
                             resource_id = %resource_id,
-                            "Failed to send resource addition request"
+                            "Failed to get resource for remote addition"
                         );
-                        return Err(format!("Failed to send resource addition request: {}", e));
+                        return Err(format!("Failed to get resource for remote addition: {}", e));
                     }
+                };
+
+            match self
+                .send_message(Message::ResourceAddtionRequest(resource_payload))
+                .await
+            {
+                Ok(_) => {
+                    info!(
+                        resource_id = %resource_id,
+                        progress = format!("{}/{}", index + 1, resource_ids.len()),
+                        "Resource addition request sent successfully"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        resource_id = %resource_id,
+                        "Failed to send resource addition request"
+                    );
+                    return Err(format!("Failed to send resource addition request: {}", e));
                 }
             }
-
-            info!("All resource addition requests sent successfully");
-        } else {
-            debug!("No manifest comparison result available for resource transmission");
         }
 
+        info!("All resource addition requests sent successfully");
         Ok(())
     }
 
@@ -454,51 +423,19 @@ impl PeerConnection {
                 return Err(format!("Failed to add resource sync: {}", e));
             }
         }
-
-        let mut manifest_result = self.manifest_result.lock().await;
-        if let Some(ref mut manifest_comparison) = *manifest_result {
-            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
-
-            // Remove the resource_id from remote_missing.unknown_resources
-            manifest_comparison
-                .local_missing
-                .unknown_resources
-                .retain(|id| id.to_string() != payload.resource.id);
-
-            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
-            debug!(
-                initial_missing = initial_count,
-                remaining_missing = remaining_count,
-                resource_id = %payload.resource.id,
-                "Updated local missing resources list"
-            );
-
-            if manifest_comparison
-                .local_missing
-                .unknown_resources
-                .is_empty()
-            {
-                info!("All local missing resources processed, sending completion signal");
-                match self.send_message(Message::ResourceAddtionComplete).await {
-                    Ok(_) => {
-                        debug!("Resource addition complete message sent successfully");
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to send resource addition complete");
-                        return Err(format!("Failed to send resource addition complete: {}", e));
-                    }
-                }
-            } else {
-                debug!(
-                    remaining_resources = remaining_count,
-                    remaining_resource_ids = ?manifest_comparison.local_missing.unknown_resources,
-                    "Still waiting for more resources"
-                );
+        let is_empty = match self.connection_type {
+            ConnectionType::Device => {
+                self.remove_device_local_missing_resource(&payload.resource.id)
+                    .await
             }
-        } else {
-            debug!("No manifest comparison result available for update");
+            ConnectionType::User => {
+                self.remove_user_local_missing_resource(&payload.resource.id)
+                    .await
+            }
+        };
+        if is_empty {
+            self.send_message(Message::ResourceAddtionComplete).await?;
         }
-
         Ok(())
     }
 
@@ -512,81 +449,85 @@ impl PeerConnection {
         if self.is_initiator {
             debug!("Processing as initiator - checking for resources requiring sync");
 
-            let mut manifest_result = self.manifest_result.lock().await;
-            if let Some(ref mut manifest_comparison) = *manifest_result {
-                let resource_ids: Vec<_> = manifest_comparison.resources_requiring_sync.clone();
+            let resource_ids: Vec<String> = match self.connection_type {
+                ConnectionType::Device => {
+                    let manifest = self.get_device_manifest_result().await?;
+                    manifest.resources_requiring_sync.iter().cloned().collect()
+                }
+                ConnectionType::User => {
+                    let manifest = self.get_user_manifest_result().await?;
+                    manifest.resources_requiring_sync.iter().cloned().collect()
+                }
+            };
 
-                info!(
-                    sync_required_count = resource_ids.len(),
-                    "Found resources requiring synchronization"
-                );
+            info!(
+                sync_required_count = resource_ids.len(),
+                "Found resources requiring synchronization"
+            );
 
-                if !resource_ids.is_empty() {
-                    debug!("Starting state vector exchange for sync-required resources");
+            if !resource_ids.is_empty() {
+                debug!("Starting state vector exchange for sync-required resources");
 
-                    for (index, resource_id) in resource_ids.iter().enumerate() {
-                        debug!(
-                            resource_index = index + 1,
-                            total_resources = resource_ids.len(),
-                            resource_id = %resource_id,
-                            "Requesting state vector for resource"
-                        );
+                for (index, resource_id) in resource_ids.iter().enumerate() {
+                    debug!(
+                        resource_index = index + 1,
+                        total_resources = resource_ids.len(),
+                        resource_id = %resource_id,
+                        "Requesting state vector for resource"
+                    );
 
-                        let state_vector = match get_resource_state_vector(
-                            resource_id,
-                            &self.user.id,
-                            &self.repo_ctx,
-                            &self.crypto_utils,
-                        )
-                        .await
-                        {
-                            Ok(vector) => {
-                                debug!(
-                                    resource_id = %resource_id,
-                                    "State vector retrieved successfully"
-                                );
-                                vector
-                            }
-                            Err(e) => {
-                                error!(
-                                    error = %e,
-                                    resource_id = %resource_id,
-                                    "Failed to get resource state vector"
-                                );
-                                return Err(format!("Failed to get resource state vector: {}", e));
-                            }
-                        };
+                    let state_vector = match get_resource_state_vector(
+                        resource_id,
+                        &self.user.id,
+                        &self.repo_ctx,
+                        &self.crypto_utils,
+                    )
+                    .await
+                    {
+                        Ok(vector) => {
+                            debug!(
+                                resource_id = %resource_id,
+                                "State vector retrieved successfully"
+                            );
+                            vector
+                        }
+                        Err(e) => {
+                            error!(
+                                error = %e,
+                                resource_id = %resource_id,
+                                "Failed to get resource state vector"
+                            );
+                            return Err(format!("Failed to get resource state vector: {}", e));
+                        }
+                    };
 
-                        let message = ResourceUpdateMsg::StateVectorRequest {
-                            resource_id: resource_id.clone(),
-                            state_vector,
-                        };
+                    let message = ResourceUpdateMsg::StateVectorRequest {
+                        resource_id: resource_id.to_string(),
+                        state_vector,
+                    };
 
-                        match self.send_message(Message::MergeUpdate(message)).await {
-                            Ok(_) => {
-                                info!(
-                                    resource_id = %resource_id,
-                                    progress = format!("{}/{}", index + 1, resource_ids.len()),
-                                    "State vector request sent successfully"
-                                );
-                            }
-                            Err(e) => {
-                                error!(
-                                    error = %e,
-                                    resource_id = %resource_id,
-                                    "Failed to send state vector request"
-                                );
-                                return Err(format!("Failed to send state vector request: {}", e));
-                            }
+                    match self.send_message(Message::MergeUpdate(message)).await {
+                        Ok(_) => {
+                            info!(
+                                resource_id = %resource_id,
+                                progress = format!("{}/{}", index + 1, resource_ids.len()),
+                                "State vector request sent successfully"
+                            );
+                        }
+                        Err(e) => {
+                            error!(
+                                error = %e,
+                                resource_id = %resource_id,
+                                "Failed to send state vector request"
+                            );
+                            return Err(format!("Failed to send state vector request: {}", e));
                         }
                     }
-
-                    info!("All state vector requests sent successfully");
-                } else {
-                    debug!("No resources require synchronization");
                 }
+
+                info!("All state vector requests sent successfully");
             } else {
-                debug!("No manifest comparison result available");
+                debug!("No resources require synchronization");
             }
         } else {
             debug!("Not initiator - no action required for resource addition complete");
@@ -935,13 +876,13 @@ impl PeerConnection {
 
     pub async fn process_first_connection_exchange(
         &self,
-        payload: FirstUserExchange,
+        payload: &FirstUserExchange,
     ) -> Result<(), String> {
         match payload {
             FirstUserExchange::Request(user_with_devices) => {
                 self.repo_ctx
                     .user_repo
-                    .add_users_with_devices_bulk(&[user_with_devices])
+                    .add_users_with_devices_bulk(&[user_with_devices.clone()])
                     .await
                     .map_err(|e| e.to_string())?;
                 self.send_first_user_connection_payload(false).await?;
@@ -949,11 +890,69 @@ impl PeerConnection {
             FirstUserExchange::Response(user_with_devices) => {
                 self.repo_ctx
                     .user_repo
-                    .add_users_with_devices_bulk(&[user_with_devices])
+                    .add_users_with_devices_bulk(&[user_with_devices.clone()])
                     .await
                     .map_err(|e| e.to_string())?;
+                let user_manifest = get_user_manifest(&self.repo_ctx, &self.device.id).await?;
+
+                self.send_message(Message::UserManifestPayload(UserManifestPayload::Request(
+                    user_manifest,
+                )))
+                .await?;
             }
         }
+        Ok(())
+    }
+
+    pub async fn process_user_manifest_payload(
+        &self,
+        payload: &UserManifestPayload,
+    ) -> Result<(), String> {
+        let user = match self.get_local_user().await {
+            Some(user) => user,
+            None => return Err("Local user not found".into()),
+        };
+        match payload {
+            UserManifestPayload::Request(request_payload) => {
+                let manifest_result =
+                    process_user_manifest_request(request_payload, &self.repo_ctx, &user.id)
+                        .await?;
+                self.set_user_manifest_comparison_result(manifest_result)
+                    .await;
+            }
+            UserManifestPayload::Response(manifest) => {
+                let manifest_result = manifest.inverse();
+                self.set_user_manifest_comparison_result(manifest_result)
+                    .await;
+                self.send_message(Message::UserManifestPayload(UserManifestPayload::Ack))
+                    .await?;
+            }
+            UserManifestPayload::Ack => {
+                let manifest = self.get_user_manifest_result().await?;
+                let payload =
+                    create_user_network_sync_payload(&manifest.remote_missing, &self.repo_ctx)
+                        .await?;
+                let message = Message::UserNetworkSync(payload);
+                self.send_message(message).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn process_user_network_sync(
+        &self,
+        payload: &UserNetworkSyncPayload,
+    ) -> Result<(), String> {
+        if !self.is_initiator {
+            let manifest = self.get_user_manifest_result().await?;
+            let local_payload =
+                create_user_network_sync_payload(&manifest.remote_missing, &self.repo_ctx).await?;
+            let message = Message::UserNetworkSync(local_payload);
+            self.send_message(message).await?;
+        }
+
+        process_user_network_sync_payload(payload, &self.repo_ctx).await?;
+        self.send_message(Message::UserNetworkSyncAck).await?;
         Ok(())
     }
 }

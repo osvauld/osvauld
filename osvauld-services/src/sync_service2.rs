@@ -1,7 +1,9 @@
 use osvauld_core::models::{
-    Device, DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ManifestComparisonResult,
-    ManifestDifferences, ResourceManifestData, ResourceSyncData, ResourceVectorClock,
-    UserWithDeviceIds, UserWithDevices,
+    Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
+    DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ResourceComparisonResult,
+    ResourceManifestData, ResourceSyncData, ResourceVectorClock, UserComparisonResult,
+    UserManifestComparisonResult, UserManifestDifferences, UserManifestPayload,
+    UserManifestRequestPayload, UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices,
 };
 use osvauld_db::database::RepositoryContext;
 use std::collections::{HashMap, HashSet};
@@ -51,7 +53,7 @@ pub async fn process_device_manifest_request(
     remote_manifest_payload: &DeviceManifestRequestPayload,
     repo_ctx: &RepositoryContext,
     current_user_id: &str,
-) -> Result<ManifestComparisonResult, String> {
+) -> Result<DeviceManifestComparisonResult, String> {
     let local_manifest_payload = get_device_manifest(repo_ctx, current_user_id).await?;
     let (local_user_ids, local_device_ids, local_resource_ids, local_folder_ids) =
         create_comparison_sets(&local_manifest_payload);
@@ -62,15 +64,16 @@ pub async fn process_device_manifest_request(
     let device_comparison = compare_sets(&local_device_ids, &remote_device_ids);
     let resource_comparison = compare_sets(&local_resource_ids, &remote_resource_ids);
     let folder_comparison = compare_sets(&local_folder_ids, &remote_folder_ids);
+    let common_user_ids = Vec::from_iter(user_comparison.common);
     let (devices_from_common_users_only_local_has, devices_from_common_users_only_remote_has) =
         compare_devices_for_common_users(
-            &local_manifest_payload,
-            remote_manifest_payload,
-            &user_comparison.common,
+            &local_manifest_payload.other_users,
+            &remote_manifest_payload.other_users,
+            &common_user_ids,
         );
     let resources_requiring_sync = compare_resources_for_common_resources(
-        &local_manifest_payload,
-        remote_manifest_payload,
+        &local_manifest_payload.resources,
+        &remote_manifest_payload.resources,
         &resource_comparison.common,
     );
     let unknown_users_to_local: Vec<String> = user_comparison.only_remote.into_iter().collect();
@@ -79,15 +82,15 @@ pub async fn process_device_manifest_request(
         resource_comparison.only_remote.into_iter().collect();
     let unknown_resources_to_remote: Vec<String> =
         resource_comparison.only_local.into_iter().collect();
-    let result = ManifestComparisonResult {
-        local_missing: ManifestDifferences {
+    let result = DeviceManifestComparisonResult {
+        local_missing: DeviceManifestDifferences {
             unknown_users: unknown_users_to_local,
             unknown_devices_from_common_users: devices_from_common_users_only_remote_has,
             unknown_devices_from_current_user: device_comparison.only_remote.into_iter().collect(),
             unknown_resources: unknown_resources_to_local,
             unknown_folders: folder_comparison.only_remote.into_iter().collect(),
         },
-        remote_missing: ManifestDifferences {
+        remote_missing: DeviceManifestDifferences {
             unknown_users: unknown_users_to_remote,
             unknown_devices_from_common_users: devices_from_common_users_only_local_has,
             unknown_devices_from_current_user: device_comparison.only_local.into_iter().collect(),
@@ -134,19 +137,17 @@ fn create_comparison_sets(
 }
 
 fn compare_devices_for_common_users(
-    local_payload: &DeviceManifestRequestPayload,
-    remote_payload: &DeviceManifestRequestPayload,
-    common_user_ids: &HashSet<String>,
+    local_payload: &[UserWithDeviceIds],
+    remote_payload: &[UserWithDeviceIds],
+    common_user_ids: &[String],
 ) -> (Vec<UserWithDeviceIds>, Vec<UserWithDeviceIds>) {
     // Create lookup maps for users
     let local_users_map: HashMap<String, &UserWithDeviceIds> = local_payload
-        .other_users
         .iter()
         .map(|user| (user.user_id.clone(), user))
         .collect();
 
     let remote_users_map: HashMap<String, &UserWithDeviceIds> = remote_payload
-        .other_users
         .iter()
         .map(|user| (user.user_id.clone(), user))
         .collect();
@@ -237,19 +238,17 @@ fn vector_clocks_need_update(
 }
 
 fn compare_resources_for_common_resources(
-    local_payload: &DeviceManifestRequestPayload,
-    remote_payload: &DeviceManifestRequestPayload,
+    local_resources: &[ResourceManifestData],
+    remote_resources: &[ResourceManifestData],
     common_resource_ids: &HashSet<String>,
 ) -> Vec<String> {
     // Create lookup maps for resources
-    let local_resources_map: HashMap<String, &ResourceManifestData> = local_payload
-        .resources
+    let local_resources_map: HashMap<String, &ResourceManifestData> = local_resources
         .iter()
         .map(|resource| (resource.resource_id.clone(), resource))
         .collect();
 
-    let remote_resources_map: HashMap<String, &ResourceManifestData> = remote_payload
-        .resources
+    let remote_resources_map: HashMap<String, &ResourceManifestData> = remote_resources
         .iter()
         .map(|resource| (resource.resource_id.clone(), resource))
         .collect();
@@ -288,8 +287,8 @@ fn compare_resources_for_common_resources(
     resources_needing_update
 }
 
-pub async fn create_network_sync_payload(
-    manifest_diff: &ManifestDifferences,
+pub async fn create_device_network_sync_payload(
+    manifest_diff: &DeviceManifestDifferences,
     repo_ctx: &RepositoryContext,
 ) -> Result<DeviceNetworkSyncPayload, String> {
     // 1. Get unknown users with their devices
@@ -431,9 +430,8 @@ pub async fn process_first_user_connection_request(
 
 pub async fn get_user_manifest(
     repo_ctx: &RepositoryContext,
-    current_user_id: &str,
     peer_user_id: &str,
-) -> Result<(), String> {
+) -> Result<UserManifestRequestPayload, String> {
     let share_records = repo_ctx
         .share_repo
         .get_user_share_records(peer_user_id)
@@ -449,7 +447,7 @@ pub async fn get_user_manifest(
     let unique_resource_ids_vec: Vec<String> = unique_resource_ids.into_iter().collect();
     let user_manifest = repo_ctx
         .user_repo
-        .get_users_with_devices_by_user_ids(&unique_user_ids_vec)
+        .get_users_with_device_ids_by_user_ids(&unique_user_ids_vec)
         .await
         .map_err(|e| e.to_string())?;
     let resource_manifest = repo_ctx
@@ -457,6 +455,166 @@ pub async fn get_user_manifest(
         .get_resource_manifest_data(Some(&unique_resource_ids_vec))
         .await
         .map_err(|e| e.to_string())?;
+    let payload = UserManifestRequestPayload {
+        user: user_manifest,
+        resources: resource_manifest,
+    };
 
+    Ok(payload)
+}
+pub async fn process_user_manifest_request(
+    remote_payload: &UserManifestRequestPayload,
+    repo_ctx: &RepositoryContext,
+    peer_user_id: &str,
+) -> Result<UserManifestComparisonResult, String> {
+    let local_payload = get_user_manifest(repo_ctx, peer_user_id).await?;
+    let user_gaps = process_user_gaps(&local_payload, remote_payload);
+    let resource_gaps = process_resource_gaps(&local_payload, remote_payload);
+    Ok(UserManifestComparisonResult {
+        local_missing: UserManifestDifferences {
+            unknown_users: user_gaps.users_only_remote_has.clone(), // What remote has that local doesn't
+            unknown_devices_from_common_users: user_gaps
+                .devices_from_common_users_only_remote_has
+                .clone(),
+            unknown_resources: resource_gaps.resources_only_remote_has.clone(),
+        },
+        remote_missing: UserManifestDifferences {
+            unknown_users: user_gaps.users_only_local_has.clone(), // What local has that remote doesn't
+            unknown_devices_from_common_users: user_gaps
+                .devices_from_common_users_only_local_has
+                .clone(),
+            unknown_resources: resource_gaps.resources_only_local_has.clone(),
+        },
+        resources_requiring_sync: resource_gaps.resources_requiring_sync.clone(),
+    })
+}
+pub fn process_user_gaps(
+    local_payload: &UserManifestRequestPayload,
+    remote_payload: &UserManifestRequestPayload,
+) -> UserComparisonResult {
+    // Extract user IDs from both payloads
+    let local_user_ids: HashSet<String> = local_payload
+        .user
+        .iter()
+        .map(|user| user.user_id.clone())
+        .collect();
+
+    let remote_user_ids: HashSet<String> = remote_payload
+        .user
+        .iter()
+        .map(|user| user.user_id.clone())
+        .collect();
+
+    // Find users that only exist on one side
+    let users_only_local_has: Vec<String> =
+        (&local_user_ids - &remote_user_ids).into_iter().collect();
+
+    let users_only_remote_has: Vec<String> =
+        (&remote_user_ids - &local_user_ids).into_iter().collect();
+
+    // Find common users
+    let common_users: Vec<String> = (&local_user_ids & &remote_user_ids).into_iter().collect();
+
+    // For common users, compare their devices
+    let (devices_from_common_users_only_local_has, devices_from_common_users_only_remote_has) =
+        compare_devices_for_common_users(&local_payload.user, &remote_payload.user, &common_users);
+
+    UserComparisonResult {
+        users_only_local_has,
+        users_only_remote_has,
+        common_users,
+        devices_from_common_users_only_local_has,
+        devices_from_common_users_only_remote_has,
+    }
+}
+pub fn process_resource_gaps(
+    local_payload: &UserManifestRequestPayload,
+    remote_payload: &UserManifestRequestPayload,
+) -> ResourceComparisonResult {
+    // Extract resource IDs from both payloads
+    let local_resource_ids: HashSet<String> = local_payload
+        .resources
+        .iter()
+        .map(|resource| resource.resource_id.clone())
+        .collect();
+
+    let remote_resource_ids: HashSet<String> = remote_payload
+        .resources
+        .iter()
+        .map(|resource| resource.resource_id.clone())
+        .collect();
+
+    // Find resources that only exist on one side
+    let resources_only_local_has: Vec<String> = (&local_resource_ids - &remote_resource_ids)
+        .into_iter()
+        .collect();
+
+    let resources_only_remote_has: Vec<String> = (&remote_resource_ids - &local_resource_ids)
+        .into_iter()
+        .collect();
+
+    // Find common resources
+    let common_resources: Vec<String> = (&local_resource_ids & &remote_resource_ids)
+        .into_iter()
+        .collect();
+
+    // For common resources, check which ones need syncing
+    let common_resources_set: HashSet<String> = common_resources.iter().cloned().collect();
+    let resources_requiring_sync = compare_resources_for_common_resources(
+        &local_payload.resources,
+        &remote_payload.resources,
+        &common_resources_set,
+    );
+
+    ResourceComparisonResult {
+        resources_only_local_has,
+        resources_only_remote_has,
+        common_resources,
+        resources_requiring_sync,
+    }
+}
+
+pub async fn create_user_network_sync_payload(
+    manifest_diff: &UserManifestDifferences,
+    repo_ctx: &RepositoryContext,
+) -> Result<UserNetworkSyncPayload, String> {
+    // 1. Get unknown users with their devices
+    let unknown_users_with_devices = repo_ctx
+        .user_repo
+        .get_users_with_devices_by_user_ids(&manifest_diff.unknown_users)
+        .await
+        .map_err(|e| format!("Failed to get unknown users with devices: {}", e))?;
+
+    // 2. Get unknown devices from common users
+    let common_user_device_ids: Vec<String> = manifest_diff
+        .unknown_devices_from_common_users
+        .iter()
+        .flat_map(|user_with_devices| &user_with_devices.device_ids)
+        .cloned()
+        .collect();
+    let unknown_devices_from_common_users = repo_ctx
+        .device_repo
+        .get_devices_by_ids(&common_user_device_ids)
+        .await
+        .map_err(|e| format!("Failed to get unknown devices from common users: {}", e))?;
+    Ok(UserNetworkSyncPayload {
+        users: unknown_users_with_devices,
+        devices: unknown_devices_from_common_users,
+    })
+}
+pub async fn process_user_network_sync_payload(
+    payload: &UserNetworkSyncPayload,
+    repo_ctx: &RepositoryContext,
+) -> Result<(), String> {
+    repo_ctx
+        .user_repo
+        .add_users_with_devices_bulk(&payload.users)
+        .await
+        .map_err(|e| e.to_string())?;
+    repo_ctx
+        .device_repo
+        .save_many(&payload.devices)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

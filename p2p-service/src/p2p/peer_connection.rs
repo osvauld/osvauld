@@ -4,8 +4,8 @@ use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, ManifestComparisonResult, Message, Phase,
-    PhaseAction, PhaseType, User,
+    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, Phase,
+    PhaseAction, PhaseType, User, UserManifestComparisonResult,
 };
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{AuthService, SyncService, UserService};
@@ -56,7 +56,8 @@ pub struct PeerConnection {
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub crypto_utils: Arc<Mutex<CryptoUtils>>,
     pub repo_ctx: RepositoryContext,
-    pub manifest_result: Arc<Mutex<Option<ManifestComparisonResult>>>,
+    pub device_manifest_result: Arc<Mutex<Option<DeviceManifestComparisonResult>>>,
+    pub user_manifest_result: Arc<Mutex<Option<UserManifestComparisonResult>>>,
 }
 
 impl PeerConnection {
@@ -99,7 +100,8 @@ impl PeerConnection {
             disconnection_timer: Arc::new(Mutex::new(None)),
             repo_ctx,
             crypto_utils,
-            manifest_result: Arc::new(Mutex::new(None)),
+            device_manifest_result: Arc::new(Mutex::new(None)),
+            user_manifest_result: Arc::new(Mutex::new(None)),
         };
 
         debug!("Starting message handler for the connection");
@@ -113,9 +115,88 @@ impl PeerConnection {
         );
         peer_connection
     }
-    pub async fn set_manifest_comparison_result(&self, result: ManifestComparisonResult) {
-        let mut manifest_guard = self.manifest_result.lock().await;
+    pub async fn set_device_manifest_comparison_result(
+        &self,
+        result: DeviceManifestComparisonResult,
+    ) {
+        let mut manifest_guard = self.device_manifest_result.lock().await;
         *manifest_guard = Some(result);
+    }
+    pub async fn set_user_manifest_comparison_result(&self, result: UserManifestComparisonResult) {
+        let mut manifest_guard = self.user_manifest_result.lock().await;
+        *manifest_guard = Some(result);
+    }
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+    pub async fn get_device_manifest_result(
+        &self,
+    ) -> Result<DeviceManifestComparisonResult, String> {
+        let manifest_guard = self.device_manifest_result.lock().await;
+        match manifest_guard.clone() {
+            Some(manifest) => Ok(manifest),
+            None => Err("Device manifest is empty".to_string()),
+        }
+    }
+
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+    pub async fn get_user_manifest_result(&self) -> Result<UserManifestComparisonResult, String> {
+        let manifest_guard = self.user_manifest_result.lock().await;
+        match manifest_guard.clone() {
+            Some(manifest) => Ok(manifest),
+            None => Err("user manifest is empty".to_string()),
+        }
+    }
+
+    /// Removes a resource from local_missing.unknown_resources in device manifest
+    #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
+    pub async fn remove_device_local_missing_resource(&self, resource_id: &str) -> bool {
+        let mut manifest_result = self.device_manifest_result.lock().await;
+        if let Some(ref mut manifest_comparison) = *manifest_result {
+            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            manifest_comparison
+                .local_missing
+                .unknown_resources
+                .retain(|id| id.to_string() != resource_id);
+
+            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            debug!(
+                initial_missing = initial_count,
+                remaining_missing = remaining_count,
+                resource_id = %resource_id,
+                "Updated local missing resources list"
+            );
+
+            remaining_count == 0
+        } else {
+            true // Consider empty if no manifest exists
+        }
+    }
+
+    #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
+    pub async fn remove_user_local_missing_resource(&self, resource_id: &str) -> bool {
+        let mut manifest_result = self.user_manifest_result.lock().await;
+        if let Some(ref mut manifest_comparison) = *manifest_result {
+            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            manifest_comparison
+                .local_missing
+                .unknown_resources
+                .retain(|id| id.to_string() != resource_id);
+
+            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            debug!(
+                initial_missing = initial_count,
+                remaining_missing = remaining_count,
+                resource_id = %resource_id,
+                "Updated local missing resources list"
+            );
+
+            remaining_count == 0
+        } else {
+            true // Consider empty if no manifest exists
+        }
     }
     /// Gets the unique identifier for this connection (user_id:device_id)
     pub fn get_id(&self) -> String {
@@ -330,6 +411,11 @@ impl PeerConnection {
             Message::FirstUserConnection(payload) => {
                 self.process_first_connection_exchange(payload).await
             }
+            Message::UserManifestPayload(payload) => {
+                self.process_user_manifest_payload(payload).await
+            }
+            Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
+            Message::UserNetworkSyncAck => self.send_resources().await,
         }
     }
 
@@ -411,7 +497,8 @@ impl PeerConnection {
             disconnection_timer: self.disconnection_timer.clone(),
             repo_ctx: self.repo_ctx.clone(),
             crypto_utils: self.crypto_utils.clone(),
-            manifest_result: self.manifest_result.clone(),
+            device_manifest_result: self.device_manifest_result.clone(),
+            user_manifest_result: self.user_manifest_result.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Option<User> {
