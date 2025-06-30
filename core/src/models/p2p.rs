@@ -87,9 +87,8 @@ pub enum Message {
     Error,
     MergeUpdate(ResourceUpdateMsg),
     UserConnection(UserConnectionPayload),
-    Phase(Phase),
     LiveEdit(LiveEditMessage),
-    Disconnect(DisconnectStatus),
+    // Disconnect(DisconnectStatus),
     FirstDeviceConnection(DeviceConnection),
     DeviceManifestRequest(DeviceManifestRequestPayload),
     DeviceManifestResponse(DeviceManifestComparisonResult),
@@ -177,41 +176,13 @@ pub enum SyncAckType {
     UpdateReceived,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum PhaseType {
-    AddDevice,
-    FirstUserConnection,
-    DeviceSync,
-    UserSync,
-    FolderSync,
-    ResourceSync,
-    ShareSync,
-    UpdateSync,
-    DeviceRecordSync,
-    Complete,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum PhaseAction {
-    Init,
-    Ack,
-    Complete,
-    CompleteAck,
-}
-
-// Combined into a single Phase message
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Phase {
-    pub action: PhaseAction,
-    pub phase_type: PhaseType,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionAction {
     DeviceSync,
     UserFirstConnection,
     AddDevice,
     LiveEdit,
+    UserSync,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

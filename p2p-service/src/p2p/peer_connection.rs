@@ -207,7 +207,6 @@ impl PeerConnection {
     #[instrument(skip(self), level = "info")]
     pub async fn close_connection(&self) -> Result<(), String> {
         info!("Closing connection: {}", self.get_id());
-        self.cancel_disconnection_timer().await;
 
         // Close the Iroh connection
         self.connection
@@ -362,7 +361,7 @@ impl PeerConnection {
             }
             Message::AddDeviceAck => {
                 info!("Received AddDeviceAck");
-                self.complete_current_phase().await
+                todo!()
             }
             Message::SyncResponse(payload) => {
                 info!("Received SyncResponse");
@@ -393,10 +392,8 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::Phase(phase) => self.handle_phase_message(phase).await,
             Message::MergeUpdate(payload) => self.process_resource_update_message(payload).await,
             Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
-            Message::Disconnect(status) => self.handle_disconnect_message(status).await,
             Message::DeviceManifestRequest(payload) => self.handle_manifest_request(payload).await,
             Message::DeviceManifestResponse(payload) => {
                 self.handle_manifest_response(payload).await
@@ -528,16 +525,15 @@ impl PeerConnection {
             // Execute the appropriate action
             match action {
                 ConnectionAction::DeviceSync => {
-                    self.send_connection_action(PhaseType::UserSync).await
+                    todo!()
                 }
                 ConnectionAction::UserFirstConnection => {
                     info!("Initiator: Starting user first connection phase");
-                    self.send_connection_action(PhaseType::FirstUserConnection)
-                        .await
+                    todo!()
                 }
                 ConnectionAction::AddDevice => {
                     info!("Initiator: Starting add device phase");
-                    self.send_connection_action(PhaseType::AddDevice).await
+                    todo!()
                 }
                 ConnectionAction::LiveEdit => {
                     info!("live edit triggered");
@@ -546,23 +542,12 @@ impl PeerConnection {
                         .emit(P2PEvent::LiveEditConnected { connection_id });
                     Ok(())
                 }
+                ConnectionAction::UserSync => self.start_user_network_sync().await,
             }
         } else {
             debug!("No connection action to execute");
             Ok(())
         }
-    }
-
-    pub async fn send_connection_action(&self, phase: PhaseType) -> Result<(), String> {
-        self.phase.reset_for_new_phase(phase.clone()).await;
-
-        // Send the Phase message to notify the other side
-        let phase_message = Message::Phase(Phase {
-            action: PhaseAction::Init,
-            phase_type: phase,
-        });
-
-        self.send_message(phase_message).await
     }
 
     #[instrument(skip(self), level = "info")]

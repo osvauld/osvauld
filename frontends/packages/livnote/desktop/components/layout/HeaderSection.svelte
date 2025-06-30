@@ -29,7 +29,7 @@
 	] as const;
 
 	// Extract the union type from MENUITEMS for type safety
-	type MenuItemId = typeof MENUITEMS[number]['id'];
+	type MenuItemId = (typeof MENUITEMS)[number]["id"];
 
 	// Handle dropdown menu item clicks
 	const handleDropDownClick = async (id: MenuItemId) => {
@@ -40,8 +40,12 @@
 				break;
 			case "userid":
 				try {
-					const userDetails = await sendMessage("getUserDetailsForShare");
-					await writeToClipboard(userDetails);
+					const userDetails = {
+						user_public_key: dataState.userDetails?.publicKey,
+						device_public_key: dataState.userDetails?.deviceKey,
+						username: dataState.userDetails?.username,
+					};
+					await writeToClipboard(btoa(JSON.stringify(userDetails)));
 					uiState.showToast("UserID copied to clipboard", true);
 				} catch (error) {
 					console.error("Error copying user ID:", error);
@@ -66,9 +70,14 @@
 		role="button"
 		tabindex="0"
 		aria-label="Go to home view"
-		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight " 
+		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight"
 		onclick={() => uiState.toggleProfileViewLayout(false)}
-		onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); uiState.toggleProfileViewLayout(false); } }}>
+		onkeydown={(e) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				uiState.toggleProfileViewLayout(false);
+			}
+		}}>
 		Livnote
 	</span>
 	<div class="grow py-10 px-16 flex items-center justify-start">
@@ -108,22 +117,22 @@
 					in:slide
 					out:slide>
 					{#each MENUITEMS as { id, label, icon: Icon }}
-					<button
-					onmouseenter={() => (hoveredItem = id)}
-					onmouseleave={() => (hoveredItem = "")}
-					onclick={(e) => {
-						e.stopPropagation();
-						handleDropDownClick(id);
-					}}>
-					<li class="profileBtn">
-							<Icon
-								color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
-								size={24} />
-							{label}
-						</li>
+						<button
+							onmouseenter={() => (hoveredItem = id)}
+							onmouseleave={() => (hoveredItem = "")}
+							onclick={(e) => {
+								e.stopPropagation();
+								handleDropDownClick(id);
+							}}>
+							<li class="profileBtn">
+								<Icon
+									color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
+									size={24} />
+								{label}
+							</li>
 						</button>
 					{/each}
-					</ul>
+				</ul>
 			{/if}
 		</div>
 	</div>

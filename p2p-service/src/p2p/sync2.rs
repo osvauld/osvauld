@@ -12,7 +12,7 @@ use osvauld_services::{
     generate_updates_for_peer, get_device_manifest, get_my_user_devices,
     get_resource_for_remote_addition, get_resource_state_vector, get_share_records_for_resource,
     get_user_manifest, get_vector_clocks_for_resource, merge_share_records, merge_vector_clocks,
-    process_device_manifest_request, process_network_sync, process_user_manifest_request,
+    process_device_manifest_request, process_device_network_sync, process_user_manifest_request,
     process_user_network_sync_payload, update_vector_clocks,
 };
 
@@ -279,7 +279,7 @@ impl PeerConnection {
             payload.unknown_folders.len()
         );
 
-        match process_network_sync(payload, &self.repo_ctx).await {
+        match process_device_network_sync(payload, &self.repo_ctx).await {
             Ok(_) => {
                 info!("Network sync processed successfully");
                 debug!("Sending network sync acknowledgment");
@@ -904,6 +904,17 @@ impl PeerConnection {
         Ok(())
     }
 
+    pub async fn start_user_network_sync(&self) -> Result<(), String> {
+        if self.is_initiator {
+            let user_manifest = get_user_manifest(&self.repo_ctx, &self.user.id).await?;
+            self.send_message(Message::UserManifestPayload(UserManifestPayload::Request(
+                user_manifest,
+            )))
+            .await?;
+        }
+        Ok(())
+    }
+
     pub async fn process_user_manifest_payload(
         &self,
         payload: &UserManifestPayload,
@@ -917,8 +928,12 @@ impl PeerConnection {
                 let manifest_result =
                     process_user_manifest_request(request_payload, &self.repo_ctx, &user.id)
                         .await?;
-                self.set_user_manifest_comparison_result(manifest_result)
+                self.set_user_manifest_comparison_result(manifest_result.clone())
                     .await;
+                self.send_message(Message::UserManifestPayload(UserManifestPayload::Response(
+                    manifest_result,
+                )))
+                .await?;
             }
             UserManifestPayload::Response(manifest) => {
                 let manifest_result = manifest.inverse();

@@ -223,10 +223,10 @@ impl RendezvousService {
         p2p_service: &Arc<P2PService>,
         pending_first_connections: &Arc<Mutex<HashSet<String>>>,
         live_edit_connections: &Arc<Mutex<HashSet<String>>>,
-        _user: &Arc<Mutex<Option<String>>>,
+        user: &Arc<Mutex<Option<String>>>,
         response_user_id: &str,
         conn_string: String,
-    ) {
+    ) -> Result<(), String> {
         // Check if this is a first connection
         let is_first_connection = {
             let mut pending = pending_first_connections.lock().await;
@@ -243,14 +243,33 @@ impl RendezvousService {
             live_edit.contains(response_user_id)
         };
 
-        let connection_type = ConnectionType::User;
         let p2p_service_clone = p2p_service.clone();
         let ticket = conn_string.clone();
         let user_id = response_user_id.to_string();
 
         // Create connection ID using the response_user_id
         let connection_id = format!("{}", response_user_id);
-
+        let (response_user_id, device_id) = response_user_id
+            .split_once(':')
+            .ok_or("Invalid connection_id format")?;
+        let current_user_id = {
+            let user_lock = user.lock().await;
+            match &*user_lock {
+                Some(connection_id) => {
+                    let (user_id, _) = connection_id
+                        .split_once(':')
+                        .ok_or("Invalid stored connection_id format")?;
+                    user_id.to_string()
+                }
+                None => return Err("User connection_id not initialized".to_string()),
+            }
+        };
+        info!("current_user_id {}", current_user_id);
+        let connection_type = if current_user_id == response_user_id {
+            ConnectionType::Device
+        } else {
+            ConnectionType::User
+        };
         // Determine the appropriate action based on whether this is a first connection
 
         let action = if is_first_connection {
@@ -267,7 +286,22 @@ impl RendezvousService {
                 "This is a regular connection with user: {}",
                 response_user_id
             );
-            Some(ConnectionAction::DeviceSync)
+            match connection_type {
+                ConnectionType::Device => {
+                    info!(
+                        "This is a regular device connection with: {}",
+                        response_user_id
+                    );
+                    Some(ConnectionAction::DeviceSync)
+                }
+                ConnectionType::User => {
+                    info!(
+                        "This is a regular user connection with: {}",
+                        response_user_id
+                    );
+                    Some(ConnectionAction::UserSync)
+                }
+            }
         };
 
         info!(
@@ -299,6 +333,7 @@ impl RendezvousService {
                 }
             }
         });
+        Ok(())
     }
     /// Handle incoming connection request
     async fn handle_connection_request(

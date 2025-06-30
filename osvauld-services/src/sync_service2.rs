@@ -3,7 +3,7 @@ use osvauld_core::models::{
     DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ResourceComparisonResult,
     ResourceManifestData, ResourceSyncData, ResourceVectorClock, UserComparisonResult,
     UserManifestComparisonResult, UserManifestDifferences, UserManifestPayload,
-    UserManifestRequestPayload, UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices,
+    UserManifestRequestPayload, UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices, user,
 };
 use osvauld_db::database::RepositoryContext;
 use std::collections::{HashMap, HashSet};
@@ -335,13 +335,17 @@ pub async fn create_device_network_sync_payload(
     Ok(payload)
 }
 
-pub async fn process_network_sync(
+pub async fn process_device_network_sync(
     payload: &DeviceNetworkSyncPayload,
     repo_ctx: &RepositoryContext,
 ) -> Result<(), String> {
+    let mut users = payload.unknown_users_with_devices.clone();
+    for user_with_device in &mut users {
+        user_with_device.user.owner = false;
+    }
     repo_ctx
         .user_repo
-        .add_users_with_devices_bulk(&payload.unknown_users_with_devices)
+        .add_users_with_devices_bulk(&users)
         .await
         .map_err(|e| e.to_string())?;
     repo_ctx
@@ -606,9 +610,13 @@ pub async fn process_user_network_sync_payload(
     payload: &UserNetworkSyncPayload,
     repo_ctx: &RepositoryContext,
 ) -> Result<(), String> {
+    let mut users = payload.users.clone();
+    for user_with_device in &mut users {
+        user_with_device.user.owner = false;
+    }
     repo_ctx
         .user_repo
-        .add_users_with_devices_bulk(&payload.users)
+        .add_users_with_devices_bulk(&users)
         .await
         .map_err(|e| e.to_string())?;
     repo_ctx
