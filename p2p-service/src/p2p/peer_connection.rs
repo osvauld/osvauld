@@ -374,10 +374,10 @@ impl PeerConnection {
             Message::DeviceNetworkSync(payload) => self.handle_device_network_sync(payload).await,
             Message::DeviceManifestAck => self.handle_manifest_ack().await,
             Message::DeviceNetworkSyncAck => self.send_resources().await,
-            Message::ResourceAddtionRequest(payload) => {
+            Message::ResourceAdditionRequest(payload) => {
                 self.process_resource_addition_request(payload).await
             }
-            Message::ResourceAddtionComplete => self.process_resource_addition_complete().await,
+            Message::ResourceAdditionComplete => self.process_resource_addition_complete().await,
             Message::FirstUserConnection(payload) => {
                 self.process_first_connection_exchange(payload).await
             }

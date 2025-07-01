@@ -46,7 +46,7 @@ pub async fn handle_add_resource(
         .emit("resource-added", response)
         .map_err(|e| e.to_string())?;
 
-    Ok(CryptoResponse::ResourceCreateted(resource_added.id))
+    Ok(CryptoResponse::ResourceCreated(resource_added.id))
 }
 
 #[tauri::command]

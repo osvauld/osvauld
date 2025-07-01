@@ -53,7 +53,7 @@ impl UserRepository for SqliteUserRepository {
         Ok(user)
     }
 
-    async fn complete_user_addtion(&self, user_id: &str) -> Result<(), RepositoryError> {
+    async fn complete_user_addition(&self, user_id: &str) -> Result<(), RepositoryError> {
         let now = Local::now().timestamp_millis();
         let mut conn = self.connection.lock().await;
         diesel::update(users::table)
@@ -264,7 +264,6 @@ impl UserRepository for SqliteUserRepository {
     ) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        // Get all devices with their user IDs (excluding owner users)
         let user_devices: Vec<(String, String)> = devices::table
             .inner_join(users::table.on(devices::user_id.eq(users::id)))
             .select((devices::user_id, devices::id))

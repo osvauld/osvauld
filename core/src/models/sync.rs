@@ -12,7 +12,7 @@ pub struct DeviceManifestRequestPayload {
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserManifestRequestPayload {
-    pub user: Vec<UserWithDeviceIds>,
+    pub users: Vec<UserWithDeviceIds>,
     pub resources: Vec<ResourceManifestData>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]

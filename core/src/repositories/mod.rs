@@ -157,7 +157,7 @@ pub trait UserRepository: Send + Sync {
     async fn add_known_user(&self, user: &User) -> Result<(), RepositoryError>;
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError>;
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError>;
-    async fn complete_user_addtion(&self, user_id: &str) -> Result<(), RepositoryError>;
+    async fn complete_user_addition(&self, user_id: &str) -> Result<(), RepositoryError>;
     async fn add_known_users_bulk(&self, users: &[User]) -> Result<(), RepositoryError>;
     async fn commit_signup_transaction(
         &self,

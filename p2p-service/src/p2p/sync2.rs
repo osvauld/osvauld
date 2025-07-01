@@ -321,7 +321,7 @@ impl PeerConnection {
                 );
 
                 if manifest.local_missing.unknown_resources.is_empty() {
-                    self.send_message(Message::ResourceAddtionComplete).await?;
+                    self.send_message(Message::ResourceAdditionComplete).await?;
                 }
                 manifest
                     .remote_missing
@@ -339,7 +339,7 @@ impl PeerConnection {
                 );
 
                 if manifest.local_missing.unknown_resources.is_empty() {
-                    self.send_message(Message::ResourceAddtionComplete).await?;
+                    self.send_message(Message::ResourceAdditionComplete).await?;
                 }
                 manifest
                     .remote_missing
@@ -385,7 +385,7 @@ impl PeerConnection {
                 };
 
             match self
-                .send_message(Message::ResourceAddtionRequest(resource_payload))
+                .send_message(Message::ResourceAdditionRequest(resource_payload))
                 .await
             {
                 Ok(_) => {
@@ -451,7 +451,7 @@ impl PeerConnection {
             }
         };
         if is_empty {
-            self.send_message(Message::ResourceAddtionComplete).await?;
+            self.send_message(Message::ResourceAdditionComplete).await?;
         }
         Ok(())
     }

@@ -471,7 +471,7 @@ pub async fn get_user_manifest(
         .await
         .map_err(|e| e.to_string())?;
     let payload = UserManifestRequestPayload {
-        user: user_manifest,
+        users: user_manifest,
         resources: resource_manifest,
     };
 
@@ -509,13 +509,13 @@ pub fn process_user_gaps(
 ) -> UserComparisonResult {
     // Extract user IDs from both payloads
     let local_user_ids: HashSet<String> = local_payload
-        .user
+        .users
         .iter()
         .map(|user| user.user_id.clone())
         .collect();
 
     let remote_user_ids: HashSet<String> = remote_payload
-        .user
+        .users
         .iter()
         .map(|user| user.user_id.clone())
         .collect();
@@ -532,7 +532,11 @@ pub fn process_user_gaps(
 
     // For common users, compare their devices
     let (devices_from_common_users_only_local_has, devices_from_common_users_only_remote_has) =
-        compare_devices_for_common_users(&local_payload.user, &remote_payload.user, &common_users);
+        compare_devices_for_common_users(
+            &local_payload.users,
+            &remote_payload.users,
+            &common_users,
+        );
 
     UserComparisonResult {
         users_only_local_has,

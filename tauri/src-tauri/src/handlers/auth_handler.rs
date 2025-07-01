@@ -115,8 +115,16 @@ pub async fn login(
 pub async fn handle_add_device(
     input: AddDeviceInput,
     repo_ctx: State<'_, RepositoryContext>,
+    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
 ) -> Result<CryptoResponse, String> {
-    import_user(&input.certificate, &input.passphrase, "username", &repo_ctx).await?;
+    import_user(
+        &input.certificate,
+        &input.passphrase,
+        "username",
+        &repo_ctx,
+        &crypto_utils,
+    )
+    .await?;
     Ok(CryptoResponse::Success)
 }
 

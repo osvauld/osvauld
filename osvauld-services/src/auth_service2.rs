@@ -200,6 +200,7 @@ pub async fn import_user(
     passphrase: &str,
     username: &str,
     repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(User, Certificate), String> {
     let result = import_certificate(certificate, passphrase).map_err(|e| e.to_string())?;
     let user_id = get_key_id(&result.public_key).map_err(|e| e.to_string())?;
@@ -208,6 +209,7 @@ pub async fn import_user(
         public_key: result.public_key,
         salt: result.salt,
     };
+    //TODO: fix signature problem.
     let user = User::new(
         username.to_string(),
         user_id,
