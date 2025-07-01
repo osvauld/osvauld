@@ -62,7 +62,7 @@ pub enum CryptoResponse {
     FolderCreated(Folder),
     Success,
     UpdateResources,
-    ResourceCreateted(String),
+    ResourceCreated(String),
     GetResourceResponse(DecryptedResource),
     CreatedKnownUser {
         user: User,
@@ -84,21 +84,11 @@ pub struct LoadPvtKeyInput {
 }
 
 #[derive(Deserialize)]
-pub struct SignChallengeInput {
-    pub challenge: String,
-}
-
-#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddResourceInput {
     pub resource_payload: String,
     pub folder_id: String,
     pub resource_type: String,
-}
-
-#[derive(Deserialize)]
-pub struct HashAndSignInput {
-    pub message: String,
 }
 
 #[derive(Deserialize)]

@@ -1,16 +1,19 @@
 use crate::types::{CryptoResponse, UserDetails};
-use crate::user_state::{self, UserState};
 use base64::{Engine as _, engine::general_purpose};
-use osvauld_services::{TransactionService, UserService};
+use crypto_utils::CryptoUtils;
+use log::info;
+use osvauld_db::database::RepositoryContext;
+use osvauld_services::{add_known_user, get_known_users};
+use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use tauri::State;
-
+use tokio::sync::Mutex;
 #[tauri::command]
-pub async fn add_known_user(
+pub async fn handle_add_user(
     input: String,
-    user_service: State<'_, Arc<UserService>>,
-    transaction_service: State<'_, Arc<TransactionService>>,
-    user_state: State<'_, UserState>,
+    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    repo_ctx: State<'_, RepositoryContext>,
+    rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
@@ -30,63 +33,33 @@ pub async fn add_known_user(
     let user_public_key = details.user_public_key;
     let device_public_key = details.device_public_key;
 
-    let current_user = user_state.get_user().await.map_err(|e| e.to_string())?;
-    let current_device = user_state.get_device().await?;
-    let (new_user, new_device) = user_service
-        .add_known_user(
-            username,
-            user_public_key,
-            device_public_key,
-            &current_user.id,
-            &current_device.id,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-    transaction_service
-        .add_new_user(&new_user, &new_device)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    Ok(CryptoResponse::CreatedKnownUser {
-        user: new_user,
-        device: new_device,
-    })
-}
-
-#[tauri::command]
-pub async fn get_known_users(
-    user_service: State<'_, Arc<UserService>>,
-) -> Result<CryptoResponse, String> {
-    let known_users = user_service.get_known_users().await?;
-    Ok(CryptoResponse::GetKnownUsers(known_users))
-}
-
-#[tauri::command]
-pub async fn get_details_for_share(
-    user_state: State<'_, UserState>,
-    user_service: State<'_, Arc<UserService>>,
-) -> Result<CryptoResponse, String> {
-    let user = user_state.get_user().await.map_err(|e| e.to_string())?;
-    let device = user_state.get_device().await?;
-    let username = user_service
-        .get_username(&user.id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Combine all details into a single struct
-    let details = UserDetails {
-        user_public_key: user.public_key.clone(),
-        device_public_key: device.device_key.clone(),
+    let (user, device) = add_known_user(
         username,
-    };
+        user_public_key,
+        device_public_key,
+        &repo_ctx,
+        &crypto_utils,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
-    // Serialize to JSON
-    let json = serde_json::to_string(&details)
-        .map_err(|e| format!("Failed to serialize user details: {}", e))?;
+    let connection_id = format!("{}:{}", user.id, device.id);
 
-    // Encode the JSON string to base64
-    let encoded = general_purpose::STANDARD.encode(json);
+    match rendezvous_service
+        .mark_for_first_connection(&connection_id)
+        .await
+    {
+        Ok(_) => info!("requested connection.."),
+        Err(e) => info!("error requesting {:?}", e),
+    }
 
-    // Return just the encoded string
-    Ok(CryptoResponse::UserDetailsForShare(encoded))
+    Ok(CryptoResponse::Success)
+}
+
+#[tauri::command]
+pub async fn handle_get_known_users(
+    repo_ctx: State<'_, RepositoryContext>,
+) -> Result<CryptoResponse, String> {
+    let known_users = get_known_users(&repo_ctx).await?;
+    Ok(CryptoResponse::GetKnownUsers(known_users))
 }

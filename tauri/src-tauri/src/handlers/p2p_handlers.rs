@@ -2,7 +2,6 @@ use crate::types::CryptoResponse;
 use crate::types::InitiateFirstConnectionInput;
 use log::info;
 use osvauld_core::models::p2p::ConnectionType;
-use osvauld_services::UserService;
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
@@ -57,27 +56,9 @@ pub fn get_system_locale() -> String {
 }
 
 #[tauri::command]
-pub async fn initiate_first_connection(
-    input: InitiateFirstConnectionInput,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
-) -> Result<CryptoResponse, String> {
-    info!("recived first connection request {:?}", input);
-    let connection_id = format!("{}:{}", input.user.id, input.device.id);
-    match rendezvous_service
-        .mark_for_first_connection(&connection_id)
-        .await
-    {
-        Ok(_) => info!("requested connection.."),
-        Err(e) => info!("error requesting {:?}", e),
-    }
-    Ok(CryptoResponse::Success)
-}
-
-#[tauri::command]
 pub async fn connect_with_user(
     ticket: String,
     p2p_service: State<'_, Arc<P2PService>>,
-    user_service: State<'_, Arc<UserService>>,
 ) -> Result<CryptoResponse, String> {
     // let user = user_service.get_current_user().await?;
     // p2p_service

@@ -342,7 +342,8 @@ class DataState {
       // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
 
-      if (notesInstance) {
+      if (notesInstance.currentNoteId) {
+        console.log(notesInstance);
         // If this is the current note, apply the updates directly to the editor
         console.log("Applying updates directly to current editor");
         notesInstance.applyUpdate(updatesArray, 0);

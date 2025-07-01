@@ -27,15 +27,18 @@
 	function toggleNavigationPanel() {
 		// Toggle the panel visibility through UI state
 		uiState.toggleNavigationPanel();
-		
+
 		// When manually toggling, we need to reset the auto-adjustment
 		// when the window is resized next time
 		if (!uiState.showNavigationPanel) {
 			// When hiding panel - set CSS var to 0 to allow editor to go under min width
-			document.documentElement.style.setProperty('--min-editor-width', '0px');
+			document.documentElement.style.setProperty("--min-editor-width", "0px");
 		} else {
 			// When showing panel - restore the min width
-			document.documentElement.style.setProperty('--min-editor-width', `${uiState.MIN_EDITOR_WIDTH}px`);
+			document.documentElement.style.setProperty(
+				"--min-editor-width",
+				`${uiState.MIN_EDITOR_WIDTH}px`,
+			);
 		}
 	}
 
@@ -130,10 +133,15 @@
 	};
 
 	onMount(async () => {
-		userId = await sendMessage("getUserId");
+		if (dataState.userDetails?.userId) {
+			userId = dataState.userDetails?.userId;
+		}
 
 		// Set CSS variable for minimum editor width
-		document.documentElement.style.setProperty('--min-editor-width', `${uiState.MIN_EDITOR_WIDTH}px`);
+		document.documentElement.style.setProperty(
+			"--min-editor-width",
+			`${uiState.MIN_EDITOR_WIDTH}px`,
+		);
 	});
 </script>
 
@@ -144,7 +152,9 @@
 	}
 </style>
 
-<div class="flex grow max-h-full max-w-full" class:manual-toggle={uiState.isNavigationPanelManuallyToggled}>
+<div
+	class="flex grow max-h-full max-w-full"
+	class:manual-toggle={uiState.isNavigationPanelManuallyToggled}>
 	<NavigationPanel />
 
 	<div class="flex-1 flex flex-col overflow-hidden">
@@ -160,7 +170,7 @@
 						<Hamburger />
 					</button>
 				{/if}
-				
+
 				<button
 					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					onclick={handleBackButton}>
@@ -184,7 +194,8 @@
 						tabindex="0"
 						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
 						ondblclick={startEditingTitle}
-						onkeydown={(e: KeyboardEvent) => e.key === "Enter" && startEditingTitle()}>
+						onkeydown={(e: KeyboardEvent) =>
+							e.key === "Enter" && startEditingTitle()}>
 						{dataState.currentNote?.data?.title || "Untitled"}
 					</span>
 				{/if}

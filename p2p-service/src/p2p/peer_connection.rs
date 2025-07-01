@@ -1,22 +1,18 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
-use crate::p2p::phase_management::PhaseState;
+use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
-use osvauld_core::models::device::Device;
-use osvauld_core::models::p2p::{
-    ConnectionAction, ConnectionType, Message, Phase, PhaseAction, PhaseType,
+use osvauld_core::models::{
+    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, User,
+    UserManifestComparisonResult,
 };
-use osvauld_core::models::user::User;
-use osvauld_services::{AuthService, SyncService, UserService};
+use osvauld_db::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
-    pub auth_service: Arc<AuthService>,
-    pub user_service: Arc<UserService>,
-    pub sync_service: Arc<SyncService>,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
 }
@@ -48,11 +44,14 @@ pub struct PeerConnection {
     pub event_emitter: P2PEventEmitter,
 
     pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
-    pub phase: PhaseState,
     pub action: Option<ConnectionAction>,
     pub is_live_editing: Arc<Mutex<bool>>,
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pub crypto_utils: Arc<Mutex<CryptoUtils>>,
+    pub repo_ctx: RepositoryContext,
+    pub device_manifest_result: Arc<Mutex<Option<DeviceManifestComparisonResult>>>,
+    pub user_manifest_result: Arc<Mutex<Option<UserManifestComparisonResult>>>,
 }
 
 impl PeerConnection {
@@ -69,6 +68,8 @@ impl PeerConnection {
         pending_resource_ids: Vec<String>,
         action: Option<ConnectionAction>,
         on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
+        crypto_utils: Arc<Mutex<CryptoUtils>>,
+        repo_ctx: RepositoryContext,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -86,11 +87,14 @@ impl PeerConnection {
             context,
             event_emitter,
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
-            phase: PhaseState::new(),
             action,
             is_live_editing: Arc::new(Mutex::new(false)),
             on_close: Arc::new(Mutex::new(on_close)),
             disconnection_timer: Arc::new(Mutex::new(None)),
+            repo_ctx,
+            crypto_utils,
+            device_manifest_result: Arc::new(Mutex::new(None)),
+            user_manifest_result: Arc::new(Mutex::new(None)),
         };
 
         debug!("Starting message handler for the connection");
@@ -104,7 +108,89 @@ impl PeerConnection {
         );
         peer_connection
     }
+    pub async fn set_device_manifest_comparison_result(
+        &self,
+        result: DeviceManifestComparisonResult,
+    ) {
+        let mut manifest_guard = self.device_manifest_result.lock().await;
+        *manifest_guard = Some(result);
+    }
+    pub async fn set_user_manifest_comparison_result(&self, result: UserManifestComparisonResult) {
+        let mut manifest_guard = self.user_manifest_result.lock().await;
+        *manifest_guard = Some(result);
+    }
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+    pub async fn get_device_manifest_result(
+        &self,
+    ) -> Result<DeviceManifestComparisonResult, String> {
+        let manifest_guard = self.device_manifest_result.lock().await;
+        match manifest_guard.clone() {
+            Some(manifest) => Ok(manifest),
+            None => Err("Device manifest is empty".to_string()),
+        }
+    }
 
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
+    pub async fn get_user_manifest_result(&self) -> Result<UserManifestComparisonResult, String> {
+        let manifest_guard = self.user_manifest_result.lock().await;
+        match manifest_guard.clone() {
+            Some(manifest) => Ok(manifest),
+            None => Err("user manifest is empty".to_string()),
+        }
+    }
+
+    /// Removes a resource from local_missing.unknown_resources in device manifest
+    #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
+    pub async fn remove_device_local_missing_resource(&self, resource_id: &str) -> bool {
+        let mut manifest_result = self.device_manifest_result.lock().await;
+        if let Some(ref mut manifest_comparison) = *manifest_result {
+            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            manifest_comparison
+                .local_missing
+                .unknown_resources
+                .retain(|id| id.to_string() != resource_id);
+
+            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            debug!(
+                initial_missing = initial_count,
+                remaining_missing = remaining_count,
+                resource_id = %resource_id,
+                "Updated local missing resources list"
+            );
+
+            remaining_count == 0
+        } else {
+            true // Consider empty if no manifest exists
+        }
+    }
+
+    #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
+    pub async fn remove_user_local_missing_resource(&self, resource_id: &str) -> bool {
+        let mut manifest_result = self.user_manifest_result.lock().await;
+        if let Some(ref mut manifest_comparison) = *manifest_result {
+            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            manifest_comparison
+                .local_missing
+                .unknown_resources
+                .retain(|id| id.to_string() != resource_id);
+
+            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
+
+            debug!(
+                initial_missing = initial_count,
+                remaining_missing = remaining_count,
+                resource_id = %resource_id,
+                "Updated local missing resources list"
+            );
+
+            remaining_count == 0
+        } else {
+            true // Consider empty if no manifest exists
+        }
+    }
     /// Gets the unique identifier for this connection (user_id:device_id)
     pub fn get_id(&self) -> String {
         format!("{}:{}", self.user.id, self.device.id)
@@ -114,7 +200,6 @@ impl PeerConnection {
     #[instrument(skip(self), level = "info")]
     pub async fn close_connection(&self) -> Result<(), String> {
         info!("Closing connection: {}", self.get_id());
-        self.cancel_disconnection_timer().await;
 
         // Close the Iroh connection
         self.connection
@@ -173,7 +258,7 @@ impl PeerConnection {
                                 // Try to parse what we have so far
                                 if let Ok(message_str) = String::from_utf8(buffer.clone()) {
                                     match serde_json::from_str::<Message>(&message_str) {
-                                        Ok(message) => {
+                                        Ok(mut message) => {
                                             info!(
                                                 "Successfully deserialized message: {:?}",
                                                 message
@@ -185,7 +270,7 @@ impl PeerConnection {
 
                                             // Process the message
                                             if let Err(e) = self
-                                                .process_message(&message)
+                                                .process_message(&mut message)
                                                 .instrument(process_span)
                                                 .await
                                             {
@@ -257,24 +342,8 @@ impl PeerConnection {
 
     /// Process a received message by delegating to the appropriate handler
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
-    async fn process_message(&self, message: &Message) -> Result<(), String> {
+    async fn process_message(&self, message: &mut Message) -> Result<(), String> {
         match message {
-            Message::SyncAck(updated_data) => {
-                info!("Received SyncAck");
-                self.handle_sync_ack(updated_data.clone()).await
-            }
-            Message::FirstDeviceConnection(records) => {
-                info!("Received AddDevice request");
-                self.process_first_device_connection(records).await
-            }
-            Message::AddDeviceAck => {
-                info!("Received AddDeviceAck");
-                self.complete_current_phase().await
-            }
-            Message::SyncResponse(payload) => {
-                info!("Received SyncResponse");
-                self.handle_sync_response(payload.clone()).await
-            }
             Message::Chat(content) => {
                 info!("Received chat message: {}", content);
                 // No response needed for chat messages
@@ -288,10 +357,6 @@ impl PeerConnection {
                 debug!("Received pong");
                 Ok(())
             }
-            Message::AckComplete(device_sync_record_ids) => {
-                self.ack_complete(device_sync_record_ids.clone()).await
-            }
-            Message::UserConnection(payload) => self.process_user_connection_payload(payload).await,
             Message::Error => {
                 error!("Received error message from peer");
                 self.event_emitter.emit(P2PEvent::Error {
@@ -300,10 +365,27 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::Phase(phase) => self.handle_phase_message(phase).await,
-            Message::MergeUpdate(payload) => self.process_merge_payload(payload).await,
+            Message::MergeUpdate(payload) => self.process_resource_update_message(payload).await,
             Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
-            Message::Disconnect(status) => self.handle_disconnect_message(status).await,
+            Message::DeviceManifestRequest(payload) => self.handle_manifest_request(payload).await,
+            Message::DeviceManifestResponse(payload) => {
+                self.handle_manifest_response(payload).await
+            }
+            Message::DeviceNetworkSync(payload) => self.handle_device_network_sync(payload).await,
+            Message::DeviceManifestAck => self.handle_manifest_ack().await,
+            Message::DeviceNetworkSyncAck => self.send_resources().await,
+            Message::ResourceAdditionRequest(payload) => {
+                self.process_resource_addition_request(payload).await
+            }
+            Message::ResourceAdditionComplete => self.process_resource_addition_complete().await,
+            Message::FirstUserConnection(payload) => {
+                self.process_first_connection_exchange(payload).await
+            }
+            Message::UserManifestPayload(payload) => {
+                self.process_user_manifest_payload(payload).await
+            }
+            Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
+            Message::UserNetworkSyncAck => self.send_resources().await,
         }
     }
 
@@ -374,20 +456,26 @@ impl PeerConnection {
             device: self.device.clone(),
             user: self.user.clone(),
             is_initiator: self.is_initiator,
-            task_handle: tokio::spawn(async {}), // Create a dummy task handle
+            task_handle: tokio::spawn(async {}),
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
             pending_resource_ids: self.pending_resource_ids.clone(),
-            phase: self.phase.clone(),
             action: self.action.clone(),
             is_live_editing: self.is_live_editing.clone(),
             on_close: self.on_close.clone(),
             disconnection_timer: self.disconnection_timer.clone(),
+            repo_ctx: self.repo_ctx.clone(),
+            crypto_utils: self.crypto_utils.clone(),
+            device_manifest_result: self.device_manifest_result.clone(),
+            user_manifest_result: self.user_manifest_result.clone(),
         }
     }
-    pub async fn get_local_user(&self) -> Option<User> {
+    pub async fn get_local_user(&self) -> Result<User, String> {
         let user_guard = self.context.current_user.read().await;
-        user_guard.clone()
+        match user_guard.clone() {
+            Some(user) => Ok(user),
+            None => Err("No user is currently logged in".to_string()),
+        }
     }
 
     pub async fn get_local_device(&self) -> Option<Device> {
@@ -411,17 +499,13 @@ impl PeerConnection {
 
             // Execute the appropriate action
             match action {
-                ConnectionAction::DeviceSync => {
-                    self.send_connection_action(PhaseType::UserSync).await
-                }
+                ConnectionAction::DeviceSync => self.start_add_device_process().await,
                 ConnectionAction::UserFirstConnection => {
-                    info!("Initiator: Starting user first connection phase");
-                    self.send_connection_action(PhaseType::FirstUserConnection)
-                        .await
+                    self.send_first_user_connection_payload(true).await
                 }
                 ConnectionAction::AddDevice => {
                     info!("Initiator: Starting add device phase");
-                    self.send_connection_action(PhaseType::AddDevice).await
+                    self.start_add_device_process().await
                 }
                 ConnectionAction::LiveEdit => {
                     info!("live edit triggered");
@@ -430,23 +514,12 @@ impl PeerConnection {
                         .emit(P2PEvent::LiveEditConnected { connection_id });
                     Ok(())
                 }
+                ConnectionAction::UserSync => self.start_user_network_sync().await,
             }
         } else {
             debug!("No connection action to execute");
             Ok(())
         }
-    }
-
-    pub async fn send_connection_action(&self, phase: PhaseType) -> Result<(), String> {
-        self.phase.reset_for_new_phase(phase.clone()).await;
-
-        // Send the Phase message to notify the other side
-        let phase_message = Message::Phase(Phase {
-            action: PhaseAction::Init,
-            phase_type: phase,
-        });
-
-        self.send_message(phase_message).await
     }
 
     #[instrument(skip(self), level = "info")]

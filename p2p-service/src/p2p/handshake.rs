@@ -1,17 +1,19 @@
-use crate::p2p::P2PEvent;
 use crate::p2p::constants::*;
 use crate::p2p::errors::{HandshakeError, P2PError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
-use iroh::NodeAddr;
+use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
+use iroh::NodeAddr;
 use osvauld_core::models::p2p::{
     ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage,
 };
+use osvauld_services::sign_random_challenge;
+use std::fmt::format;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 impl P2PService {
     /// Performs the handshake process and creates a peer connection
@@ -97,11 +99,7 @@ impl P2PService {
         // Create the PeerConnection object with the new design
         let connection_arc = Arc::new(conn.clone());
         debug!("Creating peer connection object");
-        let resources_needing_update = self
-            .sync_service
-            .get_resources_needing_sync(&handshake_message.device.id)
-            .await
-            .map_err(|e| P2PError::SyncService(e.to_string()))?;
+        let resources_needing_update = Vec::new();
         let self_clone = self.clone();
         let cleanup_callback = Box::new(move |connection_id: String| {
             let service = self_clone.clone();
@@ -139,6 +137,8 @@ impl P2PService {
             resources_needing_update,
             action,
             Some(cleanup_callback),
+            self.crypto_utils.clone(),
+            self.repo_ctx.clone(),
         );
         peer_connection.execute_connection_action().await?;
 
@@ -295,48 +295,28 @@ impl P2PService {
         info!("Initiator: Sending handshake message");
 
         // Get our device information
-        let device = match self.auth_service.get_current_device().await {
-            Ok(device) => {
-                debug!("Got current device: {}", device.id);
-                device
-            }
-            Err(e) => {
-                error!("Failed to get current device: {}", e);
-                return Err(HandshakeError::AuthService(e.to_string()));
-            }
-        };
+        let current_user = self
+            .get_current_user()
+            .await
+            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
 
+        let current_device = self
+            .get_current_device()
+            .await
+            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
         // Sign a challenge to prove our identity
-        let (challenge, signature) = match self.auth_service.sign_random_challenge().await {
-            Ok(cs) => {
-                debug!("Created and signed challenge");
-                cs
-            }
-            Err(e) => {
-                error!("Failed to sign challenge: {}", e);
-                return Err(HandshakeError::AuthService(e.to_string()));
-            }
-        };
 
-        // Get our user information
-        let user = match self.user_service.get_current_user().await {
-            Ok(user) => {
-                debug!("Got current user: {}", user.id);
-                user
-            }
-            Err(e) => {
-                error!("Failed to get current user: {}", e);
-                return Err(HandshakeError::AuthService(e.to_string()));
-            }
-        };
+        let (challenge, signature) = sign_random_challenge(&self.crypto_utils)
+            .await
+            .map_err(|_| HandshakeError::InvalidChallenge("failed handshake".to_string()))?;
 
         // Construct the handshake message
         let handshake_message = HandshakeMessage {
             connection_type,
             challenge,
             signature,
-            device,
-            user,
+            device: current_device,
+            user: current_user,
         };
 
         // Serialize and send the handshake message
@@ -359,11 +339,10 @@ impl P2PService {
         }
 
         // Ensure the message is sent
-        if let Err(e) = send.flush().await {
-            error!("Failed to flush handshake message: {}", e);
+        if let Err(e) = send.finish() {
+            error!("Failed to finish sending handshake message: {}", e);
             return Err(HandshakeError::Connection(e.to_string()));
         }
-
         info!("Initiator: Waiting for handshake response");
 
         // Read the response
@@ -445,40 +424,17 @@ impl P2PService {
         // TODO: Verify the incoming handshake signature here
 
         info!("Successfully received and parsed handshake message");
-
-        // Get our device and create response
-        let device = match self.auth_service.get_current_device().await {
-            Ok(d) => {
-                debug!("Got current device: {}", d.id);
-                d
-            }
-            Err(e) => {
-                error!("Failed to get current device: {}", e);
-                return Err(HandshakeError::AuthService(e.to_string()));
-            }
-        };
-
-        let user = match self.user_service.get_current_user().await {
-            Ok(u) => {
-                debug!("Got current user: {}", u.id);
-                u
-            }
-            Err(e) => {
-                error!("Failed to get current user: {}", e);
-                return Err(HandshakeError::AuthService(e.to_string()));
-            }
-        };
-
-        let (challenge, signature) = match self.auth_service.sign_random_challenge().await {
-            Ok(cs) => {
-                debug!("Created and signed challenge");
-                cs
-            }
-            Err(e) => {
-                error!("Failed to sign challenge: {}", e);
-                return Err(HandshakeError::AuthService(e.to_string()));
-            }
-        };
+        let device = self
+            .get_current_device()
+            .await
+            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
+        let user = self
+            .get_current_user()
+            .await
+            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
+        let (challenge, signature) = sign_random_challenge(&self.crypto_utils)
+            .await
+            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
 
         // Create our response message
         let response = HandshakeMessage {
@@ -510,8 +466,8 @@ impl P2PService {
         }
 
         // Ensure the response is sent
-        if let Err(e) = send.flush().await {
-            error!("Failed to flush response: {}", e);
+        if let Err(e) = send.finish() {
+            error!("Failed to finish sending response: {}", e);
             return Err(HandshakeError::Connection(e.to_string()));
         }
 
@@ -538,6 +494,10 @@ impl P2PService {
         // Get the state for access to connections
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+        debug!(
+            "Connector using endpoint with node ID: {}",
+            state.endpoint.node_id()
+        );
 
         // If a connection ID was provided, check if the connection is already active
         if let Some(id) = connection_id {
@@ -638,6 +598,9 @@ impl P2PService {
         let connection_span = info_span!("endpoint_connect", 
         remote_node_id = %node_addr.node_id,
         addresses = ?node_addr.direct_addresses.len());
+        debug!("Attempting connection to node_id: {}", node_id);
+        debug!("NodeAddr created: {:?}", node_addr);
+        debug!("Using ALPN: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
 
         let connect_result = state
             .endpoint

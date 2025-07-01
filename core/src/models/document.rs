@@ -53,7 +53,7 @@ pub async fn get_state_vector(full_yjs_state: &[u8]) -> Result<Vec<u8>, String> 
 pub async fn generate_updates_for_peer(
     full_yjs_state: &[u8],
     peer_state_vector: &[u8],
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, Vec<u8>), String> {
     // Create a temporary document
     let doc = Doc::new();
 
@@ -94,7 +94,8 @@ pub async fn generate_updates_for_peer(
 
     // Generate only the diff the peer needs based on their state vector
     let txn = doc.transact().await;
-    Ok(txn.encode_diff_v1(&sv))
+    let current_state_vector = txn.state_vector().encode_v1();
+    Ok((txn.encode_diff_v1(&sv), current_state_vector))
 }
 /// Apply updates to a document and generate only the updates needed by peer
 ///

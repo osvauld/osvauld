@@ -1,5 +1,5 @@
 use log::error;
-use osvauld_db::{DbConnection, initialize_database};
+use osvauld_db::{DbConnection, database::initialize_repositories, initialize_database};
 use tauri::Manager;
 pub mod current_note_state;
 pub mod handlers;
@@ -7,30 +7,24 @@ pub mod listners;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, first_device_connect, get_public_key,
-    get_user_details, get_user_id, handle_add_device, handle_change_passphrase,
-    handle_export_certificate, handle_hash_and_sign, handle_sign_challenge, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, first_device_connect, get_user_details,
+    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
 };
-use crate::handlers::folder_handler::{handle_add_folder, handle_get_folders, soft_delete_folder};
+use crate::handlers::folder_handler::{
+    handle_add_folder, handle_get_folders, handle_soft_delete_folder,
+};
 use crate::handlers::p2p_handlers::{
-    connect_with_device, get_system_locale, get_ticket, initiate_first_connection, send_message,
-    start_p2p_listener,
+    connect_with_device, get_system_locale, get_ticket, send_message, start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
-    get_all_resources, get_resource, handle_add_resource, handle_get_resources_for_folder,
-    share_resource, soft_delete_resource, toggle_fav, update_last_accessed, update_resource,
+    handle_add_resource, handle_get_all_resources, handle_get_resource,
+    handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
+    handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
-use crate::handlers::user_handler::{add_known_user, get_details_for_share, get_known_users};
+use crate::handlers::user_handler::{handle_add_user, handle_get_known_users};
 use crate::user_state::UserState;
+use clap::Parser;
 use crypto_utils::CryptoUtils;
-use osvauld_db::repositories::{
-    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
-    SqliteUserRepository, SqliteVectorClockRepository,
-};
-use osvauld_services::{
-    AuthService, FolderService, ResourceService, SyncService, TransactionService, UserService,
-};
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
 
@@ -39,8 +33,15 @@ use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::Mutex;
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, default_value = "desktop")]
+    db_name: String,
+}
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let args = Args::parse();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init());
@@ -71,7 +72,7 @@ pub fn run() {
                 })
                 .build(),
         )
-        .setup(|app| {
+        .setup(move |app| {
             let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
 
@@ -82,8 +83,11 @@ pub fn run() {
                 }
             }
 
-            let db_path = app_dir.join("desktop30.db").to_str().unwrap().to_string();
-
+            let db_path = app_dir
+                .join(format!("{}.db", args.db_name))
+                .to_str()
+                .unwrap()
+                .to_string();
             // Create a new Tokio runtime
             let rt = Arc::new(Runtime::new().expect("Failed to create Tokio runtime"));
 
@@ -98,77 +102,12 @@ pub fn run() {
             match db_connection {
                 Ok(connection) => {
                     app.manage(connection.clone());
+                    let repo_ctx = initialize_repositories(connection.clone());
 
-                    let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
-                    let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
-                    let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
-                    let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
-                    let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
-                    let resource_key_repo =
-                        Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
-                    let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
-                    let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
-                    let vector_clock_repo =
-                        Arc::new(SqliteVectorClockRepository::new(connection.clone()));
-
-                    let folder_service =
-                        Arc::new(FolderService::new(folder_repo.clone(), device_repo.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
-                    let auth_service = Arc::new(AuthService::new(
-                        store_repository.clone(),
-                        crypto_utils.clone(),
-                        device_repo.clone(),
-                    ));
 
-                    let transaction_service = Arc::new(TransactionService::new(
-                        resource_repo.clone(),
-                        resource_key_repo.clone(),
-                        sync_repo.clone(),
-                        share_repo.clone(),
-                        store_repository.clone(),
-                        user_repository.clone(),
-                        device_repo.clone(),
-                        folder_repo.clone(),
-                        vector_clock_repo.clone(),
-                    ));
-
-                    let resource_service = Arc::new(ResourceService::new(
-                        resource_repo.clone(),
-                        crypto_utils.clone(),
-                        vector_clock_repo.clone(),
-                        resource_key_repo.clone(),
-                        device_repo.clone(),
-                        user_repository.clone(),
-                        share_repo.clone(),
-                        sync_repo.clone(),
-                    ));
-                    let sync_service = Arc::new(SyncService::new(
-                        sync_repo.clone(),
-                        folder_repo.clone(),
-                        resource_repo.clone(),
-                        device_repo.clone(),
-                        store_repository.clone(),
-                        vector_clock_repo.clone(),
-                        user_repository.clone(),
-                        share_repo.clone(),
-                        resource_service.clone(),
-                        transaction_service.clone(),
-                    ));
-
-                    let user_service = Arc::new(UserService::new(
-                        user_repository.clone(),
-                        crypto_utils.clone(),
-                        sync_repo.clone(),
-                        device_repo.clone(),
-                        vector_clock_repo.clone(),
-                        share_repo.clone(),
-                    ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
-                        P2PService::new(
-                            sync_service.clone(),
-                            auth_service.clone(),
-                            user_service.clone(),
-                        );
+                        P2PService::new(repo_ctx.clone(), crypto_utils.clone());
                     let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
                     rt.spawn(async move {
@@ -182,15 +121,13 @@ pub fn run() {
                     let rendezvous_service = Arc::new(RendezvousService::new(
                         p2p_service.clone(),
                         "ws://0.0.0.0:3030/ws",
-                        user_service.clone(),
                     ));
                     let event_manager = EventManager::new(
                         handle.clone(),
                         p2p_receiver,
-                        resource_service.clone(),
                         p2p_sender,
-                        user_service.clone(),
                         rendezvous_service.clone(),
+                        repo_ctx.clone(),
                     );
                     rt.spawn(async move {
                         event_manager.start_listening();
@@ -199,14 +136,10 @@ pub fn run() {
                     // Manage all services
 
                     app.manage(user_state);
-                    app.manage(folder_service);
-                    app.manage(auth_service);
-                    app.manage(resource_service);
-                    app.manage(sync_service);
+                    app.manage(crypto_utils);
                     app.manage(p2p_service.clone());
-                    app.manage(user_service);
-                    app.manage(transaction_service);
                     app.manage(rendezvous_service);
+                    app.manage(repo_ctx);
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);
@@ -231,9 +164,7 @@ pub fn run() {
             handle_sign_up,
             check_private_key_loaded,
             login,
-            handle_sign_challenge,
             handle_add_resource,
-            handle_hash_and_sign,
             handle_add_device,
             handle_export_certificate,
             handle_change_passphrase,
@@ -245,19 +176,15 @@ pub fn run() {
             connect_with_device,
             start_p2p_listener,
             soft_delete_resource,
-            soft_delete_folder,
-            toggle_fav,
-            update_last_accessed,
-            get_all_resources,
-            get_user_id,
-            update_resource,
-            get_resource,
-            add_known_user,
-            get_known_users,
-            get_public_key,
-            initiate_first_connection,
-            share_resource,
-            get_details_for_share,
+            handle_soft_delete_folder,
+            handle_toggle_fav,
+            handle_update_last_accessed,
+            handle_get_all_resources,
+            handle_update_resource,
+            handle_get_resource,
+            handle_add_user,
+            handle_get_known_users,
+            handle_share_resource,
             get_user_details,
             first_device_connect,
         ])

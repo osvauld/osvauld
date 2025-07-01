@@ -63,12 +63,8 @@ const tauriBrowser = {
           savePassphrase: (data) => invoke("handle_sign_up", { input: data }),
           checkPvtLoaded: () => invoke("check_private_key_loaded"),
           login: (data) => invoke("login", { input: data }),
-          signChallenge: (data) =>
-            invoke("handle_sign_challenge", { input: data }),
           addCredential: (data) =>
             invoke("handle_add_resource", { input: data }),
-          hashAndSign: (data) =>
-            invoke("handle_hash_and_sign", { input: data }),
           addDevice: (data) => invoke("handle_add_device", { input: data }),
           exportCertificate: (data) =>
             invoke("handle_export_certificate", { input: data }),
@@ -82,28 +78,22 @@ const tauriBrowser = {
           deleteResource: (data: any) =>
             invoke("soft_delete_resource", { input: data }),
           deleteFolder: (data: any) =>
-            invoke("soft_delete_folder", { input: data }),
-          toggleFav: (data: any) => invoke("toggle_fav", { input: data }),
+            invoke("handle_soft_delete_folder", { input: data }),
+          toggleFav: (data: any) => invoke("handle_toggle_fav", { input: data }),
           updateLastAccessed: (data: any) =>
-            invoke("update_last_accessed", { input: data }),
+            invoke("handle_update_last_accessed", { input: data }),
           getAllCredentials: () =>
-            invoke("get_all_resources"),
+            invoke("handle_get_all_resources"),
           logout: () => invoke("logout"),
-          getUserId: () => invoke("get_user_id"),
           sendSnapshot: (data) => invoke("send_snapshot", { snapshot: data }),
           updateCredential: (data: any) =>
-            invoke("update_resource", { input: data }),
-          getCredential: (data: any) => invoke("get_resource", { input: data }),
+            invoke("handle_update_resource", { input: data }),
+          getCredential: (data: any) => invoke("handle_get_resource", { input: data }),
           addKnownUser: (data: any) =>
-            invoke("add_known_user", { input: data }),
-          getKnownUsers: () => invoke("get_known_users"),
-          getPublicKey: () => invoke("get_public_key"),
-          initiateFirstConnection: (data: any) =>
-            invoke("initiate_first_connection", { input: data }),
+            invoke("handle_add_user", { input: data }),
+          getKnownUsers: () => invoke("handle_get_known_users"),
           shareResource: (data: any) =>
-            invoke("share_resource", { input: data }),
-          getUserDetailsForShare: (data: any) =>
-            invoke("get_details_for_share"),
+            invoke("handle_share_resource", { input: data }),
           updateCurrentNote: (data: any) => {
             invoke('update_current_note', { input: data })
           },

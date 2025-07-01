@@ -1,8 +1,6 @@
 use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
-use osvauld_services::UserService;
-// Import the User model
 use p2p_service::P2PService;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -15,26 +13,28 @@ pub struct RendezvousService {
     ws_url: String,
     pending_first_connections: Arc<Mutex<HashSet<String>>>,
     connection_id: Arc<Mutex<Option<String>>>,
-    user_service: Arc<UserService>,
     live_edit_connections: Arc<Mutex<HashSet<String>>>,
 }
 
 impl RendezvousService {
     /// Create a new RendezvousService instance
-    pub fn new(p2p_service: Arc<P2PService>, ws_url: &str, user_service: Arc<UserService>) -> Self {
+    pub fn new(p2p_service: Arc<P2PService>, ws_url: &str) -> Self {
         Self {
             client: Arc::new(Mutex::new(WsClient::new())),
             p2p_service,
             ws_url: ws_url.to_string(),
             pending_first_connections: Arc::new(Mutex::new(HashSet::new())),
             connection_id: Arc::new(Mutex::new(None)),
-            user_service,
             live_edit_connections: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
     /// Initialize the service with the provided user
-    pub async fn initialize(&self, user: String, current_device_id: &str) -> Result<(), String> {
+    pub async fn initialize(
+        &self,
+        user: String,
+        connection_strings: Vec<String>,
+    ) -> Result<(), String> {
         // Store the user in the service state
         {
             let mut user_lock = self.connection_id.lock().await;
@@ -66,7 +66,8 @@ impl RendezvousService {
             )
             .await;
         });
-        self.initialize_sync_with_pending_devices(current_device_id)
+
+        self.request_user_connection_notifications(connection_strings)
             .await?;
 
         Ok(())
@@ -218,10 +219,10 @@ impl RendezvousService {
         p2p_service: &Arc<P2PService>,
         pending_first_connections: &Arc<Mutex<HashSet<String>>>,
         live_edit_connections: &Arc<Mutex<HashSet<String>>>,
-        _user: &Arc<Mutex<Option<String>>>,
+        user: &Arc<Mutex<Option<String>>>,
         response_user_id: &str,
         conn_string: String,
-    ) {
+    ) -> Result<(), String> {
         // Check if this is a first connection
         let is_first_connection = {
             let mut pending = pending_first_connections.lock().await;
@@ -238,14 +239,33 @@ impl RendezvousService {
             live_edit.contains(response_user_id)
         };
 
-        let connection_type = ConnectionType::User;
         let p2p_service_clone = p2p_service.clone();
         let ticket = conn_string.clone();
         let user_id = response_user_id.to_string();
 
         // Create connection ID using the response_user_id
         let connection_id = format!("{}", response_user_id);
-
+        let (response_user_id, device_id) = response_user_id
+            .split_once(':')
+            .ok_or("Invalid connection_id format")?;
+        let current_user_id = {
+            let user_lock = user.lock().await;
+            match &*user_lock {
+                Some(connection_id) => {
+                    let (user_id, _) = connection_id
+                        .split_once(':')
+                        .ok_or("Invalid stored connection_id format")?;
+                    user_id.to_string()
+                }
+                None => return Err("User connection_id not initialized".to_string()),
+            }
+        };
+        info!("current_user_id {}", current_user_id);
+        let connection_type = if current_user_id == response_user_id {
+            ConnectionType::Device
+        } else {
+            ConnectionType::User
+        };
         // Determine the appropriate action based on whether this is a first connection
 
         let action = if is_first_connection {
@@ -262,7 +282,22 @@ impl RendezvousService {
                 "This is a regular connection with user: {}",
                 response_user_id
             );
-            Some(ConnectionAction::DeviceSync)
+            match connection_type {
+                ConnectionType::Device => {
+                    info!(
+                        "This is a regular device connection with: {}",
+                        response_user_id
+                    );
+                    Some(ConnectionAction::DeviceSync)
+                }
+                ConnectionType::User => {
+                    info!(
+                        "This is a regular user connection with: {}",
+                        response_user_id
+                    );
+                    Some(ConnectionAction::UserSync)
+                }
+            }
         };
 
         info!(
@@ -294,6 +329,7 @@ impl RendezvousService {
                 }
             }
         });
+        Ok(())
     }
     /// Handle incoming connection request
     async fn handle_connection_request(
@@ -303,10 +339,6 @@ impl RendezvousService {
         user: &Arc<Mutex<Option<String>>>,
     ) -> Result<(), String> {
         // Start P2P listener
-        if let Err(e) = p2p_service.start_listening().await {
-            return Err(format!("Failed to start P2P listener: {}", e));
-        }
-        // Get connection ticket from P2P service
         let ticket = match p2p_service.get_connection_ticket().await {
             Ok(ticket) => ticket,
             Err(e) => return Err(format!("Failed to get connection ticket: {}", e)),
@@ -334,74 +366,6 @@ impl RendezvousService {
     ) -> Result<Vec<UserConnectionStatus>, String> {
         let client = self.client.lock().await;
         client.get_connection_status(user_ids).await
-    }
-
-    pub async fn initialize_sync_with_pending_devices(
-        &self,
-        current_device_id: &str,
-    ) -> Result<(), String> {
-        info!("Checking for devices with pending syncs...");
-        // Get devices with pending syncs
-        match self
-            .user_service
-            .get_users_with_pending_syncs(current_device_id)
-            .await
-        {
-            Ok(users_with_devices) => {
-                info!(
-                    "Found {} users with devices that have pending syncs",
-                    users_with_devices.len()
-                );
-                if !users_with_devices.is_empty() {
-                    // Process each user's devices
-                    for (sync_user_id, devices) in &users_with_devices {
-                        if !devices.is_empty() {
-                            info!(
-                                "User {} has {} devices with pending syncs",
-                                sync_user_id,
-                                devices.len()
-                            );
-                        }
-                    }
-
-                    // Create user_id:device_id format for each device
-                    let mut user_device_ids: Vec<String> = Vec::new();
-                    for (user_id, devices) in &users_with_devices {
-                        for device in devices {
-                            user_device_ids.push(format!("{}:{}", user_id, device.id));
-                        }
-                    }
-
-                    // Request connection notifications for these user:device combinations
-                    if !user_device_ids.is_empty() {
-                        info!(
-                            "Setting up connection notifications for {} user-device combinations with pending syncs",
-                            user_device_ids.len()
-                        );
-                        if let Err(e) = self
-                            .request_user_connection_notifications(user_device_ids)
-                            .await
-                        {
-                            error!("Failed to set up connection notifications: {}", e);
-                            return Err(format!(
-                                "Failed to set up connection notifications: {}",
-                                e
-                            ));
-                        }
-                        info!(
-                            "Successfully set up connection notifications for users with pending syncs"
-                        );
-                    }
-                } else {
-                    info!("No users with pending syncs found");
-                }
-                Ok(())
-            }
-            Err(e) => {
-                error!("Failed to get devices with pending syncs: {}", e);
-                Err(e)
-            }
-        }
     }
 
     pub async fn request_user_connection_notifications(

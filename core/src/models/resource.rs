@@ -1,4 +1,4 @@
-use crate::models::resource_key::ResourceKey;
+use crate::models::{ResourceKey, ResourceVectorClock, ShareRecord};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,4 +57,17 @@ pub struct ResourceWithKey {
 pub struct ResourceKeyPair {
     pub resource: Resource,
     pub key: ResourceKey,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceManifestData {
+    pub resource_id: String,
+    pub share_record_ids: Vec<String>,
+    pub vector_clocks: Vec<ResourceVectorClock>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceSyncData {
+    pub resource: Resource,
+    pub resource_keys: Vec<ResourceKey>,
+    pub share_records: Vec<ShareRecord>,
+    pub vector_clocks: Vec<ResourceVectorClock>,
 }

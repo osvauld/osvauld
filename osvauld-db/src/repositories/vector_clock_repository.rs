@@ -39,6 +39,38 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         Ok(())
     }
 
+    async fn save_vector_clock(
+        &self,
+        vector_clock: &ResourceVectorClock,
+    ) -> Result<(), RepositoryError> {
+        let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
+        let mut conn = self.connection.lock().await;
+
+        // Check if a record with the same device_id and resource_id already exists
+        let existing_record = resource_vector_clocks::table
+            .filter(resource_vector_clocks::device_id.eq(&vector_clock.device_id))
+            .filter(resource_vector_clocks::resource_id.eq(&vector_clock.resource_id))
+            .first::<ResourceVectorClockModel>(&mut *conn)
+            .optional()
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        match existing_record {
+            Some(_) => {
+                // Record already exists, do nothing
+                Ok(())
+            }
+            None => {
+                // Record doesn't exist, insert new one
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&vector_clock_model)
+                    .execute(&mut *conn)
+                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+                Ok(())
+            }
+        }
+    }
+
     async fn increment_vector_clock(
         &self,
         resource_id: &str,

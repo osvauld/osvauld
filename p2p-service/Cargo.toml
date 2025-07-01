@@ -15,20 +15,23 @@ serde_json = "1.0"
 rand = "0.8.5"
 thiserror = "2.0.12"
 tokio = { version = "1.44.2", features = ["full"] }
-iroh-quinn = "0.13.0"
-iroh-blobs = "0.34.0"
-iroh = "0.34.1"
+iroh-quinn = "0.14.0"
+iroh-blobs = "0.35.0"
+iroh = "0.90.0"
 anyhow = "1.0.91"
 futures-lite = "2.3.0"
-iroh-base = "0.34.1"
+iroh-base = "0.90.0"
 
 # Osvauld core dependencies
 osvauld_core = { version = "0.1.0", path = "../core" }
 osvauld_services = { version = "0.1.0", path = "../osvauld-services" }
+crypto_utils = { path = "../crypto_utils" }
+osvauld_db = { path = "../osvauld-db" }
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tracing-log = "0.2.0"
+n0-watcher = "0.2.0"
 
 [features]
 default = []

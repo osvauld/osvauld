@@ -1,6 +1,8 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 
+use super::Device;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct User {
@@ -40,4 +42,15 @@ impl User {
             deleted_at: None,
         }
     }
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserWithDeviceIds {
+    pub user_id: String,
+    pub device_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserWithDevices {
+    pub user: User,
+    pub devices: Vec<Device>,
 }

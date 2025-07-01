@@ -2,6 +2,7 @@ use crate::database::schema::{
     device_record_status, device_records, devices, folders, resource_keys, resource_vector_clocks,
     resources, share_records, sync_records, users,
 };
+use diesel::associations::Associations;
 use diesel::prelude::*;
 use osvauld_core::models::{
     device::Device as DomainDevice,
@@ -9,11 +10,6 @@ use osvauld_core::models::{
     resource::Resource as DomainResource,
     resource_key::ResourceKey as DomainResourceKey,
     share_record::{PermissionLevel, ShareOperation, ShareRecord as DomainShareRecord},
-    sync_record::{
-        DeviceRecord as DomainDeviceRecord, DeviceRecordStatus as DomainDeviceRecordStatus,
-        SyncRecord as DomainSyncRecord,
-    },
-    sync_types::{OperationType, ResourceType, SyncStatus},
     user::User as DomainUser,
     vector_clock::ResourceVectorClock as DomainResourceVectorClock,
 };
@@ -73,112 +69,7 @@ pub struct SyncRecordModel {
     pub updated_at: i64,
 }
 
-impl SyncRecordModel {
-    pub fn to_domain(&self) -> DomainSyncRecord {
-        DomainSyncRecord {
-            id: self.id.clone(),
-            resource_id: self.resource_id.clone(),
-            resource_type: ResourceType::from(self.resource_type.clone()),
-            operation_type: OperationType::from(self.operation_type.clone()),
-            source_device_id: self.source_device_id.clone(),
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-        }
-    }
-}
-
-impl From<&DomainSyncRecord> for SyncRecordModel {
-    fn from(record: &DomainSyncRecord) -> Self {
-        Self {
-            id: record.id.clone(),
-            resource_id: record.resource_id.clone(),
-            resource_type: record.resource_type.to_string(),
-            operation_type: record.operation_type.to_string(),
-            source_device_id: record.source_device_id.clone(),
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-        }
-    }
-}
-
-#[derive(Queryable, Insertable, Selectable, Debug)]
-#[diesel(table_name = device_records)]
-pub struct DeviceRecordModel {
-    pub id: String,
-    pub sync_record_id: String,
-    pub device_id: String,
-    pub status: String,
-    pub synced: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-impl DeviceRecordModel {
-    pub fn to_domain(&self) -> DomainDeviceRecord {
-        DomainDeviceRecord {
-            id: self.id.clone(),
-            sync_record_id: self.sync_record_id.clone(),
-            device_id: self.device_id.clone(),
-            status: SyncStatus::from(self.status.clone()),
-            synced: self.synced,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-        }
-    }
-}
-
-impl From<&DomainDeviceRecord> for DeviceRecordModel {
-    fn from(record: &DomainDeviceRecord) -> Self {
-        Self {
-            id: record.id.clone(),
-            sync_record_id: record.sync_record_id.clone(),
-            device_id: record.device_id.clone(),
-            status: record.status.to_string(),
-            synced: record.synced,
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-        }
-    }
-}
-
-#[derive(Queryable, Insertable, Selectable, Debug)]
-#[diesel(table_name = device_record_status)]
-pub struct DeviceRecordStatusModel {
-    pub id: String,
-    pub device_record_id: String,
-    pub aware_device_id: String,
-    pub synced: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-impl DeviceRecordStatusModel {
-    pub fn to_domain(&self) -> DomainDeviceRecordStatus {
-        DomainDeviceRecordStatus {
-            id: self.id.clone(),
-            device_record_id: self.device_record_id.clone(),
-            aware_device_id: self.aware_device_id.clone(),
-            synced: self.synced,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-        }
-    }
-}
-
-impl From<&DomainDeviceRecordStatus> for DeviceRecordStatusModel {
-    fn from(status: &DomainDeviceRecordStatus) -> Self {
-        Self {
-            id: status.id.clone(),
-            device_record_id: status.device_record_id.clone(),
-            aware_device_id: status.aware_device_id.clone(),
-            synced: status.synced,
-            created_at: status.created_at,
-            updated_at: status.updated_at,
-        }
-    }
-}
-
-#[derive(Queryable, Insertable, Selectable)]
+#[derive(Queryable, Insertable, Identifiable, Selectable)]
 #[diesel(table_name = resources)]
 pub struct ResourceModel {
     pub id: String,
@@ -245,7 +136,8 @@ impl ResourceModel {
     }
 }
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(UserModel, foreign_key = user_id))]
 #[diesel(table_name = devices)]
 pub struct DeviceModel {
     pub id: String,
@@ -294,7 +186,7 @@ impl DeviceModel {
     }
 }
 
-#[derive(Queryable, Insertable)]
+#[derive(Queryable, Insertable, Identifiable)]
 #[diesel(table_name = users)]
 pub struct UserModel {
     pub id: String,
@@ -348,7 +240,8 @@ impl UserModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable)]
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
 #[diesel(table_name = resource_keys)]
 pub struct ResourceKeyModel {
     pub id: String,
@@ -393,7 +286,8 @@ impl ResourceKeyModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable, Debug)]
+#[derive(Queryable, Insertable, Identifiable, Associations, Selectable)]
+#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
 #[diesel(table_name = resource_vector_clocks)]
 pub struct ResourceVectorClockModel {
     pub id: String,
@@ -452,7 +346,8 @@ impl ResourceVectorClockModel {
     }
 }
 
-#[derive(Queryable, Insertable, Selectable, Debug)]
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
 #[diesel(table_name = share_records)]
 pub struct ShareRecordModel {
     pub id: String,
