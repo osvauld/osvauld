@@ -1,8 +1,7 @@
 use crate::models::{
-    Certificate, Device, DeviceRecord, DeviceRecordSet, DeviceRecordStatus, Folder, Resource,
-    ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceSyncData, ResourceVectorClock,
-    ResourceWithKey, ShareRecord, StatusChangeSet, SyncAndDeviceRecord, SyncRecord, SyncRecordSet,
-    User, UserWithDeviceIds, UserWithDevices,
+    Certificate, Device, Folder, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData,
+    ResourceSyncData, ResourceVectorClock, ResourceWithKey, ShareRecord, User, UserWithDeviceIds,
+    UserWithDevices,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -151,16 +150,6 @@ pub trait DeviceRepository: Send + Sync {
         &self,
         device_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError>;
-}
-
-#[async_trait]
-pub trait DeviceRecordRepository: Send + Sync {
-    async fn add_records(&self, record: DeviceRecord) -> Result<(), RepositoryError>;
-}
-
-#[async_trait]
-pub trait DeviceRecordStatusRepository: Send + Sync {
-    async fn add_device_records(&self, records: DeviceRecordStatus) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

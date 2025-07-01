@@ -25,12 +25,6 @@ use crate::handlers::user_handler::{handle_add_user, handle_get_known_users};
 use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
-use osvauld_db::repositories::{
-    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository,
-    SqliteVectorClockRepository,
-};
-use osvauld_services::FolderService;
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
 
@@ -109,18 +103,7 @@ pub fn run() {
                 Ok(connection) => {
                     app.manage(connection.clone());
                     let repo_ctx = initialize_repositories(connection.clone());
-                    let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
-                    let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
-                    let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
-                    let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
-                    let resource_key_repo =
-                        Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
-                    let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
-                    let vector_clock_repo =
-                        Arc::new(SqliteVectorClockRepository::new(connection.clone()));
 
-                    let folder_service =
-                        Arc::new(FolderService::new(folder_repo.clone(), device_repo.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
 
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
@@ -154,7 +137,6 @@ pub fn run() {
 
                     app.manage(user_state);
                     app.manage(crypto_utils);
-                    app.manage(folder_service);
                     app.manage(p2p_service.clone());
                     app.manage(rendezvous_service);
                     app.manage(repo_ctx);

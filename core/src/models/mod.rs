@@ -6,8 +6,7 @@ pub mod p2p;
 pub mod resource;
 pub mod resource_key;
 pub mod share_record;
-pub mod sync_record;
-pub mod sync_types;
+pub mod sync;
 pub mod user;
 pub mod vector_clock;
 
@@ -19,7 +18,6 @@ pub use p2p::*;
 pub use resource::*;
 pub use resource_key::*;
 pub use share_record::*;
-pub use sync_record::*;
-pub use sync_types::*;
+pub use sync::*;
 pub use user::*;
 pub use vector_clock::*;
