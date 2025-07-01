@@ -1,23 +1,18 @@
 use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
-use crate::p2p::phase_management::PhaseState;
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, Phase,
-    PhaseAction, PhaseType, User, UserManifestComparisonResult,
+    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, User,
+    UserManifestComparisonResult,
 };
 use osvauld_db::database::RepositoryContext;
-use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
-    pub auth_service: Arc<AuthService>,
-    pub user_service: Arc<UserService>,
-    pub sync_service: Arc<SyncService>,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
 }
@@ -49,7 +44,6 @@ pub struct PeerConnection {
     pub event_emitter: P2PEventEmitter,
 
     pub pending_resource_ids: Arc<Mutex<Vec<String>>>,
-    pub phase: PhaseState,
     pub action: Option<ConnectionAction>,
     pub is_live_editing: Arc<Mutex<bool>>,
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
@@ -93,7 +87,6 @@ impl PeerConnection {
             context,
             event_emitter,
             pending_resource_ids: Arc::new(Mutex::new(pending_resource_ids)),
-            phase: PhaseState::new(),
             action,
             is_live_editing: Arc::new(Mutex::new(false)),
             on_close: Arc::new(Mutex::new(on_close)),
@@ -265,7 +258,7 @@ impl PeerConnection {
                                 // Try to parse what we have so far
                                 if let Ok(message_str) = String::from_utf8(buffer.clone()) {
                                     match serde_json::from_str::<Message>(&message_str) {
-                                        Ok(message) => {
+                                        Ok(mut message) => {
                                             info!(
                                                 "Successfully deserialized message: {:?}",
                                                 message
@@ -277,7 +270,7 @@ impl PeerConnection {
 
                                             // Process the message
                                             if let Err(e) = self
-                                                .process_message(&message)
+                                                .process_message(&mut message)
                                                 .instrument(process_span)
                                                 .await
                                             {
@@ -349,24 +342,8 @@ impl PeerConnection {
 
     /// Process a received message by delegating to the appropriate handler
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
-    async fn process_message(&self, message: &Message) -> Result<(), String> {
+    async fn process_message(&self, message: &mut Message) -> Result<(), String> {
         match message {
-            Message::SyncAck(updated_data) => {
-                info!("Received SyncAck");
-                self.handle_sync_ack(updated_data.clone()).await
-            }
-            Message::FirstDeviceConnection(records) => {
-                info!("Received AddDevice request");
-                self.process_first_device_connection(records).await
-            }
-            Message::AddDeviceAck => {
-                info!("Received AddDeviceAck");
-                todo!()
-            }
-            Message::SyncResponse(payload) => {
-                info!("Received SyncResponse");
-                self.handle_sync_response(payload.clone()).await
-            }
             Message::Chat(content) => {
                 info!("Received chat message: {}", content);
                 // No response needed for chat messages
@@ -380,10 +357,6 @@ impl PeerConnection {
                 debug!("Received pong");
                 Ok(())
             }
-            Message::AckComplete(device_sync_record_ids) => {
-                self.ack_complete(device_sync_record_ids.clone()).await
-            }
-            Message::UserConnection(payload) => self.process_user_connection_payload(payload).await,
             Message::Error => {
                 error!("Received error message from peer");
                 self.event_emitter.emit(P2PEvent::Error {
@@ -487,7 +460,6 @@ impl PeerConnection {
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
             pending_resource_ids: self.pending_resource_ids.clone(),
-            phase: self.phase.clone(),
             action: self.action.clone(),
             is_live_editing: self.is_live_editing.clone(),
             on_close: self.on_close.clone(),
@@ -498,9 +470,12 @@ impl PeerConnection {
             user_manifest_result: self.user_manifest_result.clone(),
         }
     }
-    pub async fn get_local_user(&self) -> Option<User> {
+    pub async fn get_local_user(&self) -> Result<User, String> {
         let user_guard = self.context.current_user.read().await;
-        user_guard.clone()
+        match user_guard.clone() {
+            Some(user) => Ok(user),
+            None => Err("No user is currently logged in".to_string()),
+        }
     }
 
     pub async fn get_local_device(&self) -> Option<Device> {
@@ -524,16 +499,13 @@ impl PeerConnection {
 
             // Execute the appropriate action
             match action {
-                ConnectionAction::DeviceSync => {
-                    todo!()
-                }
+                ConnectionAction::DeviceSync => self.start_add_device_process().await,
                 ConnectionAction::UserFirstConnection => {
-                    info!("Initiator: Starting user first connection phase");
-                    todo!()
+                    self.send_first_user_connection_payload(true).await
                 }
                 ConnectionAction::AddDevice => {
                     info!("Initiator: Starting add device phase");
-                    todo!()
+                    self.start_add_device_process().await
                 }
                 ConnectionAction::LiveEdit => {
                     info!("live edit triggered");

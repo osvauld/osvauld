@@ -7,6 +7,8 @@ use crypto_utils::{
     CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
     generate_keys, generate_keys_without_password, get_key_id, import_certificate,
 };
+use rand::{RngCore, rngs::OsRng};
+
 use osvauld_db::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -222,4 +224,28 @@ pub async fn import_user(
         .await
         .map_err(|e| e.to_string())?;
     Ok((user, certificate))
+}
+pub async fn sign_random_challenge(
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<(String, String), String> {
+    let challenge = generate_challenge();
+    let signature = crypto_utils
+        .lock()
+        .await
+        .sign_message(&challenge)
+        .map_err(|e| e.to_string())?;
+
+    Ok((challenge, signature))
+}
+
+fn generate_challenge() -> String {
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    bytes
+        .iter()
+        .fold(String::with_capacity(64), |mut acc, byte| {
+            use std::fmt::Write;
+            write!(acc, "{:02x}", byte).unwrap();
+            acc
+        })
 }

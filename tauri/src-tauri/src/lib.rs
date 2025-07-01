@@ -27,12 +27,10 @@ use clap::Parser;
 use crypto_utils::CryptoUtils;
 use osvauld_db::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
-    SqliteUserRepository, SqliteVectorClockRepository,
+    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository,
+    SqliteVectorClockRepository,
 };
-use osvauld_services::{
-    AuthService, FolderService, ResourceService, SyncService, TransactionService, UserService,
-};
+use osvauld_services::FolderService;
 use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
 
@@ -112,77 +110,21 @@ pub fn run() {
                     app.manage(connection.clone());
                     let repo_ctx = initialize_repositories(connection.clone());
                     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
-                    let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
                     let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
                     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
                     let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
                     let resource_key_repo =
                         Arc::new(SqliteResourceKeyRepository::new(connection.clone()));
                     let store_repository = Arc::new(SqliteStoreRepository::new(connection.clone()));
-                    let user_repository = Arc::new(SqliteUserRepository::new(connection.clone()));
                     let vector_clock_repo =
                         Arc::new(SqliteVectorClockRepository::new(connection.clone()));
 
                     let folder_service =
                         Arc::new(FolderService::new(folder_repo.clone(), device_repo.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
-                    let auth_service = Arc::new(AuthService::new(
-                        store_repository.clone(),
-                        crypto_utils.clone(),
-                        device_repo.clone(),
-                    ));
 
-                    let transaction_service = Arc::new(TransactionService::new(
-                        resource_repo.clone(),
-                        resource_key_repo.clone(),
-                        sync_repo.clone(),
-                        share_repo.clone(),
-                        store_repository.clone(),
-                        user_repository.clone(),
-                        device_repo.clone(),
-                        folder_repo.clone(),
-                        vector_clock_repo.clone(),
-                    ));
-
-                    let resource_service = Arc::new(ResourceService::new(
-                        resource_repo.clone(),
-                        crypto_utils.clone(),
-                        vector_clock_repo.clone(),
-                        resource_key_repo.clone(),
-                        device_repo.clone(),
-                        user_repository.clone(),
-                        share_repo.clone(),
-                        sync_repo.clone(),
-                    ));
-                    let sync_service = Arc::new(SyncService::new(
-                        sync_repo.clone(),
-                        folder_repo.clone(),
-                        resource_repo.clone(),
-                        device_repo.clone(),
-                        store_repository.clone(),
-                        vector_clock_repo.clone(),
-                        user_repository.clone(),
-                        share_repo.clone(),
-                        resource_service.clone(),
-                        transaction_service.clone(),
-                    ));
-
-                    let user_service = Arc::new(UserService::new(
-                        user_repository.clone(),
-                        crypto_utils.clone(),
-                        sync_repo.clone(),
-                        device_repo.clone(),
-                        vector_clock_repo.clone(),
-                        share_repo.clone(),
-                    ));
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
-                        P2PService::new(
-                            sync_service.clone(),
-                            auth_service.clone(),
-                            user_service.clone(),
-                            repo_ctx.clone(),
-                            crypto_utils.clone(),
-                        );
+                        P2PService::new(repo_ctx.clone(), crypto_utils.clone());
                     let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
                     rt.spawn(async move {
@@ -196,15 +138,13 @@ pub fn run() {
                     let rendezvous_service = Arc::new(RendezvousService::new(
                         p2p_service.clone(),
                         "ws://0.0.0.0:3030/ws",
-                        user_service.clone(),
                     ));
                     let event_manager = EventManager::new(
                         handle.clone(),
                         p2p_receiver,
-                        resource_service.clone(),
                         p2p_sender,
-                        user_service.clone(),
                         rendezvous_service.clone(),
+                        repo_ctx.clone(),
                     );
                     rt.spawn(async move {
                         event_manager.start_listening();
@@ -215,12 +155,7 @@ pub fn run() {
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(folder_service);
-                    app.manage(auth_service);
-                    app.manage(resource_service);
-                    app.manage(sync_service);
                     app.manage(p2p_service.clone());
-                    app.manage(user_service);
-                    app.manage(transaction_service);
                     app.manage(rendezvous_service);
                     app.manage(repo_ctx);
                 }

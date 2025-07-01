@@ -51,6 +51,7 @@ pub enum P2PEvent {
         resource_id: String,
         connection_id: String,
         state_vector: Vec<u8>,
+        current_user_id: String,
     },
     ProcessUpdate {
         resource_id: String,

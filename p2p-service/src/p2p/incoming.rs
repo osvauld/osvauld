@@ -18,6 +18,7 @@ pub enum IncomingEvent {
         resource_id: String,
         state_vector: Vec<u8>,
         buffer: Vec<u8>,
+        user_id: String,
     },
     LiveEditUpdateExchangeResponse {
         connection_id: String,
@@ -100,12 +101,14 @@ impl P2PSender {
         resource_id: String,
         state_vector: Vec<u8>,
         buffer: Vec<u8>,
+        user_id: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::LiveEditUpdateExchange {
             connection_id,
             resource_id,
             state_vector,
             buffer,
+            user_id,
         })
     }
     pub fn send_document_changed(

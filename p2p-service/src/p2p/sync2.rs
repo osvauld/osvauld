@@ -3,8 +3,8 @@ use crate::p2p::peer_connection::PeerConnection;
 use super::P2PEvent;
 use osvauld_core::models::{
     ConnectionType, DeviceManifestComparisonResult, DeviceManifestRequestPayload,
-    DeviceNetworkSyncPayload, FirstUserExchange, Message, ResourceSyncData, ResourceUpdateMsg,
-    User, UserManifestPayload, UserNetworkSyncPayload, UserWithDevices,
+    DeviceNetworkSyncPayload, FirstUserExchange, LiveEditMessage, Message, ResourceSyncData,
+    ResourceUpdateMsg, User, UserManifestPayload, UserNetworkSyncPayload, UserWithDevices,
 };
 use osvauld_services::{
     add_resource_sync, add_share_records, apply_updates_and_get_peer_updates,
@@ -268,7 +268,7 @@ impl PeerConnection {
     ), level = "info")]
     pub async fn handle_device_network_sync(
         &self,
-        payload: &DeviceNetworkSyncPayload,
+        payload: &mut DeviceNetworkSyncPayload,
     ) -> Result<(), String> {
         info!("Processing device network sync payload");
         debug!(
@@ -303,9 +303,10 @@ impl PeerConnection {
     }
 
     #[instrument(skip(self), fields(
-        connection_id = %self.get_id(),
-        device_id = %self.device.id
-    ), level = "info")]
+    connection_id = %self.get_id(),
+    device_id = %self.device.id,
+    connection_type = ?self.connection_type
+), level = "info")]
     pub async fn send_resources(&self) -> Result<(), String> {
         info!("Starting resource transmission process");
 
@@ -313,6 +314,12 @@ impl PeerConnection {
         let resource_ids: Vec<String> = match self.connection_type {
             ConnectionType::Device => {
                 let manifest = self.get_device_manifest_result().await?;
+                debug!(
+                    local_missing = manifest.local_missing.unknown_resources.len(),
+                    remote_missing = manifest.remote_missing.unknown_resources.len(),
+                    "Device manifest retrieved"
+                );
+
                 if manifest.local_missing.unknown_resources.is_empty() {
                     self.send_message(Message::ResourceAddtionComplete).await?;
                 }
@@ -325,6 +332,12 @@ impl PeerConnection {
             }
             ConnectionType::User => {
                 let manifest = self.get_user_manifest_result().await?;
+                debug!(
+                    local_missing = manifest.local_missing.unknown_resources.len(),
+                    remote_missing = manifest.remote_missing.unknown_resources.len(),
+                    "User manifest retrieved"
+                );
+
                 if manifest.local_missing.unknown_resources.is_empty() {
                     self.send_message(Message::ResourceAddtionComplete).await?;
                 }
@@ -336,6 +349,11 @@ impl PeerConnection {
                     .collect()
             }
         };
+
+        info!(
+            resources_to_send = resource_ids.len(),
+            "Resource collection completed"
+        );
 
         for (index, resource_id) in resource_ids.iter().enumerate() {
             debug!(
@@ -402,12 +420,11 @@ impl PeerConnection {
     ), level = "info")]
     pub async fn process_resource_addition_request(
         &self,
-        payload: &ResourceSyncData,
+        payload: &mut ResourceSyncData,
     ) -> Result<(), String> {
         info!("Processing resource addition request");
         debug!("Adding resource to local repository");
-
-        match add_resource_sync(payload, &self.repo_ctx).await {
+        match add_resource_sync(payload, &self.repo_ctx, &self.connection_type).await {
             Ok(_) => {
                 info!(
                     resource_id = %payload.resource.id,
@@ -546,6 +563,7 @@ impl PeerConnection {
     ) -> Result<(), String> {
         info!("Processing resource update message");
 
+        let user = self.get_local_user().await?;
         match payload {
             ResourceUpdateMsg::StateVectorRequest {
                 resource_id,
@@ -558,7 +576,7 @@ impl PeerConnection {
 
                 let (updates, state_vector) = match generate_updates_for_peer(
                     resource_id,
-                    &self.user.id,
+                    &user.id,
                     &self.repo_ctx,
                     &self.crypto_utils,
                     &state_vector,
@@ -620,10 +638,10 @@ impl PeerConnection {
                 let (remote_updates, _) = match apply_updates_and_get_peer_updates(
                     resource_id,
                     &self.user.id,
-                    &self.repo_ctx,
-                    &self.crypto_utils,
                     updates,
                     state_vector,
+                    &self.repo_ctx,
+                    &self.crypto_utils,
                 )
                 .await
                 {
@@ -859,10 +877,7 @@ impl PeerConnection {
 
     pub async fn send_first_user_connection_payload(&self, is_request: bool) -> Result<(), String> {
         // Only the initiator sends the UserConnection message
-        let user = match self.get_local_user().await {
-            Some(user) => user,
-            None => return Err("Local user not found".into()),
-        };
+        let user = self.get_local_user().await?;
         let devices = get_my_user_devices(&user.id, &self.repo_ctx).await?;
         let message = if is_request {
             FirstUserExchange::Request(UserWithDevices { user, devices })
@@ -919,10 +934,7 @@ impl PeerConnection {
         &self,
         payload: &UserManifestPayload,
     ) -> Result<(), String> {
-        let user = match self.get_local_user().await {
-            Some(user) => user,
-            None => return Err("Local user not found".into()),
-        };
+        let user = self.get_local_user().await?;
         match payload {
             UserManifestPayload::Request(request_payload) => {
                 let manifest_result =
@@ -956,9 +968,9 @@ impl PeerConnection {
 
     pub async fn process_user_network_sync(
         &self,
-        payload: &UserNetworkSyncPayload,
+        payload: &mut UserNetworkSyncPayload,
     ) -> Result<(), String> {
-        if !self.is_initiator {
+        if self.is_initiator {
             let manifest = self.get_user_manifest_result().await?;
             let local_payload =
                 create_user_network_sync_payload(&manifest.remote_missing, &self.repo_ctx).await?;
@@ -969,5 +981,119 @@ impl PeerConnection {
         process_user_network_sync_payload(payload, &self.repo_ctx).await?;
         self.send_message(Message::UserNetworkSyncAck).await?;
         Ok(())
+    }
+
+    #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
+    pub async fn handle_live_edit_flow(&self, message: &LiveEditMessage) -> Result<(), String> {
+        let user = self.get_local_user().await?;
+        match message {
+            LiveEditMessage::DocumentCheck { resource_id } => {
+                self.event_emitter.emit(P2PEvent::DocumentCheck {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                });
+                //mark connection for live editing.
+                self.set_live_editing_active().await;
+                Ok(())
+            }
+            LiveEditMessage::StateVectorExchange {
+                resource_id,
+                state_vector,
+            } => {
+                self.event_emitter.emit(P2PEvent::UpdateRequest {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                    state_vector: state_vector.clone(),
+                    current_user_id: user.id.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::UpdateExchange {
+                resource_id,
+                updates,
+                buffer,
+                state_vector,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::ProcessUpdate {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    state_vector: state_vector.clone(),
+                    updates: updates.clone(),
+                    buffer: buffer.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::UpdateExchangeResponse {
+                resource_id,
+                updates,
+                state_vector: _,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::ProcessUpdateResponse {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    updates: updates.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::CurrentBufferExchange {
+                resource_id,
+                buffer,
+            } => {
+                let connection_id = self.get_id();
+                self.event_emitter.emit(P2PEvent::CurrentBufferExchange {
+                    resource_id: resource_id.clone(),
+                    connection_id,
+                    updates: buffer.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::NotSameDocument => {
+                self.set_live_editing_inactive().await;
+                // self.cancel_disconnection_timer().await;
+                // self.check_for_possible_disconnection().await?;
+                Ok(())
+            }
+            LiveEditMessage::DocumentChange { resource_id } => {
+                info!("Peer changed document: {}", resource_id);
+
+                // Just set live editing inactive - the existing check_for_possible_disconnection
+                // will handle the timer on its own when needed
+                self.set_live_editing_inactive().await;
+
+                // Emit an event so the listener can remove this connection from active connections
+                self.event_emitter.emit(P2PEvent::DocumentChanged {
+                    resource_id: resource_id.clone(),
+                    connection_id: self.get_id(),
+                });
+
+                Ok(())
+            }
+            LiveEditMessage::DocumentUpdate {
+                updates,
+                resource_id,
+                client_id,
+            } => {
+                self.event_emitter.emit(P2PEvent::EditingEvent {
+                    updates: updates.to_vec(),
+                    resource_id: resource_id.to_string(),
+                    client_id: client_id.clone(),
+                });
+                Ok(())
+            }
+            LiveEditMessage::AwarenessUpdate {
+                resource_id,
+                client_id,
+                awareness_data,
+            } => {
+                self.event_emitter.emit(P2PEvent::AwarenessEvent {
+                    awareness_data: awareness_data.to_vec(),
+                    resource_id: resource_id.to_string(),
+                    client_id: client_id.clone(),
+                });
+                Ok(())
+            }
+        }
     }
 }

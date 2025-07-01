@@ -8,7 +8,6 @@ use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use iroh::{Endpoint, RelayMode, SecretKey};
 use osvauld_core::models::{User, ConnectionTicket, Device};
 use osvauld_db::database::RepositoryContext;
-use osvauld_services::{AuthService, SyncService, UserService};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
@@ -27,9 +26,6 @@ pub struct P2PState {
 #[derive(Clone)]
 pub struct P2PService {
     pub state: Arc<Mutex<Option<P2PState>>>,
-    pub sync_service: Arc<SyncService>,
-    pub auth_service: Arc<AuthService>,
-    pub user_service: Arc<UserService>,
     pub crypto_utils: Arc<Mutex<CryptoUtils>>,
     pub repo_ctx: RepositoryContext,
     pub event_emitter: P2PEventEmitter,
@@ -41,9 +37,6 @@ impl P2PService {
     /// Creates a new P2P service instance
     #[instrument(skip_all, level = "info")]
     pub fn new(
-        sync_service: Arc<SyncService>,
-        auth_service: Arc<AuthService>,
-        user_service: Arc<UserService>,
         repo_ctx: RepositoryContext,
         crypto_utils: Arc<Mutex<CryptoUtils>>
     ) -> (
@@ -66,9 +59,6 @@ impl P2PService {
 
         let service = Self {
             state: Arc::new(Mutex::new(None)),
-            sync_service,
-            auth_service,
-            user_service,
             event_emitter: emitter,
             current_user: Arc::new(RwLock::new(None)),
             current_device: Arc::new(RwLock::new(None)),
@@ -111,30 +101,31 @@ impl P2PService {
 
     /// Gets the current user if one is set
     #[instrument(skip(self), level = "trace")]
-    pub async fn get_current_user(&self) -> Option<User> {
+    pub async fn get_current_user(&self) -> Result<User, String> {
         trace!("Getting current user");
         let user_guard = self.current_user.read().await;
         let user = user_guard.clone();
         if let Some(ref u) = user {
-            trace!("Current user found: {}", u.id);
+            Ok(u.clone())
         } else {
             trace!("No current user set");
+            return Err("no user found".to_string())
         }
-        user
     }
 
     /// Gets the current device if one is set
     #[instrument(skip(self), level = "trace")]
-    pub async fn get_current_device(&self) -> Option<Device> {
+    pub async fn get_current_device(&self) -> Result<Device, String> {
         trace!("Getting current device");
         let device_guard = self.current_device.read().await;
         let device = device_guard.clone();
         if let Some(ref d) = device {
             trace!("Current device found: {}", d.id);
+            Ok(d.clone())
         } else {
             trace!("No current device set");
+            return Err("no current device found".to_string())
         }
-        device
     }
 
     /// Ensures the P2P service is initialized
@@ -176,9 +167,6 @@ impl P2PService {
         };
 
         let service_context = Arc::new(ServiceContext {
-            auth_service: self.auth_service.clone(),
-            user_service: self.user_service.clone(),
-            sync_service: self.sync_service.clone(),
             current_user: self.current_user.clone(),
             current_device: self.current_device.clone(),
         });

@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use chrono::Local;
 use diesel::QueryDsl;
 use diesel::prelude::*;
+use log::{debug, error, info};
 use osvauld_core::models::{
     Device, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceSyncData,
     ResourceVectorClock, ResourceWithKey, ShareRecord,
@@ -547,55 +548,185 @@ impl ResourceRepository for SqliteResourceRepository {
             vector_clocks,
         })
     }
-    async fn save_resource_sync_data(
-        &self,
-        sync_data: &ResourceSyncData,
-    ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+async fn save_resource_sync_data(
+    &self,
+    sync_data: &ResourceSyncData,
+) -> Result<(), RepositoryError> {
+    let resource_id = &sync_data.resource.id;
+    
+    debug!(
+        "Starting resource sync data save - resource_id: {}, resource_type: {}, resource_keys: {}, share_records: {}, vector_clocks: {}",
+        resource_id,
+        sync_data.resource.resource_type,
+        sync_data.resource_keys.len(),
+        sync_data.share_records.len(),
+        sync_data.vector_clocks.len()
+    );
 
-        conn.transaction::<_, diesel::result::Error, _>(|conn| {
-            // 1. Insert the resource
-            let resource_model = ResourceModel::from(&sync_data.resource);
-            diesel::insert_into(resources::table)
-                .values(&resource_model)
-                .on_conflict(resources::id)
+    let mut conn = self.connection.lock().await;
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // 1. Insert the resource
+        debug!("Inserting resource: {}", resource_id);
+        let resource_model = ResourceModel::from(&sync_data.resource);
+        
+        debug!(
+            "Resource model details - id: {},  type: {}, , folder_id: {:?}",
+            resource_model.id,
+            resource_model.resource_type,
+            resource_model.folder_id
+        );
+
+        match diesel::insert_into(resources::table)
+            .values(&resource_model)
+            .on_conflict(resources::id)
+            .do_nothing()
+            .execute(conn)
+        {
+            Ok(rows_affected) => {
+                debug!("Resource insert successful - resource_id: {}, rows_affected: {}", resource_id, rows_affected);
+            }
+            Err(e) => {
+                error!("Failed to insert resource - resource_id: {}, error: {}", resource_id, e);
+                return Err(e);
+            }
+        }
+
+        // 2. Insert resource keys
+        debug!("Inserting resource keys - resource_id: {}, key_count: {}", resource_id, sync_data.resource_keys.len());
+
+        for (index, resource_key) in sync_data.resource_keys.iter().enumerate() {
+            let resource_key_model = ResourceKeyModel::from(resource_key);
+            
+            debug!(
+                "Resource key model details - index: {}, key_id: {}, resource_id: {}, user_id: {}",
+                index,
+                resource_key_model.id,
+                resource_key_model.resource_id,
+                resource_key_model.user_id,
+            );
+
+            match diesel::insert_into(resource_keys::table)
+                .values(&resource_key_model)
+                .on_conflict(resource_keys::id)
                 .do_nothing()
-                .execute(conn)?;
-
-            // 2. Insert resource keys
-            for resource_key in &sync_data.resource_keys {
-                let resource_key_model = ResourceKeyModel::from(resource_key);
-                diesel::insert_into(resource_keys::table)
-                    .values(&resource_key_model)
-                    .on_conflict(resource_keys::id)
-                    .do_nothing()
-                    .execute(conn)?;
+                .execute(conn)
+            {
+                Ok(rows_affected) => {
+                    debug!(
+                        "Resource key insert successful - index: {}, key_id: {}, rows_affected: {}",
+                        index,
+                        resource_key_model.id,
+                        rows_affected
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to insert resource key - index: {}, key_id: {}, resource_id: {}, user_id: {},  error: {}",
+                        index,
+                        resource_key_model.id,
+                        resource_key_model.resource_id,
+                        resource_key_model.user_id,
+                        e
+                    );
+                    return Err(e);
+                }
             }
+        }
 
-            // 3. Insert share records
-            for share_record in &sync_data.share_records {
-                let share_record_model = ShareRecordModel::from(share_record);
-                diesel::insert_into(share_records::table)
-                    .values(&share_record_model)
-                    .on_conflict(share_records::id)
-                    .do_nothing()
-                    .execute(conn)?;
+        // 3. Insert share records
+        debug!("Inserting share records - resource_id: {}, share_record_count: {}", resource_id, sync_data.share_records.len());
+
+        for (index, share_record) in sync_data.share_records.iter().enumerate() {
+            let share_record_model = ShareRecordModel::from(share_record);
+            
+            debug!(
+                "Share record model details - index: {}, share_id: {}, resource_id: {}, user_id: {}, permission: {}",
+                index,
+                share_record_model.id,
+                share_record_model.resource_id,
+                share_record_model.recipient_user_id,
+                share_record_model.permission_level
+            );
+
+            match diesel::insert_into(share_records::table)
+                .values(&share_record_model)
+                .on_conflict(share_records::id)
+                .do_nothing()
+                .execute(conn)
+            {
+                Ok(rows_affected) => {
+                    debug!(
+                        "Share record insert successful - index: {}, share_id: {}, rows_affected: {}",
+                        index,
+                        share_record_model.id,
+                        rows_affected
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to insert share record - index: {}, share_id: {}, resource_id: {}, user_id: {}, error: {}",
+                        index,
+                        share_record_model.id,
+                        share_record_model.resource_id,
+                        share_record_model.recipient_user_id,
+                        e
+                    );
+                    return Err(e);
+                }
             }
+        }
 
-            // 4. Insert vector clocks
-            for vector_clock in &sync_data.vector_clocks {
-                let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
-                diesel::insert_into(resource_vector_clocks::table)
-                    .values(&vector_clock_model)
-                    .on_conflict(resource_vector_clocks::id)
-                    .do_nothing()
-                    .execute(conn)?;
+        // 4. Insert vector clocks
+        debug!("Inserting vector clocks - resource_id: {}, vector_clock_count: {}", resource_id, sync_data.vector_clocks.len());
+
+        for (index, vector_clock) in sync_data.vector_clocks.iter().enumerate() {
+            let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
+            
+            debug!(
+                "Vector clock model details - index: {}, clock_id: {}, resource_id: {}, device_id: {}, clock_value: {}",
+                index,
+                vector_clock_model.id,
+                vector_clock_model.resource_id,
+                vector_clock_model.device_id,
+                vector_clock_model.clock_value
+            );
+
+            match diesel::insert_into(resource_vector_clocks::table)
+                .values(&vector_clock_model)
+                .on_conflict(resource_vector_clocks::id)
+                .do_nothing()
+                .execute(conn)
+            {
+                Ok(rows_affected) => {
+                    debug!(
+                        "Vector clock insert successful - index: {}, clock_id: {}, rows_affected: {}",
+                        index,
+                        vector_clock_model.id,
+                        rows_affected
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "Failed to insert vector clock - index: {}, clock_id: {}, resource_id: {}, device_id: {}, error: {}",
+                        index,
+                        vector_clock_model.id,
+                        vector_clock_model.resource_id,
+                        vector_clock_model.device_id,
+                        e
+                    );
+                    return Err(e);
+                }
             }
+        }
 
-            Ok(())
-        })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        info!("All resource sync data inserted successfully - resource_id: {}", resource_id);
         Ok(())
-    }
+    })
+    .map_err(|e| {
+        error!("Transaction failed during resource sync data save - resource_id: {}, error: {}", resource_id, e);
+        RepositoryError::DatabaseError(e.to_string())
+    })?;
+
+    Ok(())
+}
 }

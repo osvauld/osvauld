@@ -505,10 +505,10 @@ pub async fn generate_updates_for_peer(
 pub async fn apply_updates_and_get_peer_updates(
     resource_id: &str,
     user_id: &str,
-    repo_ctx: &RepositoryContext,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
     updates: &[u8],
     peer_state_vector: &[u8],
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
     // 1. Get the current resource with its YJS state
     let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await

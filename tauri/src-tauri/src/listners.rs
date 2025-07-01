@@ -1,7 +1,8 @@
 use crate::current_note_state::CurrentNoteState;
 use crate::user_state::UserState;
 use log::{error, info, warn};
-use osvauld_services::{ResourceService, UserService};
+use osvauld_db::database::RepositoryContext;
+use osvauld_services::get_shared_users_for_note;
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
 use rendezvous_client::rendezvous_service::RendezvousService;
 use serde_json::Value;
@@ -13,12 +14,11 @@ use tokio::sync::mpsc;
 /// This connects the Tauri event system with the P2P event system
 pub struct EventManager {
     app_handle: AppHandle,
-    resource_service: Arc<ResourceService>,
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
-    user_service: Arc<UserService>,
     rendezvous_service: Arc<RendezvousService>,
+    repo_ctx: RepositoryContext
 }
 
 #[derive(Debug, Clone)]
@@ -49,19 +49,17 @@ impl EventManager {
     pub fn new(
         app_handle: AppHandle,
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
-        resource_service: Arc<ResourceService>,
         p2p_sender: P2PSender,
-        user_service: Arc<UserService>,
         rendezvous_service: Arc<RendezvousService>,
+    repo_ctx: RepositoryContext
     ) -> Self {
         Self {
             app_handle,
             p2p_receiver,
-            resource_service,
             p2p_sender,
             current_note_state: CurrentNoteState::new(),
-            user_service,
             rendezvous_service,
+            repo_ctx
         }
     }
 
@@ -237,15 +235,14 @@ fn setup_update_listener(&self, update_type: UpdateType) {
 
     fn setup_note_change_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-        let user_service = self.user_service.clone();
 
         let rendezvous_service = self.rendezvous_service.clone();
         let app_handle = self.app_handle.clone();
         let p2p_sender = self.p2p_sender.clone();
+        let repo_ctx = self.repo_ctx.clone(); 
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
-            let user_service = user_service.clone();
             let app_handle_clone = app_handle.clone();
             let note_id = payload.trim_matches('"').to_string();
             let rendezvous_service = rendezvous_service.clone();
@@ -296,7 +293,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
             // Clone what we need for the async block
             let note_state = note_state.clone();
             let note_id = note_id.clone();
-
+             let repo_ctx = repo_ctx.clone();
             // Spawn an async task to fetch shared users
             tokio::spawn(async move {
                 // Get current user to exclude from the shared list
@@ -321,8 +318,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                     }
                 };
                 // Use UserService to get shared users for the note
-                match user_service
-                    .get_shared_users_for_note(&note_id, &current_user_id)
+                  match  get_shared_users_for_note(&note_id, &current_user_id, &repo_ctx)
                     .await
                 {
                     Ok(shared_users) => {
@@ -382,8 +378,9 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                     resource_id,
                     connection_id,
                     state_vector,
+                   current_user_id, 
                 } => {
-                    self.handle_document_update_request(resource_id, connection_id, state_vector)
+                    self.handle_document_update_request(resource_id, connection_id, state_vector, current_user_id)
                         .await
                 }
                 P2PEvent::ProcessUpdate {
@@ -517,6 +514,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
         resource_id: String,
         connection_id: String,
         state_vector: Vec<u8>,
+        current_user_id: String,
     ) {
         info!("Received update request for resource: {}", resource_id);
 
@@ -539,6 +537,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                 resource_id.clone(),
                 state_vector.clone(),
                 combined_updates,
+                current_user_id
             ) {
                 error!("Failed to send update exchange: {}", e);
             } else {

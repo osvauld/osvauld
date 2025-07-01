@@ -1,8 +1,6 @@
 use crate::ws::{UserConnectionStatus, WsClient, WsMessage};
 use log::{debug, error, info};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
-use osvauld_services::{UserService, get_rendezvous_payload};
-// Import the User model
 use p2p_service::P2PService;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -15,20 +13,18 @@ pub struct RendezvousService {
     ws_url: String,
     pending_first_connections: Arc<Mutex<HashSet<String>>>,
     connection_id: Arc<Mutex<Option<String>>>,
-    user_service: Arc<UserService>,
     live_edit_connections: Arc<Mutex<HashSet<String>>>,
 }
 
 impl RendezvousService {
     /// Create a new RendezvousService instance
-    pub fn new(p2p_service: Arc<P2PService>, ws_url: &str, user_service: Arc<UserService>) -> Self {
+    pub fn new(p2p_service: Arc<P2PService>, ws_url: &str) -> Self {
         Self {
             client: Arc::new(Mutex::new(WsClient::new())),
             p2p_service,
             ws_url: ws_url.to_string(),
             pending_first_connections: Arc::new(Mutex::new(HashSet::new())),
             connection_id: Arc::new(Mutex::new(None)),
-            user_service,
             live_edit_connections: Arc::new(Mutex::new(HashSet::new())),
         }
     }

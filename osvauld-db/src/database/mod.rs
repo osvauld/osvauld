@@ -1,7 +1,7 @@
 use crate::repositories::{
     SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteSyncRepository,
-    SqliteUserRepository, SqliteVectorClockRepository,
+    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteUserRepository,
+    SqliteVectorClockRepository,
 };
 use diesel::Connection;
 use diesel::sqlite::SqliteConnection;
@@ -9,7 +9,7 @@ use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::info;
 use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, ResourceKeyRepository, ResourceRepository, ShareRepository,
-    StoreRepository, SyncRepository, UserRepository, VectorClockRepository,
+    StoreRepository, UserRepository, VectorClockRepository,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -22,7 +22,6 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 #[derive(Clone)]
 pub struct RepositoryContext {
     pub folder_repo: Arc<dyn FolderRepository>,
-    pub sync_repo: Arc<dyn SyncRepository>,
     pub resource_repo: Arc<dyn ResourceRepository>,
     pub device_repo: Arc<dyn DeviceRepository>,
     pub share_repo: Arc<dyn ShareRepository>,
@@ -38,7 +37,6 @@ pub async fn connect_database(db_path: &str) -> Result<DbConnection, diesel::res
 }
 pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
-    let sync_repo = Arc::new(SqliteSyncRepository::new(connection.clone()));
     let resource_repo = Arc::new(SqliteResourceRepository::new(connection.clone()));
     let device_repo = Arc::new(SqliteDeviceRepository::new(connection.clone()));
     let share_repo = Arc::new(SqliteShareRepository::new(connection.clone()));
@@ -49,7 +47,6 @@ pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
 
     RepositoryContext {
         folder_repo,
-        sync_repo,
         resource_repo,
         device_repo,
         share_repo,

@@ -1,5 +1,5 @@
 use osvauld_core::models::{
-    Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
+    ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
     DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ResourceComparisonResult,
     ResourceManifestData, ResourceSyncData, ResourceVectorClock, UserComparisonResult,
     UserManifestComparisonResult, UserManifestDifferences, UserManifestPayload,
@@ -336,16 +336,15 @@ pub async fn create_device_network_sync_payload(
 }
 
 pub async fn process_device_network_sync(
-    payload: &DeviceNetworkSyncPayload,
+    payload: &mut DeviceNetworkSyncPayload,
     repo_ctx: &RepositoryContext,
 ) -> Result<(), String> {
-    let mut users = payload.unknown_users_with_devices.clone();
-    for user_with_device in &mut users {
+    for user_with_device in &mut payload.unknown_users_with_devices {
         user_with_device.user.owner = false;
     }
     repo_ctx
         .user_repo
-        .add_users_with_devices_bulk(&users)
+        .add_users_with_devices_bulk(&payload.unknown_users_with_devices)
         .await
         .map_err(|e| e.to_string())?;
     repo_ctx
@@ -388,12 +387,24 @@ pub async fn get_resource_for_remote_addition(
     Ok(resource_payload)
 }
 pub async fn add_resource_sync(
-    payload: &ResourceSyncData,
+    payload: &mut ResourceSyncData,
     repo_ctx: &RepositoryContext,
+    connection_type: &ConnectionType,
 ) -> Result<(), String> {
+    match connection_type {
+        ConnectionType::User => {
+            let default_folder = repo_ctx
+                .folder_repo
+                .get_default_folder()
+                .await
+                .map_err(|e| e.to_string())?;
+            payload.resource.folder_id = default_folder.id.clone();
+        }
+        ConnectionType::Device => {}
+    }
     repo_ctx
         .resource_repo
-        .save_resource_sync_data(payload)
+        .save_resource_sync_data(&payload)
         .await
         .map_err(|e| e.to_string())
 }
@@ -607,16 +618,16 @@ pub async fn create_user_network_sync_payload(
     })
 }
 pub async fn process_user_network_sync_payload(
-    payload: &UserNetworkSyncPayload,
+    payload: &mut UserNetworkSyncPayload,
     repo_ctx: &RepositoryContext,
 ) -> Result<(), String> {
-    let mut users = payload.users.clone();
-    for user_with_device in &mut users {
+    for user_with_device in &mut payload.users {
         user_with_device.user.owner = false;
     }
+
     repo_ctx
         .user_repo
-        .add_users_with_devices_bulk(&users)
+        .add_users_with_devices_bulk(&payload.users)
         .await
         .map_err(|e| e.to_string())?;
     repo_ctx
