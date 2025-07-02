@@ -8,6 +8,7 @@ use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
 
 use base64::{engine::general_purpose, Engine as _};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
@@ -43,7 +44,6 @@ pub enum CryptoError {
 }
 
 // Public API - Stateless Functions
-// These functions don't require any persistent state and can be called directly
 
 /// Generate a new PGP key pair and encrypt the private key with a password
 pub fn generate_keys(password: &str, username: &str) -> Result<GeneratedKeys, CryptoError> {
@@ -208,10 +208,39 @@ pub fn export_certificate(
 
     Ok(String::from_utf8(armored)?)
 }
+pub fn generate_and_encrypt_ed25519_key(
+    user_public_key: &str,
+) -> Result<(String, String), CryptoError> {
+    // Generate Ed25519 key pair
+    let device_key = SigningKey::generate(&mut OsRng);
+    let verifying_key = device_key.verifying_key();
 
+    // Convert keys to bytes
+    let private_key_bytes = device_key.to_bytes();
+    let public_key_bytes = verifying_key.to_bytes();
+
+    // Encode keys as base64 for storage
+    let private_key_b64 = general_purpose::STANDARD.encode(private_key_bytes);
+    let public_key_b64 = general_purpose::STANDARD.encode(public_key_bytes);
+
+    // Encrypt the private key using the user's PGP public key
+    let encrypted_private_key = encrypt_string_with_public_key(&private_key_b64, user_public_key)?;
+
+    Ok((encrypted_private_key, public_key_b64))
+}
+
+pub fn encrypt_string_with_public_key(data: &str, public_key: &str) -> Result<String, CryptoError> {
+    // Get the recipient from the public key
+    let recipient = crypto_core::get_recipient(public_key).map_err(|e| CryptoError::PgpError(e))?;
+
+    // Encrypt the string directly with PGP
+    let encrypted_data = crypto_core::encrypt_text_pgp(&recipient, data)
+        .map_err(|e| CryptoError::Other(e.to_string()))?;
+
+    Ok(encrypted_data)
+}
 // Stateful Certificate Operations
 // These operations require a loaded certificate
-
 pub struct CryptoUtils {
     cert: Option<Cert>,
 }

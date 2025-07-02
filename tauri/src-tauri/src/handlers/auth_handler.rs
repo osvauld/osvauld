@@ -43,7 +43,7 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
-    let _result = handle_signup(&input.username, &input.passphrase, &*repo_ctx).await?;
+    let _result = handle_signup(&input.username, &input.passphrase, &repo_ctx).await?;
     let _ = create_default_folder(&repo_ctx)
         .await
         .map_err(|e| e.to_string())?;
@@ -115,16 +115,8 @@ pub async fn login(
 pub async fn handle_add_device(
     input: AddDeviceInput,
     repo_ctx: State<'_, RepositoryContext>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
 ) -> Result<CryptoResponse, String> {
-    import_user(
-        &input.certificate,
-        &input.passphrase,
-        "username",
-        &repo_ctx,
-        &crypto_utils,
-    )
-    .await?;
+    import_user(&input.certificate, &input.passphrase, "username", &repo_ctx).await?;
     Ok(CryptoResponse::Success)
 }
 

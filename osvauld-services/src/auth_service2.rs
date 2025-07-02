@@ -1,12 +1,11 @@
+use crypto_utils::{
+    CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
+    generate_and_encrypt_ed25519_key, generate_keys, get_key_id, import_certificate,
+};
 use osvauld_core::models::auth::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
-use osvauld_core::repositories::{DeviceRepository, RepositoryError, StoreRepository};
 
-use crypto_utils::{
-    CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
-    generate_keys, generate_keys_without_password, get_key_id, import_certificate,
-};
 use rand::{RngCore, rngs::OsRng};
 
 use osvauld_db::database::RepositoryContext;
@@ -39,26 +38,21 @@ async fn create_user(username: &str, passphrase: &str) -> Result<(User, Certific
 }
 
 /// Create device objects for a user - generates device, certificate, and sync records
-async fn create_device(user_id: &str, username: &str) -> Result<(Device, Certificate), String> {
+async fn create_device(
+    user_public_key: &str,
+    user_id: &str,
+) -> Result<(Device, Certificate), String> {
     // Generate device keys and get device ID
-    let (device_key, device_id) = {
-        let keys = generate_keys_without_password(username).map_err(|e| e.to_string())?;
-        let id = get_key_id(&keys.public_key).map_err(|e| e.to_string())?;
-        (keys, id)
-    };
+    let (encrypted_key, public_key) =
+        generate_and_encrypt_ed25519_key(user_public_key).map_err(|e| e.to_string())?;
 
     // Create device certificate from generated keys
     let device_certificate = Certificate {
-        private_key: device_key.private_key.clone(),
-        public_key: device_key.public_key.clone(),
-        salt: device_key.salt.clone(),
+        private_key: encrypted_key,
+        public_key: public_key.clone(),
+        salt: String::new(),
     };
-
-    let device = Device::new(
-        device_id.clone(),
-        device_key.public_key,
-        user_id.to_string(),
-    );
+    let device = Device::new(public_key.clone(), public_key, user_id.to_string());
 
     Ok((device, device_certificate))
 }
@@ -73,7 +67,7 @@ pub async fn handle_signup(
     let (user, primary_certificate) = create_user(username, passphrase).await?;
 
     // Create device and device certificate
-    let (device, device_certificate) = create_device(&user.id, username).await?;
+    let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     repo_context
         .user_repo
         .commit_signup_transaction(&user, &primary_certificate, &device, &device_certificate)
@@ -200,7 +194,6 @@ pub async fn import_user(
     passphrase: &str,
     username: &str,
     repo_ctx: &RepositoryContext,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(User, Certificate), String> {
     let result = import_certificate(certificate, passphrase).map_err(|e| e.to_string())?;
     let user_id = get_key_id(&result.public_key).map_err(|e| e.to_string())?;
@@ -218,7 +211,7 @@ pub async fn import_user(
         true,
         true,
     );
-    let (device, device_certificate) = create_device(&user.id, username).await?;
+    let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
 
     repo_ctx
         .user_repo
