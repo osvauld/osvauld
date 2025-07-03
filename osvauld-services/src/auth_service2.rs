@@ -70,7 +70,13 @@ pub async fn handle_signup(
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     repo_context
         .user_repo
-        .commit_signup_transaction(&user, &primary_certificate, &device, &device_certificate)
+        .commit_signup_transaction(
+            &user,
+            &primary_certificate,
+            &device,
+            &device_certificate,
+            None,
+        )
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -193,6 +199,7 @@ pub async fn import_user(
     certificate: &str,
     passphrase: &str,
     username: &str,
+    peer_device_id: &str,
     repo_ctx: &RepositoryContext,
 ) -> Result<(User, Certificate), String> {
     let result = import_certificate(certificate, passphrase).map_err(|e| e.to_string())?;
@@ -205,17 +212,28 @@ pub async fn import_user(
     //TODO: fix signature problem.
     let user = User::new(
         username.to_string(),
-        user_id,
+        user_id.clone(),
         certificate.public_key.clone(),
         "signature".to_string(),
         true,
         true,
     );
+    let peer_device = Device::new(
+        peer_device_id.to_string(),
+        peer_device_id.to_string(),
+        user_id.clone(),
+    );
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
 
     repo_ctx
         .user_repo
-        .commit_signup_transaction(&user, &certificate, &device, &device_certificate)
+        .commit_signup_transaction(
+            &user,
+            &certificate,
+            &device,
+            &device_certificate,
+            Some(&peer_device),
+        )
         .await
         .map_err(|e| e.to_string())?;
     Ok((user, certificate))

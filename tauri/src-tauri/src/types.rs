@@ -110,6 +110,8 @@ pub struct UpdateLastAccessedInput {
 #[derive(Deserialize, Debug)]
 pub struct AddDeviceInput {
     pub certificate: String,
+    pub username: String,
+    pub device_id: String,
     pub passphrase: String,
 }
 

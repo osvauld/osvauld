@@ -14,7 +14,6 @@ pub async fn add_known_user(
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(User, Device), String> {
     let user_id = get_key_id(&user_public_key.clone()).map_err(|e| e.to_string())?;
-    let device_key_id = get_key_id(&device_public_key).map_err(|e| e.to_string())?;
     let signature = {
         let crypto = crypto_utils.lock().await;
         crypto
@@ -29,7 +28,7 @@ pub async fn add_known_user(
         false,
         false,
     );
-    let device = Device::new(device_key_id, device_public_key, user_id);
+    let device = Device::new(device_public_key.clone(), device_public_key, user_id);
     let user_data = UserWithDevices {
         user: user.clone(),
         devices: vec![device.clone()],

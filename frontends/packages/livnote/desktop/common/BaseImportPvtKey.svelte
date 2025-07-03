@@ -17,7 +17,6 @@
 		});
 		await sendMessage("login", { passphrase });
 		console.log("sending first device connect message");
-		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
 
 		onLogin?.(true);
 	};

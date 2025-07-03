@@ -1,13 +1,12 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { sendMessage } from "@osvauld/password-manager-common";
+	import { dataState } from "../../state/";
 
-	let connectionTicket = "";
 	let copied = $state(false);
 	let isKeyRevealed = $state(false);
 	let isLoading = $state(false);
 	let certificate = $state("");
-	let recoveryString = $state("");
 	let showPasswordInputForReveal = $state(false);
 	let revealPasswordValue = $state("");
 	let revealError = $state("");
@@ -35,18 +34,13 @@
 			certificate = await sendMessage("exportCertificate", {
 				passphrase: revealPasswordValue,
 			});
-			await sendMessage("startListening");
-
-			if (!certificate) {
-				throw new Error("No certificate received");
-			}
-
-			recoveryString = JSON.stringify({
-				ticket: connectionTicket,
-				certificate: certificate,
+			dataState.userDetails?.deviceId;
+			identificationKey = JSON.stringify({
+				certificate,
+				username: dataState.userDetails?.username,
+				deviceId: dataState.userDetails?.deviceId,
 			});
 
-			identificationKey = recoveryString;
 			isKeyRevealed = true;
 			showPasswordInputForReveal = false;
 			revealError = "";
@@ -71,16 +65,6 @@
 			console.error("Failed to copy: ", err);
 		}
 	}
-
-	onMount(async () => {
-		try {
-			connectionTicket = await sendMessage("getTicket");
-		} catch (err) {
-			console.error("Failed to get connection ticket:", err);
-			revealError =
-				"Failed to initialize device connection. Please refresh and try again.";
-		}
-	});
 </script>
 
 <div class="h-full flex flex-col text-base">
@@ -236,4 +220,3 @@
 		</div>
 	</div>
 </div>
-

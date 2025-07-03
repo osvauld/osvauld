@@ -305,30 +305,6 @@ impl RendezvousService {
             response_user_id, action
         );
 
-        tokio::spawn(async move {
-            match p2p_service_clone
-                .connect_with_ticket(&ticket, connection_type, Some(&connection_id), action)
-                .await
-            {
-                Ok(Some(_connection)) => {
-                    // The action is executed as part of connect_with_ticket via execute_connection_action
-                    info!(
-                        "Successfully connected to user {} and initiated action",
-                        user_id
-                    );
-                }
-                Ok(None) => {
-                    // Connection already exists or is being established
-                    info!(
-                        "Connection to user {} already exists or is being established",
-                        user_id
-                    );
-                }
-                Err(e) => {
-                    error!("Failed to connect with ticket: {}", e);
-                }
-            }
-        });
         Ok(())
     }
     /// Handle incoming connection request

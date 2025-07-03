@@ -4,8 +4,10 @@ use crypto_utils::CryptoUtils;
 use log::info;
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{add_known_user, get_known_users};
+use p2p_service::P2PService;
 use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
+use sys_locale::get_locale;
 use tauri::State;
 use tokio::sync::Mutex;
 #[tauri::command]
@@ -62,4 +64,9 @@ pub async fn handle_get_known_users(
 ) -> Result<CryptoResponse, String> {
     let known_users = get_known_users(&repo_ctx).await?;
     Ok(CryptoResponse::GetKnownUsers(known_users))
+}
+
+#[tauri::command]
+pub fn get_system_locale() -> String {
+    get_locale().unwrap_or_else(|| String::from("en-US"))
 }

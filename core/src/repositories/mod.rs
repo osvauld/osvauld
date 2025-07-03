@@ -166,6 +166,7 @@ pub trait UserRepository: Send + Sync {
         primary_certificate: &Certificate,
         device: &Device,
         device_certificate: &Certificate,
+        peer_device: Option<&Device>,
     ) -> Result<(), RepositoryError>;
     async fn get_other_users_with_device_ids(
         &self,

@@ -1,5 +1,5 @@
-use crate::p2p::incoming::IncomingEvent;
 use crate::p2p::P2PService;
+use crate::p2p::incoming::IncomingEvent;
 use osvauld_core::models::p2p::{LiveEditMessage, Message};
 use osvauld_services::{apply_updates_and_get_peer_updates, get_resource_state_vector};
 use tokio::sync::mpsc;

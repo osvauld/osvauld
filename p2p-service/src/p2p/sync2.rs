@@ -16,7 +16,7 @@ use osvauld_services::{
     process_user_network_sync_payload, update_vector_clocks,
 };
 
-use tracing::{debug, error, info, instrument, Span};
+use tracing::{Span, debug, error, info, instrument};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {

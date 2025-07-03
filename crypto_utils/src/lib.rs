@@ -101,7 +101,7 @@ pub fn import_certificate(
     cert_string: &str,
     passphrase: &str,
 ) -> Result<GeneratedKeys, CryptoError> {
-    let cert = Cert::from_str(cert_string).map_err(|e| CryptoError::CertError(e.to_string()))?;
+    let cert = Cert::from_str(&cert_string).map_err(|e| CryptoError::CertError(e.to_string()))?;
 
     let public_key = crypto_core::get_public_key_armored(&cert)
         .map_err(|e| CryptoError::Other(e.to_string()))?;
@@ -240,6 +240,27 @@ pub fn encrypt_string_with_public_key(data: &str, public_key: &str) -> Result<St
     info!("encrypted key {}", encrypted_data);
 
     Ok(encrypted_data)
+}
+
+pub fn derive_node_id_from_public_key(public_key_b64: &str) -> Result<[u8; 32], String> {
+    // Decode the base64 public key
+    let public_key_bytes = general_purpose::STANDARD
+        .decode(public_key_b64)
+        .map_err(|e| format!("Failed to decode public key: {}", e))?;
+
+    if public_key_bytes.len() != 32 {
+        return Err(format!(
+            "Invalid public key length: expected 32 bytes, got {}",
+            public_key_bytes.len()
+        ));
+    }
+
+    // Convert the 32-byte array to NodeId using try_from
+    let key_array: [u8; 32] = public_key_bytes
+        .try_into()
+        .map_err(|_| "Failed to convert to 32-byte array".to_string())?;
+
+    Ok(key_array)
 }
 // Stateful Certificate Operations
 // These operations require a loaded certificate

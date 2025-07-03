@@ -4,7 +4,7 @@ use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
 use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
-use iroh::NodeAddr;
+use iroh::{NodeAddr, NodeId};
 use osvauld_core::models::p2p::{
     ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage,
 };
@@ -477,16 +477,15 @@ impl P2PService {
         Ok(handshake_message)
     }
 
-    #[instrument(skip(self, ticket_str, conn_type, connection_id), fields( conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
+    #[instrument(skip(self,  conn_type, connection_id), fields( conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
     pub async fn connect_with_ticket(
         &self,
-        ticket_str: &str,
+        node_id: &NodeId,
         conn_type: ConnectionType,
         connection_id: Option<&str>,
         action: Option<ConnectionAction>,
     ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
-        trace!("Using ticket: {}", ticket_str);
 
         // Ensure P2P service is initialized
         self.ensure_initialized().await?;
@@ -545,49 +544,8 @@ impl P2PService {
             error
         };
 
-        // Parse connection ticket
-        let ticket: ConnectionTicket = match serde_json::from_str(ticket_str) {
-            Ok(ticket) => {
-                debug!("Ticket parsed successfully");
-                ticket
-            }
-            Err(e) => {
-                let error = P2PError::Deserialization(format!("Invalid ticket format: {}", e));
-                return Err(cleanup_connecting(connection_id, error));
-            }
-        };
-
-        // Parse node ID from ticket
-        let node_id = match ticket.node_id.parse() {
-            Ok(id) => id,
-            Err(e) => {
-                let error = P2PError::Connection(format!("Invalid node ID: {}", e));
-                return Err(cleanup_connecting(connection_id, error));
-            }
-        };
-
-        // Parse addresses from ticket
-        let valid_addresses = ticket
-            .addresses
-            .iter()
-            .filter_map(|a| match a.parse() {
-                Ok(addr) => Some(addr),
-                Err(e) => {
-                    warn!("Skipping invalid address {}: {}", a, e);
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-
-        if valid_addresses.is_empty() {
-            let error = P2PError::Connection("No valid addresses in ticket".into());
-            return Err(cleanup_connecting(connection_id, error));
-        }
-
-        debug!("Valid addresses: {}", valid_addresses.len());
-
         // Create node address from parsed components
-        let node_addr = NodeAddr::from_parts(node_id, None, valid_addresses);
+        let node_addr = NodeAddr::new(node_id.clone());
 
         debug!("Created NodeAddr: {:?}", node_addr);
         debug!("Our endpoint ID: {}", state.endpoint.node_id());

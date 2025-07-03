@@ -75,9 +75,9 @@ pub async fn login(
         current_user_state.user = Some(user.clone());
         current_user_state.device = Some(current_device.clone());
     }
-
-    p2p_service.set_current_user(user.clone()).await;
-    p2p_service.set_current_device(current_device.clone()).await;
+    p2p_service
+        .start_p2p_service(&current_device, &user)
+        .await?;
 
     // Spawn a background task to handle WebSocket connection
 
@@ -116,7 +116,14 @@ pub async fn handle_add_device(
     input: AddDeviceInput,
     repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
-    import_user(&input.certificate, &input.passphrase, "username", &repo_ctx).await?;
+    import_user(
+        &input.certificate,
+        &input.passphrase,
+        &input.username,
+        &input.device_id,
+        &repo_ctx,
+    )
+    .await?;
     Ok(CryptoResponse::Success)
 }
 
@@ -137,24 +144,6 @@ pub async fn handle_change_passphrase(
     let _new_certificate =
         change_passphrase(input.old_password, input.new_password, &repo_ctx).await?;
 
-    Ok(CryptoResponse::Success)
-}
-
-#[tauri::command]
-pub async fn first_device_connect(
-    input: FirstDeviceConnectInput,
-    p2p_service: State<'_, Arc<P2PService>>,
-) -> Result<CryptoResponse, String> {
-    info!("attempting first device sync with peer");
-    p2p_service
-        .connect_with_ticket(
-            &input.ticket,
-            ConnectionType::Device,
-            None,
-            Some(ConnectionAction::AddDevice),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }
 
