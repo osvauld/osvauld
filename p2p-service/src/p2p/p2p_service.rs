@@ -136,10 +136,19 @@ impl P2PService {
             trace!("P2P service already initialized");
             return Ok(());
         }
+        let key = self.repo_ctx.store_repo.get_node_key().await.map_err(|e| P2PError::Initialization(e.to_string()))?;
+        info!("key {}", key);
+
+        let secret_key_bytes = {
+        let crypto = self.crypto_utils.lock().await;
+        crypto
+            .get_node_keypair(&key)
+            .map_err(|e| P2PError::Initialization(e.to_string()))?
+    };
+            let secret_key = iroh::SecretKey::from(secret_key_bytes);
 
         info!("Initializing P2P endpoint");
 
-        let secret_key = SecretKey::generate(rand::rngs::OsRng);
         debug!("Generated new secret key for P2P endpoint");
 
         let endpoint = match Endpoint::builder()

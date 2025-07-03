@@ -47,6 +47,7 @@ pub trait StoreRepository: Send + Sync {
     async fn is_signed_up(&self) -> Result<bool, RepositoryError>;
     async fn store_device_key(&self, device_key: &str) -> Result<(), RepositoryError>;
     async fn get_device_key(&self) -> Result<String, RepositoryError>;
+    async fn get_node_key(&self) -> Result<String, RepositoryError>;
 }
 
 #[async_trait]

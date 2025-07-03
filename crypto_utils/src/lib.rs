@@ -8,7 +8,8 @@ use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
 
 use base64::{engine::general_purpose, Engine as _};
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::{SecretKey, SigningKey};
+use log::info;
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
@@ -236,6 +237,7 @@ pub fn encrypt_string_with_public_key(data: &str, public_key: &str) -> Result<St
     // Encrypt the string directly with PGP
     let encrypted_data = crypto_core::encrypt_text_pgp(&recipient, data)
         .map_err(|e| CryptoError::Other(e.to_string()))?;
+    info!("encrypted key {}", encrypted_data);
 
     Ok(encrypted_data)
 }
@@ -446,6 +448,35 @@ impl CryptoUtils {
         .map_err(|e| CryptoError::Other(e.to_string()))?;
 
         Ok(newly_encrypted_key)
+    }
+    pub fn get_node_keypair(&self, encrypted_private_key: &str) -> Result<SecretKey, CryptoError> {
+        let policy = &StandardPolicy::new();
+
+        // Get the certificate
+        let cert = self
+            .get_cert()
+            .map_err(|e| CryptoError::CryptoUtilsError(e))?;
+
+        // Get the decryption key from the certificate
+        let decrypt_key =
+            crypto_core::get_decryption_key(cert).map_err(|e| CryptoError::PgpError(e))?;
+
+        // Decrypt the PGP-encrypted private key
+        let enc_bytes = encrypted_private_key.as_bytes();
+        let decrypted_bytes = crypto_core::decrypt_text_pgp(policy, &decrypt_key, enc_bytes)
+            .map_err(|e| CryptoError::PgpError(e))?;
+
+        // Convert decrypted bytes to UTF-8 string (this should be the base64 private key)
+        let utf8_key = String::from_utf8(decrypted_bytes)?;
+
+        // Decode from base64 to get raw key bytes
+        let key_bytes = general_purpose::STANDARD.decode(&utf8_key)?;
+
+        // Convert to 32-byte array (Ed25519 private keys are always 32 bytes)
+        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
+            CryptoError::Other("Invalid private key length, expected 32 bytes".to_string())
+        })?;
+        Ok(key_array)
     }
 }
 

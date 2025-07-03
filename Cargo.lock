@@ -1334,6 +1334,7 @@ dependencies = [
  "argon2",
  "base64 0.22.1",
  "ed25519-dalek",
+ "log",
  "rand 0.8.5",
  "sequoia-openpgp",
  "serde",
