@@ -1,10 +1,10 @@
 <script lang="ts">
 	import {
 		Welcome,
-		Signup,
 		Loader,
 		sendMessage,
 	} from "@osvauld/password-manager-common";
+	import Signup  from "./common/Signup.svelte";
 	import NotesListView from "./components/notes/NotesListView.svelte";
 	import NotesWorkspace from "./components/layout/NotesWorkspace.svelte";
 	import HeaderSection from "./components/layout/HeaderSection.svelte";
