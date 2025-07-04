@@ -23,7 +23,6 @@ use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
 use p2p_service::P2PService;
-use rendezvous_client::rendezvous_service::RendezvousService;
 
 use listners::EventManager;
 use std::fs;
@@ -115,15 +114,10 @@ pub fn run() {
                     });
                     let user_state = UserState::new();
                     // Initialize event manager and start listening
-                    let rendezvous_service = Arc::new(RendezvousService::new(
-                        p2p_service.clone(),
-                        "ws://0.0.0.0:3030/ws",
-                    ));
                     let event_manager = EventManager::new(
                         handle.clone(),
                         p2p_receiver,
                         p2p_sender,
-                        rendezvous_service.clone(),
                         repo_ctx.clone(),
                     );
                     rt.spawn(async move {
@@ -135,7 +129,6 @@ pub fn run() {
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(p2p_service.clone());
-                    app.manage(rendezvous_service);
                     app.manage(repo_ctx);
                 }
                 Err(e) => {

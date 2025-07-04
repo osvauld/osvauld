@@ -16,7 +16,7 @@ use osvauld_services::{
     process_user_network_sync_payload, update_vector_clocks,
 };
 
-use tracing::{Span, debug, error, info, instrument};
+use tracing::{debug, error, info, instrument, Span};
 
 // Helper method signatures to reduce repeated patterns
 impl PeerConnection {
@@ -938,7 +938,7 @@ impl PeerConnection {
         match payload {
             UserManifestPayload::Request(request_payload) => {
                 let manifest_result =
-                    process_user_manifest_request(request_payload, &self.repo_ctx, &user.id)
+                    process_user_manifest_request(request_payload, &self.repo_ctx, &self.user.id)
                         .await?;
                 self.set_user_manifest_comparison_result(manifest_result.clone())
                     .await;

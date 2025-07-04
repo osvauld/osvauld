@@ -4,7 +4,6 @@ use log::{error, info, warn};
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::get_shared_users_for_note;
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
-use rendezvous_client::rendezvous_service::RendezvousService;
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -17,7 +16,6 @@ pub struct EventManager {
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
-    rendezvous_service: Arc<RendezvousService>,
     repo_ctx: RepositoryContext
 }
 
@@ -50,7 +48,6 @@ impl EventManager {
         app_handle: AppHandle,
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         p2p_sender: P2PSender,
-        rendezvous_service: Arc<RendezvousService>,
     repo_ctx: RepositoryContext
     ) -> Self {
         Self {
@@ -58,7 +55,6 @@ impl EventManager {
             p2p_receiver,
             p2p_sender,
             current_note_state: CurrentNoteState::new(),
-            rendezvous_service,
             repo_ctx
         }
     }
@@ -236,7 +232,6 @@ fn setup_update_listener(&self, update_type: UpdateType) {
     fn setup_note_change_listener(&self) {
         let current_note_state = self.current_note_state.clone();
 
-        let rendezvous_service = self.rendezvous_service.clone();
         let app_handle = self.app_handle.clone();
         let p2p_sender = self.p2p_sender.clone();
         let repo_ctx = self.repo_ctx.clone(); 
@@ -245,7 +240,6 @@ fn setup_update_listener(&self, update_type: UpdateType) {
             let payload = event.payload().to_string();
             let app_handle_clone = app_handle.clone();
             let note_id = payload.trim_matches('"').to_string();
-            let rendezvous_service = rendezvous_service.clone();
             let p2p_sender_clone = p2p_sender.clone();
 
             info!("Received note-change event with note_id: {}", note_id);
@@ -322,17 +316,17 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                     .await
                 {
                     Ok(shared_users) => {
-                        if let Err(e) = rendezvous_service
-                            .initialize_live_editing(shared_users.clone())
-                            .await
-                        {
-                            error!("Failed to initialize live editing: {}", e);
-                        } else {
-                            info!(
-                                "Successfully initialized live editing for note: {}",
-                                note_id
-                            );
-                        }
+                        // if let Err(e) = rendezvous_service
+                        //     .initialize_live_editing(shared_users.clone())
+                        //     .await
+                        // {
+                        //     error!("Failed to initialize live editing: {}", e);
+                        // } else {
+                        //     info!(
+                        //         "Successfully initialized live editing for note: {}",
+                        //         note_id
+                        //     );
+                        // }
                         // Update the note state with the shared users
                         note_state.set_shared_users(shared_users.clone());
                     }

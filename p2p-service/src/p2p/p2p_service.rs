@@ -214,12 +214,12 @@ impl P2PService {
 
 }
 pub async fn request_connections(&self) -> Result<(), String> {
-    let all_devices = self.repo_ctx.device_repo.get_all_devices_except(&Vec::new()).await.map_err(|e| e.to_string())?;
-    let all_users = self.repo_ctx.user_repo.get_known_users().await.map_err(|e| e.to_string())?;
     let current_device = self.get_current_device().await?;
+    let all_devices = self.repo_ctx.device_repo.get_all_devices_except(&[current_device.id]).await.map_err(|e| e.to_string())?;
+    let all_users = self.repo_ctx.user_repo.get_known_users().await.map_err(|e| e.to_string())?;
     let (user_devices, other_devices): (Vec<_>, Vec<_>) = all_devices
         .into_iter()
-        .partition(|device| device.user_id == current_device.user_id && device.id != current_device.id);
+        .partition(|device| device.user_id == current_device.user_id );
     
     let first_users: Vec<User> = all_users
         .into_iter()

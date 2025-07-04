@@ -5,7 +5,6 @@ use log::info;
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{add_known_user, get_known_users};
 use p2p_service::P2PService;
-use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
@@ -15,7 +14,6 @@ pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, RepositoryContext>,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
 ) -> Result<CryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
@@ -46,14 +44,6 @@ pub async fn handle_add_user(
     .map_err(|e| e.to_string())?;
 
     let connection_id = format!("{}:{}", user.id, device.id);
-
-    match rendezvous_service
-        .mark_for_first_connection(&connection_id)
-        .await
-    {
-        Ok(_) => info!("requested connection.."),
-        Err(e) => info!("error requesting {:?}", e),
-    }
 
     Ok(CryptoResponse::Success)
 }
