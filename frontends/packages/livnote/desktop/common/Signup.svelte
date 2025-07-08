@@ -5,11 +5,12 @@
 	import SetPassPhrase from "./SetPassPhrase.svelte";
 	// @ts-ignore: Image import for Svelte, handled by bundler
 	import LivnoteLogo from "../../../../assets/Livnote_logo.png";
+	import { GoBack } from "@osvauld/password-manager-common";
 
 	let { onSignedUp } = $props();
 
 	let importPvtKeyFlag = $state(false);
-	let showSelection = $state(true);
+	let showWelcomeScreen = $state(true);
 
 	const handleSignedUp = () => {
 		console.log("triggerd handle signup");
@@ -18,11 +19,17 @@
 
 	const setSignupIsImport = (isImport: boolean) => {
 		importPvtKeyFlag = isImport;
-		showSelection = false;
+		showWelcomeScreen = false;
 	};
 
+	const handleBack = () => {
+		if(importPvtKeyFlag){
+			showWelcomeScreen = true;
+		}
+	}
+
   // Custom slide-in-from-right transition
-  function slideFromRight(node, { duration = 400, easing = cubicOut } = {}) {
+  const slideFromRight = (node, { duration = 400, easing = cubicOut } = {}) => {
     return {
       duration,
       easing,
@@ -40,42 +47,42 @@
 </script>
 
 <div
-	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary">
-	{#if showSelection}
-	<div
-	class="w-full h-full bg-mobile-bgPrimary py-16">
-	<div class="h-full flex flex-col items-center justify-between pt-[9.5rem]">
-		<img src={LivnoteLogo} alt="Livnote Logo" class="" />
-		<h1 class="font-extralight mb-4 font-Jakarta text-7xl text-center text-white">
-			Write, Connect & Collaborate <br/> <span class="text-livnotePink">without</span> servers. 
-			<br />
-			<span class="text-mobile-textActive text-[76px]">
-				Encrypted, open & free
-			</span>
-		</h1>
-		<div class="flex gap-13 text-md font-medium">
-			<button
-			class="py-3.5 px-5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive transition-colors duration-300"
-			onclick={() => setSignupIsImport(true)}>
-			I already have the key
-		</button>
-		<button
-			onclick={() => setSignupIsImport(false)}
-			class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer transition-colors duration-300 hover:bg-livnotePink hover:text-mobile-bgPrimary">
-			I am new here
-		</button>
-
-	</div>
-	<p class="font-inter text-disclaimerGray text-center text-sm">By continuing you agree to our Terms of Use and Privacy Policy</p>
-</div>
-</div>
-{:else if importPvtKeyFlag}
-    <div in:slideFromRight={{duration: 600}} >
+	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive relative">
+	<div class="h-full flex flex-col items-center pt-[13.5rem]"
+	>
+	 <img src={LivnoteLogo} alt="Livnote Logo" class="" />
+  {#if showWelcomeScreen}
+	   <div class="grow flex flex-col items-center justify-around pt-16">
+				<h1 class="font-extralight mb-4 font-Jakarta text-7xl text-center text-white">
+					Write, Connect & Collaborate <br/> <span class="text-livnotePink">without</span> servers. 
+					<br />
+					<span class="text-mobile-textActive text-[76px]">
+						Encrypted, open & free
+					</span>
+				</h1>
+				<div class="flex gap-13 text-md font-medium">
+					<button
+					class="py-3.5 px-5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive transition-colors duration-300"
+					onclick={() => setSignupIsImport(true)}>
+					I already have the key
+				</button>
+				<button
+					onclick={() => setSignupIsImport(false)}
+					class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer transition-colors duration-300 hover:bg-livnotePink hover:text-mobile-bgPrimary">
+					I am new here
+				</button>
+			</div>
+		  <p class="font-inter text-disclaimerGray text-center text-sm ">By continuing you agree to our Terms of Use and Privacy Policy</p>
+	  </div>
+  {:else if importPvtKeyFlag}
+	<div in:slideFromRight={{ duration: 600 }} class="grow flex flex-col justify-center items-center " >
+			 <button class="absolute top-1/2 left-0 -translate-y-1/2 cursor-pointer border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1" onclick="{handleBack}"><GoBack/></button>
         <BaseImportPvtKey onLogin={handleSignedUp} />
     </div>
-{:else}
+  {:else}
     <div in:slideFromRight={{duration: 600}} >
         <SetPassPhrase onSignedUp={handleSignedUp} />
     </div>
-{/if}
+  {/if}
+</div>
 </div>

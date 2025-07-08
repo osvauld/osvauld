@@ -42,7 +42,5 @@
 		oninput={handleInputChange}></textarea>
 	<NewPassword submit={handleSubmit} />
 
-	{#snippet additionalControls()}
-		<!-- This is where additional controls will be rendered -->
-	{/snippet}
+
 </div>
