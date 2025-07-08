@@ -5,11 +5,14 @@ use crate::types::{
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::info;
+use osvauld_core::models::{ConnectionAction, ConnectionType};
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{
     create_resource, delete_resource, get_all_resources, get_resource, get_resource_by_id_direct,
-    get_resources_for_folder, share_resource, toggle_fav, update_last_accessed, update_resource,
+    get_resources_for_folder, get_shared_user_devices_for_note, share_resource, toggle_fav,
+    update_last_accessed, update_resource,
 };
+use p2p_service::P2PService;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -185,10 +188,10 @@ pub async fn handle_share_resource(
     user_state: State<'_, UserState>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, RepositoryContext>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     // Get current user and device info
     let user = user_state.get_user().await?;
-
     share_resource(
         &input.user_id,
         &input.resource_id,
@@ -198,5 +201,26 @@ pub async fn handle_share_resource(
     )
     .await
     .map_err(|e| e.to_string())?;
+    let devices = repo_ctx
+        .device_repo
+        .get_devices_by_user_id(&input.user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    for device in devices {
+        let p2p_service_clone = p2p_service.inner().clone();
+        tokio::spawn(async move {
+            if let Err(e) = p2p_service_clone
+                .connect_with_ticket(
+                    &device.id,
+                    ConnectionType::User,
+                    Some(ConnectionAction::UserSync),
+                )
+                .await
+            {
+                // Log the error or handle it appropriately
+                eprintln!("Failed to connect to device {}: {}", &device.id, e);
+            }
+        });
+    }
     Ok(CryptoResponse::Success)
 }

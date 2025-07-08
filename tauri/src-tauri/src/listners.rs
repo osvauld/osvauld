@@ -1,11 +1,9 @@
-use crate::current_note_state::CurrentNoteState;
-use crate::user_state::UserState;
+use crate::{current_note_state::CurrentNoteState, user_state::UserState};
 use log::{error, info, warn};
 use osvauld_db::database::RepositoryContext;
-use osvauld_services::get_shared_users_for_note;
+use osvauld_services::get_shared_user_devices_for_note;
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
 use serde_json::Value;
-use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::mpsc;
 
@@ -16,7 +14,7 @@ pub struct EventManager {
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
-    repo_ctx: RepositoryContext
+    repo_ctx: RepositoryContext,
 }
 
 #[derive(Debug, Clone)]
@@ -41,21 +39,20 @@ impl UpdateType {
     }
 }
 
-
 impl EventManager {
     /// Create a new EventManager that handles bidirectional events
     pub fn new(
         app_handle: AppHandle,
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         p2p_sender: P2PSender,
-    repo_ctx: RepositoryContext
+        repo_ctx: RepositoryContext,
     ) -> Self {
         Self {
             app_handle,
             p2p_receiver,
             p2p_sender,
             current_note_state: CurrentNoteState::new(),
-            repo_ctx
+            repo_ctx,
         }
     }
 
@@ -77,7 +74,7 @@ impl EventManager {
         self.setup_note_change_listener();
         self.setup_resource_update_complete_listener();
     }
-fn setup_update_listener(&self, update_type: UpdateType) {
+    fn setup_update_listener(&self, update_type: UpdateType) {
         let p2p_sender = self.p2p_sender.clone();
         let current_note_state = self.current_note_state.clone();
         let event_name = update_type.event_name();
@@ -111,13 +108,22 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                                     if matches!(update_type, UpdateType::SyncUpdate) {
                                         let note_state = current_note_state.clone();
                                         let resource_id_clone = resource_id.to_string();
-                                        
+
                                         let update_bytes_clone = update_bytes.clone();
                                         // Update the buffer with the new state (only for sync updates)
                                         tokio::spawn(async move {
-                                            info!("Applying {} bytes of {} to Yjs buffer", update_bytes_clone.clone().len(), description);
-                                            note_state.merge_to_current(update_bytes_clone.clone()).await;
-                                            info!("Updated Yjs state buffer for note: {}", resource_id_clone);
+                                            info!(
+                                                "Applying {} bytes of {} to Yjs buffer",
+                                                update_bytes_clone.clone().len(),
+                                                description
+                                            );
+                                            note_state
+                                                .merge_to_current(update_bytes_clone.clone())
+                                                .await;
+                                            info!(
+                                                "Updated Yjs state buffer for note: {}",
+                                                resource_id_clone
+                                            );
                                         });
                                     }
 
@@ -132,16 +138,28 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                                         description,
                                     );
                                 } else {
-                                    info!("Empty update array received for {} on note: {}", description, resource_id);
+                                    info!(
+                                        "Empty update array received for {} on note: {}",
+                                        description, resource_id
+                                    );
                                 }
                             } else {
-                                info!("Ignoring {} for non-active note: {}", description, resource_id);
+                                info!(
+                                    "Ignoring {} for non-active note: {}",
+                                    description, resource_id
+                                );
                             }
                         } else {
-                            info!("Received {} but no active note set: {}", description, resource_id);
+                            info!(
+                                "Received {} but no active note set: {}",
+                                description, resource_id
+                            );
                         }
                     } else {
-                        error!("Missing update, resource_id, or clientID in {} payload", description);
+                        error!(
+                            "Missing update, resource_id, or clientID in {} payload",
+                            description
+                        );
                     }
                 }
                 Err(e) => {
@@ -170,27 +188,26 @@ fn setup_update_listener(&self, update_type: UpdateType) {
             );
 
             let result = match update_type {
-                UpdateType::SyncUpdate => {
-                    p2p_sender.send_sync_update_to_connections(
-                        resource_id,
-                        client_id,
-                        update_bytes,
-                        active_connections,
-                    )
-                }
-                UpdateType::AwarenessUpdate => {
-                    p2p_sender.send_awareness_update_to_connections(
-                        resource_id,
-                        client_id,
-                        update_bytes,
-                        active_connections,
-                    )
-                }
+                UpdateType::SyncUpdate => p2p_sender.send_sync_update_to_connections(
+                    resource_id,
+                    client_id,
+                    update_bytes,
+                    active_connections,
+                ),
+                UpdateType::AwarenessUpdate => p2p_sender.send_awareness_update_to_connections(
+                    resource_id,
+                    client_id,
+                    update_bytes,
+                    active_connections,
+                ),
             };
 
             match result {
                 Ok(_) => {
-                    info!("Successfully broadcasted {} to all active connections", description);
+                    info!(
+                        "Successfully broadcasted {} to all active connections",
+                        description
+                    );
                 }
                 Err(e) => {
                     error!("Failed to broadcast {}: {}", description, e);
@@ -234,7 +251,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
 
         let app_handle = self.app_handle.clone();
         let p2p_sender = self.p2p_sender.clone();
-        let repo_ctx = self.repo_ctx.clone(); 
+        let repo_ctx = self.repo_ctx.clone();
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
@@ -244,25 +261,21 @@ fn setup_update_listener(&self, update_type: UpdateType) {
 
             info!("Received note-change event with note_id: {}", note_id);
              let previous_note_id = note_state.get_current_note();
-        
         // Check if we're actually changing documents (not just refreshing the same one)
         if let Some(prev_id) = previous_note_id.clone() {
             if prev_id != note_id {
                 info!("Document changing from {} to {}", prev_id, note_id);
-                
                 // Get active connections for the previous note before clearing
                 let active_connections = note_state.get_active_connections();
-                
                 if !active_connections.is_empty() {
                     info!(
                         "Found {} active connections for previous note, sending document changed notifications",
                         active_connections.len()
                     );
-                    
                     // Send document changed notification to all active connections
                     for connection_id in &active_connections {
                         if let Err(e) = p2p_sender_clone.send_document_changed(
-                            connection_id.clone(), 
+                            connection_id.clone(),
                             prev_id.clone()
                         ) {
                             error!("Failed to notify connection {} about document change: {}", connection_id, e);
@@ -270,7 +283,6 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                             info!("Sent document change notification to connection: {}", connection_id);
                         }
                     }
-                    
                     // Clear active connections for the previous note
                     note_state.clear_active_connections();
                     info!("Cleared all active connections for previous note: {}", prev_id);
@@ -287,48 +299,37 @@ fn setup_update_listener(&self, update_type: UpdateType) {
             // Clone what we need for the async block
             let note_state = note_state.clone();
             let note_id = note_id.clone();
-             let repo_ctx = repo_ctx.clone();
+            let repo_ctx = repo_ctx.clone();
+            let p2p_sender = p2p_sender.clone();
             // Spawn an async task to fetch shared users
             tokio::spawn(async move {
-                // Get current user to exclude from the shared list
-
-                let user_state = app_handle_clone.state::<UserState>();
-
-                // Get current user to exclude from the shared list
-                let current_user = match user_state.get_user().await {
-                    Ok(user) => Some(user),
-                    Err(e) => {
-                        error!("Failed to get current user: {}", e);
-                        None
-                    }
-                };
-
-                // Current user ID to exclude
-                let current_user_id = match current_user {
-                    Some(user) => user.id.clone(),
-                    None => {
-                        error!("No current user found, cannot fetch shared users");
-                        return;
-                    }
-                };
                 // Use UserService to get shared users for the note
-                  match  get_shared_users_for_note(&note_id, &current_user_id, &repo_ctx)
+                   let user_state = app_handle_clone.state::<UserState>();
+                 let current_user = match user_state.get_user().await {
+       Ok(user) => user,
+       Err(e) => {
+           error!("Failed to get current user: {}", e);
+           return;
+       }
+   };
+   let current_device = match user_state.get_device().await {
+       Ok(device) => device,
+       Err(e) => {
+           error!("Failed to get current device: {}", e);
+           return;
+       }
+   };
+   let current_user_id = current_user.id;
+   let current_device_id = current_device.id;
+                  match  get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id,true, &repo_ctx)
                     .await
                 {
-                    Ok(shared_users) => {
-                        // if let Err(e) = rendezvous_service
-                        //     .initialize_live_editing(shared_users.clone())
-                        //     .await
-                        // {
-                        //     error!("Failed to initialize live editing: {}", e);
-                        // } else {
-                        //     info!(
-                        //         "Successfully initialized live editing for note: {}",
-                        //         note_id
-                        //     );
-                        // }
+                    Ok(shared_devices) => {
+                        if let Err(e) = p2p_sender.send_live_edit_requests(shared_devices.clone()) {
+                            error!("Failed to send live edit requests: {}", e);
+                        }
                         // Update the note state with the shared users
-                        note_state.set_shared_users(shared_users.clone());
+                         note_state.set_shared_users(shared_devices.clone());
                     }
                     Err(e) => {
                         error!("Failed to get shared users for note {}: {}", note_id, e);
@@ -354,8 +355,22 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                 P2PEvent::HandshakeFailed { error } => self.handle_handshake_failed_event(error),
                 P2PEvent::SyncComplete => self.handle_sync_complete_event(),
                 P2PEvent::ShareComplete => self.handle_share_complete_event(),
-                P2PEvent::EditingEvent{ resource_id, client_id, updates} => self.handle_editing_event(resource_id, client_id, updates).await,
-                P2PEvent::AwarenessEvent { resource_id, client_id, awareness_data } => self.handle_awareness_event(resource_id, client_id, awareness_data).await,
+                P2PEvent::EditingEvent {
+                    resource_id,
+                    client_id,
+                    updates,
+                } => {
+                    self.handle_editing_event(resource_id, client_id, updates)
+                        .await
+                }
+                P2PEvent::AwarenessEvent {
+                    resource_id,
+                    client_id,
+                    awareness_data,
+                } => {
+                    self.handle_awareness_event(resource_id, client_id, awareness_data)
+                        .await
+                }
                 P2PEvent::Error { message, source } => self.handle_error_event(message, source),
                 P2PEvent::UpdatesEvent {
                     resource_id,
@@ -372,10 +387,15 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                     resource_id,
                     connection_id,
                     state_vector,
-                   current_user_id, 
+                    current_user_id,
                 } => {
-                    self.handle_document_update_request(resource_id, connection_id, state_vector, current_user_id)
-                        .await
+                    self.handle_document_update_request(
+                        resource_id,
+                        connection_id,
+                        state_vector,
+                        current_user_id,
+                    )
+                    .await
                 }
                 P2PEvent::ProcessUpdate {
                     resource_id,
@@ -524,14 +544,14 @@ fn setup_update_listener(&self, update_type: UpdateType) {
             }
 
             // Combine current and previous buffers
-        let combined_updates = current_note_state.get_combined_updates().await;
+            let combined_updates = current_note_state.get_combined_updates().await;
             // Send the update exchange
             if let Err(e) = self.p2p_sender.send_live_edit_update_exchange(
                 connection_id.clone(),
                 resource_id.clone(),
                 state_vector.clone(),
                 combined_updates,
-                current_user_id
+                current_user_id,
             ) {
                 error!("Failed to send update exchange: {}", e);
             } else {
@@ -603,8 +623,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                 error!("Failed to send update exchange response: {}", e);
             }
         } else {
-            
-        let local_buffer= current_note_state.get_combined_updates().await;
+            let local_buffer = current_note_state.get_combined_updates().await;
             // Apply remote updates to frontend
             if !remote_updates.is_empty() {
                 self.handle_update_event(resource_id.clone(), remote_updates.clone())
@@ -616,7 +635,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                 connection_id,
                 resource_id,
                 state_vector,
-                local_buffer,   
+                local_buffer,
                 remote_updates,
             ) {
                 error!("Failed to send update exchange response: {}", e);
@@ -634,7 +653,6 @@ fn setup_update_listener(&self, update_type: UpdateType) {
             "Processing update response for resource: {}, from connection: {}",
             resource_id, connection_id
         );
-
         // Get current note state
         let current_note_state = self.current_note_state.clone();
 
@@ -662,7 +680,7 @@ fn setup_update_listener(&self, update_type: UpdateType) {
                 self.handle_update_event(resource_id.clone(), updates).await;
             }
             //TODO: make this current buffer
-           let current_buffer = current_note_state.get_combined_updates().await; 
+            let current_buffer = current_note_state.get_combined_updates().await;
 
             // Send current buffer to peer (now we always send, even if empty)
             info!(
@@ -740,16 +758,15 @@ fn setup_update_listener(&self, update_type: UpdateType) {
 
                 // Get current buffer to send back
 
-                        let current_buffer = current_note_state.get_combined_updates().await;
-                        // Send current buffer to peer
-                        if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
-                            connection_id.clone(),
-                            resource_id.clone(),
-                            current_buffer,
-                        ) {
-                            error!("Failed to send current buffer response: {}", e);
-                        }
-                    
+                let current_buffer = current_note_state.get_combined_updates().await;
+                // Send current buffer to peer
+                if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
+                    connection_id.clone(),
+                    resource_id.clone(),
+                    current_buffer,
+                ) {
+                    error!("Failed to send current buffer response: {}", e);
+                }
 
                 // Notify frontend that live editing is now active with this peer
                 if let Err(e) = self.app_handle.emit(
@@ -804,15 +821,12 @@ fn setup_update_listener(&self, update_type: UpdateType) {
         }
     }
 
-     async fn handle_editing_event(
-        &self,
-        resource_id: String,
-        client_id: u32,
-        updates: Vec<u8>,
-    ) {
+    async fn handle_editing_event(&self, resource_id: String, client_id: u32, updates: Vec<u8>) {
         info!(
             "Received editing event for resource {}, from client {}, with {} bytes",
-            resource_id, client_id, updates.len()
+            resource_id,
+            client_id,
+            updates.len()
         );
 
         // Check if this is for the current document
@@ -855,7 +869,9 @@ fn setup_update_listener(&self, update_type: UpdateType) {
     ) {
         info!(
             "Received awareness event for resource {}, from client {}, with {} bytes",
-            resource_id, client_id, awareness_data.len()
+            resource_id,
+            client_id,
+            awareness_data.len()
         );
 
         // Check if this is for the current document

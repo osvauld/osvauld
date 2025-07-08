@@ -126,11 +126,18 @@ impl P2PService {
                 }
             });
         });
+        let peer_device = handshake_message.device.clone();
+
+        let node_id_bytes = crypto_utils::derive_node_id_from_public_key(&peer_device.device_key)?;
+        let node_id = NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?;
+        let node_id = node_id.to_string();
+
         let peer_connection = PeerConnection::new(
             connection_arc,
             handshake_message.connection_type.clone(),
             handshake_message.device.clone(),
             handshake_message.user.clone(),
+            node_id,
             is_initiator,
             state.service_context.clone(),
             self.event_emitter.clone(),
@@ -477,19 +484,21 @@ impl P2PService {
         Ok(handshake_message)
     }
 
-    #[instrument(skip(self,  conn_type, connection_id), fields( conn_type = ?conn_type, connection_id = ?connection_id), level = "info")]
+    #[instrument(skip(self,  conn_type), fields( conn_type = ?conn_type ), level = "info")]
     pub async fn connect_with_ticket(
         &self,
-        node_id: &NodeId,
+        device_id: &str,
         conn_type: ConnectionType,
-        connection_id: Option<&str>,
         action: Option<ConnectionAction>,
     ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
 
+        let node_id_bytes = crypto_utils::derive_node_id_from_public_key(&device_id)?;
+        let node_id = NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?;
         // Ensure P2P service is initialized
         self.ensure_initialized().await?;
 
+        let connection_id = node_id.to_string();
         // Get the state for access to connections
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
@@ -499,34 +508,38 @@ impl P2PService {
         );
 
         // If a connection ID was provided, check if the connection is already active
-        if let Some(id) = connection_id {
-            // Check if connection is already established or in connecting state
-            if state.connections.is_connection_active(id).await {
-                debug!("Connection is already active: {}", id);
-
-                // Try to get an established connection
-                if let Ok(existing_connection) = state.connections.get_peer_connection(id).await {
-                    info!("Using existing established connection: {}", id);
-                    return Ok(Some(existing_connection));
-                } else {
-                    // If we're here, the connection is in connecting state but not yet established
-                    info!(
-                        "Connection is currently being established (returning None): {}",
-                        id
-                    );
-                    return Ok(None);
+        // Check if connection is already established or in connecting state
+        if state.connections.is_connection_active(&connection_id).await {
+            // Try to get an established connection
+            if let Ok(existing_connection) =
+                state.connections.get_peer_connection(&connection_id).await
+            {
+                info!("Using existing established connection: {}", &connection_id);
+                if let Some(action) = action {
+                    if action == ConnectionAction::LiveEdit {
+                        self.event_emitter
+                            .emit(P2PEvent::LiveEditConnected { connection_id });
+                    }
                 }
+                return Ok(Some(existing_connection));
+            } else {
+                // If we're here, the connection is in connecting state but not yet established
+                info!(
+                    "Connection is currently being established (returning None): {}",
+                    &connection_id
+                );
+                return Ok(None);
             }
+        }
 
-            // Mark the connection as connecting
-            if let Err(e) = state.connections.mark_as_connecting(id).await {
-                // This shouldn't happen given the previous check, but handle it just in case
-                warn!("Failed to mark connection as connecting: {}", e);
-                return Err(P2PError::Connection(format!(
-                    "Failed to mark connection as connecting: {}",
-                    e
-                )));
-            }
+        // Mark the connection as connecting
+        if let Err(e) = state.connections.mark_as_connecting(&connection_id).await {
+            // This shouldn't happen given the previous check, but handle it just in case
+            warn!("Failed to mark connection as connecting: {}", e);
+            return Err(P2PError::Connection(format!(
+                "Failed to mark connection as connecting: {}",
+                e
+            )));
         }
 
         // Helper function to clean up connecting state on error
@@ -577,7 +590,7 @@ impl P2PService {
                 debug!("Node addr used: {:?}", node_addr);
 
                 let error = P2PError::Connection(format!("Connection failed: {}", e));
-                return Err(cleanup_connecting(connection_id, error));
+                return Err(cleanup_connecting(Some(&connection_id), error));
             }
         };
 
@@ -605,11 +618,12 @@ impl P2PService {
             }
             Err(e) => {
                 // Clean up connecting state
-                if let Some(id) = connection_id {
-                    let state_guard = self.state.lock().await;
-                    if let Some(state) = &*state_guard {
-                        state.connections.remove_from_connecting(id).await;
-                    }
+                let state_guard = self.state.lock().await;
+                if let Some(state) = &*state_guard {
+                    state
+                        .connections
+                        .remove_from_connecting(&connection_id)
+                        .await;
                 }
                 Err(e)
             }

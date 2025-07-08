@@ -1,3 +1,4 @@
+use osvauld_core::models::Device;
 use tokio::sync::mpsc;
 
 /// Events that can be received and processed by the P2P service
@@ -49,6 +50,9 @@ pub enum IncomingEvent {
         client_id: u32,
         awareness_data: Vec<u8>,
     },
+    StartLiveConnection {
+        device_ids: Vec<String>,
+    },
 }
 
 /// Sender for incoming events to be processed by the P2P service
@@ -69,6 +73,10 @@ impl P2PSender {
         self.sender
             .send(event)
             .map_err(|e| format!("Failed to send event: {}", e))
+    }
+
+    pub fn send_live_edit_requests(&self, device_ids: Vec<String>) -> Result<(), String> {
+        self.send(IncomingEvent::StartLiveConnection { device_ids })
     }
 
     pub fn send_live_edit_document_check(

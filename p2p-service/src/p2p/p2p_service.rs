@@ -223,7 +223,7 @@ pub async fn request_connections(&self) -> Result<(), String> {
     
     let first_users: Vec<User> = all_users
         .into_iter()
-        .filter(|user| !user.first_sync)
+        .filter(|user| user.first_sync)
         .collect();
     
     let first_user_ids: HashSet<_> = first_users.iter().map(|user| user.id.clone()).collect();
@@ -231,48 +231,20 @@ pub async fn request_connections(&self) -> Result<(), String> {
         .into_iter()
         .partition(|device| first_user_ids.contains(&device.user_id));
     
-    // Convert devices to node IDs
-    let user_node_ids: Result<Vec<NodeId>, String> = user_devices
-        .into_iter()
-        .map(|device| {
-            let node_id = crypto_utils::derive_node_id_from_public_key(&device.device_key)?;
-            NodeId::try_from(&node_id).map_err(|e| e.to_string())
-        })
-        .collect();
-        
-    let other_node_ids: Result<Vec<NodeId>, String> = other_devices
-        .into_iter()
-        .map(|device| {
-            let node_id = crypto_utils::derive_node_id_from_public_key(&device.device_key)?;
-            NodeId::try_from(&node_id).map_err(|e| e.to_string())
-        })
-        .collect();
-        
-    let first_user_node_ids: Result<Vec<NodeId>, String> = first_user_connection_devices 
-        .into_iter()
-        .map(|device| {
-            let node_id = crypto_utils::derive_node_id_from_public_key(&device.device_key)?;
-            NodeId::try_from(&node_id).map_err(|e| e.to_string())
-        })
-        .collect();
-    
-    let user_node_ids = user_node_ids?;
-    let other_node_ids = other_node_ids?;
-    let first_user_node_ids = first_user_node_ids?;
     
     // Spawn all connection tasks concurrently
     let mut handles = Vec::new();
     
     // Connect to user devices (DeviceSync)
-    for user_node_id in user_node_ids {
+    for device in user_devices {
         let self_clone = self.clone();
         let handle = tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&user_node_id, ConnectionType::Device, None, Some(ConnectionAction::DeviceSync)).await {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::Device,  Some(ConnectionAction::DeviceSync)).await {
                 Ok(_) => {
-                    info!("Successfully connected to user device: {}", user_node_id);
+                    info!("Successfully connected to user device: {}", &device.id);
                 }
                 Err(e) => {
-                    error!("Failed to connect to user device {}: {}", user_node_id, e);
+                    error!("Failed to connect to user device {}: {}", &device.id, e);
                 }
             }
         });
@@ -280,15 +252,15 @@ pub async fn request_connections(&self) -> Result<(), String> {
     }
     
     // Connect to first-time users (UserFirstConnection)
-    for first_user_node_id in first_user_node_ids {
+    for device in first_user_connection_devices {
         let self_clone = self.clone();
         let handle = tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&first_user_node_id, ConnectionType::User, None, Some(ConnectionAction::UserFirstConnection)).await {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::User, Some(ConnectionAction::UserFirstConnection)).await {
                 Ok(_) => {
-                    info!("Successfully connected to first-time user: {}", first_user_node_id);
+                    info!("Successfully connected to first-time user: {}", &device.id);
                 }
                 Err(e) => {
-                    error!("Failed to connect to first-time user {}: {}", first_user_node_id, e);
+                    error!("Failed to connect to first-time user {}: {}", &device.id, e);
                 }
             }
         });
@@ -296,15 +268,15 @@ pub async fn request_connections(&self) -> Result<(), String> {
     }
     
     // Connect to other users (UserSync)
-    for other_node_id in other_node_ids {
+    for device in other_devices{
         let self_clone = self.clone();
         let handle = tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&other_node_id, ConnectionType::User, None, Some(ConnectionAction::UserSync)).await {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::User,  Some(ConnectionAction::UserSync)).await {
                 Ok(_) => {
-                    info!("Successfully connected to other user: {}", other_node_id);
+                    info!("Successfully connected to other user: {}", &device.id);
                 }
                 Err(e) => {
-                    error!("Failed to connect to other user {}: {}", other_node_id, e);
+                    error!("Failed to connect to other user {}: {}", &device.id, e);
                 }
             }
         });

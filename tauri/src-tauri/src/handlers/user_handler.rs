@@ -1,7 +1,8 @@
 use crate::types::{CryptoResponse, UserDetails};
 use base64::{Engine as _, engine::general_purpose};
 use crypto_utils::CryptoUtils;
-use log::info;
+use log::{error, info};
+use osvauld_core::models::{ConnectionAction, ConnectionType};
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{add_known_user, get_known_users};
 use p2p_service::P2PService;
@@ -14,6 +15,7 @@ pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, RepositoryContext>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
@@ -42,9 +44,21 @@ pub async fn handle_add_user(
     )
     .await
     .map_err(|e| e.to_string())?;
+    let device = device.clone();
+    let p2p_service_clone = p2p_service.inner().clone();
 
-    let connection_id = format!("{}:{}", user.id, device.id);
-
+    tokio::spawn(async move {
+        if let Err(e) = p2p_service_clone
+            .connect_with_ticket(
+                &device.id,
+                ConnectionType::User,
+                Some(ConnectionAction::UserFirstConnection),
+            )
+            .await
+        {
+            error!("Failed to start P2P service: {}", e);
+        }
+    });
     Ok(CryptoResponse::Success)
 }
 

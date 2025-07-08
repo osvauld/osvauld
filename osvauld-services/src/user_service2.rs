@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crypto_utils::{CryptoUtils, get_key_id};
-use log::{error, info};
+use log::{debug, error, info};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};
 use osvauld_db::database::RepositoryContext;
 use tokio::sync::Mutex;
@@ -59,9 +59,11 @@ pub async fn get_my_user_devices(
         .map_err(|e| e.to_string())
 }
 
-pub async fn get_shared_users_for_note(
+pub async fn get_shared_user_devices_for_note(
     note_id: &str,
     current_user_id: &str,
+    current_device_id: &str,
+    skip_current_user: bool,
     repo_ctx: &RepositoryContext,
 ) -> Result<Vec<String>, String> {
     // Get all share records for this note
@@ -76,24 +78,26 @@ pub async fn get_shared_users_for_note(
         note_id
     );
 
-    let mut shared_users = Vec::new();
+    let mut shared_device_ids = Vec::new();
 
     for record in share_records {
         // Get the user_id from the record
         let user_id = record.recipient_user_id;
+        info!("user{:?}", user_id);
 
         // Skip if this is the current user
-        if user_id == current_user_id {
+        if skip_current_user && user_id == current_user_id {
             continue;
         }
 
         // Get all devices for this user
         match repo_ctx.device_repo.get_devices_by_user_id(&user_id).await {
             Ok(devices) => {
+                info!("user devices {:?}", devices);
                 for device in devices {
-                    // Create user_id:device_id format and add to shared_users
-                    let shared_id = format!("{}:{}", user_id, device.id);
-                    shared_users.push(shared_id);
+                    if !skip_current_user && current_device_id != device.id {
+                        shared_device_ids.push(device.id.clone());
+                    }
                 }
             }
             Err(e) => {
@@ -102,5 +106,5 @@ pub async fn get_shared_users_for_note(
         }
     }
 
-    Ok(shared_users)
+    Ok(shared_device_ids)
 }

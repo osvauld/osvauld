@@ -492,10 +492,11 @@ impl PeerConnection {
                         resource_id = %resource_id,
                         "Requesting state vector for resource"
                     );
+                    let user = self.get_local_user().await?;
 
                     let state_vector = match get_resource_state_vector(
                         resource_id,
-                        &self.user.id,
+                        &user.id,
                         &self.repo_ctx,
                         &self.crypto_utils,
                     )
@@ -634,10 +635,11 @@ impl PeerConnection {
                     update_count = updates.len(),
                     "Processing updates response"
                 );
+                let user = self.get_local_user().await?;
 
                 let (remote_updates, _) = match apply_updates_and_get_peer_updates(
                     resource_id,
-                    &self.user.id,
+                    &user.id,
                     updates,
                     state_vector,
                     &self.repo_ctx,
@@ -891,10 +893,12 @@ impl PeerConnection {
 
     pub async fn process_first_connection_exchange(
         &self,
-        payload: &FirstUserExchange,
+        payload: &mut FirstUserExchange,
     ) -> Result<(), String> {
         match payload {
             FirstUserExchange::Request(user_with_devices) => {
+                user_with_devices.user.owner = false;
+                user_with_devices.user.first_sync = true;
                 self.repo_ctx
                     .user_repo
                     .add_users_with_devices_bulk(&[user_with_devices.clone()])
@@ -903,12 +907,14 @@ impl PeerConnection {
                 self.send_first_user_connection_payload(false).await?;
             }
             FirstUserExchange::Response(user_with_devices) => {
+                user_with_devices.user.owner = false;
+                user_with_devices.user.first_sync = true;
                 self.repo_ctx
                     .user_repo
                     .add_users_with_devices_bulk(&[user_with_devices.clone()])
                     .await
                     .map_err(|e| e.to_string())?;
-                let user_manifest = get_user_manifest(&self.repo_ctx, &self.device.id).await?;
+                let user_manifest = get_user_manifest(&self.repo_ctx, &self.user.id).await?;
 
                 self.send_message(Message::UserManifestPayload(UserManifestPayload::Request(
                     user_manifest,

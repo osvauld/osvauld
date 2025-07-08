@@ -249,7 +249,8 @@ impl UserRepository for SqliteUserRepository {
                 diesel::insert_into(users::table)
                     .values(&user_model)
                     .on_conflict(users::id)
-                    .do_nothing()
+                    .do_update()
+                    .set(users::first_sync.eq(true))
                     .execute(conn)?;
 
                 // 2. Insert associated devices

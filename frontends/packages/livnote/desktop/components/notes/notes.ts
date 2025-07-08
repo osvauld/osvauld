@@ -898,6 +898,7 @@ export class Notes {
       }
 
       const updateArray = Array.from(update);
+      console.log(this.clientID)
 
       await emit("sync-update", {
         update: updateArray,
