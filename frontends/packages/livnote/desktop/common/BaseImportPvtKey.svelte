@@ -2,11 +2,9 @@
 
 	let {  onProceed } = $props();
 
-	let recoveryData = "";
+	let recoveryData = $state("")
 
-	const handleInputChange = (event: any) => {
-		recoveryData = event.target.value;
-	};
+
 
 	const handleProceed = () => {
 		onProceed?.(recoveryData);
@@ -26,7 +24,7 @@
 		aria-label="Private key input"
 		aria-required="true"
 		aria-describedby="privateKey-desc"
-		oninput={handleInputChange}
+		bind:value={recoveryData}
 		spellcheck="false"
 		rows="8"
 	></textarea>
@@ -40,8 +38,10 @@
 		</button>
 		<button
 			onclick={() => handleProceed()}
-			class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer hover:bg-livnotePink hover:text-mobile-bgPrimary border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300">
+			disabled={!recoveryData}
+			class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary">
 			Proceed
 		</button>
 	</div>
 	<!-- <NewPassword onSubmit={handleSubmit} /> -->
+		

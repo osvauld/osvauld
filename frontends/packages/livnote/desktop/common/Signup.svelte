@@ -7,6 +7,7 @@
 	import LivnoteLogo from "../../../../assets/Livnote_logo.png";
 	import { GoBack } from "@osvauld/password-manager-common";
 	import NewPassword from './NewPassword.svelte';
+	import CollectUsername from './CollectUsername.svelte';
 
 	let { onSignedUp } = $props();
 
@@ -77,7 +78,8 @@
 	>
 	 <img src={LivnoteLogo} alt="Livnote Logo" class="" />
   {#if currentView === VIEW_STATES.WELCOME}
-	   <div class="grow flex flex-col items-center justify-around pt-16">
+	  <CollectUsername/>
+	   <!-- <div class="grow flex flex-col items-center justify-around pt-16">
 				<h1 class="font-extralight mb-4 font-Jakarta text-7xl text-center text-white">
 					Write, Connect & Collaborate <br/> <span class="text-livnotePink">without</span> servers. 
 					<br />
@@ -98,7 +100,7 @@
 				</button>
 			</div>
 		  <p class="font-inter text-disclaimerGray text-center text-sm ">By continuing you agree to our Terms of Use and Privacy Policy</p>
-	  </div>
+	  </div> -->
   {:else if currentView === VIEW_STATES.IMPORT}
 	 <div class="grow flex flex-col justify-center items-center " >
 			 <button class="absolute top-1/2 left-0 -translate-y-1/2 cursor-pointer border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1" onclick={goBack}><GoBack/></button>

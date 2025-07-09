@@ -138,9 +138,7 @@
 	</div>
 
 	<button
-		class="{submitDisabled
-			? 'border border-osvauld-iconblack text-osvauld-sheffieldgrey'
-			: 'bg-osvauld-carolinablue text-osvauld-ninjablack'} py-2 px-10 mt-8 rounded-lg font-medium w-[150px] flex justify-center items-center whitespace-nowrap cursor-pointer"
+		class="w-full  py-2 px-10 mt-8 rounded-lg font-medium  flex justify-center items-center whitespace-nowrap cursor-pointer bg-signupGray text-white  border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}
