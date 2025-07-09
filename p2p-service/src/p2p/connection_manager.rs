@@ -7,6 +7,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 pub struct ConnectionManager {
     pub connections: Arc<Mutex<HashMap<String, Arc<PeerConnection>>>>,
     pub connecting: Arc<Mutex<HashSet<String>>>,
+    pub pending_live_edit: Arc<Mutex<HashSet<String>>>,
 }
 
 impl ConnectionManager {
@@ -16,6 +17,7 @@ impl ConnectionManager {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             connecting: Arc::new(Mutex::new(HashSet::new())),
+            pending_live_edit: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 

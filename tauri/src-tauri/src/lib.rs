@@ -119,6 +119,7 @@ pub fn run() {
                         p2p_receiver,
                         p2p_sender,
                         repo_ctx.clone(),
+                        crypto_utils.clone(),
                     );
                     rt.spawn(async move {
                         event_manager.start_listening();

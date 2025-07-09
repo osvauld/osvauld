@@ -77,13 +77,16 @@ pub async fn get_shared_user_devices_for_note(
         share_records.len(),
         note_id
     );
+    info!(
+        "current device id {}, current_user_id {}, skip_current_user {}",
+        current_device_id, current_user_id, skip_current_user
+    );
 
     let mut shared_device_ids = Vec::new();
 
     for record in share_records {
         // Get the user_id from the record
         let user_id = record.recipient_user_id;
-        info!("user{:?}", user_id);
 
         // Skip if this is the current user
         if skip_current_user && user_id == current_user_id {
@@ -93,9 +96,9 @@ pub async fn get_shared_user_devices_for_note(
         // Get all devices for this user
         match repo_ctx.device_repo.get_devices_by_user_id(&user_id).await {
             Ok(devices) => {
-                info!("user devices {:?}", devices);
                 for device in devices {
-                    if !skip_current_user && current_device_id != device.id {
+                    if current_device_id != device.id {
+                        info!("pushing to shared device ids");
                         shared_device_ids.push(device.id.clone());
                     }
                 }

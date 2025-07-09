@@ -3,6 +3,7 @@ use crate::p2p::errors::{HandshakeError, P2PError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
 use crate::p2p::P2PEvent;
+use futures_lite::stream::pending;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{NodeAddr, NodeId};
 use osvauld_core::models::p2p::{
@@ -13,6 +14,7 @@ use std::fmt::format;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
+use tracing::field::debug;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 impl P2PService {
@@ -137,7 +139,7 @@ impl P2PService {
             handshake_message.connection_type.clone(),
             handshake_message.device.clone(),
             handshake_message.user.clone(),
-            node_id,
+            node_id.clone(),
             is_initiator,
             state.service_context.clone(),
             self.event_emitter.clone(),
@@ -148,6 +150,19 @@ impl P2PService {
             self.repo_ctx.clone(),
         );
         peer_connection.execute_connection_action().await?;
+
+        let should_emit = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+            let mut pending_guard = state.connections.pending_live_edit.lock().await;
+            pending_guard.remove(&node_id)
+        };
+
+        if should_emit {
+            self.event_emitter.emit(P2PEvent::LiveEditConnected {
+                connection_id: node_id.clone(),
+            });
+        }
 
         let peer_connection_arc = Arc::new(peer_connection);
         debug!("Created peer connection: {}", peer_connection_arc.get_id());
@@ -495,46 +510,91 @@ impl P2PService {
 
         let node_id_bytes = crypto_utils::derive_node_id_from_public_key(&device_id)?;
         let node_id = NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?;
-        // Ensure P2P service is initialized
-        self.ensure_initialized().await?;
 
         let connection_id = node_id.to_string();
-        // Get the state for access to connections
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        debug!(
-            "Connector using endpoint with node ID: {}",
-            state.endpoint.node_id()
-        );
+        // Ensure P2P service is initialized
+        {
+            let state_guard = self.state.lock().await;
+            if let Some(state) = state_guard.as_ref() {
+                debug!("acquired state lock");
+                // State is already initialized, check for existing connection
+                let is_active = state.connections.is_connection_active(&connection_id).await;
 
-        // If a connection ID was provided, check if the connection is already active
-        // Check if connection is already established or in connecting state
-        if state.connections.is_connection_active(&connection_id).await {
-            // Try to get an established connection
-            if let Ok(existing_connection) =
-                state.connections.get_peer_connection(&connection_id).await
-            {
-                info!("Using existing established connection: {}", &connection_id);
-                if let Some(action) = action {
-                    if action == ConnectionAction::LiveEdit {
-                        self.event_emitter
-                            .emit(P2PEvent::LiveEditConnected { connection_id });
+                if is_active {
+                    if let Ok(existing_connection) =
+                        state.connections.get_peer_connection(&connection_id).await
+                    {
+                        info!("Using existing established connection: {}", &connection_id);
+                        drop(state_guard); // Explicitly drop the lock
+
+                        if let Some(action) = action {
+                            if action == ConnectionAction::LiveEdit {
+                                self.event_emitter
+                                    .emit(P2PEvent::LiveEditConnected { connection_id });
+                            }
+                        }
+                        return Ok(Some(existing_connection));
                     }
                 }
-                return Ok(Some(existing_connection));
-            } else {
-                // If we're here, the connection is in connecting state but not yet established
-                info!(
-                    "Connection is currently being established (returning None): {}",
-                    &connection_id
-                );
-                return Ok(None);
             }
         }
 
+        self.ensure_initialized().await?;
+        let (is_active, existing_connection, endpoint_info) = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+
+            debug!(
+                "Connector using endpoint with node ID: {}",
+                state.endpoint.node_id()
+            );
+
+            let is_active = state.connections.is_connection_active(&connection_id).await;
+            let existing = if is_active {
+                state
+                    .connections
+                    .get_peer_connection(&connection_id)
+                    .await
+                    .ok()
+            } else {
+                None
+            };
+
+            let endpoint_info = (state.endpoint.clone(), state.connections.clone());
+            (is_active, existing, endpoint_info)
+        };
+
+        // Handle existing connections without holding any locks
+        if let Some(existing_connection) = existing_connection {
+            info!("Using existing established connection: {}", &connection_id);
+            if let Some(action) = action {
+                if action == ConnectionAction::LiveEdit {
+                    self.event_emitter
+                        .emit(P2PEvent::LiveEditConnected { connection_id });
+                }
+            }
+            existing_connection
+                .execute_connection_action()
+                .await
+                .unwrap();
+            return Ok(Some(existing_connection));
+        } else if is_active {
+            // Connection is in connecting state but not yet established
+            if let Some(action) = action {
+                if action == ConnectionAction::LiveEdit {
+                    let mut pending_guard = endpoint_info.1.pending_live_edit.lock().await;
+                    pending_guard.insert(node_id.to_string());
+                }
+            }
+            info!(
+                "Connection is currently being established (returning None): {}",
+                &connection_id
+            );
+            return Ok(None);
+        }
+
         // Mark the connection as connecting
-        if let Err(e) = state.connections.mark_as_connecting(&connection_id).await {
-            // This shouldn't happen given the previous check, but handle it just in case
+        if let Err(e) = endpoint_info.1.mark_as_connecting(&connection_id).await {
             warn!("Failed to mark connection as connecting: {}", e);
             return Err(P2PError::Connection(format!(
                 "Failed to mark connection as connecting: {}",
@@ -545,9 +605,8 @@ impl P2PService {
         // Helper function to clean up connecting state on error
         let cleanup_connecting = |connection_id: Option<&str>, error: P2PError| -> P2PError {
             if let Some(id) = connection_id {
-                // We need to spawn a task because we can't use .await in a closure
                 let connection_id = id.to_string();
-                let state_connections = state.connections.clone();
+                let state_connections = endpoint_info.1.clone();
                 tokio::spawn(async move {
                     state_connections
                         .remove_from_connecting(&connection_id)
@@ -561,20 +620,20 @@ impl P2PService {
         let node_addr = NodeAddr::new(node_id.clone());
 
         debug!("Created NodeAddr: {:?}", node_addr);
-        debug!("Our endpoint ID: {}", state.endpoint.node_id());
+        debug!("Our endpoint ID: {}", endpoint_info.0.node_id());
         debug!("ALPN Protocol: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
 
         // Attempt to establish connection
         info!("Connecting to remote endpoint...");
         let connection_span = info_span!("endpoint_connect", 
-        remote_node_id = %node_addr.node_id,
-        addresses = ?node_addr.direct_addresses.len());
+    remote_node_id = %node_addr.node_id,
+    addresses = ?node_addr.direct_addresses.len());
         debug!("Attempting connection to node_id: {}", node_id);
         debug!("NodeAddr created: {:?}", node_addr);
         debug!("Using ALPN: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
 
-        let connect_result = state
-            .endpoint
+        let connect_result = endpoint_info
+            .0
             .connect(node_addr.clone(), ALPN_PROTOCOL)
             .instrument(connection_span)
             .await;
@@ -599,9 +658,6 @@ impl P2PService {
         let handshake_span =
             info_span!("handshake", initiator = true, connection_type = ?conn_type);
 
-        // Drop the state guard before handshake to avoid deadlocks
-        drop(state_guard);
-
         // Perform handshake
         let handshake_result = self
             .perform_handshake_and_create_peer(&conn, true, Some(conn_type), action)
@@ -609,8 +665,6 @@ impl P2PService {
             .await;
 
         // Clean up connecting state if handshake fails
-        // If handshake succeeds, the connection will be in the established connections map
-        // and handle_peer_and_create_connection will call insert_connection which removes from connecting
         match handshake_result {
             Ok(peer_connection) => {
                 // Return the new peer connection
@@ -618,13 +672,7 @@ impl P2PService {
             }
             Err(e) => {
                 // Clean up connecting state
-                let state_guard = self.state.lock().await;
-                if let Some(state) = &*state_guard {
-                    state
-                        .connections
-                        .remove_from_connecting(&connection_id)
-                        .await;
-                }
+                endpoint_info.1.remove_from_connecting(&connection_id).await;
                 Err(e)
             }
         }

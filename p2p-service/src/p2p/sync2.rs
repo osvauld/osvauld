@@ -430,6 +430,9 @@ impl PeerConnection {
                     resource_id = %payload.resource.id,
                     "Resource added successfully to local repository"
                 );
+                self.event_emitter.emit(P2PEvent::ResourceAdded {
+                    resource_id: payload.resource.id.clone(),
+                });
             }
             Err(e) => {
                 error!(
@@ -613,7 +616,7 @@ impl PeerConnection {
                         info!(
                             resource_id = %resource_id,
                             "Updates response sent successfully"
-                        );
+ ,                       );
                     }
                     Err(e) => {
                         error!(
