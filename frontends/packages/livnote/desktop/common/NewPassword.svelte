@@ -2,9 +2,10 @@
 	import Loader from "./Loader.svelte";
 	import { ClosedEye, Eye, Tick } from "@osvauld/password-manager-common";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
+	import { sendMessage } from "../../../common/utils/helper";
 
 	// Replace createEventDispatcher with callback props
-	let { onSubmit } = $props();
+	let { onLogin, recoveryData } = $props();
 
 	// State variables
 	let passphrase = $state("");
@@ -51,14 +52,30 @@
 		isPassphraseAcceptable = isAcceptable;
 	};
 
+
+	const triggerAccountRecovery = async (passphrase: string) => {
+		return onLogin?.(true);
+		let recovery = JSON.parse(recoveryData);
+		const result = await sendMessage("addDevice", {
+			passphrase,
+			certificate: recovery.certificate,
+		});
+		await sendMessage("login", { passphrase });
+		console.log("sending first device connect message");
+		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
+    // need error handling here
+		onLogin?.(true);
+	};
+
 	const handleSubmit = (event: Event) => {
 		event.preventDefault();
 
 		if (submitDisabled) return;
 
 		isLoaderActive = true;
-		onSubmit?.({ passphrase });
+		triggerAccountRecovery(passphrase)
 	};
+
 </script>
 
 <form onsubmit={handleSubmit} class="flex flex-col items-center justify-center">
