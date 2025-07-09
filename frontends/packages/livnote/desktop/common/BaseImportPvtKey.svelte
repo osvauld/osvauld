@@ -5,7 +5,6 @@
 	let recoveryData = $state("")
 
 
-
 	const handleProceed = () => {
 		onProceed?.(recoveryData);
 	}
@@ -21,14 +20,11 @@
 		placeholder="Please Enter your private key"
 		autocapitalize="off"
 		autocomplete="off"
-		aria-label="Private key input"
 		aria-required="true"
-		aria-describedby="privateKey-desc"
 		bind:value={recoveryData}
 		spellcheck="false"
 		rows="8"
 	></textarea>
-	<span id="privateKey-desc" class="sr-only">Paste or type your private key here. This field is required to import your account.</span>
 	</div>
 	<div class="flex gap-13 text-md font-medium mt-[9rem]">
 			<button
