@@ -95,7 +95,7 @@ pub async fn get_shared_user_devices_for_note(
             Ok(devices) => {
                 info!("user devices {:?}", devices);
                 for device in devices {
-                    if !skip_current_user && current_device_id != device.id {
+                    if current_device_id != device.id {
                         shared_device_ids.push(device.id.clone());
                     }
                 }

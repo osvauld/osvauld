@@ -519,6 +519,8 @@ impl P2PService {
                     if action == ConnectionAction::LiveEdit {
                         self.event_emitter
                             .emit(P2PEvent::LiveEditConnected { connection_id });
+                    } else {
+                        existing_connection.execute_connection_action().await;
                     }
                 }
                 return Ok(Some(existing_connection));

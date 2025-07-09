@@ -1,11 +1,14 @@
-use crate::{current_note_state::CurrentNoteState, user_state::UserState};
+use std::sync::Arc;
+
+use crate::{current_note_state::CurrentNoteState, types::ResourceResponse, user_state::UserState};
+use crypto_utils::CryptoUtils;
 use log::{error, info, warn};
 use osvauld_db::database::RepositoryContext;
-use osvauld_services::get_shared_user_devices_for_note;
+use osvauld_services::{get_resource_by_id_direct, get_shared_user_devices_for_note};
 use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Listener, Manager};
-use tokio::sync::mpsc;
+use tokio::sync::{Mutex, mpsc};
 
 /// Initializes all listeners for the application
 /// This connects the Tauri event system with the P2P event system
@@ -15,6 +18,7 @@ pub struct EventManager {
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
     repo_ctx: RepositoryContext,
+    crypto_utils: Arc<Mutex<CryptoUtils>>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +50,7 @@ impl EventManager {
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         p2p_sender: P2PSender,
         repo_ctx: RepositoryContext,
+        crypto_utils: Arc<Mutex<CryptoUtils>>,
     ) -> Self {
         Self {
             app_handle,
@@ -53,6 +58,7 @@ impl EventManager {
             p2p_sender,
             current_note_state: CurrentNoteState::new(),
             repo_ctx,
+            crypto_utils,
         }
     }
 
@@ -439,6 +445,35 @@ impl EventManager {
                 } => {
                     self.handle_document_changed_event(resource_id, connection_id)
                         .await;
+                }
+                P2PEvent::ResourceAdded { resource_id } => {
+                    let user_state = self.app_handle.state::<UserState>();
+                    let current_user = match user_state.get_user().await {
+                        Ok(user) => user,
+                        Err(e) => {
+                            error!("Failed to get current user for ResourceAdded event: {}", e);
+                            continue; // Skip this event and continue processing
+                        }
+                    };
+                    let resource = get_resource_by_id_direct(
+                        &resource_id,
+                        &current_user.id,
+                        &self.repo_ctx,
+                        &self.crypto_utils,
+                    )
+                    .await
+                    .unwrap();
+
+                    let response = ResourceResponse {
+                        id: resource.id.clone(),
+                        data: resource.data,
+                        favourite: resource.favourite,
+                        last_accessed: resource.last_accessed,
+                        folder_id: resource.folder_id,
+                    };
+                    if let Err(e) = self.app_handle.emit("resource-added", response) {
+                        error!("Failed to emit live-edit-initialized event: {}", e);
+                    }
                 }
             }
         }

@@ -74,6 +74,9 @@ pub enum P2PEvent {
         resource_id: String,
         connection_id: String,
     },
+    ResourceAdded {
+        resource_id: String,
+    },
 }
 
 /// Handles event emission for the P2P service
