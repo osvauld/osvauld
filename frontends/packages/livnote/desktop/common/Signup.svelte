@@ -29,11 +29,11 @@
 	}
 
   // Custom slide-in-from-right transition
-  const slideFromRight = (node, { duration = 400, easing = cubicOut } = {}) => {
+  const slideFromRight = (node: HTMLElement, { duration = 400, easing = cubicOut } = {}) => {
     return {
       duration,
       easing,
-      css: (t) => {
+      css: (t: number) => {
         const translateX = (1 - t) * 100;
         return `
           transform: translateX(${translateX}%);

@@ -6,7 +6,13 @@ const config = {
       tsconfigFile: './tsconfig.json',
       reportDiagnostics: true
     },
+    scss: {
+      prependData: '@use "sass:math";'
+    }
   }),
+  compilerOptions: {
+    runes: true
+  }
 };
 
 export default config;

@@ -17,7 +17,7 @@
 		"allowSyntheticDefaultImports": true,
 		"forceConsistentCasingInFileNames": true,
 		"baseUrl": ".",
-    "paths": {
+		"paths": {
 			"@osvauld/password-manager-common": [
 				"../common"
 			],
@@ -41,19 +41,24 @@
 			]
 		},
 		"allowJs": true,
-		"isolatedModules": true
+		"isolatedModules": true,
+		"jsx": "preserve",
+		"jsxImportSource": "svelte",
+		"lib": ["esnext", "dom", "dom.iterable"]
 	},
 	"include": [
-    "src/**/*.ts",
-    "src/**/*.js",
-    "src/**/*.svelte",
-    "components/**/*.ts",
-    "components/**/*.js",
-    "components/**/*.svelte",
-    "types/**/*.ts",
-		 "state/**/*.ts",
-
-  ],
+		"src/**/*.ts",
+		"src/**/*.js",
+		"src/**/*.svelte",
+		"components/**/*.ts",
+		"components/**/*.js",
+		"components/**/*.svelte",
+		"types/**/*.ts",
+		"state/**/*.ts",
+		"common/**/*.ts",
+		"common/**/*.js",
+		"common/**/*.svelte"
+	],
 	"exclude": [
 		"node_modules/*"
 	],
