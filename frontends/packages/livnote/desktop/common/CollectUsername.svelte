@@ -1,6 +1,14 @@
 <script lang="ts">
 
+let { onProceed } = $props<{ onProceed: (username: string) => void }>();
+
 let collectedUsername = $state("");
+
+const handleSubmit = () => {
+	if (collectedUsername.trim()) {
+		onProceed(collectedUsername.trim());
+	}
+};
 
 </script>
 
@@ -22,7 +30,8 @@ let collectedUsername = $state("");
 	<button
 		class="w-full  py-2 px-10 mt-[8rem] rounded-lg font-medium  flex justify-center items-center whitespace-nowrap cursor-pointer bg-signupGray text-white  border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
 		type="submit"
-		disabled={!collectedUsername}>
+		disabled={!collectedUsername}
+		onclick={handleSubmit}>
 		<span>Submit</span>	
 	</button>
 

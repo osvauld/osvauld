@@ -1,28 +1,26 @@
 <script lang="ts">
-	import { slide } from 'svelte/transition';
-  import { cubicOut } from 'svelte/easing';
-	import BaseImportPvtKey from "./BaseImportPvtKey.svelte";
-	import SetPassPhrase from "./SetPassPhrase.svelte";
 	// @ts-ignore: Image import for Svelte, handled by bundler
 	import LivnoteLogo from "../../../../assets/Livnote_logo.png";
-	import { GoBack } from "@osvauld/password-manager-common";
+	import BaseImportPvtKey from "./BaseImportPvtKey.svelte";
 	import NewPassword from './NewPassword.svelte';
 	import CollectUsername from './CollectUsername.svelte';
 	import ProvidePrivateKey from './ProvidePrivateKey.svelte';
+	import FlowContainer from './FlowContainer.svelte';
+	import InitiationScreen from './InitiationScreen.svelte';
 
 	let { onSignedUp } = $props();
 
 	// Define view states
 	const VIEW_STATES = {
-		WELCOME: 'welcome',
-		IMPORT: 'import',
-		PASSPHRASE: 'passphrase'
+		EXISITING_USER: {	WELCOME: 'welcome', IMPORT: 'import', SET_PASSPHRASE: 'existing_passphrase'},
+		NEW_USER: { WELCOME: 'welcome', COLLECT_USERNAME: "username", SET_PASSPHRASE: 'new_passphrase',	PROVIDE_PRIVATE_KEY: "privateKey" }
 	} as const;
 
-	type ViewState = typeof VIEW_STATES[keyof typeof VIEW_STATES];
+	type ViewState = typeof VIEW_STATES.EXISITING_USER[keyof typeof VIEW_STATES.EXISITING_USER] | typeof VIEW_STATES.NEW_USER[keyof typeof VIEW_STATES.NEW_USER];
 
-	let currentView = $state<ViewState>(VIEW_STATES.WELCOME);
+	let currentView = $state<ViewState>('welcome');
 	let viewHistory = $state<ViewState[]>([]);
+	let userFlow = $state<'EXISITING_USER' | 'NEW_USER' | null>(null);
 
 	let collectedRecoveryString = $state("")
 	let collectedUsernameString = "";
@@ -40,12 +38,20 @@
 	};
 
 	const triggerOnboardingFlow = (isImport: boolean) => {
-		navigateTo(isImport ? VIEW_STATES.IMPORT : VIEW_STATES.PASSPHRASE);
+		// Set the user flow based on selection
+		userFlow = isImport ? 'EXISITING_USER' : 'NEW_USER';
+		
+		// Navigate to the appropriate first step based on flow
+		if (isImport) {
+			navigateTo(VIEW_STATES.EXISITING_USER.IMPORT);
+		} else {
+			navigateTo(VIEW_STATES.NEW_USER.COLLECT_USERNAME);
+		}
 	};
 
 	const handleImportProceed = (recoveryData: string) => {
 		collectedRecoveryString = recoveryData;
-		navigateTo(VIEW_STATES.PASSPHRASE);
+		navigateTo(VIEW_STATES.EXISITING_USER.SET_PASSPHRASE);
 	};
 
 	const handleRecoveryFlowComplete = (isLoggedin: boolean) => {
@@ -56,67 +62,47 @@
 		}
 	};
 
-  // Custom slide-in-from-right transition
-  const slideFromRight = (node: HTMLElement, { duration = 400, easing = cubicOut } = {}) => {
-    return {
-      duration,
-      easing,
-      css: (t: number) => {
-        const translateX = (1 - t) * 100;
-        return `
-          transform: translateX(${translateX}%);
-          opacity: ${t};
-        `;
-      }
-    };
-  }
+	const handleUsernameCollected = (username: string) => {
+		collectedUsernameString = username;
+		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
+	};
+
+	const handlePassphraseSet = (isLoggedin: boolean) => {
+		if (isLoggedin) {
+			console.log("Passphrase set, navigating to private key step");
+			navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
+		}
+	};
 
 </script>
 
 <div
-	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 relative ">
+	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 relative">
 	<div class="h-full flex flex-col items-center pt-[13.5rem]"
 	>
 	 <img src={LivnoteLogo} alt="Livnote Logo" class="mb-10" />
-  {#if currentView === VIEW_STATES.WELCOME}
-	  <!-- <CollectUsername/> -->
-	
-		<!-- <div class="grow flex flex-col justify-center items-center" >
-			 <button class="absolute top-1/2 left-0 -translate-y-1/2 cursor-pointer border border-transparent focus:border-livnotePink outline-0 rounded-lg overflow-clip z-99" onclick={goBack}><GoBack/></button>
-			 <ProvidePrivateKey/>
-    </div> -->
-	   <div class="grow flex flex-col items-center justify-around pt-16">
-				<h1 class="font-extralight mb-4 font-Jakarta text-7xl text-center text-white">
-					Write, Connect & Collaborate <br/> <span class="text-livnotePink">without</span> servers. 
-					<br />
-					<span class="text-mobile-textActive text-[76px]">
-						Encrypted, open & free
-					</span>
-				</h1>
-				<div class="flex gap-13 text-md font-medium">
-					<button
-					class="py-3.5 px-5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive transition-colors duration-300"
-					onclick={() => triggerOnboardingFlow(true)}>
-					I already have the key
-				</button>
-				<button
-					onclick={() => triggerOnboardingFlow(false)}
-					class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer transition-colors duration-300 hover:bg-livnotePink hover:text-mobile-bgPrimary">
-					I am new here
-				</button>
-			</div>
-		  <p class="font-inter text-disclaimerGray text-center text-sm ">By continuing you agree to our Terms of Use and Privacy Policy</p>
-	  </div>
-  {:else if currentView === VIEW_STATES.IMPORT}
-	 <div class="grow flex flex-col justify-center items-center " >
-			 <button class="absolute top-1/2 left-0 -translate-y-1/2 cursor-pointer border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1" onclick={goBack}><GoBack/></button>
-        <BaseImportPvtKey onProceed={handleImportProceed} />
-    </div>
-  {:else if currentView === VIEW_STATES.PASSPHRASE}
-		<div class="grow flex flex-col justify-center items-center " >
-			<button class="absolute top-1/2 left-0 -translate-y-1/2 cursor-pointer border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1" onclick={goBack}><GoBack/></button>
-			<NewPassword  onLogin={handleRecoveryFlowComplete} recoveryData={collectedRecoveryString} />
-		</div>
+	{#if currentView === 'welcome'}
+		<InitiationScreen onFlowSelect={triggerOnboardingFlow} />
+  {:else if currentView === VIEW_STATES.EXISITING_USER.IMPORT}
+		<FlowContainer onBack={goBack}>
+			<BaseImportPvtKey onProceed={handleImportProceed} />
+		</FlowContainer>
+  {:else if currentView === VIEW_STATES.EXISITING_USER.SET_PASSPHRASE}
+		<FlowContainer onBack={goBack}>
+			<NewPassword onLogin={handleRecoveryFlowComplete} recoveryData={collectedRecoveryString} />
+		</FlowContainer>
+	{:else if currentView === VIEW_STATES.NEW_USER.COLLECT_USERNAME}
+		<FlowContainer onBack={goBack}>
+			<CollectUsername onProceed={handleUsernameCollected} />
+		</FlowContainer>
+	{:else if currentView === VIEW_STATES.NEW_USER.SET_PASSPHRASE}
+		<FlowContainer onBack={goBack}>
+			<NewPassword onLogin={handlePassphraseSet} recoveryData={collectedRecoveryString} />
+		</FlowContainer>
+    {:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
+		<FlowContainer onBack={goBack}>
+			<ProvidePrivateKey />
+		</FlowContainer>
   {/if}
-</div>
+	</div>
 </div>
