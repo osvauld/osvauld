@@ -8,6 +8,8 @@ use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
 
 use base64::{engine::general_purpose, Engine as _};
+use ed25519_dalek::{SecretKey, SigningKey};
+use log::info;
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
@@ -43,7 +45,6 @@ pub enum CryptoError {
 }
 
 // Public API - Stateless Functions
-// These functions don't require any persistent state and can be called directly
 
 /// Generate a new PGP key pair and encrypt the private key with a password
 pub fn generate_keys(password: &str, username: &str) -> Result<GeneratedKeys, CryptoError> {
@@ -100,7 +101,7 @@ pub fn import_certificate(
     cert_string: &str,
     passphrase: &str,
 ) -> Result<GeneratedKeys, CryptoError> {
-    let cert = Cert::from_str(cert_string).map_err(|e| CryptoError::CertError(e.to_string()))?;
+    let cert = Cert::from_str(&cert_string).map_err(|e| CryptoError::CertError(e.to_string()))?;
 
     let public_key = crypto_core::get_public_key_armored(&cert)
         .map_err(|e| CryptoError::Other(e.to_string()))?;
@@ -208,10 +209,61 @@ pub fn export_certificate(
 
     Ok(String::from_utf8(armored)?)
 }
+pub fn generate_and_encrypt_ed25519_key(
+    user_public_key: &str,
+) -> Result<(String, String), CryptoError> {
+    // Generate Ed25519 key pair
+    let device_key = SigningKey::generate(&mut OsRng);
+    let verifying_key = device_key.verifying_key();
 
+    // Convert keys to bytes
+    let private_key_bytes = device_key.to_bytes();
+    let public_key_bytes = verifying_key.to_bytes();
+
+    // Encode keys as base64 for storage
+    let private_key_b64 = general_purpose::STANDARD.encode(private_key_bytes);
+    let public_key_b64 = general_purpose::STANDARD.encode(public_key_bytes);
+
+    // Encrypt the private key using the user's PGP public key
+    let encrypted_private_key = encrypt_string_with_public_key(&private_key_b64, user_public_key)?;
+
+    Ok((encrypted_private_key, public_key_b64))
+}
+
+pub fn encrypt_string_with_public_key(data: &str, public_key: &str) -> Result<String, CryptoError> {
+    // Get the recipient from the public key
+    let recipient = crypto_core::get_recipient(public_key).map_err(|e| CryptoError::PgpError(e))?;
+
+    // Encrypt the string directly with PGP
+    let encrypted_data = crypto_core::encrypt_text_pgp(&recipient, data)
+        .map_err(|e| CryptoError::Other(e.to_string()))?;
+    info!("encrypted key {}", encrypted_data);
+
+    Ok(encrypted_data)
+}
+
+pub fn derive_node_id_from_public_key(public_key_b64: &str) -> Result<[u8; 32], String> {
+    // Decode the base64 public key
+    let public_key_bytes = general_purpose::STANDARD
+        .decode(public_key_b64)
+        .map_err(|e| format!("Failed to decode public key: {}", e))?;
+
+    if public_key_bytes.len() != 32 {
+        return Err(format!(
+            "Invalid public key length: expected 32 bytes, got {}",
+            public_key_bytes.len()
+        ));
+    }
+
+    // Convert the 32-byte array to NodeId using try_from
+    let key_array: [u8; 32] = public_key_bytes
+        .try_into()
+        .map_err(|_| "Failed to convert to 32-byte array".to_string())?;
+
+    Ok(key_array)
+}
 // Stateful Certificate Operations
 // These operations require a loaded certificate
-
 pub struct CryptoUtils {
     cert: Option<Cert>,
 }
@@ -417,6 +469,35 @@ impl CryptoUtils {
         .map_err(|e| CryptoError::Other(e.to_string()))?;
 
         Ok(newly_encrypted_key)
+    }
+    pub fn get_node_keypair(&self, encrypted_private_key: &str) -> Result<SecretKey, CryptoError> {
+        let policy = &StandardPolicy::new();
+
+        // Get the certificate
+        let cert = self
+            .get_cert()
+            .map_err(|e| CryptoError::CryptoUtilsError(e))?;
+
+        // Get the decryption key from the certificate
+        let decrypt_key =
+            crypto_core::get_decryption_key(cert).map_err(|e| CryptoError::PgpError(e))?;
+
+        // Decrypt the PGP-encrypted private key
+        let enc_bytes = encrypted_private_key.as_bytes();
+        let decrypted_bytes = crypto_core::decrypt_text_pgp(policy, &decrypt_key, enc_bytes)
+            .map_err(|e| CryptoError::PgpError(e))?;
+
+        // Convert decrypted bytes to UTF-8 string (this should be the base64 private key)
+        let utf8_key = String::from_utf8(decrypted_bytes)?;
+
+        // Decode from base64 to get raw key bytes
+        let key_bytes = general_purpose::STANDARD.decode(&utf8_key)?;
+
+        // Convert to 32-byte array (Ed25519 private keys are always 32 bytes)
+        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
+            CryptoError::Other("Invalid private key length, expected 32 bytes".to_string())
+        })?;
+        Ok(key_array)
     }
 }
 

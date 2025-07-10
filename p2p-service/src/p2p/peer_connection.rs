@@ -28,6 +28,7 @@ pub struct PeerConnection {
     /// Device information of the peer
     pub device: Device,
 
+    pub node_id: String,
     /// User information of the peer
     pub user: User,
 
@@ -62,6 +63,7 @@ impl PeerConnection {
         connection_type: ConnectionType,
         device: Device,
         user: User,
+        node_id: String,
         is_initiator: bool,
         context: Arc<ServiceContext>,
         event_emitter: P2PEventEmitter,
@@ -81,6 +83,7 @@ impl PeerConnection {
             connection,
             connection_type,
             device,
+            node_id,
             user,
             is_initiator,
             task_handle,
@@ -107,6 +110,10 @@ impl PeerConnection {
             peer_connection.get_id()
         );
         peer_connection
+    }
+    pub fn get_id(&self) -> String {
+        // Return node_id derived from device key for consistency
+        self.node_id.clone()
     }
     pub async fn set_device_manifest_comparison_result(
         &self,
@@ -190,10 +197,6 @@ impl PeerConnection {
         } else {
             true // Consider empty if no manifest exists
         }
-    }
-    /// Gets the unique identifier for this connection (user_id:device_id)
-    pub fn get_id(&self) -> String {
-        format!("{}:{}", self.user.id, self.device.id)
     }
 
     // Add method to close the connection
@@ -386,6 +389,7 @@ impl PeerConnection {
             }
             Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
             Message::UserNetworkSyncAck => self.send_resources().await,
+            Message::RetryRequest => self.execute_connection_action().await,
         }
     }
 
@@ -455,6 +459,7 @@ impl PeerConnection {
             connection_type: self.connection_type.clone(),
             device: self.device.clone(),
             user: self.user.clone(),
+            node_id: self.node_id.clone(),
             is_initiator: self.is_initiator,
             task_handle: tokio::spawn(async {}),
             context: self.context.clone(),

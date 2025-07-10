@@ -5,17 +5,17 @@ use crate::p2p::errors::P2PError;
 use crate::p2p::incoming::{IncomingEvent, P2PSender};
 use crate::p2p::logger;
 use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
-use iroh::{Endpoint, RelayMode, SecretKey};
-use osvauld_core::models::{User, ConnectionTicket, Device};
+use crypto_utils::CryptoUtils;
+use iroh::{Endpoint, NodeId, RelayMode};
+use n0_watcher::Watcher;
+use osvauld_core::models::{ConnectionAction,  ConnectionType, Device, User};
 use osvauld_db::database::RepositoryContext;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
-use n0_watcher::Watcher;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use crypto_utils::CryptoUtils;
-
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
     // HashMap of connections with user:device as the key
@@ -38,7 +38,7 @@ impl P2PService {
     #[instrument(skip_all, level = "info")]
     pub fn new(
         repo_ctx: RepositoryContext,
-        crypto_utils: Arc<Mutex<CryptoUtils>>
+        crypto_utils: Arc<Mutex<CryptoUtils>>,
     ) -> (
         Self,
         mpsc::UnboundedReceiver<P2PEvent>,
@@ -63,7 +63,7 @@ impl P2PService {
             current_user: Arc::new(RwLock::new(None)),
             current_device: Arc::new(RwLock::new(None)),
             repo_ctx,
-            crypto_utils
+            crypto_utils,
         };
 
         debug!("P2P service instance created successfully");
@@ -109,7 +109,7 @@ impl P2PService {
             Ok(u.clone())
         } else {
             trace!("No current user set");
-            return Err("no user found".to_string())
+            return Err("no user found".to_string());
         }
     }
 
@@ -124,7 +124,7 @@ impl P2PService {
             Ok(d.clone())
         } else {
             trace!("No current device set");
-            return Err("no current device found".to_string())
+            return Err("no current device found".to_string());
         }
     }
 
@@ -136,10 +136,32 @@ impl P2PService {
             trace!("P2P service already initialized");
             return Ok(());
         }
+        let key = self
+            .repo_ctx
+            .store_repo
+            .get_node_key()
+            .await
+            .map_err(|e| P2PError::Initialization(e.to_string()))?;
+        let node_public_key = self
+            .repo_ctx
+            .store_repo
+            .get_device_key()
+            .await
+            .map_err(|e| P2PError::Initialization(e.to_string()))?;
+        let node_id = crypto_utils::derive_node_id_from_public_key(&node_public_key)?;
+        let node_id =
+            NodeId::try_from(&node_id).map_err(|e| P2PError::Initialization(e.to_string()))?;
+        info!("node_id {}", node_id);
 
+        let secret_key_bytes = {
+            let crypto = self.crypto_utils.lock().await;
+            crypto
+                .get_node_keypair(&key)
+                .map_err(|e| P2PError::Initialization(e.to_string()))?
+        };
+        let secret_key = iroh::SecretKey::from(secret_key_bytes);
         info!("Initializing P2P endpoint");
 
-        let secret_key = SecretKey::generate(rand::rngs::OsRng);
         debug!("Generated new secret key for P2P endpoint");
 
         let endpoint = match Endpoint::builder()
@@ -181,16 +203,100 @@ impl P2PService {
         Ok(())
     }
 
+    pub async fn start_p2p_service(&self, device: &Device, user: &User) -> Result<(), String> {
+        self.set_current_user(user.clone()).await;
+        self.set_current_device(device.clone()).await;
+        self.ensure_initialized().await?;
+        self.start_listening().await?;
+        self.request_connections().await?;
+        Ok(())
+
+}
+pub async fn request_connections(&self) -> Result<(), String> {
+    let current_device = self.get_current_device().await?;
+    let all_devices = self.repo_ctx.device_repo.get_all_devices_except(&[current_device.id]).await.map_err(|e| e.to_string())?;
+    let all_users = self.repo_ctx.user_repo.get_known_users().await.map_err(|e| e.to_string())?;
+    let (user_devices, other_devices): (Vec<_>, Vec<_>) = all_devices
+        .into_iter()
+        .partition(|device| device.user_id == current_device.user_id );
+    
+    let first_users: Vec<User> = all_users
+        .into_iter()
+        .filter(|user| user.first_sync)
+        .collect();
+    
+    let first_user_ids: HashSet<_> = first_users.iter().map(|user| user.id.clone()).collect();
+    let (first_user_connection_devices, other_devices): (Vec<_>, Vec<_>) = other_devices
+        .into_iter()
+        .partition(|device| first_user_ids.contains(&device.user_id));
+    
+    
+    // Spawn all connection tasks concurrently
+    
+    // Connect to user devices (DeviceSync)
+    for device in user_devices {
+        let self_clone = self.clone();
+        tokio::spawn(async move {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::Device,  Some(ConnectionAction::DeviceSync)).await {
+                Ok(_) => {
+                    info!("Successfully connected to user device: {}", &device.id);
+                }
+                Err(e) => {
+                    error!("Failed to connect to user device {}: {}", &device.id, e);
+                }
+            }
+        });
+    }
+    
+    // Connect to first-time users (UserFirstConnection)
+    for device in first_user_connection_devices {
+        let self_clone = self.clone();
+         tokio::spawn(async move {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::User, Some(ConnectionAction::UserFirstConnection)).await {
+                Ok(_) => {
+                    info!("Successfully connected to first-time user: {}", &device.id);
+                }
+                Err(e) => {
+                    error!("Failed to connect to first-time user {}: {}", &device.id, e);
+                }
+            }
+        });
+    }
+    
+    // Connect to other users (UserSync)
+    for device in other_devices{
+        let self_clone = self.clone();
+         tokio::spawn(async move {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::User,  Some(ConnectionAction::UserSync)).await {
+                Ok(_) => {
+                    info!("Successfully connected to other user: {}", &device.id);
+                }
+                Err(e) => {
+                    error!("Failed to connect to other user {}: {}", &device.id, e);
+                }
+            }
+        });
+    }
+    
+    
+    Ok(())
+}
+
     /// Starts listening for inceming connections
     pub async fn start_listening(&self) -> Result<(), P2PError> {
-
         info!("Starting P2P listener");
 
+         let endpoint = {
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        debug!("Listener using endpoint with node ID: {}", state.endpoint.node_id());
-        let endpoint = state.endpoint.clone();
+        debug!(
+            "Listener using endpoint with node ID: {}",
+            state.endpoint.node_id()
+        );
+        state.endpoint.clone()
+    };
         let self_clone = self.clone(); // Clone self for use in the spawned task
+
 
         tokio::spawn(
             async move {
@@ -251,53 +357,6 @@ impl P2PService {
         Ok(())
     }
 
-    /// Gets a connection ticket that can be used to connect to this node
-    #[instrument(skip(self), level = "debug")]
-pub async fn get_connection_ticket(&self) -> Result<String, P2PError> {
-    debug!("Generating connection ticket");
-    self.ensure_initialized().await?;
-    
-    let ticket = {
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        
-        // Get addresses while holding the lock
-        let direct_addresses = state.endpoint
-            .direct_addresses()
-            .initialized()
-            .await
-            .map_err(|e| {
-                error!("Failed to get initialized node address: {}", e);
-                P2PError::Connection(e.to_string())
-            })?;
-        
-        let addrs = direct_addresses
-            .into_iter()
-            .map(|addr| addr.addr.to_string())
-            .collect::<Vec<_>>();
-        
-        debug!("Addresses included in ticket: {:?}", addrs);
-        
-        ConnectionTicket {
-            node_id: state.endpoint.node_id().to_string(),
-            addresses: addrs,
-        }
-    };
-    
-    self.start_listening().await?;
-    
-    match serde_json::to_string(&ticket) {
-        Ok(ticket_str) => {
-            info!("Connection ticket generated successfully {}", ticket_str);
-            trace!("Ticket content: {}", ticket_str);
-            Ok(ticket_str)
-        }
-        Err(e) => {
-            error!("Failed to serialize connection ticket: {}", e);
-            Err(P2PError::Serialization(e.to_string()))
-        }
-    }
-}
     #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
     pub async fn get_connection_by_id(
         &self,

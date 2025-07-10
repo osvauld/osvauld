@@ -7,6 +7,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 pub struct ConnectionManager {
     pub connections: Arc<Mutex<HashMap<String, Arc<PeerConnection>>>>,
     pub connecting: Arc<Mutex<HashSet<String>>>,
+    pub pending_live_edit_requests: Arc<Mutex<HashSet<String>>>,
 }
 
 impl ConnectionManager {
@@ -16,6 +17,7 @@ impl ConnectionManager {
         Self {
             connections: Arc::new(Mutex::new(HashMap::new())),
             connecting: Arc::new(Mutex::new(HashSet::new())),
+            pending_live_edit_requests: Arc::new(Mutex::new(HashSet::new())),
         }
     }
 
@@ -272,5 +274,32 @@ impl ConnectionManager {
         );
 
         result
+    }
+
+    #[instrument(skip(self), level = "debug")]
+    pub async fn add_pending_live_edit_request(&self, connection_id: &str) {
+        debug!(
+            "Adding pending live edit request for connection: {}",
+            connection_id
+        );
+        let mut pending_requests = self.pending_live_edit_requests.lock().await;
+        pending_requests.insert(connection_id.to_string());
+        info!("Added pending live edit request for: {}", connection_id);
+    }
+    #[instrument(skip(self), level = "debug")]
+    pub async fn get_and_clear_pending_live_edit_requests(&self, connection_id: &str) -> bool {
+        debug!(
+            "Checking for pending live edit request for: {}",
+            connection_id
+        );
+        let mut pending_requests = self.pending_live_edit_requests.lock().await;
+        let was_pending = pending_requests.remove(connection_id);
+        if was_pending {
+            info!(
+                "Found and removed pending live edit request for: {}",
+                connection_id
+            );
+        }
+        was_pending
     }
 }

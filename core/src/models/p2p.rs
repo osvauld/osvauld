@@ -29,6 +29,7 @@ pub enum Message {
     UserManifestPayload(UserManifestPayload),
     UserNetworkSync(UserNetworkSyncPayload),
     UserNetworkSyncAck,
+    RetryRequest,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FirstUserExchange {
@@ -40,12 +41,6 @@ pub enum DisconnectStatus {
     Request,
     Accepted,
     Rejected(String),
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct ConnectionTicket {
-    pub node_id: String,
-    pub addresses: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

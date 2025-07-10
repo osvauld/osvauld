@@ -58,7 +58,6 @@ const tauriBrowser = {
       try {
         // Map actions to their specific handlers
         const handlerMap = {
-          getTicket: () => invoke("get_ticket"),
           isSignedUp: () => invoke("check_signup_status"),
           savePassphrase: (data) => invoke("handle_sign_up", { input: data }),
           checkPvtLoaded: () => invoke("check_private_key_loaded"),
@@ -98,9 +97,6 @@ const tauriBrowser = {
             invoke('update_current_note', { input: data })
           },
           getUserDetails: () => invoke('get_user_details'),
-          firstDeviceConnect: (data: any) => {
-            invoke('first_device_connect', { input: data });
-          }
         };
 
         const handler = handlerMap[action];

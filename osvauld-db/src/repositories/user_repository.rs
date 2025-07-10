@@ -93,6 +93,7 @@ impl UserRepository for SqliteUserRepository {
         primary_certificate: &Certificate,
         device: &Device,
         device_certificate: &Certificate,
+        peer_device: Option<&Device>,
     ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let now = Local::now().timestamp_millis();
@@ -152,7 +153,13 @@ impl UserRepository for SqliteUserRepository {
             diesel::insert_into(devices::table)
                 .values(&device_model)
                 .execute(conn)?;
-
+            if let Some(peer_device) = peer_device {
+                let device_model = DeviceModel::from(peer_device);
+                diesel::insert_into(devices::table)
+                    .values(&device_model)
+                    .execute(conn)?;
+            }
+            // 5. Save peer device
             Ok(())
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
@@ -242,7 +249,8 @@ impl UserRepository for SqliteUserRepository {
                 diesel::insert_into(users::table)
                     .values(&user_model)
                     .on_conflict(users::id)
-                    .do_nothing()
+                    .do_update()
+                    .set(users::first_sync.eq(true))
                     .execute(conn)?;
 
                 // 2. Insert associated devices
