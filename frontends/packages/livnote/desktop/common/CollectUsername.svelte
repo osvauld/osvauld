@@ -14,6 +14,8 @@ const handleSubmit = () => {
 
 
 <div class="h-full flex flex-col items-center justify-center">
+	<h1>Add your name</h1>
+	<p>Only seen by people you share something with. There is no central registry for these names.</p>
 	<label for="username" class="font-normal mt-6 mb-2 text-osvauld-quarzowhite">Enter Username</label>
   <div
 		class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
