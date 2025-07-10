@@ -5,7 +5,7 @@
 	import { sendMessage } from "../../../common/utils/helper";
 
 	// Replace createEventDispatcher with callback props
-	let { onLogin, recoveryData } = $props();
+	let { onLogin, recoveryData, username } = $props();
 
 	// State variables
 	let passphrase = $state("");
@@ -17,12 +17,12 @@
 
 	// Derived values
 	// TODO: for dev disabling this
-	// let submitDisabled = $derived(
-	// 	passphrase.length === 0 ||
-	// 		passphrase !== reenteredPassPhrase ||
-	// 		!isPassphraseAcceptable,
-	// );
-	let submitDisabled = false;
+	let submitDisabled = $derived(
+		passphrase.length === 0 ||
+			passphrase !== reenteredPassPhrase ||
+			!isPassphraseAcceptable,
+	);
+	//let submitDisabled = false;
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {
 		if (isInitialResponse) {

@@ -30,13 +30,13 @@
 		| (typeof VIEW_STATES.NEW_USER)[keyof typeof VIEW_STATES.NEW_USER];
 
 	// let currentView = $state<ViewState>("welcome");
-		let currentView = "new_passphrase"
+		let currentView = "privateKey"
 		let viewHistory = $state<ViewState[]>([]);
 		//let userFlow = $state<"EXISITING_USER" | "NEW_USER" | null>(null);
 		let userFlow = "EXISITING_USER"
 
 	let collectedRecoveryString = $state("");
-	let collectedUsernameString = "";
+	let collectedUsernameString = $state("");
 
 	const navigateTo = (view: ViewState) => {
 		viewHistory = [...viewHistory, currentView];
@@ -112,11 +112,12 @@
 			<FlowContainer onBack={goBack}>
 				<NewPassword
 					onLogin={handlePassphraseSet}
+					username={collectedUsernameString}
 					recoveryData={collectedRecoveryString} />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
 			<FlowContainer onBack={goBack}>
-				<ProvidePrivateKey />
+				<ProvidePrivateKey recoveryData={collectedRecoveryString} />
 			</FlowContainer>
 		{/if}
 	</div>
