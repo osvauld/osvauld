@@ -76,30 +76,35 @@
 		triggerAccountRecovery(passphrase)
 	};
 
+	const preventDefault = (e: Event) => e.preventDefault();
 </script>
 
-<form onsubmit={handleSubmit} class="flex flex-col items-center justify-center">
+<form onsubmit={handleSubmit} class="flex flex-col items-center justify-center select-none">
+	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Add your name</h1>
+	<p class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">Only seen by people you share something with. <br/>There is no central registry for these names.</p>
 	<label
 		for="new-passphrase"
-		class="font-normal mt-6 mb-2 text-osvauld-quarzowhite"
-		>Enter New Passphrase</label>
+		class="font-normal mt-6 mb-2 text-osvauld-quarzowhite self-start"
+		>Enter passphrase</label>
 	<div
-		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
+		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
 		<input
-			class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
+			class="select-none w-[24rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0  outline-none"
 			type={showPassword ? "text" : "password"}
 			id="new-passphrase"
 			autocomplete="off"
 			autocorrect="off"
 			use:autofocus
-			oninput={handleInputChange} />
+			oninput={handleInputChange}
+			oncopy={preventDefault}
+		/>
 
-		{#if isPassphraseAcceptable}
+		<!-- {#if isPassphraseAcceptable}
 			<span class="pr-2"><Tick /></span>
-		{/if}
+		{/if} -->
 		<button
 			type="button"
-			class="flex justify-center items-center"
+			class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
 			onclick={() => togglePasswordVisibility(true)}>
 			{#if showPassword}
 				<ClosedEye />
@@ -113,21 +118,22 @@
 		onStrengthChange={handleStrengthChange} />
 	<label
 		for="confirm-passphrase"
-		class="font-normal mt-2 mb-2 text-osvauld-quarzowhite"
-		>Confirm New Passphrase</label>
+		class="font-normal mt-2 mb-2 text-osvauld-quarzowhite self-start"
+		>Confirm passphrase</label>
 	<div
-		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-osvauld-activeBorder">
+		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
 		<input
-			class="text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 focus:border-osvauld-activeBorder focus:outline-none"
+			class=" w-[24rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent ring-0 outline-none"
 			type={showReenteredPassword ? "text" : "password"}
 			id="confirm-passphrase"
 			autocomplete="off"
 			autocorrect="off"
-			oninput={handleConfirmationInputChange} />
+			oninput={handleConfirmationInputChange}
+			oncopy={preventDefault} />
 
 		<button
 			type="button"
-			class="flex justify-center items-center"
+			class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
 			onclick={() => togglePasswordVisibility(false)}>
 			{#if showReenteredPassword}
 				<ClosedEye />

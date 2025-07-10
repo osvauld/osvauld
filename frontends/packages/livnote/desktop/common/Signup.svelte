@@ -30,7 +30,7 @@
 		| (typeof VIEW_STATES.NEW_USER)[keyof typeof VIEW_STATES.NEW_USER];
 
 	// let currentView = $state<ViewState>("welcome");
-		let currentView = "username"
+		let currentView = "new_passphrase"
 		let viewHistory = $state<ViewState[]>([]);
 		//let userFlow = $state<"EXISITING_USER" | "NEW_USER" | null>(null);
 		let userFlow = "EXISITING_USER"
@@ -76,6 +76,7 @@
 
 	const handleUsernameCollected = (username: string) => {
 		collectedUsernameString = username;
+		// not using this value as of now
 		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
 	};
 
