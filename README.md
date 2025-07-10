@@ -16,7 +16,7 @@ end-to-end encrypted, directly between devices desktop or mobile — without a m
 
 - **End-to-End Encryption**: All your credentials including meta data never leaves your browser unencrypted and only you and to whom you shared can decrypt it using corresponding secret password - strictly adhering to zero-knowledge architecture.
 - **Open-PGP**: Quickly share credentials with your team with open-PGP sharing mechanism, It is a 40-year old battle tested cryptography protocol suit.
-- **Seqouia-PGP**: osvauld uses Rust based Seqouia-PGP which has its Focus on safety and correctness, Uses a memory-safe language, First-Class Library.
+- **Sequoia-PGP**: osvauld uses Rust based Seqouia-PGP which has its Focus on safety and correctness, Uses a memory-safe language, First-Class Library.
 - **ECC and AES Algorithms**: osvauld uses  the OpenPGP RFC 4880 standard with ECC Curve25519 AND AES-256.
 - **Peer-to-peer Connection**: Enabled by Iroh, lets you establish direct peer-to-peer connections whenever possible, falling back to relay servers if necessary. This gives you fast, reliable connections that are authenticated and encrypted end-to-end using QUIC.
 
