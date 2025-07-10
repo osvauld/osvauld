@@ -42,12 +42,6 @@ pub enum DisconnectStatus {
     Rejected(String),
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct ConnectionTicket {
-    pub node_id: String,
-    pub addresses: Vec<String>,
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ConnectionType {
     Device,

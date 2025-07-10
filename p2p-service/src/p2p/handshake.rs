@@ -5,13 +5,9 @@ use crate::p2p::peer_connection::PeerConnection;
 use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{NodeAddr, NodeId};
-use osvauld_core::models::p2p::{
-    ConnectionAction, ConnectionTicket, ConnectionType, HandshakeMessage,
-};
+use osvauld_core::models::p2p::{ConnectionAction, ConnectionType, HandshakeMessage};
 use osvauld_services::sign_random_challenge;
-use std::fmt::format;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
 use tokio::time::timeout;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
@@ -162,7 +158,20 @@ impl P2PService {
             error!("Failed to insert connection: {}", e);
             return Err(P2PError::PeerConnection(e));
         }
-
+        let connection_id = peer_connection_arc.get_id();
+        let has_pending_live_edit = state
+            .connections
+            .get_and_clear_pending_live_edit_requests(&connection_id)
+            .await;
+        if has_pending_live_edit {
+            info!(
+                "Found pending live edit request for connection: {}",
+                connection_id
+            );
+            self.event_emitter.emit(P2PEvent::LiveEditConnected {
+                connection_id: connection_id.clone(),
+            });
+        }
         // Emit connected event
         debug!("Emitting connection events");
         self.event_emitter.emit(P2PEvent::Connected);
@@ -500,20 +509,17 @@ impl P2PService {
 
         let connection_id = node_id.to_string();
         // Get the state for access to connections
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        debug!(
-            "Connector using endpoint with node ID: {}",
-            state.endpoint.node_id()
-        );
+        let (endpoint, connections) = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+            (state.endpoint.clone(), state.connections.clone())
+        };
 
         // If a connection ID was provided, check if the connection is already active
         // Check if connection is already established or in connecting state
-        if state.connections.is_connection_active(&connection_id).await {
+        if connections.is_connection_active(&connection_id).await {
             // Try to get an established connection
-            if let Ok(existing_connection) =
-                state.connections.get_peer_connection(&connection_id).await
-            {
+            if let Ok(existing_connection) = connections.get_peer_connection(&connection_id).await {
                 info!("Using existing established connection: {}", &connection_id);
                 if let Some(action) = action {
                     if action == ConnectionAction::LiveEdit {
@@ -530,12 +536,16 @@ impl P2PService {
                     "Connection is currently being established (returning None): {}",
                     &connection_id
                 );
+
+                connections
+                    .add_pending_live_edit_request(&connection_id)
+                    .await;
                 return Ok(None);
             }
         }
 
         // Mark the connection as connecting
-        if let Err(e) = state.connections.mark_as_connecting(&connection_id).await {
+        if let Err(e) = connections.mark_as_connecting(&connection_id).await {
             // This shouldn't happen given the previous check, but handle it just in case
             warn!("Failed to mark connection as connecting: {}", e);
             return Err(P2PError::Connection(format!(
@@ -549,7 +559,7 @@ impl P2PService {
             if let Some(id) = connection_id {
                 // We need to spawn a task because we can't use .await in a closure
                 let connection_id = id.to_string();
-                let state_connections = state.connections.clone();
+                let state_connections = connections.clone();
                 tokio::spawn(async move {
                     state_connections
                         .remove_from_connecting(&connection_id)
@@ -563,7 +573,7 @@ impl P2PService {
         let node_addr = NodeAddr::new(node_id.clone());
 
         debug!("Created NodeAddr: {:?}", node_addr);
-        debug!("Our endpoint ID: {}", state.endpoint.node_id());
+        debug!("Our endpoint ID: {}", endpoint.node_id());
         debug!("ALPN Protocol: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
 
         // Attempt to establish connection
@@ -575,8 +585,7 @@ impl P2PService {
         debug!("NodeAddr created: {:?}", node_addr);
         debug!("Using ALPN: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
 
-        let connect_result = state
-            .endpoint
+        let connect_result = endpoint
             .connect(node_addr.clone(), ALPN_PROTOCOL)
             .instrument(connection_span)
             .await;
@@ -600,9 +609,6 @@ impl P2PService {
         info!("Starting handshake process");
         let handshake_span =
             info_span!("handshake", initiator = true, connection_type = ?conn_type);
-
-        // Drop the state guard before handshake to avoid deadlocks
-        drop(state_guard);
 
         // Perform handshake
         let handshake_result = self

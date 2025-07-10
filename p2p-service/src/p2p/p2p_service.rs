@@ -8,7 +8,7 @@ use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
 use crypto_utils::CryptoUtils;
 use iroh::{Endpoint, NodeId, RelayMode};
 use n0_watcher::Watcher;
-use osvauld_core::models::{ConnectionAction, ConnectionTicket, ConnectionType, Device, User};
+use osvauld_core::models::{ConnectionAction,  ConnectionType, Device, User};
 use osvauld_db::database::RepositoryContext;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -16,7 +16,6 @@ use tokio::sync::RwLock;
 use tokio::sync::{Mutex, mpsc};
 use tokio::time::timeout;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
-use futures_lite::future;
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
     // HashMap of connections with user:device as the key
@@ -233,12 +232,11 @@ pub async fn request_connections(&self) -> Result<(), String> {
     
     
     // Spawn all connection tasks concurrently
-    let mut handles = Vec::new();
     
     // Connect to user devices (DeviceSync)
     for device in user_devices {
         let self_clone = self.clone();
-        let handle = tokio::spawn(async move {
+        tokio::spawn(async move {
             match self_clone.connect_with_ticket(&device.id, ConnectionType::Device,  Some(ConnectionAction::DeviceSync)).await {
                 Ok(_) => {
                     info!("Successfully connected to user device: {}", &device.id);
@@ -248,13 +246,12 @@ pub async fn request_connections(&self) -> Result<(), String> {
                 }
             }
         });
-        handles.push(handle);
     }
     
     // Connect to first-time users (UserFirstConnection)
     for device in first_user_connection_devices {
         let self_clone = self.clone();
-        let handle = tokio::spawn(async move {
+         tokio::spawn(async move {
             match self_clone.connect_with_ticket(&device.id, ConnectionType::User, Some(ConnectionAction::UserFirstConnection)).await {
                 Ok(_) => {
                     info!("Successfully connected to first-time user: {}", &device.id);
@@ -264,13 +261,12 @@ pub async fn request_connections(&self) -> Result<(), String> {
                 }
             }
         });
-        handles.push(handle);
     }
     
     // Connect to other users (UserSync)
     for device in other_devices{
         let self_clone = self.clone();
-        let handle = tokio::spawn(async move {
+         tokio::spawn(async move {
             match self_clone.connect_with_ticket(&device.id, ConnectionType::User,  Some(ConnectionAction::UserSync)).await {
                 Ok(_) => {
                     info!("Successfully connected to other user: {}", &device.id);
@@ -280,15 +276,8 @@ pub async fn request_connections(&self) -> Result<(), String> {
                 }
             }
         });
-        handles.push(handle);
     }
     
-    // Wait for all tasks to complete
-    for handle in handles {
-        if let Err(e) = handle.await {
-            error!("Connection task panicked: {}", e);
-        }
-    }
     
     Ok(())
 }
@@ -297,14 +286,17 @@ pub async fn request_connections(&self) -> Result<(), String> {
     pub async fn start_listening(&self) -> Result<(), P2PError> {
         info!("Starting P2P listener");
 
+         let endpoint = {
         let state_guard = self.state.lock().await;
         let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
         debug!(
             "Listener using endpoint with node ID: {}",
             state.endpoint.node_id()
         );
-        let endpoint = state.endpoint.clone();
+        state.endpoint.clone()
+    };
         let self_clone = self.clone(); // Clone self for use in the spawned task
+
 
         tokio::spawn(
             async move {
@@ -365,54 +357,6 @@ pub async fn request_connections(&self) -> Result<(), String> {
         Ok(())
     }
 
-    /// Gets a connection ticket that can be used to connect to this node
-    #[instrument(skip(self), level = "debug")]
-    pub async fn get_connection_ticket(&self) -> Result<String, P2PError> {
-        debug!("Generating connection ticket");
-        self.ensure_initialized().await?;
-
-        let ticket = {
-            let state_guard = self.state.lock().await;
-            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-
-            // Get addresses while holding the lock
-            let direct_addresses = state
-                .endpoint
-                .direct_addresses()
-                .initialized()
-                .await
-                .map_err(|e| {
-                    error!("Failed to get initialized node address: {}", e);
-                    P2PError::Connection(e.to_string())
-                })?;
-
-            let addrs = direct_addresses
-                .into_iter()
-                .map(|addr| addr.addr.to_string())
-                .collect::<Vec<_>>();
-
-            debug!("Addresses included in ticket: {:?}", addrs);
-
-            ConnectionTicket {
-                node_id: state.endpoint.node_id().to_string(),
-                addresses: addrs,
-            }
-        };
-
-        self.start_listening().await?;
-
-        match serde_json::to_string(&ticket) {
-            Ok(ticket_str) => {
-                info!("Connection ticket generated successfully {}", ticket_str);
-                trace!("Ticket content: {}", ticket_str);
-                Ok(ticket_str)
-            }
-            Err(e) => {
-                error!("Failed to serialize connection ticket: {}", e);
-                Err(P2PError::Serialization(e.to_string()))
-            }
-        }
-    }
     #[instrument(skip(self), fields(connection_id = %connection_id), level = "debug")]
     pub async fn get_connection_by_id(
         &self,
