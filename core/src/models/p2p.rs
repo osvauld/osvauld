@@ -29,6 +29,7 @@ pub enum Message {
     UserManifestPayload(UserManifestPayload),
     UserNetworkSync(UserNetworkSyncPayload),
     UserNetworkSyncAck,
+    RetryRequest,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FirstUserExchange {

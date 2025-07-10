@@ -389,6 +389,7 @@ impl PeerConnection {
             }
             Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
             Message::UserNetworkSyncAck => self.send_resources().await,
+            Message::RetryRequest => self.execute_connection_action().await,
         }
     }
 

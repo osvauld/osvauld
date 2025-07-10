@@ -6,6 +6,7 @@ use crate::p2p::P2PEvent;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{NodeAddr, NodeId};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType, HandshakeMessage};
+use osvauld_core::models::Message;
 use osvauld_services::sign_random_challenge;
 use std::sync::Arc;
 use tokio::time::timeout;
@@ -526,7 +527,13 @@ impl P2PService {
                         self.event_emitter
                             .emit(P2PEvent::LiveEditConnected { connection_id });
                     } else {
-                        existing_connection.execute_connection_action().await;
+                        if existing_connection.is_initiator {
+                            existing_connection.execute_connection_action().await;
+                        } else {
+                            existing_connection
+                                .send_message(Message::RetryRequest)
+                                .await;
+                        }
                     }
                 }
                 return Ok(Some(existing_connection));

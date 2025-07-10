@@ -320,7 +320,7 @@ impl PeerConnection {
                     "Device manifest retrieved"
                 );
 
-                if manifest.local_missing.unknown_resources.is_empty() {
+                if manifest.remote_missing.unknown_resources.is_empty() {
                     self.send_message(Message::ResourceAdditionComplete).await?;
                 }
                 manifest
@@ -338,7 +338,7 @@ impl PeerConnection {
                     "User manifest retrieved"
                 );
 
-                if manifest.local_missing.unknown_resources.is_empty() {
+                if manifest.remote_missing.unknown_resources.is_empty() {
                     self.send_message(Message::ResourceAdditionComplete).await?;
                 }
                 manifest
