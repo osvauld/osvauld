@@ -3,9 +3,19 @@
 	import { ClosedEye, Eye, Tick } from "@osvauld/password-manager-common";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
 	import { sendMessage } from "../../../common/utils/helper";
+	import { onMount } from "svelte";
 
 	// Replace createEventDispatcher with callback props
-	let { onLogin, recoveryData, username } = $props();
+	let {
+		onLogin,
+		recoveryData,
+		username = "",
+	}: {
+		onLogin: (isCorrect: boolean) => void;
+		recoveryData: string;
+		username?: string;
+	} = $props();
+
 
 	// State variables
 	let passphrase = $state("");
@@ -77,74 +87,80 @@
 	};
 
 	const preventDefault = (e: Event) => e.preventDefault();
+
+	onMount(() => {
+		console.log("collected username", username);
+	})
 </script>
 
 <form onsubmit={handleSubmit} class="flex flex-col items-center justify-center select-none">
-	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Add your name</h1>
-	<p class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">Only seen by people you share something with. <br/>There is no central registry for these names.</p>
-	<label
-		for="new-passphrase"
-		class="font-normal mt-6 mb-2 text-osvauld-quarzowhite self-start"
-		>Enter passphrase</label>
-	<div
-		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
-		<input
-			class="select-none w-[24rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0  outline-none"
-			type={showPassword ? "text" : "password"}
-			id="new-passphrase"
-			autocomplete="off"
-			autocorrect="off"
-			use:autofocus
-			oninput={handleInputChange}
-			oncopy={preventDefault}
-		/>
+	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Create a strong passphrase</h1>
+	<p class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">This will be used to encrypt and decrypt your data. <br/> This will not leave your device.</p>
+	<div class="h-[20rem] mt-6">
+		<label
+			for="new-passphrase"
+			class="font-normal text-osvauld-quarzowhite self-start "
+			>Enter passphrase</label>
+		<div
+			class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink mt-2">
+			<input
+				class="select-none w-[20rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0  outline-none"
+				type={showPassword ? "text" : "password"}
+				id="new-passphrase"
+				autocomplete="off"
+				autocorrect="off"
+				use:autofocus
+				oninput={handleInputChange}
+				oncopy={preventDefault}
+			/>
 
-		<!-- {#if isPassphraseAcceptable}
+			<!-- {#if isPassphraseAcceptable}
 			<span class="pr-2"><Tick /></span>
 		{/if} -->
-		<button
-			type="button"
-			class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
-			onclick={() => togglePasswordVisibility(true)}>
-			{#if showPassword}
-				<ClosedEye />
-			{:else}
-				<Eye />
-			{/if}
-		</button>
-	</div>
-	<PasswordStrengthValidator
-		{passphrase}
-		onStrengthChange={handleStrengthChange} />
-	<label
-		for="confirm-passphrase"
-		class="font-normal mt-2 mb-2 text-osvauld-quarzowhite self-start"
-		>Confirm passphrase</label>
-	<div
-		class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
-		<input
-			class=" w-[24rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent ring-0 outline-none"
-			type={showReenteredPassword ? "text" : "password"}
-			id="confirm-passphrase"
-			autocomplete="off"
-			autocorrect="off"
-			oninput={handleConfirmationInputChange}
-			oncopy={preventDefault} />
+			<button
+				type="button"
+				class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
+				onclick={() => togglePasswordVisibility(true)}>
+				{#if showPassword}
+					<ClosedEye />
+				{:else}
+					<Eye />
+				{/if}
+			</button>
+		</div>
+		<PasswordStrengthValidator
+			{passphrase}
+			onStrengthChange={handleStrengthChange} />
+		<label
+			for="confirm-passphrase"
+			class="font-normal mt-2 text-osvauld-quarzowhite self-start"
+			>Confirm passphrase</label>
+		<div
+			class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink mt-2">
+			<input
+				class=" w-[20rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent ring-0 outline-none"
+				type={showReenteredPassword ? "text" : "password"}
+				id="confirm-passphrase"
+				autocomplete="off"
+				autocorrect="off"
+				oninput={handleConfirmationInputChange}
+				oncopy={preventDefault} />
 
-		<button
-			type="button"
-			class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
-			onclick={() => togglePasswordVisibility(false)}>
-			{#if showReenteredPassword}
-				<ClosedEye />
-			{:else}
-				<Eye />
-			{/if}
-		</button>
+			<button
+				type="button"
+				class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
+				onclick={() => togglePasswordVisibility(false)}>
+				{#if showReenteredPassword}
+					<ClosedEye />
+				{:else}
+					<Eye />
+				{/if}
+			</button>
+		</div>
 	</div>
 
 	<button
-		class="w-full  py-2 px-10 mt-8 rounded-lg font-medium  flex justify-center items-center whitespace-nowrap cursor-pointer bg-signupGray text-white  border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
+		class="w-[24rem]  py-2 px-10 mt-8 rounded-lg font-medium  flex justify-center items-center whitespace-nowrap cursor-pointer bg-signupGray text-white  border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}

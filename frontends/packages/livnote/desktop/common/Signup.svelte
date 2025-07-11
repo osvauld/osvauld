@@ -29,11 +29,11 @@
 		| (typeof VIEW_STATES.EXISITING_USER)[keyof typeof VIEW_STATES.EXISITING_USER]
 		| (typeof VIEW_STATES.NEW_USER)[keyof typeof VIEW_STATES.NEW_USER];
 
-	// let currentView = $state<ViewState>("welcome");
-		let currentView = "privateKey"
+	  let currentView = $state<ViewState>("welcome");
+		//let currentView = "privateKey"
 		let viewHistory = $state<ViewState[]>([]);
-		//let userFlow = $state<"EXISITING_USER" | "NEW_USER" | null>(null);
-		let userFlow = "EXISITING_USER"
+		let userFlow = $state<"EXISITING_USER" | "NEW_USER" | null>(null);
+		//let userFlow = "EXISITING_USER"
 
 	let collectedRecoveryString = $state("");
 	let collectedUsernameString = $state("");
@@ -91,7 +91,7 @@
 <div
 	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 relative">
 	<div class="h-full flex flex-col items-center pt-[13.5rem]">
-		<img src={LivnoteLogo} alt="Livnote Logo" class="mb-10" />
+		<img src={LivnoteLogo} alt="Livnote Logo" class="mb-10 select-none" />
 		{#if currentView === "welcome"}
 			<InitiationScreen onFlowSelect={triggerOnboardingFlow} />
 		{:else if currentView === VIEW_STATES.EXISITING_USER.IMPORT}
@@ -102,7 +102,8 @@
 			<FlowContainer onBack={goBack}>
 				<NewPassword
 					onLogin={handleRecoveryFlowComplete}
-					recoveryData={collectedRecoveryString} />
+					recoveryData={collectedRecoveryString}
+					username={collectedUsernameString} />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.COLLECT_USERNAME}
 			<FlowContainer onBack={goBack}>

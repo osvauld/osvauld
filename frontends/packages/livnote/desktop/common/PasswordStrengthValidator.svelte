@@ -47,7 +47,7 @@
 	}
 </script>
 
-<div class="w-[27rem] rounded-xl shadow-md overflow-hidden p-2">
+<div class="w-[24rem] rounded-xl shadow-md overflow-hidden p-2">
 	<div class="mb-4">
 		<!-- Segmented strength bar that fills based on score -->
 		<div class="flex justify-between items-center w-full mb-2">
