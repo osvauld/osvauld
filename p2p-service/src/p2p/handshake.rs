@@ -3,15 +3,25 @@ use crate::p2p::errors::{HandshakeError, P2PError};
 use crate::p2p::p2p_service::P2PService;
 use crate::p2p::peer_connection::PeerConnection;
 use crate::p2p::P2PEvent;
+
+use crypto_utils::{verify_signature, CryptoUtils};
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{NodeAddr, NodeId};
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType, HandshakeMessage};
-use osvauld_core::models::Message;
-use osvauld_services::sign_random_challenge;
+use osvauld_core::models::{
+    Device, HandshakeConfirm, HandshakeInit, HandshakeResponse, Message, User,
+};
+use osvauld_services::{generate_challenge, sign_random_challenge};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::time::timeout;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
-
+#[derive(Clone, Debug)]
+pub struct HandshakeResult {
+    pub connection_type: ConnectionType,
+    pub device: Device,
+    pub user: User,
+}
 impl P2PService {
     /// Performs the handshake process and creates a peer connection
     ///
@@ -299,6 +309,36 @@ impl P2PService {
         }
     }
 
+    async fn send_handshake_message<T: Serialize>(
+        send: &mut SendStream,
+        message: &T,
+        message_name: &str,
+    ) -> Result<(), HandshakeError> {
+        let serialized = match serde_json::to_string(message) {
+            Ok(json) => {
+                debug!("Serialized {} message: {} bytes", message_name, json.len());
+                json
+            }
+            Err(e) => {
+                error!("Failed to serialize {}: {}", message_name, e);
+                return Err(HandshakeError::Serialization(e.to_string()));
+            }
+        };
+
+        // Send the message
+        if let Err(e) = send.write_all(serialized.as_bytes()).await {
+            error!("Failed to write {}: {}", message_name, e);
+            return Err(HandshakeError::Connection(e.to_string()));
+        }
+
+        if let Err(e) = send.finish() {
+            error!("Failed to finish sending {}: {}", message_name, e);
+            return Err(HandshakeError::Connection(e.to_string()));
+        }
+
+        debug!("Successfully sent {}", message_name);
+        Ok(())
+    }
     /// Initiates the handshake process by sending our handshake message and waiting for a response
     ///
     /// This is called by the party that initiated the connection.
@@ -308,88 +348,101 @@ impl P2PService {
         send: &mut SendStream,
         recv: &mut RecvStream,
         connection_type: ConnectionType,
-    ) -> Result<HandshakeMessage, HandshakeError> {
-        info!("Initiator: Sending handshake message");
+    ) -> Result<HandshakeResult, HandshakeError> {
+        info!("Initiator: Starting secure 3-message handshake");
 
-        // Get our device information
+        // Get our device and user information
         let current_user = self
             .get_current_user()
             .await
-            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
+            .map_err(|_| HandshakeError::AuthService("Failed to get current user".to_string()))?;
 
         let current_device = self
             .get_current_device()
             .await
-            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
-        // Sign a challenge to prove our identity
+            .map_err(|_| HandshakeError::AuthService("Failed to get current device".to_string()))?;
 
-        let (challenge, signature) = sign_random_challenge(&self.crypto_utils)
-            .await
-            .map_err(|_| HandshakeError::InvalidChallenge("failed handshake".to_string()))?;
+        // Generate our challenge and timestamp
+        let our_challenge = generate_challenge();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-        // Construct the handshake message
-        let handshake_message = HandshakeMessage {
-            connection_type,
-            challenge,
-            signature,
-            device: current_device,
-            user: current_user,
+        // Step 1: Send HandshakeInit
+        let handshake_init = HandshakeInit {
+            connection_type: connection_type.clone(),
+            user: current_user.clone(),
+            device: current_device.clone(),
+            challenge: our_challenge.clone(),
+            timestamp,
         };
 
-        // Serialize and send the handshake message
-        let serialized = match serde_json::to_string(&handshake_message) {
-            Ok(json) => {
-                debug!("Serialized handshake message: {} bytes", json.len());
-                trace!("DIAGNOSTIC: Handshake message size is {} bytes", json.len());
-                json
-            }
-            Err(e) => {
-                error!("Failed to serialize handshake message: {}", e);
-                return Err(HandshakeError::Serialization(e.to_string()));
-            }
-        };
+        Self::send_handshake_message(send, &handshake_init, "HandshakeInit").await?;
+        info!("Initiator: Sent HandshakeInit, waiting for HandshakeResponse");
 
-        // Write the message to the stream
-        if let Err(e) = send.write_all(serialized.as_bytes()).await {
-            error!("Failed to write handshake message: {}", e);
-            return Err(HandshakeError::Connection(e.to_string()));
+        // Step 2: Receive HandshakeResponse
+        let response_str = self.read_complete_message(recv).await?;
+        let handshake_response: HandshakeResponse =
+            serde_json::from_str(&response_str).map_err(|e| HandshakeError::Deserialization(e))?;
+
+        // Validate timestamp (allow 5 minutes skew)
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        if handshake_response.timestamp.abs_diff(current_time) > 300 {
+            error!("HandshakeResponse timestamp too old or too far in future");
+            return Err(HandshakeError::InvalidChallenge(
+                "Timestamp validation failed".to_string(),
+            ));
         }
 
-        // Ensure the message is sent
-        if let Err(e) = send.finish() {
-            error!("Failed to finish sending handshake message: {}", e);
-            return Err(HandshakeError::Connection(e.to_string()));
+        // Verify that the receiver correctly signed our challenge
+        let verified = verify_signature(
+            &handshake_response.user.public_key,
+            &our_challenge,
+            &handshake_response.challenge_signature,
+        )
+        .map_err(|e| {
+            error!("Failed to verify challenge signature: {}", e);
+            HandshakeError::InvalidChallenge(format!("Signature verification failed: {}", e))
+        })?;
+
+        if !verified {
+            error!("Invalid challenge signature from receiver");
+            return Err(HandshakeError::InvalidChallenge(
+                "Challenge signature verification failed".to_string(),
+            ));
         }
-        info!("Initiator: Waiting for handshake response");
 
-        // Read the response
-        let message_str = match self.read_complete_message(recv).await {
-            Ok(msg) => {
-                debug!("Received handshake response: {} bytes", msg.len());
-                msg
-            }
-            Err(e) => {
-                error!("Failed to read handshake response: {}", e);
-                return Err(e);
-            }
+        info!("Initiator: Successfully verified receiver's signature of our challenge");
+
+        // Step 3: Sign their challenge and send confirmation
+        let their_challenge = handshake_response.challenge.clone();
+
+        let our_signature = {
+            let crypto_utils = self.crypto_utils.lock().await;
+            crypto_utils.sign_message(&their_challenge).map_err(|e| {
+                error!("Failed to sign receiver's challenge: {}", e);
+                HandshakeError::InvalidChallenge(format!("Failed to sign challenge: {}", e))
+            })?
         };
 
-        // Parse the response
-        let response: HandshakeMessage = match serde_json::from_str(&message_str) {
-            Ok(msg) => {
-                debug!("Successfully parsed handshake response");
-                msg
-            }
-            Err(e) => {
-                error!("Failed to parse handshake response: {}", e);
-                return Err(HandshakeError::Deserialization(e));
-            }
+        let handshake_confirm = HandshakeConfirm {
+            challenge_signature: our_signature,
         };
 
-        // TODO: Verify the response signature here
-
+        Self::send_handshake_message(send, &handshake_confirm, "HandshakeConfirm").await?;
         info!("Initiator: Handshake completed successfully");
-        Ok(response)
+
+        // Return the peer's information
+        Ok(HandshakeResult {
+            connection_type,
+            device: handshake_response.device,
+            user: handshake_response.user,
+        })
     }
 
     /// Accepts an incoming handshake by receiving a handshake message and responding
@@ -400,98 +453,103 @@ impl P2PService {
         &self,
         send: &mut SendStream,
         recv: &mut RecvStream,
-    ) -> Result<HandshakeMessage, HandshakeError> {
-        info!("Receiver: Waiting for handshake message");
+    ) -> Result<HandshakeResult, HandshakeError> {
+        info!("Receiver: Starting secure 3-message handshake");
 
-        // Use the read_complete_message helper to get the entire message
-        let message_str = match self.read_complete_message(recv).await {
-            Ok(msg) => {
-                debug!("Received handshake message: {} bytes", msg.len());
-                msg
-            }
-            Err(e) => {
-                error!("Failed to read handshake message: {}", e);
-                return Err(e);
-            }
-        };
+        // Step 1: Receive HandshakeInit
+        let message_str = self.read_complete_message(recv).await?;
+        let handshake_init: HandshakeInit = serde_json::from_str(&message_str)
+            .map_err(|e| HandshakeError::Serialization(e.to_string()))?;
 
-        // Parse the JSON once we have the complete message
-        let handshake_message: HandshakeMessage =
-            match serde_json::from_str::<HandshakeMessage>(&message_str) {
-                Ok(msg) => {
-                    debug!("Successfully parsed handshake message");
-                    debug!("Connection type: {:?}", msg.connection_type);
-                    trace!("From user: {}", msg.user.id);
-                    msg
-                }
-                Err(e) => {
-                    error!("Failed to parse handshake JSON: {}", e);
-                    error!(
-                        "Message preview: {}",
-                        if message_str.len() > 100 {
-                            &message_str[..100]
-                        } else {
-                            &message_str
-                        }
-                    );
-                    return Err(HandshakeError::Serialization(e.to_string()));
-                }
-            };
+        // Validate timestamp (allow 5 minutes skew)
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-        // TODO: Verify the incoming handshake signature here
+        if handshake_init.timestamp.abs_diff(current_time) > 300 {
+            error!("HandshakeInit timestamp too old or too far in future");
+            return Err(HandshakeError::InvalidChallenge(
+                "Timestamp validation failed".to_string(),
+            ));
+        }
 
-        info!("Successfully received and parsed handshake message");
-        let device = self
+        // Get our device and user information
+        let current_device = self
             .get_current_device()
             .await
-            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
-        let user = self
+            .map_err(|_| HandshakeError::AuthService("Failed to get current device".to_string()))?;
+
+        let current_user = self
             .get_current_user()
             .await
-            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
-        let (challenge, signature) = sign_random_challenge(&self.crypto_utils)
-            .await
-            .map_err(|_| HandshakeError::AuthService("failed handshake".to_string()))?;
+            .map_err(|_| HandshakeError::AuthService("Failed to get current user".to_string()))?;
 
-        // Create our response message
-        let response = HandshakeMessage {
-            challenge,
-            signature,
-            device,
-            user,
-            connection_type: handshake_message.connection_type.clone(),
+        // Generate our challenge and sign their challenge
+        let our_challenge = generate_challenge();
+
+        let their_challenge_signature = {
+            let crypto_utils = self.crypto_utils.lock().await;
+            crypto_utils
+                .sign_message(&handshake_init.challenge)
+                .map_err(|e| {
+                    error!("Failed to sign initiator's challenge: {}", e);
+                    HandshakeError::InvalidChallenge(format!("Failed to sign challenge: {}", e))
+                })?
         };
 
-        debug!("Created handshake response message");
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
-        // Serialize and send our response
-        let serialized = match serde_json::to_string(&response) {
-            Ok(s) => {
-                debug!("Serialized response: {} bytes", s.len());
-                s
-            }
-            Err(e) => {
-                error!("Failed to serialize response: {}", e);
-                return Err(HandshakeError::Serialization(e.to_string()));
-            }
+        // Step 2: Send HandshakeResponse
+        let handshake_response = HandshakeResponse {
+            user: current_user.clone(),
+            device: current_device.clone(),
+            challenge: our_challenge.clone(),
+            timestamp,
+            challenge_signature: their_challenge_signature,
         };
 
-        // Write the response to the stream
-        if let Err(e) = send.write_all(serialized.as_bytes()).await {
-            error!("Failed to write response: {}", e);
-            return Err(HandshakeError::Connection(e.to_string()));
+        Self::send_handshake_message(send, &handshake_response, "HandshakeResponse").await?;
+        info!("Receiver: Sent HandshakeResponse, waiting for HandshakeConfirm");
+
+        // Step 3: Receive HandshakeConfirm
+        let confirm_str = self.read_complete_message(recv).await?;
+        let handshake_confirm: HandshakeConfirm =
+            serde_json::from_str(&confirm_str).map_err(|e| HandshakeError::Deserialization(e))?;
+
+        // Verify that the initiator correctly signed our challenge
+        let verified = verify_signature(
+            &handshake_init.user.public_key,
+            &our_challenge,
+            &handshake_confirm.challenge_signature,
+        )
+        .map_err(|e| {
+            error!("Failed to verify confirmation signature: {}", e);
+            HandshakeError::InvalidChallenge(format!(
+                "Confirmation signature verification failed: {}",
+                e
+            ))
+        })?;
+
+        if !verified {
+            error!("Invalid confirmation signature from initiator");
+            return Err(HandshakeError::InvalidChallenge(
+                "Confirmation signature verification failed".to_string(),
+            ));
         }
 
-        // Ensure the response is sent
-        if let Err(e) = send.finish() {
-            error!("Failed to finish sending response: {}", e);
-            return Err(HandshakeError::Connection(e.to_string()));
-        }
-
-        debug!("Sent handshake response successfully");
+        info!("Receiver: Successfully verified initiator's signature of our challenge");
         info!("Receiver: Handshake completed successfully");
 
-        Ok(handshake_message)
+        // Return the peer's information
+        Ok(HandshakeResult {
+            connection_type: handshake_init.connection_type,
+            device: handshake_init.device,
+            user: handshake_init.user,
+        })
     }
 
     #[instrument(skip(self,  conn_type), fields( conn_type = ?conn_type ), level = "info")]
@@ -528,9 +586,9 @@ impl P2PService {
                             .emit(P2PEvent::LiveEditConnected { connection_id });
                     } else {
                         if existing_connection.is_initiator {
-                            existing_connection.execute_connection_action().await;
+                            let _ = existing_connection.execute_connection_action().await;
                         } else {
-                            existing_connection
+                            let _ = existing_connection
                                 .send_message(Message::RetryRequest)
                                 .await;
                         }

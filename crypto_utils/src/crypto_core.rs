@@ -376,3 +376,88 @@ pub fn generate_key_id(public_key: &str) -> Result<String, Box<dyn Error>> {
     let cert = Cert::from_bytes(public_key.as_bytes())?;
     Ok(cert.fingerprint().to_hex().to_lowercase())
 }
+pub fn verify_signature(
+    public_key: &str,
+    message: &str,
+    signature_b64: &str,
+) -> Result<bool, PgpError> {
+    // Parse the public key
+    let cert = Cert::from_bytes(public_key.as_bytes())
+        .map_err(|e| PgpError::CertificateParseError(e.to_string()))?;
+
+    // Decode the base64 signature
+    let signature_bytes = general_purpose::STANDARD
+        .decode(signature_b64)
+        .map_err(|e| PgpError::Base64DecodeError(e.to_string()))?;
+
+    // Create a verification helper
+    let helper = SignatureVerificationHelper {
+        cert,
+        verification_successful: false,
+    };
+    let policy = &StandardPolicy::new();
+
+    // Create the detached verifier
+    let mut verifier = DetachedVerifierBuilder::from_bytes(&signature_bytes)
+        .map_err(|e| PgpError::VerifierCreationError(e.to_string()))?
+        .with_policy(policy, None, helper)
+        .map_err(|e| PgpError::PolicyApplicationError(e.to_string()))?;
+
+    // Verify against the message
+    verifier
+        .verify_bytes(message.as_bytes())
+        .map_err(|e| PgpError::VerificationError(e.to_string()))?;
+
+    // Get the verification result from the helper
+    Ok(verifier.helper_ref().verification_successful)
+}
+
+// Verification helper struct following the reference pattern
+struct SignatureVerificationHelper {
+    cert: Cert,
+    verification_successful: bool,
+}
+
+impl VerificationHelper for SignatureVerificationHelper {
+    fn get_certs(&mut self, _ids: &[openpgp::KeyHandle]) -> openpgp::Result<Vec<Cert>> {
+        Ok(vec![self.cert.clone()])
+    }
+
+    fn check(&mut self, structure: MessageStructure) -> openpgp::Result<()> {
+        // For detached signatures, we expect exactly one signature group layer
+        for (i, layer) in structure.into_iter().enumerate() {
+            match (i, layer) {
+                // We expect exactly one signature group at layer 0
+                (0, MessageLayer::SignatureGroup { results }) => {
+                    // Check if any signature verification succeeded
+                    for result in results {
+                        match result {
+                            Ok(_) => {
+                                self.verification_successful = true;
+                                return Ok(());
+                            }
+                            Err(_) => {
+                                // Continue checking other signatures
+                                continue;
+                            }
+                        }
+                    }
+                    // If we get here, no signatures were valid
+                    return Err(anyhow::anyhow!("All signature verifications failed"));
+                }
+                _ => {
+                    // For detached signatures, we should only have one signature group
+                    return Err(anyhow::anyhow!(
+                        "Unexpected message structure for detached signature"
+                    ));
+                }
+            }
+        }
+
+        if self.verification_successful {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("No signature group found"))
+        }
+    }
+}

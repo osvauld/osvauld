@@ -251,7 +251,7 @@ pub async fn sign_random_challenge(
     Ok((challenge, signature))
 }
 
-fn generate_challenge() -> String {
+pub fn generate_challenge() -> String {
     let mut bytes = [0u8; 32];
     OsRng.fill_bytes(&mut bytes);
     bytes

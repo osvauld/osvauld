@@ -50,6 +50,8 @@ pub enum HandshakeError {
     #[error("Invalid signature: {0}")]
     InvalidSignature(String),
 
+    #[error("signature failure: {0}")]
+    SignatureFailure(String),
     #[error("Invalid challenge: {0}")]
     InvalidChallenge(String),
 

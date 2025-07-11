@@ -86,6 +86,28 @@ pub struct HandshakeMessage {
     pub connection_type: ConnectionType,
     pub user: User,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HandshakeInit {
+    pub connection_type: ConnectionType,
+    pub user: User,
+    pub device: Device,
+    pub challenge: String,
+    pub timestamp: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HandshakeResponse {
+    pub user: User,
+    pub device: Device,
+    pub challenge: String,
+    pub timestamp: u64,
+    pub challenge_signature: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HandshakeConfirm {
+    pub challenge_signature: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionAction {
