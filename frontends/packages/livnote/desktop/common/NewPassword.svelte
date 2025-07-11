@@ -4,16 +4,16 @@
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
 	import { sendMessage } from "../../../common/utils/helper";
 	import { onMount } from "svelte";
+	import { StorageService } from "../../../common/utils/storageHelper";
+import { dataState } from "../state";
 
 	// Replace createEventDispatcher with callback props
 	let {
 		onLogin,
 		recoveryData,
-		username = "",
 	}: {
 		onLogin: (isCorrect: boolean) => void;
-		recoveryData: string;
-		username?: string;
+		recoveryData?: string;
 	} = $props();
 
 
@@ -28,11 +28,10 @@
 	// Derived values
 	// TODO: for dev disabling this
 	let submitDisabled = $derived(
-		passphrase.length === 0 ||
-			passphrase !== reenteredPassPhrase ||
-			!isPassphraseAcceptable,
+		passphrase.length === 0 || passphrase.length < 6 ||
+			passphrase !== reenteredPassPhrase 
 	);
-	//let submitDisabled = false;
+
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {
 		if (isInitialResponse) {
@@ -63,38 +62,51 @@
 	};
 
 
-	const triggerAccountRecovery = async (passphrase: string) => {
-		return onLogin?.(true);
-		let recovery = JSON.parse(recoveryData);
-		const result = await sendMessage("addDevice", {
-			passphrase,
-			certificate: recovery.certificate,
-		});
-		await sendMessage("login", { passphrase });
-		console.log("sending first device connect message");
-		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
-    // need error handling here
-		onLogin?.(true);
+	const triggerSignup = async (passphrase: string) => {
+		if (recoveryData) {
+			// for recovery flow
+			let recovery = JSON.parse(recoveryData);
+			const result = await sendMessage("addDevice", {
+				passphrase,
+				certificate: recovery.certificate,
+			});
+			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
+			await sendMessage("login", { passphrase });
+			console.log("sending first device connect message");
+			await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
+			//TODO: need error handling here
+			onLogin?.(true);
+		} else {
+			// for new user flow
+			const response = await sendMessage("savePassphrase", {
+				passphrase,
+				username: dataState.signupUsername,
+			});
+
+			const pubkey = await sendMessage("login", { passphrase });
+
+			dataState.signupPubKey = JSON.stringify(pubkey);
+
+			await StorageService.setIsLoggedIn("true");
+			onLogin?.(true);
+		}
 	};
 
-	const handleSubmit = (event: Event) => {
+	const handleSubmit = async (event: Event) => {
 		event.preventDefault();
 
 		if (submitDisabled) return;
 
 		isLoaderActive = true;
-		triggerAccountRecovery(passphrase)
+		await triggerSignup(passphrase);
+		isLoaderActive = false;
 	};
 
 	const preventDefault = (e: Event) => e.preventDefault();
-
-	onMount(() => {
-		console.log("collected username", username);
-	})
 </script>
 
 <form onsubmit={handleSubmit} class="flex flex-col items-center justify-center select-none">
-	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Create a strong passphrase</h1>
+	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Set passphrase</h1>
 	<p class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">This will be used to encrypt and decrypt your data. <br/> This will not leave your device.</p>
 	<div class="h-[20rem] mt-6">
 		<label
@@ -160,7 +172,11 @@
 	</div>
 
 	<button
-		class="w-[24rem]  py-2 px-10 mt-8 rounded-lg font-medium  flex justify-center items-center whitespace-nowrap cursor-pointer bg-signupGray text-white  border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
+		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300"
+		class:bg-livnotePink={!submitDisabled}
+		class:text-mobile-bgPrimary={!submitDisabled}
+		class:bg-signupGray={submitDisabled}
+		class:text-white={submitDisabled}
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}

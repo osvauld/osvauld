@@ -6,7 +6,9 @@
 
 
 	const handleProceed = () => {
-		onProceed?.(recoveryData);
+		// add basic validation and parse username to store locally
+		const trimmedRecoveryData = recoveryData.trim();
+		onProceed?.(trimmedRecoveryData);
 	}
 
 </script>

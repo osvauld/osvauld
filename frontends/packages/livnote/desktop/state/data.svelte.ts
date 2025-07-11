@@ -47,6 +47,8 @@ class DataState {
   currentView = $state<string>("all");
   isDataLoading = $state<boolean>(false);
   userDetails = $state<UserDetails | null>(null)
+  signupUsername = $state<string>("");
+  signupPubKey = $state<string>("");
   private _unlisteners: Array<() => void> = [];
 
   // Derived values for filtering notes - declare as a class property with $derived

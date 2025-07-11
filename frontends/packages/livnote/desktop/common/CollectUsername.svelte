@@ -1,13 +1,16 @@
 <script lang="ts">
+import { dataState } from "../state";
 
-let { onProceed } = $props<{ onProceed: (username: string) => void }>();
+
+let { onProceed } = $props<{ onProceed: () => void }>();
 
 let collectedUsername = $state("");
 
 const handleSubmit = (e: Event) => {
 	e.preventDefault();
 	if (collectedUsername.trim()) {
-		onProceed(collectedUsername.trim());
+		dataState.signupUsername = collectedUsername.trim();
+		onProceed();
 	}
 };
 
@@ -33,11 +36,15 @@ const handleSubmit = (e: Event) => {
 		</div>
 	</div>
 	<button
-		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium  flex justify-center items-center whitespace-nowrap cursor-pointer bg-signupGray text-white  border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
+		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300 enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary"
+		class:bg-livnotePink={collectedUsername.trim().length >= 4}
+		class:text-mobile-bgPrimary={collectedUsername.trim().length >= 4}
+		class:bg-signupGray={collectedUsername.trim().length < 4}
+		class:text-white={collectedUsername.trim().length < 4}
 		type="submit"
 		disabled={!collectedUsername}
 		onclick={handleSubmit}>
-		<span>Next</span>	
+		<span>Next</span>
 	</button>
 
 </form>

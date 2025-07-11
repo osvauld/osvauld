@@ -15,12 +15,12 @@
 		EXISITING_USER: {
 			WELCOME: "welcome",
 			IMPORT: "import",
-			SET_PASSPHRASE: "existing_passphrase",
+			SET_PASSPHRASE: "forExistingUser",
 		},
 		NEW_USER: {
 			WELCOME: "welcome",
 			COLLECT_USERNAME: "username",
-			SET_PASSPHRASE: "new_passphrase",
+			SET_PASSPHRASE: "forNewUser",
 			PROVIDE_PRIVATE_KEY: "privateKey",
 		},
 	} as const;
@@ -36,7 +36,6 @@
 		//let userFlow = "EXISITING_USER"
 
 	let collectedRecoveryString = $state("");
-	let collectedUsernameString = $state("");
 
 	const navigateTo = (view: ViewState) => {
 		viewHistory = [...viewHistory, currentView];
@@ -66,16 +65,14 @@
 		navigateTo(VIEW_STATES.EXISITING_USER.SET_PASSPHRASE);
 	};
 
-	const handleRecoveryFlowComplete = (isLoggedin: boolean) => {
+	const handleUserSignUpComplete = (isLoggedin: boolean) => {
 		if (isLoggedin) {
 			console.log("Signed up and logged in, navigating to home");
-			// TODO: Navigate to home
-			// onSignedUp?.();
+			 onSignedUp?.();
 		}
 	};
 
-	const handleUsernameCollected = (username: string) => {
-		collectedUsernameString = username;
+	const handleUsernameCollected = () => {
 		// not using this value as of now
 		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
 	};
@@ -101,9 +98,8 @@
 		{:else if currentView === VIEW_STATES.EXISITING_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
 				<NewPassword
-					onLogin={handleRecoveryFlowComplete}
-					recoveryData={collectedRecoveryString}
-					username={collectedUsernameString} />
+					onLogin={handleUserSignUpComplete}
+					recoveryData={collectedRecoveryString} />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.COLLECT_USERNAME}
 			<FlowContainer onBack={goBack}>
@@ -113,12 +109,11 @@
 			<FlowContainer onBack={goBack}>
 				<NewPassword
 					onLogin={handlePassphraseSet}
-					username={collectedUsernameString}
-					recoveryData={collectedRecoveryString} />
+					/>
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
 			<FlowContainer onBack={goBack}>
-				<ProvidePrivateKey recoveryData={collectedRecoveryString} />
+				<ProvidePrivateKey onLogin={handleUserSignUpComplete}/>
 			</FlowContainer>
 		{/if}
 	</div>

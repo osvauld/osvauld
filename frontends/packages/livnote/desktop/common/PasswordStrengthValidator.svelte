@@ -13,7 +13,7 @@
 			label: "Special character",
 			regex: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?]/,
 		},
-		{ key: "length", label: "At least 8 characters" },
+		{ key: "length", label: "At least 6 characters" },
 	];
 
 	// Calculate strength results based on current passphrase
@@ -22,7 +22,7 @@
 			...condition,
 			met:
 				condition.key === "length"
-					? passphrase.length >= 8
+					? passphrase.length >= 6
 					: (condition.regex?.test(passphrase) ?? false),
 		})),
 	);
@@ -64,13 +64,14 @@
 		</div>
 		<p
 			class="text-xs mt-1 font-light text-osvauld-sheffieldgrey text-left tracking-wide">
-			Passphrase should include at least
+			An Ideal Passphrase should include at least
 			{#each strengthResults as condition, index}
 				<span class={condition.met ? "text-green-500" : "text-[#FAFC6E]"}>
 					{condition.label}{index < strengthResults.length - 1 ? "," : ""}
 				</span>
 				{#if index < strengthResults.length - 1}&nbsp;{/if}
 			{/each}
+			but not mandatory.
 		</p>
 	</div>
 </div>
