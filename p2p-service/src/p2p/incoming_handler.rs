@@ -1,6 +1,5 @@
 use crate::p2p::incoming::IncomingEvent;
 use crate::p2p::P2PService;
-use iroh::NodeId;
 use osvauld_core::models::{
     p2p::{LiveEditMessage, Message},
     ConnectionAction, ConnectionType,
@@ -68,7 +67,7 @@ impl P2PService {
                         resource_id,
                         is_match,
                     } => {
-                        service
+                        let _ = service
                             .handle_live_edit_document_check_response(
                                 connection_id,
                                 resource_id,
@@ -83,7 +82,7 @@ impl P2PService {
                         buffer,
                         user_id,
                     } => {
-                        service
+                        let _ = service
                             .handle_live_edit_update_exchange(
                                 connection_id,
                                 resource_id,
@@ -100,7 +99,7 @@ impl P2PService {
                         local_buffer,
                         remote_updates,
                     } => {
-                        service
+                        let _ = service
                             .handle_live_edit_update_exchange_response(
                                 connection_id,
                                 resource_id,
@@ -128,7 +127,7 @@ impl P2PService {
                             .await;
                     }
                     IncomingEvent::StartLiveConnection { device_ids } => {
-                        service.handle_start_live_edit(&device_ids).await;
+                        let _ = service.handle_start_live_edit(&device_ids).await;
                     }
                 }
             }
@@ -205,8 +204,6 @@ impl P2PService {
         // Get the connection from the connection manager
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
-                //mark connection for live editing.
-                connection.set_live_editing_active().await;
                 // Create a LiveEdit DocumentCheck message
                 let document_check = Message::LiveEdit(LiveEditMessage::DocumentCheck {
                     resource_id: resource_id.clone(),
@@ -287,7 +284,6 @@ impl P2PService {
                     }
                 } else {
                     let message = Message::LiveEdit(LiveEditMessage::NotSameDocument);
-                    connection.set_live_editing_inactive().await;
                     if let Err(e) = connection.send_message(message).await {
                         error!("Failed to send state vector exchange message: {}", e);
                         return Err(format!("Failed to send not same document message: {}", e));
@@ -492,11 +488,6 @@ impl P2PService {
         // Get the connection
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
-                // Cancel any existing disconnection timer
-                // connection.cancel_disconnection_timer().await;
-
-                // Disable live editing for this connection
-                connection.set_live_editing_inactive().await;
                 let message = Message::LiveEdit(LiveEditMessage::DocumentChange { resource_id });
 
                 match connection.send_message(message).await {

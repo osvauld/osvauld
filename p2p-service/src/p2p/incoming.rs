@@ -1,4 +1,3 @@
-use osvauld_core::models::Device;
 use tokio::sync::mpsc;
 
 /// Events that can be received and processed by the P2P service

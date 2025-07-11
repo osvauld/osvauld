@@ -2,7 +2,7 @@ use crate::p2p::peer_connection::PeerConnection;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 #[derive(Clone)]
 pub struct ConnectionManager {
     pub connections: Arc<Mutex<HashMap<String, Arc<PeerConnection>>>>,
@@ -104,41 +104,6 @@ impl ConnectionManager {
         }
     }
 
-    /// Get a connection by user ID and device ID
-    #[instrument(skip(self), level = "debug")]
-    pub async fn get_connection_by_user_device(
-        &self,
-        user_id: &str,
-        device_id: &str,
-    ) -> Result<Arc<PeerConnection>, String> {
-        let connection_id = format!("{}:{}", user_id, device_id);
-        debug!("Looking up connection by user/device: {}", connection_id);
-        self.get_peer_connection(&connection_id).await
-    }
-
-    /// Get all connections for a specific user
-    #[instrument(skip(self), level = "debug")]
-    pub async fn get_connections_by_user(&self, user_id: &str) -> Vec<Arc<PeerConnection>> {
-        debug!("Getting all connections for user: {}", user_id);
-        let connections = self.connections.lock().await;
-
-        let user_connections: Vec<Arc<PeerConnection>> = connections
-            .iter()
-            .filter(|(id, _)| id.starts_with(&format!("{}:", user_id)))
-            .map(|(id, conn)| {
-                trace!("Found connection: {}", id);
-                conn.clone()
-            })
-            .collect();
-
-        debug!(
-            "Found {} connection(s) for user {}",
-            user_connections.len(),
-            user_id
-        );
-        user_connections
-    }
-
     /// Insert a connection
     #[instrument(skip(self, connection), level = "info")]
     pub async fn insert_connection(&self, connection: Arc<PeerConnection>) -> Result<(), String> {
@@ -177,73 +142,6 @@ impl ConnectionManager {
         }
     }
 
-    /// Get all connections
-    #[instrument(skip(self), level = "debug")]
-    pub async fn get_all_connections(&self) -> Vec<Arc<PeerConnection>> {
-        debug!("Getting all connections");
-        let connections = self.connections.lock().await;
-        let all_connections = connections.values().cloned().collect();
-        debug!("Retrieved {} connections", connections.len());
-        all_connections
-    }
-
-    /// Count connections
-    #[instrument(skip(self), level = "trace")]
-    pub async fn connection_count(&self) -> usize {
-        trace!("Counting connections");
-        let connections = self.connections.lock().await;
-        let count = connections.len();
-        trace!("Connection count: {}", count);
-        count
-    }
-
-    /// Broadcast a message to all connections
-    #[instrument(skip(self, message), fields(message_len = message.len()), level = "info")]
-    pub async fn broadcast_chat_message(&self, message: String) -> Result<(), String> {
-        info!("Broadcasting chat message to all connections");
-        let connections = self.get_all_connections().await;
-        debug!("Sending message to {} connections", connections.len());
-
-        let mut errors = Vec::new();
-        for conn in connections {
-            let conn_id = conn.get_id();
-            debug!("Sending to connection: {}", conn_id);
-
-            if let Err(e) = conn.send_chat_message(message.clone()).await {
-                let error_msg = format!("Failed to send to {}: {}", conn_id, e);
-                error!("{}", error_msg);
-                errors.push(error_msg);
-            }
-        }
-
-        if errors.is_empty() {
-            info!("Broadcast completed successfully");
-            Ok(())
-        } else {
-            let err_msg = format!("Broadcast errors: {}", errors.join(", "));
-            error!("{}", err_msg);
-            Err(err_msg)
-        }
-    }
-    #[instrument(skip(self), level = "debug")]
-    pub async fn get_first_active_connection(&self) -> Option<Arc<PeerConnection>> {
-        debug!("Attempting to get first active connection");
-        let connections = self.connections.lock().await;
-
-        if connections.is_empty() {
-            debug!("No active connections found");
-            return None;
-        }
-
-        // Get the first connection from the HashMap
-        let first_connection = connections.values().next().cloned();
-
-        if let Some(conn) = &first_connection {
-            debug!("Found active connection: {}", conn.get_id());
-        }
-
-        first_connection
-    }
     /// Get connections by their IDs
     #[instrument(skip(self, connection_ids), level = "debug")]
     pub async fn get_connections_by_ids(

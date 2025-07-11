@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
-    Chat(String),
     Ping,
     Pong,
     Error,
@@ -30,6 +29,7 @@ pub enum Message {
     UserNetworkSync(UserNetworkSyncPayload),
     UserNetworkSyncAck,
     RetryRequest,
+    Handshake(HandshakeMessage),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FirstUserExchange {
@@ -77,15 +77,15 @@ pub enum ResourceUpdateMsg {
     },
 }
 
-// The HandshakeMessage type remains the same
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HandshakeMessage {
-    pub challenge: String,
-    pub signature: String,
-    pub device: Device,
-    pub connection_type: ConnectionType,
-    pub user: User,
+pub enum HandshakeMessage {
+    HandshakeInit(HandshakeInit),
+    HandshakeResponse(HandshakeResponse),
+    HandshakeConfirm(HandshakeConfirm),
+    HandshakeAck,
 }
+
+// The HandshakeMessage type remains the same
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HandshakeInit {
     pub connection_type: ConnectionType,
@@ -93,6 +93,7 @@ pub struct HandshakeInit {
     pub device: Device,
     pub challenge: String,
     pub timestamp: u64,
+    pub action: ConnectionAction,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,6 +108,13 @@ pub struct HandshakeResponse {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HandshakeConfirm {
     pub challenge_signature: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct HandshakeResult {
+    pub connection_type: ConnectionType,
+    pub device: Device,
+    pub user: User,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
