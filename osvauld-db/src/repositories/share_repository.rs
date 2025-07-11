@@ -114,16 +114,31 @@ impl ShareRepository for SqliteShareRepository {
     ) -> Result<Vec<ShareRecord>, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        // Get all share records involving this user (either as sharer or shared_with)
-        let share_record_models = share_records::table
+        // Step 1: Get all share records where this user is the recipient
+        let user_share_records = share_records::table
             .filter(share_records::recipient_user_id.eq(user_id))
             .load::<ShareRecordModel>(&mut *conn)
             .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
 
-        let share_records = share_record_models
-            .into_iter()
-            .map(|model| model.to_domain())
+        // Step 2: Extract all resource_ids from those share records
+        let resource_ids: Vec<String> = user_share_records
+            .iter()
+            .map(|record| record.resource_id.clone())
             .collect();
+
+        // Step 3: Get all share records for those resources
+        let all_share_records = if resource_ids.is_empty() {
+            // If user has no shared resources, return empty vector
+            Vec::new()
+        } else {
+            share_records::table
+                .filter(share_records::resource_id.eq_any(&resource_ids))
+                .load::<ShareRecordModel>(&mut *conn)
+                .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?
+        };
+
+        // Step 4: Convert to domain objects
+        let share_records = ShareRecordModel::to_domain_records(all_share_records);
 
         Ok(share_records)
     }

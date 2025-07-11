@@ -7,26 +7,22 @@ pub mod listners;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, first_device_connect, get_user_details,
-    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, get_user_details, handle_add_device,
+    handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{
     handle_add_folder, handle_get_folders, handle_soft_delete_folder,
-};
-use crate::handlers::p2p_handlers::{
-    connect_with_device, get_system_locale, get_ticket, send_message, start_p2p_listener,
 };
 use crate::handlers::resource_handler::{
     handle_add_resource, handle_get_all_resources, handle_get_resource,
     handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
     handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
-use crate::handlers::user_handler::{handle_add_user, handle_get_known_users};
+use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
 use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
 use p2p_service::P2PService;
-use rendezvous_client::rendezvous_service::RendezvousService;
 
 use listners::EventManager;
 use std::fs;
@@ -118,16 +114,12 @@ pub fn run() {
                     });
                     let user_state = UserState::new();
                     // Initialize event manager and start listening
-                    let rendezvous_service = Arc::new(RendezvousService::new(
-                        p2p_service.clone(),
-                        "ws://0.0.0.0:3030/ws",
-                    ));
                     let event_manager = EventManager::new(
                         handle.clone(),
                         p2p_receiver,
                         p2p_sender,
-                        rendezvous_service.clone(),
                         repo_ctx.clone(),
+                        crypto_utils.clone(),
                     );
                     rt.spawn(async move {
                         event_manager.start_listening();
@@ -138,7 +130,6 @@ pub fn run() {
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(p2p_service.clone());
-                    app.manage(rendezvous_service);
                     app.manage(repo_ctx);
                 }
                 Err(e) => {
@@ -171,10 +162,6 @@ pub fn run() {
             handle_add_folder,
             handle_get_folders,
             handle_get_resources_for_folder,
-            send_message,
-            get_ticket,
-            connect_with_device,
-            start_p2p_listener,
             soft_delete_resource,
             handle_soft_delete_folder,
             handle_toggle_fav,
@@ -186,7 +173,6 @@ pub fn run() {
             handle_get_known_users,
             handle_share_resource,
             get_user_details,
-            first_device_connect,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

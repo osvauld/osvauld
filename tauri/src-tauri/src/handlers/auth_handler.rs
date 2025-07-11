@@ -12,7 +12,6 @@ use osvauld_services::{
     handle_signup, import_user, is_signed_up, load_certificate,
 };
 use p2p_service::P2PService;
-use rendezvous_client::rendezvous_service::RendezvousService;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
@@ -43,7 +42,7 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
-    let _result = handle_signup(&input.username, &input.passphrase, &*repo_ctx).await?;
+    let _result = handle_signup(&input.username, &input.passphrase, &repo_ctx).await?;
     let _ = create_default_folder(&repo_ctx)
         .await
         .map_err(|e| e.to_string())?;
@@ -61,7 +60,6 @@ pub async fn check_private_key_loaded(
 #[tauri::command]
 pub async fn login(
     input: LoadPvtKeyInput,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
     user_state: State<'_, UserState>,
     p2p_service: State<'_, Arc<P2PService>>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
@@ -69,41 +67,23 @@ pub async fn login(
 ) -> Result<CryptoResponse, String> {
     let (user, current_device) =
         load_certificate(&input.passphrase, &repo_ctx, &crypto_utils).await?;
-    let rendezvous_clone = rendezvous_service.inner().clone();
     {
         let mut current_user_state = user_state.current_user.write().await;
         current_user_state.user = Some(user.clone());
         current_user_state.device = Some(current_device.clone());
     }
 
-    p2p_service.set_current_user(user.clone()).await;
-    p2p_service.set_current_device(current_device.clone()).await;
-
-    // Spawn a background task to handle WebSocket connection
-
+    let p2p_service_clone = p2p_service.inner().clone();
+    let device_clone = current_device.clone();
     let user_clone = user.clone();
-    let rendezvous_payload = get_rendezvous_payload(&current_device.id, &repo_ctx).await?;
-
     tokio::spawn(async move {
-        match rendezvous_clone
-            .initialize(
-                format!("{}:{}", user_clone.id.clone(), current_device.id.clone()),
-                rendezvous_payload,
-            )
+        if let Err(e) = p2p_service_clone
+            .start_p2p_service(&device_clone, &user_clone)
             .await
         {
-            Ok(_) => {
-                info!(
-                    "Successfully connected to rendezvous server with user ID: {}",
-                    user_clone.id.clone()
-                );
-            }
-            Err(e) => {
-                error!("Failed to connect to rendezvous server: {}", e);
-            }
+            error!("Failed to start P2P service: {}", e);
         }
     });
-
     Ok(CryptoResponse::User {
         user_id: user.id.clone(),
         username: user.username,
@@ -115,14 +95,13 @@ pub async fn login(
 pub async fn handle_add_device(
     input: AddDeviceInput,
     repo_ctx: State<'_, RepositoryContext>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
 ) -> Result<CryptoResponse, String> {
     import_user(
         &input.certificate,
         &input.passphrase,
-        "username",
+        &input.username,
+        &input.device_id,
         &repo_ctx,
-        &crypto_utils,
     )
     .await?;
     Ok(CryptoResponse::Success)
@@ -145,24 +124,6 @@ pub async fn handle_change_passphrase(
     let _new_certificate =
         change_passphrase(input.old_password, input.new_password, &repo_ctx).await?;
 
-    Ok(CryptoResponse::Success)
-}
-
-#[tauri::command]
-pub async fn first_device_connect(
-    input: FirstDeviceConnectInput,
-    p2p_service: State<'_, Arc<P2PService>>,
-) -> Result<CryptoResponse, String> {
-    info!("attempting first device sync with peer");
-    p2p_service
-        .connect_with_ticket(
-            &input.ticket,
-            ConnectionType::Device,
-            None,
-            Some(ConnectionAction::AddDevice),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }
 

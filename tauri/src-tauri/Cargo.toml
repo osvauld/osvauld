@@ -46,7 +46,6 @@ thiserror = "2.0.0"
 url = "2.5.4"
 rand = "0.8.5"
 base64 = "0.22.1"
-rendezvous_client = { path = "../../rendezvous_client" }
 osvauld_core = { path = "../../core" }
 osvauld_db = { path = "../../osvauld-db/" }
 osvauld_services = { path = "../../osvauld-services" }

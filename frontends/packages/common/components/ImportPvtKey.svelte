@@ -11,14 +11,15 @@
 
 	const handleSubmit = async (e: any) => {
 		const passphrase = e.detail.passphrase;
-		let recovery = JSON.parse(recoveryData);
+		let parsedData = JSON.parse(recoveryData);
 		const result = await sendMessage("addDevice", {
 			passphrase,
-			certificate: recovery.certificate,
+			certificate: parsedData.certificate,
+			username: parsedData.username,
+			device_id: parsedData.deviceId,
 		});
 		await sendMessage("login", { passphrase });
 		console.log("sending first device connect message");
-		await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
 
 		onLogin?.(true);
 	};

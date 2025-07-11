@@ -12,7 +12,7 @@ Meet **Osvauld Livnote** – a collaborative document editor application that br
 - **End-to-End Encryption:**  
   All your documents and metadata are encrypted locally. Only you and those you explicitly share with have the keys to decrypt your content, strictly adhering to a zero-knowledge architecture.
 
-- **Open-PGP & Seqouia-PGP:**  
+- **Open-PGP & Sequoia-PGP:**  
   Securely share documents with team members using the trusted Open-PGP protocol, enhanced by Rust-based Seqouia-PGP, which emphasizes safety and correctness.
 
 - **Robust Cryptographic Algorithms:**  

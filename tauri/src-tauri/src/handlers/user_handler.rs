@@ -1,11 +1,13 @@
 use crate::types::{CryptoResponse, UserDetails};
 use base64::{Engine as _, engine::general_purpose};
 use crypto_utils::CryptoUtils;
-use log::info;
+use log::{error, info};
+use osvauld_core::models::{ConnectionAction, ConnectionType};
 use osvauld_db::database::RepositoryContext;
 use osvauld_services::{add_known_user, get_known_users};
-use rendezvous_client::rendezvous_service::RendezvousService;
+use p2p_service::P2PService;
 use std::sync::Arc;
+use sys_locale::get_locale;
 use tauri::State;
 use tokio::sync::Mutex;
 #[tauri::command]
@@ -13,7 +15,7 @@ pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, RepositoryContext>,
-    rendezvous_service: State<'_, Arc<RendezvousService>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
@@ -42,17 +44,21 @@ pub async fn handle_add_user(
     )
     .await
     .map_err(|e| e.to_string())?;
+    let device = device.clone();
+    let p2p_service_clone = p2p_service.inner().clone();
 
-    let connection_id = format!("{}:{}", user.id, device.id);
-
-    match rendezvous_service
-        .mark_for_first_connection(&connection_id)
-        .await
-    {
-        Ok(_) => info!("requested connection.."),
-        Err(e) => info!("error requesting {:?}", e),
-    }
-
+    tokio::spawn(async move {
+        if let Err(e) = p2p_service_clone
+            .connect_with_ticket(
+                &device.id,
+                ConnectionType::User,
+                Some(ConnectionAction::UserFirstConnection),
+            )
+            .await
+        {
+            error!("Failed to start P2P service: {}", e);
+        }
+    });
     Ok(CryptoResponse::Success)
 }
 
@@ -62,4 +68,9 @@ pub async fn handle_get_known_users(
 ) -> Result<CryptoResponse, String> {
     let known_users = get_known_users(&repo_ctx).await?;
     Ok(CryptoResponse::GetKnownUsers(known_users))
+}
+
+#[tauri::command]
+pub fn get_system_locale() -> String {
+    get_locale().unwrap_or_else(|| String::from("en-US"))
 }

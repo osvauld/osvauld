@@ -447,11 +447,13 @@ pub async fn get_user_manifest(
     repo_ctx: &RepositoryContext,
     peer_user_id: &str,
 ) -> Result<UserManifestRequestPayload, String> {
+    info!("peer user id {}", peer_user_id);
     let share_records = repo_ctx
         .share_repo
         .get_user_share_records(peer_user_id)
         .await
         .map_err(|e| e.to_string())?;
+    info!("share records {:?}", share_records);
     let mut unique_resource_ids = HashSet::new();
     let mut unique_user_ids = HashSet::new();
     for record in share_records {

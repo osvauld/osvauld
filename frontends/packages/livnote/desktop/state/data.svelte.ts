@@ -172,7 +172,20 @@ class DataState {
     if (!this.userDetails) {
       throw new Error("User details not available");
     }
-    return parseInt(this.userDetails?.deviceId.substring(0, 8), 16)
+
+    // Decode base64 first, then take first 4 bytes and convert to hex
+    const decoded = atob(this.userDetails.deviceId);
+    const bytes = new Uint8Array(decoded.length);
+    for (let i = 0; i < decoded.length; i++) {
+      bytes[i] = decoded.charCodeAt(i);
+    }
+
+    // Take first 4 bytes and convert to hex string
+    const hex = Array.from(bytes.slice(0, 4))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    return parseInt(hex, 16);
   }
   // Restore saved selections from storage
   async restoreSavedSelections() {

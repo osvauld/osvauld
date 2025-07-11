@@ -1,6 +1,10 @@
 use crate::p2p::incoming::IncomingEvent;
 use crate::p2p::P2PService;
-use osvauld_core::models::p2p::{LiveEditMessage, Message};
+use iroh::NodeId;
+use osvauld_core::models::{
+    p2p::{LiveEditMessage, Message},
+    ConnectionAction, ConnectionType,
+};
 use osvauld_services::{apply_updates_and_get_peer_updates, get_resource_state_vector};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
@@ -123,11 +127,67 @@ impl P2PService {
                             .handle_current_buffer_exchange(connection_id, resource_id, buffer)
                             .await;
                     }
+                    IncomingEvent::StartLiveConnection { device_ids } => {
+                        service.handle_start_live_edit(&device_ids).await;
+                    }
                 }
             }
 
             info!("Stopped processing incoming events");
         });
+    }
+
+    pub async fn handle_start_live_edit(&self, device_ids: &[String]) -> Result<(), String> {
+        info!(
+            "Starting live edit connections to {} devices (fire-and-forget)",
+            device_ids.len()
+        );
+
+        if device_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Fire and forget - spawn all connection tasks and return immediately
+        for device_id in device_ids.iter() {
+            let self_clone = self.clone();
+            let device_id = device_id.clone();
+
+            tokio::spawn(async move {
+                debug!("Attempting live edit connection to device: {}", device_id);
+
+                match self_clone
+                    .connect_with_ticket(
+                        &device_id,
+                        ConnectionType::User,
+                        Some(ConnectionAction::LiveEdit),
+                    )
+                    .await
+                {
+                    Ok(Some(connection)) => {
+                        info!("Successfully established live edit connection to device: {} (connection: {})", 
+                              device_id, connection.get_id());
+                    }
+                    Ok(None) => {
+                        info!(
+                            "Live edit connection to device {} is being established",
+                            device_id
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to establish live edit connection to device {}: {}",
+                            device_id, e
+                        );
+                    }
+                }
+            });
+        }
+
+        info!(
+            "Initiated {} live edit connection attempts",
+            device_ids.len()
+        );
+        Ok(())
     }
 
     /// Handles a live edit document check event

@@ -149,5 +149,19 @@ impl StoreRepository for SqliteStoreRepository {
 
         Ok(device_key)
     }
-}
 
+    async fn get_node_key(&self) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let device_key: String = store_items::table
+            .filter(store_items::key.eq("device_key"))
+            .select(store_items::value)
+            .first(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(device_key)
+    }
+}
