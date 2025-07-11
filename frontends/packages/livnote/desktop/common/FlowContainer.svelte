@@ -7,7 +7,7 @@
 		children,
 	} = $props<{
 		onBack: () => void;
-		children: any;
+		children: () => unknown;
 	}>();
 
 	let goBackHover = $state(false);

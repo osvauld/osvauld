@@ -27,10 +27,12 @@ import { dataState } from "../state";
 
 	// Derived values
 	// TODO: for dev disabling this
-	let submitDisabled = $derived(
-		passphrase.length === 0 || passphrase.length < 6 ||
-			passphrase !== reenteredPassPhrase 
-	);
+	// let submitDisabled = $derived(
+	// 	passphrase.length === 0 || passphrase.length < 6 ||
+	// 		passphrase !== reenteredPassPhrase 
+	// );
+
+	let submitDisabled = $state(false);
 
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {

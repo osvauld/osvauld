@@ -80,7 +80,7 @@ pub fn run() {
             }
 
             let db_path = app_dir
-                .join(format!("{}1.db", args.db_name))
+                .join(format!("{}.db", args.db_name))
                 .to_str()
                 .unwrap()
                 .to_string();

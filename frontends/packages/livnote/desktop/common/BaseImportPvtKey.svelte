@@ -6,7 +6,7 @@
 
 
 	const handleProceed = () => {
-		// add basic validation and parse username to store locally
+		//TODO: add basic validation and parse username to store locally
 		const trimmedRecoveryData = recoveryData.trim();
 		onProceed?.(trimmedRecoveryData);
 	}
@@ -41,5 +41,4 @@
 			Proceed
 		</button>
 	</div>
-	<!-- <NewPassword onSubmit={handleSubmit} /> -->
 		

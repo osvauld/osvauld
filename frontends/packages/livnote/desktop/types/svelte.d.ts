@@ -50,10 +50,6 @@ declare namespace svelte.JSX {
     onformchange?: (event: Event) => void;
     onformreset?: (event: Event) => void;
     onformsubmit?: (event: Event) => void;
-    onforminput?: (event: Event) => void;
-    onformchange?: (event: Event) => void;
-    onformreset?: (event: Event) => void;
-    onformsubmit?: (event: Event) => void;
   }
 }
 
@@ -61,7 +57,7 @@ declare namespace svelte.JSX {
 declare global {
   namespace JSX {
     interface IntrinsicElements {
-      [elemName: string]: any;
+      [elemName: string]: svelte.JSX.HTMLAttributes<HTMLElement>;
     }
   }
 } 
