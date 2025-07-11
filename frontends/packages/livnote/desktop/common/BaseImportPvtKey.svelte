@@ -1,17 +1,18 @@
 <script lang="ts">
 
-	let {  onProceed } = $props();
+	let {  onProceed, collectedRecoveryString = $bindable() } = $props();
 
-	let recoveryData = $state("")
+	// let recoveryData = $state("")
 
 
 	const handleProceed = () => {
 		//TODO: add basic validation and parse username to store locally
-		const trimmedRecoveryData = recoveryData.trim();
-		onProceed?.(trimmedRecoveryData);
+		collectedRecoveryString= collectedRecoveryString.trim();
+		onProceed?.();
 	}
 
 </script>
+
 
  <div class="h-[343px] w-[1173px] text-osvauld-quarzowhite bg-osvauld-frameblack rounded-lg border border-osvauld-iconblack focus-within:border-livnotePink relative p-1.5 transition-colors duration-300">
 	<label for="privateKey" class="sr-only">Private Key Input</label>
@@ -23,7 +24,7 @@
 		autocapitalize="off"
 		autocomplete="off"
 		aria-required="true"
-		bind:value={recoveryData}
+		bind:value={collectedRecoveryString}
 		spellcheck="false"
 		rows="8"
 	></textarea>
@@ -36,7 +37,7 @@
 		</button>
 		<button
 			onclick={() => handleProceed()}
-			disabled={!recoveryData}
+			disabled={!collectedRecoveryString}
 			class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300  enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary">
 			Proceed
 		</button>

@@ -6,7 +6,7 @@
 </script>
 
 
-	<div class="grow flex flex-col items-center justify-around pt-16">
+	<div class="grow flex flex-col items-center justify-around pt-16 select-none">
 		<h1 class="font-extralight mb-4 font-Jakarta text-7xl text-center text-white">
 			Write, Connect & Collaborate <br/> <span class="text-livnotePink">without</span> servers. 
 			<br />

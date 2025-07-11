@@ -30,12 +30,13 @@
 		| (typeof VIEW_STATES.NEW_USER)[keyof typeof VIEW_STATES.NEW_USER];
 
 	  let currentView = $state<ViewState>("welcome");
-		//let currentView = "privateKey"
 		let viewHistory = $state<ViewState[]>([]);
 		let userFlow = $state<"EXISTING_USER" | "NEW_USER" | null>(null);
-		//let userFlow = "EXISTING_USER"
+		//let userFlow = "NEW_USER"
 
 	let collectedRecoveryString = $state("");
+	let collectedUsername = $state("");
+
 
 	const navigateTo = (view: ViewState):void => {
 		viewHistory = [...viewHistory, currentView];
@@ -60,8 +61,7 @@
 		}
 	};
 
-	const handleImportProceed = (recoveryData: string):void => {
-		collectedRecoveryString = recoveryData;
+	const handleImportProceed = ():void => {
 		navigateTo(VIEW_STATES.EXISTING_USER.SET_PASSPHRASE);
 	};
 
@@ -93,27 +93,29 @@
 			<InitiationScreen onFlowSelect={triggerOnboardingFlow} />
 		{:else if currentView === VIEW_STATES.EXISTING_USER.IMPORT}
 			<FlowContainer onBack={goBack}>
-				<BaseImportPvtKey onProceed={handleImportProceed} />
+				<BaseImportPvtKey onProceed={handleImportProceed} bind:collectedRecoveryString />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.EXISTING_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
 				<NewPassword
 					onLogin={handleUserSignUpComplete}
-					recoveryData={collectedRecoveryString} />
+					bind:collectedRecoveryString />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.COLLECT_USERNAME}
 			<FlowContainer onBack={goBack}>
-				<CollectUsername onProceed={handleUsernameCollected} />
+				<CollectUsername onProceed={handleUsernameCollected} bind:collectedUsername />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
 				<NewPassword
 					onLogin={handlePassphraseSet}
+					bind:collectedUsername
+					bind:collectedRecoveryString 
 					/>
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
 			<FlowContainer onBack={goBack}>
-				<ProvidePrivateKey onLogin={handleUserSignUpComplete}/>
+				<ProvidePrivateKey onLogin={handleUserSignUpComplete} bind:collectedRecoveryString />
 			</FlowContainer>
 		{/if}
 	</div>

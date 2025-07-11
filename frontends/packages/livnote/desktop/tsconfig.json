@@ -41,10 +41,6 @@
 			]
 		},
 		"allowJs": true,
-		"isolatedModules": true,
-		"jsx": "preserve",
-		"jsxImportSource": "svelte",
-		"lib": ["esnext", "dom", "dom.iterable"]
 	},
 	"include": [
 		"src/**/*.ts",

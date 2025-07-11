@@ -1,15 +1,13 @@
 <script lang="ts">
-import { dataState } from "../state";
 
 
-let { onProceed } = $props<{ onProceed: () => void }>();
+let { onProceed, collectedUsername = $bindable() } = $props<{ onProceed: () => void, collectedUsername?: string }>();	
 
-let collectedUsername = $state("");
 
 const handleSubmit = (e: Event) => {
 	e.preventDefault();
 	if (collectedUsername.trim()) {
-		dataState.signupUsername = collectedUsername.trim();
+		collectedUsername = collectedUsername.trim();
 		onProceed();
 	}
 };

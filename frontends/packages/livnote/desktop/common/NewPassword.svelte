@@ -3,17 +3,17 @@
 	import { ClosedEye, Eye, Tick } from "@osvauld/password-manager-common";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
 	import { sendMessage } from "../../../common/utils/helper";
-	import { onMount } from "svelte";
 	import { StorageService } from "../../../common/utils/storageHelper";
-import { dataState } from "../state";
 
 	// Replace createEventDispatcher with callback props
 	let {
 		onLogin,
-		recoveryData,
+		collectedRecoveryString  = $bindable(),
+		collectedUsername  = $bindable(),
 	}: {
 		onLogin: (isCorrect: boolean) => void;
-		recoveryData?: string;
+		collectedRecoveryString?: string;
+		collectedUsername?: string;
 	} = $props();
 
 
@@ -65,32 +65,34 @@ import { dataState } from "../state";
 
 
 	const triggerSignup = async (passphrase: string) => {
-		if (recoveryData) {
+		if (collectedRecoveryString) {
 			// for recovery flow
-			let recovery = JSON.parse(recoveryData);
+			let parsedRecoveryData = JSON.parse(collectedRecoveryString);
 			const result = await sendMessage("addDevice", {
 				passphrase,
-				certificate: recovery.certificate,
+				certificate: parsedRecoveryData.certificate,
+				username: parsedRecoveryData.username,
+		  	device_id: parsedRecoveryData.deviceId,
 			});
 			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
 			await sendMessage("login", { passphrase });
-			console.log("sending first device connect message");
-			await sendMessage("firstDeviceConnect", { ticket: recovery.ticket });
+			await StorageService.setIsLoggedIn("true");
 			//TODO: need error handling here
 			onLogin?.(true);
 		} else {
 			// for new user flow
 			const response = await sendMessage("savePassphrase", {
 				passphrase,
-				username: dataState.signupUsername,
+				username: collectedUsername,
 			});
-
-			const pubkey = await sendMessage("login", { passphrase });
-
-			dataState.signupPubKey = JSON.stringify(pubkey);
-
+			const privatekey = await sendMessage("login", { passphrase });
+			const certificate = await sendMessage("exportCertificate", {
+				passphrase
+			});
+			collectedRecoveryString = JSON.stringify(certificate);
 			await StorageService.setIsLoggedIn("true");
 			onLogin?.(true);
+			
 		}
 	};
 
@@ -182,7 +184,7 @@ import { dataState } from "../state";
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}
-			<Loader color="#fff" size={32} />
+			<Loader color="#000" size={24} />
 		{:else}
 			<span>Submit</span>
 		{/if}
