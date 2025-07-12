@@ -471,6 +471,8 @@ pub async fn request_connections(&self) -> Result<(), String> {
             Some(cleanup_callback),
             self.crypto_utils.clone(),
             self.repo_ctx.clone(),
+            action.clone(),
+        connection_type.clone(),
             peer_node_id.to_string(),
             local_user.clone(),
             local_device.clone(),

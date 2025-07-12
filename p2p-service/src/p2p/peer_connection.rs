@@ -73,6 +73,8 @@ impl PeerConnection {
         on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         repo_ctx: RepositoryContext,
+        action: Option<ConnectionAction>,
+        connection_type: Option<ConnectionType>,
         node_id: String,
         local_user: User,
         local_device: Device,
@@ -87,11 +89,11 @@ impl PeerConnection {
         // Create the PeerConnection instance with all optional fields
         let mut peer_connection = Self {
             connection,
-            connection_type: None,
+            connection_type,
             device: local_device,
             node_id,
             user: local_user,
-            action: None,
+            action,
             is_initiator,
             handshake_complete: Arc::new(Mutex::new(false)),
             is_live_edit: live_edit,
