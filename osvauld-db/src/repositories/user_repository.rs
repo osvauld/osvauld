@@ -40,6 +40,18 @@ impl UserRepository for SqliteUserRepository {
         Ok(UserModel::to_domain_users(user_models))
     }
 
+    async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let user_models = users::table
+            .filter(users::owner.eq(false))
+            .filter(users::id.eq_any(user_ids))
+            .load::<UserModel>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(UserModel::to_domain_users(user_models))
+    }
+
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError> {
         let mut conn = self.connection.lock().await;
         let user_model = users::table

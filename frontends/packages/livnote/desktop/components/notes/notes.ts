@@ -46,6 +46,7 @@ import type {
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { CommentsService } from "./commentsService";
+import type { User } from "@osvauld/password-manager-common";
 
 // Type definitions for notes, states and other components
 
@@ -898,7 +899,6 @@ export class Notes {
       }
 
       const updateArray = Array.from(update);
-      console.log(this.clientID)
 
       await emit("sync-update", {
         update: updateArray,

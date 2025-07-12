@@ -307,6 +307,7 @@ impl EventManager {
             let note_id = note_id.clone();
             let repo_ctx = repo_ctx.clone();
             let p2p_sender = p2p_sender.clone();
+            let app_handle = app_handle.clone();
             // Spawn an async task to fetch shared users
             tokio::spawn(async move {
                 // Use UserService to get shared users for the note
@@ -330,10 +331,11 @@ impl EventManager {
                   match  get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id,true, &repo_ctx)
                     .await
                 {
-                    Ok(shared_devices) => {
+                    Ok((shared_devices, shared_users)) => {
                         if let Err(e) = p2p_sender.send_live_edit_requests(shared_devices.clone()) {
                             error!("Failed to send live edit requests: {}", e);
                         }
+                       let _ = app_handle.emit("shared-users-update", shared_users); 
                         // Update the note state with the shared users
                          note_state.set_shared_users(shared_devices.clone());
                     }
