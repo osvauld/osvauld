@@ -13,7 +13,7 @@
 			label: "Special character",
 			regex: /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>/?]/,
 		},
-		{ key: "length", label: "At least 8 characters" },
+		{ key: "length", label: "At least 6 characters" },
 	];
 
 	// Calculate strength results based on current passphrase
@@ -22,7 +22,7 @@
 			...condition,
 			met:
 				condition.key === "length"
-					? passphrase.length >= 8
+					? passphrase.length >= 6
 					: (condition.regex?.test(passphrase) ?? false),
 		})),
 	);
@@ -41,37 +41,37 @@
 	});
 
 	function getStrengthColor(score: number): string {
-		if (score <= 2) return "bg-red-500";
-		if (score <= 4) return "bg-yellow-500";
-		return "bg-green-500";
-	}
-
-	function getStrengthWidth(score: number): string {
-		return `${(score / conditions.length) * 100}%`;
+		if (score > 0 && score <= 2) return "#ef4444"; // Red for score 1-2
+		if (score <= 4) return "#f97316"; // Orange for score 3-4
+		return "#22c55e"; // Green for score 5
 	}
 </script>
 
-<div class="w-[300px] rounded-xl shadow-md overflow-hidden p-2">
+<div class="w-[24rem] rounded-xl shadow-md overflow-hidden p-2">
 	<div class="mb-4">
-		<div class="h-2 w-full bg-gray-300 rounded-full">
-			{#if strengthScore > 0}
-				<div
-					class="h-full rounded-full transition-all duration-300 ease-out {getStrengthColor(
-						strengthScore,
-					)}"
-					style="width: {getStrengthWidth(strengthScore)}">
+		<!-- Segmented strength bar that fills based on score -->
+		<div class="flex justify-between items-center w-full mb-2">
+			{#each strengthResults as condition, index}
+				<div class="h-1 flex-1 mx-1 rounded-full bg-[#35353b] overflow-hidden">
+					<div
+						class="h-full rounded-full transition-all duration-300"
+						style="width: {index < strengthScore ? '100%' : '0%'}; background-color: {getStrengthColor(
+							strengthScore,
+						)};">
+					</div>
 				</div>
-			{/if}
+			{/each}
 		</div>
 		<p
-			class="text-xs mt-1 font-light text-osvauld-sheffieldgrey text-center tracking-wide">
-			Passphrase should include at least
+			class="text-xs mt-1 font-light text-osvauld-sheffieldgrey text-left tracking-wide">
+			An Ideal Passphrase should include at least
 			{#each strengthResults as condition, index}
-				<span class={condition.met ? "text-green-500" : "text-yellow-300"}>
+				<span class={condition.met ? "text-green-500" : "text-[#FAFC6E]"}>
 					{condition.label}{index < strengthResults.length - 1 ? "," : ""}
 				</span>
 				{#if index < strengthResults.length - 1}&nbsp;{/if}
 			{/each}
+			but not mandatory.
 		</p>
 	</div>
 </div>

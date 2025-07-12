@@ -75,6 +75,10 @@
 	--color-toolTipText: #b5b9d0;
 	--color-collaboratorBorder: #2D2D2D;
 	--color-collaboratorText: #767785;
+	--color-disclaimerGray: #7A7D90;
+	--color-signupGray: #2C2E34;
+	--color-livnotePink: #8A86E5;
+	--color-placeholderGray: #606471;
 	/* Mobile Colors */
 	--color-mobile-bgPrimary: #000000;
 	--color-mobile-bgSeconary: #0d0e13;

@@ -10,6 +10,7 @@
 	let newVaultInputActive = $state(false);
 	let newVaultName = $state("");
 	let { position = "noteList" }: { position: "navigationPanel" | "noteList" } = $props();
+	let isCreationDisabled = $derived(newVaultName.trim().length === 0);
 
 	const autofocus = (node: HTMLElement) => {
 		node.focus();
@@ -25,7 +26,7 @@
 		try {
 			console.log("sending vault creation request");
 			await sendMessage("addFolder", {
-				name: newVaultName,
+				name: newVaultName.trim(),
 				description: "",
 			});
 
@@ -99,30 +100,36 @@
 							onclick={(e) => e.stopPropagation()}
 							onkeydown={(e) =>
 								e.key === "Escape" && uiState.closeVaultManager()}>
-							<span class="text-lg text-center">New Folder </span>
+							<span class="text-sm text-center">New Folder </span>
 							<span class="w-full border-b border-osvauld-modalFieldActive"
 							></span>
 							<div class="flex flex-col grow gap-1">
-								<label for="new-vault-name" class="text-sm">Add Title</label>
+								<label for="new-vault-name" class="sr-only">Add Title</label>
 								<input
 									type="text"
 									id="new-vault-name"
 									class="bg-mobile-bgSeconary p-2 border-0 outline-0 focus:ring-0 rounded-lg"
+									placeholder="Title"
 									autocomplete="off"
 									autocorrect="off"
 									use:autofocus
 									bind:value={newVaultName} />
 								<button
 									type="submit"
-									class="h-[48px] flex justify-center items-center gap-1 rounded-lg bg-mobile-highlightBlue text-mobile-bgPrimary font-medium text-lg mt-6"
-									>Create new folder <Add color="#000" /></button>
+									class="h-[48px] flex justify-center items-center gap-1 rounded-lg font-medium text-base mt-6"
+									class:bg-signupGray={isCreationDisabled}
+									class:text-white={isCreationDisabled}
+									class:bg-mobile-highlightBlue={!isCreationDisabled}
+									class:text-mobile-bgPrimary={!isCreationDisabled}
+									disabled={isCreationDisabled}
+									>Create new folder <Add color={isCreationDisabled ? "#fff" : "#000"} /></button>
 							</div>
 						</div>
 					</form>
 				{:else}
 					<button
 						onclick={handleNewVaultInput}
-						class="h-[48px] w-full flex justify-center items-center gap-1 rounded-lg border-2 border-mobile-bgHighlight p-4 active:bg-mobile-bgLight text-mobile-textActive"
+						class="h-[48px] w-full flex justify-center items-center gap-1 rounded-lg border-2 border-mobile-bgHighlight p-4 active:bg-mobile-bgLight text-mobile-textActive text-base cursor-pointer"
 						>Create new folder<Add color="#85889C" /></button>
 				{/if}
 			</div>
