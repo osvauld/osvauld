@@ -42,7 +42,6 @@
 	async function fetchUsers() {
 		try {
 			const users = await sendMessage("getKnownUsers");
-			console.log(users);
 			availableCollaborators = users;
 
 			// Here you would typically also fetch existing collaborators for the note
@@ -50,7 +49,7 @@
 				// const noteCollaborators = await sendMessage("getNoteCollaborators", {
 				// 	noteId: dataState.currentNote.id,
 				// }).catch(() => []);
-				existingCollaborators = [];
+				existingCollaborators = dataState.sharedUsers;
 			}
 		} catch (error) {
 			console.error("Error fetching users:", error);

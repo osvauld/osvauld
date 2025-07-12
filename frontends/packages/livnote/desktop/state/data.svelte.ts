@@ -48,6 +48,7 @@ class DataState {
   isDataLoading = $state<boolean>(false);
   userDetails = $state<UserDetails | null>(null)
   private _unlisteners: Array<() => void> = [];
+  sharedUsers = $state([]);
 
   // Derived values for filtering notes - declare as a class property with $derived
   filteredNotes = $derived.by(() => {
@@ -282,6 +283,10 @@ class DataState {
     }
   }
 
+  async handleSharedUsersUpdate(event: any) {
+    this.sharedUsers = event.payload;
+  }
+
 
 
   async setupReactiveUpdates() {
@@ -294,6 +299,7 @@ class DataState {
     const documentUpdatesUnlisten = await listen("document-updates", this.handleDocumentUpdates.bind(this));
     const awarenessUpdatesUnlisten = await listen("awareness-updates", this.handleAwarenessUpdates.bind(this));
     const liveUpdatesUnlisten = await listen("live-updates", this.handleLiveUpdates.bind(this));
+    const sharedUsersUpdate = await listen("shared-users-update", this.handleSharedUsersUpdate.bind(this));
 
     // Store all the unlisten functions
     this._unlisteners.push(
@@ -301,6 +307,8 @@ class DataState {
       resourceUpdateUnlisten,
       documentUpdatesUnlisten,
       awarenessUpdatesUnlisten,
+      liveUpdatesUnlisten,
+      sharedUsersUpdate,
     );
   }
   cleanupReactiveUpdates() {

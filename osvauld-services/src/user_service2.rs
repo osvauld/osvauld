@@ -65,7 +65,7 @@ pub async fn get_shared_user_devices_for_note(
     current_device_id: &str,
     skip_current_user: bool,
     repo_ctx: &RepositoryContext,
-) -> Result<Vec<String>, String> {
+) -> Result<(Vec<String>, Vec<User>), String> {
     // Get all share records for this note
     let share_records = repo_ctx
         .share_repo
@@ -79,10 +79,18 @@ pub async fn get_shared_user_devices_for_note(
     );
 
     let mut shared_device_ids = Vec::new();
+    let shared_user_ids: Vec<String> = share_records
+        .into_iter()
+        .map(|sr| sr.recipient_user_id.clone())
+        .collect();
+    let shared_users = repo_ctx
+        .user_repo
+        .get_users_by_ids(&shared_user_ids)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    for record in share_records {
+    for user_id in shared_user_ids {
         // Get the user_id from the record
-        let user_id = record.recipient_user_id;
         info!("user{:?}", user_id);
 
         // Skip if this is the current user
@@ -106,5 +114,5 @@ pub async fn get_shared_user_devices_for_note(
         }
     }
 
-    Ok(shared_device_ids)
+    Ok((shared_device_ids, shared_users))
 }
