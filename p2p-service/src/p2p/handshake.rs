@@ -128,8 +128,6 @@ impl PeerConnection {
         }
         self.device = payload.device.clone();
         self.user = payload.user.clone();
-        let mut handshake_guard = self.handshake_complete.lock().await;
-        *handshake_guard = true;
 
         info!("Successfully verified receiver's signature of our challenge");
 
@@ -191,10 +189,14 @@ impl PeerConnection {
         Ok(())
     }
     pub async fn process_handshake_ack(&self) -> Result<(), String> {
+        let mut handshake_guard = self.handshake_complete.lock().await;
+        *handshake_guard = true;
         self.execute_connection_action().await?;
-        self.event_emitter.emit(P2PEvent::LiveEditConnected {
-            connection_id: self.node_id.clone(),
-        });
+        if self.is_live_edit {
+            self.event_emitter.emit(P2PEvent::LiveEditConnected {
+                connection_id: self.node_id.clone(),
+            });
+        }
         Ok(())
     }
 

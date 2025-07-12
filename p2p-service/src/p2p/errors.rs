@@ -43,6 +43,9 @@ pub enum P2PError {
 
     #[error("P2P service not initialized")]
     NotInitialized,
+
+    #[error("P2P service not configured: {0}")]
+    Configuration(String),
 }
 
 #[derive(Error, Debug)]

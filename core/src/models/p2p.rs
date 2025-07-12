@@ -85,7 +85,6 @@ pub enum HandshakeMessage {
     HandshakeAck,
 }
 
-// The HandshakeMessage type remains the same
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HandshakeInit {
     pub connection_type: ConnectionType,

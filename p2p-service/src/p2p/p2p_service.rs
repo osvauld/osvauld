@@ -446,6 +446,8 @@ pub async fn request_connections(&self) -> Result<(), String> {
                             connection_id
                         );
                     }
+                }else {
+                    error!("State not available during cleanup for connection: {}", connection_id);
                 }
             });
         });
@@ -495,8 +497,12 @@ pub async fn request_connections(&self) -> Result<(), String> {
 
         // If initiator, start the handshake process
         if is_initiator {
-            let conn_type = connection_type.unwrap_or(ConnectionType::User);
-            let action = action.unwrap_or(ConnectionAction::UserSync);
+            let conn_type = connection_type.ok_or_else(|| {
+                P2PError::Configuration("Connection type must be specified for initiator".into())
+            })?;
+            let action = action.ok_or_else(|| {
+                P2PError::Configuration("Connection action must be specified for initiator".into())
+            })?;
             debug!("Initiating handshake as {:?}", conn_type);
 
             if let Err(e) = peer_connection_arc
