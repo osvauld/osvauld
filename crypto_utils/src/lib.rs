@@ -262,6 +262,13 @@ pub fn derive_node_id_from_public_key(public_key_b64: &str) -> Result<[u8; 32], 
 
     Ok(key_array)
 }
+pub fn verify_signature(
+    public_key: &str,
+    message: &str,
+    signature: &str,
+) -> Result<bool, PgpError> {
+    crypto_core::verify_signature(public_key, message, signature)
+}
 // Stateful Certificate Operations
 // These operations require a loaded certificate
 pub struct CryptoUtils {

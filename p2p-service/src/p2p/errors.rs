@@ -43,6 +43,9 @@ pub enum P2PError {
 
     #[error("P2P service not initialized")]
     NotInitialized,
+
+    #[error("P2P service not configured: {0}")]
+    Configuration(String),
 }
 
 #[derive(Error, Debug)]
@@ -50,6 +53,8 @@ pub enum HandshakeError {
     #[error("Invalid signature: {0}")]
     InvalidSignature(String),
 
+    #[error("signature failure: {0}")]
+    SignatureFailure(String),
     #[error("Invalid challenge: {0}")]
     InvalidChallenge(String),
 

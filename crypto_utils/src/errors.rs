@@ -77,6 +77,12 @@ pub enum PgpError {
     ArmorFinalizationError(String),
     #[error("Failed to parse certificate: {0}")]
     CertificateParseError(String),
+    #[error("Base64 decode error: {0}")]
+    Base64DecodeError(String),
+    #[error("Verifier creation error: {0}")]
+    VerifierCreationError(String),
+    #[error("Verification error: {0}")]
+    VerificationError(String),
 }
 
 #[derive(Error, Debug)]

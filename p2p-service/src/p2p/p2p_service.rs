@@ -1,15 +1,19 @@
-use crate::p2p::connection_manager::ConnectionManager;
-use crate::p2p::constants::*;
-use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
-use crate::p2p::errors::P2PError;
-use crate::p2p::incoming::{IncomingEvent, P2PSender};
-use crate::p2p::logger;
-use crate::p2p::peer_connection::{PeerConnection, ServiceContext};
+use crate::p2p::{
+    connection_manager::ConnectionManager,
+    constants::*,
+    emitter::{P2PEvent, P2PEventEmitter},
+    errors::P2PError,
+    incoming::{IncomingEvent, P2PSender},
+    logger,
+    peer_connection::{PeerConnection, ServiceContext},
+};
+
+use iroh::endpoint::Connection;
 use crypto_utils::CryptoUtils;
-use iroh::{Endpoint, NodeId, RelayMode};
-use n0_watcher::Watcher;
-use osvauld_core::models::{ConnectionAction,  ConnectionType, Device, User};
+use iroh::{Endpoint, NodeId, RelayMode, NodeAddr};
+use osvauld_core::models::{ConnectionAction, ConnectionType, Device, Message, User};
 use osvauld_db::database::RepositoryContext;
+use osvauld_services::generate_challenge;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -403,5 +407,270 @@ pub async fn request_connections(&self) -> Result<(), String> {
             .connections
             .get_connections_by_ids(connection_ids)
             .await
+    }
+
+    pub async fn perform_handshake_and_create_peer(
+        &self,
+        conn: &Connection,
+        is_initiator: bool,
+        connection_type: Option<ConnectionType>,
+        action: Option<ConnectionAction>,
+    ) -> Result<Arc<PeerConnection>, P2PError> {
+        debug!("Creating peer connection for handshake");
+
+        // Get local device and user
+        let local_device = self.get_current_device().await?;
+        let local_user = self.get_current_user().await?;
+        let peer_node_id = conn.remote_node_id().map_err(|e| e.to_string())?;
+
+        // Get the state for service context
+        let state_guard = self.state.lock().await;
+        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+
+        // Create cleanup callback
+        let self_clone = self.clone();
+        let cleanup_callback = Box::new(move |connection_id: String| {
+            let service = self_clone.clone();
+            tokio::spawn(async move {
+                info!(
+                    "Connection cleanup callback triggered for: {}",
+                    connection_id
+                );
+                let state_guard = service.state.lock().await;
+                if let Some(state) = state_guard.as_ref() {
+                    if let Err(e) = state.connections.remove_connection(&connection_id).await {
+                        error!("Failed to remove connection {}: {}", connection_id, e);
+                    } else {
+                        info!(
+                            "Successfully removed connection from manager: {}",
+                            connection_id
+                        );
+                    }
+                }else {
+                    error!("State not available during cleanup for connection: {}", connection_id);
+                }
+            });
+        });
+        // Create PeerConnection with local user/device (will be updated during handshake)
+        let is_live_edit= state
+            .connections
+            .get_and_clear_pending_live_edit_requests(&peer_node_id.to_string())
+            .await;
+        if is_live_edit {
+            info!(
+                "Found pending live edit request for connection: {}",
+                &peer_node_id.to_string()
+                
+            );
+        }
+        let challenge = generate_challenge();
+
+        let peer_connection = PeerConnection::new(
+            Arc::new(conn.clone()),
+            is_initiator,
+            state.service_context.clone(),
+            self.event_emitter.clone(),
+            Some(cleanup_callback),
+            self.crypto_utils.clone(),
+            self.repo_ctx.clone(),
+            action.clone(),
+        connection_type.clone(),
+            peer_node_id.to_string(),
+            local_user.clone(),
+            local_device.clone(),
+            challenge,
+            is_live_edit
+        );
+
+        let peer_connection_arc = Arc::new(peer_connection);
+
+        // Insert the connection into the connection manager immediately
+        debug!("Inserting connection into connection manager");
+        if let Err(e) = state
+            .connections
+            .insert_connection(peer_connection_arc.clone())
+            .await
+        {
+            error!("Failed to insert connection: {}", e);
+            return Err(P2PError::PeerConnection(e));
+        }
+
+        // If initiator, start the handshake process
+        if is_initiator {
+            let conn_type = connection_type.ok_or_else(|| {
+                P2PError::Configuration("Connection type must be specified for initiator".into())
+            })?;
+            let action = action.ok_or_else(|| {
+                P2PError::Configuration("Connection action must be specified for initiator".into())
+            })?;
+            debug!("Initiating handshake as {:?}", conn_type);
+
+            if let Err(e) = peer_connection_arc
+                .initiate_handshake(conn_type, action, local_user, local_device)
+                .await
+            {
+                error!("Failed to initiate handshake: {}", e);
+                // Connection is already inserted, handshake will happen via messages
+            }
+        }
+
+        debug!("Created peer connection: {}", peer_connection_arc.get_id());
+
+        info!(
+            "Handshake and peer creation successful: {}",
+            peer_connection_arc.get_id()
+        );
+        Ok(peer_connection_arc)
+    }
+
+    #[instrument(skip(self,  conn_type), fields( conn_type = ?conn_type ), level = "info")]
+    pub async fn connect_with_ticket(
+        &self,
+        device_id: &str,
+        conn_type: ConnectionType,
+        action: Option<ConnectionAction>,
+    ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
+        info!("Starting connection process with ticket");
+
+        let node_id_bytes = crypto_utils::derive_node_id_from_public_key(&device_id)?;
+        let node_id = NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?;
+        // Ensure P2P service is initialized
+        self.ensure_initialized().await?;
+
+        let connection_id = node_id.to_string();
+        // Get the state for access to connections
+        let (endpoint, connections) = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+            (state.endpoint.clone(), state.connections.clone())
+        };
+
+        // If a connection ID was provided, check if the connection is already active
+        // Check if connection is already established or in connecting state
+        if connections.is_connection_active(&connection_id).await {
+            // Try to get an established connection
+            if let Ok(existing_connection) = connections.get_peer_connection(&connection_id).await {
+                info!("Using existing established connection: {}", &connection_id);
+                if let Some(action) = action {
+                    if action == ConnectionAction::LiveEdit {
+                        self.event_emitter
+                            .emit(P2PEvent::LiveEditConnected { connection_id });
+                    } else {
+                        if existing_connection.is_initiator {
+                            let _ = existing_connection.execute_connection_action().await;
+                        } else {
+                            let _ = existing_connection
+                                .send_message(Message::RetryRequest)
+                                .await;
+                        }
+                    }
+                }
+                return Ok(Some(existing_connection));
+            } else {
+                // If we're here, the connection is in connecting state but not yet established
+                info!(
+                    "Connection is currently being established (returning None): {}",
+                    &connection_id
+                );
+
+                connections
+                    .add_pending_live_edit_request(&connection_id)
+                    .await;
+                return Ok(None);
+            }
+        }
+
+        // Mark the connection as connecting
+        if let Err(e) = connections.mark_as_connecting(&connection_id).await {
+            // This shouldn't happen given the previous check, but handle it just in case
+            warn!("Failed to mark connection as connecting: {}", e);
+            return Err(P2PError::Connection(format!(
+                "Failed to mark connection as connecting: {}",
+                e
+            )));
+        }
+
+        // Helper function to clean up connecting state on error
+        let cleanup_connecting = |connection_id: Option<&str>, error: P2PError| -> P2PError {
+            if let Some(id) = connection_id {
+                // We need to spawn a task because we can't use .await in a closure
+                let connection_id = id.to_string();
+                let state_connections = connections.clone();
+                tokio::spawn(async move {
+                    state_connections
+                        .remove_from_connecting(&connection_id)
+                        .await;
+                });
+            }
+            error
+        };
+
+        // Create node address from parsed components
+        let node_addr = NodeAddr::new(node_id.clone());
+
+        debug!("Created NodeAddr: {:?}", node_addr);
+        debug!("Our endpoint ID: {}", endpoint.node_id());
+        debug!("ALPN Protocol: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
+
+        // Attempt to establish connection
+        info!("Connecting to remote endpoint...");
+        let connection_span = info_span!("endpoint_connect", 
+        remote_node_id = %node_addr.node_id,
+        addresses = ?node_addr.direct_addresses.len());
+        debug!("Attempting connection to node_id: {}", node_id);
+        debug!("NodeAddr created: {:?}", node_addr);
+        debug!("Using ALPN: {}", String::from_utf8_lossy(ALPN_PROTOCOL));
+
+        let connect_result = endpoint
+            .connect(node_addr.clone(), ALPN_PROTOCOL)
+            .instrument(connection_span)
+            .await;
+
+        // Handle connection result
+        let conn = match connect_result {
+            Ok(conn) => {
+                info!("Connection established successfully");
+                conn
+            }
+            Err(e) => {
+                error!("Connection failed: {}", e);
+                debug!("Node addr used: {:?}", node_addr);
+
+                let error = P2PError::Connection(format!("Connection failed: {}", e));
+                return Err(cleanup_connecting(Some(&connection_id), error));
+            }
+        };
+
+        // Proceed with handshake
+        info!("Starting handshake process");
+        let handshake_span =
+            info_span!("handshake", initiator = true, connection_type = ?conn_type);
+
+        // Perform handshake
+        let handshake_result = self
+            .perform_handshake_and_create_peer(&conn, true, Some(conn_type), action)
+            .instrument(handshake_span)
+            .await;
+
+        // Clean up connecting state if handshake fails
+        // If handshake succeeds, the connection will be in the established connections map
+        // and handle_peer_and_create_connection will call insert_connection which removes from connecting
+        match handshake_result {
+            Ok(peer_connection) => {
+                // Return the new peer connection
+                Ok(Some(peer_connection))
+            }
+            Err(e) => {
+                // Clean up connecting state
+                let state_guard = self.state.lock().await;
+                if let Some(state) = &*state_guard {
+                    state
+                        .connections
+                        .remove_from_connecting(&connection_id)
+                        .await;
+                }
+                Err(e)
+            }
+        }
     }
 }
