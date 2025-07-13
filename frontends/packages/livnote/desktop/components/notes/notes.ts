@@ -38,16 +38,11 @@ import type {
   CreateNoteParams,
   UserInfo,
   EditorDocumentState,
-  NoteResponse,
-  CollaborationUpdateEvent,
   CommentThread,
   CommentPosition,
-  CommentMarkAttrs,
-  CommentUpdateCallback
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { CommentsService } from "./commentsService";
-import type { User } from "@osvauld/password-manager-common";
 
 // Type definitions for notes, states and other components
 
@@ -1026,7 +1021,6 @@ export class Notes {
     return this.commentsService;
   }
 
-
   /**
    * Add a reply to an existing comment thread
    */
@@ -1039,13 +1033,6 @@ export class Notes {
    */
   getAllCommentThreads(): CommentThread[] {
     return this.commentsService.getAllThreads();
-  }
-
-  /**
-   * Get comment thread by ID
-   */
-  getCommentThread(threadId: string): CommentThread | null {
-    return this.commentsService.getThread(threadId);
   }
 
   /**
@@ -1100,26 +1087,7 @@ export class Notes {
       return false;
     }
   }
-  /**
-   * Update comment thread position (for document changes)
-   */
-  updateCommentThreadPosition(threadId: string, newPosition: CommentPosition): boolean {
-    return this.commentsService.updateThreadPosition(threadId, newPosition);
-  }
 
-  /**
-   * Subscribe to comment events
-   */
-  onCommentUpdate(eventType: string, callback: CommentUpdateCallback): void {
-    this.commentsService.onUpdate(eventType, callback);
-  }
-
-  /**
-   * Unsubscribe from comment events
-   */
-  offCommentUpdate(eventType: string, callback: CommentUpdateCallback): void {
-    this.commentsService.offUpdate(eventType, callback);
-  }
   /**
 * Create a comment thread and apply the visual mark to the editor
 * This combines comment creation with editor mark application
