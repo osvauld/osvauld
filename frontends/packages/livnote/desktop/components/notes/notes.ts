@@ -85,6 +85,7 @@ export class Notes {
   private editorState: EditorState | null = null;
   private editorSchema!: Schema;
   private pendingYjsState: Uint8Array | null = null;
+  private metadata!: Y.Map<any>;
 
   constructor() {
     this.clientID = 0;
@@ -492,6 +493,7 @@ export class Notes {
     this.type = this.ydoc.getXmlFragment("prosemirror");
     this.commentsMap = this.ydoc.getMap("comments");
     this.awareness = new Awareness(this.ydoc);
+    this.metadata = this.ydoc.getMap("metadata");
 
     // Initialize comments service
     this.commentsService = new CommentsService(this.commentsMap);
@@ -509,6 +511,11 @@ export class Notes {
         void this.handleAwarenessUpdate(changes);
       }
     });
+
+    this.metadata.observe((event) => {
+      console.log("Metadata changed", event);
+    });
+
 
     // Generate a better color for this user
     const colors = [
@@ -544,6 +551,14 @@ export class Notes {
       color,
       id: this.clientID
     } as UserInfo);
+  }
+
+  getCurrentTitle(): string {
+    return this.metadata.get("title") || "Untitled Note";
+  }
+
+  setTitle(title: string): void {
+    this.metadata.set("title", title);
   }
 
   private createBasicCustomCursor(user: UserInfo): HTMLElement {
@@ -729,6 +744,7 @@ export class Notes {
       this.ydoc.destroy();
       this.initYjs();
       this.initEditorState();
+      this.setTitle("Untitled Note");
 
       if (!this.editorState) {
         throw new Error("Failed to initialize editor state");
@@ -750,6 +766,7 @@ export class Notes {
         client_id: this.clientID.toString(),
         resource_id: "pending", // Will be updated after we get the note ID
         last_modified: timestamp,
+        title: this.getCurrentTitle(),
       };
 
       // Create the note on the server
@@ -801,8 +818,16 @@ export class Notes {
   updateEditorState(newState: EditorState): void {
     this.editorState = newState;
   }
+  updateTitle(newTitle: string): void {
+    if (!newTitle.trim()) {
+      newTitle = "Untitled Note";
+    }
+    this.setTitle(newTitle);
+    console.log("Title updated to:", newTitle);
+  }
 
-  async saveNote(title = "Untitled note"): Promise<void> {
+
+  async saveNote(title?: string): Promise<void> {
     if (!this.currentNoteId || !this.editorState) {
       console.error("No note is currently active or editor state is missing");
       return;
@@ -813,6 +838,9 @@ export class Notes {
       const editorJSON = this.editorState.toJSON();
       const content = this.type.toJSON();
       const timestamp = Date.now();
+      if (title !== undefined) {
+        this.setTitle(title);
+      }
 
       const noteContent: NoteContent = {
         content,
@@ -821,7 +849,7 @@ export class Notes {
         client_id: this.clientID.toString(),
         resource_id: this.currentNoteId,
         last_modified: timestamp,
-        title,
+        title: this.getCurrentTitle(),
       };
 
       await sendMessage("updateCredential", {

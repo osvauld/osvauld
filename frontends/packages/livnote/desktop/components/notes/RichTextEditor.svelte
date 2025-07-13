@@ -137,6 +137,9 @@
 				currentlyLoadedNoteId = id;
 				setTimeout(() => {
 					notesInstance.applyPendingYjsState(view);
+					if (dataState.currentNote && dataState.currentNote.data) {
+						dataState.currentNote.data.title = notesInstance.getCurrentTitle();
+					}
 				}, 50);
 
 				setTimeout(() => {
@@ -173,9 +176,7 @@
 
 			autoSaveInterval = window.setInterval(() => {
 				if (dataState.currentNote) {
-					notesInstance
-						.saveNote(dataState.currentNote.data?.title || "Untitled")
-						.catch(console.error);
+					notesInstance.saveNote().catch(console.error);
 
 					// Below state is set for showing saved update
 					uiState.noteSaved = true;
@@ -259,9 +260,7 @@
 
 		// Save before cleanup if we have a note loaded
 		if (currentlyLoadedNoteId && dataState.currentNote) {
-			notesInstance
-				.saveNote(dataState.currentNote.data?.title || "Untitled")
-				.catch(console.error);
+			notesInstance.saveNote().catch(console.error);
 		}
 
 		currentlyLoadedNoteId = null;
