@@ -1,7 +1,7 @@
-<script lang="ts">	
-	import { fade, fly } from 'svelte/transition';
-	import { onMount } from 'svelte';
-
+<script lang="ts">
+	import { fade, fly } from "svelte/transition";
+	import { onMount } from "svelte";
+	import CommentSidebar from "../notes/CommentSidebar.svelte";
 	import {
 		BinIcon as Bin,
 		CopyIcon,
@@ -10,7 +10,6 @@
 		Tick,
 		Loader,
 	} from "@osvauld/password-manager-common";
-
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
 
@@ -30,17 +29,18 @@
 	let saved = $state(false);
 
 	let lastModifiedTimestamp = $state<number | undefined>(undefined);
-	
+
 	// add live collaborators and update this list to cue users coming and going
 	let collaborators = $state<Collaborator[]>([]);
-	
+	function toggleCommentSidebar() {
+		uiState.toggleCommentSidebar();
+	}
 	// let collaborators = $state<Collaborator[]>([
 	// 	{ id: '1', name: 'Frank' },
 	// 	{ id: '2', name: 'Grace' },
 	// 	{ id: '3', name: 'Robert' },
 	// 	{ id: '4', name: 'Alice' },
 	// ]);
-
 
 	// Mock data structure
 	type Collaborator = {
@@ -100,7 +100,7 @@
 			.catch(console.error);
 
 		saved = true;
-		
+
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
@@ -121,7 +121,7 @@
 	// Function to get initial from name
 	const getInitial = (name: string): string => {
 		return name.charAt(0).toUpperCase();
-	}
+	};
 
 	//  Simulate users joining and leaving
 	// function simulateUserActivity() {
@@ -200,33 +200,37 @@
 	</div>
 
 	<div class="flex-1 w-full">
-	{#if collaborators.length !== 0}
-		<span  class="text-statusColor font-light text-sm">Live Collaborators</span>
-		<div class="flex items-center mt-4 mb-10">
+		{#if collaborators.length !== 0}
+			<span class="text-statusColor font-light text-sm"
+				>Live Collaborators</span>
+			<div class="flex items-center mt-4 mb-10">
 				<div class="flex">
 					{#each collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
 						<div
 							class="relative {index !== 0 ? '-ml-3' : ''}"
 							in:fade={{ duration: 200 }}
 							out:fade={{ duration: 200 }}>
-							<div class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
+							<div
+								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
 								{getInitial(collaborator.name)}
-								
+
 								<!-- Live indicator dot -->
-								<div 
+								<div
 									class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
 									in:fade={{ duration: 200 }}>
 								</div>
 							</div>
 						</div>
 					{/each}
-					
+
 					<!-- +1 indicator for additional collaborators -->
 					{#if collaborators.length > 3}
-						<div class="relative -ml-3"
+						<div
+							class="relative -ml-3"
 							in:fade={{ duration: 200 }}
 							out:fade={{ duration: 200 }}>
-							<div class="w-12 h-12  -z-10 rounded-full bg-osvauld-fieldActive text-md font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
+							<div
+								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-md font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
 								+{collaborators.length - 3}
 							</div>
 						</div>
@@ -242,6 +246,25 @@
 				<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
 				<UserPlus color="#010109" size={24} />
 			</button>
+			<div class="relative">
+				<button
+					onclick={toggleCommentSidebar}
+					class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-osvauld-fieldActive text-osvauld-fieldText border border-osvauld-iconblack cursor-pointer w-full"
+					aria-label="toggle comments">
+					<span class="mr-2 pl-2 whitespace-nowrap">Comments</span>
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+						<path
+							d="M21.99 4c0-1.1-.89-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.89 2 2 2h14l4 4-.01-18z"
+						></path>
+					</svg>
+				</button>
+			</div>
+			{#if uiState.showCommentSidebar}
+				<CommentSidebar
+					isVisible={uiState.showCommentSidebar}
+					onClose={() => uiState.toggleCommentSidebar(false)} />
+			{/if}
+
 			{#if showShareList}
 				<div
 					class="bg-transparent fixed inset-0 z-40"

@@ -17,7 +17,7 @@ export class CommentsService {
 
   constructor(commentsMap: Y.Map<CommentThread>) {
     this.commentsMap = commentsMap;
-    
+
     // Set up observer for real-time updates
     this.commentsMap.observe((event) => {
       this.handleCommentsUpdate(event);
@@ -61,10 +61,10 @@ export class CommentsService {
       created_at: timestamp,
       updated_at: timestamp
     };
-    
+
     // Store in Yjs map for real-time sync
     this.commentsMap.set(threadId, thread);
-    
+
     return threadId;
   }
 
@@ -297,7 +297,7 @@ export class CommentsService {
     const totalThreads = threads.length;
     const resolvedThreads = threads.filter(t => t.resolved).length;
     const totalComments = threads.reduce((sum, t) => sum + t.comments.length, 0);
-    
+
     return {
       totalThreads,
       totalComments,

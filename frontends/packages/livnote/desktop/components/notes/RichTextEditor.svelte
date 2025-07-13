@@ -1,18 +1,15 @@
 <script lang="ts">
-	import { onMount, onDestroy, createEventDispatcher } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import type { EditorState } from "prosemirror-state";
-	import { listen } from "@tauri-apps/api/event";
 	import type { UnlistenFn } from "@tauri-apps/api/event";
 	import { notesInstance } from "./notes";
 	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
-	import CommentSidebar from "./CommentSidebar.svelte";
 	import CommentModal from "./CommentModal.svelte";
 	import "./rich-text-editor.css";
 
 	// Event dispatcher for collaboration updates
-	const dispatch = createEventDispatcher();
 
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
@@ -25,37 +22,11 @@
 	let loadingInProgress = $state(false);
 	let elementWidth = $state<number | undefined>(undefined);
 	let resizeTimeoutId: number | null = null;
-	let showCommentSidebar = $state(false);
 	let showCommentModal = $state(false);
 	let modalSelectedText = $state("");
 	let pendingCommentPosition = $state<{ from: number; to: number } | null>(
 		null,
 	);
-	let commentSidebarRef = $state<any>(null);
-	let activeCommentsCount = $state(0);
-
-	// Copy content utilities
-	const fallbackCopy = (html: string): void => {
-		const tempElement = document.createElement("div");
-		tempElement.innerHTML = html;
-		tempElement.style.position = "absolute";
-		tempElement.style.left = "-9999px";
-		document.body.appendChild(tempElement);
-
-		// Select the temp element
-		const selection = window.getSelection();
-		const range = document.createRange();
-		range.selectNodeContents(tempElement);
-		selection?.removeAllRanges();
-		selection?.addRange(range);
-
-		// Execute copy
-		document.execCommand("copy");
-
-		// Clean up
-		selection?.removeAllRanges();
-		document.body.removeChild(tempElement);
-	};
 
 	const copyContentListener = (event: Event): void => {
 		if (!view) return;
@@ -91,12 +62,7 @@
 					])
 					.catch((err) => {
 						console.error("Clipboard API error:", err);
-						// Fallback to the execCommand method
-						fallbackCopy(html);
 					});
-			} else {
-				// Use fallback method
-				fallbackCopy(html);
 			}
 		} catch (error) {
 			console.error("Error during copy:", error);
@@ -219,6 +185,7 @@
 					return;
 				}
 				notesInstance.updateEditorState(newState);
+				notesInstance.setEditorView(view);
 			} catch (err) {
 				console.error("Error in dispatch transaction:", err);
 			}
@@ -230,27 +197,12 @@
 		});
 	}
 
-	// Public method to save the note
-	export function saveNote(): Promise<void> {
-		if (!dataState.currentNote) return Promise.resolve();
-
-		return notesInstance
-			.saveNote(dataState.currentNote.data?.title || "Untitled")
-			.then(() => {
-				dispatch("save-complete", true);
-				return Promise.resolve();
-			})
-			.catch((error) => {
-				console.error("Error saving note:", error);
-				return Promise.reject(error);
-			});
-	}
-
 	function cleanupEditor(): void {
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
 		if (view) {
+			notesInstance.setEditorView(null);
 			view.destroy();
 			view = null;
 		}
@@ -298,30 +250,6 @@
 		}
 	});
 
-	// Consolidated reactive effect for comment sidebar and count updates
-	$effect(() => {
-		const currentNoteId = dataState.currentNote?.id;
-
-		if (currentNoteId && commentSidebarRef) {
-			// Refresh sidebar when note is loaded
-			if (commentSidebarRef.loadThreads) {
-				commentSidebarRef.loadThreads();
-			}
-
-			// Update active comments count
-			try {
-				const threads = notesInstance.getAllCommentThreads();
-				activeCommentsCount = threads.filter((t) => !t.resolved).length;
-			} catch (error) {
-				activeCommentsCount = 0;
-			}
-		}
-	});
-
-	function toggleCommentSidebar() {
-		showCommentSidebar = !showCommentSidebar;
-	}
-
 	// Initialize when component mounts
 	onMount(async () => {
 		// Clear any state to ensure clean start
@@ -345,18 +273,6 @@
 		document.addEventListener(
 			"highlight-comment-text",
 			handleHighlightCommentText as EventListener,
-		);
-
-		// Add comment mark removal
-		document.addEventListener(
-			"remove-comment-mark",
-			handleRemoveCommentMark as EventListener,
-		);
-
-		// Add comment mark resolved status update
-		document.addEventListener(
-			"update-comment-mark-resolved",
-			handleUpdateCommentMarkResolved as EventListener,
 		);
 
 		window.addEventListener("resize", checkWindowSize);
@@ -386,18 +302,6 @@
 			handleHighlightCommentText as EventListener,
 		);
 
-		// Remove comment mark removal
-		document.removeEventListener(
-			"remove-comment-mark",
-			handleRemoveCommentMark as EventListener,
-		);
-
-		// Remove comment mark resolved status update
-		document.removeEventListener(
-			"update-comment-mark-resolved",
-			handleUpdateCommentMarkResolved as EventListener,
-		);
-
 		window.removeEventListener("resize", checkWindowSize);
 		if (resizeTimeoutId) {
 			clearTimeout(resizeTimeoutId);
@@ -416,38 +320,12 @@
 			console.error("No pending comment position or view");
 			return;
 		}
-
 		try {
-			// Create the comment thread
-			const threadId = notesInstance.createCommentThread(
-				pendingCommentPosition,
-				content,
-			);
-
-			// Apply the comment mark to the selected text
-			const { state, dispatch } = view;
-			const commentMark = state.schema.marks.comment.create({
-				threadId,
-				commentIds: [threadId],
-				resolved: false,
-				author: null,
-			});
-
-			const tr = state.tr.addMark(
-				pendingCommentPosition.from,
-				pendingCommentPosition.to,
-				commentMark,
-			);
-			dispatch(tr);
-
-			// Force refresh the comment sidebar
-			if (commentSidebarRef && commentSidebarRef.loadThreads) {
-				commentSidebarRef.loadThreads();
-			}
+			// Use the new combined method from notesInstance
+			notesInstance.createCommentAndApplyMark(pendingCommentPosition, content);
 		} catch (error) {
 			console.error("Error creating comment:", error);
 		}
-
 		// Reset modal state
 		showCommentModal = false;
 		modalSelectedText = "";
@@ -463,7 +341,6 @@
 		showCommentModal = false;
 		modalSelectedText = "";
 		pendingCommentPosition = null;
-
 		// Refocus editor
 		if (view) {
 			view.focus();
@@ -478,23 +355,24 @@
 		if (commentElement) {
 			const threadId = commentElement.getAttribute("data-livnote-comment");
 			if (threadId) {
-				// Open sidebar if not already open
-				if (!showCommentSidebar) {
-					showCommentSidebar = true;
+				const wasHidden = !uiState.showCommentSidebar;
+				if (!uiState.showCommentSidebar) {
+					uiState.toggleCommentSidebar(true);
 				}
-
-				// Dispatch event to highlight the comment in sidebar
-				const highlightEvent = new CustomEvent("highlight-comment-thread", {
-					detail: { threadId },
-				});
-				document.dispatchEvent(highlightEvent);
+				const delay = wasHidden ? 100 : 0;
+				setTimeout(() => {
+					// Dispatch event to highlight the comment in sidebar
+					const highlightEvent = new CustomEvent("highlight-comment-thread", {
+						detail: { threadId },
+					});
+					document.dispatchEvent(highlightEvent);
+				}, delay);
 			}
 		}
 	}
 
 	function handleHighlightCommentText(event: CustomEvent) {
 		const { threadId, position } = event.detail;
-
 		// Find the comment span in the editor
 		const commentSpan = document.querySelector(
 			`[data-livnote-comment="${threadId}"]`,
@@ -514,87 +392,6 @@
 			setTimeout(() => {
 				commentSpan.classList.remove("comment-text-highlight");
 			}, 3000);
-		}
-	}
-
-	function handleRemoveCommentMark(event: CustomEvent) {
-		const { threadId } = event.detail;
-
-		if (!view) {
-			console.error("No editor view available");
-			return;
-		}
-
-		try {
-			const { state, dispatch } = view;
-			let tr = state.tr;
-			let marksRemoved = false;
-
-			// Iterate through the document to find and remove comment marks with this threadId
-			state.doc.descendants((node, pos) => {
-				if (node.isText) {
-					node.marks.forEach((mark) => {
-						if (
-							mark.type.name === "comment" &&
-							mark.attrs.threadId === threadId
-						) {
-							// Remove this specific comment mark
-							tr = tr.removeMark(pos, pos + node.nodeSize, mark);
-							marksRemoved = true;
-						}
-					});
-				}
-			});
-
-			if (marksRemoved) {
-				dispatch(tr);
-			}
-		} catch (error) {
-			console.error("Error removing comment mark:", error);
-		}
-	}
-
-	function handleUpdateCommentMarkResolved(event: CustomEvent) {
-		const { threadId, resolved } = event.detail;
-
-		if (!view) {
-			console.error("No editor view available");
-			return;
-		}
-
-		try {
-			const { state, dispatch } = view;
-			let tr = state.tr;
-			let marksUpdated = false;
-
-			// Iterate through the document to find and update comment marks with this threadId
-			state.doc.descendants((node, pos) => {
-				if (node.isText) {
-					node.marks.forEach((mark) => {
-						if (
-							mark.type.name === "comment" &&
-							mark.attrs.threadId === threadId
-						) {
-							// Remove the old mark and add a new one with updated resolved status
-							tr = tr.removeMark(pos, pos + node.nodeSize, mark);
-
-							const updatedMark = state.schema.marks.comment.create({
-								...mark.attrs,
-								resolved,
-							});
-
-							tr = tr.addMark(pos, pos + node.nodeSize, updatedMark);
-							marksUpdated = true;
-						}
-					});
-				}
-			});
-
-			if (marksUpdated) {
-				dispatch(tr);
-			}
-		} catch (error) {
-			console.error("Error updating comment mark resolved status:", error);
 		}
 	}
 </script>
@@ -631,44 +428,6 @@
 		position: relative;
 	}
 
-	.comment-toggle-button {
-		position: absolute;
-		top: 16px;
-		right: 16px;
-		z-index: 10;
-		background: #2a2b2f;
-		border: 1px solid #3a3b44;
-		border-radius: 6px;
-		padding: 8px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.comment-toggle-button:hover {
-		background: #3a3b44;
-		border-color: #4a4b53;
-	}
-
-	.comment-toggle-button.active {
-		background: #ffd700;
-		border-color: #ffd700;
-		color: #16171f;
-	}
-
-	.comment-indicator {
-		position: absolute;
-		top: -4px;
-		right: -4px;
-		width: 8px;
-		height: 8px;
-		background: #ffd700;
-		border-radius: 50%;
-		border: 2px solid #16171f;
-	}
-
 	/* Add styles for the editor content */
 	:global(.ProseMirror) {
 		min-height: 100%;
@@ -696,28 +455,6 @@
 				class="h-full max-h-full overflow-y-scroll scrollbar-thin">
 			</div>
 		</div>
-		{#if showCommentSidebar}
-			<CommentSidebar
-				bind:this={commentSidebarRef}
-				isVisible={showCommentSidebar}
-				onClose={() => (showCommentSidebar = false)} />
-		{:else}
-			<!-- Comment Toggle Button -->
-			<button
-				class="comment-toggle-button"
-				class:active={showCommentSidebar}
-				onclick={toggleCommentSidebar}
-				title="Toggle Comments">
-				<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-					<path
-						d="M21.99 4c0-1.1-.89-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.89 2 2 2h14l4 4-.01-18z"
-					></path>
-				</svg>
-				{#if activeCommentsCount > 0}
-					<div class="comment-indicator"></div>
-				{/if}
-			</button>
-		{/if}
 	</div>
 </div>
 

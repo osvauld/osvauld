@@ -20,7 +20,7 @@ interface PasswordPrompt {
 
 
 // Modal registry type to make modal management more structured
-type ModalKey = 'showConnector' |  'showSyncQr';
+type ModalKey = 'showConnector' | 'showSyncQr';
 
 // UI State class
 class UIState {
@@ -31,7 +31,8 @@ class UIState {
   showSyncQr = $state(false);
   vaultManagerActive = $state(false);
   noteSaved = $state(false);
-  
+  showCommentSidebar = $state(false);
+
   // Navigation panel state
   showNavigationPanel = $state(true);
   isNavigationPanelManuallyToggled = $state(false);
@@ -101,6 +102,13 @@ class UIState {
     this.passwordPromptModal.isChangePassword = false;
     this.passwordPromptModal.show = false;
   }
+  toggleCommentSidebar(show?: boolean) {
+    if (show !== undefined) {
+      this.showCommentSidebar = show;
+    } else {
+      this.showCommentSidebar = !this.showCommentSidebar;
+    }
+  }
 
 
   // Generic modal toggle function
@@ -156,7 +164,7 @@ class UIState {
     } else {
       this.showNavigationPanel = !this.showNavigationPanel;
     }
-    
+
     // Mark panel as manually toggled
     this.isNavigationPanelManuallyToggled = true;
   }
