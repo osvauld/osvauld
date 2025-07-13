@@ -100,7 +100,6 @@ export class Notes {
   }
 
 
-
   private initSchema(): void {
     // Get the base paragraph node spec from the schema
     const nodes = basicSchema.spec.nodes;
@@ -1134,7 +1133,6 @@ export class Notes {
     }
 
     try {
-      this.commentsService.deleteThread(threadId);
       const { state, dispatch } = this.editorView;
       let tr = state.tr;
       let marksRemoved = false;
@@ -1158,6 +1156,8 @@ export class Notes {
       if (marksRemoved) {
         dispatch(tr);
       }
+
+      this.commentsService.deleteThread(threadId);
     } catch (error) {
       console.error("Error removing comment mark:", error);
     }
