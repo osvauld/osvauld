@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
-	import type { CommentThread } from '../../types/notes.types';
-	import CommentThreadComponent from './CommentThread.svelte';
-	import { notesInstance } from './notes';
+	import { onMount, onDestroy } from "svelte";
+	import type { CommentThread } from "../../types/notes.types";
+	import CommentThreadComponent from "./CommentThread.svelte";
+	import { notesInstance } from "./notes";
 
 	// Props using Svelte 5 runes
 	interface Props {
 		isVisible?: boolean;
 		onClose?: () => void;
 	}
-	
+
 	const { isVisible = true, onClose }: Props = $props();
 
 	// State
@@ -25,21 +25,23 @@
 	// Derived values
 	const sortedThreads = $derived.by(() => {
 		let sorted = [...threads].sort((a, b) => a.position.from - b.position.from);
-		
+
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {
-			const highlightedIndex = sorted.findIndex(t => t.id === highlightedThreadId);
+			const highlightedIndex = sorted.findIndex(
+				(t) => t.id === highlightedThreadId,
+			);
 			if (highlightedIndex > 0) {
 				const [highlightedThread] = sorted.splice(highlightedIndex, 1);
 				sorted.unshift(highlightedThread);
 			}
 		}
-		
+
 		return sorted;
 	});
 	const filteredThreads = $derived.by(() => {
-		return sortedThreads.filter((thread: CommentThread) => 
-			showResolved ? thread.resolved : !thread.resolved
+		return sortedThreads.filter((thread: CommentThread) =>
+			showResolved ? thread.resolved : !thread.resolved,
 		);
 	});
 
@@ -47,35 +49,33 @@
 		try {
 			threads = notesInstance.getAllCommentThreads();
 		} catch (error) {
-			console.error('Error loading comment threads:', error);
+			console.error("Error loading comment threads:", error);
 		}
-	}
-
-	function handleThreadUpdate() {
-		loadThreads(); // Reload all threads when any thread updates
 	}
 
 	function handleThreadSelect(threadId: string) {
 		selectedThreadId = selectedThreadId === threadId ? null : threadId;
-		
+
 		// Scroll to the commented text in the editor
 		scrollToCommentInEditor(threadId);
 	}
 
 	function scrollToCommentInEditor(threadId: string) {
 		// Find the comment span in the editor
-		const commentSpan = document.querySelector(`[data-livnote-comment="${threadId}"]`);
+		const commentSpan = document.querySelector(
+			`[data-livnote-comment="${threadId}"]`,
+		);
 		if (commentSpan) {
-			commentSpan.scrollIntoView({ 
-				behavior: 'smooth', 
-				block: 'center',
-				inline: 'nearest'
+			commentSpan.scrollIntoView({
+				behavior: "smooth",
+				block: "center",
+				inline: "nearest",
 			});
-			
+
 			// Temporarily highlight the comment
-			commentSpan.classList.add('comment-flash');
+			commentSpan.classList.add("comment-flash");
 			setTimeout(() => {
-				commentSpan.classList.remove('comment-flash');
+				commentSpan.classList.remove("comment-flash");
 			}, 2000);
 		}
 	}
@@ -83,37 +83,24 @@
 	function handleResolveThread(threadId: string, resolved: boolean) {
 		try {
 			notesInstance.resolveCommentThread(threadId, resolved);
-			loadThreads();
 		} catch (error) {
-			console.error('Error resolving thread:', error);
+			console.error("Error resolving thread:", error);
 		}
 	}
 
 	function handleDeleteThread(threadId: string) {
-		if (confirm('Are you sure you want to delete this comment thread?')) {
+		if (confirm("Are you sure you want to delete this comment thread?")) {
 			try {
-				const commentsService = notesInstance.getCommentsService();
-				commentsService.deleteThread(threadId);
-				loadThreads();
-				
-				// Remove the comment mark from the editor
-				const commentSpan = document.querySelector(`[data-livnote-comment="${threadId}"]`);
-				if (commentSpan) {
-					// Dispatch event to remove the mark from ProseMirror
-					const removeMarkEvent = new CustomEvent('remove-comment-mark', {
-						detail: { threadId }
-					});
-					document.dispatchEvent(removeMarkEvent);
-				}
+				notesInstance.removeCommentMark(threadId);
 			} catch (error) {
-				console.error('Error deleting thread:', error);
+				console.error("Error deleting thread:", error);
 			}
 		}
 	}
 
 	function getStatsText() {
-		const activeCount = threads.filter(t => !t.resolved).length;
-		const resolvedCount = threads.filter(t => t.resolved).length;
+		const activeCount = threads.filter((t) => !t.resolved).length;
+		const resolvedCount = threads.filter((t) => t.resolved).length;
 		return `${activeCount} active, ${resolvedCount} resolved`;
 	}
 
@@ -125,13 +112,25 @@
 		if (animationTimeoutId) {
 			clearTimeout(animationTimeoutId);
 		}
-		
+		// Find the thread to check if it's resolved
+		const thread = threads.find((t) => t.id === threadId);
+		if (thread) {
+			// If the thread is resolved, switch to resolved tab
+			if (thread.resolved && !showResolved) {
+				showResolved = true;
+			}
+			// If the thread is active, switch to active tab
+			else if (!thread.resolved && showResolved) {
+				showResolved = false;
+			}
+		}
+
 		// Set highlighted thread and move it to top (stays there permanently)
 		highlightedThreadId = threadId;
-		
+
 		// Set temporary animation state (times out)
 		animatingThreadId = threadId;
-		
+
 		// Remove animation after 4 seconds (matches CSS animation duration)
 		animationTimeoutId = window.setTimeout(() => {
 			animatingThreadId = null;
@@ -151,32 +150,38 @@
 			const { threadId } = event.detail;
 			highlightThread(threadId);
 		};
-		
-		document.addEventListener('highlight-comment-thread', handleCommentHighlight as EventListener);
-		
+
+		document.addEventListener(
+			"highlight-comment-thread",
+			handleCommentHighlight as EventListener,
+		);
+
 		// Load threads with a small delay to ensure notes instance is ready
 		const initializeSidebar = () => {
 			try {
 				loadThreads();
-				
+
 				// Subscribe to real-time updates
 				const commentsService = notesInstance.getCommentsService();
-				commentsService.onUpdate('thread_added', handleThreadUpdate);
-				commentsService.onUpdate('thread_updated', handleThreadUpdate);
-				commentsService.onUpdate('thread_deleted', handleThreadUpdate);
+				commentsService.onUpdate("thread_added", loadThreads);
+				commentsService.onUpdate("thread_updated", loadThreads);
+				commentsService.onUpdate("thread_deleted", loadThreads);
 			} catch (error) {
-				console.error('Error initializing sidebar:', error);
+				console.error("Error initializing sidebar:", error);
 				// Retry after a short delay
 				setTimeout(initializeSidebar, 100);
 			}
 		};
-		
+
 		// Try immediately, and also after a small delay
 		initializeSidebar();
 		setTimeout(initializeSidebar, 50);
-		
+
 		return () => {
-			document.removeEventListener('highlight-comment-thread', handleCommentHighlight as EventListener);
+			document.removeEventListener(
+				"highlight-comment-thread",
+				handleCommentHighlight as EventListener,
+			);
 		};
 	});
 
@@ -184,13 +189,13 @@
 		// Unsubscribe from updates
 		try {
 			const commentsService = notesInstance.getCommentsService();
-			commentsService.offUpdate('thread_added', handleThreadUpdate);
-			commentsService.offUpdate('thread_updated', handleThreadUpdate);
-			commentsService.offUpdate('thread_deleted', handleThreadUpdate);
+			commentsService.offUpdate("thread_added", loadThreads);
+			commentsService.offUpdate("thread_updated", loadThreads);
+			commentsService.offUpdate("thread_deleted", loadThreads);
 		} catch (error) {
 			// Service might not be available during cleanup
 		}
-		
+
 		// Clean up timeouts
 		if (highlightTimeoutId) {
 			clearTimeout(highlightTimeoutId);
@@ -330,23 +335,24 @@
 	}
 
 	@keyframes highlightPulse {
-		0%, 100% { 
+		0%,
+		100% {
 			background: rgba(255, 215, 0, 0.1);
 			transform: scale(1);
 		}
-		15% { 
+		15% {
 			background: rgba(255, 215, 0, 0.25);
 			transform: scale(1.02);
 		}
-		30% { 
+		30% {
 			background: rgba(255, 215, 0, 0.2);
 			transform: scale(1.01);
 		}
-		45% { 
+		45% {
 			background: rgba(255, 215, 0, 0.15);
 			transform: scale(1);
 		}
-		60% { 
+		60% {
 			background: rgba(255, 215, 0, 0.1);
 			transform: scale(1);
 		}
@@ -372,45 +378,45 @@
 	}
 
 	@keyframes commentFlash {
-		0%, 100% { 
-			background: rgba(255, 215, 0, 0.1); 
+		0%,
+		100% {
+			background: rgba(255, 215, 0, 0.1);
 		}
-		50% { 
-			background: rgba(255, 215, 0, 0.3); 
+		50% {
+			background: rgba(255, 215, 0, 0.3);
 		}
 	}
 </style>
 
 <div class="comment-sidebar" class:visible={isVisible}>
 	<div class="sidebar-header">
-		<button 
+		<button
 			class="collapse-button group"
 			onclick={handleCloseSidebar}
-			title="Close Comments"
-		>
+			title="Close Comments">
 			<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-				<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+				<path
+					d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+				></path>
 			</svg>
 		</button>
-		
+
 		<h3 class="sidebar-title">Comments</h3>
-		
+
 		{#if threads.length > 0}
 			<div class="sidebar-stats">{getStatsText()}</div>
-			
+
 			<div class="filter-tabs">
-				<button 
+				<button
 					class="filter-tab"
 					class:active={!showResolved}
-					onclick={() => showResolved = false}
-				>
+					onclick={() => (showResolved = false)}>
 					Active
 				</button>
-				<button 
+				<button
 					class="filter-tab"
 					class:active={showResolved}
-					onclick={() => showResolved = true}
-				>
+					onclick={() => (showResolved = true)}>
 					Resolved
 				</button>
 			</div>
@@ -436,9 +442,7 @@
 					</div>
 				{:else}
 					<div class="empty-state-title">No active comments</div>
-					<div class="empty-state-text">
-						All comments have been resolved.
-					</div>
+					<div class="empty-state-text">All comments have been resolved.</div>
 				{/if}
 			</div>
 		{:else}
@@ -449,11 +453,12 @@
 						isSelected={selectedThreadId === thread.id}
 						isHighlighted={animatingThreadId === thread.id}
 						onSelect={() => handleThreadSelect(thread.id)}
-						onResolve={(resolved: boolean) => handleResolveThread(thread.id, resolved)}
-						onDelete={() => handleDeleteThread(thread.id)}
-					/>
+						onResolve={(resolved: boolean) =>
+							handleResolveThread(thread.id, resolved)}
+						onDelete={() => handleDeleteThread(thread.id)} />
 				{/each}
 			</div>
 		{/if}
 	</div>
-</div> 
+</div>
+

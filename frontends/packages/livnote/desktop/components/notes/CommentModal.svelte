@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { notesInstance } from "./notes";
 	// Props
 	interface Props {
 		isVisible: boolean;
@@ -6,29 +7,29 @@
 		onSave: (content: string) => void;
 		onCancel: () => void;
 	}
-	
-	const { isVisible, selectedText = '', onSave, onCancel }: Props = $props();
+
+	const { isVisible, selectedText = "", onSave, onCancel }: Props = $props();
 
 	// State
-	let commentText = $state('');
+	let commentText = $state("");
 	let textareaRef = $state<HTMLTextAreaElement>();
 
 	function handleSave() {
 		if (commentText.trim()) {
 			onSave(commentText.trim());
-			commentText = '';
+			commentText = "";
 		}
 	}
 
 	function handleCancel() {
 		onCancel();
-		commentText = '';
+		commentText = "";
 	}
 
 	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Escape') {
+		if (event.key === "Escape") {
 			handleCancel();
-		} else if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+		} else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
 			event.preventDefault();
 			handleSave();
 		}
@@ -181,28 +182,22 @@
 				bind:value={commentText}
 				class="comment-textarea"
 				placeholder="Write your comment..."
-				onkeydown={handleKeydown}
-			></textarea>
+				onkeydown={handleKeydown}></textarea>
 
 			<div class="modal-actions">
-				<button 
-					class="modal-btn secondary"
-					onclick={handleCancel}
-				>
+				<button class="modal-btn secondary" onclick={handleCancel}>
 					Cancel
 				</button>
-				<button 
+				<button
 					class="modal-btn primary"
 					onclick={handleSave}
-					disabled={!commentText.trim()}
-				>
+					disabled={!commentText.trim()}>
 					Add Comment
 				</button>
 			</div>
 
-			<div class="shortcut-hint">
-				Press Ctrl+Enter to save, Esc to cancel
-			</div>
+			<div class="shortcut-hint">Press Ctrl+Enter to save, Esc to cancel</div>
 		</div>
 	</div>
-{/if} 
+{/if}
+

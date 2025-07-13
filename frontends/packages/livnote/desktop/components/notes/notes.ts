@@ -18,6 +18,7 @@ import {
   liftListItem,
   sinkListItem,
 } from "prosemirror-schema-list";
+import { EditorView } from "prosemirror-view";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
 import { history } from "prosemirror-history";
@@ -37,16 +38,11 @@ import type {
   CreateNoteParams,
   UserInfo,
   EditorDocumentState,
-  NoteResponse,
-  CollaborationUpdateEvent,
   CommentThread,
   CommentPosition,
-  CommentMarkAttrs,
-  CommentUpdateCallback
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { CommentsService } from "./commentsService";
-import type { User } from "@osvauld/password-manager-common";
 
 // Type definitions for notes, states and other components
 
@@ -86,6 +82,7 @@ export class Notes {
   private editorSchema!: Schema;
   private pendingYjsState: Uint8Array | null = null;
   private metadata!: Y.Map<any>;
+  private editorView: EditorView | null = null;
 
   constructor() {
     this.clientID = 0;
@@ -101,7 +98,6 @@ export class Notes {
     this.initYjs();
 
   }
-
 
 
   private initSchema(): void {
@@ -488,6 +484,9 @@ export class Notes {
     document.head.appendChild(styleElement);
   }
 
+  setEditorView(view: EditorView | null): void {
+    this.editorView = view;
+  }
   private initYjs(): void {
     this.ydoc = new Y.Doc();
     this.type = this.ydoc.getXmlFragment("prosemirror");
@@ -818,6 +817,8 @@ export class Notes {
   updateEditorState(newState: EditorState): void {
     this.editorState = newState;
   }
+
+
   updateTitle(newTitle: string): void {
     if (!newTitle.trim()) {
       newTitle = "Untitled Note";
@@ -1020,19 +1021,6 @@ export class Notes {
   }
 
   /**
-   * Create a new comment thread
-   */
-  createCommentThread(position: CommentPosition, content: string): string {
-    try {
-      const threadId = this.commentsService.createThread(position, content);
-      return threadId;
-    } catch (error) {
-      console.error('Notes: Error creating comment thread:', error);
-      throw error;
-    }
-  }
-
-  /**
    * Add a reply to an existing comment thread
    */
   addCommentReply(threadId: string, content: string): string | null {
@@ -1047,51 +1035,132 @@ export class Notes {
   }
 
   /**
-   * Get comment thread by ID
-   */
-  getCommentThread(threadId: string): CommentThread | null {
-    return this.commentsService.getThread(threadId);
-  }
-
-  /**
    * Resolve or unresolve a comment thread
    */
   resolveCommentThread(threadId: string, resolved: boolean): boolean {
-    const result = this.commentsService.resolveThread(threadId, resolved);
+    try {
+      // 1. Update the thread resolved status
+      const result = this.commentsService.resolveThread(threadId, resolved);
 
-    if (result) {
-      // Emit event to update comment marks in the editor
-      const updateMarkEvent = new CustomEvent('update-comment-mark-resolved', {
-        detail: { threadId, resolved }
-      });
+      if (result) {
+        // 2. Update the visual marks in the editor
+        if (this.editorView) {
+          const { state, dispatch } = this.editorView;
+          let tr = state.tr;
+          let marksUpdated = false;
 
-      if (typeof document !== 'undefined') {
-        document.dispatchEvent(updateMarkEvent);
+          // Iterate through the document to find and update comment marks with this threadId
+          state.doc.descendants((node, pos) => {
+            if (node.isText) {
+              node.marks.forEach((mark) => {
+                if (
+                  mark.type.name === "comment" &&
+                  mark.attrs.threadId === threadId
+                ) {
+                  // Remove the old mark and add a new one with updated resolved status
+                  tr = tr.removeMark(pos, pos + node.nodeSize, mark);
+
+                  const updatedMark = state.schema.marks.comment.create({
+                    ...mark.attrs,
+                    resolved,
+                  });
+
+                  tr = tr.addMark(pos, pos + node.nodeSize, updatedMark);
+                  marksUpdated = true;
+                }
+              });
+            }
+          });
+
+          if (marksUpdated) {
+            dispatch(tr);
+          }
+        } else {
+          console.warn('No editor view available for updating comment mark resolved status');
+        }
       }
+
+      return result;
+    } catch (error) {
+      console.error('Error resolving comment thread and updating marks:', error);
+      return false;
+    }
+  }
+
+  /**
+* Create a comment thread and apply the visual mark to the editor
+* This combines comment creation with editor mark application
+*/
+  createCommentAndApplyMark(position: CommentPosition, content: string): string {
+    try {
+      // 1. Create the comment thread directly via comments service
+      const threadId = this.commentsService.createThread(position, content);
+
+      // 2. Apply the visual mark to the editor
+      if (this.editorView) {
+        const { state, dispatch } = this.editorView;
+        const commentMark = state.schema.marks.comment.create({
+          threadId,
+          commentIds: [threadId],
+          resolved: false,
+          author: null,
+        });
+
+        const tr = state.tr.addMark(
+          position.from,
+          position.to,
+          commentMark,
+        );
+        dispatch(tr);
+      } else {
+        console.warn('No editor view available for applying comment mark');
+      }
+
+      return threadId;
+    } catch (error) {
+      console.error('Error creating comment and applying mark:', error);
+      throw error;
+    }
+  }
+
+  /**
+ * Remove comment marks from the editor for a specific thread
+ */
+  removeCommentMark(threadId: string): void {
+    if (!this.editorView) {
+      console.error("No editor view available");
+      return;
     }
 
-    return result;
-  }
+    try {
+      const { state, dispatch } = this.editorView;
+      let tr = state.tr;
+      let marksRemoved = false;
 
-  /**
-   * Update comment thread position (for document changes)
-   */
-  updateCommentThreadPosition(threadId: string, newPosition: CommentPosition): boolean {
-    return this.commentsService.updateThreadPosition(threadId, newPosition);
-  }
+      // Iterate through the document to find and remove comment marks with this threadId
+      state.doc.descendants((node, pos) => {
+        if (node.isText) {
+          node.marks.forEach((mark) => {
+            if (
+              mark.type.name === "comment" &&
+              mark.attrs.threadId === threadId
+            ) {
+              // Remove this specific comment mark
+              tr = tr.removeMark(pos, pos + node.nodeSize, mark);
+              marksRemoved = true;
+            }
+          });
+        }
+      });
 
-  /**
-   * Subscribe to comment events
-   */
-  onCommentUpdate(eventType: string, callback: CommentUpdateCallback): void {
-    this.commentsService.onUpdate(eventType, callback);
-  }
+      if (marksRemoved) {
+        dispatch(tr);
+      }
 
-  /**
-   * Unsubscribe from comment events
-   */
-  offCommentUpdate(eventType: string, callback: CommentUpdateCallback): void {
-    this.commentsService.offUpdate(eventType, callback);
+      this.commentsService.deleteThread(threadId);
+    } catch (error) {
+      console.error("Error removing comment mark:", error);
+    }
   }
 }
 
