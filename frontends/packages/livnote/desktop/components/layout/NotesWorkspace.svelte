@@ -44,7 +44,7 @@
 
 	// Title editing functions
 	function startEditingTitle() {
-		newNoteTitle = dataState.currentNote?.data?.title ?? "Untitled note";
+		newNoteTitle = notesInstance.getCurrentTitle();
 		isEditingTitle = true;
 
 		// Focus the input after the DOM updates
@@ -66,7 +66,7 @@
 					title: newNoteTitle,
 				},
 			};
-
+			notesInstance.updateTitle(newNoteTitle);
 			saveNoteManual();
 		}
 		isEditingTitle = false;
@@ -83,9 +83,7 @@
 	// Back button handler - saves and returns to list view
 	const handleBackButton = () => {
 		if (dataState.currentNote) {
-			notesInstance
-				.saveNote(dataState.currentNote.data?.title || "Untitled")
-				.catch(console.error);
+			notesInstance.saveNote().catch(console.error);
 		}
 
 		// Switch to list view
@@ -123,9 +121,7 @@
 		if (!dataState.currentNote) return;
 
 		saved = true;
-		notesInstance
-			.saveNote(dataState.currentNote.data?.title || "Untitled")
-			.catch(console.error);
+		notesInstance.saveNote().catch(console.error);
 
 		setTimeout(() => {
 			saved = false;
@@ -196,7 +192,7 @@
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
-						{dataState.currentNote?.data?.title || "Untitled"}
+						{dataState.currentNote?.data.title}
 					</span>
 				{/if}
 				<button
