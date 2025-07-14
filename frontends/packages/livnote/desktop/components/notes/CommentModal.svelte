@@ -165,8 +165,8 @@
 </style>
 
 {#if isVisible}
-	<div class="modal-overlay" onclick={handleCancel}>
-		<div class="modal-content" onclick={(e) => e.stopPropagation()}>
+	<div class="modal-overlay"  role="presentation" onclick={handleCancel}>
+		<div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="0" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
 			<div class="modal-header">
 				<h3 class="modal-title">Add Comment</h3>
 			</div>

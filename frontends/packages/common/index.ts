@@ -104,3 +104,4 @@ export { default as DownloadIcon } from './icons/downloadIcon.svelte';
 export { default as SavedTick } from './icons/savedTick.svelte';
 export { default as Settings } from './icons/settings.svelte';
 export { default as GoBack } from './icons/goBack.svelte';
+export { default as CommentIcon } from './icons/comment.svelte';

@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
+	import {
+		CommentIcon 
+	} from "@osvauld/password-manager-common";
+
 	import type { CommentThread } from "../../types/notes.types";
 	import CommentThreadComponent from "./CommentThread.svelte";
 	import { notesInstance } from "./notes";
@@ -207,8 +211,6 @@
 <style>
 	.comment-sidebar {
 		width: 100%;
-		background: #1a1b23;
-		border-left: 1px solid #2a2b2f;
 		display: flex;
 		flex-grow: 1;
 		flex-direction: column;
@@ -223,10 +225,7 @@
 	}
 
 	.sidebar-header {
-		padding: 16px;
-		padding-right: 60px;
-		border-bottom: 1px solid #2a2b2f;
-		background: #16171f;
+		padding: 16px 0px;
 		position: relative;
 	}
 
@@ -256,9 +255,14 @@
 
 	.sidebar-title {
 		font-size: 16px;
-		font-weight: 600;
-		color: #bfc0cc;
+		font-weight: 300;
+		letter-spacing: 0.02em;
+		color: #fff;
 		margin: 0 0 8px 0;
+		border-bottom: 1px solid #2a2b2f;
+		padding-bottom: 16px;
+		margin-bottom: 16px;
+		width: 100%;
 	}
 
 	.sidebar-stats {
@@ -269,39 +273,38 @@
 
 	.filter-tabs {
 		display: flex;
-		gap: 4px;
+		gap: 16px;
 	}
 
 	.filter-tab {
-		padding: 4px 12px;
-		font-size: 12px;
-		border: 1px solid #2a2b2f;
-		border-radius: 4px;
-		background: transparent;
-		color: #85889c;
+		font-size: 14px;
+		font-weight: 300;
+		letter-spacing: 0.02em;
+		padding: 0;
 		cursor: pointer;
-		transition: all 0.2s ease;
+		color: var(--color-statusColor);
+		text-align: left;
+		transition: all 0.1s ease;
+		border-bottom: 2px solid transparent;
 	}
 
 	.filter-tab:hover {
-		background: #2a2b2f;
-		color: #bfc0cc;
+		color: #fff;
+		border-color:  #fff;
 	}
 
 	.filter-tab.active {
-		background: #3a3b44;
-		color: #bfc0cc;
-		border-color: #4a4b53;
+		color: #fff;
+		border-color: #fff;
 	}
 
 	.sidebar-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 8px;
 	}
 
 	.empty-state {
-		padding: 32px 16px;
+		padding: 16px 0px;
 		text-align: center;
 		color: #85889c;
 	}
@@ -313,8 +316,12 @@
 	}
 
 	.empty-state-text {
-		font-size: 12px;
+		font-size: 14px;
+		color: var(--color-statusColor);
 		line-height: 1.4;
+		font-weight: 200;
+		letter-spacing: 0.02em;
+		text-align: left;
 	}
 
 	.thread-list {
@@ -386,16 +393,13 @@
 <div class="comment-sidebar" class:visible={isVisible}>
 	<div class="sidebar-header">
 		<h3 class="sidebar-title">Comments</h3>
-
-		{#if threads.length > 0}
-			<div class="sidebar-stats">{getStatsText()}</div>
-
+			<!-- <div class="sidebar-stats">{getStatsText()}</div> -->
 			<div class="filter-tabs">
 				<button
 					class="filter-tab"
 					class:active={!showResolved}
 					onclick={() => (showResolved = false)}>
-					Active
+					Open
 				</button>
 				<button
 					class="filter-tab"
@@ -404,7 +408,6 @@
 					Resolved
 				</button>
 			</div>
-		{/if}
 	</div>
 
 	<div class="sidebar-content">
@@ -415,9 +418,10 @@
 		{:else if filteredThreads.length === 0}
 			<div class="empty-state">
 				{#if threads.length === 0}
-					<div class="empty-state-title">No comments yet</div>
-					<div class="empty-state-text">
-						Select text and click the comment button to add your first comment.
+				  <span><CommentIcon size={24}/></span>
+					<div class="empty-state-text mt-4">
+						Give feedback, ask a question, or just leave a note of appreciation. <br/>
+Select anywhere in the note to leave a comment.
 					</div>
 				{:else if showResolved}
 					<div class="empty-state-title">No resolved comments</div>
@@ -425,8 +429,9 @@
 						Resolved comments will appear here.
 					</div>
 				{:else}
-					<div class="empty-state-title">No active comments</div>
-					<div class="empty-state-text">All comments have been resolved.</div>
+					<div class="empty-state-title text-left">
+						No active comments</div>
+					<div class="empty-state-text text-left">All comments have been resolved.</div>
 				{/if}
 			</div>
 		{:else}
