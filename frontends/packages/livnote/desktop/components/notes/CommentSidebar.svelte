@@ -277,7 +277,7 @@
 	}
 
 	.filter-tab {
-		font-size: 14px;
+		font-size: 15px;
 		font-weight: 300;
 		letter-spacing: 0.02em;
 		padding: 0;
@@ -301,6 +301,7 @@
 	.sidebar-content {
 		flex: 1;
 		overflow-y: auto;
+		min-height: 0;
 	}
 
 	.empty-state {
@@ -311,8 +312,10 @@
 
 	.empty-state-title {
 		font-size: 14px;
+		font-weight: 300;
+		letter-spacing: 0.02em;
 		margin-bottom: 8px;
-		color: #bfc0cc;
+		color: #fff;
 	}
 
 	.empty-state-text {
@@ -328,12 +331,15 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
+		max-height: 100%;
+		min-height: 0;
+		overflow-y: auto;
 	}
 
 	.comment-thread.thread-highlighted {
 		animation: highlightPulse 4s ease-in-out;
 		background: rgba(255, 215, 0, 0.1);
-		border-color: #ffd700 !important;
+		box-shadow: 0 2px 12px 0 rgba(255, 215, 0, 0.18);
 	}
 
 	@keyframes highlightPulse {

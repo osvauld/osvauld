@@ -14,9 +14,15 @@
 	let commentText = $state("");
 	let textareaRef = $state<HTMLTextAreaElement>();
 
+	function sanitize(text: string): string {
+		const div = document.createElement('div');
+		div.textContent = text;
+		return div.innerHTML;
+	}
+
 	function handleSave() {
 		if (commentText.trim()) {
-			onSave(commentText.trim());
+			onSave(sanitize(commentText.trim()));
 			commentText = "";
 		}
 	}
@@ -29,7 +35,7 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Escape") {
 			handleCancel();
-		} else if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+		} else if (event.key === "Enter") {
 			event.preventDefault();
 			handleSave();
 		}
@@ -74,8 +80,8 @@
 
 	.modal-title {
 		font-size: 16px;
-		font-weight: 600;
-		color: #bfc0cc;
+		font-weight: 300;
+		color: #fff;
 		margin: 0 0 8px 0;
 	}
 
@@ -85,8 +91,7 @@
 		font-style: italic;
 		padding: 8px 12px;
 		background: #1a1b23;
-		border-left: 3px solid #ffd700;
-		border-radius: 4px;
+		border-left: 3px solid var(--color-livnotePink);
 		margin-bottom: 16px;
 	}
 
@@ -106,7 +111,7 @@
 
 	.comment-textarea:focus {
 		outline: none;
-		border-color: #ffd700;
+		border-color: var(--color-livnotePink);
 		box-shadow: 0 0 0 2px rgba(255, 215, 0, 0.1);
 	}
 
@@ -117,7 +122,13 @@
 	.modal-actions {
 		display: flex;
 		gap: 12px;
-		justify-content: flex-end;
+		justify-content: space-between;
+		align-items: center;
+	}
+
+	.modal-buttons {
+		display: flex;
+		gap: 12px;
 	}
 
 	.modal-btn {
@@ -131,19 +142,15 @@
 	}
 
 	.modal-btn.primary {
-		background: #ffd700;
+		background: var(--color-livnotePink);
 		color: #16171f;
 	}
 
 	.modal-btn.primary:hover {
-		background: #e6c200;
+		background: var(--color-livnotePink);
 	}
 
-	.modal-btn.primary:disabled {
-		background: #666;
-		color: #999;
-		cursor: not-allowed;
-	}
+
 
 	.modal-btn.secondary {
 		background: transparent;
@@ -182,21 +189,27 @@
 				bind:value={commentText}
 				class="comment-textarea"
 				placeholder="Write your comment..."
-				onkeydown={handleKeydown}></textarea>
+				autocapitalize="off"
+				spellcheck="false"
+				onkeydown={handleKeydown}
+				maxlength="150"></textarea>
 
 			<div class="modal-actions">
-				<button class="modal-btn secondary" onclick={handleCancel}>
-					Cancel
-				</button>
-				<button
-					class="modal-btn primary"
-					onclick={handleSave}
-					disabled={!commentText.trim()}>
-					Add Comment
-				</button>
+				<span class="shortcut-hint">{commentText.length}/150</span>
+				<div class="modal-buttons">
+					<button class="modal-btn secondary" onclick={handleCancel}>
+						Cancel
+					</button>
+					<button
+						class="modal-btn primary"
+						onclick={handleSave}
+						disabled={!commentText.trim()}>
+						Add Comment
+					</button>
+				</div>
 			</div>
 
-			<div class="shortcut-hint">Press Ctrl+Enter to save, Esc to cancel</div>
+			<div class="shortcut-hint">Press Enter to save, Esc to cancel</div>
 		</div>
 	</div>
 {/if}
