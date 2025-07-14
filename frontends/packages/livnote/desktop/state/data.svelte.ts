@@ -76,6 +76,7 @@ class DataState {
   // Fetch all notes regardless of vault
   async fetchAllNotes(selectedNotedId?: String) {
     this.isDataLoading = true;
+    this.notes = [];
     try {
       const response = await sendMessage("emitAllResources", selectedNotedId);
       if (response) {
