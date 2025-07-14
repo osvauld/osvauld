@@ -24,7 +24,6 @@
 	let selectedSection = $state<Section>(Section.HOME);
 	let hoveredCredential = $state<string | null>(null);
 
-
 	// Handle section changes
 	function handleSectionChange(section: Section) {
 		selectedSection = section;
@@ -35,26 +34,24 @@
 
 	// Function to handle note selection
 	function selectNote(note: any) {
-		dataState.switchNote(note);
+		dataState.switchNote(note.id);
 	}
 
 	// Toggle navigation panel (close)
 	function closeNavigationPanel() {
 		uiState.toggleNavigationPanel(false);
 		uiState.resetNavigationPanelManualToggle();
-		document.documentElement.style.setProperty('--min-editor-width', '0px');
+		document.documentElement.style.setProperty("--min-editor-width", "0px");
 	}
-
 </script>
 
 <!-- Navigation panel that can be hidden -->
 {#if uiState.showNavigationPanel}
 	<nav
 		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative"
-		in:slide={{ axis: 'x', duration: 200 }}
-		out:slide={{ axis: 'x', duration: 200 }}
+		in:slide={{ axis: "x", duration: 200 }}
+		out:slide={{ axis: "x", duration: 200 }}
 		aria-label="Main Navigation">
-		
 		<!-- Close button (only shown when manually toggled) -->
 		{#if uiState.isNavigationPanelManuallyToggled}
 			<button
@@ -64,7 +61,7 @@
 				<BlueClose color="#85889C" />
 			</button>
 		{/if}
-		
+
 		<div class="relative">
 			<button
 				class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
@@ -82,7 +79,7 @@
 						: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 				></button>
 			{#if uiState.vaultManagerActive}
-				<VaultManager position="navigationPanel"/>
+				<VaultManager position="navigationPanel" />
 			{/if}
 		</div>
 		<div
@@ -146,10 +143,11 @@
 							onclick={() => selectNote(note)}>
 							<div class="flex items-center gap-3 truncate">
 								<span class="shrink-0">
-									<MobileNote color={hoveredOrSelected ? "#F2F2F0" : "#85889C"} />
+									<MobileNote
+										color={hoveredOrSelected ? "#F2F2F0" : "#85889C"} />
 								</span>
 								<span class="truncate">
-									{note?.data.title ? note.data.title : "untitled note"}
+									{note?.title}
 								</span>
 							</div>
 						</button>

@@ -14,7 +14,7 @@ use crate::handlers::folder_handler::{
     handle_add_folder, handle_get_folders, handle_soft_delete_folder,
 };
 use crate::handlers::resource_handler::{
-    handle_add_resource, handle_get_all_resources, handle_get_resource,
+    emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
     handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
     handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
@@ -173,6 +173,7 @@ pub fn run() {
             handle_get_known_users,
             handle_share_resource,
             get_user_details,
+            emit_all_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

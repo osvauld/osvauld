@@ -83,6 +83,10 @@ const tauriBrowser = {
             invoke("handle_update_last_accessed", { input: data }),
           getAllCredentials: () =>
             invoke("handle_get_all_resources"),
+          emitAllResources: (selectedResourceId?: string) =>
+            invoke("emit_all_resources", {
+              selectedResourceId: selectedResourceId ?? null
+            }),
           logout: () => invoke("logout"),
           sendSnapshot: (data) => invoke("send_snapshot", { snapshot: data }),
           updateCredential: (data: any) =>

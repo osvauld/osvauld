@@ -35,7 +35,6 @@ import * as Y from "yjs";
 import { dataState } from "../../state";
 import type {
   NoteContent,
-  CreateNoteParams,
   UserInfo,
   EditorDocumentState,
   CommentThread,
@@ -511,9 +510,6 @@ export class Notes {
       }
     });
 
-    this.metadata.observe((event) => {
-      console.log("Metadata changed", event);
-    });
 
 
     // Generate a better color for this user
@@ -737,7 +733,7 @@ export class Notes {
    * @param params Parameters for note creation
    * @returns The ID of the created note
    */
-  async createNote({ folderId }: CreateNoteParams): Promise<string> {
+  createDefaultNote(): NoteContent {
     try {
       // Reset/initialize the Yjs document and editor state
       this.ydoc.destroy();
@@ -748,8 +744,6 @@ export class Notes {
       if (!this.editorState) {
         throw new Error("Failed to initialize editor state");
       }
-
-      // Generate a client ID
 
       // Serialize the initial state
       const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
@@ -763,40 +757,11 @@ export class Notes {
         yjs_state,
         editor_state: editorJSON,
         client_id: this.clientID.toString(),
-        resource_id: "pending", // Will be updated after we get the note ID
         last_modified: timestamp,
         title: this.getCurrentTitle(),
       };
 
-      // Create the note on the server
-      const noteId = await sendMessage("addCredential", {
-        resourcePayload: JSON.stringify({
-          ...initialContent,
-          yjs_state: Array.from(yjs_state),
-        }),
-        folderId: folderId,
-        resourceType: "notes",
-      });
-
-      // Now update the note with the correct resource_id (same as noteId)
-      const updatedContent: NoteContent = {
-        ...initialContent,
-        resource_id: noteId,
-      };
-
-      await sendMessage("updateCredential", {
-        id: noteId,
-        data: JSON.stringify({
-          ...updatedContent,
-          yjs_state: Array.from(yjs_state),
-        }),
-      });
-
-      // Set the current note ID and return it
-      this.currentNoteId = noteId;
-
-      await emit("note-change", noteId);
-      return noteId;
+      return initialContent;
     } catch (error) {
       console.error("Error creating note:", error);
       throw error;
@@ -824,7 +789,6 @@ export class Notes {
       newTitle = "Untitled Note";
     }
     this.setTitle(newTitle);
-    console.log("Title updated to:", newTitle);
   }
 
 
@@ -848,7 +812,6 @@ export class Notes {
         yjs_state,
         editor_state: editorJSON,
         client_id: this.clientID.toString(),
-        resource_id: this.currentNoteId,
         last_modified: timestamp,
         title: this.getCurrentTitle(),
       };
@@ -867,15 +830,17 @@ export class Notes {
     }
   }
 
-  async loadNote(noteId: string): Promise<EditorDocumentState> {
+  async loadNote(): Promise<EditorDocumentState> {
     try {
-      const response = dataState.getNoteById(noteId);
+      const response = dataState.currentNote;
 
       if (!response || !response.data) {
         throw new Error("Note not found");
       }
+      if (dataState.currentNote) {
+        this.currentNoteId = dataState.currentNote?.id;
+      }
 
-      this.currentNoteId = noteId;
       const noteContent = response.data;
 
       this.ydoc.destroy();

@@ -10,18 +10,31 @@ export interface NoteContent {
   content: string | Record<string, unknown>;
   yjs_state: Uint8Array | number[];
   editor_state: string | Record<string, unknown>;
-  client_id: string;
-  resource_id: string;
+  client_id?: string;
   last_modified?: number;
+  last_accessed?: number;
   title?: string;
 }
 
-/**
- * Parameters for note creation operations
- */
-export interface CreateNoteParams {
-  folderId: string;
+export interface Note {
+  id: string;
+  data: NoteContent;
+  favourite?: boolean;
+  folderId?: string;
+
 }
+
+export interface NotePreview {
+  id: string;
+  title?: string;
+  previewEditorState?: any; // Truncated editor state with first few nodes
+  favourite?: boolean;
+  folderId?: string;
+  lastModified?: number;
+  lastAccessed?: number;
+}
+
+
 
 /**
  * User information for collaboration awareness
@@ -46,26 +59,6 @@ export interface EditorDocumentState {
 
 
 
-/**
- * Note metadata for list displays
- */
-export interface NoteMetadata {
-  id: string;
-  title: string;
-  last_modified: number;
-  created_at?: number;
-  folder_id?: string;
-}
-
-/**
- * Note folder information
- */
-export interface NoteFolder {
-  id: string;
-  name: string;
-  parent_id?: string;
-  created_at?: number;
-}
 
 // === Comment System Types ===
 
