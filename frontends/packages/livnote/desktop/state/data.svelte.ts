@@ -3,7 +3,8 @@ import { uiState } from './ui.svelte';
 import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
 import { notesInstance } from "../components/notes/notes";
-import { applyYjsUpdates } from "../components/notes/documentUtils";
+import { applyYjsUpdates, generatePreview } from "../components/notes/documentUtils";
+import type { Note, NoteContent, NotePreview } from "../types/notes.types";
 // Define interfaces
 export interface Vault {
   id: string;
@@ -11,21 +12,6 @@ export interface Vault {
   description?: string;
 }
 
-export interface NoteData {
-  title?: string;
-  content?: string;
-  last_modified?: number;
-  last_accessed?: number;
-  editor_state?: string | Record<string, unknown>;
-  yjs_state?: Uint8Array | number[];
-}
-
-export interface Note {
-  id: string;
-  data: NoteData;
-  favourite?: boolean;
-  folderId?: string;
-}
 
 export interface UserDetails {
   userId: string,
@@ -40,7 +26,7 @@ class DataState {
   // Core data state
   vaults = $state<Vault[]>([{ id: "all", name: "All Vaults" }]);
   currentVault = $state<Vault>({ id: "all", name: "All Vaults" });
-  notes = $state<Note[]>([]);
+  notes = $state<NotePreview[]>([]);
   currentNote = $state<Note | null>(null);
   favoriteSelected = $state<boolean>(false);
   language = $state<string>("en");
@@ -66,7 +52,7 @@ class DataState {
    * @param id The ID of the note to find
    * @returns The note object if found, null otherwise
    */
-  getNoteById(id: string): Note | null {
+  getNoteById(id: string): NotePreview | null {
     const note = this.notes.find(note => note.id === id);
     return note || null;
   }
@@ -74,7 +60,7 @@ class DataState {
   async fetchVaults() {
     try {
       const resp = await sendMessage("getFolder");
-      const folderVaults: Vault[] = resp.map(item => ({
+      const folderVaults: Vault[] = resp.map((item: any) => ({
         id: item.id || "",
         name: item.name || "",
         description: item.description
@@ -88,12 +74,14 @@ class DataState {
   }
 
   // Fetch all notes regardless of vault
-  async fetchAllNotes() {
+  async fetchAllNotes(selectedNotedId?: string) {
     this.isDataLoading = true;
+    this.notes = [];
     try {
-      const fetchedNotes = await sendMessage("getAllCredentials");
-      // Filter for valid notes
-      this.notes = fetchedNotes;
+      const response = await sendMessage("emitAllResources", selectedNotedId);
+      if (response) {
+        this.currentNote = response;
+      }
     } catch (error) {
       console.error("Error fetching notes:", error);
       this.notes = [];
@@ -108,14 +96,29 @@ class DataState {
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
   }
-
-  // Switch to a different note
-  switchNote(note: Note) {
+  async addNote(noteContent: NoteContent) {
+    const note = await sendMessage("addCredential", {
+      resourcePayload: JSON.stringify(noteContent),
+      folderId: this.currentVault.id,
+      resourceType: "notes"
+    });
     this.currentNote = note;
     uiState.toggleNoteViewLayout(true);
     StoreService.setCurrentNoteId(note.id);
-    if (note.id) {
-      emit("note-change", note.id
+    emit("note-change", note.id
+    ).catch(error => {
+      console.error("Error updating current note:", error);
+    });
+  }
+
+  // Switch to a different note
+  async switchNote(noteId: string) {
+    const note = await sendMessage("getCredential", { resourceId: noteId })
+    this.currentNote = note;
+    uiState.toggleNoteViewLayout(true);
+    StoreService.setCurrentNoteId(noteId);
+    if (noteId) {
+      emit("note-change", noteId
       ).catch(error => {
         console.error("Error updating current note:", error);
       });
@@ -146,11 +149,18 @@ class DataState {
   // Initialize the state
   async initializeState() {
     this.isDataLoading = true;
+
+    const savedNoteId = await StoreService.getCurrentNoteId();
+
+    if (savedNoteId) {
+      this.fetchAllNotes(savedNoteId)
+    } else {
+      this.fetchAllNotes();
+    }
     try {
       // Run these operations in parallel
       await Promise.all([
         this.fetchVaults(),
-        this.fetchAllNotes(),
         this.getUserDetails(),
         this.setupReactiveUpdates()
       ]);
@@ -199,24 +209,6 @@ class DataState {
         if (vaultExists) {
           // Apply the saved vault if it exists
           this.currentVault = savedVault;
-        }
-      }
-
-      // Try to get saved note ID
-      const savedNoteId = await StoreService.getCurrentNoteId();
-
-      if (savedNoteId) {
-        // Find the note with this ID in the current notes
-        const noteExists = this.notes.some(n => n.id === savedNoteId);
-
-        if (noteExists) {
-          // Get the fresh note data
-          const freshNote = this.notes.find(n => n.id === savedNoteId) || null;
-
-          if (freshNote) {
-            this.switchNote(freshNote);
-            uiState.toggleNoteViewLayout(true);
-          }
         }
       }
     } catch (error) {
@@ -322,19 +314,21 @@ class DataState {
   }
 
   handleResourceAdded(event: any) {
-    const resource = event.payload;
-    this.notes = [...this.notes, resource];
+    const fullNote: Note = event.payload;
+    const preview = generatePreview(fullNote)
+    this.notes = [...this.notes, preview];
   }
 
   handleResourceUpdate(event: any) {
     const updatedResource = event.payload;
-    const resourceIndex = this.notes.findIndex(note => note.id === updatedResource.id);
+    const updatedPreview = generatePreview(updatedResource)
+    const resourceIndex = this.notes.findIndex(note => note.id === updatedPreview.id);
 
     if (resourceIndex !== -1) {
       // Create a new array with the updated resource
       this.notes = [
         ...this.notes.slice(0, resourceIndex),
-        updatedResource,
+        updatedPreview,
         ...this.notes.slice(resourceIndex + 1)
       ];
 
@@ -353,7 +347,7 @@ class DataState {
       const { resource_id, updates } = event.payload;
 
       // Find the note with this resource ID
-      const note = this.getNoteById(resource_id);
+      const note = await sendMessage("getCredential", { resourceId: resource_id });
 
       if (!note) {
         console.warn(`Note with ID ${resource_id} not found for updates`);
@@ -421,19 +415,8 @@ class DataState {
       });
 
       console.log(`Backend update response for note ${note.id}:`, response);
-
-      // Important: Emit completion event even for non-active notes
       await emit('resource-update-complete', { id: note.id });
 
-      // Update local state to reflect the changes
-      const noteIndex = this.notes.findIndex(n => n.id === note.id);
-      if (noteIndex !== -1) {
-        this.notes[noteIndex].data = updatedData;
-        console.log(`Updated local state for note ${note.id}`);
-
-        // Force reactive update to make sure the UI reflects the changes
-        this.notes = [...this.notes];
-      }
 
       return true;
     } catch (error) {

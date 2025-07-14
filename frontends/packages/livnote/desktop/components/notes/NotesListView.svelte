@@ -31,8 +31,7 @@
 
 	// Function to handle note selection
 	const selectNote = (note: any) => {
-		// Use centralized state to switch to the note
-		dataState.switchNote(note);
+		dataState.switchNote(note.id);
 	};
 
 	// Calculate grid layout
@@ -104,7 +103,7 @@
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
 									<h3
 										class="text-osvauld-fieldText font-medium text-lg truncate">
-										{note?.data.title ? note.data.title : "Untitled note"}
+										{note?.title}
 									</h3>
 									<button
 										class="flex items-center justify-center p-1 cursor-pointer"
@@ -122,16 +121,11 @@
 								<div class="p-4">
 									<!-- Rich text preview -->
 									<NotePreview
-										content={note.data.content ?? ""}
-										editorState={typeof note.data.editor_state === "string"
-											? JSON.parse(note.data.editor_state)
-											: note.data.editor_state}
+										editorState={note.previewEditorState}
 										maxHeight="180px"
 										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">
-										Last modified: {getLastModifiedDate(
-											note.data.last_modified || note.data.last_accessed,
-										)}
+										Last modified: {getLastModifiedDate(note.lastModified)}
 									</div>
 								</div>
 							</div>

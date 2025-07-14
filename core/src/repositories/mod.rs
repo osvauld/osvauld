@@ -118,6 +118,7 @@ pub trait ResourceRepository: Send + Sync {
         &self,
         sync_data: &ResourceSyncData,
     ) -> Result<(), RepositoryError>;
+    async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError>;
 }
 
 #[async_trait]

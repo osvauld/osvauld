@@ -85,7 +85,7 @@
 
 		try {
 			// Load the note with the given ID
-			const docInfo = await notesInstance.loadNote(id);
+			const docInfo = await notesInstance.loadNote();
 
 			// Force a small delay to ensure DOM is ready
 			await new Promise((resolve) => setTimeout(resolve, 50));
