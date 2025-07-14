@@ -137,11 +137,6 @@
 		}, 4000);
 	}
 
-	function handleCloseSidebar() {
-		if (onClose) {
-			onClose();
-		}
-	}
 
 	// Subscribe to comment updates
 	onMount(() => {
@@ -211,11 +206,11 @@
 
 <style>
 	.comment-sidebar {
-		width: 320px;
-		height: 100%;
+		width: 100%;
 		background: #1a1b23;
 		border-left: 1px solid #2a2b2f;
 		display: flex;
+		flex-grow: 1;
 		flex-direction: column;
 		overflow: hidden;
 		transform: translateX(100%);
@@ -390,17 +385,6 @@
 
 <div class="comment-sidebar" class:visible={isVisible}>
 	<div class="sidebar-header">
-		<button
-			class="collapse-button group"
-			onclick={handleCloseSidebar}
-			title="Close Comments">
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-				<path
-					d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
-				></path>
-			</svg>
-		</button>
-
 		<h3 class="sidebar-title">Comments</h3>
 
 		{#if threads.length > 0}

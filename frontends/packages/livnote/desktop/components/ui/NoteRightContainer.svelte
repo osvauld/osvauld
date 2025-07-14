@@ -31,16 +31,13 @@
 	let lastModifiedTimestamp = $state<number | undefined>(undefined);
 
 	// add live collaborators and update this list to cue users coming and going
-	let collaborators = $state<Collaborator[]>([]);
-	function toggleCommentSidebar() {
-		uiState.toggleCommentSidebar();
-	}
-	// let collaborators = $state<Collaborator[]>([
-	// 	{ id: '1', name: 'Frank' },
-	// 	{ id: '2', name: 'Grace' },
-	// 	{ id: '3', name: 'Robert' },
-	// 	{ id: '4', name: 'Alice' },
-	// ]);
+	// let collaborators = $state<Collaborator[]>([]);
+	let collaborators = $state<Collaborator[]>([
+		{ id: '1', name: 'Frank' },
+		{ id: '2', name: 'Grace' },
+		{ id: '3', name: 'Robert' },
+		{ id: '4', name: 'Alice' },
+	]);
 
 	// Mock data structure
 	type Collaborator = {
@@ -147,7 +144,7 @@
 	// onMount(simulateUserActivity);
 </script>
 
-<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
+<div class="w-[22.5rem] py-11 px-6 flex flex-col gap-6 items-start shrink-0">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
 			onclick={saveNoteManual}
@@ -199,11 +196,11 @@
 		</div>
 	</div>
 
-	<div class="flex-1 w-full">
+	<div class="flex-1 flex flex-col w-full">
 		{#if collaborators.length !== 0}
 			<span class="text-statusColor font-light text-sm"
 				>Live Collaborators</span>
-			<div class="flex items-center mt-4 mb-10">
+			<div class="flex items-center mt-4 mb-6">
 				<div class="flex">
 					{#each collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
 						<div
@@ -238,32 +235,13 @@
 				</div>
 			</div>
 		{/if}
-		<div class="relative">
 			<button
 				onclick={() => (showShareList = true)}
-				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer mb-6"
 				aria-label="share with users">
 				<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
 				<UserPlus color="#010109" size={24} />
 			</button>
-			<div class="relative">
-				<button
-					onclick={toggleCommentSidebar}
-					class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-osvauld-fieldActive text-osvauld-fieldText border border-osvauld-iconblack cursor-pointer w-full"
-					aria-label="toggle comments">
-					<span class="mr-2 pl-2 whitespace-nowrap">Comments</span>
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-						<path
-							d="M21.99 4c0-1.1-.89-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.89 2 2 2h14l4 4-.01-18z"
-						></path>
-					</svg>
-				</button>
-			</div>
-			{#if uiState.showCommentSidebar}
-				<CommentSidebar
-					isVisible={uiState.showCommentSidebar}
-					onClose={() => uiState.toggleCommentSidebar(false)} />
-			{/if}
 
 			{#if showShareList}
 				<div
@@ -277,8 +255,11 @@
 				</div>
 				<ShareNote bind:showShareList />
 			{/if}
+
+
+		<CommentSidebar/>
 		</div>
-	</div>
+
 	<div
 		class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
 		<p class="text-statusColor">
