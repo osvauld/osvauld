@@ -1,0 +1,41 @@
+{
+	"compilerOptions": {
+		"verbatimModuleSyntax": true,
+		"target": "esnext",
+		"module": "esnext",
+		"strict": true,
+		"moduleResolution": "bundler",
+		"composite": true,
+		"sourceMap": true,
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"checkJs": true,
+		"types": [
+			"svelte",
+			"@tauri-apps/api"
+		],
+		"allowSyntheticDefaultImports": true,
+		"forceConsistentCasingInFileNames": true,
+		"baseUrl": ".",
+		"allowJs": true,
+	},
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.js",
+		"src/**/*.svelte",
+		"components/**/*.ts",
+		"components/**/*.js",
+		"components/**/*.svelte",
+		"types/**/*.ts",
+		"state/**/*.ts",
+		"common/**/*.ts",
+		"common/**/*.js",
+		"common/**/*.svelte",
+		"utils/*.ts",
+		"icons/*.svelte",
+		"icons/*/ts"
+	],
+	"exclude": [
+		"node_modules/*"
+	],
+}

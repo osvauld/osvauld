@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
   "crypto_utils",
-  "tauri/src-tauri",
+  "livnote/src-tauri",
   "core",
   "osvauld-db",
   "osvauld-services",
