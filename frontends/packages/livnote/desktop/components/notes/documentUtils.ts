@@ -3,6 +3,7 @@ import { Schema } from 'prosemirror-model';
 import { schema } from 'prosemirror-schema-basic';
 import { addListNodes } from 'prosemirror-schema-list';
 import { initProseMirrorDoc } from 'y-prosemirror';
+import type { Note, NotePreview } from 'types/notes.types';
 
 // Create a combined schema for our document
 const editorSchema = new Schema({
@@ -59,5 +60,56 @@ export function applyYjsUpdates(currentState: Uint8Array | number[] | null, upda
     yjs_state: newState,
     content,
     editor_state: editorStateJSON
+  };
+}
+
+/**
+ * Generate a lightweight preview from full note data
+ * Takes only the first few nodes from the editor state to reduce memory usage
+ */
+export function generatePreview(fullNote: Note, maxNodes: number = 3): NotePreview {
+  let previewEditorState = null;
+
+  try {
+    if (fullNote.data.editor_state) {
+      let editorState;
+
+      // Parse editor state if it's a string
+      if (typeof fullNote.data.editor_state === 'string') {
+        editorState = JSON.parse(fullNote.data.editor_state);
+      } else {
+        editorState = fullNote.data.editor_state;
+      }
+
+      // Create truncated editor state with only first few nodes
+      if (editorState && editorState.doc && editorState.doc.content) {
+        const originalContent = editorState.doc.content;
+
+        // Take only the first maxNodes nodes
+        const truncatedContent = originalContent.slice(0, maxNodes);
+
+        // Create new editor state with truncated content
+        previewEditorState = {
+          ...editorState,
+          doc: {
+            ...editorState.doc,
+            content: truncatedContent
+          }
+        };
+      }
+    }
+  } catch (error) {
+    console.error('Error generating preview for note:', fullNote.id, error);
+    // If there's an error, we'll just have null previewEditorState
+  }
+
+  return {
+    id: fullNote.id,
+    title: fullNote.data.title,
+    previewEditorState,
+    favourite: fullNote.favourite,
+    folderId: fullNote.folderId,
+    lastModified: fullNote.data.last_modified,
+    lastAccessed: fullNote.data.last_accessed,
   };
 }

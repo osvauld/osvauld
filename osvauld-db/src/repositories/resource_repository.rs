@@ -729,4 +729,15 @@ async fn save_resource_sync_data(
 
     Ok(())
 }
+
+async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError> {
+    let mut conn = self.connection.lock().await;
+    
+    resources::table
+        .filter(resources::deleted.eq(false))
+        .select(resources::id)
+        .order_by(resources::last_accessed.desc())
+        .load::<String>(&mut *conn)
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+}
 }

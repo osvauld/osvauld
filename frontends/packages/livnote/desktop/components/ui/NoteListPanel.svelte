@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { uiState, dataState } from "../../state";
 	import VaultManager from "./VaultManager.svelte";
+
 	import {
 		BinIcon as Bin,
 		Star as EmptyStar,
@@ -24,15 +25,8 @@
 		}
 
 		try {
-			const noteId = await notesInstance.createNote({
-				folderId: dataState.currentVault.id,
-			});
-
-			const newNote = dataState.notes.find((note) => note.id === noteId);
-
-			if (newNote) {
-				dataState.switchNote(newNote);
-			}
+			const noteContent = notesInstance.createDefaultNote();
+			await dataState.addNote(noteContent);
 		} catch (error) {
 			console.error("Error creating note:", error);
 			uiState.showToast("Failed to create note", false);
