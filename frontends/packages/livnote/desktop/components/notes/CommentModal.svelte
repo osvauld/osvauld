@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { notesInstance } from "./notes";
-	// Props
+
 	interface Props {
 		isVisible: boolean;
 		selectedText?: string;

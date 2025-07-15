@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { fade, fly } from "svelte/transition";
-	import { onMount } from "svelte";
 	import CommentSidebar from "../notes/CommentSidebar.svelte";
 	import {
 		BinIcon as Bin,
@@ -160,7 +158,6 @@
 	</div>
 
 	<div class="flex-1 flex flex-col w-full min-h-0">
-		<div class="relative">
 			<button
 				onclick={() => (showShareList = true)}
 				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer "

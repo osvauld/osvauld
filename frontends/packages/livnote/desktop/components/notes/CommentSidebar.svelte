@@ -10,11 +10,10 @@
 
 	// Props using Svelte 5 runes
 	interface Props {
-		isVisible?: boolean;
 		onClose?: () => void;
 	}
 
-	const { isVisible = true, onClose }: Props = $props();
+	const {  onClose }: Props = $props();
 
 	// State
 	let threads = $state<CommentThread[]>([]);
@@ -92,14 +91,6 @@
 		);
 	});
 
-	// Reactive effect to handle new threads
-	$effect(() => {
-		// When threads change, ensure new threads are marked as unread
-		threads.forEach(thread => {
-			// New threads (not in readThreadIds) should remain unread
-			// This effect ensures the state stays consistent
-		});
-	});
 
 	function loadThreads() {
 		try {
@@ -294,29 +285,7 @@
 		position: relative;
 	}
 
-	.collapse-button {
-		position: absolute;
-		top: 16px;
-		right: 16px;
-		background: #2a2b2f;
-		border: 1px solid #3a3b44;
-		color: #85889c;
-		cursor: pointer;
-		padding: 6px;
-		border-radius: 4px;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		opacity: 1;
-		transform: scale(1);
-	}
 
-	.collapse-button:hover {
-		background: #3a3b44;
-		color: #bfc0cc;
-		border-color: #4a4b53;
-	}
 
 	.sidebar-title {
 		font-size: 16px;
@@ -330,11 +299,6 @@
 		width: 100%;
 	}
 
-	.sidebar-stats {
-		font-size: 12px;
-		color: #85889c;
-		margin-bottom: 12px;
-	}
 
 	.filter-tabs {
 		display: flex;
@@ -400,35 +364,6 @@
 		padding-right: 4px;
 	}
 
-	.comment-thread.thread-highlighted {
-		animation: highlightPulse 4s ease-in-out;
-		background: rgba(255, 215, 0, 0.1);
-		box-shadow: 0 2px 12px 0 rgba(255, 215, 0, 0.18);
-	}
-
-	@keyframes highlightPulse {
-		0%,
-		100% {
-			background: rgba(255, 215, 0, 0.1);
-			transform: scale(1);
-		}
-		15% {
-			background: rgba(255, 215, 0, 0.25);
-			transform: scale(1.02);
-		}
-		30% {
-			background: rgba(255, 215, 0, 0.2);
-			transform: scale(1.01);
-		}
-		45% {
-			background: rgba(255, 215, 0, 0.15);
-			transform: scale(1);
-		}
-		60% {
-			background: rgba(255, 215, 0, 0.1);
-			transform: scale(1);
-		}
-	}
 
 	/* Scrollbar styling */
 	.sidebar-content::-webkit-scrollbar {
@@ -460,7 +395,7 @@
 	}
 </style>
 
-<div class="comment-sidebar" class:visible={isVisible}>
+<div class="comment-sidebar" >
 	<div class="sidebar-header">
 		<h3 class="sidebar-title">Comments</h3>
 			<!-- <div class="sidebar-stats">{getStatsText()}</div> -->
@@ -497,7 +432,7 @@
 Select anywhere in the note to leave a comment.
 					</div>
 				{:else if showResolved}
-					<div class="empty-state-title">No resolved comments</div>
+					<div class="empty-state-title text-left">No resolved comments</div>
 					<div class="empty-state-text">
 						Resolved comments will appear here.
 					</div>
