@@ -2,10 +2,7 @@
 	import Toast from "./Toast.svelte";
 	import DeleteConfirmationModal from "./DeleteConfirmationModal.svelte";
 	import Connector from "./Connector.svelte";
-	import {
-		sendMessage,
-		PasswordPromptModal,
-	} from "@osvauld/password-manager-common";
+	import PasswordPromptModal from "../../common/PasswordPromptModal.svelte";
 	import { uiState } from "../../state/";
 
 

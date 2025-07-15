@@ -449,7 +449,6 @@ Select anywhere in the note to leave a comment.
 						{thread}
 						isSelected={selectedThreadId === thread.id}
 						isHighlighted={animatingThreadId === thread.id}
-						isLast={index === filteredThreads.length - 1}
 						onSelect={() => handleThreadSelect(thread.id)}
 						onResolve={(resolved: boolean) =>
 							handleResolveThread(thread.id, resolved)}

@@ -157,7 +157,7 @@
 		</div>
 	</div>
 
-	<div class="flex-1 flex flex-col w-full min-h-0">
+	<div class="flex-1 flex flex-col w-full min-h-0 relative">
 			<button
 				onclick={() => (showShareList = true)}
 				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer "
@@ -168,7 +168,7 @@
 
 			{#if showShareList}
 				<div
-					class="bg-transparent fixed inset-0 z-40"
+					class="bg-transparent fixed inset-0 "
 					role="presentation"
 					aria-hidden="true"
 					onclick={(e) => {
@@ -186,7 +186,7 @@
 		</div>
 
 	<div
-		class="border-y-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
+		class="border-b-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
 		<p class="text-statusColor">
 			Last modified : {dataState.currentNote?.data
 				? getLastModifiedDate(lastModifiedTimestamp)
