@@ -7,12 +7,13 @@
 		thread: CommentThread;
 		isSelected?: boolean;
 		isHighlighted?: boolean;
+		isLast?: boolean;
 		onSelect: () => void;
 		onResolve: (resolved: boolean) => void;
 		onDelete: () => void;
 	}
 	
-	const { thread, isSelected = false, isHighlighted = false, onSelect, onResolve, onDelete }: Props = $props();
+	const { thread, isSelected = false, isHighlighted = false, isLast = false, onSelect, onResolve, onDelete }: Props = $props();
 
 	// State
 	let isExpanded = $state(false);
@@ -126,7 +127,7 @@
 		display: flex;
 		align-items: flex-start;
 		gap: 8px;
-	
+		position: relative;
 	}
 
 
@@ -166,24 +167,11 @@
 		overflow-wrap: break-word;
 	}
 
-	.thread-meta {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 11px;
-		color: #85889c;
-	}
 
 	.thread-author {
 		font-weight: 500;
 	}
 
-	.thread-count {
-		padding: 2px 6px;
-		background: #2a2b2f;
-		border-radius: 10px;
-		font-size: 10px;
-	}
 
 	.thread-actions {
 		display: flex;
@@ -356,14 +344,13 @@
 				<span >{mainComment.content}
 				</span>
 			</div>
-			<div class="thread-meta">
-				{#if commentCount > 1}
-					<span class="thread-count">{commentCount} comments</span>
+			{#if commentCount > 1}
+				<div class="text-xs text-statusColor">
+						{commentCount} replies
+					</div>
 				{/if}
-			</div>
 		</div>
-		
-		<!-- <div class="thread-actions">
+    <div class="thread-actions absolute top-3 right-2">
 			{#if thread.resolved}
 				<button 
 					class="action-btn unresolve" 
@@ -395,7 +382,7 @@
 					<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
 				</svg>
 			</button>
-		</div> -->
+		</div> 
 	</div>
 
 	{#if isExpanded}
@@ -465,4 +452,6 @@
 	{/if}
 </div> 
 
-<div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
+{#if !isLast}
+	<div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
+{/if}

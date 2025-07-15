@@ -18,6 +18,7 @@
 
 	// State
 	let threads = $state<CommentThread[]>([]);
+	// let threads: CommentThread[] = []
 	let isLoading = $state(false);
 	let selectedThreadId = $state<string | null>(null);
 	let showResolved = $state(false);
@@ -211,18 +212,14 @@
 <style>
 	.comment-sidebar {
 		width: 100%;
+		height: 100%;
 		display: flex;
-		flex-grow: 1;
 		flex-direction: column;
 		overflow: hidden;
-		transform: translateX(100%);
-		transition: transform 0.3s ease-in-out;
-		z-index: 100;
+		padding-bottom: 3px;
+		min-height: 0;
 	}
 
-	.comment-sidebar.visible {
-		transform: translateX(0);
-	}
 
 	.sidebar-header {
 		padding: 16px 0px;
@@ -331,9 +328,9 @@
 		display: flex;
 		flex-direction: column;
 		gap: 8px;
-		max-height: 100%;
 		min-height: 0;
 		overflow-y: auto;
+		padding-right: 4px;
 	}
 
 	.comment-thread.thread-highlighted {
@@ -442,11 +439,12 @@ Select anywhere in the note to leave a comment.
 			</div>
 		{:else}
 			<div class="thread-list">
-				{#each filteredThreads as thread (thread.id)}
+				{#each filteredThreads as thread, index (thread.id)}
 					<CommentThreadComponent
 						{thread}
 						isSelected={selectedThreadId === thread.id}
 						isHighlighted={animatingThreadId === thread.id}
+						isLast={index === filteredThreads.length - 1}
 						onSelect={() => handleThreadSelect(thread.id)}
 						onResolve={(resolved: boolean) =>
 							handleResolveThread(thread.id, resolved)}
