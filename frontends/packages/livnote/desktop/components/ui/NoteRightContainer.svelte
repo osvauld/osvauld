@@ -157,7 +157,7 @@
 		</div>
 	</div>
 
-	<div class="flex-1 flex flex-col w-full min-h-0">
+	<div class="flex-1 flex flex-col w-full min-h-0 relative">
 			<button
 				onclick={() => (showShareList = true)}
 				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer "
