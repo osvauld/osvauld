@@ -39,6 +39,7 @@ import type {
   EditorDocumentState,
   CommentThread,
   CommentPosition,
+  Collaborator,
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { CommentsService } from "./commentsService";
@@ -490,6 +491,7 @@ export class Notes {
     this.ydoc = new Y.Doc();
     this.type = this.ydoc.getXmlFragment("prosemirror");
     this.commentsMap = this.ydoc.getMap("comments");
+    this.ydoc.clientID = this.clientID;
     this.awareness = new Awareness(this.ydoc);
     this.metadata = this.ydoc.getMap("metadata");
 
@@ -508,6 +510,7 @@ export class Notes {
       if (origin === 'local') {
         void this.handleAwarenessUpdate(changes);
       }
+      this.syncCollaboratorsToDataState();
     });
 
 
@@ -539,6 +542,30 @@ export class Notes {
       id: this.clientID,
     });
   }
+  private syncCollaboratorsToDataState(): void {
+    if (!this.awareness) return;
+
+    const awarenessStates = this.awareness.getStates();
+    const currentCollaborators: Collaborator[] = [];
+
+    awarenessStates.forEach((state, clientId) => {
+      // Skip our own client
+      if (clientId === this.clientID) return;
+
+      if (state && state.user) {
+        currentCollaborators.push({
+          id: clientId.toString(),
+          name: state.user.name || `User ${clientId}`,
+          color: state.user.color || "#85889C",
+          clientId: clientId,
+        });
+      }
+    });
+
+    // Update the centralized state
+    dataState.updateCollaborators(currentCollaborators);
+  }
+
 
   public updateUserInfo(name: string, color: string): void {
     this.awareness.setLocalStateField('user', {

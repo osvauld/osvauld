@@ -58,6 +58,14 @@ export interface EditorDocumentState {
 }
 
 
+export interface Collaborator {
+  id: string;
+  name: string;
+  color: string;
+  clientId: number;
+}
+
+
 
 
 // === Comment System Types ===

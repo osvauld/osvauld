@@ -12,6 +12,7 @@
 	import NavigationPanel from "./NavigationPanel.svelte";
 	import { notesInstance } from "../notes/notes";
 	import Hamburger from "../icons/Hamburger.svelte";
+	import { fade, fly } from "svelte/transition";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
@@ -72,6 +73,9 @@
 		isEditingTitle = false;
 	}
 
+	const getInitial = (name: string): string => {
+		return name.charAt(0).toUpperCase();
+	};
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Enter") {
 			saveTitle();
@@ -205,6 +209,43 @@
 					{/if}
 				</button>
 			</div>
+
+			{#if dataState.collaborators.length > 0}
+				<div class="mx-6 px-6 border-x border-osvauld-borderColor">
+					<span class="text-statusColor font-light text-sm block mb-3"
+						>Live Collaborators</span>
+					<div class="flex items-center">
+						<div class="flex">
+							{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+								<div
+									class="relative {index !== 0 ? '-ml-3' : ''}"
+									in:fade={{ duration: 200 }}
+									out:fade={{ duration: 200 }}>
+									<div
+										class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
+										{getInitial(collaborator.name)}
+
+										<!-- Live indicator dot -->
+										<div
+											class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
+											in:fade={{ duration: 200 }}>
+										</div>
+									</div>
+								</div>
+							{/each}
+
+							{#if dataState.collaborators.length > 3}
+								<div class="relative -ml-3">
+									<div
+										class="w-10 h-10 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
+										+{dataState.collaborators.length - 3}
+									</div>
+								</div>
+							{/if}
+						</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 
 		<!-- Editor Component -->

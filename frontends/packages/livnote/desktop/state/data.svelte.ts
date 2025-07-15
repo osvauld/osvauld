@@ -4,7 +4,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
 import { notesInstance } from "../components/notes/notes";
 import { applyYjsUpdates, generatePreview } from "../components/notes/documentUtils";
-import type { Note, NoteContent, NotePreview } from "../types/notes.types";
+import type { Note, NoteContent, NotePreview, Collaborator } from "../types/notes.types";
 // Define interfaces
 export interface Vault {
   id: string;
@@ -35,6 +35,7 @@ class DataState {
   userDetails = $state<UserDetails | null>(null)
   private _unlisteners: Array<() => void> = [];
   sharedUsers = $state([]);
+  collaborators = $state<Collaborator[]>([]);
 
   // Derived values for filtering notes - declare as a class property with $derived
   filteredNotes = $derived.by(() => {
@@ -71,6 +72,10 @@ class DataState {
     } catch (error) {
       console.error("Error fetching vaults:", error);
     }
+  }
+
+  updateCollaborators(newCollaborators: Collaborator[]) {
+    this.collaborators = newCollaborators;
   }
 
   // Fetch all notes regardless of vault
