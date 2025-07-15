@@ -31,19 +31,18 @@
 	let lastModifiedTimestamp = $state<number | undefined>(undefined);
 
 	// add live collaborators and update this list to cue users coming and going
-	// let collaborators = $state<Collaborator[]>([]);
-	let collaborators = $state<Collaborator[]>([
-		{ id: '1', name: 'Frank' },
-		{ id: '2', name: 'Grace' },
-		{ id: '3', name: 'Robert' },
-		{ id: '4', name: 'Alice' },
-	]);
+	// let collaborators = $state<Collaborator[]>([
+	// 	{ id: '1', name: 'Frank' },
+	// 	{ id: '2', name: 'Grace' },
+	// 	{ id: '3', name: 'Robert' },
+	// 	{ id: '4', name: 'Alice' },
+	// ]);
 
 	// Mock data structure
-	type Collaborator = {
-		id: string;
-		name: string;
-	};
+	// type Collaborator = {
+	// 	id: string;
+	// 	name: string;
+	// };
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
@@ -197,7 +196,7 @@
 	</div>
 
 	<div class="flex-1 flex flex-col w-full min-h-0">
-		{#if collaborators.length !== 0}
+	 <!-- {#if collaborators.length !== 0}
 			<span class="text-statusColor font-light text-sm"
 				>Live Collaborators</span>
 			<div class="flex items-center mt-4 mb-6">
@@ -211,7 +210,7 @@
 								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
 								{getInitial(collaborator.name)}
 
-								<!-- Live indicator dot -->
+							
 								<div
 									class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
 									in:fade={{ duration: 200 }}>
@@ -220,7 +219,6 @@
 						</div>
 					{/each}
 
-					<!-- +1 indicator for additional collaborators -->
 					{#if collaborators.length > 3}
 						<div
 							class="relative -ml-3"
@@ -234,7 +232,7 @@
 					{/if}
 				</div>
 			</div>
-		{/if}
+		{/if}  -->
 			<button
 				onclick={() => (showShareList = true)}
 				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer "
