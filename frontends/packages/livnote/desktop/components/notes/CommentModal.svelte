@@ -35,10 +35,11 @@
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Escape") {
 			handleCancel();
-		} else if (event.key === "Enter") {
+		} else if (event.key === "Enter" && !event.shiftKey) {
 			event.preventDefault();
 			handleSave();
 		}
+		// Shift+Enter allows new line (default behavior)
 	}
 
 	// Focus textarea when modal becomes visible
@@ -87,6 +88,10 @@
 
 	.selected-text {
 		font-size: 12px;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 		color: #85889c;
 		font-style: italic;
 		padding: 8px 12px;
@@ -166,7 +171,7 @@
 	.shortcut-hint {
 		font-size: 11px;
 		color: #85889c;
-		text-align: center;
+		text-align: right;
 		margin-top: 8px;
 	}
 </style>
@@ -209,7 +214,7 @@
 				</div>
 			</div>
 
-			<div class="shortcut-hint">Press Enter to save, Esc to cancel</div>
+			<div class="shortcut-hint">Press Enter to save, Shift+Enter for new line, Esc to cancel</div>
 		</div>
 	</div>
 {/if}

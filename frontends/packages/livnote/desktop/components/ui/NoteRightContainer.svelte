@@ -120,7 +120,7 @@
 		return name.charAt(0).toUpperCase();
 	};
 
-	//  Simulate users joining and leaving
+	// //  Simulate users joining and leaving
 	// function simulateUserActivity() {
 	// 	const interval = setInterval(() => {
 	// 		const action = Math.random() > 0.5 ? 'add' : 'remove';
@@ -140,11 +140,11 @@
 	// 	return () => clearInterval(interval);
 	// }
 
-	// Start the simulation when component mounts
+	// //Start the simulation when component mounts
 	// onMount(simulateUserActivity);
 </script>
 
-<div class="w-[22.5rem] h-full min-h-0 max-h-full py-11 px-6 flex flex-col gap-6 items-start shrink-0">
+<div class="w-[22.5rem] h-full min-h-0 max-h-full py-11  pb-4 px-6 flex flex-col gap-2 items-start shrink-0">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
 			onclick={saveNoteManual}
@@ -237,7 +237,7 @@
 		{/if}
 			<button
 				onclick={() => (showShareList = true)}
-				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer mb-6"
+				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer "
 				aria-label="share with users">
 				<span class="mr-2 pl-2 whitespace-nowrap">Add collaborators</span>
 				<UserPlus color="#010109" size={24} />
@@ -263,7 +263,7 @@
 		</div>
 
 	<div
-		class="border-y-1 border-osvauld-defaultBorder py-6 w-full text-left text-sm">
+		class="border-y-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
 		<p class="text-statusColor">
 			Last modified : {dataState.currentNote?.data
 				? getLastModifiedDate(lastModifiedTimestamp)

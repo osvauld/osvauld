@@ -26,10 +26,45 @@
 	let highlightTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let animatingThreadId = $state<string | null>(null);
 	let animationTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	
+
+
+	// Robust unread tracking with localStorage persistence
+	const READ_STATUS_KEY = 'livnote_read_threads';
+	let readThreadIds = $state<Set<string>>(new Set());
+
+	// Load read status from localStorage
+	function loadReadStatus() {
+		try {
+			const stored = localStorage.getItem(READ_STATUS_KEY);
+			if (stored) {
+				const ids = JSON.parse(stored);
+				readThreadIds = new Set(ids);
+			}
+		} catch (error) {
+			console.error('Error loading read status:', error);
+		}
+	}
+
+	// Save read status to localStorage (debounced)
+	let saveTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	function saveReadStatus() {
+		if (saveTimeoutId) {
+			clearTimeout(saveTimeoutId);
+		}
+		saveTimeoutId = setTimeout(() => {
+			try {
+				const ids = Array.from(readThreadIds);
+				localStorage.setItem(READ_STATUS_KEY, JSON.stringify(ids));
+			} catch (error) {
+				console.error('Error saving read status:', error);
+			}
+		}, 100); // Debounce saves to avoid excessive localStorage writes
+	}
 
 	// Derived values
 	const sortedThreads = $derived.by(() => {
-		let sorted = [...threads].sort((a, b) => a.position.from - b.position.from);
+		let sorted = [...threads].sort((a, b) => b.created_at - a.created_at); // Latest comments first (by creation time)
 
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {
@@ -50,6 +85,22 @@
 		);
 	});
 
+	// Check for unread comments
+	const hasUnreadComments = $derived.by(() => {
+		return threads.some((thread: CommentThread) => 
+			!thread.resolved && !readThreadIds.has(thread.id)
+		);
+	});
+
+	// Reactive effect to handle new threads
+	$effect(() => {
+		// When threads change, ensure new threads are marked as unread
+		threads.forEach(thread => {
+			// New threads (not in readThreadIds) should remain unread
+			// This effect ensures the state stays consistent
+		});
+	});
+
 	function loadThreads() {
 		try {
 			threads = notesInstance.getAllCommentThreads();
@@ -61,8 +112,17 @@
 	function handleThreadSelect(threadId: string) {
 		selectedThreadId = selectedThreadId === threadId ? null : threadId;
 
+		// Mark thread as read when selected
+		markThreadAsRead(threadId);
+
 		// Scroll to the commented text in the editor
 		scrollToCommentInEditor(threadId);
+	}
+
+	function markThreadAsRead(threadId: string) {
+		// Create a new Set to ensure reactivity
+		readThreadIds = new Set([...readThreadIds, threadId]);
+		saveReadStatus(); // Save to localStorage
 	}
 
 	function scrollToCommentInEditor(threadId: string) {
@@ -94,12 +154,10 @@
 	}
 
 	function handleDeleteThread(threadId: string) {
-		if (confirm("Are you sure you want to delete this comment thread?")) {
-			try {
-				notesInstance.removeCommentMark(threadId);
-			} catch (error) {
-				console.error("Error deleting thread:", error);
-			}
+		try {
+			notesInstance.removeCommentMark(threadId);
+		} catch (error) {
+			console.error("Error deleting thread:", error);
 		}
 	}
 
@@ -145,6 +203,9 @@
 
 	// Subscribe to comment updates
 	onMount(() => {
+		// Load read status from localStorage first
+		loadReadStatus();
+
 		// Listen for comment highlight events from editor
 		const handleCommentHighlight = (event: CustomEvent) => {
 			const { threadId } = event.detail;
@@ -185,6 +246,8 @@
 		};
 	});
 
+
+
 	onDestroy(() => {
 		// Unsubscribe from updates
 		try {
@@ -203,11 +266,16 @@
 		if (animationTimeoutId) {
 			clearTimeout(animationTimeoutId);
 		}
+		if (saveTimeoutId) {
+			clearTimeout(saveTimeoutId);
+		}
 	});
 
 	// Expose loadThreads for parent component
 	export { loadThreads };
 </script>
+
+
 
 <style>
 	.comment-sidebar {
@@ -327,7 +395,6 @@
 	.thread-list {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
 		min-height: 0;
 		overflow-y: auto;
 		padding-right: 4px;
@@ -399,10 +466,13 @@
 			<!-- <div class="sidebar-stats">{getStatsText()}</div> -->
 			<div class="filter-tabs">
 				<button
-					class="filter-tab"
+					class="filter-tab relative"
 					class:active={!showResolved}
 					onclick={() => (showResolved = false)}>
 					Open
+					{#if hasUnreadComments}
+						<span class="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></span>
+					{/if}
 				</button>
 				<button
 					class="filter-tab"
