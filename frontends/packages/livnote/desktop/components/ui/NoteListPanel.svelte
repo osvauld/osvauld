@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { uiState, dataState } from "../../state";
 	import VaultManager from "./VaultManager.svelte";
+
 	import {
 		BinIcon as Bin,
 		Star as EmptyStar,

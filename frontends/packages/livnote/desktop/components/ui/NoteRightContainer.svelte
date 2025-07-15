@@ -31,23 +31,9 @@
 	let lastModifiedTimestamp = $state<number | undefined>(undefined);
 
 	// add live collaborators and update this list to cue users coming and going
-	let collaborators = $state<Collaborator[]>([]);
 	function toggleCommentSidebar() {
 		uiState.toggleCommentSidebar();
 	}
-	// let collaborators = $state<Collaborator[]>([
-	// 	{ id: '1', name: 'Frank' },
-	// 	{ id: '2', name: 'Grace' },
-	// 	{ id: '3', name: 'Robert' },
-	// 	{ id: '4', name: 'Alice' },
-	// ]);
-
-	// Mock data structure
-	type Collaborator = {
-		id: string;
-		name: string;
-	};
-
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
 		if (!dataState.currentNote?.data) {
@@ -117,34 +103,6 @@
 	$effect(() => {
 		saved = uiState.noteSaved;
 	});
-
-	// Function to get initial from name
-	const getInitial = (name: string): string => {
-		return name.charAt(0).toUpperCase();
-	};
-
-	//  Simulate users joining and leaving
-	// function simulateUserActivity() {
-	// 	const interval = setInterval(() => {
-	// 		const action = Math.random() > 0.5 ? 'add' : 'remove';
-	// 		if (action === 'add' && collaborators.length < 8) {
-	// 			// Create a new collaborator with random properties
-	// 			const newUser = {
-	// 				id: Math.random().toString(36).substr(2, 9),
-	// 				name: `User ${collaborators.length + 1}`,
-	// 				role: ['owner', 'manager', 'reader'][Math.floor(Math.random() * 3)]
-	// 			};
-	// 			collaborators = [...collaborators, newUser];
-	// 		} else if (action === 'remove' && collaborators.length > 1) {
-	// 			const randomIndex = Math.floor(Math.random() * collaborators.length);
-	// 			collaborators = collaborators.filter((_, i) => i !== randomIndex);
-	// 		}
-	// 	}, 3000);
-	// 	return () => clearInterval(interval);
-	// }
-
-	// Start the simulation when component mounts
-	// onMount(simulateUserActivity);
 </script>
 
 <div class="w-[22.5rem] py-11 px-6 flex flex-col gap-11 items-start shrink-0">
@@ -200,44 +158,6 @@
 	</div>
 
 	<div class="flex-1 w-full">
-		{#if collaborators.length !== 0}
-			<span class="text-statusColor font-light text-sm"
-				>Live Collaborators</span>
-			<div class="flex items-center mt-4 mb-10">
-				<div class="flex">
-					{#each collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
-						<div
-							class="relative {index !== 0 ? '-ml-3' : ''}"
-							in:fade={{ duration: 200 }}
-							out:fade={{ duration: 200 }}>
-							<div
-								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
-								{getInitial(collaborator.name)}
-
-								<!-- Live indicator dot -->
-								<div
-									class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
-									in:fade={{ duration: 200 }}>
-								</div>
-							</div>
-						</div>
-					{/each}
-
-					<!-- +1 indicator for additional collaborators -->
-					{#if collaborators.length > 3}
-						<div
-							class="relative -ml-3"
-							in:fade={{ duration: 200 }}
-							out:fade={{ duration: 200 }}>
-							<div
-								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-md font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
-								+{collaborators.length - 3}
-							</div>
-						</div>
-					{/if}
-				</div>
-			</div>
-		{/if}
 		<div class="relative">
 			<button
 				onclick={() => (showShareList = true)}
