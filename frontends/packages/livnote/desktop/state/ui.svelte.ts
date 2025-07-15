@@ -31,7 +31,6 @@ class UIState {
   showSyncQr = $state(false);
   vaultManagerActive = $state(false);
   noteSaved = $state(false);
-  showCommentSidebar = $state(false);
 
   // Navigation panel state
   showNavigationPanel = $state(true);
@@ -102,14 +101,6 @@ class UIState {
     this.passwordPromptModal.isChangePassword = false;
     this.passwordPromptModal.show = false;
   }
-  toggleCommentSidebar(show?: boolean) {
-    if (show !== undefined) {
-      this.showCommentSidebar = show;
-    } else {
-      this.showCommentSidebar = !this.showCommentSidebar;
-    }
-  }
-
 
   // Generic modal toggle function
   toggleModal(modalKey: ModalKey, value?: boolean) {

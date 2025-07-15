@@ -79,6 +79,11 @@
 	--color-signupGray: #2C2E34;
 	--color-livnotePink: #8A86E5;
 	--color-placeholderGray: #606471;
+	--color-commentThreadNameInitial: #6F707D;
+	--color-commentYellow: #D1D55D;
+	--color-commentUnresolve: #ff9800;
+	--color-commentResolve: #4CAF50;
+	--color-commentDelete: #f44336;
 	/* Mobile Colors */
 	--color-mobile-bgPrimary: #000000;
 	--color-mobile-bgSeconary: #0d0e13;

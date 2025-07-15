@@ -355,18 +355,11 @@
 		if (commentElement) {
 			const threadId = commentElement.getAttribute("data-livnote-comment");
 			if (threadId) {
-				const wasHidden = !uiState.showCommentSidebar;
-				if (!uiState.showCommentSidebar) {
-					uiState.toggleCommentSidebar(true);
-				}
-				const delay = wasHidden ? 100 : 0;
-				setTimeout(() => {
 					// Dispatch event to highlight the comment in sidebar
 					const highlightEvent = new CustomEvent("highlight-comment-thread", {
 						detail: { threadId },
 					});
 					document.dispatchEvent(highlightEvent);
-				}, delay);
 			}
 		}
 	}

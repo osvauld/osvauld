@@ -1,23 +1,25 @@
 <script lang="ts">
 	import type { CommentThread, Comment } from '../../types/notes.types';
 	import { notesInstance } from './notes';
-
+	import { ReplyIcon } from "@osvauld/password-manager-common";
 	// Props
 	interface Props {
 		thread: CommentThread;
 		isSelected?: boolean;
 		isHighlighted?: boolean;
+		isLast?: boolean;
 		onSelect: () => void;
 		onResolve: (resolved: boolean) => void;
 		onDelete: () => void;
 	}
 	
-	const { thread, isSelected = false, isHighlighted = false, onSelect, onResolve, onDelete }: Props = $props();
+	const { thread, isSelected = false, isHighlighted = false, isLast = false, onSelect, onResolve, onDelete }: Props = $props();
 
 	// State
 	let isExpanded = $state(false);
 	let replyText = $state('');
 	let isAddingReply = $state(false);
+	let replyFormRef = $state<HTMLDivElement>();
 
 	// Derived values
 	const commentCount = $derived(thread.comments.length);
@@ -40,6 +42,12 @@
 		return 'Text excerpt';
 	}
 
+	function sanitize(text: string): string {
+		const div = document.createElement('div');
+		div.textContent = text;
+		return div.innerHTML;
+	}
+
 	function handleToggleExpand() {
 		isExpanded = !isExpanded;
 		if (isExpanded && !isSelected) {
@@ -59,10 +67,11 @@
 	}
 
 	function handleAddReply() {
-		if (!replyText.trim()) return;
-		
+		const trimmedReply = replyText.trim();
+		if (!trimmedReply) return;
+
 		try {
-			notesInstance.addCommentReply(thread.id, replyText.trim());
+			notesInstance.addCommentReply(thread.id, sanitize(trimmedReply));
 			replyText = '';
 			isAddingReply = false;
 		} catch (error) {
@@ -85,271 +94,51 @@
 		
 		return date.toLocaleDateString();
 	}
+
+	// Scroll reply form into view when it becomes visible
+	$effect(() => {
+		if (isAddingReply && replyFormRef) {
+			setTimeout(() => {
+				replyFormRef?.scrollIntoView({
+					behavior: 'smooth',
+					block: 'nearest',
+					inline: 'nearest'
+				});
+			}, 100);
+		}
+	});
 </script>
 
-<style>
-	.comment-thread {
-		background: #16171f;
-		border: 1px solid #2a2b2f;
-		border-radius: 6px;
-		overflow: hidden;
-		transition: all 0.2s ease;
-	}
-
-	.comment-thread:hover {
-		border-color: #3a3b44;
-	}
-
-	.comment-thread.selected {
-		border-color: #ffd700;
-		box-shadow: 0 0 0 1px rgba(255, 215, 0, 0.1);
-	}
-
-	.comment-thread.resolved {
-		opacity: 0.7;
-	}
-
-	.comment-thread.thread-highlighted {
-		animation: highlightPulse 3s ease-in-out;
-		background: rgba(255, 215, 0, 0.1);
-		border-color: #ffd700 !important;
-	}
-
-	.thread-header {
-		padding: 12px;
-		cursor: pointer;
-		display: flex;
-		align-items: flex-start;
-		gap: 8px;
-	}
-
-	.thread-header:hover {
-		background: #1a1b23;
-	}
-
-	.thread-content {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.thread-preview {
-		font-size: 11px;
-		color: #85889c;
-		margin-bottom: 6px;
-		font-style: italic;
-	}
-
-	.thread-comment {
-		font-size: 13px;
-		color: #bfc0cc;
-		line-height: 1.4;
-		margin-bottom: 6px;
-	}
-
-	.thread-meta {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 11px;
-		color: #85889c;
-	}
-
-	.thread-author {
-		font-weight: 500;
-	}
-
-	.thread-count {
-		padding: 2px 6px;
-		background: #2a2b2f;
-		border-radius: 10px;
-		font-size: 10px;
-	}
-
-	.thread-actions {
-		display: flex;
-		align-items: flex-start;
-		gap: 4px;
-		opacity: 0;
-		transition: opacity 0.2s ease;
-	}
-
-	.comment-thread:hover .thread-actions {
-		opacity: 1;
-	}
-
-	.action-btn {
-		padding: 4px;
-		border: none;
-		background: transparent;
-		color: #85889c;
-		cursor: pointer;
-		border-radius: 3px;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		transition: all 0.2s ease;
-	}
-
-	.action-btn:hover {
-		background: #2a2b2f;
-		color: #bfc0cc;
-	}
-
-	.action-btn.resolve {
-		color: #4CAF50;
-	}
-
-	.action-btn.unresolve {
-		color: #ff9800;
-	}
-
-	.action-btn.delete {
-		color: #f44336;
-	}
-
-	.thread-details {
-		border-top: 1px solid #2a2b2f;
-		padding: 12px;
-		background: #1a1b23;
-	}
-
-	.reply-list {
-		margin-top: 12px;
-	}
-
-	.reply-item {
-		margin-bottom: 12px;
-		padding-left: 12px;
-		border-left: 2px solid #2a2b2f;
-	}
-
-	.reply-content {
-		font-size: 13px;
-		color: #bfc0cc;
-		line-height: 1.4;
-		margin-bottom: 4px;
-	}
-
-	.reply-meta {
-		font-size: 11px;
-		color: #85889c;
-	}
-
-	.add-reply-form {
-		margin-top: 12px;
-		display: flex;
-		flex-direction: column;
-		gap: 8px;
-	}
-
-	.reply-input {
-		width: 100%;
-		padding: 8px;
-		border: 1px solid #2a2b2f;
-		border-radius: 4px;
-		background: #16171f;
-		color: #bfc0cc;
-		font-size: 13px;
-		resize: vertical;
-		min-height: 60px;
-	}
-
-	.reply-input:focus {
-		outline: none;
-		border-color: #ffd700;
-	}
-
-	.reply-actions {
-		display: flex;
-		gap: 8px;
-		justify-content: flex-end;
-	}
-
-	.reply-btn {
-		padding: 6px 12px;
-		border: none;
-		border-radius: 4px;
-		font-size: 12px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.reply-btn.primary {
-		background: #ffd700;
-		color: #16171f;
-	}
-
-	.reply-btn.primary:hover {
-		background: #e6c200;
-	}
-
-	.reply-btn.secondary {
-		background: transparent;
-		color: #85889c;
-		border: 1px solid #2a2b2f;
-	}
-
-	.reply-btn.secondary:hover {
-		background: #2a2b2f;
-		color: #bfc0cc;
-	}
-
-	.add-reply-trigger {
-		width: 100%;
-		padding: 8px;
-		border: 1px dashed #2a2b2f;
-		border-radius: 4px;
-		background: transparent;
-		color: #85889c;
-		font-size: 12px;
-		cursor: pointer;
-		transition: all 0.2s ease;
-	}
-
-	.add-reply-trigger:hover {
-		border-color: #ffd700;
-		color: #ffd700;
-	}
-
-	@keyframes highlightPulse {
-		0%, 100% { 
-			background: rgba(255, 215, 0, 0.1);
-			transform: scale(1);
-		}
-		20% { 
-			background: rgba(255, 215, 0, 0.2);
-			transform: scale(1.02);
-		}
-		40% { 
-			background: rgba(255, 215, 0, 0.15);
-			transform: scale(1.01);
-		}
-		60% { 
-			background: rgba(255, 215, 0, 0.1);
-			transform: scale(1);
-		}
-	}
-</style>
-
-<div class="comment-thread" class:selected={isSelected} class:resolved={thread.resolved} class:thread-highlighted={isHighlighted}>
-	<div class="thread-header" onclick={handleThreadClick}>
-		<div class="thread-content">
-			<div class="thread-preview">"{previewText}"</div>
-			<div class="thread-comment">{mainComment.content}</div>
-			<div class="thread-meta">
-				<span class="thread-author">{mainComment.author.name}</span>
-				<span>•</span>
-				<span>{formatTimestamp(mainComment.timestamp)}</span>
-				{#if commentCount > 1}
-					<span class="thread-count">{commentCount} comments</span>
-				{/if}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="group rounded-md overflow-hidden transition-all duration-200 hover:bg-[#1a1b23] hover:border-[#3a3b44] {isSelected ? 'bg-[#1a1b23] border-[#3a3b44]' : ''} {thread.resolved ? 'opacity-70' : ''} {isHighlighted ? 'animate-pulse' : ''}"  onmouseleave={() => isExpanded = false}>
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="p-3 cursor-pointer flex items-start gap-2 relative" onclick={handleThreadClick}>
+		<div class="flex-1 min-w-0">
+			<div class="flex justify-start items-center gap-2">
+				<span class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder">{mainComment.author.name.charAt(0).toUpperCase()}</span>
+				<div class="flex flex-col items-start">
+					<span class="capitalize text-white text-sm font-medium tracking-wider">{mainComment.author.name}</span>
+					<span class="text-xs text-statusColor">{formatTimestamp(mainComment.timestamp)}</span>
+				</div>
 			</div>
+			<div class="text-[11px] my-2.5 italic border-l-2 border-livnotePink pl-1.5 flex items-center justify-start text-statusColor">
+				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap">"{previewText}"</span>
+			</div>
+			<div class="text-[13px] text-white leading-relaxed  max-w-full overflow-hidden text-ellipsis whitespace-nowrap {isExpanded ? 'whitespace-normal overflow-visible text-ellipsis-clip break-words' : ''}">
+				<span>{mainComment.content}</span>
+			</div>
+			{#if commentCount > 1}
+				<div class="text-xs text-statusColor">
+						{commentCount} replies
+					</div>
+				{/if}
 		</div>
-		
-		<div class="thread-actions">
+    		<div class="absolute top-3 right-2 flex items-start gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
 			{#if thread.resolved}
 				<button 
-					class="action-btn unresolve" 
+					class="p-1 border-none bg-transparent text-commentUnresolve cursor-pointer rounded-sm flex items-center justify-center transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive" 
 					title="Mark as unresolved"
 					onclick={(e) => { e.stopPropagation(); onResolve(false); }}
 				>
@@ -359,7 +148,7 @@
 				</button>
 			{:else}
 				<button 
-					class="action-btn resolve" 
+					class="p-1 border-none bg-transparent text-commentResolve cursor-pointer rounded-sm flex items-center justify-center transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive" 
 					title="Mark as resolved"
 					onclick={(e) => { e.stopPropagation(); onResolve(true); }}
 				>
@@ -370,7 +159,7 @@
 			{/if}
 			
 			<button 
-				class="action-btn delete" 
+				class="p-1 border-none bg-transparent text-commentDelete cursor-pointer rounded-sm flex items-center justify-center transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive" 
 				title="Delete thread"
 				onclick={(e) => { e.stopPropagation(); onDelete(); }}
 			>
@@ -378,56 +167,82 @@
 					<path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
 				</svg>
 			</button>
-		</div>
+		</div> 
 	</div>
 
 	{#if isExpanded}
-		<div class="thread-details">
+		<div class="p-2 border-t border-osvauld-defaultBorder">
 			{#if replies.length > 0}
-				<div class="reply-list">
+				<div class="mt-3 pl-1">
 					{#each replies as reply (reply.id)}
-						<div class="reply-item">
-							<div class="reply-content">{reply.content}</div>
-							<div class="reply-meta">
-								{reply.author.name} • {formatTimestamp(reply.timestamp)}
+						<div class="mb-3 pl-3">
+							<div class="flex justify-start items-center gap-2">
+								<span class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder">{mainComment.author.name.charAt(0).toUpperCase()}</span>
+								<div class="flex flex-col items-start">
+									<span class="capitalize text-white text-sm font-medium tracking-wider">{mainComment.author.name}</span>
+									<span class="text-xs text-statusColor">{formatTimestamp(mainComment.timestamp)}</span>
+								</div>
 							</div>
+							<div class="text-[13px] text-white leading-relaxed my-2 break-words">{reply.content}</div>
 						</div>
 					{/each}
 				</div>
 			{/if}
 
 			{#if isAddingReply}
-				<div class="add-reply-form">
-					<textarea 
-						class="reply-input"
+				<div bind:this={replyFormRef} class="mt-3 flex flex-col gap-2">
+					<textarea
+						class="w-full p-2 border border-osvauld-defaultBorder rounded bg-osvauld-fieldActive text-osvauld-fieldTextActive text-[13px] focus:outline-none focus:border-livnotePink placeholder:text-statusColor"
 						bind:value={replyText}
 						placeholder="Add a reply..."
 						autofocus
+						autocapitalize="off"
+						spellcheck="false"
+						maxlength="150"
+						onkeydown={(e) => {
+							if (e.key === 'Enter' && !e.shiftKey) {
+								e.preventDefault();
+								handleAddReply();
+							}
+						}}
 					></textarea>
-					<div class="reply-actions">
-						<button 
-							class="reply-btn secondary"
-							onclick={() => { isAddingReply = false; replyText = ''; }}
-						>
-							Cancel
-						</button>
-						<button 
-							class="reply-btn primary"
-							onclick={handleAddReply}
-							disabled={!replyText.trim()}
-						>
-							Reply
-						</button>
+					<div class="flex gap-2 justify-between items-center">
+						<span class="text-xs text-statusColor">{replyText.length}/150</span>
+						<div class="flex items-center gap-2">
+							<button
+								class="px-3 py-1.5 border border-osvauld-defaultBorder rounded bg-transparent text-osvauld-fieldText text-xs cursor-pointer transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive"
+								onclick={() => {
+									isAddingReply = false;
+									replyText = '';
+								}}
+							>
+								Cancel
+							</button>
+							<button
+								class="px-3 py-1.5 border-none rounded bg-livnotePink text-primarydark text-xs cursor-pointer transition-all duration-200 hover:bg-livnotePink"
+								onclick={handleAddReply}
+								disabled={!replyText.trim()}
+							>
+								Submit
+							</button>
+						</div>
 					</div>
 				</div>
 			{:else}
-				<button 
-					class="add-reply-trigger"
-					onclick={() => isAddingReply = true}
-				>
-					+ Add reply
-				</button>
+				<div class="flex justify-end">
+					<button
+						class="flex items-center gap-2 bg-livnotePink text-primarydark px-2 py-1 rounded-sm text-xs transition cursor-pointer"
+						onclick={() => isAddingReply = true}
+					>
+						<ReplyIcon />
+						Reply
+					</button>
+				</div>
 			{/if}
 		</div>
 	{/if}
 </div> 
+
+{#if !isLast}
+	<div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
+{/if}

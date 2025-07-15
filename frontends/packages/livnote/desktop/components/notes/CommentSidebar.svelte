@@ -1,19 +1,23 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
+	import {
+		CommentIcon 
+	} from "@osvauld/password-manager-common";
+
 	import type { CommentThread } from "../../types/notes.types";
 	import CommentThreadComponent from "./CommentThread.svelte";
 	import { notesInstance } from "./notes";
 
 	// Props using Svelte 5 runes
 	interface Props {
-		isVisible?: boolean;
 		onClose?: () => void;
 	}
 
-	const { isVisible = true, onClose }: Props = $props();
+	const {  onClose }: Props = $props();
 
 	// State
 	let threads = $state<CommentThread[]>([]);
+	// let threads: CommentThread[] = []
 	let isLoading = $state(false);
 	let selectedThreadId = $state<string | null>(null);
 	let showResolved = $state(false);
@@ -21,10 +25,45 @@
 	let highlightTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let animatingThreadId = $state<string | null>(null);
 	let animationTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	
+
+
+	// Robust unread tracking with localStorage persistence
+	const READ_STATUS_KEY = 'livnote_read_threads';
+	let readThreadIds = $state<Set<string>>(new Set());
+
+	// Load read status from localStorage
+	function loadReadStatus() {
+		try {
+			const stored = localStorage.getItem(READ_STATUS_KEY);
+			if (stored) {
+				const ids = JSON.parse(stored);
+				readThreadIds = new Set(ids);
+			}
+		} catch (error) {
+			console.error('Error loading read status:', error);
+		}
+	}
+
+	// Save read status to localStorage (debounced)
+	let saveTimeoutId: ReturnType<typeof setTimeout> | null = null;
+	function saveReadStatus() {
+		if (saveTimeoutId) {
+			clearTimeout(saveTimeoutId);
+		}
+		saveTimeoutId = setTimeout(() => {
+			try {
+				const ids = Array.from(readThreadIds);
+				localStorage.setItem(READ_STATUS_KEY, JSON.stringify(ids));
+			} catch (error) {
+				console.error('Error saving read status:', error);
+			}
+		}, 100); // Debounce saves to avoid excessive localStorage writes
+	}
 
 	// Derived values
 	const sortedThreads = $derived.by(() => {
-		let sorted = [...threads].sort((a, b) => a.position.from - b.position.from);
+		let sorted = [...threads].sort((a, b) => b.created_at - a.created_at); // Latest comments first (by creation time)
 
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {
@@ -45,6 +84,14 @@
 		);
 	});
 
+	// Check for unread comments
+	const hasUnreadComments = $derived.by(() => {
+		return threads.some((thread: CommentThread) => 
+			!thread.resolved && !readThreadIds.has(thread.id)
+		);
+	});
+
+
 	function loadThreads() {
 		try {
 			threads = notesInstance.getAllCommentThreads();
@@ -56,8 +103,17 @@
 	function handleThreadSelect(threadId: string) {
 		selectedThreadId = selectedThreadId === threadId ? null : threadId;
 
+		// Mark thread as read when selected
+		markThreadAsRead(threadId);
+
 		// Scroll to the commented text in the editor
 		scrollToCommentInEditor(threadId);
+	}
+
+	function markThreadAsRead(threadId: string) {
+		// Create a new Set to ensure reactivity
+		readThreadIds = new Set([...readThreadIds, threadId]);
+		saveReadStatus(); // Save to localStorage
 	}
 
 	function scrollToCommentInEditor(threadId: string) {
@@ -89,12 +145,10 @@
 	}
 
 	function handleDeleteThread(threadId: string) {
-		if (confirm("Are you sure you want to delete this comment thread?")) {
-			try {
-				notesInstance.removeCommentMark(threadId);
-			} catch (error) {
-				console.error("Error deleting thread:", error);
-			}
+		try {
+			notesInstance.removeCommentMark(threadId);
+		} catch (error) {
+			console.error("Error deleting thread:", error);
 		}
 	}
 
@@ -137,14 +191,12 @@
 		}, 4000);
 	}
 
-	function handleCloseSidebar() {
-		if (onClose) {
-			onClose();
-		}
-	}
 
 	// Subscribe to comment updates
 	onMount(() => {
+		// Load read status from localStorage first
+		loadReadStatus();
+
 		// Listen for comment highlight events from editor
 		const handleCommentHighlight = (event: CustomEvent) => {
 			const { threadId } = event.detail;
@@ -185,6 +237,8 @@
 		};
 	});
 
+
+
 	onDestroy(() => {
 		// Unsubscribe from updates
 		try {
@@ -203,160 +257,113 @@
 		if (animationTimeoutId) {
 			clearTimeout(animationTimeoutId);
 		}
+		if (saveTimeoutId) {
+			clearTimeout(saveTimeoutId);
+		}
 	});
 
 	// Expose loadThreads for parent component
 	export { loadThreads };
 </script>
 
+
+
 <style>
 	.comment-sidebar {
-		width: 320px;
+		width: 100%;
 		height: 100%;
-		background: #1a1b23;
-		border-left: 1px solid #2a2b2f;
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
-		transform: translateX(100%);
-		transition: transform 0.3s ease-in-out;
-		z-index: 100;
+		padding-bottom: 3px;
+		min-height: 0;
 	}
 
-	.comment-sidebar.visible {
-		transform: translateX(0);
-	}
 
 	.sidebar-header {
-		padding: 16px;
-		padding-right: 60px;
-		border-bottom: 1px solid #2a2b2f;
-		background: #16171f;
+		padding: 16px 0px;
 		position: relative;
 	}
 
-	.collapse-button {
-		position: absolute;
-		top: 16px;
-		right: 16px;
-		background: #2a2b2f;
-		border: 1px solid #3a3b44;
-		color: #85889c;
-		cursor: pointer;
-		padding: 6px;
-		border-radius: 4px;
-		transition: all 0.2s ease;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		opacity: 1;
-		transform: scale(1);
-	}
 
-	.collapse-button:hover {
-		background: #3a3b44;
-		color: #bfc0cc;
-		border-color: #4a4b53;
-	}
 
 	.sidebar-title {
 		font-size: 16px;
-		font-weight: 600;
-		color: #bfc0cc;
+		font-weight: 300;
+		letter-spacing: 0.02em;
+		color: #fff;
 		margin: 0 0 8px 0;
+		border-bottom: 1px solid #2a2b2f;
+		padding-bottom: 16px;
+		margin-bottom: 16px;
+		width: 100%;
 	}
 
-	.sidebar-stats {
-		font-size: 12px;
-		color: #85889c;
-		margin-bottom: 12px;
-	}
 
 	.filter-tabs {
 		display: flex;
-		gap: 4px;
+		gap: 16px;
 	}
 
 	.filter-tab {
-		padding: 4px 12px;
-		font-size: 12px;
-		border: 1px solid #2a2b2f;
-		border-radius: 4px;
-		background: transparent;
-		color: #85889c;
+		font-size: 15px;
+		font-weight: 300;
+		letter-spacing: 0.02em;
+		padding: 0;
 		cursor: pointer;
-		transition: all 0.2s ease;
+		color: var(--color-statusColor);
+		text-align: left;
+		transition: all 0.1s ease;
+		border-bottom: 2px solid transparent;
 	}
 
 	.filter-tab:hover {
-		background: #2a2b2f;
-		color: #bfc0cc;
+		color: #fff;
+		border-color:  #fff;
 	}
 
 	.filter-tab.active {
-		background: #3a3b44;
-		color: #bfc0cc;
-		border-color: #4a4b53;
+		color: #fff;
+		border-color: #fff;
 	}
 
 	.sidebar-content {
 		flex: 1;
 		overflow-y: auto;
-		padding: 8px;
+		min-height: 0;
 	}
 
 	.empty-state {
-		padding: 32px 16px;
+		padding: 16px 0px;
 		text-align: center;
 		color: #85889c;
 	}
 
 	.empty-state-title {
 		font-size: 14px;
+		font-weight: 300;
+		letter-spacing: 0.02em;
 		margin-bottom: 8px;
-		color: #bfc0cc;
+		color: #fff;
 	}
 
 	.empty-state-text {
-		font-size: 12px;
+		font-size: 14px;
+		color: var(--color-statusColor);
 		line-height: 1.4;
+		font-weight: 200;
+		letter-spacing: 0.02em;
+		text-align: left;
 	}
 
 	.thread-list {
 		display: flex;
 		flex-direction: column;
-		gap: 8px;
+		min-height: 0;
+		overflow-y: auto;
+		padding-right: 4px;
 	}
 
-	.comment-thread.thread-highlighted {
-		animation: highlightPulse 4s ease-in-out;
-		background: rgba(255, 215, 0, 0.1);
-		border-color: #ffd700 !important;
-	}
-
-	@keyframes highlightPulse {
-		0%,
-		100% {
-			background: rgba(255, 215, 0, 0.1);
-			transform: scale(1);
-		}
-		15% {
-			background: rgba(255, 215, 0, 0.25);
-			transform: scale(1.02);
-		}
-		30% {
-			background: rgba(255, 215, 0, 0.2);
-			transform: scale(1.01);
-		}
-		45% {
-			background: rgba(255, 215, 0, 0.15);
-			transform: scale(1);
-		}
-		60% {
-			background: rgba(255, 215, 0, 0.1);
-			transform: scale(1);
-		}
-	}
 
 	/* Scrollbar styling */
 	.sidebar-content::-webkit-scrollbar {
@@ -388,30 +395,19 @@
 	}
 </style>
 
-<div class="comment-sidebar" class:visible={isVisible}>
+<div class="comment-sidebar" >
 	<div class="sidebar-header">
-		<button
-			class="collapse-button group"
-			onclick={handleCloseSidebar}
-			title="Close Comments">
-			<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-				<path
-					d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
-				></path>
-			</svg>
-		</button>
-
 		<h3 class="sidebar-title">Comments</h3>
-
-		{#if threads.length > 0}
-			<div class="sidebar-stats">{getStatsText()}</div>
-
+			<!-- <div class="sidebar-stats">{getStatsText()}</div> -->
 			<div class="filter-tabs">
 				<button
-					class="filter-tab"
+					class="filter-tab relative"
 					class:active={!showResolved}
 					onclick={() => (showResolved = false)}>
-					Active
+					Open
+					{#if hasUnreadComments}
+						<span class="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"></span>
+					{/if}
 				</button>
 				<button
 					class="filter-tab"
@@ -420,7 +416,6 @@
 					Resolved
 				</button>
 			</div>
-		{/if}
 	</div>
 
 	<div class="sidebar-content">
@@ -431,27 +426,30 @@
 		{:else if filteredThreads.length === 0}
 			<div class="empty-state">
 				{#if threads.length === 0}
-					<div class="empty-state-title">No comments yet</div>
-					<div class="empty-state-text">
-						Select text and click the comment button to add your first comment.
+				  <span><CommentIcon size={24}/></span>
+					<div class="empty-state-text mt-4">
+						Give feedback, ask a question, or just leave a note of appreciation. <br/>
+Select anywhere in the note to leave a comment.
 					</div>
 				{:else if showResolved}
-					<div class="empty-state-title">No resolved comments</div>
+					<div class="empty-state-title text-left">No resolved comments</div>
 					<div class="empty-state-text">
 						Resolved comments will appear here.
 					</div>
 				{:else}
-					<div class="empty-state-title">No active comments</div>
-					<div class="empty-state-text">All comments have been resolved.</div>
+					<div class="empty-state-title text-left">
+						No active comments</div>
+					<div class="empty-state-text text-left">All comments have been resolved.</div>
 				{/if}
 			</div>
 		{:else}
 			<div class="thread-list">
-				{#each filteredThreads as thread (thread.id)}
+				{#each filteredThreads as thread, index (thread.id)}
 					<CommentThreadComponent
 						{thread}
 						isSelected={selectedThreadId === thread.id}
 						isHighlighted={animatingThreadId === thread.id}
+						isLast={index === filteredThreads.length - 1}
 						onSelect={() => handleThreadSelect(thread.id)}
 						onResolve={(resolved: boolean) =>
 							handleResolveThread(thread.id, resolved)}
