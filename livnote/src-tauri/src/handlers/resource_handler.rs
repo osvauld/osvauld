@@ -5,14 +5,14 @@ use crate::types::{
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::info;
+use network::P2PService;
 use osvauld_core::models::{ConnectionAction, ConnectionType};
-use osvauld_db::database::RepositoryContext;
-use osvauld_services::{
+use persistance::database::RepositoryContext;
+use services::{
     create_resource, delete_resource, get_all_resources, get_resource, get_resource_by_id_direct,
     get_resources_for_folder, get_shared_user_devices_for_note, share_resource, toggle_fav,
     update_last_accessed, update_resource,
 };
-use p2p_service::P2PService;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

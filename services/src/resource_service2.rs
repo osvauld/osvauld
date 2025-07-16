@@ -5,7 +5,7 @@ use osvauld_core::models::{
     ResourceWithKey, ShareRecord, User, document,
 };
 use osvauld_core::repositories::RepositoryError;
-use osvauld_db::database::RepositoryContext;
+use persistance::database::RepositoryContext;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::Arc;

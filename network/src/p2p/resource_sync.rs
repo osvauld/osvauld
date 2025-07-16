@@ -4,7 +4,7 @@ use super::P2PEvent;
 use osvauld_core::models::{
     ConnectionType, LiveEditMessage, Message, ResourceSyncData, ResourceUpdateMsg,
 };
-use osvauld_services::{
+use services::{
     add_resource_sync, add_share_records, apply_updates_and_get_peer_updates,
     generate_updates_for_peer, get_resource_for_remote_addition, get_resource_state_vector,
     get_share_records_for_resource, get_vector_clocks_for_resource, merge_share_records,

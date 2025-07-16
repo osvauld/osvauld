@@ -5,13 +5,13 @@ use crate::types::{
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::{error, info};
+use network::P2PService;
 use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
-use osvauld_db::database::RepositoryContext;
-use osvauld_services::{
+use persistance::database::RepositoryContext;
+use services::{
     change_passphrase, create_default_folder, export_certificate, get_rendezvous_payload,
     handle_signup, import_user, is_signed_up, load_certificate,
 };
-use p2p_service::P2PService;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;

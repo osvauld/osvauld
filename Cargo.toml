@@ -4,7 +4,7 @@ members = [
   "crypto_utils",
   "livnote/src-tauri",
   "core",
-  "osvauld-db",
-  "osvauld-services",
-  "p2p-service",
+  "persistance",
+  "services",
+  "network",
 ]

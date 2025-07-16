@@ -5,7 +5,7 @@ use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, HandshakeConfirm, HandshakeInit, HandshakeMessage,
     HandshakeResponse, Message, User,
 };
-use osvauld_services::generate_challenge;
+use services::generate_challenge;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 impl PeerConnection {

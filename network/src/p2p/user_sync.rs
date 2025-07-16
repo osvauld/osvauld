@@ -3,7 +3,7 @@ use crate::p2p::peer_connection::PeerConnection;
 use osvauld_core::models::{
     FirstUserExchange, Message, UserManifestPayload, UserNetworkSyncPayload, UserWithDevices,
 };
-use osvauld_services::{
+use services::{
     create_user_network_sync_payload, get_my_user_devices, get_user_manifest,
     process_user_manifest_request, process_user_network_sync_payload,
 };

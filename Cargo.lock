@@ -3941,6 +3941,45 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ce301924b7887e9d637144fdade93f9dfff9b60981d4ac161db09720d39aa5"
 
 [[package]]
+name = "livnote"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "cc",
+ "chrono",
+ "clap",
+ "crypto_utils",
+ "futures-lite",
+ "log",
+ "network",
+ "once_cell",
+ "osvauld_core",
+ "persistance",
+ "rand 0.8.5",
+ "rcgen 0.14.2",
+ "serde",
+ "serde_json",
+ "services",
+ "sys-locale",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-barcode-scanner",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-log",
+ "tauri-plugin-shell",
+ "tauri-plugin-store",
+ "thiserror 2.0.12",
+ "tokio",
+ "url",
+ "uuid",
+ "yrs",
+]
+
+[[package]]
 name = "lock_api"
 version = "0.4.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4463,6 +4502,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "network"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crypto_utils",
+ "futures-lite",
+ "iroh 0.90.0",
+ "iroh-base 0.90.0",
+ "iroh-blobs",
+ "iroh-quinn 0.14.0",
+ "log",
+ "n0-watcher",
+ "osvauld_core",
+ "persistance",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "services",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-log",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4937,45 +5003,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "osvauld"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "cc",
- "chrono",
- "clap",
- "crypto_utils",
- "futures-lite",
- "log",
- "once_cell",
- "osvauld_core",
- "osvauld_db",
- "osvauld_services",
- "p2p_service",
- "rand 0.8.5",
- "rcgen 0.14.2",
- "serde",
- "serde_json",
- "sys-locale",
- "tauri",
- "tauri-build",
- "tauri-plugin-barcode-scanner",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-log",
- "tauri-plugin-shell",
- "tauri-plugin-store",
- "thiserror 2.0.12",
- "tokio",
- "url",
- "uuid",
- "yrs",
-]
-
-[[package]]
 name = "osvauld_core"
 version = "0.1.0"
 dependencies = [
@@ -4987,44 +5014,6 @@ dependencies = [
  "thiserror 2.0.12",
  "uuid",
  "yrs",
-]
-
-[[package]]
-name = "osvauld_db"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "chrono",
- "diesel",
- "diesel_migrations",
- "libsqlite3-sys",
- "log",
- "osvauld_core",
- "serde",
- "serde_json",
- "thiserror 2.0.12",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "osvauld_services"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "crypto_utils",
- "log",
- "osvauld_core",
- "osvauld_db",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-log",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5043,33 +5032,6 @@ dependencies = [
  "elliptic-curve",
  "primeorder",
  "sha2",
-]
-
-[[package]]
-name = "p2p_service"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crypto_utils",
- "futures-lite",
- "iroh 0.90.0",
- "iroh-base 0.90.0",
- "iroh-blobs",
- "iroh-quinn 0.14.0",
- "log",
- "n0-watcher",
- "osvauld_core",
- "osvauld_db",
- "osvauld_services",
- "rand 0.8.5",
- "serde",
- "serde_json",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-log",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -5199,6 +5161,24 @@ name = "percent-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
+
+[[package]]
+name = "persistance"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "diesel",
+ "diesel_migrations",
+ "libsqlite3-sys",
+ "log",
+ "osvauld_core",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "uuid",
+]
 
 [[package]]
 name = "pest"
@@ -6981,6 +6961,26 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "services"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "crypto_utils",
+ "log",
+ "osvauld_core",
+ "persistance",
+ "rand 0.8.5",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-log",
+ "tracing-subscriber",
 ]
 
 [[package]]

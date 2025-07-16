@@ -1,5 +1,5 @@
 use log::error;
-use osvauld_db::{DbConnection, database::initialize_repositories, initialize_database};
+use persistance::{DbConnection, database::initialize_repositories, initialize_database};
 use tauri::Manager;
 pub mod current_note_state;
 pub mod handlers;
@@ -22,7 +22,7 @@ use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_g
 use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
-use p2p_service::P2PService;
+use network::P2PService;
 
 use listners::EventManager;
 use std::fs;
