@@ -7,7 +7,6 @@
 		thread: CommentThread;
 		isSelected?: boolean;
 		isHighlighted?: boolean;
-		isLast?: boolean;
 		onSelect: () => void;
 		onResolve: (resolved: boolean) => void;
 		onDelete: () => void;
@@ -17,7 +16,6 @@
 		thread,
 		isSelected = false,
 		isHighlighted = false,
-		isLast = false,
 		onSelect,
 		onResolve,
 		onDelete,
@@ -287,6 +285,5 @@
 	{/if}
 </div>
 
-{#if !isLast}
-	<div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
-{/if}
+<div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
+

@@ -211,7 +211,7 @@
 </script>
 
 <div
-	class="absolute top-12 right-0 mt-2 z-50 w-[35rem] {isFocused
+	class="absolute top-12 right-0 mt-2 w-[35rem] {isFocused
 		? 'h-[26.125rem] '
 		: 'h-auto'} rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
 	role="dialog"

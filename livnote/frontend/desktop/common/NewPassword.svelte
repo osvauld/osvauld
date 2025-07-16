@@ -1,36 +1,37 @@
+
 <script lang="ts">
 	import Loader from "./Loader.svelte";
-	import { ClosedEye, Eye, Tick } from "../icons";
+	import { ClosedEye, Eye } from "../icons";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
-	import { sendMessage } from "../utils/helper";
 
-	// Replace createEventDispatcher with callback props
 	let {
-		onLogin,
-		collectedRecoveryString = $bindable(),
-		collectedUsername = $bindable(),
+		onReturn,
+		isLoaderActive
 	}: {
-		onLogin: (isCorrect: boolean) => void;
-		collectedRecoveryString?: string;
-		collectedUsername?: string;
+		onReturn: (passphrase: string) => void;
+		isLoaderActive: boolean;
 	} = $props();
+
 
 	// State variables
 	let passphrase = $state("");
 	let reenteredPassPhrase = $state("");
 	let showPassword = $state(false);
 	let showReenteredPassword = $state(false);
-	let isLoaderActive = $state(false);
 	let isPassphraseAcceptable = $state(false);
 
 	// Derived values
-
+	// TODO: for dev disabling this
 	// let submitDisabled = $derived(
 	// 	passphrase.length === 0 || passphrase.length < 6 ||
-	// 		passphrase !== reenteredPassPhrase
+	// 		passphrase !== reenteredPassPhrase 
 	// );
 
-	let submitDisabled = $state(false);
+	let submitDisabled =  $derived(
+		passphrase.length === 0 ||
+			passphrase !== reenteredPassPhrase 
+	);
+
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {
 		if (isInitialResponse) {
@@ -60,35 +61,6 @@
 		isPassphraseAcceptable = isAcceptable;
 	};
 
-	const triggerSignup = async (passphrase: string) => {
-		if (collectedRecoveryString) {
-			// for recovery flow
-			let parsedRecoveryData = JSON.parse(collectedRecoveryString);
-			const result = await sendMessage("addDevice", {
-				passphrase,
-				certificate: parsedRecoveryData.certificate,
-				username: parsedRecoveryData.username,
-				device_id: parsedRecoveryData.deviceId,
-			});
-			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
-			await sendMessage("login", { passphrase });
-			//TODO: need error handling here
-			onLogin?.(true);
-		} else {
-			// for new user flow
-			const response = await sendMessage("savePassphrase", {
-				passphrase,
-				username: collectedUsername,
-			});
-			const privatekey = await sendMessage("login", { passphrase });
-			const certificate = await sendMessage("exportCertificate", {
-				passphrase,
-			});
-			collectedRecoveryString = JSON.stringify(certificate);
-			await StorageService.setIsLoggedIn("true");
-			onLogin?.(true);
-		}
-	};
 
 	const handleSubmit = async (event: Event) => {
 		event.preventDefault();
@@ -96,38 +68,33 @@
 		if (submitDisabled) return;
 
 		isLoaderActive = true;
-		await triggerSignup(passphrase);
-		isLoaderActive = false;
+		onReturn?.(passphrase);
+		// need to change loader active via parent prop
 	};
 
 	const preventDefault = (e: Event) => e.preventDefault();
 </script>
 
-<form
-	onsubmit={handleSubmit}
-	class="flex flex-col items-center justify-center select-none">
+<form onsubmit={handleSubmit} class="flex flex-col items-center justify-center select-none">
 	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Set passphrase</h1>
-	<p
-		class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">
-		This will be used to encrypt and decrypt your data. <br /> This will not leave
-		your device.
-	</p>
+	<p class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">This will be used to encrypt and decrypt your data. <br/> This will not leave your device.</p>
 	<div class="h-[20rem] mt-6">
 		<label
 			for="new-passphrase"
-			class="font-normal text-osvauld-quarzowhite self-start"
+			class="font-normal text-osvauld-quarzowhite self-start "
 			>Enter passphrase</label>
 		<div
 			class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink mt-2">
 			<input
-				class="select-none w-[20rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0 outline-none"
+				class="select-none w-[20rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0  outline-none"
 				type={showPassword ? "text" : "password"}
 				id="new-passphrase"
 				autocomplete="off"
 				autocorrect="off"
 				use:autofocus
 				oninput={handleInputChange}
-				oncopy={preventDefault} />
+				oncopy={preventDefault}
+			/>
 
 			<!-- {#if isPassphraseAcceptable}
 			<span class="pr-2"><Tick /></span>
@@ -175,15 +142,11 @@
 	</div>
 
 	<button
-		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300"
-		class:bg-livnotePink={!submitDisabled}
-		class:text-mobile-bgPrimary={!submitDisabled}
-		class:bg-signupGray={submitDisabled}
-		class:text-white={submitDisabled}
+		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray bg-livnotePink text-bgPrimary focus:border-livnotePink outline-0 transition-colors duration-300"
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}
-			<Loader color="#000" size={24} />
+			<Loader color="#000" size={28} />
 		{:else}
 			<span>Submit</span>
 		{/if}

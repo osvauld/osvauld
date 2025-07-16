@@ -61,7 +61,7 @@
 		role="button"
 		tabindex="0"
 		aria-label="Go to home view"
-		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight"
+		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
 		onclick={() => uiState.toggleProfileViewLayout(false)}
 		onkeydown={(e) => {
 			if (e.key === "Enter" || e.key === " ") {
