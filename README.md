@@ -4,50 +4,64 @@
   <img src="https://www.osvauld.com/assets/logo.png" alt="Osvauld Logo" width="300" height="300" >
 </a>
 </p>
-
 <h1 align="center"><b>Own Your Data, Leave No Footprint</b></h1>
 
+**Osvauld** is a framework for building peer-to-peer applications that prioritize privacy, security, and user control. Built entirely in Rust, Osvauld provides everything you need to create modern, privacy-respecting applications that work without centralized servers or data collection.
 
-Meet [osvauld](https://osvauld.com). A Peer-to-peer approach make sure you can sync data
-end-to-end encrypted, directly between devices desktop or mobile — without a middleman.
+## 🚀 Current Applications
 
+### LivNote - Collaborative Document Editor
+A real-time collaborative document editor that works entirely peer-to-peer. [Explore LivNote →](./livnote)
 
-## 🔒 Features & Security 
+### Password Manager *(Coming Soon)*
+A secure credential management system with team sharing capabilities.
 
-- **End-to-End Encryption**: All your credentials including meta data never leaves your browser unencrypted and only you and to whom you shared can decrypt it using corresponding secret password - strictly adhering to zero-knowledge architecture.
-- **Open-PGP**: Quickly share credentials with your team with open-PGP sharing mechanism, It is a 40-year old battle tested cryptography protocol suit.
-- **Sequoia-PGP**: osvauld uses Rust based Seqouia-PGP which has its Focus on safety and correctness, Uses a memory-safe language, First-Class Library.
-- **ECC and AES Algorithms**: osvauld uses  the OpenPGP RFC 4880 standard with ECC Curve25519 AND AES-256.
-- **Peer-to-peer Connection**: Enabled by Iroh, lets you establish direct peer-to-peer connections whenever possible, falling back to relay servers if necessary. This gives you fast, reliable connections that are authenticated and encrypted end-to-end using QUIC.
+## 🔒 Core Framework Features
 
+- **Server-Free P2P Networking**: Direct device-to-device communication - no servers needed to host or maintain
+- **End-to-End Encryption**: All data encrypted in transit and at rest following zero-knowledge architecture
+- **Self-Sovereign Identity**: Digital signatures and certificate-based identity management
+- **QUIC Protocol**: Fast, authenticated, and encrypted connections for reliable P2P communication
+- **Offline-First Architecture**: Full functionality without internet connectivity, syncing when available
+- **CRDT Integration**: Conflict-free replicated data types for seamless collaborative editing
+- **Cross-Platform Support**: Works on Android, iOS, Linux, Windows, and macOS
 
+## 📦 Libraries
 
-## 🍙 Offline First
+🔧 [`crypto_utils`](./crypto_utils) - Cryptographic operations library powered by Sequoia-PGP for identity management, encryption, and digital signatures.
 
-Allows users to create and edit data offline, syncing changes when the internet is available. This approach giving users direct control and reduces risk by avoiding server data transmission, enables strong local encryption, and simplifies authentication through local credential management rather than remote servers.
+🌐 [`network`](./network) - Peer-to-peer networking layer powered by Iroh for direct device connections and data exchange.
 
+🗄️ [`persistance`](./persistance) - SQLite implementation of repository interfaces for local data storage and management.
 
-## 🛠️ Tech
+⚙️ [`services`](./services) - Synchronization and authentication logic for coordinating P2P operations.
 
-Its UI is written in [Svelte](https://svelte.dev) using [TypeScript](https://www.typescriptlang.org). Cross-platform builds made with [Tauri](https://tauri.app) with [SQLite](https://www.sqlite.org) Database.
-p2p enabled with [Iroh](https://www.iroh.computer)
+🏗️ [`core`](./core) - Core domain types and business logic foundations for Osvauld applications.
 
+## 🍙 Offline-First Philosophy
 
+Osvauld applications work seamlessly offline, syncing changes when connectivity returns. This approach ensures:
+- Complete user control over data
+- Reduced security risks through local-first design
+- Strong local encryption
+- No dependency on external servers or services
 
-## 🚢 Onboard osvauld
+## 🏗️ Building with Osvauld
 
-Supported on - Android, iOS, Linux, Window and macOS
-
-# FOSS HACK 2025
-LivNote - Collaborative document editor with server. Checkout here: [README](https://github.com/osvauld/osvauld/tree/dev/frontends/packages/livnote)
-
+Osvauld provides the infrastructure for creating privacy-focused, peer-to-peer applications. Whether you're building collaborative tools, secure messaging, or data sharing applications, Osvauld handles the complex networking, encryption, and synchronization so you can focus on your app's unique features.
 
 ## ❤️ Community
 
-The Osvauld community can be found on GitHub Discussions, where you can ask questions, voice ideas, and share your projects.
+Join our community to discuss ideas, ask questions, and share your projects:
 
-To chat with other community members you can join the [osvauld Discord](https://discord.gg/BVQtV6gS2c).
+- **GitHub Discussions**: Ask questions and share ideas
+- **Discord**: [Join our server](https://discord.gg/BVQtV6gS2c) for real-time chat
+- **Code of Conduct**: [Read our community guidelines](https://github.com/osvauld/osvauld/CODE_OF_CONDUCT.md)
 
-Our [Code of Conduct](https://github.com/osvauld/web-client/Osvauld/blob/master/CODE_OF_CONDUCT.md) applies to all Osvauld community channels.
+## 🙏 Acknowledgments
 
+This project has received funding from the **Kerala Startup Mission**.
 
+---
+
+*Ready to build the next generation of privacy-first applications? Start with Osvauld.*
