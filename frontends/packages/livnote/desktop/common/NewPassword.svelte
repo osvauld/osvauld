@@ -176,7 +176,7 @@
 	</div>
 
 	<button
-		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300"
+		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray text-bgPrimary focus:border-livnotePink outline-0 transition-colors duration-300"
 		class:bg-livnotePink={!submitDisabled}
 		class:text-mobile-bgPrimary={!submitDisabled}
 		class:bg-signupGray={submitDisabled}

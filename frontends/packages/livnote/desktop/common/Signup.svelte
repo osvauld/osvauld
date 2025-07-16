@@ -83,6 +83,8 @@
 			navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
 		}
 	};
+
+	
 </script>
 
 <div

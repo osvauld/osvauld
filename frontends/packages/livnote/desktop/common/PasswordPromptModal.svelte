@@ -6,7 +6,7 @@
 	import { generateCertificatePDF } from "../../../common/utils/backupUtil";
 	import { ClosedEye, ClosePanel, Eye } from "@osvauld/password-manager-common";
 	import SuccessView from "./SuccessView.svelte";
-	import NewPassword from "./NewPassword.svelte";
+	import NewPassword from "@osvauld/password-manager-common/components/NewPassword.svelte";
 	import Loader from "./Loader.svelte";
 
 	// Replace props and event dispatch with callback props
@@ -19,6 +19,7 @@
 	let newPasswordView = $state(false);
 	let showPassword = $state(false);
 	let loading = $state(false);
+
 	let dialogElement: HTMLDialogElement;
 
 	const closeModal = () => {
@@ -26,28 +27,22 @@
 		onClose?.(true);
 	};
 
+
 	const newPasswordViewHandler = async (event: Event) => {
 		event.preventDefault();
 		newPasswordView = true;
 	};
 
-	const handlePasswordChangeSubmit = async (isCorrect: boolean) => {
-		if (!isCorrect) {
-			errorView = true;
-			newPasswordView = false;
-			loading = false;
-			return;
-		}
-
+	const handlePasswordChangeSubmit = async (data: { passphrase: string }) => {
 		loading = true;
-		// The actual password change logic would need to be handled differently
-		// since NewPassword component doesn't provide the new password in this callback
+		const newPassword = data.passphrase;
 		try {
-			// This is a placeholder - we'd need to modify the NewPassword component
-			// to provide the new password, or handle this differently
-			success = true;
+			await sendMessage("changePassphrase", {
+				oldPassword: password,
+				newPassword,
+			});
+      success = true;
 		} catch (error) {
-			console.error("Error changing password:", error);
 			errorView = true;
 		} finally {
 			newPasswordView = false;
@@ -161,7 +156,7 @@
 				status={true}
 				message={changePassword ? "Password Changed" : "Export complete"} />
 		{:else if newPasswordView}
-			<NewPassword onLogin={handlePasswordChangeSubmit} />
+			<NewPassword onSubmit={handlePasswordChangeSubmit} />
 		{:else}
 			<form
 				class="flex flex-col items-center h-full w-full"
@@ -218,4 +213,4 @@
 			</form>
 		{/if}
 	</div>
-</dialog>
+</dialog> 
