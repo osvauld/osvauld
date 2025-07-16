@@ -1,6 +1,6 @@
 use crate::database::schema::{
-    device_record_status, device_records, devices, folders, resource_keys, resource_vector_clocks,
-    resources, share_records, sync_records, users,
+    devices, folders, resource_keys, resource_vector_clocks, resources, share_records,
+    sync_records, users,
 };
 use diesel::associations::Associations;
 use diesel::prelude::*;

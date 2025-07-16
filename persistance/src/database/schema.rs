@@ -1,29 +1,6 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    device_record_status (id) {
-        id -> Text,
-        device_record_id -> Text,
-        aware_device_id -> Text,
-        synced -> Bool,
-        created_at -> BigInt,
-        updated_at -> BigInt,
-    }
-}
-
-diesel::table! {
-    device_records (id) {
-        id -> Text,
-        sync_record_id -> Text,
-        device_id -> Text,
-        status -> Text,
-        synced -> Bool,
-        created_at -> BigInt,
-        updated_at -> BigInt,
-    }
-}
-
-diesel::table! {
     devices (id) {
         id -> Text,
         device_key -> Text,
@@ -109,18 +86,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    sync_records (id) {
-        id -> Text,
-        resource_id -> Text,
-        resource_type -> Text,
-        operation_type -> Text,
-        source_device_id -> Text,
-        created_at -> BigInt,
-        updated_at -> BigInt,
-    }
-}
-
-diesel::table! {
     users (id) {
         id -> Text,
         username -> Text,
@@ -135,10 +100,6 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(device_record_status -> device_records (device_record_id));
-diesel::joinable!(device_record_status -> devices (aware_device_id));
-diesel::joinable!(device_records -> devices (device_id));
-diesel::joinable!(device_records -> sync_records (sync_record_id));
 diesel::joinable!(devices -> users (user_id));
 diesel::joinable!(resource_keys -> resources (resource_id));
 diesel::joinable!(resource_keys -> users (user_id));
@@ -146,11 +107,8 @@ diesel::joinable!(resource_vector_clocks -> devices (device_id));
 diesel::joinable!(resource_vector_clocks -> resources (resource_id));
 diesel::joinable!(resources -> folders (folder_id));
 diesel::joinable!(share_records -> resources (resource_id));
-diesel::joinable!(sync_records -> devices (source_device_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    device_record_status,
-    device_records,
     devices,
     folders,
     resource_keys,
@@ -158,6 +116,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     resources,
     share_records,
     store_items,
-    sync_records,
     users,
 );
