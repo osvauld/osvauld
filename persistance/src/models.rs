@@ -1,6 +1,5 @@
 use crate::database::schema::{
-    devices, folders, resource_keys, resource_vector_clocks, resources, share_records,
-    sync_records, users,
+    devices, folders, resource_keys, resource_vector_clocks, resources, share_records, users,
 };
 use diesel::associations::Associations;
 use diesel::prelude::*;
@@ -55,18 +54,6 @@ impl From<FolderModel> for DomainFolder {
             deleted: model.deleted,
         }
     }
-}
-
-#[derive(Queryable, Insertable, Selectable, Debug)]
-#[diesel(table_name = sync_records)]
-pub struct SyncRecordModel {
-    pub id: String,
-    pub resource_id: String,
-    pub resource_type: String,
-    pub operation_type: String,
-    pub source_device_id: String,
-    pub created_at: i64,
-    pub updated_at: i64,
 }
 
 #[derive(Queryable, Insertable, Identifiable, Selectable)]
