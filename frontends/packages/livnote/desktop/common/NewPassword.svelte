@@ -1,20 +1,17 @@
 <script lang="ts">
 	import Loader from "./Loader.svelte";
-	import { ClosedEye, Eye, Tick } from "@osvauld/password-manager-common";
+	import { ClosedEye, Eye } from "@osvauld/password-manager-common";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
-	import { sendMessage } from "../../../common/utils/helper";
-	import { StorageService } from "../../../common/utils/storageHelper";
 
-	// Replace createEventDispatcher with callback props
 	let {
-		onLogin,
-		collectedRecoveryString  = $bindable(),
-		collectedUsername  = $bindable(),
+		onReturn,
+		isLoaderActive
 	}: {
-		onLogin: (isCorrect: boolean) => void;
-		collectedRecoveryString?: string;
-		collectedUsername?: string;
+		onReturn: (passphrase: string) => void;
+		isLoaderActive: boolean;
 	} = $props();
+
+
 
 
 	// State variables
@@ -22,7 +19,6 @@
 	let reenteredPassPhrase = $state("");
 	let showPassword = $state(false);
 	let showReenteredPassword = $state(false);
-	let isLoaderActive = $state(false);
 	let isPassphraseAcceptable = $state(false);
 
 	// Derived values
@@ -32,7 +28,10 @@
 	// 		passphrase !== reenteredPassPhrase 
 	// );
 
-	let submitDisabled = $state(false);
+	let submitDisabled =  $derived(
+		passphrase.length === 0 ||
+			passphrase !== reenteredPassPhrase 
+	);
 
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {
@@ -64,37 +63,37 @@
 	};
 
 
-	const triggerSignup = async (passphrase: string) => {
-		if (collectedRecoveryString) {
-			// for recovery flow
-			let parsedRecoveryData = JSON.parse(collectedRecoveryString);
-			const result = await sendMessage("addDevice", {
-				passphrase,
-				certificate: parsedRecoveryData.certificate,
-				username: parsedRecoveryData.username,
-		  	device_id: parsedRecoveryData.deviceId,
-			});
-			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
-			await sendMessage("login", { passphrase });
-			await StorageService.setIsLoggedIn("true");
-			//TODO: need error handling here
-			onLogin?.(true);
-		} else {
-			// for new user flow
-			const response = await sendMessage("savePassphrase", {
-				passphrase,
-				username: collectedUsername,
-			});
-			const privatekey = await sendMessage("login", { passphrase });
-			const certificate = await sendMessage("exportCertificate", {
-				passphrase
-			});
-			collectedRecoveryString = JSON.stringify(certificate);
-			await StorageService.setIsLoggedIn("true");
-			onLogin?.(true);
+	// const triggerSignup = async (passphrase: string) => {
+	// 	if (collectedRecoveryString) {
+	// 		// for recovery flow
+	// 		let parsedRecoveryData = JSON.parse(collectedRecoveryString);
+	// 		const result = await sendMessage("addDevice", {
+	// 			passphrase,
+	// 			certificate: parsedRecoveryData.certificate,
+	// 			username: parsedRecoveryData.username,
+	// 	  	device_id: parsedRecoveryData.deviceId,
+	// 		});
+	// 		//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
+	// 		await sendMessage("login", { passphrase });
+	// 		await StorageService.setIsLoggedIn("true");
+	// 		//TODO: need error handling here
+	// 		onLogin?.(true);
+	// 	} else {
+	// 		// for new user flow
+	// 		const response = await sendMessage("savePassphrase", {
+	// 			passphrase,
+	// 			username: collectedUsername,
+	// 		});
+	// 		const privatekey = await sendMessage("login", { passphrase });
+	// 		const certificate = await sendMessage("exportCertificate", {
+	// 			passphrase
+	// 		});
+	// 		collectedRecoveryString = JSON.stringify(certificate);
+	// 		await StorageService.setIsLoggedIn("true");
+	// 		onLogin?.(true);
 			
-		}
-	};
+	// 	}
+	// };
 
 	const handleSubmit = async (event: Event) => {
 		event.preventDefault();
@@ -102,8 +101,8 @@
 		if (submitDisabled) return;
 
 		isLoaderActive = true;
-		await triggerSignup(passphrase);
-		isLoaderActive = false;
+		onReturn?.(passphrase);
+		// need to change loader active via parent prop
 	};
 
 	const preventDefault = (e: Event) => e.preventDefault();
@@ -176,15 +175,11 @@
 	</div>
 
 	<button
-		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray text-bgPrimary focus:border-livnotePink outline-0 transition-colors duration-300"
-		class:bg-livnotePink={!submitDisabled}
-		class:text-mobile-bgPrimary={!submitDisabled}
-		class:bg-signupGray={submitDisabled}
-		class:text-white={submitDisabled}
+		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray bg-livnotePink text-bgPrimary focus:border-livnotePink outline-0 transition-colors duration-300"
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}
-			<Loader color="#000" size={24} />
+			<Loader color="#000" size={28} />
 		{:else}
 			<span>Submit</span>
 		{/if}

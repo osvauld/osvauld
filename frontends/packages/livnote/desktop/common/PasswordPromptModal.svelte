@@ -4,9 +4,9 @@
 	import { sendMessage } from "../../../common/utils/helper";
 	import { fly } from "svelte/transition";
 	import { generateCertificatePDF } from "../../../common/utils/backupUtil";
-	import { ClosedEye, ClosePanel, Eye } from "@osvauld/password-manager-common";
+	import { ClosedEye, Eye } from "@osvauld/password-manager-common";
 	import SuccessView from "./SuccessView.svelte";
-	import NewPassword from "@osvauld/password-manager-common/components/NewPassword.svelte";
+	import NewPassword from "./NewPassword.svelte";
 	import Loader from "./Loader.svelte";
 
 	// Replace props and event dispatch with callback props
@@ -18,8 +18,8 @@
 	let errorView = $state(false);
 	let newPasswordView = $state(false);
 	let showPassword = $state(false);
-	let loading = $state(false);
-
+	let parentLoaderActive = $state(false);
+	let isLoaderActive = $state(false);
 	let dialogElement: HTMLDialogElement;
 
 	const closeModal = () => {
@@ -28,35 +28,40 @@
 	};
 
 
+	const delay = async(time: number) => {
+		return new Promise(resolve => setTimeout(resolve, time));
+	}
+
+
 	const newPasswordViewHandler = async (event: Event) => {
 		event.preventDefault();
 		newPasswordView = true;
 	};
 
-	const handlePasswordChangeSubmit = async (data: { passphrase: string }) => {
-		loading = true;
-		const newPassword = data.passphrase;
+	const handlePasswordChangeSubmit = async (passphrase: string) => {
+		const newPassword = passphrase;
 		try {
 			await sendMessage("changePassphrase", {
 				oldPassword: password,
 				newPassword,
 			});
-      success = true;
 		} catch (error) {
+			console.error("Error changing passphrase:  ////>>>>>", error);
 			errorView = true;
 		} finally {
+			await delay(1000);
+			if(!errorView) success = true;
+			isLoaderActive = false;
 			newPasswordView = false;
-			loading = false;
-			setTimeout(() => {
-				closeModal();
-			}, 1500);
+			await delay(2000);
+			closeModal();
 		}
 	};
 
-	const handleRecoveryDataSubmit = async (event: Event) => {
+	const handleExportPdfSubmit = async (event: Event) => {
 		event.preventDefault();
 
-		loading = true;
+		parentLoaderActive = true;
 		try {
 			const certificate = await sendMessage("exportCertificate", {
 				passphrase: password,
@@ -78,12 +83,13 @@
 			console.error("Error exporting certificate:", error);
 			errorView = true;
 		} finally {
-			loading = false;
+			parentLoaderActive = false;
 			setTimeout(() => {
 				closeModal();
 			}, 1500);
 		}
 	};
+
 
 	const handleInputChange = (e: Event) => {
 		if (e.target instanceof HTMLInputElement) {
@@ -147,7 +153,7 @@
 		aria-labelledby="confirm-passphrase"
 		in:fly
 		out:fly>
-		{#if loading}
+		{#if parentLoaderActive}
 			<Loader color="#fff" size={32} />
 		{:else if errorView}
 			<SuccessView status={false} message="Unable to do operation" />
@@ -156,13 +162,16 @@
 				status={true}
 				message={changePassword ? "Password Changed" : "Export complete"} />
 		{:else if newPasswordView}
-			<NewPassword onSubmit={handlePasswordChangeSubmit} />
+			<NewPassword
+			isLoaderActive={isLoaderActive}
+			onReturn={handlePasswordChangeSubmit}
+			/>
 		{:else}
 			<form
 				class="flex flex-col items-center h-full w-full"
 				onsubmit={changePassword
 					? newPasswordViewHandler
-					: handleRecoveryDataSubmit}>
+					: handleExportPdfSubmit}>
 				<header class="flex p-2 pb-4 justify-center items-center w-full">
 					<h2
 						id="confirm-passphrase"

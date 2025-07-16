@@ -37,6 +37,7 @@ export const sendMessage = async (action: string, data?: any) => {
       "action\n",
       action,
     );
+    throw new Error("Error sending message");
   }
 };
 export const searchObjects = (

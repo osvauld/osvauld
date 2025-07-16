@@ -7,6 +7,8 @@
 	import ProvidePrivateKey from "./ProvidePrivateKey.svelte";
 	import FlowContainer from "./FlowContainer.svelte";
 	import InitiationScreen from "./InitiationScreen.svelte";
+	import { sendMessage } from "../../../common/utils/helper";
+	import { StorageService } from "../../../common/utils/storageHelper";
 
 	let { onSignedUp }: { onSignedUp?: () => void } = $props();
 
@@ -36,7 +38,7 @@
 
 	let collectedRecoveryString = $state("");
 	let collectedUsername = $state("");
-
+	let isLoaderActive = $state(false);
 
 	const navigateTo = (view: ViewState):void => {
 		viewHistory = [...viewHistory, currentView];
@@ -72,19 +74,50 @@
 		}
 	};
 
+
 	const handleUsernameCollected = ():void => {
 		// not using this value as of now
 		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
 	};
 
-	const handlePassphraseSet = (isLoggedin: boolean):void => {
-		if (isLoggedin) {
-			console.log("Passphrase set, navigating to private key step");
+
+
+	const handleReturnedNewPassword = async (passphrase: string) => {
+		isLoaderActive = true;
+		if (collectedRecoveryString) {
+			// for recovery flow
+			let parsedRecoveryData = JSON.parse(collectedRecoveryString);
+			const result = await sendMessage("addDevice", {
+				passphrase,
+				certificate: parsedRecoveryData.certificate,
+				username: parsedRecoveryData.username,
+		  	device_id: parsedRecoveryData.deviceId,
+			});
+			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
+			await sendMessage("login", { passphrase });
+			await StorageService.setIsLoggedIn("true");
+			//TODO: need error handling here
+			handleUserSignUpComplete(true);
+		} else {
+			// for new user flow
+			const response = await sendMessage("savePassphrase", {
+				passphrase,
+				username: collectedUsername,
+			});
+			const privatekey = await sendMessage("login", { passphrase });
+			const certificate = await sendMessage("exportCertificate", {
+				passphrase
+			});
+			collectedRecoveryString = JSON.stringify(certificate);
+			await StorageService.setIsLoggedIn("true");
 			navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
 		}
+
+		isLoaderActive = false;
+
 	};
 
-	
+
 </script>
 
 <div
@@ -100,8 +133,9 @@
 		{:else if currentView === VIEW_STATES.EXISTING_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
 				<NewPassword
-					onLogin={handleUserSignUpComplete}
-					bind:collectedRecoveryString />
+			    {isLoaderActive}
+				  onReturn={handleReturnedNewPassword}
+					 />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.COLLECT_USERNAME}
 			<FlowContainer onBack={goBack}>
@@ -110,9 +144,8 @@
 		{:else if currentView === VIEW_STATES.NEW_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
 				<NewPassword
-					onLogin={handlePassphraseSet}
-					bind:collectedUsername
-					bind:collectedRecoveryString 
+					{isLoaderActive}
+					onReturn={handleReturnedNewPassword}
 					/>
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
