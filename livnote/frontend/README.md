@@ -1,142 +1,104 @@
-# Livnote
+# LivNote
 
-Meet **Osvauld Livnote** – a collaborative document editor application that brings robust, peer-to-peer connectivity and end-to-end encryption to your document workflow. Edit, share, and collaborate on your documents in real time, all while staying truly independent of cloud infrastructure.
+**Real-time collaborative document editor powered by Osvauld**
 
----
+LivNote is a privacy-first collaborative document editor that works entirely peer-to-peer. Built on the Osvauld framework, it enables real-time collaboration without servers, ensuring your documents remain private and under your control.
 
-## 🔒 Features & Security
+## ✨ Features
 
-- **Real-Time Secure Collaboration:**  
-  Enjoy seamless, real-time document editing with a peer-to-peer connection that ensures data is transmitted directly between devices—minimizing reliance on intermediaries.
+- **📝 Real-time Collaborative Editing**: Multiple users can edit documents simultaneously with instant synchronization
+- **📋 Markdown Support**: Write and edit documents using Markdown syntax
+- **💬 Comments & Annotations**: Add comments and feedback directly within documents
+- **🔒 End-to-End Encrypted**: All document content is encrypted in transit and at rest
+- **🔐 Encrypted at Rest**: Local documents are stored encrypted on your device
+- **🌐 Offline-First**: Work seamlessly without internet connectivity, sync when available
+- **🚫 No Servers Required**: Direct peer-to-peer communication - no data leaves your control
+- **⚡ Rich Text Editing**: Powered by ProseMirror for a smooth, responsive editing experience
+- **🔄 Conflict-Free Synchronization**: Uses Yjs CRDT for seamless collaborative editing without conflicts
 
-- **End-to-End Encryption:**  
-  All your documents and metadata are encrypted locally. Only you and those you explicitly share with have the keys to decrypt your content, strictly adhering to a zero-knowledge architecture.
+## 🛠️ Technology Stack
 
-- **Open-PGP & Sequoia-PGP:**  
-  Securely share documents with team members using the trusted Open-PGP protocol, enhanced by Rust-based Seqouia-PGP, which emphasizes safety and correctness.
+- **Editor**: [ProseMirror](https://prosemirror.net/) - Rich text editor
+- **CRDT**: [Yjs](https://github.com/yjs/yjs) - Conflict-free replicated data types
+- **Framework**: [Osvauld](https://github.com/osvauld/osvauld) - P2P application framework
+- **Frontend**: Svelte with TypeScript
+- **Backend**: Rust with Tauri
 
-- **Robust Cryptographic Algorithms:**  
-  Our platform employs ECC Curve25519 and AES-256, following the OpenPGP RFC 4880 standard to keep your documents secure.
+## 🚀 Getting Started
 
----
-
-## 🍙 Offline First
-
-- **Work Anywhere, Anytime:**  
-  Create and edit documents offline with full functionality. Once you're back online, osvauld livnote seamlessly syncs your changes, ensuring your work is always up to date without compromising security.
-
----
-
-## 📝 Collaborative Editing
-
-- **Real-Time Editing:**  
-  Experience simultaneous editing with your team, complete with conflict resolution and version history to track changes and revert if necessary.
-
-- **Effortless Sharing:**  
-  Invite collaborators with ease and manage permissions securely, ensuring that every edit is as private as it is productive.
-
----
-
-## 🛠️ Tech
-
-- **Modern UI & Cross-Platform:**  
-  The user interface is built with Svelte and TypeScript, ensuring a fast, responsive experience across devices.
-
-- **Tauri & SQLite:**  
-  Enjoy native performance on Android, iOS, Linux, Windows, and macOS with cross-platform builds powered by Tauri and secure local storage managed by SQLite.
-
-- **Peer-to-Peer Enabled with Iroh:**  
-  Direct, encrypted connections between devices are made possible by Iroh, providing a fast and reliable p2p experience with fallback to relay servers when needed.
-
-- **ProseMirror**
-  A toolkit for building rich-text editors on the web.
-
----
-
-## 🛠️ Development & Testing
 ### Prerequisites
-- **Node.js & pnpm:** Ensure you have Node.js (v14+ recommended) and pnpm installed.
-- **Rust & Tauri CLI:** Install the Rust toolchain and Tauri CLI for building desktop applications.
-- **SQLite:** (Optional) For local database management if needed during development.
 
-### Setup
-1. **Clone the Repository:**
+- **Node.js** (version 18 or higher)
+- **pnpm** package manager
+- **Rust** (latest stable version)
+- **Tauri CLI** (`cargo install tauri-cli`)
+
+### Development Setup
+
+1. **Clone the repository**
    ```bash
    git clone https://github.com/osvauld/osvauld.git
+   cd osvauld
+   ```
 
-2. **Install dependecies:**
+   > LivNote is included as part of the main Osvauld repository
+
+2. **Install frontend dependencies**
    ```bash
-   cd /frontends/packages/livnote/desktop
+   cd livnote/frontend/desktop
    pnpm install
-   
-3. **Install tauri-cli:**
-   ```bash
-   cargo install tauri-cli
+   ```
 
-4. **Run development server:**
+3. **Run the development server**
    ```bash
-   cd /tauri/src-tauri
+   cd ../../src-tauri
    cargo tauri dev
+   ```
+
+### Building for Production
+
+```bash
+cd livnote/src-tauri
+cargo tauri build
+```
+
+The built application will be available in the `target/release/bundle` directory.
+
+## 🌟 How It Works
+
+LivNote leverages the Osvauld framework to create a truly decentralized collaborative editing experience:
+
+1. **Direct P2P Connections**: Documents are shared directly between devices without intermediary servers
+2. **Cryptographic Security**: All data is encrypted using self-sovereign identity principles
+3. **Conflict Resolution**: Yjs CRDT ensures all collaborators see consistent document state
+4. **Offline Resilience**: Work continues seamlessly even when disconnected
+
+## 🎯 Use Cases
+
+- **Team Collaboration**: Work together on documents without relying on cloud services
+- **Privacy-Sensitive Writing**: Keep confidential documents completely private
+- **Markdown Documentation**: Create technical documentation with Markdown support
+- **Offline Documentation**: Create and edit documents in environments with limited connectivity
+- **Decentralized Note-Taking**: Build a personal knowledge base that you fully control
+
+## 📖 About Osvauld
+
+LivNote is built on the [Osvauld framework](https://github.com/osvauld/osvauld), which provides the P2P networking, encryption, and synchronization capabilities that make server-free collaboration possible. Osvauld handles the complex infrastructure so applications like LivNote can focus on user experience.
 
 ## 🤝 Contributing
 
-We welcome contributions! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-### Code Style
-
-- Follow the established Rust/TypeScript style guide
-- Use Prettier/Rust-analyser for code formatting
-- Ensure all tests pass before submitting PRs
-- Document new features and changes
+We welcome contributions! Please see our [Contributing Guide](../CONTRIBUTING.md) for details on how to get started.
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](../LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## 🔗 Links
 
-- Tauri team for the amazing framework
-- Iroh team for p2p capabilities
-- Sequoia-PGP team for Rust implementation
-- All contributors and community members
-
-## 📞 Support & Contact
-
-- GitHub Issues: [Create an issue](https://github.com/osvauld/osvauld/issues)
-- Email: support@osvauld.com
-
-## 🔄 Version History
-
-See [CHANGELOG.md](CHANGELOG.md) for a list of changes and version updates.
-
-
-## 🚢 Onboard osvauld livnote
-
-Available on:
-- Android
-- iOS
-- Linux
-- Windows
-- macOS
+- **Main Repository**: [Osvauld Framework](https://github.com/osvauld/osvauld)
+- **Website**: [osvauld.com](https://osvauld.com)
+- **Discord**: [Join our community](https://discord.gg/BVQtV6gS2c)
 
 ---
 
-## ❤️ Community
-
-Join the growing community of osvauld users!  
-- **GitHub Discussions:** Connect, ask questions, and share your projects.  
-- **Discord:** Chat with community members in real time.  
-
-All community interactions are guided by our Code of Conduct to ensure a respectful and collaborative environment.
-
----
-
-Short demo for Livnote - [Youtube](https://youtu.be/H4hcDb3yQ7Y?si=lW8XT_DS8iemXARP)
-
-Start collaborating securely with **osvauld livnote** – where your documents remain yours, and every edit is protected.
+*Built with ❤️ using the Osvauld framework*
