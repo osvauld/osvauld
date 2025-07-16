@@ -6,7 +6,7 @@ use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, HandshakeInit,
     HandshakeMessage, Message, User, UserManifestComparisonResult,
 };
-use osvauld_db::database::RepositoryContext;
+use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};

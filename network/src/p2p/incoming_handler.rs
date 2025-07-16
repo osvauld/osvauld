@@ -4,7 +4,7 @@ use osvauld_core::models::{
     p2p::{LiveEditMessage, Message},
     ConnectionAction, ConnectionType,
 };
-use osvauld_services::{apply_updates_and_get_peer_updates, get_resource_state_vector};
+use services::{apply_updates_and_get_peer_updates, get_resource_state_vector};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
 

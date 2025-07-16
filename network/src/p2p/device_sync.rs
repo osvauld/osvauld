@@ -3,7 +3,7 @@ use crate::p2p::peer_connection::PeerConnection;
 use osvauld_core::models::{
     DeviceManifestComparisonResult, DeviceManifestRequestPayload, DeviceNetworkSyncPayload, Message,
 };
-use osvauld_services::{
+use services::{
     create_device_network_sync_payload, get_device_manifest, process_device_manifest_request,
     process_device_network_sync,
 };

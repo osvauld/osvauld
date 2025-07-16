@@ -5,7 +5,7 @@ use osvauld_core::models::{
     UserManifestComparisonResult, UserManifestDifferences, UserManifestPayload,
     UserManifestRequestPayload, UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices, user,
 };
-use osvauld_db::database::RepositoryContext;
+use persistance::database::RepositoryContext;
 use std::collections::{HashMap, HashSet};
 use tracing::{Span, info, instrument};
 #[derive(Debug, Clone)]

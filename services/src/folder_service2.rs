@@ -1,6 +1,6 @@
 use osvauld_core::models::Folder;
 use osvauld_core::repositories::RepositoryError;
-use osvauld_db::database::RepositoryContext;
+use persistance::database::RepositoryContext;
 
 use thiserror::Error;
 
@@ -52,4 +52,3 @@ pub async fn create_default_folder(
 ) -> Result<Folder, FolderServiceError> {
     create_folder("default".to_string(), None, repo_ctx).await
 }
-

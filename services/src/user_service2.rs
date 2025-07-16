@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crypto_utils::{CryptoUtils, get_key_id};
 use log::{debug, error, info};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};
-use osvauld_db::database::RepositoryContext;
+use persistance::database::RepositoryContext;
 use tokio::sync::Mutex;
 
 pub async fn add_known_user(

@@ -1,6 +1,6 @@
 use crate::types::{AddFolderInput, CryptoResponse, FolderResponse, SoftDeleteFolder};
-use osvauld_db::database::RepositoryContext;
-use osvauld_services::{create_folder, get_all_folders, soft_delete_folder};
+use persistance::database::RepositoryContext;
+use services::{create_folder, get_all_folders, soft_delete_folder};
 use tauri::State;
 
 #[tauri::command]

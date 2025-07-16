@@ -3,10 +3,10 @@ use std::sync::Arc;
 use crate::{current_note_state::CurrentNoteState, types::ResourceResponse, user_state::UserState};
 use crypto_utils::CryptoUtils;
 use log::{error, info, warn};
-use osvauld_db::database::RepositoryContext;
-use osvauld_services::{get_resource_by_id_direct, get_shared_user_devices_for_note};
-use p2p_service::p2p::{P2PEvent, incoming::P2PSender};
+use network::p2p::{P2PEvent, incoming::P2PSender};
+use persistance::database::RepositoryContext;
 use serde_json::Value;
+use services::{get_resource_by_id_direct, get_shared_user_devices_for_note};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::{Mutex, mpsc};
 

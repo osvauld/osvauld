@@ -1,8 +1,8 @@
 [package]
-name = "osvauld"
+name = "livnote"
 version = "0.1.0"
-description = "FOSS: p2p applications"
-authors = ["you"]
+description = "A peer to peer collaborative editor"
+authors = ["Abraham"]
 edition = "2024"
 
 
@@ -16,7 +16,7 @@ panic = "abort"   # Higher performance by disabling panic handlers.
 strip = true      # Ensures debug symbols are removed.
 
 [lib]
-name = "osvauld_lib"
+name = "livnote"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]
@@ -24,7 +24,7 @@ tauri-build = { version = "2.3.0", features = [] }
 cc = "1.2.29"
 
 [dependencies]
-p2p_service = { path = "../../p2p-service" }
+network = { path = "../../network" }
 tauri-plugin-shell = "2.2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -47,8 +47,8 @@ url = "2.5.4"
 rand = "0.8.5"
 base64 = "0.22.1"
 osvauld_core = { path = "../../core" }
-osvauld_db = { path = "../../osvauld-db/" }
-osvauld_services = { path = "../../osvauld-services" }
+persistance = { path = "../../persistance" }
+services = { path = "../../services" }
 tauri = { version = "2.4.1", features = [] }
 tauri-plugin-fs = "2.2.1"
 yrs = { version = "0.23.1", features = ["sync"] }

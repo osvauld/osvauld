@@ -8,7 +8,7 @@ use osvauld_core::models::user::User;
 
 use rand::{RngCore, rngs::OsRng};
 
-use osvauld_db::database::RepositoryContext;
+use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
