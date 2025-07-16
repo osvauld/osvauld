@@ -56,7 +56,7 @@ Join our community to discuss ideas, ask questions, and share your projects:
 
 - **GitHub Discussions**: Ask questions and share ideas
 - **Discord**: [Join our server](https://discord.gg/BVQtV6gS2c) for real-time chat
-- **Code of Conduct**: [Read our community guidelines](https://github.com/osvauld/osvauld/CODE_OF_CONDUCT.md)
+- **Code of Conduct**: [Read our community guidelines](./CODE_OF_CONDUCT.md)
 
 ## 🙏 Acknowledgments
 
