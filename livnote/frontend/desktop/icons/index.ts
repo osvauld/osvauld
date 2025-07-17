@@ -82,3 +82,5 @@ export { default as Settings } from './settings.svelte';
 export { default as GoBack } from './goBack.svelte';
 export { default as CommentIcon } from './comment.svelte';
 export { default as ReplyIcon } from './replyIcon.svelte';
+export { default as ToastSuccess } from './toastSuccess.svelte';
+export { default as ToastError } from './toastError.svelte';
