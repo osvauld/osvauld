@@ -8,7 +8,6 @@
 	import FlowContainer from "./FlowContainer.svelte";
 	import InitiationScreen from "./InitiationScreen.svelte";
 	import { sendMessage } from "../utils/helper";
-	import { StorageService } from "../../../common/utils/storageHelper";
 
 	let { onSignedUp }: { onSignedUp?: () => void } = $props();
 
@@ -101,8 +100,6 @@
 				});
 				//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
 				await sendMessage("login", { passphrase });
-				await StorageService.setIsLoggedIn("true");
-				//TODO: need error handling here
 				handleUserSignUpComplete(true);
 			} else {
 				// for new user flow
@@ -115,7 +112,6 @@
 					passphrase,
 				});
 				collectedRecoveryString = JSON.stringify(certificate);
-				await StorageService.setIsLoggedIn("true");
 				navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
 			}
 		} catch (error) {
