@@ -168,7 +168,7 @@
 
 		{#if showShareList}
 			<div
-				class="bg-transparent fixed inset-0 z-40"
+				class="bg-transparent fixed inset-0"
 				role="presentation"
 				aria-hidden="true"
 				onclick={(e) => {
@@ -185,7 +185,7 @@
 	</div>
 
 	<div
-		class="border-y-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
+		class="border-b-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
 		<p class="text-statusColor">
 			Last modified : {dataState.currentNote?.data
 				? getLastModifiedDate(lastModifiedTimestamp)

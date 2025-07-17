@@ -7,6 +7,7 @@
 	import ProvidePrivateKey from "./ProvidePrivateKey.svelte";
 	import FlowContainer from "./FlowContainer.svelte";
 	import InitiationScreen from "./InitiationScreen.svelte";
+	import { sendMessage } from "../utils/helper";
 
 	let { onSignedUp }: { onSignedUp?: () => void } = $props();
 
@@ -36,6 +37,7 @@
 
 	let collectedRecoveryString = $state("");
 	let collectedUsername = $state("");
+	let isLoaderActive = $state(false);
 
 	const navigateTo = (view: ViewState): void => {
 		viewHistory = [...viewHistory, currentView];
@@ -76,10 +78,46 @@
 		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
 	};
 
-	const handlePassphraseSet = (isLoggedin: boolean): void => {
-		if (isLoggedin) {
-			console.log("Passphrase set, navigating to private key step");
-			navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
+	const handleReturnedNewPassword = async (passphrase: string) => {
+		isLoaderActive = true;
+
+		try {
+			if (collectedRecoveryString) {
+				// for recovery flow
+				let parsedRecoveryData;
+				try {
+					parsedRecoveryData = JSON.parse(collectedRecoveryString);
+				} catch (error) {
+					console.error("Error parsing recovery data:", error);
+					isLoaderActive = false;
+					return;
+				}
+				const result = await sendMessage("addDevice", {
+					passphrase,
+					certificate: parsedRecoveryData.certificate,
+					username: parsedRecoveryData.username,
+					device_id: parsedRecoveryData.deviceId,
+				});
+				//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
+				await sendMessage("login", { passphrase });
+				handleUserSignUpComplete(true);
+			} else {
+				// for new user flow
+				const response = await sendMessage("savePassphrase", {
+					passphrase,
+					username: collectedUsername,
+				});
+				const privatekey = await sendMessage("login", { passphrase });
+				const certificate = await sendMessage("exportCertificate", {
+					passphrase,
+				});
+				collectedRecoveryString = JSON.stringify(certificate);
+				navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
+			}
+		} catch (error) {
+			console.error("Error during password setup:", error);
+		} finally {
+			isLoaderActive = false;
 		}
 	};
 </script>
@@ -98,9 +136,7 @@
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.EXISTING_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
-				<NewPassword
-					onLogin={handleUserSignUpComplete}
-					bind:collectedRecoveryString />
+				<NewPassword {isLoaderActive} onReturn={handleReturnedNewPassword} />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.COLLECT_USERNAME}
 			<FlowContainer onBack={goBack}>
@@ -110,10 +146,7 @@
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
-				<NewPassword
-					onLogin={handlePassphraseSet}
-					bind:collectedUsername
-					bind:collectedRecoveryString />
+				<NewPassword {isLoaderActive} onReturn={handleReturnedNewPassword} />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
 			<FlowContainer onBack={goBack}>

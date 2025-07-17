@@ -84,8 +84,8 @@
 	--color-commentUnresolve: #ff9800;
 	--color-commentResolve: #4CAF50;
 	--color-commentDelete: #f44336;
+	--color-bgPrimary: #000000;
 	/* Mobile Colors */
-	--color-mobile-bgPrimary: #000000;
 	--color-mobile-bgSeconary: #0d0e13;
 	--color-mobile-bgHighlight: #2f303e;
 	--color-mobile-bgFade: #161722;
