@@ -42,7 +42,7 @@
 </script>
 
 <div
-	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey bg-mobile-bgPrimary p-12 rounded-lg">
+	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey bg-bgPrimary p-12 rounded-lg">
 	<form
 		class="flex flex-col justify-center items-center"
 		onsubmit={handleSubmit}>

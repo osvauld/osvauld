@@ -40,14 +40,14 @@
 	};
 
 	const handlePasswordChangeSubmit = async (passphrase: string) => {
-		const newPassword = passphrase;
+		isLoaderActive = true;
 		try {
 			await sendMessage("changePassphrase", {
 				oldPassword: password,
-				newPassword,
+				newPassword: passphrase,
 			});
 		} catch (error) {
-			console.error("Error changing passphrase:  ////>>>>>", error);
+			console.error("Error changing passphrase:", error);
 			errorView = true;
 		} finally {
 			await delay(1000);

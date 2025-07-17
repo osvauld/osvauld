@@ -66,10 +66,7 @@
 		event.preventDefault();
 
 		if (submitDisabled) return;
-
-		isLoaderActive = true;
 		onReturn?.(passphrase);
-		// need to change loader active via parent prop
 	};
 
 	const preventDefault = (e: Event) => e.preventDefault();
