@@ -26,23 +26,27 @@
 	async function handleSubmit(e: any) {
 		e.preventDefault();
 		isLoaderActive = true;
-		const pubkey = await sendMessage("login", { passphrase });
-		if (pubkey) {
-			authenticated?.(true);
-		} else {
-			isLoaderActive = false;
+		let pubkey
+		try{
+			pubkey = await sendMessage("login", { passphrase });
+		} catch (error) {
+			console.error(error);
 			errorMessage = true;
 			passphrase = "";
 			autofocus(inputElem);
+		} finally {
+			if(pubkey) authenticated?.(true);
+			isLoaderActive = false;
 			setTimeout(() => {
 				errorMessage = false;
 			}, 1500);
 		}
+
 	}
 </script>
 
 <div
-	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-osvauld-sheffieldgrey bg-bgPrimary p-12 rounded-lg">
+	class="h-auto mt-10 flex justify-center items-center text-base font-normal text-white bg-bgPrimary p-12 rounded-lg">
 	<form
 		class="flex flex-col justify-center items-center"
 		onsubmit={handleSubmit}>
