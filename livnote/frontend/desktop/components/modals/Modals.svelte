@@ -3,11 +3,6 @@
 	import DeleteConfirmationModal from "./DeleteConfirmationModal.svelte";
 	import PasswordPromptModal from "../../common/PasswordPromptModal.svelte";
 	import { uiState } from "../../state/";
-	import { sendMessage } from "../../utils/helper";
-
-	const handleConnectorClose = () => {
-		uiState.toggleModal("showConnector", false);
-	};
 </script>
 
 <!-- Each modal is conditionally rendered based on its state -->
