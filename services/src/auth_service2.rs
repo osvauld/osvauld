@@ -2,7 +2,7 @@ use crypto_utils::{
     CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
     generate_and_encrypt_ed25519_key, generate_keys, get_key_id, import_certificate,
 };
-use osvauld_core::models::auth::Certificate;
+use osvauld_core::models::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
 
@@ -65,7 +65,16 @@ pub async fn handle_signup(
 ) -> Result<(), String> {
     // Create user and primary certificate
     let (user, primary_certificate) = create_user(username, passphrase).await?;
-
+    let mut crypto = CryptoUtils::new();
+    crypto
+        .decrypt_and_load_certificate(
+            &primary_certificate.private_key,
+            &primary_certificate.salt,
+            passphrase,
+        )
+        .map_err(|e| e.to_string())?;
+    let ucan_certificate = generate_ucan_key(&crypto).await?;
+    crypto.clear_cert();
     // Create device and device certificate
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     repo_context
@@ -76,6 +85,7 @@ pub async fn handle_signup(
             &device,
             &device_certificate,
             None,
+            &ucan_certificate,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -204,7 +214,7 @@ pub async fn import_user(
 ) -> Result<(User, Certificate), String> {
     let result = import_certificate(certificate, passphrase).map_err(|e| e.to_string())?;
     let user_id = get_key_id(&result.public_key).map_err(|e| e.to_string())?;
-    let certificate = Certificate {
+    let primary_certificate = Certificate {
         private_key: result.private_key,
         public_key: result.public_key,
         salt: result.salt,
@@ -213,7 +223,7 @@ pub async fn import_user(
     let user = User::new(
         username.to_string(),
         user_id.clone(),
-        certificate.public_key.clone(),
+        primary_certificate.public_key.clone(),
         "signature".to_string(),
         true,
         true,
@@ -224,19 +234,30 @@ pub async fn import_user(
         user_id.clone(),
     );
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
+    let mut crypto = CryptoUtils::new();
+    crypto
+        .decrypt_and_load_certificate(
+            &primary_certificate.private_key,
+            &primary_certificate.salt,
+            passphrase,
+        )
+        .map_err(|e| e.to_string())?;
+    let ucan_certificate = generate_ucan_key(&crypto).await?;
+    crypto.clear_cert();
 
     repo_ctx
         .user_repo
         .commit_signup_transaction(
             &user,
-            &certificate,
+            &primary_certificate,
             &device,
             &device_certificate,
             Some(&peer_device),
+            &ucan_certificate,
         )
         .await
         .map_err(|e| e.to_string())?;
-    Ok((user, certificate))
+    Ok((user, primary_certificate))
 }
 pub async fn sign_random_challenge(
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
@@ -261,4 +282,22 @@ pub fn generate_challenge() -> String {
             write!(acc, "{:02x}", byte).unwrap();
             acc
         })
+}
+
+async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> Result<Certificate, String> {
+    // Generate, derive, and encrypt UCAN key (all in one step)
+    let (encrypted_ucan_private_key, ucan_public_key) = {
+        crypto_utils
+            .generate_and_encrypt_ucan_key()
+            .map_err(|e| e.to_string())?
+    };
+
+    // Create UCAN certificate from generated keys (same structure as device certificate)
+    let ucan_certificate = Certificate {
+        private_key: encrypted_ucan_private_key,
+        public_key: ucan_public_key,
+        salt: String::new(), // UCAN keys don't need separate salt (encrypted with PGP)
+    };
+
+    Ok(ucan_certificate)
 }

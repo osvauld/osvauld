@@ -106,6 +106,7 @@ impl UserRepository for SqliteUserRepository {
         device: &Device,
         device_certificate: &Certificate,
         peer_device: Option<&Device>,
+        ucan_certificate: &Certificate,
     ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let now = Local::now().timestamp_millis();
@@ -160,6 +161,14 @@ impl UserRepository for SqliteUserRepository {
                 ))
                 .execute(conn)?;
 
+            // 3. Store ucan certificate
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("ucan_key"),
+                    store_items::value.eq(&ucan_certificate.private_key),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
             // 5. Save device
             let device_model = DeviceModel::from(device);
             diesel::insert_into(devices::table)
@@ -171,7 +180,7 @@ impl UserRepository for SqliteUserRepository {
                     .values(&device_model)
                     .execute(conn)?;
             }
-            // 5. Save peer device
+
             Ok(())
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
