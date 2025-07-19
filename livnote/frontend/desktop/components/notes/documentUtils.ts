@@ -3,7 +3,7 @@ import { Schema } from 'prosemirror-model';
 import { schema } from 'prosemirror-schema-basic';
 import { addListNodes } from 'prosemirror-schema-list';
 import { initProseMirrorDoc } from 'y-prosemirror';
-import type { Note, NotePreview } from 'types/notes.types';
+import type { Note, NotePreview, NoteContent } from 'types/notes.types';
 
 // Create a combined schema for our document
 const editorSchema = new Schema({
@@ -63,6 +63,39 @@ export function applyYjsUpdates(currentState: Uint8Array | number[] | null, upda
   };
 }
 
+/**
+ * Create an empty note content without requiring a coordinator instance
+ * @param clientId - The client ID for the note
+ * @param username - The username for the note creator
+ * @returns A new empty NoteContent object
+ */
+export function createEmptyNoteContent(clientId: number, username?: string): NoteContent {
+  // Create temporary YJS documents just for content creation
+  const tempYDoc = new Y.Doc();
+  const tempType = tempYDoc.getXmlFragment('prosemirror');
+
+  // Initialize empty ProseMirror document
+  const prosemirrorDoc = initProseMirrorDoc(tempType, editorSchema);
+  // Create note content
+  const noteContent: NoteContent = {
+    content: tempType.toJSON(),
+    yjs_state: Array.from(Y.encodeStateAsUpdate(tempYDoc)),
+    image_state: Array.from(Y.encodeStateAsUpdate(tempYDoc)), // Same doc for simplicity
+    assets: [],
+    editor_state: {
+      doc: prosemirrorDoc.doc.toJSON(),
+      selection: { type: "text", anchor: 1, head: 1 }
+    },
+    client_id: clientId.toString(),
+    last_modified: Date.now(),
+    title: "Untitled Note",
+  };
+
+  // Clean up temporary doc
+  tempYDoc.destroy();
+
+  return noteContent;
+}
 /**
  * Generate a lightweight preview from full note data
  * Takes only the first few nodes from the editor state to reduce memory usage

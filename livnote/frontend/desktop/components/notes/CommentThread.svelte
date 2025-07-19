@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { CommentThread, Comment } from "../../types/notes.types";
-	import { notesInstance } from "./notes";
 	import { ReplyIcon } from "../../icons";
+	import { dataState } from "../../state";
 	// Props
 	interface Props {
 		thread: CommentThread;
@@ -36,10 +36,12 @@
 	function getPreviewText(): string {
 		// Get the text that was commented on from the document position
 		try {
-			const editorDoc = notesInstance.getDoc().editorState?.doc;
-			if (editorDoc && thread.position) {
-				const slice = editorDoc.slice(thread.position.from, thread.position.to);
-				const text = editorDoc.textBetween(
+			const coordinator = dataState.getNotesCoordinator();
+			const editorView = coordinator?.getEditorView();
+
+			if (editorView && thread.position) {
+				const doc = editorView.state.doc;
+				const text = doc.textBetween(
 					thread.position.from,
 					thread.position.to,
 					" ",
@@ -81,7 +83,9 @@
 		if (!trimmedReply) return;
 
 		try {
-			notesInstance.addCommentReply(thread.id, sanitize(trimmedReply));
+			let coordinator = dataState.getNotesCoordinator();
+			let commentService = coordinator?.getCommentsService();
+			commentService?.addComment(thread.id, sanitize(trimmedReply));
 			replyText = "";
 			isAddingReply = false;
 		} catch (error) {
@@ -286,4 +290,3 @@
 </div>
 
 <div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
-

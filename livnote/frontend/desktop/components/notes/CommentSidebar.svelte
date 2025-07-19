@@ -4,7 +4,7 @@
 
 	import type { CommentThread } from "../../types/notes.types";
 	import CommentThreadComponent from "./CommentThread.svelte";
-	import { notesInstance } from "./notes";
+	import { dataState } from "../../state";
 
 	// Props using Svelte 5 runes
 	interface Props {
@@ -13,14 +13,10 @@
 
 	const { onClose }: Props = $props();
 
-	// State
-	let threads = $state<CommentThread[]>([]);
-	// let threads: CommentThread[] = []
-	let isLoading = $state(false);
+	// State - much simpler now!
 	let selectedThreadId = $state<string | null>(null);
 	let showResolved = $state(false);
 	let highlightedThreadId = $state<string | null>(null);
-	let highlightTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let animatingThreadId = $state<string | null>(null);
 	let animationTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
@@ -54,12 +50,14 @@
 			} catch (error) {
 				console.error("Error saving read status:", error);
 			}
-		}, 100); // Debounce saves to avoid excessive localStorage writes
+		}, 100);
 	}
+
+	const threads = $derived(dataState.comments);
 
 	// Derived values
 	const sortedThreads = $derived.by(() => {
-		let sorted = [...threads].sort((a, b) => b.created_at - a.created_at); // Latest comments first (by creation time)
+		let sorted = [...threads].sort((a, b) => b.created_at - a.created_at);
 
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {
@@ -74,6 +72,7 @@
 
 		return sorted;
 	});
+
 	const filteredThreads = $derived.by(() => {
 		return sortedThreads.filter((thread: CommentThread) =>
 			showResolved ? thread.resolved : !thread.resolved,
@@ -88,15 +87,6 @@
 		);
 	});
 
-	function loadThreads() {
-		console.log("loading threads after update");
-		try {
-			threads = notesInstance.getAllCommentThreads();
-		} catch (error) {
-			console.error("Error loading comment threads:", error);
-		}
-	}
-
 	function handleThreadSelect(threadId: string) {
 		selectedThreadId = selectedThreadId === threadId ? null : threadId;
 
@@ -110,7 +100,7 @@
 	function markThreadAsRead(threadId: string) {
 		// Create a new Set to ensure reactivity
 		readThreadIds = new Set([...readThreadIds, threadId]);
-		saveReadStatus(); // Save to localStorage
+		saveReadStatus();
 	}
 
 	function scrollToCommentInEditor(threadId: string) {
@@ -135,7 +125,12 @@
 
 	function handleResolveThread(threadId: string, resolved: boolean) {
 		try {
-			notesInstance.resolveCommentThread(threadId, resolved);
+			// Access coordinator through dataState to resolve thread
+			const coordinator = dataState.getNotesCoordinator();
+			const commentsService = coordinator?.getCommentsService();
+			if (commentsService) {
+				commentsService.resolveThread(threadId, resolved);
+			}
 		} catch (error) {
 			console.error("Error resolving thread:", error);
 		}
@@ -143,26 +138,23 @@
 
 	function handleDeleteThread(threadId: string) {
 		try {
-			notesInstance.removeCommentMark(threadId);
+			// Access coordinator through dataState to delete thread
+			const coordinator = dataState.getNotesCoordinator();
+			const commentsService = coordinator?.getCommentsService();
+			if (commentsService) {
+				commentsService.deleteThread(threadId);
+			}
 		} catch (error) {
 			console.error("Error deleting thread:", error);
 		}
 	}
 
-	function getStatsText() {
-		const activeCount = threads.filter((t) => !t.resolved).length;
-		const resolvedCount = threads.filter((t) => t.resolved).length;
-		return `${activeCount} active, ${resolvedCount} resolved`;
-	}
-
 	function highlightThread(threadId: string) {
 		// Clear any existing timeouts
-		if (highlightTimeoutId) {
-			clearTimeout(highlightTimeoutId);
-		}
 		if (animationTimeoutId) {
 			clearTimeout(animationTimeoutId);
 		}
+
 		// Find the thread to check if it's resolved
 		const thread = threads.find((t) => t.id === threadId);
 		if (thread) {
@@ -176,21 +168,20 @@
 			}
 		}
 
-		// Set highlighted thread and move it to top (stays there permanently)
+		// Set highlighted thread and move it to top
 		highlightedThreadId = threadId;
 
-		// Set temporary animation state (times out)
+		// Set temporary animation state
 		animatingThreadId = threadId;
 
-		// Remove animation after 4 seconds (matches CSS animation duration)
+		// Remove animation after 4 seconds
 		animationTimeoutId = window.setTimeout(() => {
 			animatingThreadId = null;
 		}, 4000);
 	}
 
-	// Subscribe to comment updates
+	// Much simpler onMount - just load read status and listen for highlight events
 	onMount(() => {
-		// Load read status from localStorage first
 		loadReadStatus();
 
 		// Listen for comment highlight events from editor
@@ -204,27 +195,6 @@
 			handleCommentHighlight as EventListener,
 		);
 
-		// Load threads with a small delay to ensure notes instance is ready
-		const initializeSidebar = () => {
-			try {
-				loadThreads();
-
-				// Subscribe to real-time updates
-				const commentsService = notesInstance.getCommentsService();
-				commentsService.onUpdate("thread_added", loadThreads);
-				commentsService.onUpdate("thread_updated", loadThreads);
-				commentsService.onUpdate("thread_deleted", loadThreads);
-			} catch (error) {
-				console.error("Error initializing sidebar:", error);
-				// Retry after a short delay
-				setTimeout(initializeSidebar, 100);
-			}
-		};
-
-		// Try immediately, and also after a small delay
-		initializeSidebar();
-		setTimeout(initializeSidebar, 50);
-
 		return () => {
 			document.removeEventListener(
 				"highlight-comment-thread",
@@ -234,20 +204,7 @@
 	});
 
 	onDestroy(() => {
-		// Unsubscribe from updates
-		try {
-			const commentsService = notesInstance.getCommentsService();
-			commentsService.offUpdate("thread_added", loadThreads);
-			commentsService.offUpdate("thread_updated", loadThreads);
-			commentsService.offUpdate("thread_deleted", loadThreads);
-		} catch (error) {
-			// Service might not be available during cleanup
-		}
-
 		// Clean up timeouts
-		if (highlightTimeoutId) {
-			clearTimeout(highlightTimeoutId);
-		}
 		if (animationTimeoutId) {
 			clearTimeout(animationTimeoutId);
 		}
@@ -255,9 +212,6 @@
 			clearTimeout(saveTimeoutId);
 		}
 	});
-
-	// Expose loadThreads for parent component
-	export { loadThreads };
 </script>
 
 <style>
@@ -385,7 +339,6 @@
 <div class="comment-sidebar">
 	<div class="sidebar-header">
 		<h3 class="sidebar-title">Comments</h3>
-		<!-- <div class="sidebar-stats">{getStatsText()}</div> -->
 		<div class="filter-tabs">
 			<button
 				class="filter-tab relative"
@@ -408,11 +361,7 @@
 	</div>
 
 	<div class="sidebar-content">
-		{#if isLoading}
-			<div class="empty-state">
-				<div class="empty-state-title">Loading comments...</div>
-			</div>
-		{:else if filteredThreads.length === 0}
+		{#if filteredThreads.length === 0}
 			<div class="empty-state">
 				{#if threads.length === 0}
 					<span><CommentIcon size={24} /></span>

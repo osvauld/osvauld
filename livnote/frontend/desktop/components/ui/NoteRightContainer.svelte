@@ -10,12 +10,9 @@
 	import Loader from "../../common/Loader.svelte";
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
-
 	// Import utilities
-	import { getLastModifiedDate } from "../../utils/helper";
+	import { getLastModifiedDate, sendMessage } from "../../utils/helper";
 	import { pdfGenerator } from "../../utils/pdfGenerator";
-	import { notesInstance } from "../notes/notes";
-
 	// Import ShareNote component
 	import ShareNote from "../modals/ShareNote.svelte";
 	import { onMount } from "svelte";
@@ -31,25 +28,25 @@
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
-		if (!dataState.currentNote?.data) {
-			uiState.showToast("No note content to download", false);
-			return;
-		}
-
-		isPdfGenerating = true;
-		const pdfStatus = await pdfGenerator(
-			dataState.currentNote.data.content ?? "",
-			dataState.currentNote.data.title ?? "Untitled",
-		);
-
-		uiState.showToast(pdfStatus.message, pdfStatus.success);
-
-		isPdfGenerating = false;
+		// if (!dataState.currentNote?.data) {
+		// 	uiState.showToast("No note content to download", false);
+		// 	return;
+		// }
+		//
+		// isPdfGenerating = true;
+		// const pdfStatus = await pdfGenerator(
+		// 	dataState.currentNote.data.content ?? "",
+		// 	dataState.currentNote.data.title ?? "Untitled",
+		// );
+		//
+		// uiState.showToast(pdfStatus.message, pdfStatus.success);
+		//
+		// isPdfGenerating = false;
 	};
 
 	// Handle copying note content
 	const handleCopyNote = async () => {
-		if (!dataState.currentNote?.data) {
+		if (!dataState.currentNoteId) {
 			uiState.showToast("No note content to copy", false);
 			return;
 		}
@@ -71,29 +68,9 @@
 	const handleDeleteBtn = (item: "folder" | "note") => {
 		uiState.showDeleteConfirmation(item);
 	};
-
-	// Manual save function
 	const saveNoteManual = () => {
-		if (!dataState.currentNote) return;
-
-		notesInstance
-			.saveNote(dataState.currentNote.data?.title || "Untitled")
-			.catch(console.error);
-
-		saved = true;
-
-		setTimeout(() => {
-			saved = false;
-		}, 1000);
+		dataState.saveNote();
 	};
-
-	// Update lastModifiedTimestamp whenever currentNote changes
-	$effect(() => {
-		const currentTimestamp = dataState.currentNote?.data?.last_modified;
-		if (currentTimestamp) {
-			lastModifiedTimestamp = currentTimestamp;
-		}
-	});
 
 	$effect(() => {
 		saved = uiState.noteSaved;
@@ -185,10 +162,6 @@
 
 	<div
 		class="border-b-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
-		<p class="text-statusColor">
-			Last modified : {dataState.currentNote?.data
-				? getLastModifiedDate(lastModifiedTimestamp)
-				: "Not available"}
-		</p>
+		<p class="text-statusColor">Last modified : Not available</p>
 	</div>
 </div>

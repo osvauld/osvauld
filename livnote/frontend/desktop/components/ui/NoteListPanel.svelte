@@ -10,7 +10,6 @@
 		Add,
 	} from "../../icons";
 
-	import { notesInstance } from "../notes/notes";
 	let deleteBtnHoved = $state(false);
 	let addCredentialHovered = $state(false);
 
@@ -23,14 +22,8 @@
 			uiState.showToast("Please add/select folder", false);
 			return;
 		}
-
-		try {
-			const noteContent = notesInstance.createDefaultNote();
-			await dataState.addNote(noteContent);
-		} catch (error) {
-			console.error("Error creating note:", error);
-			uiState.showToast("Failed to create note", false);
-		}
+		console.log("add note triggered");
+		await dataState.addNote();
 	};
 </script>
 

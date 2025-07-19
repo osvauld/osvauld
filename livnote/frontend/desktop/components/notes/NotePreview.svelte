@@ -2,11 +2,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { EditorState } from "prosemirror-state";
-	import { Schema } from "prosemirror-model";
-	import { schema } from "prosemirror-schema-basic";
-	import { addListNodes } from "prosemirror-schema-list";
-	import { notesInstance } from "./notes"; // Import the shared notes instance
-
+	import { createEditorSchema } from "./schema/editorSchema";
 	// Props using Svelte 5 syntax
 	interface Props {
 		content?: string;
@@ -32,8 +28,7 @@
 
 		try {
 			// Create schema
-			const editorSchema = notesInstance.getDoc().schema; // Use the schema from notesInstance
-
+			let editorSchema = createEditorSchema();
 			let state;
 
 			// Try to initialize from editor state if available
@@ -99,7 +94,6 @@
 
 	// Update the preview when props change
 	$effect(() => {
-
 		// Update the editor content when props change
 		if (view) {
 			updateEditorContent();

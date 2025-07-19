@@ -1,14 +1,13 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { BackArrow, Star as EmptyStar, FavStar as Star } from "../../icons";
-	import { sendMessage } from "../../utils/helper";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
-	import { notesInstance } from "../notes/notes";
 	import Hamburger from "../../icons/Hamburger.svelte";
 	import { fade, fly } from "svelte/transition";
+	import { emit } from "@tauri-apps/api/event";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
@@ -18,7 +17,9 @@
 	let saved = $state(false);
 
 	// Derived state for favorite status
-	let isFavourite = $derived(dataState.currentNote?.favourite ?? false);
+	let isFavourite = $derived(
+		dataState.getCurrentNoteData()?.favourite ?? false,
+	);
 
 	// Toggle navigation panel
 	function toggleNavigationPanel() {
@@ -41,7 +42,6 @@
 
 	// Title editing functions
 	function startEditingTitle() {
-		newNoteTitle = notesInstance.getCurrentTitle();
 		isEditingTitle = true;
 
 		// Focus the input after the DOM updates
@@ -54,19 +54,19 @@
 	}
 
 	function saveTitle() {
-		if (newNoteTitle.trim() && dataState.currentNote) {
-			// Update the note title in state
-			dataState.currentNote = {
-				...dataState.currentNote,
-				data: {
-					...dataState.currentNote.data,
-					title: newNoteTitle,
-				},
-			};
-			notesInstance.updateTitle(newNoteTitle);
-			saveNoteManual();
-		}
-		isEditingTitle = false;
+		//TODO
+		// if (newNoteTitle.trim() && dataState.currentNote) {
+		// 	// Update the note title in state
+		// 	dataState.currentNote = {
+		// 		...dataState.currentNote,
+		// 		data: {
+		// 			...dataState.currentNote.data,
+		// 			title: newNoteTitle,
+		// 		},
+		// 	};
+		// 	saveNoteManual();
+		// }
+		// isEditingTitle = false;
 	}
 
 	const getInitial = (name: string): string => {
@@ -82,10 +82,7 @@
 
 	// Back button handler - saves and returns to list view
 	const handleBackButton = () => {
-		if (dataState.currentNote) {
-			notesInstance.saveNote();
-		}
-
+		dataState.saveNote();
 		// Switch to list view
 		uiState.toggleNoteViewLayout(false);
 		dataState.clearCurrentNote();
@@ -93,41 +90,18 @@
 
 	const toggleFav = async (e: Event) => {
 		e.stopPropagation();
-		if (!dataState.currentNote) return;
-
-		const newFavStatus = !isFavourite;
-
-		try {
-			await sendMessage("toggleFav", {
-				resourceId: dataState.currentNote.id,
-			});
-
-			// Update the note in state
-			dataState.currentNote = {
-				...dataState.currentNote,
-				favourite: newFavStatus,
-			};
-
-			dataState.updateNoteFavorite(dataState.currentNote.id);
-			// Update the note in the notes array
-		} catch (err) {
-			console.error("Error toggling favorite:", err);
-			uiState.showToast("Failed to update favorite status", false);
-		}
+		//TODO
+		// Update the note in the notes array
 	};
 
-	// Handle copying note content
-	const saveNoteManual = () => {
-		if (!dataState.currentNote) return;
-
+	const saveNoteManual = async () => {
+		await dataState.saveNote();
+		await emit("resource-update-complete", { id: dataState.currentNoteId });
 		saved = true;
-		notesInstance.saveNote().catch(console.error);
-
 		setTimeout(() => {
 			saved = false;
 		}, 1000);
 	};
-
 	onMount(async () => {
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
@@ -192,7 +166,7 @@
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
-						{dataState.currentNote?.data.title}
+						{dataState.getCurrentNoteData()?.data.title}
 					</span>
 				{/if}
 				<button

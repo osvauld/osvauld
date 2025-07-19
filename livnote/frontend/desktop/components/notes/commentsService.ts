@@ -7,6 +7,7 @@ import type {
   UserInfo,
   CommentUpdateCallback
 } from "../../types/notes.types";
+import { dataState } from "../../state";
 
 export class CommentsService {
   private commentsMap: Y.Map<CommentThread>;
@@ -18,8 +19,7 @@ export class CommentsService {
 
     // Set up observer for real-time updates
     this.commentsMap.observe((event) => {
-      console.log("observer here", event);
-      this.handleCommentsUpdate(event);
+      this.updateDataStateComments();
     });
   }
 
@@ -28,6 +28,15 @@ export class CommentsService {
    */
   setCurrentUser(user: UserInfo): void {
     this.currentUser = user;
+  }
+
+  /**
+  * Update the dataState comments with current threads
+  */
+  private updateDataStateComments(): void {
+    console.log("comments update");
+    const threads = this.getAllThreads();
+    dataState.comments = threads;
   }
 
   /**
@@ -63,7 +72,6 @@ export class CommentsService {
 
     // Store in Yjs map for real-time sync
     this.commentsMap.set(threadId, thread);
-
     return threadId;
   }
 
@@ -101,7 +109,6 @@ export class CommentsService {
     };
 
     this.commentsMap.set(threadId, updatedThread);
-
     return commentId;
   }
 
@@ -136,7 +143,6 @@ export class CommentsService {
     };
 
     this.commentsMap.set(threadId, updatedThread);
-
     return true;
   }
 
@@ -157,7 +163,6 @@ export class CommentsService {
     };
 
     this.commentsMap.set(threadId, updatedThread);
-
     return true;
   }
 
@@ -242,32 +247,7 @@ export class CommentsService {
     }
   }
 
-  /**
-   * Handle Yjs updates
-   */
-  private handleCommentsUpdate(event: Y.YMapEvent<CommentThread>): void {
-    event.changes.keys.forEach((change, key) => {
-      if (change.action === 'add') {
-        this.emitEvent('thread_added', { threadId: key });
-      } else if (change.action === 'update') {
-        this.emitEvent('thread_updated', { threadId: key });
-      } else if (change.action === 'delete') {
-        this.emitEvent('thread_deleted', { threadId: key });
-      }
-    });
-  }
 
-  /**
-   * Emit events to subscribers
-   */
-  private emitEvent(eventType: string, data: any): void {
-    const callbacks = this.callbacks.get(eventType);
-    if (callbacks) {
-      callbacks.forEach((callback) => {
-        callback(data);
-      });
-    }
-  }
 
   /**
    * Generate unique thread ID

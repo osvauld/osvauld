@@ -2,9 +2,9 @@ import { sendMessage } from "../utils/helper";
 import { uiState } from './ui.svelte';
 import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
-import { notesInstance } from "../components/notes/notes";
-import { applyYjsUpdates, generatePreview } from "../components/notes/documentUtils";
-import type { Note, NoteContent, NotePreview, Collaborator } from "../types/notes.types";
+import { applyYjsUpdates, createEmptyNoteContent, generatePreview } from "../components/notes/documentUtils";
+import type { Note, NoteContent, NotePreview, Collaborator, Comment, CommentThread } from "../types/notes.types";
+import type { NotesCoordinator } from "components/notes/notesCoordinator";
 // Define interfaces
 export interface Vault {
   id: string;
@@ -27,16 +27,41 @@ class DataState {
   vaults = $state<Vault[]>([{ id: "all", name: "All Vaults" }]);
   currentVault = $state<Vault>({ id: "all", name: "All Vaults" });
   notes = $state<NotePreview[]>([]);
-  currentNote = $state<Note | null>(null);
+  private notesCoordinator: NotesCoordinator | null = null;
+  private currentNoteData: Note | null = null;
   favoriteSelected = $state<boolean>(false);
   language = $state<string>("en");
   currentView = $state<string>("all");
   isDataLoading = $state<boolean>(false);
   userDetails = $state<UserDetails | null>(null)
+  currentNoteId = $state<string | null>(null);
   private _unlisteners: Array<() => void> = [];
   sharedUsers = $state([]);
   collaborators = $state<Collaborator[]>([]);
+  clientId: number = 0;
+  comments = $state<CommentThread[]>([]);
+  setNotesCoordinator(coordinator: NotesCoordinator | null) {
+    this.notesCoordinator = coordinator;
+  }
 
+  getNotesCoordinator(): NotesCoordinator | null {
+    return this.notesCoordinator;
+  }
+  getCurrentNoteId(): String | null {
+    return this.currentNoteId;
+  }
+  setCurrentNoteId(noteId: string | null) {
+    this.currentNoteId = noteId;
+  }
+
+  // Methods to manage current note data
+  setCurrentNoteData(note: Note | null) {
+    this.currentNoteData = note;
+  }
+
+  getCurrentNoteData(): Note | null {
+    return this.currentNoteData;
+  }
   // Derived values for filtering notes - declare as a class property with $derived
   filteredNotes = $derived.by(() => {
     // First filter by favorites if needed
@@ -86,7 +111,7 @@ class DataState {
       console.log("emitAll called in", performance.now())
       const response = await sendMessage("emitAllResources", selectedNotedId);
       if (response) {
-        this.currentNote = response;
+        this.setCurrentNoteData(response);
       }
     } catch (error) {
       console.error("Error fetching notes:", error);
@@ -102,13 +127,15 @@ class DataState {
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
   }
-  async addNote(noteContent: NoteContent) {
+  async addNote() {
+    const noteContent = createEmptyNoteContent(this.clientId, this.userDetails?.username);
     const note = await sendMessage("addCredential", {
       resourcePayload: JSON.stringify(noteContent),
       folderId: this.currentVault.id,
       resourceType: "notes"
     });
-    this.currentNote = note;
+    this.setCurrentNoteData(note);
+    this.setCurrentNoteId(note.id);
     uiState.toggleNoteViewLayout(true);
     StoreService.setCurrentNoteId(note.id);
     emit("note-change", note.id
@@ -120,13 +147,14 @@ class DataState {
   // Switch to a different note
   async switchNote(noteId: string) {
     uiState.toggleNoteViewLayout(true);
-    this.currentNote = null;
+    this.comments = [];
     const start = performance.now();
     const note = await sendMessage("getCredential", { resourceId: noteId })
     const end = performance.now();
     console.log('resource fetched in ', end - start);
     console.log(note.data);
-    this.currentNote = note;
+    this.setCurrentNoteData(note);
+    this.setCurrentNoteId(noteId);
     StoreService.setCurrentNoteId(noteId);
     if (noteId) {
       emit("note-change", noteId
@@ -144,7 +172,9 @@ class DataState {
 
   // Clear the current note
   clearCurrentNote() {
-    this.currentNote = null;
+    console.log('clearing current note');
+    this.setCurrentNoteId(null);
+    this.setCurrentNoteData(null);
     uiState.toggleNoteViewLayout(false);
     StoreService.setCurrentNoteId(null);
     emit("note-change", null).catch(error => {
@@ -160,6 +190,7 @@ class DataState {
   // Initialize the state
   async initializeState() {
     this.isDataLoading = true;
+    this.clientId = 0;
 
     const savedNoteId = await StoreService.getCurrentNoteId();
 
@@ -184,8 +215,7 @@ class DataState {
 
   async getUserDetails() {
     this.userDetails = await sendMessage('getUserDetails');
-    const clientId = this.getClientId();
-    notesInstance.updateClientId(clientId);
+    this.clientId = this.getClientId();
   }
 
   getClientId(): number {
@@ -243,14 +273,9 @@ class DataState {
 
       // Parse client_id to number for sender identification
       const senderId = parseInt(client_id, 10);
-
-      if (notesInstance) {
-        // Apply the awareness updates to the current editor
-        // console.log(`Applying awareness updates from client ${senderId} for resource ${resource_id}`);
-        notesInstance.applyAwarenessUpdate(updatesArray, senderId);
-      } else {
-        console.warn("Notes instance not available for awareness updates");
-      }
+      const coordinator = this.getNotesCoordinator();
+      //TODO
+      // coordinator.(updatesArray, senderId);
     } catch (error) {
       console.error("Error handling awareness-updates:", error);
     }
@@ -261,7 +286,7 @@ class DataState {
       const { resource_id, updates, client_id } = event.payload;
 
       // Check if this is for the current note
-      if (!this.currentNote || this.currentNote.id !== resource_id) {
+      if (!this.currentNoteId || this.currentNoteId !== resource_id) {
         console.log(`Received live update for non-active note: ${resource_id}`);
         return;
       }
@@ -271,16 +296,10 @@ class DataState {
 
       // Parse client_id to number for sender identification
       const senderId = parseInt(client_id, 10);
+      const coordinator = this.getNotesCoordinator()
+      coordinator?.applyRemoteUpdate(updatesArray, senderId);
 
-      if (notesInstance) {
-        // Apply the live updates directly to the current editor
-        // console.log(`Applying live updates from client ${senderId} to current editor for resource ${resource_id}`);
-        notesInstance.applyUpdate(updatesArray, senderId);
-
-        // No need to save here - the editor handles auto-save
-      } else {
-        console.warn("Notes instance not available for live updates");
-      }
+      // No need to save here - the editor handles auto-save
     } catch (error) {
       console.error("Error handling live-updates:", error);
     }
@@ -350,13 +369,23 @@ class DataState {
       ];
 
       // Also update currentNote if it's the same note that was updated
-      if (this.currentNote && this.currentNote.id === updatedResource.id) {
-        this.currentNote = updatedResource;
-      }
+      // TODO
+      // if (this.currentNote && this.currentNote.id === updatedResource.id) {
+      //   this.currentNote = updatedResource;
+      // }
     } else {
       // If the resource doesn't exist in the notes array, add it
       this.notes = [...this.notes, updatedResource];
     }
+  }
+
+  async saveNote() {
+    const coordinator = this.getNotesCoordinator();
+    const noteContent = coordinator?.saveNote();
+    await sendMessage("updateCredential", {
+      id: this.currentNoteId,
+      data: JSON.stringify(noteContent),
+    });
   }
 
   async handleDocumentUpdates(event: any) {
@@ -374,11 +403,10 @@ class DataState {
       // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
 
-      if (this.currentNote?.id && this.currentNote.id === resource_id) {
-        console.log(notesInstance);
+      if (this.currentNoteId && this.currentNoteId === resource_id) {
         // If this is the current note, apply the updates directly to the editor
-        console.log("Applying updates directly to current editor");
-        notesInstance.applyUpdate(updatesArray, 0);
+        const coordinator = this.getNotesCoordinator();
+        coordinator?.applyRemoteUpdate(updatesArray, 0);
         // The editor will save the note automatically
       } else {
         // For non-current notes, use our utility function to apply updates to stored state
@@ -431,7 +459,6 @@ class DataState {
         })
       });
 
-      console.log(`Backend update response for note ${note.id}:`, response);
       await emit('resource-update-complete', { id: note.id });
 
 

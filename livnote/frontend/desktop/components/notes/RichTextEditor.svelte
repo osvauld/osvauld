@@ -1,15 +1,16 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
-	import type { EditorState } from "prosemirror-state";
-	import type { UnlistenFn } from "@tauri-apps/api/event";
-	import { notesInstance } from "./notes";
+	import { emit, type UnlistenFn } from "@tauri-apps/api/event";
+	import { NotesCoordinator } from "./notesCoordinator";
 	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
 	import CommentModal from "./CommentModal.svelte";
 	import "./rich-text-editor.css";
+	import "./schema/editorCustomStyles.css"; // Import the new CSS file
 
-	// Event dispatcher for collaboration updates
+	// Initialize the coordinator
+	let coordinator: NotesCoordinator | null = null;
 
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
@@ -17,7 +18,6 @@
 	let autoSaveInterval: number | null = null;
 	let unsubscribeUpdate = $state<UnlistenFn | null>(null);
 	let isLoading = $state(true);
-	let currentlyLoadedNoteId = $state<string | null>(null);
 	let loadingInProgress = $state(false);
 	let elementWidth = $state<number | undefined>(undefined);
 	let resizeTimeoutId: number | null = null;
@@ -26,6 +26,7 @@
 	let pendingCommentPosition = $state<{ from: number; to: number } | null>(
 		null,
 	);
+
 	type LoadingPhase =
 		| "idle"
 		| "preparing"
@@ -35,6 +36,7 @@
 		| "error";
 	let loadingPhase = $state<LoadingPhase>("idle");
 	let error = $state<string | null>(null);
+
 	let showSkeleton = $derived(
 		loadingPhase === "preparing" || loadingPhase === "structure-ready",
 	);
@@ -43,30 +45,61 @@
 		loadingPhase === "content-loaded" || loadingPhase === "ready",
 	);
 
+	$effect(() => {
+		console.log(dataState.getCurrentNoteId());
+		loadNote();
+	});
+	// Initialize coordinator with proper client ID
+	function initializeCoordinator() {
+		coordinator = new NotesCoordinator({
+			clientId: dataState.clientId || 0,
+			onCollaborationUpdate: async (update, docType) => {
+				if (!dataState.getCurrentNoteId()) return;
+				// Emit collaboration update
+				await emit("sync-update", {
+					update: Array.from(update),
+					clientID: dataState.clientId,
+					resource_id: dataState.getCurrentNoteId(),
+					doc_type: docType,
+				});
+			},
+			onAwarenessUpdate: async (changes) => {
+				if (!dataState.getCurrentNoteId()) return;
+			},
+		});
+		// const userInfo = {
+		// 	name: dataState.userDetails?.username || `User ${dataState.clientId}`,
+		// 	color: generateUserColor(),
+		// 	id: dataState.clientId || 0,
+		// };
+		// console.log("setting userinfo");
+		// coordinator.setUserInfo(userInfo);
+	}
+
+	function generateUserColor(): string {
+		const colors = [
+			"#FF5630",
+			"#FFAB00",
+			"#36B37E",
+			"#00B8D9",
+			"#6554C0",
+			"#FF7452",
+		];
+		return colors[Math.floor(Math.random() * colors.length)];
+	}
+
 	const copyContentListener = (event: Event): void => {
 		if (!view) return;
 
 		try {
-			// Get the schema from the document
-			const { schema } = notesInstance.getDoc();
-
-			// Create a serializer with this schema
-			const serializer = DOMSerializer.fromSchema(schema);
-
-			// Create a document fragment
+			const serializer = DOMSerializer.fromSchema(view.state.schema);
 			const fragment = view.state.doc.content;
-
-			// Create a container for the HTML
 			const domFragment = document.createElement("div");
-
-			// Serialize the fragment to HTML
 			serializer.serializeFragment(fragment, { document }, domFragment);
 
-			// Get both HTML and plain text versions
 			const html = domFragment.innerHTML;
 			const text = domFragment.textContent || "";
 
-			// Use the Clipboard API to copy with formatting
 			if (navigator.clipboard && window.ClipboardItem) {
 				navigator.clipboard
 					.write([
@@ -83,31 +116,32 @@
 			console.error("Error during copy:", error);
 		}
 	};
-	// Replace the existing loadNote function with this phased version:
-	async function loadNote(id: string): Promise<void> {
-		if (!element || loadingInProgress || currentlyLoadedNoteId === id) {
-			return;
-		}
 
-		console.log(`[EDITOR] Starting phased loading for note ${id}`);
+	async function loadNote(): Promise<void> {
+		if (!coordinator) {
+			console.log("not calling");
+			initializeCoordinator();
+		}
+		dataState.setNotesCoordinator(coordinator);
 		loadingInProgress = true;
-		currentlyLoadedNoteId = id;
 
 		try {
-			// Phase 1: Immediate - Show layout and prepare
+			// Phase 1: Show skeleton
 			loadingPhase = "preparing";
 			error = null;
-
-			// Small delay to let the skeleton render
 			await new Promise((resolve) => setTimeout(resolve, 50));
 
 			// Phase 2: Initialize structure
 			loadingPhase = "structure-ready";
-			const docInfo = await notesInstance.loadNote();
 
-			if (!docInfo.editorState) {
-				throw new Error("Failed to initialize editor state");
+			// Load note content
+			const noteContent = dataState.getCurrentNoteData()?.data;
+			if (!noteContent) {
+				throw new Error("No note content available");
 			}
+			console.log("loading notecontnet");
+
+			await coordinator.loadNote(noteContent);
 
 			// Phase 3: Create editor view
 			if (view) {
@@ -115,19 +149,11 @@
 				view = null;
 			}
 
-			view = createEditorView(element, docInfo.editorState);
-
-			// Small delay to let editor render
+			view = coordinator.createEditorView(element);
 			await new Promise((resolve) => setTimeout(resolve, 100));
 
-			// Phase 4: Apply actual content
+			// Phase 4: Content loaded
 			loadingPhase = "content-loaded";
-			notesInstance.applyPendingYjsState(view);
-
-			// Update title in state
-			if (dataState.currentNote && dataState.currentNote.data) {
-				dataState.currentNote.data.title = notesInstance.getCurrentTitle();
-			}
 
 			// Phase 5: Finalize
 			setTimeout(() => {
@@ -141,26 +167,22 @@
 							selection.near(tr.doc.resolve(Math.max(0, endPosition))),
 						);
 						view.dispatch(tr.setMeta("cursorPlacement", true));
-
 						loadingPhase = "ready";
 					} catch (err) {
 						console.error("Error positioning cursor:", err);
 					}
 				}
 			}, 200);
+			console.log("content loaded");
 
-			// Setup auto-save (existing code)
+			// Setup auto-save
 			if (autoSaveInterval) {
 				clearInterval(autoSaveInterval);
 			}
 
 			autoSaveInterval = window.setInterval(() => {
-				if (dataState.currentNote) {
-					notesInstance.saveNote().catch(console.error);
-					uiState.noteSaved = true;
-					setTimeout(() => {
-						uiState.noteSaved = false;
-					}, 1000);
+				if (dataState.currentNoteId && coordinator) {
+					saveNote();
 				}
 			}, 30000);
 		} catch (err) {
@@ -172,148 +194,102 @@
 		}
 	}
 
-	function createEditorView(
-		element: HTMLElement,
-		state: EditorState,
-	): EditorView {
-		const { ydoc } = notesInstance.getDoc();
+	async function saveNote(): Promise<void> {
+		if (!coordinator || !dataState.getCurrentNoteId()) return;
 
-		const dispatchTransaction = async (tr: any) => {
-			if (!view) return;
+		try {
+			dataState.saveNote().then(async () => {
+				await emit("resource-update-complete", {
+					id: dataState.getCurrentNoteId(),
+				});
+			});
 
-			try {
-				const newState = view.state.apply(tr);
-				view.updateState(newState);
-
-				// Skip the update cycle for cursor placement transactions
-				if (tr.getMeta("cursorPlacement")) {
-					return;
-				}
-				notesInstance.updateEditorState(newState);
-				notesInstance.setEditorView(view);
-			} catch (err) {
-				console.error("Error in dispatch transaction:", err);
-			}
-		};
-
-		return new EditorView(element, {
-			state,
-			dispatchTransaction,
-		});
+			uiState.noteSaved = true;
+			setTimeout(() => {
+				uiState.noteSaved = false;
+			}, 1000);
+		} catch (error) {
+			console.error("Error saving note:", error);
+		}
 	}
 
 	function cleanupEditor(): void {
-		currentlyLoadedNoteId = null;
 		loadingPhase = "idle";
+		console.log("cleanup editor.....");
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
+
 		if (view) {
-			notesInstance.setEditorView(null);
 			view.destroy();
 			view = null;
 		}
+
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
 
 		// Save before cleanup if we have a note loaded
-		if (currentlyLoadedNoteId && dataState.currentNote) {
-			notesInstance.saveNote().catch(console.error);
-		}
+		saveNote().catch(console.error);
 
-		currentlyLoadedNoteId = null;
+		if (coordinator) {
+			coordinator.destroy();
+			coordinator = null;
+		}
 	}
 
-	// Check if window is too narrow for both panels, with debouncing
 	function checkWindowSize() {
 		if (resizeTimeoutId) {
 			clearTimeout(resizeTimeoutId);
 		}
 		resizeTimeoutId = window.setTimeout(() => {
-			// Still capture elementWidth, might be useful for other things or logging
 			elementWidth = element?.getBoundingClientRect().width;
-
 			const currentWindowWidth = window.innerWidth;
-			const NAV_PANEL_APPROX_WIDTH = 360; // Based on prior comments in file
+			const NAV_PANEL_APPROX_WIDTH = 360;
 
-			// Only auto-collapse if not manually toggled
 			if (!uiState.isNavigationPanelManuallyToggled) {
-				// The threshold is the space needed for the nav panel plus the min space for the editor
 				const thresholdToShowNav =
 					NAV_PANEL_APPROX_WIDTH + uiState.MIN_EDITOR_WIDTH;
-
 				uiState.showNavigationPanel = currentWindowWidth >= thresholdToShowNav;
 			}
-			resizeTimeoutId = null; // Clear the ID after execution
-		}, 50); // User updated delay to 50ms
+			resizeTimeoutId = null;
+		}, 50);
 	}
 
-	$effect(() => {
-		const currentNoteId = dataState.currentNote?.id;
-		const hasNoteData = dataState.currentNote?.data;
-
-		// Only load if we have both ID and data
-		if (
-			currentNoteId &&
-			hasNoteData &&
-			currentNoteId !== currentlyLoadedNoteId
-		) {
-			loadNote(currentNoteId);
-		} else if (!currentNoteId) {
-			// Handle note clearing
-			loadingPhase = "idle";
-			currentlyLoadedNoteId = null;
-		}
-	});
-
-	// Initialize when component mounts
 	onMount(async () => {
-		// Clear any state to ensure clean start
-		currentlyLoadedNoteId = null;
+		initializeCoordinator();
+		console.log("mounting.............");
 
 		document.addEventListener(
 			"request-editor-content",
 			copyContentListener as EventListener,
 		);
-
-		// Add comment modal event listeners
 		document.addEventListener(
 			"open-comment-modal",
 			handleOpenCommentModal as EventListener,
 		);
-
-		// Add comment click detection
 		document.addEventListener("click", handleCommentClick);
-
-		// Add comment text highlighting
 		document.addEventListener(
 			"highlight-comment-text",
 			handleHighlightCommentText as EventListener,
 		);
 
 		window.addEventListener("resize", checkWindowSize);
-		checkWindowSize(); // Initial check
+		checkWindowSize();
 	});
 
-	// Clean up when component is destroyed
 	onDestroy(() => {
 		cleanupEditor();
+
 		document.removeEventListener(
 			"request-editor-content",
 			copyContentListener as EventListener,
 		);
-
-		// Remove comment modal event listeners
 		document.removeEventListener(
 			"open-comment-modal",
 			handleOpenCommentModal as EventListener,
 		);
-
-		// Remove comment click detection
 		document.removeEventListener("click", handleCommentClick);
-
-		// Remove comment text highlighting
 		document.removeEventListener(
 			"highlight-comment-text",
 			handleHighlightCommentText as EventListener,
@@ -333,22 +309,21 @@
 	}
 
 	function handleSaveComment(content: string) {
-		if (!pendingCommentPosition || !view) {
-			console.error("No pending comment position or view");
+		if (!pendingCommentPosition || !coordinator) {
+			console.error("No pending comment position or coordinator");
 			return;
 		}
+
 		try {
-			// Use the new combined method from notesInstance
-			notesInstance.createCommentAndApplyMark(pendingCommentPosition, content);
+			coordinator.createComment(pendingCommentPosition, content);
 		} catch (error) {
 			console.error("Error creating comment:", error);
 		}
-		// Reset modal state
+
 		showCommentModal = false;
 		modalSelectedText = "";
 		pendingCommentPosition = null;
 
-		// Refocus editor
 		if (view) {
 			view.focus();
 		}
@@ -358,7 +333,7 @@
 		showCommentModal = false;
 		modalSelectedText = "";
 		pendingCommentPosition = null;
-		// Refocus editor
+
 		if (view) {
 			view.focus();
 		}
@@ -366,13 +341,11 @@
 
 	function handleCommentClick(event: MouseEvent) {
 		const target = event.target as HTMLElement;
-
-		// Check if the clicked element has a comment mark
 		const commentElement = target.closest("[data-livnote-comment]");
+
 		if (commentElement) {
 			const threadId = commentElement.getAttribute("data-livnote-comment");
 			if (threadId) {
-				// Dispatch event to highlight the comment in sidebar
 				const highlightEvent = new CustomEvent("highlight-comment-thread", {
 					detail: { threadId },
 				});
@@ -382,23 +355,19 @@
 	}
 
 	function handleHighlightCommentText(event: CustomEvent) {
-		const { threadId, position } = event.detail;
-		// Find the comment span in the editor
+		const { threadId } = event.detail;
 		const commentSpan = document.querySelector(
 			`[data-livnote-comment="${threadId}"]`,
 		);
+
 		if (commentSpan) {
-			// Scroll to the comment if not visible
 			commentSpan.scrollIntoView({
 				behavior: "smooth",
 				block: "center",
 				inline: "nearest",
 			});
 
-			// Add highlight animation class
 			commentSpan.classList.add("comment-text-highlight");
-
-			// Remove the class after animation completes
 			setTimeout(() => {
 				commentSpan.classList.remove("comment-text-highlight");
 			}, 3000);
@@ -406,6 +375,7 @@
 	}
 </script>
 
+<!-- Rest of the component remains the same -->
 <style>
 	/* Basic editor container structure */
 	.editor-container {
