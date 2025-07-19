@@ -9,11 +9,36 @@ import * as Y from "yjs";
 export interface NoteContent {
   content: string | Record<string, unknown>;
   yjs_state: Uint8Array | number[];
+  image_state: Uint8Array | number[];
+  assets: ImageAsset[];
   editor_state: string | Record<string, unknown>;
   client_id?: string;
   last_modified?: number;
   last_accessed?: number;
   title?: string;
+}
+
+export interface ImageAsset {
+  id: string;
+  data: string; // base64 data
+  mimeType: string;
+  size: number;
+  width?: number;
+  height?: number;
+  uploadedBy: number;
+  timestamp: number;
+  filename?: string;
+}
+
+export interface ImageMetadata {
+  id: string;
+  mimeType: string;
+  size: number;
+  width?: number;
+  height?: number;
+  uploadedBy: number;
+  timestamp: number;
+  filename?: string;
 }
 
 export interface Note {

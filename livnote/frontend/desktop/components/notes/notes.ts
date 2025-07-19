@@ -40,9 +40,13 @@ import type {
   CommentThread,
   CommentPosition,
   Collaborator,
+  ImageAsset,
+  ImageMetadata
 } from "../../types/notes.types";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { CommentsService } from "./commentsService";
+import { ImageStorageService } from "./imageStorage";
+import { imageNodeViewPlugin } from "./imageNodeViewPlugin";
 
 // Type definitions for notes, states and other components
 
@@ -72,18 +76,24 @@ import { CommentsService } from "./commentsService";
 
 export class Notes {
   private ydoc!: Y.Doc;
+  private imageDoc: Y.Doc;
   private type!: Y.XmlFragment;
   private commentsMap!: Y.Map<CommentThread>;
+  private imagesMap!: Y.Map<ImageMetadata>;
   private commentsService!: CommentsService;
+  private imageStorage!: ImageStorageService;
   private awareness!: Awareness;
   private clientID: number;
   public currentNoteId: string | null = null;
   private editorState: EditorState | null = null;
   private editorSchema!: Schema;
   private pendingYjsState: Uint8Array | null = null;
+  private pendingImageState: Uint8Array | null = null;
   private metadata!: Y.Map<any>;
   private editorView: EditorView | null = null;
-
+  private imageLoadPromise: Promise<void> | null = null;
+  private _imagesLoaded: boolean = false;
+  private currentAssets: ImageAsset[] = [];
   constructor() {
     this.clientID = 0;
     this.initSchema();
@@ -110,6 +120,33 @@ export class Notes {
     if (!codeMarkSpec) {
       throw new Error("Base schema does not contain a 'code' mark spec.");
     }
+    const imageSpec: NodeSpec = {
+      inline: true,
+      attrs: {
+        src: {},
+        alt: { default: null },
+        title: { default: null },
+        width: { default: null },
+        height: { default: null }
+      },
+      group: "inline",
+      draggable: true,
+      parseDOM: [{
+        tag: "img[src]",
+        getAttrs(dom: HTMLElement) {
+          return {
+            src: dom.getAttribute("src"),
+            alt: dom.getAttribute("alt"),
+            title: dom.getAttribute("title"),
+            width: dom.getAttribute("width"),
+            height: dom.getAttribute("height")
+          };
+        }
+      }],
+      toDOM(node) {
+        return ["img", node.attrs];
+      }
+    };
 
     // Helper function to add indent and align attributes to a node spec
     const addIndentAndAlignAttrs = (nodeSpec: NodeSpec): NodeSpec => ({
@@ -150,33 +187,6 @@ export class Notes {
         return [nodeSpec.parseDOM?.[0]?.tag || "p", attrs, 0] as [string, Object, number];
       },
     });
-    const imageSpec: NodeSpec = {
-      inline: true,
-      attrs: {
-        src: {},
-        alt: { default: null },
-        title: { default: null },
-        width: { default: null },
-        height: { default: null }
-      },
-      group: "inline",
-      draggable: true,
-      parseDOM: [{
-        tag: "img[src]",
-        getAttrs(dom: HTMLElement) {
-          return {
-            src: dom.getAttribute("src"),
-            alt: dom.getAttribute("alt"),
-            title: dom.getAttribute("title"),
-            width: dom.getAttribute("width"),
-            height: dom.getAttribute("height")
-          };
-        }
-      }],
-      toDOM(node) {
-        return ["img", node.attrs];
-      }
-    };
 
 
     // Get the heading node spec and modify it
@@ -480,6 +490,26 @@ export class Notes {
       .ProseMirror-separator {
         display: none !important;
       }
+      .image-node-container {
+        display: inline-block;
+        position: relative;
+        margin: 0.5em 0;
+      }
+
+      .image-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: #2a2b35;
+        border-radius: 4px;
+        color: #85889C;
+        font-size: 14px;
+      }
+
+      .ProseMirror-selectednode {
+        outline: 2px solid #4094ef;
+        outline-offset: 2px;
+      }
     `;
     document.head.appendChild(styleElement);
   }
@@ -489,20 +519,26 @@ export class Notes {
   }
   private initYjs(): void {
     this.ydoc = new Y.Doc();
+    this.imageDoc = new Y.Doc();
     this.type = this.ydoc.getXmlFragment("prosemirror");
     this.commentsMap = this.ydoc.getMap("comments");
     this.ydoc.clientID = this.clientID;
     this.awareness = new Awareness(this.ydoc);
     this.metadata = this.ydoc.getMap("metadata");
-
+    this.imagesMap = this.imageDoc.getMap("images");
     // Initialize comments service
     this.commentsService = new CommentsService(this.commentsMap);
-
+    this.imageStorage = new ImageStorageService(this.imagesMap, this.clientID);
     // Set up observer for document updates with origin tracking
     this.ydoc.on("update", (update: Uint8Array, origin: any) => {
       // Only handle updates that originated locally (not from sync)
       if (origin !== "sync" && origin !== "loading") {
-        void this.handleCollaborationUpdate(update);
+        void this.handleCollaborationUpdate(update, "main");
+      }
+    });
+    this.imageDoc.on("update", (update: Uint8Array, origin: any) => {
+      if (origin !== "sync" && origin !== "loading") {
+        void this.handleCollaborationUpdate(update, 'images');
       }
     });
 
@@ -583,6 +619,10 @@ export class Notes {
     this.metadata.set("title", title);
   }
 
+  getImageStorage(): ImageStorageService {
+    return this.imageStorage;
+  }
+
   private createBasicCustomCursor(user: UserInfo): HTMLElement {
     const cursor = document.createElement('span');
     cursor.style.borderLeft = `2px solid ${user.color}`;
@@ -613,6 +653,11 @@ export class Notes {
   }
 
   private initEditorState(): void {
+    const initStart = performance.now();
+    console.log(`[NOTES] Starting initEditorState at ${initStart}`);
+
+    // Time keymap creation
+    const keymapStart = performance.now();
     const listKeymap = keymap({
       Enter: splitListItem(this.editorSchema.nodes.list_item),
       Tab: sinkListItem(this.editorSchema.nodes.list_item),
@@ -622,9 +667,8 @@ export class Notes {
     });
 
     const codeBlockKeymap = keymap({
-      "Shift-Enter": exitCode, // Use Shift+Enter to exit the code block
+      "Shift-Enter": exitCode,
       Enter: (state, dispatch) => {
-        // Basic Enter key just creates a new line within the code block
         if (dispatch) {
           const { $from, $to } = state.selection;
           dispatch(
@@ -637,16 +681,13 @@ export class Notes {
       },
     });
 
-    // Add hard break keymap for Shift+Enter in regular text
     const hardBreakKeymap = keymap({
       "Shift-Enter": (state, dispatch) => {
         const { selection } = state;
         const { $from, $to } = selection;
 
-        // Don't handle if we're in a code block (codeBlockKeymap handles it)
         if ($from.parent.type.name === "code_block") return false;
 
-        // Insert a hard break at the current position
         if (dispatch) {
           const hardBreak = state.schema.nodes.hard_break.create();
           dispatch(state.tr.replaceSelectionWith(hardBreak).scrollIntoView());
@@ -654,62 +695,64 @@ export class Notes {
         return true;
       }
     });
+    const keymapTime = performance.now() - keymapStart;
+    console.log(`[NOTES] Keymap creation took ${keymapTime.toFixed(2)}ms`);
 
-    // Create a synchronized editor state that works with our Yjs document
     try {
-      // First create the sync plugin - it's critical this is done before the state is created
+      // Time sync plugin creation
+      const syncPluginStart = performance.now();
       const syncPlugin = ySyncPlugin(this.type);
+      const syncPluginTime = performance.now() - syncPluginStart;
+      console.log(`[NOTES] Sync plugin creation took ${syncPluginTime.toFixed(2)}ms`);
 
-      // Use the correct function to create a ProseMirror document from YXmlFragment
+      // Time ProseMirror document initialization - THIS IS LIKELY THE BOTTLENECK
+      const docInitStart = performance.now();
       let prosemirrorDoc;
       try {
-        // Try to initialize from the YJS content
         const result = initProseMirrorDoc(this.type, this.editorSchema);
         prosemirrorDoc = result.doc;
+        const docInitTime = performance.now() - docInitStart;
+        console.log(`[NOTES] ProseMirror doc init took ${docInitTime.toFixed(2)}ms`);
 
-        if (
-          prosemirrorDoc.childCount === 1 &&
-          prosemirrorDoc.firstChild &&
-          prosemirrorDoc.firstChild.type.name === "heading"
-        ) {
-          // Get the text content from the heading
+        // Check document size
+        const docSize = JSON.stringify(prosemirrorDoc.toJSON()).length;
+        console.log(`[NOTES] ProseMirror document size: ${(docSize / 1024 / 1024).toFixed(2)}MB`);
+
+        // Time document processing for headings
+        if (prosemirrorDoc.childCount === 1 && prosemirrorDoc.firstChild && prosemirrorDoc.firstChild.type.name === "heading") {
+          const headingProcessStart = performance.now();
           const headingContent = prosemirrorDoc.firstChild.textContent;
-
-          // Create an array of paragraphs from the content
-          // Split by double newlines or hard breaks
           const paragraphTexts = headingContent.split(/\n\n|\r\n\r\n/);
-
-          // Create paragraph nodes for each piece of content
           const paragraphNodes = paragraphTexts.map((text) =>
             this.editorSchema.node("paragraph", {}, [
               this.editorSchema.text(text.trim()),
             ]),
           );
 
-          // If no paragraphs were created (empty content), create one empty paragraph
           if (paragraphNodes.length === 0) {
             paragraphNodes.push(this.editorSchema.node("paragraph", {}, []));
           }
 
-          // Create a new document with proper paragraph structure
           prosemirrorDoc = this.editorSchema.node("doc", {}, paragraphNodes);
+          const headingProcessTime = performance.now() - headingProcessStart;
+          console.log(`[NOTES] Heading processing took ${headingProcessTime.toFixed(2)}ms`);
         }
 
       } catch (err) {
         console.error("Error creating ProseMirror doc from YJS:", err);
-        // If that fails, create a new empty document
         prosemirrorDoc = this.editorSchema.node("doc", null, [
           this.editorSchema.node("paragraph", null, [])
         ]);
       }
 
-      // Create the editor state with the document
+      // Time final editor state creation
+      const stateCreateStart = performance.now();
       const doc = (prosemirrorDoc as any).doc || prosemirrorDoc;
       this.editorState = EditorState.create({
         schema: this.editorSchema,
         doc: doc,
         plugins: [
-          pasteHandlerPlugin(),
+          pasteHandlerPlugin(this.imageStorage),
           slashCommandPlugin(this.editorSchema),
           listKeymap,
           hardBreakKeymap,
@@ -731,8 +774,12 @@ export class Notes {
             "Mod-y": redo,
             "Mod-Shift-z": redo,
           }),
+          imageNodeViewPlugin(this.imageStorage),
         ],
       });
+      const stateCreateTime = performance.now() - stateCreateStart;
+      console.log(`[NOTES] Editor state creation took ${stateCreateTime.toFixed(2)}ms`);
+
     } catch (error) {
       console.error("Error initializing editor state:", error);
       // Create a backup state without Yjs content
@@ -754,6 +801,9 @@ export class Notes {
         ],
       });
     }
+
+    const totalInitTime = performance.now() - initStart;
+    console.log(`[NOTES] Total initEditorState took ${totalInitTime.toFixed(2)}ms`);
   }
   /**
    * Creates a new note with initialized state in a single operation
@@ -764,9 +814,14 @@ export class Notes {
     try {
       // Reset/initialize the Yjs document and editor state
       this.ydoc.destroy();
+      this.imageDoc.destroy();
       this.initYjs();
       this.initEditorState();
       this.setTitle("Untitled Note");
+
+      // Initialize empty assets array
+      this.currentAssets = [];
+      this.imageStorage.setAssetsArray(this.currentAssets);
 
       if (!this.editorState) {
         throw new Error("Failed to initialize editor state");
@@ -774,14 +829,17 @@ export class Notes {
 
       // Serialize the initial state
       const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
+      const image_state = Y.encodeStateAsUpdate(this.imageDoc); // Only metadata now
       const editorJSON = this.editorState.toJSON();
       const content = this.type.toJSON();
       const timestamp = Date.now();
 
-      // Create note content with noteId as the resourceId (will be set after creation)
+      // Create note content with empty assets array
       const initialContent: NoteContent = {
         content,
         yjs_state,
+        image_state,
+        assets: [], // Start with empty assets
         editor_state: editorJSON,
         client_id: this.clientID.toString(),
         last_modified: timestamp,
@@ -827,62 +885,174 @@ export class Notes {
 
     try {
       const yjs_state = Y.encodeStateAsUpdate(this.ydoc);
+      const image_state = Y.encodeStateAsUpdate(this.imageDoc); // Only metadata
       const editorJSON = this.editorState.toJSON();
       const content = this.type.toJSON();
       const timestamp = Date.now();
+
       if (title !== undefined) {
         this.setTitle(title);
       }
 
+      // Include current assets in the save
       const noteContent: NoteContent = {
         content,
-        yjs_state,
+        yjs_state: Array.from(yjs_state),
+        image_state: Array.from(image_state), // Metadata only
+        assets: this.currentAssets, // Include all assets
         editor_state: editorJSON,
         client_id: this.clientID.toString(),
         last_modified: timestamp,
         title: this.getCurrentTitle(),
       };
 
+      const saveSize = JSON.stringify(noteContent).length;
+      console.log(`[NOTES] Saving note with total size: ${(saveSize / 1024 / 1024).toFixed(2)}MB`);
+      console.log(`[NOTES] Assets count: ${this.currentAssets.length}`);
+
       await sendMessage("updateCredential", {
         id: this.currentNoteId,
-        data: JSON.stringify({
-          ...noteContent,
-          yjs_state: Array.from(yjs_state),
-        }),
+        data: JSON.stringify(noteContent),
       });
-      emit('resource-update-complete', { id: this.currentNoteId });
+
+      await emit('resource-update-complete', { id: this.currentNoteId });
     } catch (error) {
       console.error("Error saving note:", error);
       throw error;
     }
   }
-
+  /**
+     * Get current assets for external access
+     */
+  getCurrentAssets(): ImageAsset[] {
+    return [...this.currentAssets];
+  }
   async loadNote(): Promise<EditorDocumentState> {
+    const loadStartTime = performance.now();
+    console.log(`[NOTES] Starting loadNote at ${loadStartTime}`);
+
     try {
       const response = dataState.currentNote;
 
       if (!response || !response.data) {
         throw new Error("Note not found");
       }
+
       if (dataState.currentNote) {
         this.currentNoteId = dataState.currentNote?.id;
       }
 
       const noteContent = response.data;
 
-      this.ydoc.destroy();
-      this.initYjs();
-      if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
-        this.pendingYjsState = new Uint8Array(noteContent.yjs_state);
+      // Check content size (excluding assets for now)
+      const contentWithoutAssets = { ...noteContent };
+      delete contentWithoutAssets.assets;
+      const contentSize = JSON.stringify(contentWithoutAssets).length;
+      console.log(`[NOTES] Note content size (without assets): ${(contentSize / 1024).toFixed(2)}KB`);
+
+      // Log assets info separately
+      if (noteContent.assets) {
+        const assetsSize = JSON.stringify(noteContent.assets).length;
+        console.log(`[NOTES] Assets size: ${(assetsSize / 1024 / 1024).toFixed(2)}MB (${noteContent.assets.length} assets)`);
       }
 
+      // Time YJS document destruction
+      const destroyStart = performance.now();
+      this.ydoc.destroy();
+      this.imageDoc.destroy();
+      this.imageLoadPromise = null;
+      const destroyTime = performance.now() - destroyStart;
+      console.log(`[NOTES] YJS destroy took ${destroyTime.toFixed(2)}ms`);
+
+      // Time YJS initialization
+      const initYjsStart = performance.now();
+      this.initYjs();
+      const initYjsTime = performance.now() - initYjsStart;
+      console.log(`[NOTES] initYjs took ${initYjsTime.toFixed(2)}ms`);
+
+      // Set up assets array BEFORE applying YJS state
+      const assetsStart = performance.now();
+      this.currentAssets = noteContent.assets || [];
+      this.imageStorage.setAssetsArray(this.currentAssets);
+      const assetsTime = performance.now() - assetsStart;
+      console.log(`[NOTES] Assets setup took ${assetsTime.toFixed(2)}ms`);
+
+      // Time YJS state preparation (metadata only now)
+      if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
+        const yjsStateStart = performance.now();
+        this.pendingYjsState = new Uint8Array(noteContent.yjs_state);
+        const yjsStateTime = performance.now() - yjsStateStart;
+        console.log(`[NOTES] YJS state preparation took ${yjsStateTime.toFixed(2)}ms`);
+        console.log(`[NOTES] YJS state size: ${this.pendingYjsState.length} bytes`);
+      }
+
+      // Time editor state initialization
+      const initEditorStart = performance.now();
       this.initEditorState();
+      const initEditorTime = performance.now() - initEditorStart;
+      console.log(`[NOTES] initEditorState took ${initEditorTime.toFixed(2)}ms`);
+
+      // Handle image metadata state (much smaller now)
+      if (noteContent.image_state && noteContent.image_state.length > 0) {
+        console.log(`[NOTES] Image metadata state size: ${noteContent.image_state.length} bytes`);
+        this.pendingImageState = new Uint8Array(noteContent.image_state);
+      }
+
+      // Start lazy image loading (now just loads metadata)
+      this.startLazyImageLoad();
+
+      const totalTime = performance.now() - loadStartTime;
+      console.log(`[NOTES] Total loadNote took ${totalTime.toFixed(2)}ms`);
 
       return this.getDoc();
     } catch (error) {
       console.error("Error loading note:", error);
       throw error;
     }
+  }
+
+  private startLazyImageLoad(): void {
+    if (!this.pendingImageState) {
+      console.log("[NOTES] No pending image metadata state to load");
+      this._imagesLoaded = true;
+      return;
+    }
+
+    this._imagesLoaded = false;
+
+    // Load image metadata after a short delay
+    this.imageLoadPromise = new Promise((resolve) => {
+      setTimeout(async () => {
+        try {
+          const imageLoadStart = performance.now();
+          console.log("[NOTES] Starting lazy image metadata load");
+
+          // Apply the image metadata state to the image document
+          Y.applyUpdate(this.imageDoc, this.pendingImageState!, 'loading');
+
+          // Clear the pending state
+          this.pendingImageState = null;
+
+          const imageLoadTime = performance.now() - imageLoadStart;
+          console.log(`[NOTES] Image metadata loaded in ${imageLoadTime.toFixed(2)}ms`);
+          this._imagesLoaded = true;
+
+          // Notify image node views that metadata is now available
+          this.notifyImageNodesLoaded();
+
+          resolve();
+        } catch (error) {
+          console.error("Error loading image metadata:", error);
+          resolve(); // Resolve anyway to not block
+        }
+      }, 50); // Reduced delay since metadata is much smaller
+    });
+  }
+  private notifyImageNodesLoaded(): void {
+    // Dispatch a custom event that image node views can listen to
+    document.dispatchEvent(new CustomEvent('images-loaded', {
+      detail: { noteId: this.currentNoteId }
+    }));
   }
 
   applyPendingYjsState(view: any | null): void {
@@ -907,15 +1077,12 @@ export class Notes {
     }
   }
 
-  async handleCollaborationUpdate(update: Uint8Array): Promise<void> {
+
+
+  async handleCollaborationUpdate(update: Uint8Array, docType: 'main' | 'images'): Promise<void> {
     try {
       if (!this.currentNoteId) {
         console.warn("No current note ID, skipping collaboration update");
-        return;
-      }
-
-      if (update.length === 0) {
-        console.warn("Received empty update");
         return;
       }
 
@@ -923,8 +1090,9 @@ export class Notes {
 
       await emit("sync-update", {
         update: updateArray,
-        clientID: this.clientID,           // Keep only this one (number)
+        clientID: this.clientID,
         resource_id: this.currentNoteId,
+        doc_type: docType, // Specify which document this update is for
       });
     } catch (error) {
       console.error("Error handling collaboration update:", error);
@@ -956,27 +1124,60 @@ export class Notes {
     }
   }
 
-  applyUpdate(update: Uint8Array | number[], sender: number): void {
+  applyUpdate(update: Uint8Array | number[], sender: number, docType: 'main' | 'images' = 'main'): void {
     if (sender === this.clientID) {
       return;
     }
 
     try {
-      const updateArray =
-        update instanceof Uint8Array ? update : new Uint8Array(update);
+      const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
 
       if (updateArray.length === 0) {
         console.warn("Received empty update to apply");
         return;
       }
 
-      // Apply update with 'sync' origin to prevent loop
-      Y.applyUpdate(this.ydoc, updateArray, "sync");
+      // Apply to the appropriate document
+      const targetDoc = docType === 'images' ? this.imageDoc : this.ydoc;
+      Y.applyUpdate(targetDoc, updateArray, "sync");
     } catch (error) {
       console.error("Error applying update:", error);
     }
   }
 
+
+  areImagesLoaded(): boolean {
+    // Check if promise exists and is resolved
+    if (!this.imageLoadPromise) return false;
+
+    // You can track this with a separate boolean
+    return this._imagesLoaded || false;
+  }
+
+
+  // Wait for images to load
+  async waitForImages(): Promise<void> {
+    if (this.imageLoadPromise) {
+      await this.imageLoadPromise;
+    }
+  }
+
+  destroy(): void {
+    if (this.imageStorage) {
+      this.imageStorage.clearCache();
+    }
+    if (this.imageDoc) {
+      this.imageDoc.destroy();
+    }
+    // Clear current assets
+    this.currentAssets = [];
+    if (this.ydoc) {
+      this.ydoc.destroy();
+    }
+    if (this.imageDoc) {
+      this.imageDoc.destroy();
+    }
+  }
   applyAwarenessUpdate(update: Uint8Array | number[], sender: number): void {
     if (sender === this.clientID) {
       return; // Don't apply our own updates
@@ -997,11 +1198,6 @@ export class Notes {
     }
   }
 
-  destroy(): void {
-    if (this.ydoc) {
-      this.ydoc.destroy();
-    }
-  }
 
   // === Comment System Methods ===
 
@@ -1085,36 +1281,74 @@ export class Notes {
 */
   createCommentAndApplyMark(position: CommentPosition, content: string): string {
     try {
+      console.log('[COMMENTS] Creating comment with position:', position);
+      console.log('[COMMENTS] Comment content:', content);
+      console.log('[COMMENTS] Editor view available:', !!this.editorView);
+      console.log('[COMMENTS] Comments service available:', !!this.commentsService);
+
       // 1. Create the comment thread directly via comments service
       const threadId = this.commentsService.createThread(position, content);
+      console.log('[COMMENTS] Created thread with ID:', threadId);
 
       // 2. Apply the visual mark to the editor
       if (this.editorView) {
         const { state, dispatch } = this.editorView;
+        console.log('[COMMENTS] Current editor state doc size:', state.doc.content.size);
+        console.log('[COMMENTS] Selection position:', { from: position.from, to: position.to });
+
+        // Check if position is valid
+        if (position.from < 0 || position.to > state.doc.content.size || position.from > position.to) {
+          console.error('[COMMENTS] Invalid position for comment:', position);
+          return threadId;
+        }
+
         const commentMark = state.schema.marks.comment.create({
           threadId,
           commentIds: [threadId],
           resolved: false,
           author: null,
         });
+        console.log('[COMMENTS] Created comment mark:', commentMark);
 
         const tr = state.tr.addMark(
           position.from,
           position.to,
           commentMark,
         );
+        console.log('[COMMENTS] Created transaction with mark');
+
         dispatch(tr);
+        console.log('[COMMENTS] Dispatched transaction');
+
+        // Verify the mark was applied
+        setTimeout(() => {
+          const newState = this.editorView!.state;
+          let foundMark = false;
+          newState.doc.nodesBetween(position.from, position.to, (node, pos) => {
+            if (node.isText) {
+              node.marks.forEach(mark => {
+                if (mark.type.name === 'comment' && mark.attrs.threadId === threadId) {
+                  foundMark = true;
+                  console.log('[COMMENTS] Verified comment mark applied:', mark.attrs);
+                }
+              });
+            }
+          });
+          if (!foundMark) {
+            console.error('[COMMENTS] Comment mark was not found after applying!');
+          }
+        }, 100);
+
       } else {
-        console.warn('No editor view available for applying comment mark');
+        console.warn('[COMMENTS] No editor view available for applying comment mark');
       }
 
       return threadId;
     } catch (error) {
-      console.error('Error creating comment and applying mark:', error);
+      console.error('[COMMENTS] Error creating comment and applying mark:', error);
       throw error;
     }
   }
-
   /**
  * Remove comment marks from the editor for a specific thread
  */

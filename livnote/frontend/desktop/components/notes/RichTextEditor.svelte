@@ -17,7 +17,6 @@
 	let autoSaveInterval: number | null = null;
 	let unsubscribeUpdate = $state<UnlistenFn | null>(null);
 	let isLoading = $state(true);
-	let error = $state<string | null>(null);
 	let currentlyLoadedNoteId = $state<string | null>(null);
 	let loadingInProgress = $state(false);
 	let elementWidth = $state<number | undefined>(undefined);
@@ -26,6 +25,22 @@
 	let modalSelectedText = $state("");
 	let pendingCommentPosition = $state<{ from: number; to: number } | null>(
 		null,
+	);
+	type LoadingPhase =
+		| "idle"
+		| "preparing"
+		| "structure-ready"
+		| "content-loaded"
+		| "ready"
+		| "error";
+	let loadingPhase = $state<LoadingPhase>("idle");
+	let error = $state<string | null>(null);
+	let showSkeleton = $derived(
+		loadingPhase === "preparing" || loadingPhase === "structure-ready",
+	);
+	let showError = $derived(loadingPhase === "error");
+	let showContent = $derived(
+		loadingPhase === "content-loaded" || loadingPhase === "ready",
 	);
 
 	const copyContentListener = (event: Event): void => {
@@ -68,74 +83,73 @@
 			console.error("Error during copy:", error);
 		}
 	};
-
+	// Replace the existing loadNote function with this phased version:
 	async function loadNote(id: string): Promise<void> {
-		if (!element || loadingInProgress) return;
-
-		loadingInProgress = true;
-
-		// Clear any existing content and show loading state
-		if (view) {
-			view.destroy();
-			view = null;
+		if (!element || loadingInProgress || currentlyLoadedNoteId === id) {
+			return;
 		}
 
-		isLoading = true;
-		error = null;
+		console.log(`[EDITOR] Starting phased loading for note ${id}`);
+		loadingInProgress = true;
+		currentlyLoadedNoteId = id;
 
 		try {
-			// Load the note with the given ID
-			const docInfo = await notesInstance.loadNote();
+			// Phase 1: Immediate - Show layout and prepare
+			loadingPhase = "preparing";
+			error = null;
 
-			// Force a small delay to ensure DOM is ready
+			// Small delay to let the skeleton render
 			await new Promise((resolve) => setTimeout(resolve, 50));
 
-			if (currentlyLoadedNoteId === id) {
-				return;
-			}
-			currentlyLoadedNoteId = id;
+			// Phase 2: Initialize structure
+			loadingPhase = "structure-ready";
+			const docInfo = await notesInstance.loadNote();
 
-			// Create editor view with the loaded content
-			if (docInfo.editorState) {
-				view = createEditorView(element, docInfo.editorState);
-
-				// Mark this note as loaded
-				currentlyLoadedNoteId = id;
-				setTimeout(() => {
-					notesInstance.applyPendingYjsState(view);
-					if (dataState.currentNote && dataState.currentNote.data) {
-						dataState.currentNote.data.title = notesInstance.getCurrentTitle();
-					}
-				}, 50);
-
-				setTimeout(() => {
-					if (view) {
-						try {
-							// Force focus on the editor
-							view.focus();
-
-							// Create a transaction to position the cursor at the end
-							const tr = view.state.tr;
-
-							// Get the end position of the document
-							const endPosition = tr.doc.content.size;
-
-							// Set the selection at the end position
-							const selection = view.state.selection.constructor as any;
-							tr.setSelection(
-								selection.near(tr.doc.resolve(Math.max(0, endPosition))),
-							);
-
-							// Dispatch the transaction with a custom "cursorPlacement" metadata
-							view.dispatch(tr.setMeta("cursorPlacement", true));
-						} catch (err) {
-							console.error("Error positioning cursor:", err);
-						}
-					}
-				}, 100);
+			if (!docInfo.editorState) {
+				throw new Error("Failed to initialize editor state");
 			}
 
-			// Setup auto-save
+			// Phase 3: Create editor view
+			if (view) {
+				view.destroy();
+				view = null;
+			}
+
+			view = createEditorView(element, docInfo.editorState);
+
+			// Small delay to let editor render
+			await new Promise((resolve) => setTimeout(resolve, 100));
+
+			// Phase 4: Apply actual content
+			loadingPhase = "content-loaded";
+			notesInstance.applyPendingYjsState(view);
+
+			// Update title in state
+			if (dataState.currentNote && dataState.currentNote.data) {
+				dataState.currentNote.data.title = notesInstance.getCurrentTitle();
+			}
+
+			// Phase 5: Finalize
+			setTimeout(() => {
+				if (view) {
+					try {
+						view.focus();
+						const tr = view.state.tr;
+						const endPosition = tr.doc.content.size;
+						const selection = view.state.selection.constructor as any;
+						tr.setSelection(
+							selection.near(tr.doc.resolve(Math.max(0, endPosition))),
+						);
+						view.dispatch(tr.setMeta("cursorPlacement", true));
+
+						loadingPhase = "ready";
+					} catch (err) {
+						console.error("Error positioning cursor:", err);
+					}
+				}
+			}, 200);
+
+			// Setup auto-save (existing code)
 			if (autoSaveInterval) {
 				clearInterval(autoSaveInterval);
 			}
@@ -143,26 +157,17 @@
 			autoSaveInterval = window.setInterval(() => {
 				if (dataState.currentNote) {
 					notesInstance.saveNote().catch(console.error);
-
-					// Below state is set for showing saved update
 					uiState.noteSaved = true;
-
 					setTimeout(() => {
 						uiState.noteSaved = false;
 					}, 1000);
 				}
-			}, 30000); // Auto-save every 30 seconds
-
-			// Force an update to ensure content is rendered
-			if (view) {
-				const tr = view.state.tr;
-				view.dispatch(tr);
-			}
+			}, 30000);
 		} catch (err) {
 			console.error("Error loading note:", err);
 			error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
+			loadingPhase = "error";
 		} finally {
-			isLoading = false;
 			loadingInProgress = false;
 		}
 	}
@@ -198,6 +203,8 @@
 	}
 
 	function cleanupEditor(): void {
+		currentlyLoadedNoteId = null;
+		loadingPhase = "idle";
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
@@ -244,9 +251,19 @@
 
 	$effect(() => {
 		const currentNoteId = dataState.currentNote?.id;
+		const hasNoteData = dataState.currentNote?.data;
 
-		if (currentNoteId && currentNoteId !== currentlyLoadedNoteId) {
+		// Only load if we have both ID and data
+		if (
+			currentNoteId &&
+			hasNoteData &&
+			currentNoteId !== currentlyLoadedNoteId
+		) {
 			loadNote(currentNoteId);
+		} else if (!currentNoteId) {
+			// Handle note clearing
+			loadingPhase = "idle";
+			currentlyLoadedNoteId = null;
 		}
 	});
 
@@ -355,11 +372,11 @@
 		if (commentElement) {
 			const threadId = commentElement.getAttribute("data-livnote-comment");
 			if (threadId) {
-					// Dispatch event to highlight the comment in sidebar
-					const highlightEvent = new CustomEvent("highlight-comment-thread", {
-						detail: { threadId },
-					});
-					document.dispatchEvent(highlightEvent);
+				// Dispatch event to highlight the comment in sidebar
+				const highlightEvent = new CustomEvent("highlight-comment-thread", {
+					detail: { threadId },
+				});
+				document.dispatchEvent(highlightEvent);
 			}
 		}
 	}
@@ -429,24 +446,83 @@
 		word-wrap: break-word;
 		word-break: break-word;
 	}
+	@keyframes shimmer {
+		0% {
+			background-position: -200px 0;
+		}
+		100% {
+			background-position: calc(200px + 100%) 0;
+		}
+	}
+
+	.animate-pulse {
+		animation: shimmer 2s ease-in-out infinite;
+	}
+
+	.animate-pulse > div {
+		background: linear-gradient(90deg, #2a2b35 25%, #3a3b44 37%, #2a2b35 63%);
+		background-size: 400px 100%;
+		animation: shimmer 1.5s ease-in-out infinite;
+	}
 </style>
 
 <div class="editor-container">
 	<div class="editor-content-wrapper">
 		<div class="editor-main scrollbar-thin">
-			{#if isLoading}
-				<div
-					class="loading-overlay flex justify-center items-center h-full w-full">
-					<div class="text-osvauld-fieldText">Loading note...</div>
-				</div>
-			{:else if error}
-				<div class="error-message">{error}</div>
-			{/if}
-
+			<!-- Always show the editor element, but overlay different states -->
 			<div
 				bind:this={element}
-				class="h-full max-h-full overflow-y-scroll scrollbar-thin">
+				class="h-full max-h-full overflow-y-scroll scrollbar-thin"
+				class:opacity-0={showSkeleton}
+				class:opacity-100={showContent}>
 			</div>
+
+			<!-- Skeleton overlay -->
+			{#if showSkeleton}
+				<div class="absolute inset-0 p-6 space-y-4">
+					<div class="animate-pulse space-y-6">
+						<!-- Title skeleton -->
+						<div class="h-8 bg-osvauld-fieldActive rounded-lg w-3/4"></div>
+
+						<!-- Content skeletons -->
+						<div class="space-y-3">
+							<div class="h-4 bg-osvauld-fieldActive rounded w-full"></div>
+							<div class="h-4 bg-osvauld-fieldActive rounded w-5/6"></div>
+							<div class="h-4 bg-osvauld-fieldActive rounded w-4/5"></div>
+						</div>
+
+						<div class="space-y-3">
+							<div class="h-4 bg-osvauld-fieldActive rounded w-full"></div>
+							<div class="h-4 bg-osvauld-fieldActive rounded w-3/4"></div>
+						</div>
+
+						<div class="space-y-3">
+							<div class="h-4 bg-osvauld-fieldActive rounded w-5/6"></div>
+							<div class="h-4 bg-osvauld-fieldActive rounded w-full"></div>
+							<div class="h-4 bg-osvauld-fieldActive rounded w-2/3"></div>
+						</div>
+					</div>
+
+					<!-- Loading phase indicator -->
+					<div class="absolute bottom-4 left-6 text-osvauld-fieldText text-sm">
+						{#if loadingPhase === "preparing"}
+							Preparing document...
+						{:else if loadingPhase === "structure-ready"}
+							Loading content...
+						{/if}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Error overlay -->
+			{#if showError}
+				<div class="absolute inset-0 flex justify-center items-center">
+					<div class="text-red-400 text-center">
+						<div class="text-lg font-medium mb-2">Failed to load note</div>
+						<div class="text-sm text-osvauld-fieldText">{error}</div>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 </div>

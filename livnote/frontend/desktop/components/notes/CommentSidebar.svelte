@@ -89,6 +89,7 @@
 	});
 
 	function loadThreads() {
+		console.log("loading threads after update");
 		try {
 			threads = notesInstance.getAllCommentThreads();
 		} catch (error) {

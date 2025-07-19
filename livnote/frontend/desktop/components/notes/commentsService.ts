@@ -3,9 +3,7 @@ import type {
   Comment,
   CommentThread,
   CommentPosition,
-  CreateCommentParams,
   UpdateCommentParams,
-  CommentEvent,
   UserInfo,
   CommentUpdateCallback
 } from "../../types/notes.types";
@@ -20,6 +18,7 @@ export class CommentsService {
 
     // Set up observer for real-time updates
     this.commentsMap.observe((event) => {
+      console.log("observer here", event);
       this.handleCommentsUpdate(event);
     });
   }

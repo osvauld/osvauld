@@ -2,6 +2,7 @@ use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
     ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput, UpdateResources,
 };
+
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::info;
@@ -14,6 +15,7 @@ use services::{
     update_last_accessed, update_resource,
 };
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, State};
@@ -232,6 +234,7 @@ pub async fn handle_share_resource(
     }
     Ok(CryptoResponse::Success)
 }
+
 #[tauri::command]
 pub async fn emit_all_resources(
     selected_resource_id: Option<String>,
@@ -240,17 +243,29 @@ pub async fn emit_all_resources(
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, RepositoryContext>,
 ) -> Result<CryptoResponse, String> {
+    let overall_start = Instant::now();
+    info!("Starting emit_all_resources");
+
     let user = user_state.get_user().await?;
     let user_id = user.id.clone();
+
     // Get all resource IDs
+    let fetch_start = Instant::now();
     let mut all_resource_ids = repo_ctx
         .resource_repo
         .get_all_resource_ids()
         .await
         .map_err(|e| e.to_string())?;
+    info!(
+        "Fetched {} resource IDs in {:?}",
+        all_resource_ids.len(),
+        fetch_start.elapsed()
+    );
 
     // Handle selected resource - return it immediately
     let selected_resource_response = if let Some(selected_resource) = selected_resource_id {
+        let selected_start = Instant::now();
+
         // Remove selected resource from the list to avoid duplication
         if let Some(pos) = all_resource_ids
             .iter()
@@ -263,13 +278,21 @@ pub async fn emit_all_resources(
         match get_resource_by_id_direct(&selected_resource, &user_id, &repo_ctx, &crypto_utils)
             .await
         {
-            Ok(decrypted_resource) => Some(ResourceResponse {
-                id: decrypted_resource.id,
-                data: decrypted_resource.data,
-                favourite: decrypted_resource.favourite,
-                last_accessed: decrypted_resource.last_accessed,
-                folder_id: decrypted_resource.folder_id,
-            }),
+            Ok(decrypted_resource) => {
+                let response = ResourceResponse {
+                    id: decrypted_resource.id,
+                    data: decrypted_resource.data,
+                    favourite: decrypted_resource.favourite,
+                    last_accessed: decrypted_resource.last_accessed,
+                    folder_id: decrypted_resource.folder_id,
+                };
+                let _ = app_handle.emit("resource-added", response.clone());
+                info!(
+                    "Selected resource processed in {:?}",
+                    selected_start.elapsed()
+                );
+                Some(response)
+            }
             Err(e) => {
                 eprintln!(
                     "Failed to decrypt selected resource {}: {}",
@@ -282,13 +305,25 @@ pub async fn emit_all_resources(
         None
     };
 
+    let remaining_count = all_resource_ids.len();
+    info!(
+        "Starting background processing of {} remaining resources",
+        remaining_count
+    );
+
     // Spawn background task to emit remaining resources
     let app_handle_clone = app_handle.clone();
     let crypto_utils_clone = crypto_utils.inner().clone();
     let repo_ctx_clone = repo_ctx.inner().clone();
 
     tokio::spawn(async move {
+        let background_start = Instant::now();
+        let mut processed = 0;
+
         for resource_id in all_resource_ids {
+            let resource_start = Instant::now();
+
+            let get_resource_start = Instant::now();
             match get_resource_by_id_direct(
                 &resource_id,
                 &user_id,
@@ -298,6 +333,9 @@ pub async fn emit_all_resources(
             .await
             {
                 Ok(decrypted_resource) => {
+                    let get_resource_time = get_resource_start.elapsed();
+
+                    let emit_start = Instant::now();
                     let response = ResourceResponse {
                         id: decrypted_resource.id,
                         data: decrypted_resource.data,
@@ -309,19 +347,45 @@ pub async fn emit_all_resources(
                     if let Err(e) = app_handle_clone.emit("resource-added", response) {
                         eprintln!("Failed to emit resource-added for {}: {}", resource_id, e);
                     }
+                    let emit_time = emit_start.elapsed();
+
+                    processed += 1;
+                    let resource_time = resource_start.elapsed();
+
+                    // Log every 10th resource or if it takes longer than 100ms
+                    if processed % 10 == 0 || resource_time.as_millis() > 100 {
+                        info!(
+                            "Resource {}/{} processed in {:?} (get_resource: {:?}, emit: {:?})",
+                            processed, remaining_count, resource_time, get_resource_time, emit_time
+                        );
+                    }
                 }
                 Err(e) => {
                     eprintln!("Failed to decrypt resource {}: {}", resource_id, e);
-                    // Continue with next resource instead of stopping
+                    processed += 1;
                 }
             }
         }
+
+        let total_background_time = background_start.elapsed();
+        info!(
+            "Background processing completed: {}/{} resources in {:?} (avg: {:?} per resource)",
+            processed,
+            remaining_count,
+            total_background_time,
+            total_background_time / processed.max(1) as u32
+        );
 
         // Emit completion event
         if let Err(e) = app_handle_clone.emit("resources-loading-complete", ()) {
             eprintln!("Failed to emit resources-loading-complete: {}", e);
         }
     });
+
+    info!(
+        "emit_all_resources completed initial phase in {:?}",
+        overall_start.elapsed()
+    );
 
     // Return immediately with selected resource (if any)
     match selected_resource_response {

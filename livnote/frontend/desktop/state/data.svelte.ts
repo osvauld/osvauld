@@ -83,6 +83,7 @@ class DataState {
     this.isDataLoading = true;
     this.notes = [];
     try {
+      console.log("emitAll called in", performance.now())
       const response = await sendMessage("emitAllResources", selectedNotedId);
       if (response) {
         this.currentNote = response;
@@ -118,9 +119,14 @@ class DataState {
 
   // Switch to a different note
   async switchNote(noteId: string) {
-    const note = await sendMessage("getCredential", { resourceId: noteId })
-    this.currentNote = note;
     uiState.toggleNoteViewLayout(true);
+    this.currentNote = null;
+    const start = performance.now();
+    const note = await sendMessage("getCredential", { resourceId: noteId })
+    const end = performance.now();
+    console.log('resource fetched in ', end - start);
+    console.log(note.data);
+    this.currentNote = note;
     StoreService.setCurrentNoteId(noteId);
     if (noteId) {
       emit("note-change", noteId
@@ -319,8 +325,14 @@ class DataState {
   }
 
   handleResourceAdded(event: any) {
+
+    console.log("first event recieved", performance.now())
     const fullNote: Note = event.payload;
+    const startTime = performance.now();
     const preview = generatePreview(fullNote)
+    const endTime = performance.now();
+    const executionTime = endTime - startTime;
+    console.log(`generatePreview took ${executionTime.toFixed(3)} milliseconds`);
     this.notes = [...this.notes, preview];
   }
 
@@ -411,7 +423,7 @@ class DataState {
       };
 
       // Send to backend for persistence
-      const response = await sendMessage("updateCredential", {
+      sendMessage("updateCredential", {
         id: note.id,
         data: JSON.stringify({
           ...updatedData,

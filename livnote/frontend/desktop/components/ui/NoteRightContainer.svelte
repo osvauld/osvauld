@@ -18,6 +18,7 @@
 
 	// Import ShareNote component
 	import ShareNote from "../modals/ShareNote.svelte";
+	import { onMount } from "svelte";
 
 	// Local UI state
 	let showShareList = $state(false);
@@ -97,11 +98,9 @@
 	$effect(() => {
 		saved = uiState.noteSaved;
 	});
-
-	// Function to get initial from name
-	const getInitial = (name: string): string => {
-		return name.charAt(0).toUpperCase();
-	};
+	onMount(() => {
+		console.log("right container mounted ", performance.now());
+	});
 </script>
 
 <div

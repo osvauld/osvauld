@@ -83,7 +83,7 @@
 	// Back button handler - saves and returns to list view
 	const handleBackButton = () => {
 		if (dataState.currentNote) {
-			notesInstance.saveNote().catch(console.error);
+			notesInstance.saveNote();
 		}
 
 		// Switch to list view
@@ -132,7 +132,7 @@
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
 		}
-
+		console.log("mounted", performance.now());
 		// Set CSS variable for minimum editor width
 		document.documentElement.style.setProperty(
 			"--min-editor-width",
