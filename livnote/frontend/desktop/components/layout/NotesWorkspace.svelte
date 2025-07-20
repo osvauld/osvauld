@@ -23,11 +23,7 @@
 
 	// Toggle navigation panel
 	function toggleNavigationPanel() {
-		// Toggle the panel visibility through UI state
 		uiState.toggleNavigationPanel();
-
-		// When manually toggling, we need to reset the auto-adjustment
-		// when the window is resized next time
 		if (!uiState.showNavigationPanel) {
 			// When hiding panel - set CSS var to 0 to allow editor to go under min width
 			document.documentElement.style.setProperty("--min-editor-width", "0px");
@@ -82,10 +78,7 @@
 
 	// Back button handler - saves and returns to list view
 	const handleBackButton = () => {
-		dataState.saveNote();
-		// Switch to list view
 		uiState.toggleNoteViewLayout(false);
-		dataState.clearCurrentNote();
 	};
 
 	const toggleFav = async (e: Event) => {
@@ -94,14 +87,6 @@
 		// Update the note in the notes array
 	};
 
-	const saveNoteManual = async () => {
-		await dataState.saveNote();
-		await emit("resource-update-complete", { id: dataState.currentNoteId });
-		saved = true;
-		setTimeout(() => {
-			saved = false;
-		}, 1000);
-	};
 	onMount(async () => {
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
@@ -166,7 +151,7 @@
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
-						{dataState.getCurrentNoteData()?.data.title}
+						{dataState.getNoteTitle()}
 					</span>
 				{/if}
 				<button

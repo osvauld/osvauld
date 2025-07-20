@@ -10,7 +10,6 @@
 	import "./schema/editorCustomStyles.css"; // Import the new CSS file
 
 	// Initialize the coordinator
-	let coordinator: NotesCoordinator | null = null;
 
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
@@ -46,47 +45,10 @@
 	);
 
 	$effect(() => {
-		console.log(dataState.getCurrentNoteId());
-		loadNote();
+		if (dataState.currentNoteId) {
+			loadNote();
+		}
 	});
-	// Initialize coordinator with proper client ID
-	function initializeCoordinator() {
-		coordinator = new NotesCoordinator({
-			clientId: dataState.clientId || 0,
-			onCollaborationUpdate: async (update, docType) => {
-				if (!dataState.getCurrentNoteId()) return;
-				// Emit collaboration update
-				await emit("sync-update", {
-					update: Array.from(update),
-					clientID: dataState.clientId,
-					resource_id: dataState.getCurrentNoteId(),
-					doc_type: docType,
-				});
-			},
-			onAwarenessUpdate: async (changes) => {
-				if (!dataState.getCurrentNoteId()) return;
-			},
-		});
-		// const userInfo = {
-		// 	name: dataState.userDetails?.username || `User ${dataState.clientId}`,
-		// 	color: generateUserColor(),
-		// 	id: dataState.clientId || 0,
-		// };
-		// console.log("setting userinfo");
-		// coordinator.setUserInfo(userInfo);
-	}
-
-	function generateUserColor(): string {
-		const colors = [
-			"#FF5630",
-			"#FFAB00",
-			"#36B37E",
-			"#00B8D9",
-			"#6554C0",
-			"#FF7452",
-		];
-		return colors[Math.floor(Math.random() * colors.length)];
-	}
 
 	const copyContentListener = (event: Event): void => {
 		if (!view) return;
@@ -118,11 +80,10 @@
 	};
 
 	async function loadNote(): Promise<void> {
+		const coordinator = dataState.getNotesCoordinator();
 		if (!coordinator) {
-			console.log("not calling");
-			initializeCoordinator();
+			throw new Error("Coordinator not initialized in dataState");
 		}
-		dataState.setNotesCoordinator(coordinator);
 		loadingInProgress = true;
 
 		try {
@@ -139,7 +100,7 @@
 			if (!noteContent) {
 				throw new Error("No note content available");
 			}
-			console.log("loading notecontnet");
+			console.log("loading notecontet", noteContent);
 
 			await coordinator.loadNote(noteContent);
 
@@ -195,10 +156,9 @@
 	}
 
 	async function saveNote(): Promise<void> {
-		if (!coordinator || !dataState.getCurrentNoteId()) return;
-
 		try {
-			dataState.saveNote().then(async () => {
+			const noteId = dataState.currentNoteId;
+			dataState.saveNote(noteId).then(async () => {
 				await emit("resource-update-complete", {
 					id: dataState.getCurrentNoteId(),
 				});
@@ -215,7 +175,6 @@
 
 	function cleanupEditor(): void {
 		loadingPhase = "idle";
-		console.log("cleanup editor.....");
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
@@ -228,14 +187,9 @@
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
-
-		// Save before cleanup if we have a note loaded
-		saveNote().catch(console.error);
-
-		if (coordinator) {
-			coordinator.destroy();
-			coordinator = null;
-		}
+		const noteId = dataState.currentNoteId;
+		dataState.saveNote(noteId);
+		dataState.clearCurrentNote();
 	}
 
 	function checkWindowSize() {
@@ -257,9 +211,6 @@
 	}
 
 	onMount(async () => {
-		initializeCoordinator();
-		console.log("mounting.............");
-
 		document.addEventListener(
 			"request-editor-content",
 			copyContentListener as EventListener,
@@ -309,11 +260,16 @@
 	}
 
 	function handleSaveComment(content: string) {
-		if (!pendingCommentPosition || !coordinator) {
+		if (!pendingCommentPosition) {
 			console.error("No pending comment position or coordinator");
 			return;
 		}
 
+		const coordinator = dataState.getNotesCoordinator();
+		if (!coordinator) {
+			console.error("No coordinator available");
+			return;
+		}
 		try {
 			coordinator.createComment(pendingCommentPosition, content);
 		} catch (error) {

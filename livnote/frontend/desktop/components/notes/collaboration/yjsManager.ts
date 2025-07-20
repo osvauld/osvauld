@@ -41,6 +41,7 @@ export class YjsManager {
     // Clean up any existing documents
     this.destroy();
 
+
     // Create new documents
     const mainDoc = new Y.Doc();
     const imageDoc = new Y.Doc();
@@ -109,7 +110,6 @@ export class YjsManager {
    */
   setUserInfo(userInfo: UserInfo): void {
     if (!this.documents) return;
-
     this.documents.awareness.setLocalState({
       user: userInfo
     });

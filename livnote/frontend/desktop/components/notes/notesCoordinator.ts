@@ -28,7 +28,7 @@ import type {
 } from "../../types/notes.types";
 
 export interface NotesCoordinatorConfig {
-  clientId: number;
+  userInfo: UserInfo
   onCollaborationUpdate?: (update: Uint8Array, docType: 'main' | 'images') => void;
   onAwarenessUpdate?: (changes: any) => void;
 }
@@ -44,12 +44,13 @@ export class NotesCoordinator {
   private imageStorage: ImageStorageService | null = null;
   private schema = createEditorSchema();
   private currentAssets: ImageAsset[] = [];
-
+  private userInfo: UserInfo;
   constructor(private config: NotesCoordinatorConfig) {
+    this.userInfo = config.userInfo; // Initialize userInfo from config
+
     // Initialize YJS manager
-    console.log("Initlizing....coorinator", config.clientId);
     this.yjsManager = new YjsManager({
-      clientId: config.clientId,
+      clientId: this.userInfo.id, // Use the userInfo property
       onUpdate: (update, origin, docType) => {
         if (config.onCollaborationUpdate) {
           config.onCollaborationUpdate(update, docType);
@@ -62,6 +63,13 @@ export class NotesCoordinator {
       }
     });
 
+    const docs = this.yjsManager.initialize();
+
+    // Initialize services once
+    this.commentsService = new CommentsService(docs.commentsMap);
+    this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
+    this.setUserInfo();
+
     // Initialize editor manager
     this.editorManager = new EditorManager({
       schema: this.schema,
@@ -70,23 +78,23 @@ export class NotesCoordinator {
       }
     });
   }
-
-
-
   /**
    * Load existing note
    */
   async loadNote(noteContent: NoteContent): Promise<void> {
-    // Initialize YJS documents
-    const docs = this.yjsManager.initialize();
+    const docs = this.yjsManager.getDocuments();
+    if (!docs) {
+      throw new Error("YJS documents not initialized");
+    }
 
-    // Initialize services
-    this.commentsService = new CommentsService(docs.commentsMap);
-    this.imageStorage = new ImageStorageService(docs.imagesMap, this.config.clientId);
+    // Clear existing content instead of reinitializing
+    docs.type.delete(0, docs.type.length);
+    docs.commentsMap.clear();
+    docs.imagesMap.clear();
 
     // Set up assets
     this.currentAssets = noteContent.assets || [];
-    this.imageStorage.setAssetsArray(this.currentAssets);
+    this.imageStorage!.setAssetsArray(this.currentAssets);
 
     // Apply YJS state if available
     if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
@@ -105,6 +113,7 @@ export class NotesCoordinator {
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
     this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
   }
+
 
   /**
    * Create editor view in container
@@ -183,6 +192,7 @@ export class NotesCoordinator {
    * Create custom cursor for collaboration
    */
   private createCustomCursor(user: UserInfo): HTMLElement {
+    console.log('create custom banner', user);
     const cursor = document.createElement('span');
     cursor.style.borderLeft = `2px solid ${user.color}`;
     cursor.style.marginLeft = '-1px';
@@ -244,7 +254,7 @@ export class NotesCoordinator {
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
       assets: this.currentAssets,
       editor_state: editorState.toJSON(),
-      client_id: this.config.clientId.toString(),
+      client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
       title: this.yjsManager.getMetadata("title") || "Untitled Note",
     };
@@ -254,7 +264,7 @@ export class NotesCoordinator {
    * Apply remote update
    */
   applyRemoteUpdate(update: Uint8Array | number[], sender: number, docType: 'main' | 'images' = 'main'): void {
-    if (sender === this.config.clientId) return;
+    if (sender === this.userInfo.id) return;
 
     this.yjsManager.applyUpdate(update, docType, 'sync');
   }
@@ -262,18 +272,11 @@ export class NotesCoordinator {
   /**
    * Set user info
    */
-  setUserInfo(userInfo: UserInfo): void {
-    this.yjsManager.setUserInfo(userInfo);
-    this.commentsService?.setCurrentUser(userInfo);
+  setUserInfo(): void {
+    this.yjsManager.setUserInfo(this.userInfo);
+    this.commentsService?.setCurrentUser(this.userInfo);
   }
 
-  /**
-   * Update client ID
-   */
-  updateClientId(clientId: number): void {
-    this.config.clientId = clientId;
-    this.yjsManager.updateClientId(clientId);
-  }
 
   /**
    * Get current title

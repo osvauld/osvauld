@@ -4,7 +4,7 @@ import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
 import { applyYjsUpdates, createEmptyNoteContent, generatePreview } from "../components/notes/documentUtils";
 import type { Note, NoteContent, NotePreview, Collaborator, Comment, CommentThread } from "../types/notes.types";
-import type { NotesCoordinator } from "components/notes/notesCoordinator";
+import { NotesCoordinator } from "../components/notes/notesCoordinator";
 // Define interfaces
 export interface Vault {
   id: string;
@@ -40,9 +40,7 @@ class DataState {
   collaborators = $state<Collaborator[]>([]);
   clientId: number = 0;
   comments = $state<CommentThread[]>([]);
-  setNotesCoordinator(coordinator: NotesCoordinator | null) {
-    this.notesCoordinator = coordinator;
-  }
+
 
   getNotesCoordinator(): NotesCoordinator | null {
     return this.notesCoordinator;
@@ -144,15 +142,17 @@ class DataState {
     });
   }
 
+  getNoteTitle(): String {
+    console.log(this.getNotesCoordinator()?.getCurrentTitle())
+    return this.getNotesCoordinator()?.getCurrentTitle() || "Untitled";
+  }
+
   // Switch to a different note
   async switchNote(noteId: string) {
     uiState.toggleNoteViewLayout(true);
     this.comments = [];
-    const start = performance.now();
     const note = await sendMessage("getCredential", { resourceId: noteId })
-    const end = performance.now();
-    console.log('resource fetched in ', end - start);
-    console.log(note.data);
+    console.log(note);
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(noteId);
     StoreService.setCurrentNoteId(noteId);
@@ -163,6 +163,7 @@ class DataState {
       });
     }
   }
+
   updateNoteFavorite(noteId: string) {
     const noteIndex = this.notes.findIndex(n => n.id === noteId);
     if (noteIndex !== -1) {
@@ -186,31 +187,62 @@ class DataState {
   toggleFavoriteView(showFavorites: boolean) {
     this.favoriteSelected = showFavorites;
   }
-
+  private createCoordinator() {
+    if (this.notesCoordinator) {
+      // Clean up existing coordinator
+      this.notesCoordinator.destroy();
+    }
+    const userInfo = {
+      name: this.userDetails?.username,
+      color: this.generateUserColor(),
+      id: this.clientId,
+    };
+    this.notesCoordinator = new NotesCoordinator({
+      onCollaborationUpdate: async (update, docType) => {
+        if (!this.getCurrentNoteId()) return;
+        await emit("sync-update", {
+          update: Array.from(update),
+          clientID: this.clientId,
+          resource_id: this.getCurrentNoteId(),
+          doc_type: docType,
+        });
+      },
+      onAwarenessUpdate: async (changes) => {
+        if (!this.getCurrentNoteId()) return;
+        // Handle awareness updates if needed
+      },
+      userInfo,
+    },);
+  }
   // Initialize the state
   async initializeState() {
     this.isDataLoading = true;
-    this.clientId = 0;
 
     const savedNoteId = await StoreService.getCurrentNoteId();
-
+    await Promise.all([
+      this.fetchVaults(),
+      this.getUserDetails(),
+      this.setupReactiveUpdates()
+    ]);
+    this.createCoordinator();
+    await this.restoreSavedSelections();
+    this.isDataLoading = false;
     if (savedNoteId) {
       this.fetchAllNotes(savedNoteId)
     } else {
       this.fetchAllNotes();
     }
-    try {
-      // Run these operations in parallel
-      await Promise.all([
-        this.fetchVaults(),
-        this.getUserDetails(),
-        this.setupReactiveUpdates()
-      ]);
-
-      await this.restoreSavedSelections();
-    } finally {
-      this.isDataLoading = false;
-    }
+  }
+  private generateUserColor(): string {
+    const colors = [
+      "#FF5630",
+      "#FFAB00",
+      "#36B37E",
+      "#00B8D9",
+      "#6554C0",
+      "#FF7452",
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
   }
 
   async getUserDetails() {
@@ -299,7 +331,6 @@ class DataState {
       const coordinator = this.getNotesCoordinator()
       coordinator?.applyRemoteUpdate(updatesArray, senderId);
 
-      // No need to save here - the editor handles auto-save
     } catch (error) {
       console.error("Error handling live-updates:", error);
     }
@@ -379,11 +410,15 @@ class DataState {
     }
   }
 
-  async saveNote() {
+  async saveNote(noteId: string) {
     const coordinator = this.getNotesCoordinator();
-    const noteContent = coordinator?.saveNote();
+    if (!coordinator) {
+      throw new Error("Coordinator not available");
+    }
+    const noteContent = coordinator.saveNote();
+    console.log("saving note", noteId);
     await sendMessage("updateCredential", {
-      id: this.currentNoteId,
+      id: noteId,
       data: JSON.stringify(noteContent),
     });
   }

@@ -69,7 +69,9 @@
 		uiState.showDeleteConfirmation(item);
 	};
 	const saveNoteManual = () => {
-		dataState.saveNote();
+		const noteId = dataState.currentNoteId;
+		console.log(noteId);
+		dataState.saveNote(noteId);
 	};
 
 	$effect(() => {
