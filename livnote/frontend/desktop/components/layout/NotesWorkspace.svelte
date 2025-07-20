@@ -78,6 +78,9 @@
 
 	// Back button handler - saves and returns to list view
 	const handleBackButton = () => {
+		const noteId = dataState.currentNoteId;
+		dataState.saveNote(noteId);
+		dataState.clearCurrentNote();
 		uiState.toggleNoteViewLayout(false);
 	};
 

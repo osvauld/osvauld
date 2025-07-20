@@ -41,7 +41,6 @@ export class YjsManager {
     // Clean up any existing documents
     this.destroy();
 
-
     // Create new documents
     const mainDoc = new Y.Doc();
     const imageDoc = new Y.Doc();
@@ -130,14 +129,17 @@ export class YjsManager {
    * Apply updates from remote
    */
   applyUpdate(update: Uint8Array | number[], docType: 'main' | 'images' = 'main', origin: any = 'sync'): void {
-    if (!this.documents) return;
+    if (!this.documents) {
+      return;
+    }
 
+    console.log(performance.now());
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
+    console.log(performance.now())
 
     Y.applyUpdate(targetDoc, updateArray, origin);
   }
-
   /**
    * Get state as update
    */

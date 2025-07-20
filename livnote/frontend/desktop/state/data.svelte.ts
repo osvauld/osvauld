@@ -416,7 +416,7 @@ class DataState {
       throw new Error("Coordinator not available");
     }
     const noteContent = coordinator.saveNote();
-    console.log("saving note", noteId);
+    console.log("saving note", noteContent);
     await sendMessage("updateCredential", {
       id: noteId,
       data: JSON.stringify(noteContent),

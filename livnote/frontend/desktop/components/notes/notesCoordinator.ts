@@ -87,7 +87,7 @@ export class NotesCoordinator {
       throw new Error("YJS documents not initialized");
     }
 
-    // Clear existing content instead of reinitializing
+    // Clear existing content
     docs.type.delete(0, docs.type.length);
     docs.commentsMap.clear();
     docs.imagesMap.clear();
@@ -106,24 +106,34 @@ export class NotesCoordinator {
       this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
     }
 
+    // Wait for YJS to process the updates
+    await new Promise(resolve => setTimeout(resolve, 0));
+
     // Create editor plugins
     const plugins = this.createEditorPlugins(docs);
 
-    // Initialize editor with YJS content
+    // Initialize ProseMirror doc from YJS after updates are applied
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
-    this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
+
+    // If we still have an empty doc but have editor_state, use that as fallback
+    if (prosemirrorDoc.doc.childCount === 0 && noteContent.editor_state?.doc) {
+      const fallbackDoc = this.schema.nodeFromJSON(noteContent.editor_state.doc);
+      this.editorManager.initializeState(fallbackDoc, plugins);
+    } else {
+      this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
+    }
   }
-
-
   /**
    * Create editor view in container
    */
   createEditorView(container: HTMLElement): EditorView {
+    console.log('🎨 NotesCoordinator.createEditorView called');
     const view = this.editorManager.createView(container);
 
     // Apply any pending YJS state after view is created
     const docs = this.yjsManager.getDocuments();
     if (docs && view) {
+      console.log('🔄 Triggering sync transaction');
       // Trigger a transaction to sync the view
       const tr = view.state.tr;
       view.dispatch(tr);
@@ -131,7 +141,6 @@ export class NotesCoordinator {
 
     return view;
   }
-
   /**
    * Create all editor plugins
    */
@@ -259,7 +268,6 @@ export class NotesCoordinator {
       title: this.yjsManager.getMetadata("title") || "Untitled Note",
     };
   }
-
   /**
    * Apply remote update
    */

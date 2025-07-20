@@ -84,6 +84,7 @@
 		if (!coordinator) {
 			throw new Error("Coordinator not initialized in dataState");
 		}
+
 		loadingInProgress = true;
 
 		try {
@@ -100,7 +101,6 @@
 			if (!noteContent) {
 				throw new Error("No note content available");
 			}
-			console.log("loading notecontet", noteContent);
 
 			await coordinator.loadNote(noteContent);
 
@@ -134,18 +134,6 @@
 					}
 				}
 			}, 200);
-			console.log("content loaded");
-
-			// Setup auto-save
-			if (autoSaveInterval) {
-				clearInterval(autoSaveInterval);
-			}
-
-			autoSaveInterval = window.setInterval(() => {
-				if (dataState.currentNoteId && coordinator) {
-					saveNote();
-				}
-			}, 30000);
 		} catch (err) {
 			console.error("Error loading note:", err);
 			error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
@@ -155,41 +143,22 @@
 		}
 	}
 
-	async function saveNote(): Promise<void> {
-		try {
-			const noteId = dataState.currentNoteId;
-			dataState.saveNote(noteId).then(async () => {
-				await emit("resource-update-complete", {
-					id: dataState.getCurrentNoteId(),
-				});
-			});
-
-			uiState.noteSaved = true;
-			setTimeout(() => {
-				uiState.noteSaved = false;
-			}, 1000);
-		} catch (error) {
-			console.error("Error saving note:", error);
-		}
-	}
-
 	function cleanupEditor(): void {
 		loadingPhase = "idle";
 		if (unsubscribeUpdate) {
 			unsubscribeUpdate();
 		}
 
-		if (view) {
-			view.destroy();
-			view = null;
-		}
+		setTimeout(() => {
+			if (view) {
+				view.destroy();
+				view = null;
+			}
+		}, 0);
 
 		if (autoSaveInterval) {
 			clearInterval(autoSaveInterval);
 		}
-		const noteId = dataState.currentNoteId;
-		dataState.saveNote(noteId);
-		dataState.clearCurrentNote();
 	}
 
 	function checkWindowSize() {

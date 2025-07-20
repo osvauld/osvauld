@@ -54,6 +54,9 @@ export class EditorManager {
   /**
    * Initialize editor state with document
    */
+  // Add these debug logs to your files:
+
+
   initializeState(doc?: any, additionalPlugins: Plugin[] = []): EditorState {
     const plugins = [
       ...this.createBasePlugins(),
@@ -92,7 +95,6 @@ export class EditorManager {
       this.editorView.updateState(newState);
       this.editorState = newState;
 
-      // Call custom transaction handler if provided
       if (this.config.onTransaction) {
         this.config.onTransaction(tr, newState);
       }
@@ -105,7 +107,6 @@ export class EditorManager {
 
     return this.editorView;
   }
-
   /**
    * Update editor state
    */

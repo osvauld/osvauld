@@ -52,7 +52,7 @@ export interface Note {
 export interface NotePreview {
   id: string;
   title?: string;
-  previewEditorState?: any; // Truncated editor state with first few nodes
+  previewHTML: any;
   favourite?: boolean;
   folderId?: string;
   lastModified?: number;

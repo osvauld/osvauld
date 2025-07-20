@@ -34,6 +34,7 @@
 
 	// Function to handle note selection
 	function selectNote(note: any) {
+		//TODO: save old note
 		dataState.switchNote(note.id);
 	}
 
