@@ -35,6 +35,8 @@ class UIState {
   // Navigation panel state
   showNavigationPanel = $state(true);
   isNavigationPanelManuallyToggled = $state(false);
+  isNoteFetching = $state<boolean>(false);
+  isEditorLoading = $state<boolean>(false);
   readonly MIN_EDITOR_WIDTH = 1300; // Minimum editor width in pixels
 
   // Modal states
@@ -164,6 +166,32 @@ class UIState {
   resetNavigationPanelManualToggle() {
     this.isNavigationPanelManuallyToggled = false;
   }
+  get isNoteLoading(): boolean {
+    return this.isNoteFetching || this.isEditorLoading;
+  }
+
+  // Methods to manage loading states
+  setNoteFetching(fetching: boolean) {
+    this.isNoteFetching = fetching;
+  }
+
+  setEditorLoading(loading: boolean) {
+    this.isEditorLoading = loading;
+  }
+
+  // Clear all loading states
+  clearAllLoadingStates() {
+    this.isNoteFetching = false;
+    this.isEditorLoading = false;
+  }
+
+  // Get current loading phase for skeleton display
+  get loadingPhase(): 'idle' | 'fetching' | 'editor' | 'ready' {
+    if (this.isNoteFetching) return 'fetching';
+    if (this.isEditorLoading) return 'editor';
+    return 'ready';
+  }
+
 }
 
 // Create the singleton UI state

@@ -2,21 +2,17 @@
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { emit, type UnlistenFn } from "@tauri-apps/api/event";
-	import { NotesCoordinator } from "./notesCoordinator";
 	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
 	import CommentModal from "./CommentModal.svelte";
 	import "./rich-text-editor.css";
 	import "./schema/editorCustomStyles.css"; // Import the new CSS file
 
-	// Initialize the coordinator
-
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
 	let view = $state<EditorView | null>(null);
 	let autoSaveInterval: number | null = null;
 	let unsubscribeUpdate = $state<UnlistenFn | null>(null);
-	let isLoading = $state(true);
 	let loadingInProgress = $state(false);
 	let elementWidth = $state<number | undefined>(undefined);
 	let resizeTimeoutId: number | null = null;
@@ -25,7 +21,6 @@
 	let pendingCommentPosition = $state<{ from: number; to: number } | null>(
 		null,
 	);
-
 	type LoadingPhase =
 		| "idle"
 		| "preparing"
@@ -35,23 +30,16 @@
 		| "error";
 	let loadingPhase = $state<LoadingPhase>("idle");
 	let error = $state<string | null>(null);
-
-	let showSkeleton = $derived(
-		loadingPhase === "preparing" || loadingPhase === "structure-ready",
-	);
 	let showError = $derived(loadingPhase === "error");
-	let showContent = $derived(
-		loadingPhase === "content-loaded" || loadingPhase === "ready",
+	let showSkeleton = $derived(
+		uiState.isNoteLoading ||
+			loadingPhase === "preparing" ||
+			loadingPhase === "structure-ready",
 	);
-
-	$effect(() => {
-		if (dataState.currentNoteId) {
-			loadNote().then(() => {
-				console.log("load complete");
-			});
-		}
-	});
-
+	let showContent = $derived(
+		!uiState.isNoteLoading &&
+			(loadingPhase === "content-loaded" || loadingPhase === "ready"),
+	);
 	const copyContentListener = (event: Event): void => {
 		if (!view) return;
 
@@ -80,7 +68,6 @@
 			console.error("Error during copy:", error);
 		}
 	};
-
 	async function loadNote(): Promise<void> {
 		const coordinator = dataState.getNotesCoordinator();
 		if (!coordinator) {
@@ -88,54 +75,19 @@
 		}
 
 		loadingInProgress = true;
+		loadingPhase = "preparing";
+		error = null;
 
 		try {
-			// Phase 1: Show skeleton
-			loadingPhase = "preparing";
-			error = null;
-			await new Promise((resolve) => setTimeout(resolve, 50));
-
-			// Phase 2: Initialize structure
-			loadingPhase = "structure-ready";
-
-			// Load note content
 			const noteContent = dataState.getCurrentNoteData()?.data;
 			if (!noteContent) {
 				throw new Error("No note content available");
 			}
 
-			await coordinator.loadNote(noteContent);
-
-			// Phase 3: Create editor view
-			if (view) {
-				view.destroy();
-				view = null;
-			}
-
-			view = coordinator.createEditorView(element);
-			await new Promise((resolve) => setTimeout(resolve, 100));
-
-			// Phase 4: Content loaded
-			loadingPhase = "content-loaded";
-
-			// Phase 5: Finalize
-			setTimeout(() => {
-				if (view) {
-					try {
-						view.focus();
-						const tr = view.state.tr;
-						const endPosition = tr.doc.content.size;
-						const selection = view.state.selection.constructor as any;
-						tr.setSelection(
-							selection.near(tr.doc.resolve(Math.max(0, endPosition))),
-						);
-						view.dispatch(tr.setMeta("cursorPlacement", true));
-						loadingPhase = "ready";
-					} catch (err) {
-						console.error("Error positioning cursor:", err);
-					}
-				}
-			}, 200);
+			// Start loading - events will handle the rest
+			console.log("load note", performance.now());
+			coordinator.loadNote(noteContent);
+			console.log("load note complete", performance.now());
 		} catch (err) {
 			console.error("Error loading note:", err);
 			error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
@@ -144,7 +96,31 @@
 			loadingInProgress = false;
 		}
 	}
+	function handleEditorViewReady(event: CustomEvent) {
+		loadingPhase = "content-loaded";
+		console.log("editor view ready", performance.now());
 
+		const getEditorManager = event.detail.getEditorManager;
+		if (element && getEditorManager) {
+			const editorManager = getEditorManager();
+			view = editorManager.createView(element);
+			loadingPhase = "ready";
+			uiState.setEditorLoading(false);
+			// Focus editor
+			setTimeout(() => {
+				if (view) {
+					view.focus();
+					const tr = view.state.tr;
+					const endPosition = tr.doc.content.size;
+					const selection = view.state.selection.constructor as any;
+					tr.setSelection(
+						selection.near(tr.doc.resolve(Math.max(0, endPosition))),
+					);
+					view.dispatch(tr.setMeta("cursorPlacement", true));
+				}
+			}, 100);
+		}
+	}
 	function cleanupEditor(): void {
 		loadingPhase = "idle";
 		if (unsubscribeUpdate) {
@@ -180,7 +156,36 @@
 			resizeTimeoutId = null;
 		}, 50);
 	}
+	$effect(() => {
+		if (dataState.currentNoteId) {
+			console.log("🔄 Editor $effect triggered", performance.now());
 
+			// Set editor loading in UI state
+			uiState.setEditorLoading(true);
+
+			// Set local loading phases for skeleton
+			loadingPhase = "preparing";
+			loadingInProgress = true;
+			error = null;
+
+			setTimeout(async () => {
+				loadingPhase = "structure-ready";
+
+				try {
+					console.log("🚀 Starting loadNote (editor setup)", performance.now());
+					await loadNote();
+					console.log("✅ loadNote completed", performance.now());
+				} catch (err) {
+					console.error("❌ loadNote failed:", err);
+					error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
+					loadingPhase = "error";
+					uiState.setEditorLoading(false); // Clear on error
+				} finally {
+					loadingInProgress = false;
+				}
+			}, 0);
+		}
+	});
 	onMount(async () => {
 		document.addEventListener(
 			"request-editor-content",
@@ -195,7 +200,10 @@
 			"highlight-comment-text",
 			handleHighlightCommentText as EventListener,
 		);
-
+		document.addEventListener(
+			"editor-view-ready",
+			handleEditorViewReady as EventListener,
+		);
 		window.addEventListener("resize", checkWindowSize);
 		checkWindowSize();
 	});
@@ -221,6 +229,10 @@
 		if (resizeTimeoutId) {
 			clearTimeout(resizeTimeoutId);
 		}
+		document.removeEventListener(
+			"editor-view-ready",
+			handleEditorViewReady as EventListener,
+		);
 	});
 
 	function handleOpenCommentModal(event: CustomEvent) {
@@ -376,37 +388,32 @@
 
 			<!-- Skeleton overlay -->
 			{#if showSkeleton}
-				<div class="absolute inset-0 p-6 space-y-4">
+				<div class="absolute inset-0 p-6 space-y-4 bg-black/90 z-50">
 					<div class="animate-pulse space-y-6">
+						<div class="text-white text-sm mb-4 bg-blue-600 p-2 rounded">
+							{#if uiState.isNoteFetching}
+								decrypting note ...
+							{:else if uiState.isEditorLoading}
+								Setting up editor...
+							{:else}
+								Loading...
+							{/if}
+						</div>
+
 						<!-- Title skeleton -->
-						<div class="h-8 bg-osvauld-fieldActive rounded-lg w-3/4"></div>
+						<div class="h-8 bg-gray-600 rounded-lg w-3/4"></div>
 
 						<!-- Content skeletons -->
 						<div class="space-y-3">
-							<div class="h-4 bg-osvauld-fieldActive rounded w-full"></div>
-							<div class="h-4 bg-osvauld-fieldActive rounded w-5/6"></div>
-							<div class="h-4 bg-osvauld-fieldActive rounded w-4/5"></div>
+							<div class="h-4 bg-gray-600 rounded w-full"></div>
+							<div class="h-4 bg-gray-600 rounded w-5/6"></div>
+							<div class="h-4 bg-gray-600 rounded w-4/5"></div>
 						</div>
 
 						<div class="space-y-3">
-							<div class="h-4 bg-osvauld-fieldActive rounded w-full"></div>
-							<div class="h-4 bg-osvauld-fieldActive rounded w-3/4"></div>
+							<div class="h-4 bg-gray-600 rounded w-full"></div>
+							<div class="h-4 bg-gray-600 rounded w-3/4"></div>
 						</div>
-
-						<div class="space-y-3">
-							<div class="h-4 bg-osvauld-fieldActive rounded w-5/6"></div>
-							<div class="h-4 bg-osvauld-fieldActive rounded w-full"></div>
-							<div class="h-4 bg-osvauld-fieldActive rounded w-2/3"></div>
-						</div>
-					</div>
-
-					<!-- Loading phase indicator -->
-					<div class="absolute bottom-4 left-6 text-osvauld-fieldText text-sm">
-						{#if loadingPhase === "preparing"}
-							Preparing document...
-						{:else if loadingPhase === "structure-ready"}
-							Loading content...
-						{/if}
 					</div>
 				</div>
 			{/if}

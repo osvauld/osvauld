@@ -20,7 +20,6 @@ export interface YjsManagerConfig {
   clientId: number;
   onUpdate?: (update: Uint8Array, origin: any, docType: 'main' | 'images') => void;
   onAwarenessChange?: (changes: any, origin: string) => void;
-  onAfterAllTransactions?: () => void; // Add this
 }
 
 /**
@@ -62,13 +61,6 @@ export class YjsManager {
           this.config.onUpdate!(update, origin, "main");
         }
       });
-
-      if (this.config.onAfterAllTransactions) {
-        this.afterTransactionsHandler = () => {
-          this.config.onAfterAllTransactions!();
-        };
-        mainDoc.on("afterAllTransactions", this.afterTransactionsHandler);
-      }
       imageDoc.on("update", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
           this.config.onUpdate!(update, origin, "images");
@@ -115,10 +107,14 @@ export class YjsManager {
    * Set user info in awareness
    */
   setUserInfo(userInfo: UserInfo): void {
+    console.log("setting user info");
     if (!this.documents) return;
+    console.log("not returning");
+    console.log(this.documents.awareness.getLocalState(), "local state");
     this.documents.awareness.setLocalState({
       user: userInfo
     });
+    console.log(this.documents.awareness.getLocalState(), "local state");
   }
 
   /**
@@ -139,10 +135,8 @@ export class YjsManager {
     if (!this.documents) {
       return;
     }
-
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
-
     Y.applyUpdate(targetDoc, updateArray, origin);
   }
   /**

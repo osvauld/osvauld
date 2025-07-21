@@ -32,7 +32,6 @@ export interface NotesCoordinatorConfig {
   userInfo: UserInfo
   onCollaborationUpdate?: (update: Uint8Array, docType: 'main' | 'images') => void;
   onAwarenessUpdate?: (changes: any) => void;
-  onTitleReady?: (title: string) => void; // Add this
 }
 
 /**
@@ -47,10 +46,8 @@ export class NotesCoordinator {
   private schema = createEditorSchema();
   private currentAssets: ImageAsset[] = [];
   private userInfo: UserInfo;
-  private isLoadingNote: boolean = false;
   constructor(private config: NotesCoordinatorConfig) {
     this.userInfo = config.userInfo; // Initialize userInfo from config
-    this.isLoadingNote = true;
     // Initialize YJS manager
     this.yjsManager = new YjsManager({
       clientId: this.userInfo.id, // Use the userInfo property
@@ -64,15 +61,6 @@ export class NotesCoordinator {
           config.onAwarenessUpdate(changes);
         }
       },
-      onAfterAllTransactions: () => {
-        // Only trigger title update if we're loading a note
-        if (this.isLoadingNote && config.onTitleReady) {
-          const title = this.yjsManager.getMetadata("title") || "Untitled Note";
-          console.log("afterAllTransactions: title from YJS:", title);
-          config.onTitleReady(title);
-          this.isLoadingNote = false; // Reset flag
-        }
-      }
     });
 
     const docs = this.yjsManager.initialize();
@@ -97,44 +85,43 @@ export class NotesCoordinator {
    * Load existing note
    */
   async loadNote(noteContent: NoteContent): Promise<void> {
-    console.log("🔄 Loading note, reinitializing YJS documents");
-    this.isLoadingNote = true;
+    console.log("🔄 Starting note loading");
+
     // Reinitialize YJS to ensure clean state
-    const docs = this.yjsManager.initialize(); // This destroys old docs and creates new ones
+    const docs = this.yjsManager.initialize();
 
     // Re-setup services with new documents
     this.commentsStore.setCommentsMap(docs.commentsMap);
     this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
-
-    console.log("📦 Setting up assets");
     this.currentAssets = noteContent.assets || [];
-    this.imageStorage.setAssetsArray(this.currentAssets);
 
-    console.log("📊 YJS state length:", noteContent.yjs_state?.length || 0);
-    console.log("🖼️ Image state length:", noteContent.image_state?.length || 0);
-
-    // Apply YJS state if available
+    // Set up single event handler for when main doc is ready
+    const handleReady = () => this.handleMainDocReady(docs, noteContent);
+    docs.mainDoc.once('afterAllTransactions', () => {
+      console.log("📄 YJS transactions complete, proceeding");
+      this.handleMainDocReady(docs, noteContent);
+    });
+    // Apply main YJS state - this triggers everything
     if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
       console.log("🔄 Applying main YJS state");
       this.yjsManager.applyUpdate(noteContent.yjs_state, 'main', 'loading');
+    } else {
+      // No YJS state, trigger manually
+      setTimeout(() => handleReady(), 0);
     }
+  }
 
-    // Apply image metadata state
-    if (noteContent.image_state && noteContent.image_state.length > 0) {
-      console.log("🔄 Applying image YJS state");
-      this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
-    }
+  private handleMainDocReady(docs: any, noteContent: NoteContent): void {
+    console.log("📄 Main doc ready, setting up editor");
+    this.yjsManager.setUserInfo(this.userInfo);
+    // 1. Set title directly in dataState
+    const title = this.yjsManager.getMetadata("title") || "Untitled Note";
+    dataState.currentNoteTitle = title;
+    console.log("📝 Title set:", title);
 
-    // Wait a tick for YJS to process
-    await new Promise(resolve => setTimeout(resolve, 0));
-
-    console.log("💬 Comments in map after applying updates:", docs.commentsMap.size);
-
-
-    // Create editor plugins with fresh documents
+    this.loadImages(noteContent);
+    // 2. Create editor
     const plugins = this.createEditorPlugins(docs);
-
-    // Initialize ProseMirror doc from YJS
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
 
     if (prosemirrorDoc.doc.childCount === 0 && noteContent.editor_state?.doc) {
@@ -143,6 +130,35 @@ export class NotesCoordinator {
     } else {
       this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
     }
+
+    // 3. Emit editor ready to RichTextEditor
+    document.dispatchEvent(new CustomEvent('editor-view-ready', {
+      detail: { getEditorManager: () => this.editorManager }
+    }));
+
+    // 4. Emit comments ready for sidebar
+    document.dispatchEvent(new CustomEvent('comments-store-ready', {
+      detail: { commentsStore: this.commentsStore }
+    }));
+
+    // 5. Start async image loading
+  }
+
+  private loadImages(noteContent: NoteContent): void {
+    console.log("🖼️ Loading images asynchronously");
+
+    // Apply image metadata state
+    if (noteContent.image_state && noteContent.image_state.length > 0) {
+      console.log("🔄 Applying image YJS state");
+      this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
+    }
+
+    // Set assets array for base64 data
+    this.imageStorage?.setAssetsArray(this.currentAssets);
+
+    // Notify image nodes
+    document.dispatchEvent(new CustomEvent('assets-loaded'));
+    console.log("✅ Images loaded");
   }
   /**
    * Create editor view in container
@@ -220,6 +236,7 @@ export class NotesCoordinator {
    * Create custom cursor for collaboration
    */
   private createCustomCursor(user: UserInfo): HTMLElement {
+    console.log(user);
     const cursor = document.createElement('span');
 
     if (user.id === this.userInfo.id) {

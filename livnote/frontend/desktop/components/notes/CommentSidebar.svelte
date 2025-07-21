@@ -19,11 +19,36 @@
 	let highlightedThreadId = $state<string | null>(null);
 	let animatingThreadId = $state<string | null>(null);
 	let animationTimeoutId: ReturnType<typeof setTimeout> | null = null;
-
+	let commentsUnsubscribe: (() => void) | null = null;
+	let threads = $state<CommentThread[]>([]);
 	// Robust unread tracking with localStorage persistence
 	const READ_STATUS_KEY = "livnote_read_threads";
 	let readThreadIds = $state<Set<string>>(new Set());
+	function handleCommentsStoreReady(event: CustomEvent) {
+		const commentsStore = event.detail.commentsStore;
+		console.log("Comments store ready, setting up subscription");
+		setupCommentsSubscriptionWithStore(commentsStore);
+	}
 
+	function setupCommentsSubscriptionWithStore(commentsStore: any) {
+		// Clean up previous subscription
+		if (commentsUnsubscribe) {
+			commentsUnsubscribe();
+			commentsUnsubscribe = null;
+		}
+
+		console.log("Comments store initialized:", commentsStore.isInitialized());
+
+		// Subscribe to updates
+		commentsUnsubscribe = commentsStore.subscribe(() => {
+			const newComments = commentsStore.getComments();
+			console.log("Comments updated:", newComments);
+			threads = newComments;
+		});
+
+		// Get initial threads
+		threads = commentsStore.getComments();
+	}
 	// Load read status from localStorage
 	function loadReadStatus() {
 		try {
@@ -51,45 +76,6 @@
 				console.error("Error saving read status:", error);
 			}
 		}, 100);
-	}
-
-	let threads = $state<CommentThread[]>([]);
-	let commentsUnsubscribe: (() => void) | null = null;
-	$effect(() => {
-		if (dataState.currentNoteId) {
-			const coordinator = dataState.getNotesCoordinator();
-			if (coordinator) {
-				setupCommentsSubscription();
-			}
-		}
-	});
-	function setupCommentsSubscription() {
-		// Clean up previous subscription
-		if (commentsUnsubscribe) {
-			commentsUnsubscribe();
-			commentsUnsubscribe = null;
-		}
-
-		const coordinator = dataState.getNotesCoordinator();
-		if (!coordinator) {
-			console.warn("No coordinator available for comments");
-			return;
-		}
-
-		const commentsStore = coordinator.getCommentsStore();
-
-		console.log("Comments store initialized:", commentsStore.isInitialized());
-		console.log("Initial comments:", commentsStore.getComments());
-
-		// Subscribe to updates
-		commentsUnsubscribe = commentsStore.subscribe(() => {
-			const newComments = commentsStore.getComments();
-			console.log("Comments updated:", newComments);
-			threads = newComments;
-		});
-
-		// Get initial threads
-		threads = commentsStore.getComments();
 	}
 
 	// Derived values
@@ -220,7 +206,10 @@
 	// Much simpler onMount - just load read status and listen for highlight events
 	onMount(() => {
 		loadReadStatus();
-
+		document.addEventListener(
+			"comments-store-ready",
+			handleCommentsStoreReady as EventListener,
+		);
 		// Listen for comment highlight events from editor
 		const handleCommentHighlight = (event: CustomEvent) => {
 			const { threadId } = event.detail;
@@ -236,6 +225,10 @@
 			document.removeEventListener(
 				"highlight-comment-thread",
 				handleCommentHighlight as EventListener,
+			);
+			document.removeEventListener(
+				"comments-store-ready",
+				handleCommentsStoreReady as EventListener,
 			);
 		};
 	});

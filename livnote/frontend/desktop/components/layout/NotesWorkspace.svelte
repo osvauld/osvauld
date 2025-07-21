@@ -81,7 +81,7 @@
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
 		}
-
+		console.log("note workspace mounted", performance.now());
 		// Set CSS variable for minimum editor width
 		document.documentElement.style.setProperty(
 			"--min-editor-width",

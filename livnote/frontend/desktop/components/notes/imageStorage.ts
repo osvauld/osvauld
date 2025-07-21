@@ -32,7 +32,6 @@ export class ImageStorageService {
     for (const asset of this.assetsArray) {
       this.imageCache.set(asset.id, asset.data);
     }
-    console.log(`[ImageStorage] Populated cache with ${this.assetsArray.length} images`);
   }
 
   /**
@@ -140,7 +139,6 @@ export class ImageStorageService {
     // Remove from cache
     this.imageCache.delete(imageId);
 
-    console.log(`[ImageStorage] Deleted image ${imageId}, assets array now has ${this.assetsArray.length} items`);
   }
 
   /**
@@ -165,10 +163,8 @@ export class ImageStorageService {
     // For now, just log the changes
     event.changes.keys.forEach((change, key) => {
       if (change.action === 'add') {
-        console.log(`[ImageStorage] New image metadata added: ${key}`);
         // TODO: In P2P scenario, request the actual image data from other clients
       } else if (change.action === 'delete') {
-        console.log(`[ImageStorage] Image metadata deleted: ${key}`);
         this.imageCache.delete(key);
       }
     });

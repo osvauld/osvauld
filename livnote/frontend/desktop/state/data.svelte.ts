@@ -124,6 +124,9 @@ class DataState {
     uiState.toggleNoteViewLayout(false);
   }
   async addNote() {
+    uiState.setNoteFetching(true);
+    uiState.setEditorLoading(false);
+
     const noteContent = createEmptyNoteContent(this.clientId, this.userDetails?.username);
     const note = await sendMessage("addCredential", {
       resourcePayload: JSON.stringify(noteContent),
@@ -132,6 +135,7 @@ class DataState {
     });
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(note.id);
+    uiState.setNoteFetching(false);
     uiState.toggleNoteViewLayout(true);
     StoreService.setCurrentNoteId(note.id);
     emit("note-change", note.id
@@ -146,14 +150,19 @@ class DataState {
 
   // Switch to a different note
   async switchNote(noteId: string) {
+    uiState.setNoteFetching(true);
+    uiState.setEditorLoading(false);
     uiState.toggleNoteViewLayout(true);
     const note = await sendMessage("getCredential", { resourceId: noteId })
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(noteId);
+    uiState.setNoteFetching(false);
+    console.log("note loaded in", performance.now());
     StoreService.setCurrentNoteId(noteId);
     if (noteId) {
       emit("note-change", noteId
       ).catch(error => {
+        uiState.clearAllLoadingStates();
         console.error("Error updating current note:", error);
       });
     }
@@ -207,10 +216,6 @@ class DataState {
         // Handle awareness updates if needed
       },
       userInfo,
-      onTitleReady: (title) => {
-        console.log("Title ready from YJS:", title);
-        this.currentNoteTitle = title;
-      },
     },);
   }
   // Initialize the state
