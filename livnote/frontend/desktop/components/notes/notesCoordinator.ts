@@ -19,6 +19,7 @@ import { floatingMenuPlugin } from "./floatingMenuPlugin";
 import { pasteHandlerPlugin } from "./pasteHandlerPlugin";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { imageNodeViewPlugin } from "./imageNodeViewPlugin";
+import { dataState } from "../../state";
 
 import type {
   NoteContent,
@@ -31,6 +32,7 @@ export interface NotesCoordinatorConfig {
   userInfo: UserInfo
   onCollaborationUpdate?: (update: Uint8Array, docType: 'main' | 'images') => void;
   onAwarenessUpdate?: (changes: any) => void;
+  onTitleReady?: (title: string) => void; // Add this
 }
 
 /**
@@ -45,9 +47,10 @@ export class NotesCoordinator {
   private schema = createEditorSchema();
   private currentAssets: ImageAsset[] = [];
   private userInfo: UserInfo;
+  private isLoadingNote: boolean = false;
   constructor(private config: NotesCoordinatorConfig) {
     this.userInfo = config.userInfo; // Initialize userInfo from config
-
+    this.isLoadingNote = true;
     // Initialize YJS manager
     this.yjsManager = new YjsManager({
       clientId: this.userInfo.id, // Use the userInfo property
@@ -59,6 +62,15 @@ export class NotesCoordinator {
       onAwarenessChange: (changes, origin) => {
         if (origin === 'local' && config.onAwarenessUpdate) {
           config.onAwarenessUpdate(changes);
+        }
+      },
+      onAfterAllTransactions: () => {
+        // Only trigger title update if we're loading a note
+        if (this.isLoadingNote && config.onTitleReady) {
+          const title = this.yjsManager.getMetadata("title") || "Untitled Note";
+          console.log("afterAllTransactions: title from YJS:", title);
+          config.onTitleReady(title);
+          this.isLoadingNote = false; // Reset flag
         }
       }
     });
@@ -86,7 +98,7 @@ export class NotesCoordinator {
    */
   async loadNote(noteContent: NoteContent): Promise<void> {
     console.log("🔄 Loading note, reinitializing YJS documents");
-
+    this.isLoadingNote = true;
     // Reinitialize YJS to ensure clean state
     const docs = this.yjsManager.initialize(); // This destroys old docs and creates new ones
 
@@ -118,10 +130,6 @@ export class NotesCoordinator {
 
     console.log("💬 Comments in map after applying updates:", docs.commentsMap.size);
 
-    // Force a transaction to ensure state is integrated
-    docs.mainDoc.transact(() => {
-      // This empty transaction helps YJS integrate the state
-    }, 'loading');
 
     // Create editor plugins with fresh documents
     const plugins = this.createEditorPlugins(docs);

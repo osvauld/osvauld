@@ -14,17 +14,10 @@
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
 	let saved = $state(false);
-	let title = $state("");
 	// Derived state for favorite status
 	let isFavourite = $derived(
 		dataState.getCurrentNoteData()?.favourite ?? false,
 	);
-	$effect(() => {
-		if (dataState.currentNoteId) {
-			title = dataState.getNotesCoordinator()?.getCurrentTitle();
-			console.log("title", title);
-		}
-	});
 	// Toggle navigation panel
 	function toggleNavigationPanel() {
 		uiState.toggleNavigationPanel();
@@ -56,7 +49,7 @@
 	function saveTitle() {
 		let coordinator = dataState.getNotesCoordinator();
 		coordinator?.saveNote(newNoteTitle);
-		title = newNoteTitle;
+		dataState.currentNoteTitle = newNoteTitle;
 	}
 
 	const getInitial = (name: string): string => {
@@ -148,7 +141,7 @@
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
-						{title}
+						{dataState.currentNoteTitle}
 					</span>
 				{/if}
 				<button

@@ -20,6 +20,7 @@ export interface YjsManagerConfig {
   clientId: number;
   onUpdate?: (update: Uint8Array, origin: any, docType: 'main' | 'images') => void;
   onAwarenessChange?: (changes: any, origin: string) => void;
+  onAfterAllTransactions?: () => void; // Add this
 }
 
 /**
@@ -29,7 +30,7 @@ export interface YjsManagerConfig {
 export class YjsManager {
   private documents: YjsDocuments | null = null;
   private config: YjsManagerConfig;
-
+  private afterTransactionsHandler: (() => void) | null = null;
   constructor(config: YjsManagerConfig) {
     this.config = config;
   }
@@ -62,7 +63,12 @@ export class YjsManager {
         }
       });
 
-
+      if (this.config.onAfterAllTransactions) {
+        this.afterTransactionsHandler = () => {
+          this.config.onAfterAllTransactions!();
+        };
+        mainDoc.on("afterAllTransactions", this.afterTransactionsHandler);
+      }
       imageDoc.on("update", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
           this.config.onUpdate!(update, origin, "images");
@@ -162,18 +168,29 @@ export class YjsManager {
   /**
    * Clean up and destroy documents
    */
-  destroy(): void {
-    if (this.documents) {
-      this.documents.mainDoc.destroy();
-      this.documents.imageDoc.destroy();
-      this.documents = null;
-    }
-  }
+
 
   /**
    * Check if documents are initialized
    */
   isInitialized(): boolean {
     return this.documents !== null;
+  }
+
+  /**
+   * Clean up and destroy documents
+   */
+  destroy(): void {
+    if (this.documents) {
+      // Remove afterAllTransactions listener if it exists
+      if (this.afterTransactionsHandler) {
+        this.documents.mainDoc.off("afterAllTransactions", this.afterTransactionsHandler);
+        this.afterTransactionsHandler = null;
+      }
+
+      this.documents.mainDoc.destroy();
+      this.documents.imageDoc.destroy();
+      this.documents = null;
+    }
   }
 }

@@ -39,6 +39,7 @@ class DataState {
   sharedUsers = $state([]);
   collaborators = $state<Collaborator[]>([]);
   clientId: number = 0;
+  currentNoteTitle = $state<string>("");
 
   getNotesCoordinator(): NotesCoordinator | null {
     return this.notesCoordinator;
@@ -206,6 +207,10 @@ class DataState {
         // Handle awareness updates if needed
       },
       userInfo,
+      onTitleReady: (title) => {
+        console.log("Title ready from YJS:", title);
+        this.currentNoteTitle = title;
+      },
     },);
   }
   // Initialize the state
