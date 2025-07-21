@@ -158,8 +158,6 @@
 	}
 	$effect(() => {
 		if (dataState.currentNoteId) {
-			console.log("🔄 Editor $effect triggered", performance.now());
-
 			// Set editor loading in UI state
 			uiState.setEditorLoading(true);
 

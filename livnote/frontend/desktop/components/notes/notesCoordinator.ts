@@ -46,6 +46,10 @@ export class NotesCoordinator {
   private schema = createEditorSchema();
   private currentAssets: ImageAsset[] = [];
   private userInfo: UserInfo;
+  private imageLoadStartTime: number = 0;
+  private imageLoadEndTime: number = 0;
+  private mainDocLoadTime: number = 0;
+  private _imageStoreHandler: ((event: CustomEvent) => void) | null = null;
   constructor(private config: NotesCoordinatorConfig) {
     this.userInfo = config.userInfo; // Initialize userInfo from config
     // Initialize YJS manager
@@ -77,14 +81,14 @@ export class NotesCoordinator {
         // Handle transaction updates if needed
       }
     });
+    this.setupImageStoreListener();
   }
   /**
    * Load existing note
    */
-  /**
-   * Load existing note
-   */
+  // Update the loadNote method
   async loadNote(noteContent: NoteContent): Promise<void> {
+    const totalStartTime = performance.now();
     console.log("🔄 Starting note loading");
 
     // Reinitialize YJS to ensure clean state
@@ -93,34 +97,42 @@ export class NotesCoordinator {
     // Re-setup services with new documents
     this.commentsStore.setCommentsMap(docs.commentsMap);
     this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
-    this.currentAssets = noteContent.assets || [];
+
+    // Start performance tracking
+    this.imageStorage.startLoadTracking();
+
+    // Track main doc load time
+    const mainDocStart = performance.now();
 
     // Set up single event handler for when main doc is ready
-    const handleReady = () => this.handleMainDocReady(docs, noteContent);
     docs.mainDoc.once('afterAllTransactions', () => {
-      console.log("📄 YJS transactions complete, proceeding");
+      this.mainDocLoadTime = performance.now() - mainDocStart;
+      console.log(`📄 Main doc loaded in ${this.mainDocLoadTime}ms`);
       this.handleMainDocReady(docs, noteContent);
     });
-    // Apply main YJS state - this triggers everything
+
+    // Apply main YJS state
     if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
       console.log("🔄 Applying main YJS state");
       this.yjsManager.applyUpdate(noteContent.yjs_state, 'main', 'loading');
     } else {
       // No YJS state, trigger manually
-      setTimeout(() => handleReady(), 0);
+      setTimeout(() => {
+        this.mainDocLoadTime = performance.now() - mainDocStart;
+        this.handleMainDocReady(docs, noteContent);
+      }, 0);
     }
   }
 
   private handleMainDocReady(docs: any, noteContent: NoteContent): void {
     console.log("📄 Main doc ready, setting up editor");
     this.yjsManager.setUserInfo(this.userInfo);
-    // 1. Set title directly in dataState
+
+    // Set title
     const title = this.yjsManager.getMetadata("title") || "Untitled Note";
     dataState.currentNoteTitle = title;
-    console.log("📝 Title set:", title);
 
-    this.loadImages(noteContent);
-    // 2. Create editor
+    // Create editor
     const plugins = this.createEditorPlugins(docs);
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
 
@@ -131,34 +143,53 @@ export class NotesCoordinator {
       this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
     }
 
-    // 3. Emit editor ready to RichTextEditor
+    // Emit editor ready
     document.dispatchEvent(new CustomEvent('editor-view-ready', {
       detail: { getEditorManager: () => this.editorManager }
     }));
 
-    // 4. Emit comments ready for sidebar
+    // Emit comments ready
     document.dispatchEvent(new CustomEvent('comments-store-ready', {
       detail: { commentsStore: this.commentsStore }
     }));
 
-    // 5. Start async image loading
+    // Start deferred image loading
+    this.deferImageLoading(noteContent);
   }
+  private async deferImageLoading(noteContent: NoteContent): Promise<void> {
+    this.imageLoadStartTime = performance.now();
+    console.log("🖼️ Starting deferred image loading");
 
-  private loadImages(noteContent: NoteContent): void {
-    console.log("🖼️ Loading images asynchronously");
-
-    // Apply image metadata state
+    // Apply image YJS state if available
     if (noteContent.image_state && noteContent.image_state.length > 0) {
-      console.log("🔄 Applying image YJS state");
+      console.log(`🔄 Applying image YJS state (${noteContent.image_state.length} bytes)`);
       this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
     }
 
-    // Set assets array for base64 data
-    this.imageStorage?.setAssetsArray(this.currentAssets);
+    // Initialize cache from YJS
+    this.imageStorage?.initializeCacheFromYjs();
+
+    this.imageLoadEndTime = performance.now();
+    const loadTime = this.imageLoadEndTime - this.imageLoadStartTime;
+
+    // Get metrics
+    const metrics = this.imageStorage?.getLoadMetrics();
+
+    console.log(`✅ Images loaded in ${loadTime}ms`);
+    console.log(`📊 Image metrics:`, metrics);
+
+    // Emit performance data
+    document.dispatchEvent(new CustomEvent('performance-metrics', {
+      detail: {
+        mainDocLoadTime: this.mainDocLoadTime,
+        imageLoadTime: loadTime,
+        imageMetrics: metrics,
+        totalLoadTime: performance.now() - this.imageLoadStartTime
+      }
+    }));
 
     // Notify image nodes
     document.dispatchEvent(new CustomEvent('assets-loaded'));
-    console.log("✅ Images loaded");
   }
   /**
    * Create editor view in container
@@ -231,12 +262,42 @@ export class NotesCoordinator {
       imageNodeViewPlugin(this.imageStorage!),
     ];
   }
+  private setupImageStoreListener(): void {
+    const handleStoreImageRequest = async (event: CustomEvent) => {
+      const { dataUrl, mimeType, filename, callback } = event.detail;
 
+      if (!this.imageStorage) {
+        console.error('Image storage not initialized');
+        return;
+      }
+
+      try {
+        // Store the image using the image storage service
+        const imageId = await this.imageStorage.storeImage(dataUrl, mimeType, filename);
+
+        // Get metadata for dimensions
+        const metadata = this.imageStorage.getImageMetadata(imageId);
+
+        // Call the callback with the image ID and metadata
+        if (callback && typeof callback === 'function') {
+          callback(imageId, metadata);
+        }
+
+        console.log(`[NotesCoordinator] Image stored via menu: ${imageId}`);
+      } catch (error) {
+        console.error('Error storing image:', error);
+      }
+    };
+
+    document.addEventListener('store-image-request', handleStoreImageRequest as EventListener);
+
+    // Store the handler for cleanup
+    this._imageStoreHandler = handleStoreImageRequest;
+  }
   /**
    * Create custom cursor for collaboration
    */
   private createCustomCursor(user: UserInfo): HTMLElement {
-    console.log(user);
     const cursor = document.createElement('span');
 
     if (user.id === this.userInfo.id) {
@@ -300,17 +361,19 @@ export class NotesCoordinator {
       throw new Error("Editor state not initialized");
     }
 
+    // No need for assets array anymore - everything is in YJS
     return {
       content: docs.type.toJSON(),
       yjs_state: Array.from(this.yjsManager.getStateAsUpdate('main')),
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
-      assets: this.currentAssets,
+      assets: [], // Empty array since we're using YJS
       editor_state: editorState.toJSON(),
       client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
       title: this.yjsManager.getMetadata("title") || "Untitled Note",
     };
   }
+
   /**
    * Apply remote update
    */
@@ -368,6 +431,9 @@ export class NotesCoordinator {
     this.imageStorage?.clearCache();
     this.currentAssets = [];
     this.commentsStore.destroy();
+    if (this._imageStoreHandler) {
+      document.removeEventListener('store-image-request', this._imageStoreHandler as EventListener);
+    }
   }
 
   /**

@@ -3,6 +3,7 @@ import { Awareness } from "y-protocols/awareness";
 import type {
   CommentThread,
   ImageMetadata,
+  ImageAsset,
   UserInfo
 } from "../../../types/notes.types";
 
@@ -11,7 +12,7 @@ export interface YjsDocuments {
   imageDoc: Y.Doc;
   type: Y.XmlFragment;
   commentsMap: Y.Map<CommentThread>;
-  imagesMap: Y.Map<ImageMetadata>;
+  imagesMap: Y.Map<ImageAsset>;
   metadata: Y.Map<any>;
   awareness: Awareness;
 }
@@ -51,7 +52,7 @@ export class YjsManager {
     const type = mainDoc.getXmlFragment("prosemirror");
     const commentsMap = mainDoc.getMap<CommentThread>("comments");
     const metadata = mainDoc.getMap("metadata");
-    const imagesMap = imageDoc.getMap<ImageMetadata>("images");
+    const imagesMap = imageDoc.getMap<ImageAsset>("images");
     const awareness = new Awareness(mainDoc);
 
     // Set up update handlers
@@ -131,13 +132,22 @@ export class YjsManager {
   /**
    * Apply updates from remote
    */
+  // Add to the applyUpdate method in YjsManager
   applyUpdate(update: Uint8Array | number[], docType: 'main' | 'images' = 'main', origin: any = 'sync'): void {
-    if (!this.documents) {
-      return;
-    }
+    const startTime = performance.now();
+
+    if (!this.documents) return;
+
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
+
     Y.applyUpdate(targetDoc, updateArray, origin);
+
+    const endTime = performance.now();
+    const updateTime = endTime - startTime;
+
+    console.log(`[PERF] YJS ${docType} update applied in ${updateTime}ms, size: ${updateArray.length} bytes`);
+
   }
   /**
    * Get state as update

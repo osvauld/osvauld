@@ -63,25 +63,25 @@ export function applyYjsUpdates(currentState: Uint8Array | number[] | null, upda
   };
 }
 
-/**
- * Create an empty note content without requiring a coordinator instance
- * @param clientId - The client ID for the note
- * @param username - The username for the note creator
- * @returns A new empty NoteContent object
- */
+
 export function createEmptyNoteContent(clientId: number, username?: string): NoteContent {
-  // Create temporary YJS documents just for content creation
+  // Create temporary YJS documents
   const tempYDoc = new Y.Doc();
   const tempType = tempYDoc.getXmlFragment('prosemirror');
 
+  // Create separate image doc
+  const tempImageDoc = new Y.Doc();
+  const tempImagesMap = tempImageDoc.getMap('images');
+
   // Initialize empty ProseMirror document
   const prosemirrorDoc = initProseMirrorDoc(tempType, editorSchema);
+
   // Create note content
   const noteContent: NoteContent = {
     content: tempType.toJSON(),
     yjs_state: Array.from(Y.encodeStateAsUpdate(tempYDoc)),
-    image_state: Array.from(Y.encodeStateAsUpdate(tempYDoc)), // Same doc for simplicity
-    assets: [],
+    image_state: Array.from(Y.encodeStateAsUpdate(tempImageDoc)), // Separate image doc
+    assets: [], // Empty since we're using YJS only
     editor_state: {
       doc: prosemirrorDoc.doc.toJSON(),
       selection: { type: "text", anchor: 1, head: 1 }
@@ -91,29 +91,12 @@ export function createEmptyNoteContent(clientId: number, username?: string): Not
     title: "Untitled Note",
   };
 
-  // Clean up temporary doc
+  // Clean up temporary docs
   tempYDoc.destroy();
+  tempImageDoc.destroy();
 
   return noteContent;
 }
-
-/**
- * Process document content to replace yjs-image URLs with base64 data
- */
-function processDocumentImages(content: any[], assets: any[]): any[] {
-  if (!content || !Array.isArray(content)) {
-    return content;
-  }
-
-  // Create a map for quick asset lookup
-  const assetMap = new Map();
-  assets.forEach(asset => {
-    assetMap.set(asset.id, asset.data);
-  });
-
-  return content.map(node => processNode(node, assetMap));
-}
-
 function processNode(node: any, assetMap: Map<string, string>): any {
   if (!node || typeof node !== 'object') {
     return node;
@@ -161,13 +144,13 @@ function processNode(node: any, assetMap: Map<string, string>): any {
  * Takes only the first few nodes from the editor state to reduce memory usage
  */
 /**
- * Debug version of generatePreview to understand the data structure
+ * Generate a lightweight preview from full note data
+ * Works exclusively with YJS-based image storage
  */
 export function generatePreview(fullNote: Note, maxNodes: number = 3): NotePreview {
   let previewHTML = "";
 
   try {
-
     if (fullNote.data.editor_state) {
       let editorState;
 
@@ -178,42 +161,38 @@ export function generatePreview(fullNote: Note, maxNodes: number = 3): NotePrevi
         editorState = fullNote.data.editor_state;
       }
 
-      // Create truncated and processed content
+      // Create truncated content
       if (editorState && editorState.doc && editorState.doc.content) {
         const originalContent = editorState.doc.content;
 
         // Take only the first maxNodes nodes
         const truncatedContent = originalContent.slice(0, maxNodes);
-        // Process images in the truncated content
-        const processedContent = processDocumentImages(
+
+        // Process images in the truncated content from YJS image state
+        const processedContent = processDocumentImagesFromYjs(
           truncatedContent,
-          fullNote.data.assets || []
+          fullNote.data.image_state
         );
 
         // Convert to HTML
         previewHTML = contentToHTML(processedContent);
       }
-    } else {
-      console.log('No editor_state found in note data');
     }
 
     // Try fallback to content field
     if (!previewHTML.trim() && fullNote.data.content) {
-
       if (Array.isArray(fullNote.data.content)) {
-        previewHTML = contentToHTML(fullNote.data.content.slice(0, maxNodes));
-      } else if (typeof fullNote.data.content === 'object' && fullNote.data.content.content) {
-        previewHTML = contentToHTML(fullNote.data.content.content.slice(0, maxNodes));
+        const processedContent = processDocumentImagesFromYjs(
+          fullNote.data.content.slice(0, maxNodes),
+          fullNote.data.image_state
+        );
+        previewHTML = contentToHTML(processedContent);
       }
-
     }
-
 
   } catch (error) {
     console.error('Error generating preview for note:', fullNote.id, error);
   }
-
-
 
   return {
     id: fullNote.id,
@@ -224,6 +203,50 @@ export function generatePreview(fullNote: Note, maxNodes: number = 3): NotePrevi
     lastModified: fullNote.data.last_modified,
     lastAccessed: fullNote.data.last_accessed,
   };
+}
+
+/**
+ * Process document content to replace yjs-image URLs with base64 data from YJS
+ */
+function processDocumentImagesFromYjs(
+  content: any[],
+  imageState: Uint8Array | number[] | null
+): any[] {
+  if (!content || !Array.isArray(content)) {
+    return content;
+  }
+
+  // Create image map from YJS state
+  const imageMap = new Map<string, string>();
+
+  if (imageState) {
+    try {
+      // Create a temporary YDoc to read the image state
+      const tempDoc = new Y.Doc();
+      const stateArray = imageState instanceof Uint8Array
+        ? imageState
+        : new Uint8Array(imageState);
+
+      Y.applyUpdate(tempDoc, stateArray);
+
+      // Get the images map
+      const imagesMap = tempDoc.getMap<any>('images');
+
+      // Extract image data
+      imagesMap.forEach((asset, id) => {
+        if (asset && asset.data) {
+          imageMap.set(id, asset.data);
+        }
+      });
+
+      // Clean up
+      tempDoc.destroy();
+    } catch (error) {
+      console.error('Error processing YJS image state:', error);
+    }
+  }
+
+  return content.map(node => processNode(node, imageMap));
 }
 /**
  * Convert ProseMirror content nodes to HTML

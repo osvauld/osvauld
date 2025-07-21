@@ -1,15 +1,15 @@
 import { EditorView } from "prosemirror-view";
 import { Schema, Node as ProsemirrorNode } from "prosemirror-model";
 import {
-	wrapIn,
-	setBlockType,
-	chainCommands,
-	toggleMark,
-	exitCode,
-	joinUp,
-	joinDown,
-	lift,
-	selectParentNode,
+  wrapIn,
+  setBlockType,
+  chainCommands,
+  toggleMark,
+  exitCode,
+  joinUp,
+  joinDown,
+  lift,
+  selectParentNode,
 } from "prosemirror-commands";
 import { wrapInList, liftListItem } from "prosemirror-schema-list";
 import { undo, redo } from "prosemirror-history";
@@ -331,40 +331,40 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
   dropdownMenu.style.display = "none";
 
 
-    // Add paragraph option
-    const paragraphItem = document.createElement("div");
-    paragraphItem.className = "dropdown-item";
-    paragraphItem.innerHTML = `<span style="font-size: 1em;">Paragraph</span>`;
-    paragraphItem.addEventListener("click", () => {
-      const { state, dispatch } = view;
-      // Apply the block type change first
-      setBlockType(schema.nodes.paragraph)(state, dispatch);
+  // Add paragraph option
+  const paragraphItem = document.createElement("div");
+  paragraphItem.className = "dropdown-item";
+  paragraphItem.innerHTML = `<span style="font-size: 1em;">Paragraph</span>`;
+  paragraphItem.addEventListener("click", () => {
+    const { state, dispatch } = view;
+    // Apply the block type change first
+    setBlockType(schema.nodes.paragraph)(state, dispatch);
 
-      // After the block type changes, get the new state and remove the fontSize mark
-      const newState = view.state;
-      const { $from } = newState.selection;
-      const nodeStart = $from.start();
-      const nodeEnd = $from.end();
+    // After the block type changes, get the new state and remove the fontSize mark
+    const newState = view.state;
+    const { $from } = newState.selection;
+    const nodeStart = $from.start();
+    const nodeEnd = $from.end();
 
-      const tr = newState.tr;
-      if (schema.marks.fontSize) { // Check if fontSize mark exists
-        tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
-      }
-      // Only dispatch if the mark removal actually changed something
-      if (tr.docChanged) {
-        view.dispatch(tr);
-      }
+    const tr = newState.tr;
+    if (schema.marks.fontSize) { // Check if fontSize mark exists
+      tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
+    }
+    // Only dispatch if the mark removal actually changed something
+    if (tr.docChanged) {
+      view.dispatch(tr);
+    }
 
-      view.focus();
-      hideDropdowns();
-      formatButton.innerHTML = `
+    view.focus();
+    hideDropdowns();
+    formatButton.innerHTML = `
         <span>Paragraph</span>
         <svg width="12" height="12" viewBox="0 0 24 24" focusable="false">
           <path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" fill="#85889C"></path>
         </svg>
       `;
-    });
-    dropdownMenu.appendChild(paragraphItem);
+  });
+  dropdownMenu.appendChild(paragraphItem);
 
   // Add heading options
   const headings = [
@@ -379,10 +379,10 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
   headings.forEach(heading => {
     const headingItem = document.createElement("div");
     headingItem.className = "dropdown-item";
-    
+
     // Style the dropdown items to match the actual heading styles
     let headingStyle = '';
-    switch(heading.level) {
+    switch (heading.level) {
       case 1:
         headingStyle = 'font-size: 2em; font-weight: bold;';
         break;
@@ -402,9 +402,9 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
         headingStyle = 'font-size: 1em; font-weight: bold;';
         break;
     }
-    
+
     headingItem.innerHTML = `<span style="${headingStyle}">${heading.text}</span>`;
-    
+
     headingItem.addEventListener("click", () => {
       const { state, dispatch } = view;
       // Apply the block type change first
@@ -417,10 +417,10 @@ export function addBlockFormatDropdown(container: HTMLElement, schema: Schema, v
       const nodeEnd = $from.end();
 
       const tr = newState.tr;
-       if (schema.marks.fontSize) { // Check if fontSize mark exists
+      if (schema.marks.fontSize) { // Check if fontSize mark exists
         tr.removeMark(nodeStart, nodeEnd, schema.marks.fontSize);
       }
-       // Only dispatch if the mark removal actually changed something
+      // Only dispatch if the mark removal actually changed something
       if (tr.docChanged) {
         view.dispatch(tr);
       }
@@ -579,10 +579,10 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // --- Function to update display based on selection ---
   const updateFontSizeDisplay = () => {
     // Check if the input element still exists in the DOM
-     if (!fontSizeInput || !fontSizeInput.isConnected) {
+    if (!fontSizeInput || !fontSizeInput.isConnected) {
       return; // Avoid errors if the menu is removed
     }
-    
+
     const { state } = view;
     const { selection } = state;
     const { $from } = selection;
@@ -590,12 +590,12 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
     // 1. Check for explicit fontSize mark at cursor position
     const marks = $from.marks();
     if (schema.marks.fontSize) {
-        const fontSizeMark = schema.marks.fontSize.isInSet(marks);
-        if (fontSizeMark && fontSizeMark.attrs.size) {
-          // Use the explicit mark's size if it exists
-          fontSizeInput.value = fontSizeMark.attrs.size;
-          return;
-        }
+      const fontSizeMark = schema.marks.fontSize.isInSet(marks);
+      if (fontSizeMark && fontSizeMark.attrs.size) {
+        // Use the explicit mark's size if it exists
+        fontSizeInput.value = fontSizeMark.attrs.size;
+        return;
+      }
     }
 
 
@@ -649,144 +649,192 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
 // Function to add underline and strikethrough buttons
 export function addSecondaryFormattingItems(container: HTMLElement, schema: Schema, view: EditorView) {
-	const group = document.createElement("div");
-	group.className = "editor-menu-group";
+  const group = document.createElement("div");
+  group.className = "editor-menu-group";
 
-	// Underline button
-	if (schema.marks.underline) {
-		const underlineButton = document.createElement("button");
-		underlineButton.className = "editor-general-button menu-underline";
-		underlineButton.title = "Underline";
-		underlineButton.dataset.markType = "underline";
-		underlineButton.innerHTML = `
+  // Underline button
+  if (schema.marks.underline) {
+    const underlineButton = document.createElement("button");
+    underlineButton.className = "editor-general-button menu-underline";
+    underlineButton.title = "Underline";
+    underlineButton.dataset.markType = "underline";
+    underlineButton.innerHTML = `
      <svg width="24" height="24" focusable="false"><path d="M16 5c.6 0 1 .4 1 1v5.5a4 4 0 0 1-.4 1.8l-1 1.4a5.3 5.3 0 0 1-5.5 1 5 5 0 0 1-1.6-1c-.5-.4-.8-.9-1.1-1.4a4 4 0 0 1-.4-1.8V6c0-.6.4-1 1-1s1 .4 1 1v5.5c0 .3 0 .6.2 1l.6.7a3.3 3.3 0 0 0 2.2.8 3.4 3.4 0 0 0 2.2-.8c.3-.2.4-.5.6-.8l.2-.9V6c0-.6.4-1 1-1ZM8 17h8c.6 0 1 .4 1 1s-.4 1-1 1H8a1 1 0 0 1 0-2Z" fill-rule="evenodd" fill="#85889C"></path></svg>
     `;
-		underlineButton.addEventListener("click", () => {
-			toggleMark(schema.marks.underline)(view.state, view.dispatch);
-			view.focus();
-		});
-		group.appendChild(underlineButton);
-	}
+    underlineButton.addEventListener("click", () => {
+      toggleMark(schema.marks.underline)(view.state, view.dispatch);
+      view.focus();
+    });
+    group.appendChild(underlineButton);
+  }
 
-	// Strikethrough button
-	if (schema.marks.strikethrough) {
-		const strikethroughButton = document.createElement("button");
-		strikethroughButton.className = "editor-general-button menu-strikethrough";
-		strikethroughButton.title = "Strikethrough";
-		strikethroughButton.dataset.markType = "strikethrough";
-		strikethroughButton.innerHTML = `
+  // Strikethrough button
+  if (schema.marks.strikethrough) {
+    const strikethroughButton = document.createElement("button");
+    strikethroughButton.className = "editor-general-button menu-strikethrough";
+    strikethroughButton.title = "Strikethrough";
+    strikethroughButton.dataset.markType = "strikethrough";
+    strikethroughButton.innerHTML = `
       <svg width="24" height="24" focusable="false"><g fill-rule="evenodd"><path d="M15.6 8.5c-.5-.7-1-1.1-1.3-1.3-.6-.4-1.3-.6-2-.6-2.7 0-2.8 1.7-2.8 2.1 0 1.6 1.8 2 3.2 2.3 4.4.9 4.6 2.8 4.6 3.9 0 1.4-.7 4.1-5 4.1A6.2 6.2 0 0 1 7 16.4l1.5-1.1c.4.6 1.6 2 3.7 2 1.6 0 2.5-.4 3-1.2.4-.8.3-2-.8-2.6-.7-.4-1.6-.7-2.9-1-1-.2-3.9-.8-3.9-3.6C7.6 6 10.3 5 12.4 5c2.9 0 4.2 1.6 4.7 2.4l-1.5 1.1Z" fill="#85889C"></path><path d="M5 11h14a1 1 0 0 1 0 2H5a1 1 0 0 1 0-2Z" fill-rule="nonzero" fill="#85889C"></path></g></svg>
     `;
-		strikethroughButton.addEventListener("click", () => {
-			toggleMark(schema.marks.strikethrough)(view.state, view.dispatch);
-			view.focus();
-		});
-		group.appendChild(strikethroughButton);
-	}
+    strikethroughButton.addEventListener("click", () => {
+      toggleMark(schema.marks.strikethrough)(view.state, view.dispatch);
+      view.focus();
+    });
+    group.appendChild(strikethroughButton);
+  }
 
-	// --- Image Upload Button ---
-	if (schema.nodes.image) {
-		const imageButton = document.createElement("button");
-		imageButton.className = "editor-general-button menu-image";
-		imageButton.title = "Insert image";
-		imageButton.innerHTML = `
+  // --- Image Upload Button ---
+  if (schema.nodes.image) {
+    const imageButton = document.createElement("button");
+    imageButton.className = "editor-general-button menu-image";
+    imageButton.title = "Insert image";
+    imageButton.innerHTML = `
       <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
         <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" fill="#85889C"/>
       </svg>
     `;
-		imageButton.addEventListener("click", async () => {
-			try {
-				const selectedPath = await openDialog({
-					multiple: false,
-					filters: [{
-						name: 'Images',
-						extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
-					}]
-				});
+    imageButton.addEventListener("click", async () => {
+      try {
+        const selectedPath = await openDialog({
+          multiple: false,
+          filters: [{
+            name: 'Images',
+            extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']
+          }]
+        });
 
-				// Handle both string and string[] return types
-				const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
+        // Handle both string and string[] return types
+        const path = Array.isArray(selectedPath) ? selectedPath[0] : selectedPath;
 
-				if (typeof path === 'string') {
-					const binaryData = await readFile(path);
+        if (typeof path === 'string') {
+          const binaryData = await readFile(path);
 
-					// Function to convert Blob to Base64 Data URL using FileReader wrapped in a Promise
-					const blobToBase64 = (blob: Blob): Promise<string> => {
-						return new Promise((resolve, reject) => {
-							const reader = new FileReader();
-							reader.onloadend = () => resolve(reader.result as string);
-							reader.onerror = (error) => reject(error);
-							reader.readAsDataURL(blob);
-						});
-					};
+          // Function to convert Blob to Base64 Data URL using FileReader wrapped in a Promise
+          const blobToBase64 = (blob: Blob): Promise<string> => {
+            return new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.onerror = (error) => reject(error);
+              reader.readAsDataURL(blob);
+            });
+          };
 
-					// Create Blob and convert to Data URL
-					const blob = new Blob([binaryData]); // FileReader determines MIME type
-					const dataUrl = await blobToBase64(blob);
+          // Create Blob and convert to Data URL
+          const blob = new Blob([binaryData]);
+          const dataUrl = await blobToBase64(blob);
 
-					// Create the image node
-					const imageNode = schema.nodes.image.create({ src: dataUrl });
+          // Extract filename from path
+          const filename = path.split('/').pop() || path.split('\\').pop() || 'uploaded-image';
 
-					// Insert the image node at the current selection
-					const { state, dispatch } = view;
-					const transaction = state.tr.replaceSelectionWith(imageNode);
-					dispatch(transaction);
-					view.focus();
-				}
-			} catch (error) {
-				console.error("Error selecting or processing image:", error);
-				// Optionally: Show an error message to the user
-			}
-		});
-		group.appendChild(imageButton);
-	}
+          // Detect MIME type from data URL or filename
+          const mimeMatch = dataUrl.match(/^data:([^;]+);/);
+          let mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
 
-	// Function to update button active state
-	const updateButtonActiveState = () => {
-		const { state } = view;
-		const { selection } = state;
-		const { $from, empty } = selection;
+          // If MIME type is generic, try to detect from filename
+          if (mimeType === 'application/octet-stream' || !mimeType.startsWith('image/')) {
+            const ext = filename.toLowerCase().split('.').pop();
+            const mimeMap: { [key: string]: string } = {
+              'jpg': 'image/jpeg',
+              'jpeg': 'image/jpeg',
+              'png': 'image/png',
+              'gif': 'image/gif',
+              'bmp': 'image/bmp',
+              'webp': 'image/webp',
+              'svg': 'image/svg+xml'
+            };
+            mimeType = mimeMap[ext || ''] || 'image/png';
+          }
 
-		// Update Underline Button
-		if (schema.marks.underline) {
-			const underlineButton = group.querySelector(".menu-underline") as HTMLButtonElement;
-			if (underlineButton) {
-				underlineButton.classList.toggle("is-active", !!schema.marks.underline.isInSet($from.marks()));
-				// Add opacity effect when no text is selected
-				underlineButton.style.opacity = empty ? '0.5' : '1';
-				underlineButton.disabled = empty;
-			}
-		}
+          // Access the image storage service from the editor
+          // We need to pass it through or access it via a global/shared method
+          const editorContainer = view.dom.closest('.editor-container');
+          if (!editorContainer) {
+            console.error('Editor container not found');
+            return;
+          }
 
-		// Update Strikethrough Button
-		if (schema.marks.strikethrough) {
-			const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
-			if (strikethroughButton) {
-				strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
-				// Add opacity effect when no text is selected
-				strikethroughButton.style.opacity = empty ? '0.5' : '1';
-				strikethroughButton.disabled = empty;
-			}
-		}
-	};
+          // Emit an event to request image storage
+          const storeImageEvent = new CustomEvent('store-image-request', {
+            detail: {
+              dataUrl,
+              mimeType,
+              filename,
+              callback: (imageId: string, metadata: any) => {
+                // Create the image node with YJS reference
+                const imageNode = schema.nodes.image.create({
+                  src: `yjs-image:${imageId}`,
+                  alt: filename,
+                  title: filename,
+                  width: metadata?.width,
+                  height: metadata?.height
+                });
 
-	// Initial state update
-	updateButtonActiveState();
+                // Insert the image node at the current selection
+                const { state, dispatch } = view;
+                const transaction = state.tr.replaceSelectionWith(imageNode);
+                dispatch(transaction);
+                view.focus();
+              }
+            }
+          });
 
-	// Add event listeners to update state
-	view.dom.addEventListener("keyup", updateButtonActiveState);
-	view.dom.addEventListener("mouseup", updateButtonActiveState);
-	const originalDispatch = view.dispatch;
-	view.dispatch = (tr) => {
-		originalDispatch(tr);
-		if (tr.docChanged || tr.selectionSet) {
-			updateButtonActiveState();
-		}
-	};
+          document.dispatchEvent(storeImageEvent);
+        }
+      } catch (error) {
+        console.error("Error selecting or processing image:", error);
+        // Optionally: Show an error message to the user
+      }
+    });
+    group.appendChild(imageButton);
+  }
 
-	if (group.children.length > 0) {
-		container.appendChild(group);
-	}
+  // Function to update button active state
+  const updateButtonActiveState = () => {
+    const { state } = view;
+    const { selection } = state;
+    const { $from, empty } = selection;
+
+    // Update Underline Button
+    if (schema.marks.underline) {
+      const underlineButton = group.querySelector(".menu-underline") as HTMLButtonElement;
+      if (underlineButton) {
+        underlineButton.classList.toggle("is-active", !!schema.marks.underline.isInSet($from.marks()));
+        // Add opacity effect when no text is selected
+        underlineButton.style.opacity = empty ? '0.5' : '1';
+        underlineButton.disabled = empty;
+      }
+    }
+
+    // Update Strikethrough Button
+    if (schema.marks.strikethrough) {
+      const strikethroughButton = group.querySelector(".menu-strikethrough") as HTMLButtonElement;
+      if (strikethroughButton) {
+        strikethroughButton.classList.toggle("is-active", !!schema.marks.strikethrough.isInSet($from.marks()));
+        // Add opacity effect when no text is selected
+        strikethroughButton.style.opacity = empty ? '0.5' : '1';
+        strikethroughButton.disabled = empty;
+      }
+    }
+  };
+
+  // Initial state update
+  updateButtonActiveState();
+
+  // Add event listeners to update state
+  view.dom.addEventListener("keyup", updateButtonActiveState);
+  view.dom.addEventListener("mouseup", updateButtonActiveState);
+  const originalDispatch = view.dispatch;
+  view.dispatch = (tr) => {
+    originalDispatch(tr);
+    if (tr.docChanged || tr.selectionSet) {
+      updateButtonActiveState();
+    }
+  };
+
+  if (group.children.length > 0) {
+    container.appendChild(group);
+  }
 }
 
 // Function to add blockquote and code block buttons
@@ -882,7 +930,7 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
     swatch.className = "color-swatch";
     swatch.style.backgroundColor = color;
     if (color === "#FFFFFF") { // Add border for white swatch
-        swatch.style.border = "1px solid #ccc";
+      swatch.style.border = "1px solid #ccc";
     }
     swatch.dataset.color = color;
     swatch.addEventListener("click", (e) => {
@@ -921,28 +969,28 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
   removeColorButton.className = "dropdown-item remove-color-button";
   removeColorButton.textContent = "Remove Color";
   removeColorButton.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const { state, dispatch } = view;
-      const { from, to, empty } = state.selection;
+    e.stopPropagation();
+    const { state, dispatch } = view;
+    const { from, to, empty } = state.selection;
 
-      if (empty) {
-        console.warn("No text selected to remove color.");
-        hideDropdowns();
-        return;
-      }
-
-      const tr = state.tr;
-      // Remove existing textColor mark from the selection
-      tr.removeMark(from, to, schema.marks.textColor);
-      dispatch(tr);
-
-       // Reset button indicator color to default (e.g., black)
-      if (colorIndicator) {
-        colorIndicator.setAttribute('fill', '#000000'); // Or a different default
-      }
-
+    if (empty) {
+      console.warn("No text selected to remove color.");
       hideDropdowns();
-      view.focus();
+      return;
+    }
+
+    const tr = state.tr;
+    // Remove existing textColor mark from the selection
+    tr.removeMark(from, to, schema.marks.textColor);
+    dispatch(tr);
+
+    // Reset button indicator color to default (e.g., black)
+    if (colorIndicator) {
+      colorIndicator.setAttribute('fill', '#000000'); // Or a different default
+    }
+
+    hideDropdowns();
+    view.focus();
   });
   dropdownMenu.appendChild(removeColorButton);
 
@@ -958,8 +1006,8 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
     colorButton.style.opacity = empty ? '0.5' : '1';
 
     if (empty) {
-       if (colorIndicator) colorIndicator.setAttribute('fill', '#fff'); // Reset to default if empty
-       return;
+      if (colorIndicator) colorIndicator.setAttribute('fill', '#fff'); // Reset to default if empty
+      return;
     }
 
     // Update indicator color based on the mark at the start of selection
@@ -968,33 +1016,33 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
     let first = true;
 
     if (marks) {
-       for (const mark of marks) {
-           if (mark.type === schema.marks.textColor) {
-               const markColor = mark.attrs.color;
-               if (first) {
-                   commonColor = markColor;
-                   first = false;
-               } else if (commonColor !== markColor) {
-                   commonColor = null; // Multiple colors in selection
-                   break;
-               }
-           }
-       }
+      for (const mark of marks) {
+        if (mark.type === schema.marks.textColor) {
+          const markColor = mark.attrs.color;
+          if (first) {
+            commonColor = markColor;
+            first = false;
+          } else if (commonColor !== markColor) {
+            commonColor = null; // Multiple colors in selection
+            break;
+          }
+        }
+      }
     }
 
 
     // If no textColor mark found across selection, check at cursor pos ($from)
     if (commonColor === null && !first) { // 'first' is false if we entered the loop but found different colors
-       // Indicate multiple colors (optional, e.g., a gradient or default black)
-       if (colorIndicator) colorIndicator.setAttribute('fill', '#fff');
+      // Indicate multiple colors (optional, e.g., a gradient or default black)
+      if (colorIndicator) colorIndicator.setAttribute('fill', '#fff');
     } else {
-         // Use the common color or the color at $from if no marks span the whole selection or selection is a cursor
-        const markAtCursor = schema.marks.textColor.isInSet($from.marks());
-        const finalColor = commonColor ?? (markAtCursor ? markAtCursor.attrs.color : null);
+      // Use the common color or the color at $from if no marks span the whole selection or selection is a cursor
+      const markAtCursor = schema.marks.textColor.isInSet($from.marks());
+      const finalColor = commonColor ?? (markAtCursor ? markAtCursor.attrs.color : null);
 
-        if (colorIndicator) {
-            colorIndicator.setAttribute('fill', finalColor || '#fff'); // Use found color or default to black
-        }
+      if (colorIndicator) {
+        colorIndicator.setAttribute('fill', finalColor || '#fff'); // Use found color or default to black
+      }
     }
   };
 
@@ -1018,10 +1066,10 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
   // Listen for transactions as marks can change programmatically
   const originalDispatch = view.dispatch;
   view.dispatch = (tr) => {
-      originalDispatch(tr);
-      if (tr.docChanged || tr.selectionSet) {
-          updateButtonState();
-      }
+    originalDispatch(tr);
+    if (tr.docChanged || tr.selectionSet) {
+      updateButtonState();
+    }
   };
 
   // Close dropdown when clicking outside
@@ -1094,14 +1142,14 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
     fontItem.textContent = font.name;
     fontItem.dataset.fontFamily = font.value;
     fontItem.dataset.fontName = font.name;
-    
+
     fontItem.addEventListener("click", (e) => {
       e.stopPropagation();
       const { state, dispatch } = view;
       const { from, to, empty } = state.selection;
 
       const tr = state.tr;
-      
+
       if (empty) {
         // No text selected - apply font family to cursor position for future typing
         tr.addStoredMark(schema.marks.fontFamily.create({ family: font.value }));
@@ -1110,7 +1158,7 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
         tr.removeMark(from, to, schema.marks.fontFamily);
         tr.addMark(from, to, schema.marks.fontFamily.create({ family: font.value }));
       }
-      
+
       dispatch(tr);
 
       // Update button text
@@ -1135,7 +1183,7 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
     const { from, to, empty } = state.selection;
 
     const tr = state.tr;
-    
+
     if (empty) {
       // No text selected - remove font family from cursor position for future typing
       tr.removeStoredMark(schema.marks.fontFamily);
@@ -1143,7 +1191,7 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
       // Text is selected - remove font family from selected text
       tr.removeMark(from, to, schema.marks.fontFamily);
     }
-    
+
     dispatch(tr);
 
     // Reset button text to default
@@ -1171,7 +1219,7 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
       // No text selected - check for stored marks (for future typing)
       const storedMarks = state.storedMarks || $from.marks();
       const fontFamilyMark = schema.marks.fontFamily.isInSet(storedMarks);
-      
+
       const fontNameSpan = fontButton.querySelector('.font-name');
       if (fontNameSpan) {
         if (fontFamilyMark) {
@@ -1245,7 +1293,7 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
   // Update button state when selection or marks change
   view.dom.addEventListener("keyup", updateButtonState);
   view.dom.addEventListener("mouseup", updateButtonState);
-  
+
   // Listen for transactions as marks can change programmatically
   const originalDispatch = view.dispatch;
   view.dispatch = (tr) => {

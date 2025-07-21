@@ -1,50 +1,96 @@
 import * as Y from "yjs";
 import type { ImageAsset, ImageMetadata } from '../../types/notes.types'
-export class ImageStorageService {
-  private imagesMap: Y.Map<ImageMetadata>; // Only metadata now
-  private clientId: number;
-  private imageCache: Map<string, string> = new Map(); // Cache for base64 data
-  private assetsArray: ImageAsset[] = []; // Reference to note's assets array
-  private pendingLoads: Map<string, Promise<string | null>> = new Map();
 
-  constructor(imagesMap: Y.Map<ImageMetadata>, clientId: number) {
+export interface ImageLoadMetrics {
+  totalTime: number;
+  imageCount: number;
+  totalSize: number;
+  individualLoadTimes: Map<string, number>;
+}
+
+export class ImageStorageService {
+  private imagesMap: Y.Map<ImageAsset>; // Full asset data in YJS
+  private clientId: number;
+  private imageCache: Map<string, string> = new Map();
+
+  // Performance tracking
+  private loadMetrics: ImageLoadMetrics = {
+    totalTime: 0,
+    imageCount: 0,
+    totalSize: 0,
+    individualLoadTimes: new Map()
+  };
+  private currentLoadStartTime: number = 0;
+
+  constructor(imagesMap: Y.Map<ImageAsset>, clientId: number) {
     this.imagesMap = imagesMap;
     this.clientId = clientId;
-
-    // Listen for metadata updates
     this.imagesMap.observe(this.handleImageMapUpdate.bind(this));
   }
 
   /**
-   * Set the assets array reference when loading a note
+   * Start tracking load time
    */
-  setAssetsArray(assets: ImageAsset[]): void {
-    this.assetsArray = assets;
-    // Pre-populate cache with loaded assets
-    this.populateCacheFromAssets();
+  startLoadTracking(): void {
+    this.currentLoadStartTime = performance.now();
+    this.loadMetrics = {
+      totalTime: 0,
+      imageCount: 0,
+      totalSize: 0,
+      individualLoadTimes: new Map()
+    };
   }
 
   /**
-   * Populate cache from assets array
+   * End tracking and return metrics
    */
-  private populateCacheFromAssets(): void {
+  endLoadTracking(): ImageLoadMetrics {
+    this.loadMetrics.totalTime = performance.now() - this.currentLoadStartTime;
+    return { ...this.loadMetrics };
+  }
+
+  /**
+   * Initialize cache from YJS map (called after YJS state is applied)
+   */
+  initializeCacheFromYjs(): void {
+    const startTime = performance.now();
     this.imageCache.clear();
-    for (const asset of this.assetsArray) {
-      this.imageCache.set(asset.id, asset.data);
-    }
+
+    let totalSize = 0;
+    let count = 0;
+
+    this.imagesMap.forEach((asset, id) => {
+      const loadStart = performance.now();
+
+      // Cache the base64 data
+      this.imageCache.set(id, asset.data);
+
+      const loadTime = performance.now() - loadStart;
+      this.loadMetrics.individualLoadTimes.set(id, loadTime);
+
+      totalSize += asset.size || 0;
+      count++;
+    });
+
+    this.loadMetrics.imageCount = count;
+    this.loadMetrics.totalSize = totalSize;
+
+    const totalTime = performance.now() - startTime;
+    console.log(`[PERF] Loaded ${count} images from YJS in ${totalTime}ms, total size: ${totalSize} bytes`);
   }
 
   /**
-   * Store an image in both metadata map and assets array
+   * Store an image in YJS map
    */
   async storeImage(base64Data: string, mimeType: string, filename?: string): Promise<string> {
+    const storeStart = performance.now();
     const imageId = this.generateImageId();
 
-    // Extract dimensions if possible
     const dimensions = await this.extractImageDimensions(base64Data);
 
-    const metadata: ImageMetadata = {
+    const asset: ImageAsset = {
       id: imageId,
+      data: base64Data,
       mimeType: mimeType || 'image/png',
       size: this.calculateBase64Size(base64Data),
       width: dimensions?.width,
@@ -54,21 +100,15 @@ export class ImageStorageService {
       filename
     };
 
-    const asset: ImageAsset = {
-      ...metadata,
-      data: base64Data // Include the actual data in asset
-    };
-
-    // Store metadata in Y.Map (this will sync to other clients)
-    this.imagesMap.set(imageId, metadata);
-
-    // Store asset in assets array
-    this.assetsArray.push(asset);
+    // Store in Y.Map - this will sync to other clients
+    this.imagesMap.set(imageId, asset);
 
     // Cache it immediately
     this.imageCache.set(imageId, base64Data);
 
-    console.log(`[ImageStorage] Stored image ${imageId}, assets array now has ${this.assetsArray.length} items`);
+    const storeTime = performance.now() - storeStart;
+    console.log(`[PERF] Stored image ${imageId} in YJS in ${storeTime}ms, size: ${asset.size} bytes`);
+
     return imageId;
   }
 
@@ -76,46 +116,23 @@ export class ImageStorageService {
    * Get image metadata by ID
    */
   getImageMetadata(imageId: string): ImageMetadata | null {
-    return this.imagesMap.get(imageId) || null;
+    const asset = this.imagesMap.get(imageId);
+    if (!asset) return null;
+
+    const { data, ...metadata } = asset;
+    return metadata;
   }
 
   /**
-   * Get image src (base64) by ID with caching
+   * Get image src (base64) by ID
    */
   getImageSrc(imageId: string): string | null {
-    // Check cache first
     if (this.imageCache.has(imageId)) {
       return this.imageCache.get(imageId)!;
     }
 
-    // Try to find in assets array
-    const asset = this.assetsArray.find(a => a.id === imageId);
-    if (asset) {
-      this.imageCache.set(imageId, asset.data);
-      return asset.data;
-    }
-
-    console.warn(`[ImageStorage] Image ${imageId} not found in cache or assets`);
-    return null;
-  }
-
-  /**
-   * Get image src asynchronously (for future use with lazy loading)
-   */
-  async getImageSrcAsync(imageId: string): Promise<string | null> {
-    // Check if we're already loading this image
-    if (this.pendingLoads.has(imageId)) {
-      return this.pendingLoads.get(imageId)!;
-    }
-
-    // Check cache first
-    if (this.imageCache.has(imageId)) {
-      return this.imageCache.get(imageId)!;
-    }
-
-    // Try to find in assets array
-    const asset = this.assetsArray.find(a => a.id === imageId);
-    if (asset) {
+    const asset = this.imagesMap.get(imageId);
+    if (asset && asset.data) {
       this.imageCache.set(imageId, asset.data);
       return asset.data;
     }
@@ -124,21 +141,11 @@ export class ImageStorageService {
   }
 
   /**
-   * Delete an image from both metadata and assets
+   * Delete an image
    */
   deleteImage(imageId: string): void {
-    // Remove from YJS metadata
     this.imagesMap.delete(imageId);
-
-    // Remove from assets array
-    const assetIndex = this.assetsArray.findIndex(a => a.id === imageId);
-    if (assetIndex !== -1) {
-      this.assetsArray.splice(assetIndex, 1);
-    }
-
-    // Remove from cache
     this.imageCache.delete(imageId);
-
   }
 
   /**
@@ -149,21 +156,22 @@ export class ImageStorageService {
   }
 
   /**
-   * Get all assets
+   * Get loading metrics
    */
-  getAllAssets(): ImageAsset[] {
-    return [...this.assetsArray];
+  getLoadMetrics(): ImageLoadMetrics {
+    return { ...this.loadMetrics };
   }
 
   /**
-   * Handle updates to the images metadata map
+   * Handle updates to the images map
    */
-  private handleImageMapUpdate(event: Y.YMapEvent<ImageMetadata>) {
-    // When metadata changes, we might need to request the actual image data
-    // For now, just log the changes
+  private handleImageMapUpdate(event: Y.YMapEvent<ImageAsset>) {
     event.changes.keys.forEach((change, key) => {
-      if (change.action === 'add') {
-        // TODO: In P2P scenario, request the actual image data from other clients
+      if (change.action === 'add' || change.action === 'update') {
+        const asset = this.imagesMap.get(key);
+        if (asset) {
+          this.imageCache.set(key, asset.data);
+        }
       } else if (change.action === 'delete') {
         this.imageCache.delete(key);
       }
@@ -206,24 +214,5 @@ export class ImageStorageService {
    */
   clearCache(): void {
     this.imageCache.clear();
-    console.log('[ImageStorage] Cache cleared');
-  }
-
-  /**
-   * Get cache size
-   */
-  getCacheSize(): number {
-    return this.imageCache.size;
-  }
-
-  /**
-   * Get cache memory usage estimate (in bytes)
-   */
-  getCacheMemoryUsage(): number {
-    let total = 0;
-    for (const [key, value] of this.imageCache) {
-      total += key.length + value.length;
-    }
-    return total;
   }
 }

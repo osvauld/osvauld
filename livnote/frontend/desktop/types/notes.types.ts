@@ -41,6 +41,18 @@ export interface ImageMetadata {
   filename?: string;
 }
 
+export interface ImageAsset {
+  id: string;
+  data: string; // Base64 data
+  mimeType: string;
+  size: number;
+  width?: number;
+  height?: number;
+  uploadedBy: number;
+  timestamp: number;
+  filename?: string;
+}
+
 export interface Note {
   id: string;
   data: NoteContent;
