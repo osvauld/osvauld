@@ -53,7 +53,44 @@
 		}, 100);
 	}
 
-	const threads = $derived(dataState.comments);
+	let threads = $state<CommentThread[]>([]);
+	let commentsUnsubscribe: (() => void) | null = null;
+	$effect(() => {
+		if (dataState.currentNoteId) {
+			const coordinator = dataState.getNotesCoordinator();
+			if (coordinator) {
+				setupCommentsSubscription();
+			}
+		}
+	});
+	function setupCommentsSubscription() {
+		// Clean up previous subscription
+		if (commentsUnsubscribe) {
+			commentsUnsubscribe();
+			commentsUnsubscribe = null;
+		}
+
+		const coordinator = dataState.getNotesCoordinator();
+		if (!coordinator) {
+			console.warn("No coordinator available for comments");
+			return;
+		}
+
+		const commentsStore = coordinator.getCommentsStore();
+
+		console.log("Comments store initialized:", commentsStore.isInitialized());
+		console.log("Initial comments:", commentsStore.getComments());
+
+		// Subscribe to updates
+		commentsUnsubscribe = commentsStore.subscribe(() => {
+			const newComments = commentsStore.getComments();
+			console.log("Comments updated:", newComments);
+			threads = newComments;
+		});
+
+		// Get initial threads
+		threads = commentsStore.getComments();
+	}
 
 	// Derived values
 	const sortedThreads = $derived.by(() => {
@@ -127,7 +164,7 @@
 		try {
 			// Access coordinator through dataState to resolve thread
 			const coordinator = dataState.getNotesCoordinator();
-			const commentsService = coordinator?.getCommentsService();
+			const commentsService = coordinator?.getCommentsStore();
 			if (commentsService) {
 				commentsService.resolveThread(threadId, resolved);
 			}
@@ -140,7 +177,7 @@
 		try {
 			// Access coordinator through dataState to delete thread
 			const coordinator = dataState.getNotesCoordinator();
-			const commentsService = coordinator?.getCommentsService();
+			const commentsService = coordinator?.getCommentsStore();
 			if (commentsService) {
 				commentsService.deleteThread(threadId);
 			}
@@ -210,6 +247,9 @@
 		}
 		if (saveTimeoutId) {
 			clearTimeout(saveTimeoutId);
+		}
+		if (commentsUnsubscribe) {
+			commentsUnsubscribe();
 		}
 	});
 </script>

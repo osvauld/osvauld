@@ -9,7 +9,7 @@ import * as Y from "yjs";
 import { YjsManager } from "./collaboration/yjsManager";
 import { EditorManager } from "./editor/editorManager";
 import { createEditorSchema } from "./schema/editorSchema";
-import { CommentsService } from "./commentsService";
+import { CommentsStore } from "./commentsStore";
 import { ImageStorageService } from "./imageStorage";
 
 // Import existing plugins
@@ -40,7 +40,7 @@ export interface NotesCoordinatorConfig {
 export class NotesCoordinator {
   private yjsManager: YjsManager;
   private editorManager: EditorManager;
-  private commentsService: CommentsService | null = null;
+  private commentsStore: CommentsStore;
   private imageStorage: ImageStorageService | null = null;
   private schema = createEditorSchema();
   private currentAssets: ImageAsset[] = [];
@@ -66,10 +66,10 @@ export class NotesCoordinator {
     const docs = this.yjsManager.initialize();
 
     // Initialize services once
-    this.commentsService = new CommentsService(docs.commentsMap);
+    this.commentsStore = new CommentsStore();
+    this.commentsStore.setCurrentUser(this.userInfo);
     this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
-    this.setUserInfo();
-
+    this.yjsManager.setUserInfo(this.userInfo);
     // Initialize editor manager
     this.editorManager = new EditorManager({
       schema: this.schema,
@@ -81,41 +81,54 @@ export class NotesCoordinator {
   /**
    * Load existing note
    */
+  /**
+   * Load existing note
+   */
   async loadNote(noteContent: NoteContent): Promise<void> {
-    const docs = this.yjsManager.getDocuments();
-    if (!docs) {
-      throw new Error("YJS documents not initialized");
-    }
+    console.log("🔄 Loading note, reinitializing YJS documents");
 
-    // Clear existing content
-    docs.type.delete(0, docs.type.length);
-    docs.commentsMap.clear();
-    docs.imagesMap.clear();
+    // Reinitialize YJS to ensure clean state
+    const docs = this.yjsManager.initialize(); // This destroys old docs and creates new ones
 
-    // Set up assets
+    // Re-setup services with new documents
+    this.commentsStore.setCommentsMap(docs.commentsMap);
+    this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
+
+    console.log("📦 Setting up assets");
     this.currentAssets = noteContent.assets || [];
-    this.imageStorage!.setAssetsArray(this.currentAssets);
+    this.imageStorage.setAssetsArray(this.currentAssets);
+
+    console.log("📊 YJS state length:", noteContent.yjs_state?.length || 0);
+    console.log("🖼️ Image state length:", noteContent.image_state?.length || 0);
 
     // Apply YJS state if available
     if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
+      console.log("🔄 Applying main YJS state");
       this.yjsManager.applyUpdate(noteContent.yjs_state, 'main', 'loading');
     }
 
     // Apply image metadata state
     if (noteContent.image_state && noteContent.image_state.length > 0) {
+      console.log("🔄 Applying image YJS state");
       this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
     }
 
-    // Wait for YJS to process the updates
+    // Wait a tick for YJS to process
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Create editor plugins
+    console.log("💬 Comments in map after applying updates:", docs.commentsMap.size);
+
+    // Force a transaction to ensure state is integrated
+    docs.mainDoc.transact(() => {
+      // This empty transaction helps YJS integrate the state
+    }, 'loading');
+
+    // Create editor plugins with fresh documents
     const plugins = this.createEditorPlugins(docs);
 
-    // Initialize ProseMirror doc from YJS after updates are applied
+    // Initialize ProseMirror doc from YJS
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
 
-    // If we still have an empty doc but have editor_state, use that as fallback
     if (prosemirrorDoc.doc.childCount === 0 && noteContent.editor_state?.doc) {
       const fallbackDoc = this.schema.nodeFromJSON(noteContent.editor_state.doc);
       this.editorManager.initializeState(fallbackDoc, plugins);
@@ -127,9 +140,7 @@ export class NotesCoordinator {
    * Create editor view in container
    */
   createEditorView(container: HTMLElement): EditorView {
-    console.log('🎨 NotesCoordinator.createEditorView called');
     const view = this.editorManager.createView(container);
-
     // Apply any pending YJS state after view is created
     const docs = this.yjsManager.getDocuments();
     if (docs && view) {
@@ -201,8 +212,11 @@ export class NotesCoordinator {
    * Create custom cursor for collaboration
    */
   private createCustomCursor(user: UserInfo): HTMLElement {
-    console.log('create custom banner', user);
     const cursor = document.createElement('span');
+
+    if (user.id === this.userInfo.id) {
+      return cursor
+    }
     cursor.style.borderLeft = `2px solid ${user.color}`;
     cursor.style.marginLeft = '-1px';
     cursor.style.paddingLeft = '1px';
@@ -243,6 +257,10 @@ export class NotesCoordinator {
     return this.createNoteContent();
   }
 
+  getTitle(): string {
+    return this.yjsManager.getMetadata("title");
+  }
+
   /**
    * Create note content from current state
    */
@@ -277,13 +295,6 @@ export class NotesCoordinator {
     this.yjsManager.applyUpdate(update, docType, 'sync');
   }
 
-  /**
-   * Set user info
-   */
-  setUserInfo(): void {
-    this.yjsManager.setUserInfo(this.userInfo);
-    this.commentsService?.setCurrentUser(this.userInfo);
-  }
 
 
   /**
@@ -298,11 +309,11 @@ export class NotesCoordinator {
    * Create comment and apply mark
    */
   createComment(position: CommentPosition, content: string): string {
-    if (!this.commentsService) {
+    if (!this.commentsStore) {
       throw new Error("Comments service not initialized");
     }
 
-    const threadId = this.commentsService.createThread(position, content);
+    const threadId = this.commentsStore.createThread(position, content);
 
 
     // Apply mark to editor
@@ -331,13 +342,15 @@ export class NotesCoordinator {
     this.yjsManager.destroy();
     this.imageStorage?.clearCache();
     this.currentAssets = [];
+    this.commentsStore.destroy();
   }
 
-  // Expose services for external access
-  getCommentsService(): CommentsService | null {
-    return this.commentsService;
+  /**
+     * Get the comments store for UI components
+     */
+  getCommentsStore(): CommentsStore {
+    return this.commentsStore;
   }
-
   getImageStorage(): ImageStorageService | null {
     return this.imageStorage;
   }

@@ -16,10 +16,6 @@
 	let resizeTimer = $state<number | null>(null);
 	let columnCount = $state<number>(1);
 
-	// One-by-one rendering state
-	let renderedCount = $state<number>(0);
-	let renderTimer: number | null = null;
-
 	// Function to toggle favorite status
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
 		try {
@@ -50,41 +46,6 @@
 		return items.filter((_, index) => index % columnCount === colIndex);
 	};
 
-	// Start rendering notes one by one
-	const startRendering = () => {
-		console.log(
-			"Starting one-by-one rendering for",
-			dataState.filteredNotes.length,
-			"notes",
-		);
-		renderedCount = 1; // Show first note immediately
-		renderNext();
-	};
-
-	const renderNext = () => {
-		if (renderedCount >= dataState.filteredNotes.length) {
-			console.log("All notes rendered");
-			return;
-		}
-
-		renderTimer = setTimeout(() => {
-			renderedCount++;
-			renderNext(); // Render the next one
-		}, 16); // 16ms = ~60fps
-	};
-
-	const stopRendering = () => {
-		if (renderTimer) {
-			clearTimeout(renderTimer);
-			renderTimer = null;
-		}
-	};
-
-	// Get notes that should be visible
-	const getVisibleNotes = () => {
-		return dataState.filteredNotes.slice(0, renderedCount);
-	};
-
 	// Handle window resize
 	function handleResize() {
 		if (resizeTimer !== null) {
@@ -101,75 +62,20 @@
 		}, 250) as unknown as number;
 	}
 
-	let previousFilteredNotesLength = 0;
-
-	$effect(() => {
-		// Only track the data length, not renderedCount
-		const currentLength = dataState.filteredNotes.length;
-		const isLoading = dataState.isDataLoading;
-
-		if (
-			!isLoading &&
-			currentLength > 0 &&
-			currentLength !== previousFilteredNotesLength
-		) {
-			previousFilteredNotesLength = currentLength;
-			// Use untrack to prevent this effect from triggering on renderedCount changes
-			untrack(() => {
-				stopRendering();
-				renderedCount = 0;
-				startRendering();
-			});
-		}
-	});
-
 	onMount(() => {
 		// Initialize column count
 		columnCount = getColumnCount();
 		// Add resize listener
 		window.addEventListener("resize", handleResize);
-
-		// Start rendering if we have notes
-		if (!dataState.isDataLoading && dataState.filteredNotes.length > 0) {
-			startRendering();
-		}
 	});
 
 	onDestroy(() => {
-		// Clean up
 		window.removeEventListener("resize", handleResize);
 		if (resizeTimer !== null) {
 			clearTimeout(resizeTimer);
 		}
-		stopRendering();
 	});
 </script>
-
-<style>
-	@keyframes fadeIn {
-		from {
-			opacity: 0;
-			transform: translateY(10px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	.note-card-enter {
-		animation: fadeIn 0.3s ease-out forwards;
-	}
-
-	@keyframes shimmer {
-		0% {
-			background-position: -200px 0;
-		}
-		100% {
-			background-position: calc(200px + 100%) 0;
-		}
-	}
-</style>
 
 <div class="grow max-h-full overflow-hidden px-11 py-4 relative flex flex-col">
 	<NoteListPanel />
@@ -188,10 +94,10 @@
 			<div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
 				{#each Array(columnCount) as _, colIndex}
 					<div class="flex flex-col gap-6">
-						{#each getColumnItems(getVisibleNotes(), colIndex) as note (note.id)}
+						{#each getColumnItems(dataState.filteredNotes, colIndex) as note (note.id)}
 							<div
 								role="presentation"
-								class="note-card-enter bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
+								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
 								onclick={() => selectNote(note)}>
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">
@@ -213,7 +119,6 @@
 									</button>
 								</div>
 								<div class="p-4">
-									<!-- Rich text preview -->
 									<NotePreview
 										previewHTML={note.previewHTML}
 										maxHeight="180px"

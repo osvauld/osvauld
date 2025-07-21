@@ -77,9 +77,6 @@
 	$effect(() => {
 		saved = uiState.noteSaved;
 	});
-	onMount(() => {
-		console.log("right container mounted ", performance.now());
-	});
 </script>
 
 <div

@@ -46,7 +46,9 @@
 
 	$effect(() => {
 		if (dataState.currentNoteId) {
-			loadNote();
+			loadNote().then(() => {
+				console.log("load complete");
+			});
 		}
 	});
 

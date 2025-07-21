@@ -7,7 +7,6 @@
 	import NavigationPanel from "./NavigationPanel.svelte";
 	import Hamburger from "../../icons/Hamburger.svelte";
 	import { fade, fly } from "svelte/transition";
-	import { emit } from "@tauri-apps/api/event";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
@@ -15,12 +14,17 @@
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
 	let saved = $state(false);
-
+	let title = $state("");
 	// Derived state for favorite status
 	let isFavourite = $derived(
 		dataState.getCurrentNoteData()?.favourite ?? false,
 	);
-
+	$effect(() => {
+		if (dataState.currentNoteId) {
+			title = dataState.getNotesCoordinator()?.getCurrentTitle();
+			console.log("title", title);
+		}
+	});
 	// Toggle navigation panel
 	function toggleNavigationPanel() {
 		uiState.toggleNavigationPanel();
@@ -50,19 +54,9 @@
 	}
 
 	function saveTitle() {
-		//TODO
-		// if (newNoteTitle.trim() && dataState.currentNote) {
-		// 	// Update the note title in state
-		// 	dataState.currentNote = {
-		// 		...dataState.currentNote,
-		// 		data: {
-		// 			...dataState.currentNote.data,
-		// 			title: newNoteTitle,
-		// 		},
-		// 	};
-		// 	saveNoteManual();
-		// }
-		// isEditingTitle = false;
+		let coordinator = dataState.getNotesCoordinator();
+		coordinator?.saveNote(newNoteTitle);
+		title = newNoteTitle;
 	}
 
 	const getInitial = (name: string): string => {
@@ -94,7 +88,7 @@
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
 		}
-		console.log("mounted", performance.now());
+
 		// Set CSS variable for minimum editor width
 		document.documentElement.style.setProperty(
 			"--min-editor-width",
@@ -154,7 +148,7 @@
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
-						{dataState.getNoteTitle()}
+						{title}
 					</span>
 				{/if}
 				<button

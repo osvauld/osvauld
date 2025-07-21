@@ -1,5 +1,6 @@
 <script lang="ts">
 	// Props using Svelte 5 syntax
+	import { fade, fly } from "svelte/transition";
 	interface Props {
 		previewHTML: string;
 		maxHeight?: string;
@@ -136,6 +137,7 @@
 
 <div
 	class="preview-container note-preview"
+	in:fly={{ y: 10, duration: 200, delay: 0 }}
 	style="max-height: {maxHeight}; min-height: {minHeight}">
 	{@html previewHTML}
 </div>

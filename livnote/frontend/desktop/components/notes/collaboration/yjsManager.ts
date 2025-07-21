@@ -62,6 +62,7 @@ export class YjsManager {
         }
       });
 
+
       imageDoc.on("update", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
           this.config.onUpdate!(update, origin, "images");
@@ -133,10 +134,8 @@ export class YjsManager {
       return;
     }
 
-    console.log(performance.now());
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
-    console.log(performance.now())
 
     Y.applyUpdate(targetDoc, updateArray, origin);
   }

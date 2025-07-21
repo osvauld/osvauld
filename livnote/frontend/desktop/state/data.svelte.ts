@@ -39,8 +39,6 @@ class DataState {
   sharedUsers = $state([]);
   collaborators = $state<Collaborator[]>([]);
   clientId: number = 0;
-  comments = $state<CommentThread[]>([]);
-
 
   getNotesCoordinator(): NotesCoordinator | null {
     return this.notesCoordinator;
@@ -106,7 +104,6 @@ class DataState {
     this.isDataLoading = true;
     this.notes = [];
     try {
-      console.log("emitAll called in", performance.now())
       const response = await sendMessage("emitAllResources", selectedNotedId);
       if (response) {
         this.setCurrentNoteData(response);
@@ -143,16 +140,13 @@ class DataState {
   }
 
   getNoteTitle(): String {
-    console.log(this.getNotesCoordinator()?.getCurrentTitle())
     return this.getNotesCoordinator()?.getCurrentTitle() || "Untitled";
   }
 
   // Switch to a different note
   async switchNote(noteId: string) {
     uiState.toggleNoteViewLayout(true);
-    this.comments = [];
     const note = await sendMessage("getCredential", { resourceId: noteId })
-    console.log(note);
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(noteId);
     StoreService.setCurrentNoteId(noteId);
@@ -376,13 +370,8 @@ class DataState {
 
   handleResourceAdded(event: any) {
 
-    console.log("first event recieved", performance.now())
     const fullNote: Note = event.payload;
-    const startTime = performance.now();
     const preview = generatePreview(fullNote)
-    const endTime = performance.now();
-    const executionTime = endTime - startTime;
-    console.log(`generatePreview took ${executionTime.toFixed(3)} milliseconds`);
     this.notes = [...this.notes, preview];
   }
 

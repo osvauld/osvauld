@@ -4,39 +4,65 @@ import type {
   CommentThread,
   CommentPosition,
   UpdateCommentParams,
-  UserInfo,
-  CommentUpdateCallback
+  UserInfo
 } from "../../types/notes.types";
-import { dataState } from "../../state";
 
-export class CommentsService {
-  private commentsMap: Y.Map<CommentThread>;
-  private callbacks: Map<string, CommentUpdateCallback[]> = new Map();
+export class CommentsStore {
+  private currentCommentsMap: Y.Map<CommentThread> | null = null;
+  private subscribers: Set<() => void> = new Set();
   private currentUser: UserInfo | null = null;
+  private mapObserver: ((event: any) => void) | null = null;
 
-  constructor(commentsMap: Y.Map<CommentThread>) {
-    this.commentsMap = commentsMap;
+  /**
+   * Set the comments map for the current note
+   */
+  setCommentsMap(map: Y.Map<CommentThread>): void {
+    // Clean up previous observer
+    if (this.currentCommentsMap && this.mapObserver) {
+      this.currentCommentsMap.unobserve(this.mapObserver);
+    }
 
-    // Set up observer for real-time updates
-    this.commentsMap.observe((event) => {
-      this.updateDataStateComments();
-    });
+    // Set new map
+    this.currentCommentsMap = map;
+
+    // Set up new observer
+    this.mapObserver = () => {
+      this.notifySubscribers();
+    };
+
+    map.observe(this.mapObserver);
+
+    // Immediately notify subscribers of the change
+    this.notifySubscribers();
   }
 
   /**
-   * Set the current user for comment attribution
+   * Get current comments as array
+   */
+  getComments(): CommentThread[] {
+    if (!this.currentCommentsMap) return [];
+
+    const threads: CommentThread[] = [];
+    this.currentCommentsMap.forEach((thread, key) => {
+      threads.push(thread);
+    });
+
+    return threads;
+  }
+
+  /**
+   * Subscribe to comment updates
+   */
+  subscribe(callback: () => void): () => void {
+    this.subscribers.add(callback);
+    return () => this.subscribers.delete(callback);
+  }
+
+  /**
+   * Set current user for operations
    */
   setCurrentUser(user: UserInfo): void {
     this.currentUser = user;
-  }
-
-  /**
-  * Update the dataState comments with current threads
-  */
-  private updateDataStateComments(): void {
-    console.log("comments update");
-    const threads = this.getAllThreads();
-    dataState.comments = threads;
   }
 
   /**
@@ -44,8 +70,11 @@ export class CommentsService {
    */
   createThread(position: CommentPosition, content: string): string {
     if (!this.currentUser) {
-      console.error('CommentsService: Current user not set!');
       throw new Error("Current user must be set before creating comments");
+    }
+
+    if (!this.currentCommentsMap) {
+      throw new Error("Comments map not initialized");
     }
 
     const threadId = this.generateThreadId();
@@ -70,8 +99,7 @@ export class CommentsService {
       updated_at: timestamp
     };
 
-    // Store in Yjs map for real-time sync
-    this.commentsMap.set(threadId, thread);
+    this.currentCommentsMap.set(threadId, thread);
     return threadId;
   }
 
@@ -83,7 +111,11 @@ export class CommentsService {
       throw new Error("Current user must be set before creating comments");
     }
 
-    const thread = this.commentsMap.get(threadId);
+    if (!this.currentCommentsMap) {
+      throw new Error("Comments map not initialized");
+    }
+
+    const thread = this.currentCommentsMap.get(threadId);
     if (!thread) {
       console.error("Thread not found:", threadId);
       return null;
@@ -101,14 +133,13 @@ export class CommentsService {
       resolved: false
     };
 
-    // Create updated thread with new comment
     const updatedThread: CommentThread = {
       ...thread,
       comments: [...thread.comments, newComment],
       updated_at: timestamp
     };
 
-    this.commentsMap.set(threadId, updatedThread);
+    this.currentCommentsMap.set(threadId, updatedThread);
     return commentId;
   }
 
@@ -116,7 +147,9 @@ export class CommentsService {
    * Update an existing comment
    */
   updateComment(threadId: string, commentId: string, updates: UpdateCommentParams): boolean {
-    const thread = this.commentsMap.get(threadId);
+    if (!this.currentCommentsMap) return false;
+
+    const thread = this.currentCommentsMap.get(threadId);
     if (!thread) {
       console.error("Thread not found:", threadId);
       return false;
@@ -128,7 +161,6 @@ export class CommentsService {
       return false;
     }
 
-    // Update the comment
     const updatedComments = [...thread.comments];
     updatedComments[commentIndex] = {
       ...updatedComments[commentIndex],
@@ -142,7 +174,7 @@ export class CommentsService {
       updated_at: Date.now()
     };
 
-    this.commentsMap.set(threadId, updatedThread);
+    this.currentCommentsMap.set(threadId, updatedThread);
     return true;
   }
 
@@ -150,7 +182,9 @@ export class CommentsService {
    * Resolve or unresolve a thread
    */
   resolveThread(threadId: string, resolved: boolean): boolean {
-    const thread = this.commentsMap.get(threadId);
+    if (!this.currentCommentsMap) return false;
+
+    const thread = this.currentCommentsMap.get(threadId);
     if (!thread) {
       console.error("Thread not found:", threadId);
       return false;
@@ -162,7 +196,7 @@ export class CommentsService {
       updated_at: Date.now()
     };
 
-    this.commentsMap.set(threadId, updatedThread);
+    this.currentCommentsMap.set(threadId, updatedThread);
     return true;
   }
 
@@ -170,9 +204,11 @@ export class CommentsService {
    * Delete a comment thread
    */
   deleteThread(threadId: string): boolean {
-    const exists = this.commentsMap.has(threadId);
+    if (!this.currentCommentsMap) return false;
+
+    const exists = this.currentCommentsMap.has(threadId);
     if (exists) {
-      this.commentsMap.delete(threadId);
+      this.currentCommentsMap.delete(threadId);
     }
     return exists;
   }
@@ -181,25 +217,15 @@ export class CommentsService {
    * Get a specific thread
    */
   getThread(threadId: string): CommentThread | null {
-    return this.commentsMap.get(threadId) || null;
-  }
-
-  /**
-   * Get all threads
-   */
-  getAllThreads(): CommentThread[] {
-    const threads: CommentThread[] = [];
-    this.commentsMap.forEach((thread) => {
-      threads.push(thread);
-    });
-    return threads;
+    if (!this.currentCommentsMap) return null;
+    return this.currentCommentsMap.get(threadId) || null;
   }
 
   /**
    * Get threads by position range
    */
   getThreadsInRange(from: number, to: number): CommentThread[] {
-    return this.getAllThreads().filter(thread => {
+    return this.getComments().filter(thread => {
       const pos = thread.position;
       return pos.from >= from && pos.to <= to;
     });
@@ -209,7 +235,9 @@ export class CommentsService {
    * Update thread position (for document changes)
    */
   updateThreadPosition(threadId: string, newPosition: CommentPosition): boolean {
-    const thread = this.commentsMap.get(threadId);
+    if (!this.currentCommentsMap) return false;
+
+    const thread = this.currentCommentsMap.get(threadId);
     if (!thread) {
       return false;
     }
@@ -220,34 +248,57 @@ export class CommentsService {
       updated_at: Date.now()
     };
 
-    this.commentsMap.set(threadId, updatedThread);
+    this.currentCommentsMap.set(threadId, updatedThread);
     return true;
   }
 
   /**
-   * Subscribe to comment updates
+   * Get comment statistics
    */
-  onUpdate(eventType: string, callback: CommentUpdateCallback): void {
-    if (!this.callbacks.has(eventType)) {
-      this.callbacks.set(eventType, []);
-    }
-    this.callbacks.get(eventType)!.push(callback);
+  getStats(): {
+    totalThreads: number;
+    totalComments: number;
+    resolvedThreads: number;
+    activeThreads: number;
+  } {
+    const threads = this.getComments();
+    const totalThreads = threads.length;
+    const resolvedThreads = threads.filter(t => t.resolved).length;
+    const totalComments = threads.reduce((sum, t) => sum + t.comments.length, 0);
+
+    return {
+      totalThreads,
+      totalComments,
+      resolvedThreads,
+      activeThreads: totalThreads - resolvedThreads
+    };
   }
 
   /**
-   * Unsubscribe from comment updates
+   * Check if store is initialized
    */
-  offUpdate(eventType: string, callback: CommentUpdateCallback): void {
-    const callbacks = this.callbacks.get(eventType);
-    if (callbacks) {
-      const index = callbacks.indexOf(callback);
-      if (index > -1) {
-        callbacks.splice(index, 1);
-      }
-    }
+  isInitialized(): boolean {
+    return this.currentCommentsMap !== null;
   }
 
+  /**
+   * Clean up resources
+   */
+  destroy(): void {
+    if (this.currentCommentsMap && this.mapObserver) {
+      this.currentCommentsMap.unobserve(this.mapObserver);
+    }
+    this.subscribers.clear();
+    this.currentCommentsMap = null;
+    this.mapObserver = null;
+  }
 
+  /**
+   * Notify all subscribers of changes
+   */
+  private notifySubscribers(): void {
+    this.subscribers.forEach(callback => callback());
+  }
 
   /**
    * Generate unique thread ID
@@ -262,26 +313,4 @@ export class CommentsService {
   private generateCommentId(): string {
     return 'comment_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
-
-  /**
-   * Get comment statistics
-   */
-  getStats(): {
-    totalThreads: number;
-    totalComments: number;
-    resolvedThreads: number;
-    activeThreads: number;
-  } {
-    const threads = this.getAllThreads();
-    const totalThreads = threads.length;
-    const resolvedThreads = threads.filter(t => t.resolved).length;
-    const totalComments = threads.reduce((sum, t) => sum + t.comments.length, 0);
-
-    return {
-      totalThreads,
-      totalComments,
-      resolvedThreads,
-      activeThreads: totalThreads - resolvedThreads
-    };
-  }
-} 
+}

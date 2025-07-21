@@ -84,7 +84,7 @@
 
 		try {
 			let coordinator = dataState.getNotesCoordinator();
-			let commentService = coordinator?.getCommentsService();
+			let commentService = coordinator?.getCommentsStore();
 			commentService?.addComment(thread.id, sanitize(trimmedReply));
 			replyText = "";
 			isAddingReply = false;
