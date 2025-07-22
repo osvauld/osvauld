@@ -162,6 +162,7 @@ pub enum LiveEditMessage {
         resource_id: String,
         client_id: u32,
         updates: Vec<u8>,
+        doc_type: String,
     },
     AwarenessUpdate {
         resource_id: String,

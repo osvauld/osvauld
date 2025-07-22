@@ -41,6 +41,7 @@ pub enum IncomingEvent {
         resource_id: String,
         client_id: u32,
         updates: Vec<u8>,
+        doc_type: String,
     },
 
     AwarenessUpdateBroadcast {
@@ -163,12 +164,14 @@ impl P2PSender {
         client_id: u32,
         updates: Vec<u8>,
         connection_ids: Vec<String>,
+        doc_type: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::SyncUpdateBroadcast {
             resource_id,
             client_id,
             updates,
             connection_ids,
+            doc_type,
         })
     }
 

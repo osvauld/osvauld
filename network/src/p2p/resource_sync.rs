@@ -688,11 +688,13 @@ impl PeerConnection {
                 updates,
                 resource_id,
                 client_id,
+                doc_type,
             } => {
                 self.event_emitter.emit(P2PEvent::EditingEvent {
                     updates: updates.to_vec(),
                     resource_id: resource_id.to_string(),
                     client_id: client_id.clone(),
+                    doc_type: doc_type.to_string(),
                 });
                 Ok(())
             }

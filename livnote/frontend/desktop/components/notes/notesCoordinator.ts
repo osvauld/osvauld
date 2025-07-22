@@ -61,7 +61,9 @@ export class NotesCoordinator {
         }
       },
       onAwarenessChange: (changes, origin) => {
+        console.log('coordinator trigger');
         if (origin === 'local' && config.onAwarenessUpdate) {
+          console.log('changes', changes)
           config.onAwarenessUpdate(changes);
         }
       },
@@ -381,6 +383,10 @@ export class NotesCoordinator {
     if (sender === this.userInfo.id) return;
 
     this.yjsManager.applyUpdate(update, docType, 'sync');
+  }
+
+  applyAwarenessUpdate(update: Uint8Array, sender: number) {
+    this.yjsManager.applyAwarenessUpdate(update, sender);
   }
 
 

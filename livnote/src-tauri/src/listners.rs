@@ -100,6 +100,10 @@ impl EventManager {
                         payload.get("resource_id").and_then(|r| r.as_str()),
                         payload.get("clientID").and_then(|c| c.as_u64()),
                     ) {
+                        let doc_type = payload
+                            .get("doc_type")
+                            .and_then(|c| c.as_str())
+                            .unwrap_or("default");
                         // Check if this update is for the current note
                         if let Some(current_id) = current_note_state.get_current_note() {
                             if current_id == resource_id {
@@ -142,6 +146,7 @@ impl EventManager {
                                         client_id as u32,
                                         update_bytes,
                                         description,
+                                        doc_type.to_string(),
                                     );
                                 } else {
                                     info!(
@@ -184,7 +189,9 @@ impl EventManager {
         client_id: u32,
         update_bytes: Vec<u8>,
         description: &str,
+        doc_type: String,
     ) {
+        info!("update_type {:?}", update_type);
         let active_connections = current_note_state.get_active_connections();
         if !active_connections.is_empty() {
             info!(
@@ -199,6 +206,7 @@ impl EventManager {
                     client_id,
                     update_bytes,
                     active_connections,
+                    doc_type,
                 ),
                 UpdateType::AwarenessUpdate => p2p_sender.send_awareness_update_to_connections(
                     resource_id,
@@ -367,8 +375,9 @@ impl EventManager {
                     resource_id,
                     client_id,
                     updates,
+                    doc_type,
                 } => {
-                    self.handle_editing_event(resource_id, client_id, updates)
+                    self.handle_editing_event(resource_id, client_id, updates, doc_type)
                         .await
                 }
                 P2PEvent::AwarenessEvent {
@@ -376,6 +385,7 @@ impl EventManager {
                     client_id,
                     awareness_data,
                 } => {
+                    info!("awareness data recieved");
                     self.handle_awareness_event(resource_id, client_id, awareness_data)
                         .await
                 }
@@ -858,7 +868,13 @@ impl EventManager {
         }
     }
 
-    async fn handle_editing_event(&self, resource_id: String, client_id: u32, updates: Vec<u8>) {
+    async fn handle_editing_event(
+        &self,
+        resource_id: String,
+        client_id: u32,
+        updates: Vec<u8>,
+        doc_type: String,
+    ) {
         info!(
             "Received editing event for resource {}, from client {}, with {} bytes",
             resource_id,
@@ -881,7 +897,8 @@ impl EventManager {
             let payload = serde_json::json!({
                 "resource_id": resource_id,
                 "updates": updates,
-                "client_id": client_id.to_string()
+                "client_id": client_id.to_string(),
+                "doc_type": doc_type.clone(),
             });
 
             // Emit to the frontend for direct application to the ProseMirror document

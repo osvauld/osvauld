@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
+import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import type {
   CommentThread,
   ImageMetadata,
@@ -71,7 +71,35 @@ export class YjsManager {
 
     // Set up awareness handler
     if (this.config.onAwarenessChange) {
-      awareness.on('change', this.config.onAwarenessChange);
+      awareness.on('change', async (changes: { added: number[], updated: number[], removed: number[] }, origin: string) => {
+        console.log("YJS Awareness change:", { changes, origin });
+
+        if (origin === 'local') {
+          try {
+            // Get all client IDs that changed (process raw data here)
+            const clients = [...changes.added, ...changes.updated, ...changes.removed];
+            if (clients.length === 0) {
+              console.log("No clients changed, skipping awareness update");
+              return;
+            }
+
+            console.log("Processing awareness update for clients:", clients);
+
+            // Import and encode awareness update with proper client data
+            const encodedUpdate = encodeAwarenessUpdate(awareness, clients);
+
+            console.log("Encoded awareness update size:", encodedUpdate.length, "bytes");
+
+            // Pass the properly encoded update to the callback, not raw changes
+            this.config.onAwarenessChange!(encodedUpdate, origin);
+
+          } catch (error) {
+            console.error("Error processing awareness update in YjsManager:", error);
+          }
+        }
+
+        // this.syncCollaboratorsToDataState();
+      });
     }
 
     this.documents = {
@@ -168,12 +196,38 @@ export class YjsManager {
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
     return Y.encodeStateVector(targetDoc);
   }
-
   /**
-   * Clean up and destroy documents
+   * Apply awareness update from remote clients
    */
+  async applyAwarenessUpdate(update: Uint8Array | number[], sender: number): Promise<void> {
+    if (!this.documents || sender === this.config.clientId) {
+      console.log("Skipping awareness update: no documents or sender is self");
+      return; // Don't apply our own updates
+    }
 
+    try {
+      const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
 
+      if (updateArray.length === 0) {
+        console.warn("⚠️ Received empty awareness update");
+        return;
+      }
+
+      console.log(`📡 Applying awareness update from client ${sender}, size: ${updateArray.length}`);
+
+      // Import the applyAwarenessUpdate function from y-protocols
+      const { applyAwarenessUpdate } = await import('y-protocols/awareness');
+
+      // Apply the awareness update with 'remote' origin to prevent loops
+      applyAwarenessUpdate(this.documents.awareness, updateArray, 'remote');
+
+      console.log("✅ Awareness update applied successfully");
+      console.log("📊 Current awareness states after update:", Array.from(this.documents.awareness.getStates().entries()));
+
+    } catch (error) {
+      console.error("❌ Error applying awareness update:", error);
+    }
+  }
   /**
    * Check if documents are initialized
    */

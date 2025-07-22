@@ -27,6 +27,7 @@ impl P2PService {
                         resource_id,
                         client_id,
                         updates,
+                        doc_type,
                     } => {
                         service
                             .handle_sync_update_broadcast(
@@ -34,6 +35,7 @@ impl P2PService {
                                 resource_id,
                                 client_id,
                                 updates,
+                                doc_type,
                             )
                             .await;
                     }
@@ -601,11 +603,13 @@ impl P2PService {
         resource_id: String,
         client_id: u32,
         updates: Vec<u8>,
+        doc_type: String,
     ) {
         let message = Message::LiveEdit(LiveEditMessage::DocumentUpdate {
             resource_id: resource_id.clone(),
             client_id,
             updates,
+            doc_type,
         });
 
         self.broadcast_live_edit_message(

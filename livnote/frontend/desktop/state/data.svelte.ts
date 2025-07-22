@@ -185,6 +185,7 @@ class DataState {
     emit("note-change", null).catch(error => {
       console.error("Error clearing current note:", error);
     });
+
   }
 
   // Toggle favorite view filter
@@ -212,8 +213,14 @@ class DataState {
         });
       },
       onAwarenessUpdate: async (changes) => {
+        console.log("awareness-update", changes);
         if (!this.getCurrentNoteId()) return;
-        // Handle awareness updates if needed
+
+        await emit("awareness-update", {
+          update: Array.from(changes),
+          clientID: this.clientId,
+          resource_id: this.getCurrentNoteId(),
+        });
       },
       userInfo,
     },);
@@ -310,8 +317,7 @@ class DataState {
       // Parse client_id to number for sender identification
       const senderId = parseInt(client_id, 10);
       const coordinator = this.getNotesCoordinator();
-      //TODO
-      // coordinator.(updatesArray, senderId);
+      coordinator?.applyAwarenessUpdate(updatesArray, senderId);
     } catch (error) {
       console.error("Error handling awareness-updates:", error);
     }
@@ -319,7 +325,7 @@ class DataState {
 
   async handleLiveUpdates(event: any) {
     try {
-      const { resource_id, updates, client_id } = event.payload;
+      const { resource_id, updates, client_id, doc_type } = event.payload;
 
       // Check if this is for the current note
       if (!this.currentNoteId || this.currentNoteId !== resource_id) {
@@ -333,7 +339,7 @@ class DataState {
       // Parse client_id to number for sender identification
       const senderId = parseInt(client_id, 10);
       const coordinator = this.getNotesCoordinator()
-      coordinator?.applyRemoteUpdate(updatesArray, senderId);
+      coordinator?.applyRemoteUpdate(updatesArray, senderId, doc_type);
 
     } catch (error) {
       console.error("Error handling live-updates:", error);

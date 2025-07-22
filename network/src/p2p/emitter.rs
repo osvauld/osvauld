@@ -23,6 +23,7 @@ pub enum P2PEvent {
         resource_id: String,
         client_id: u32,
         updates: Vec<u8>,
+        doc_type: String,
     },
     AwarenessEvent {
         resource_id: String,
