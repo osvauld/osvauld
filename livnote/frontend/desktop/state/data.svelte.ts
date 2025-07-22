@@ -2,8 +2,8 @@ import { sendMessage } from "../utils/helper";
 import { uiState } from './ui.svelte';
 import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
-import { applyYjsUpdates, createEmptyNoteContent, generatePreview } from "../components/notes/documentUtils";
-import type { Note, NoteContent, NotePreview, Collaborator, Comment, CommentThread } from "../types/notes.types";
+import { createEmptyNoteContent, generatePreview } from "../components/notes/documentUtils";
+import type { Note, NotePreview, Collaborator } from "../types/notes.types";
 import { NotesCoordinator } from "../components/notes/notesCoordinator";
 // Define interfaces
 export interface Vault {
@@ -303,13 +303,6 @@ class DataState {
     try {
       const { resource_id, connection_id, updates, client_id } = event.payload;
 
-      // Find the note with this resource ID
-      const note = this.getNoteById(resource_id);
-
-      if (!note) {
-        console.warn(`Note with ID ${resource_id} not found for awareness updates`);
-        return;
-      }
 
       // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
@@ -432,13 +425,6 @@ class DataState {
     try {
       const { resource_id, updates } = event.payload;
 
-      // Find the note with this resource ID
-      const note = await sendMessage("getCredential", { resourceId: resource_id });
-
-      if (!note) {
-        console.warn(`Note with ID ${resource_id} not found for updates`);
-        return;
-      }
 
       // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
@@ -448,66 +434,12 @@ class DataState {
         const coordinator = this.getNotesCoordinator();
         coordinator?.applyRemoteUpdate(updatesArray, 0);
         // The editor will save the note automatically
-      } else {
-        // For non-current notes, use our utility function to apply updates to stored state
-        await this.updateNoteYjsState(note, updatesArray);
       }
     } catch (error) {
       console.error("Error handling document-updates:", error);
     }
   }
-  // Update the YJS state of a note and save it
 
-  async updateNoteYjsState(note: Note, updates: Uint8Array) {
-    try {
-      console.log(`Starting YJS state update for note ${note.id}, update size: ${updates.length} bytes`);
-
-      // Get the current YJS state
-      const currentYjsState: any = note.data.yjs_state;
-      console.log(`Current YJS state size: ${currentYjsState ?
-        (Array.isArray(currentYjsState) ? currentYjsState.length : currentYjsState.byteLength) : 0} bytes`);
-
-      // Apply the updates to get the new state with content
-      const { yjs_state: newYjsState, content, editor_state } = applyYjsUpdates(currentYjsState, updates);
-      // Verify state changed
-      const changed = !currentYjsState ||
-        JSON.stringify(newYjsState) !== JSON.stringify(Array.from(currentYjsState));
-      if (!changed) {
-        console.warn(`No change detected after applying updates to note ${note.id}`);
-      } else {
-        console.log(`YJS state changed for note ${note.id}`);
-      }
-
-      // Create a timestamp for the modification
-      const timestamp = Date.now();
-
-      // Create a clone of the note data with the updated states
-      const updatedData = {
-        ...note.data,
-        yjs_state: newYjsState,
-        content: content,               // Add the extracted content
-        editor_state: editor_state,     // Add the updated editor state
-        last_modified: timestamp
-      };
-
-      // Send to backend for persistence
-      sendMessage("updateCredential", {
-        id: note.id,
-        data: JSON.stringify({
-          ...updatedData,
-          yjs_state: Array.from(newYjsState),  // Convert to array for JSON serialization
-        })
-      });
-
-      await emit('resource-update-complete', { id: note.id });
-
-
-      return true;
-    } catch (error) {
-      console.error(`Error updating YJS state for note ${note.id}:`, error);
-      return false;
-    }
-  }
 }
 
 

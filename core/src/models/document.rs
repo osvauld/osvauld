@@ -272,3 +272,71 @@ async fn try_merge_docs(doc1: &Doc, doc2: &Doc) -> Result<Vec<u8>, String> {
     let txn = merged_doc.transact().await;
     Ok(txn.encode_state_as_update_v1(&StateVector::default()))
 }
+/// Apply peer updates to current state and generate updates for peer
+/// Returns the new merged state, updates needed by peer, and current state vector
+///
+/// # Arguments
+/// * `current_state` - The current document state as a byte array
+/// * `peer_updates` - Updates received from the peer to apply
+/// * `peer_state_vector` - State vector from the peer indicating what they have
+///
+/// # Returns
+/// * `Result<(Vec<u8>, Vec<u8>, Vec<u8>), String>` - (New merged state, Updates for peer, Current state vector)
+pub async fn apply_updates_and_generate_for_peer(
+    current_state: &[u8],
+    peer_updates: &[u8],
+    peer_state_vector: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), String> {
+    // Create a temporary document
+    let doc = Doc::new();
+
+    // Apply the current state to the document if it exists
+    if !current_state.is_empty() {
+        let update = match Update::decode_v1(current_state) {
+            Ok(update) => update,
+            Err(_) => Update::decode_v2(current_state)
+                .map_err(|e| format!("Failed to decode current state: {:?}", e))?,
+        };
+
+        let mut txn = doc.transact_mut().await;
+        txn.apply_update(update)
+            .map_err(|e| format!("Failed to apply current state: {:?}", e))?;
+    }
+
+    // Apply the peer updates to the document
+    if !peer_updates.is_empty() {
+        let update = match Update::decode_v1(peer_updates) {
+            Ok(update) => update,
+            Err(_) => Update::decode_v2(peer_updates)
+                .map_err(|e| format!("Failed to decode peer updates: {:?}", e))?,
+        };
+
+        let mut txn = doc.transact_mut().await;
+        txn.apply_update(update)
+            .map_err(|e| format!("Failed to apply peer updates: {:?}", e))?;
+    }
+
+    // Get the new merged state
+    let new_state = {
+        let txn = doc.transact().await;
+        txn.encode_state_as_update_v1(&StateVector::default())
+    };
+
+    // Parse the peer's state vector to generate updates for them
+    let sv = if !peer_state_vector.is_empty() {
+        match StateVector::decode_v2(peer_state_vector) {
+            Ok(sv) => sv,
+            Err(_) => StateVector::decode_v1(peer_state_vector)
+                .map_err(|e| format!("Failed to decode peer state vector: {:?}", e))?,
+        }
+    } else {
+        StateVector::default()
+    };
+
+    // Generate updates for peer and get current state vector
+    let txn = doc.transact().await;
+    let updates_for_peer = txn.encode_diff_v1(&sv);
+    let current_state_vector = txn.state_vector().encode_v1();
+
+    Ok((new_state, updates_for_peer, current_state_vector))
+}

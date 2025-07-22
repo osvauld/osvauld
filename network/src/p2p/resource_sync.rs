@@ -5,7 +5,7 @@ use osvauld_core::models::{
     ConnectionType, LiveEditMessage, Message, ResourceSyncData, ResourceUpdateMsg,
 };
 use services::{
-    add_resource_sync, add_share_records, apply_updates_and_get_peer_updates,
+    add_resource_sync, add_share_records, apply_updates, apply_updates_and_get_peer_updates,
     generate_updates_for_peer, get_resource_for_remote_addition, get_resource_state_vector,
     get_share_records_for_resource, get_vector_clocks_for_resource, merge_share_records,
     merge_vector_clocks, update_vector_clocks,
@@ -225,7 +225,7 @@ impl PeerConnection {
                     );
                     let user = self.get_local_user().await?;
 
-                    let state_vector = match get_resource_state_vector(
+                    let state_vectors = match get_resource_state_vector(
                         resource_id,
                         &user.id,
                         &self.repo_ctx,
@@ -252,7 +252,7 @@ impl PeerConnection {
 
                     let message = ResourceUpdateMsg::StateVectorRequest {
                         resource_id: resource_id.to_string(),
-                        state_vector,
+                        state_vectors,
                     };
 
                     match self.send_message(Message::MergeUpdate(message)).await {
@@ -299,29 +299,29 @@ impl PeerConnection {
         match payload {
             ResourceUpdateMsg::StateVectorRequest {
                 resource_id,
-                state_vector,
+                state_vectors,
             } => {
                 debug!(
                     resource_id = %resource_id,
                     "Processing state vector request"
                 );
 
-                let (updates, state_vector) = match generate_updates_for_peer(
+                let updates = match generate_updates_for_peer(
                     resource_id,
                     &user.id,
                     &self.repo_ctx,
                     &self.crypto_utils,
-                    &state_vector,
+                    &state_vectors,
                 )
                 .await
                 {
-                    Ok((updates, vector)) => {
+                    Ok(updates) => {
                         debug!(
                             resource_id = %resource_id,
                             update_count = updates.len(),
                             "Generated updates for peer successfully"
                         );
-                        (updates, vector)
+                        updates
                     }
                     Err(e) => {
                         error!(
@@ -336,7 +336,6 @@ impl PeerConnection {
                 let message = ResourceUpdateMsg::UpdatesResponse {
                     resource_id: resource_id.to_string(),
                     updates,
-                    state_vector,
                 };
 
                 match self.send_message(Message::MergeUpdate(message)).await {
@@ -359,7 +358,6 @@ impl PeerConnection {
             ResourceUpdateMsg::UpdatesResponse {
                 resource_id,
                 updates,
-                state_vector,
             } => {
                 debug!(
                     resource_id = %resource_id,
@@ -368,23 +366,22 @@ impl PeerConnection {
                 );
                 let user = self.get_local_user().await?;
 
-                let (remote_updates, _) = match apply_updates_and_get_peer_updates(
+                let remote_updates = match apply_updates_and_get_peer_updates(
                     resource_id,
                     &user.id,
                     updates,
-                    state_vector,
                     &self.repo_ctx,
                     &self.crypto_utils,
                 )
                 .await
                 {
-                    Ok((updates, result)) => {
+                    Ok(updates) => {
                         debug!(
                             resource_id = %resource_id,
                             remote_update_count = updates.len(),
                             "Applied updates and generated peer updates"
                         );
-                        (updates, result)
+                        updates
                     }
                     Err(e) => {
                         error!(
@@ -485,6 +482,15 @@ impl PeerConnection {
                     "Processing final update merge"
                 );
 
+                let user = self.get_local_user().await?;
+                apply_updates(
+                    resource_id,
+                    updates,
+                    &user.id,
+                    &self.repo_ctx,
+                    &self.crypto_utils,
+                )
+                .await?;
                 // Emit updates event to frontend
                 self.event_emitter.emit(P2PEvent::UpdatesEvent {
                     resource_id: resource_id.clone(),
@@ -621,12 +627,12 @@ impl PeerConnection {
             }
             LiveEditMessage::StateVectorExchange {
                 resource_id,
-                state_vector,
+                state_vectors,
             } => {
                 self.event_emitter.emit(P2PEvent::UpdateRequest {
                     resource_id: resource_id.clone(),
                     connection_id: self.get_id(),
-                    state_vector: state_vector.clone(),
+                    state_vectors: state_vectors.clone(),
                     current_user_id: user.id.clone(),
                 });
                 Ok(())
@@ -635,13 +641,11 @@ impl PeerConnection {
                 resource_id,
                 updates,
                 buffer,
-                state_vector,
             } => {
                 let connection_id = self.get_id();
                 self.event_emitter.emit(P2PEvent::ProcessUpdate {
                     resource_id: resource_id.clone(),
                     connection_id,
-                    state_vector: state_vector.clone(),
                     updates: updates.clone(),
                     buffer: buffer.clone(),
                 });
@@ -650,7 +654,6 @@ impl PeerConnection {
             LiveEditMessage::UpdateExchangeResponse {
                 resource_id,
                 updates,
-                state_vector: _,
             } => {
                 let connection_id = self.get_id();
                 self.event_emitter.emit(P2PEvent::ProcessUpdateResponse {

@@ -363,7 +363,6 @@ export class NotesCoordinator {
       throw new Error("Editor state not initialized");
     }
 
-    // No need for assets array anymore - everything is in YJS
     return {
       content: docs.type.toJSON(),
       yjs_state: Array.from(this.yjsManager.getStateAsUpdate('main')),

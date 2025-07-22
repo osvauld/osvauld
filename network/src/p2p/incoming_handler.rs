@@ -253,12 +253,12 @@ impl P2PService {
                     )
                     .await
                     {
-                        Ok(state_vector) => {
+                        Ok(state_vectors) => {
                             // Create a state vector exchange message
                             let state_vector_message =
                                 Message::LiveEdit(LiveEditMessage::StateVectorExchange {
                                     resource_id: resource_id.clone(),
-                                    state_vector,
+                                    state_vectors,
                                 });
 
                             // Send the state vector exchange message

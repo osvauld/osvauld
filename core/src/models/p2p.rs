@@ -54,17 +54,16 @@ pub enum ResourceUpdateMsg {
     // Initial message with state vector
     StateVectorRequest {
         resource_id: String,
-        state_vector: Vec<u8>,
+        state_vectors: String,
     },
     // Response with updates and state vector
     UpdatesResponse {
         resource_id: String,
-        updates: Vec<u8>,
-        state_vector: Vec<u8>,
+        updates: String,
     },
     FinalUpdateMerge {
         resource_id: String,
-        updates: Vec<u8>,
+        updates: String,
         vector_clocks: Vec<ResourceVectorClock>,
         share_records: Vec<ShareRecord>,
     },
@@ -135,20 +134,18 @@ pub enum LiveEditMessage {
     /// Exchange document state vectors for comparison
     StateVectorExchange {
         resource_id: String,
-        state_vector: Vec<u8>,
+        state_vectors: String,
     },
     /// Transfer document updates and pending changes
     /// Contains the update data along with the current buffer state
     UpdateExchange {
         resource_id: String,
-        updates: Vec<u8>,
+        updates: String,
         buffer: Vec<u8>,
-        state_vector: Vec<u8>,
     },
     UpdateExchangeResponse {
         resource_id: String,
-        updates: Vec<u8>,
-        state_vector: Vec<u8>,
+        updates: String,
     },
     CurrentBufferExchange {
         resource_id: String,
@@ -157,7 +154,6 @@ pub enum LiveEditMessage {
     DocumentChange {
         resource_id: String,
     },
-
     DocumentUpdate {
         resource_id: String,
         client_id: u32,

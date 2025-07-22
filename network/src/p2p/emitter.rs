@@ -39,7 +39,7 @@ pub enum P2PEvent {
     },
     UpdatesEvent {
         resource_id: String,
-        updates: Vec<u8>,
+        updates: String,
     },
     LiveEditConnected {
         connection_id: String,
@@ -51,20 +51,19 @@ pub enum P2PEvent {
     UpdateRequest {
         resource_id: String,
         connection_id: String,
-        state_vector: Vec<u8>,
+        state_vectors: String,
         current_user_id: String,
     },
     ProcessUpdate {
         resource_id: String,
         connection_id: String,
-        state_vector: Vec<u8>,
-        updates: Vec<u8>,
+        updates: String,
         buffer: Vec<u8>,
     },
     ProcessUpdateResponse {
         resource_id: String,
         connection_id: String,
-        updates: Vec<u8>,
+        updates: String,
     },
     CurrentBufferExchange {
         resource_id: String,
