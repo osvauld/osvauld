@@ -417,8 +417,9 @@ pub async fn generate_updates_for_peer(
         Ok((resource, _)) => resource,
         Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
     };
+    let mut decrypted_resource = decrypted_resource;
     let updates = decrypted_resource
-        .generate_updates_for_peer(peer_state_vectors)
+        .sync_updates(peer_state_vectors)
         .await
         .map_err(|e| RepositoryError::CustomError(e))?;
 
@@ -447,7 +448,7 @@ pub async fn apply_updates_and_get_peer_updates(
         };
     let mut decrypted_resource = decrypted_resource;
     let remote_updates = decrypted_resource
-        .apply_updates_and_get_peer_updates(updates)
+        .sync_updates(updates)
         .await
         .map_err(|e| RepositoryError::CustomError(e))?;
 
@@ -462,7 +463,61 @@ pub async fn apply_updates_and_get_peer_updates(
         .resource_repo
         .update_resource(&encrypted_data, resource_id)
         .await?;
-    // 4. Return both the updates needed by the peer and the current state vector
+    Ok(remote_updates)
+}
+
+pub async fn apply_buffer_updates_and_get_remote_updates(
+    resource_id: &str,
+    user_id: &str,
+    updates: &str,
+    peer_state_vectors: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<String, RepositoryError> {
+    // 1. Get the current resource with its YJS state
+    let (decrypted_resource, _encrypted_key) =
+        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
+            Ok((resource, encrypted_key)) => (resource, encrypted_key),
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+    let mut decrypted_resource = decrypted_resource;
+    let _ = decrypted_resource
+        .sync_updates(updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+    let remote_updates = decrypted_resource
+        .sync_updates(peer_state_vectors)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+
+    Ok(remote_updates)
+}
+
+pub async fn apply_buffer_and_peer_updates_and_get_remote_updates(
+    resource_id: &str,
+    user_id: &str,
+    remote_updates: &str,
+    local_updates: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<String, RepositoryError> {
+    // 1. Get the current resource with its YJS state
+    let (decrypted_resource, _encrypted_key) =
+        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
+            Ok((resource, encrypted_key)) => (resource, encrypted_key),
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+    let mut decrypted_resource = decrypted_resource;
+    let _remote_updates = decrypted_resource
+        .sync_updates(local_updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+
+    let remote_updates = decrypted_resource
+        .sync_updates(remote_updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+
     Ok(remote_updates)
 }
 
@@ -478,7 +533,7 @@ pub async fn apply_updates(
             .await
             .map_err(|e| e.to_string())?;
     let mut decrypted_resource = decrypted_resource;
-    decrypted_resource.apply_updates(updates).await?;
+    decrypted_resource.sync_updates(updates).await?;
     let encrypted_data = {
         let crypto = crypto_utils.lock().await;
         crypto

@@ -318,7 +318,7 @@ impl PeerConnection {
                     Ok(updates) => {
                         debug!(
                             resource_id = %resource_id,
-                            update_count = updates.len(),
+                            udpates = updates,
                             "Generated updates for peer successfully"
                         );
                         updates
@@ -458,11 +458,13 @@ impl PeerConnection {
                         return Err(format!("Failed to send final update merge: {}", e));
                     }
                 }
+                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
 
                 // Emit updates event to frontend
                 self.event_emitter.emit(P2PEvent::UpdatesEvent {
                     resource_id: resource_id.clone(),
                     updates: updates.clone(),
+                    client_id,
                 });
                 debug!(
                     resource_id = %resource_id,
@@ -491,10 +493,13 @@ impl PeerConnection {
                     &self.crypto_utils,
                 )
                 .await?;
+
+                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
                 // Emit updates event to frontend
                 self.event_emitter.emit(P2PEvent::UpdatesEvent {
                     resource_id: resource_id.clone(),
                     updates: updates.clone(),
+                    client_id,
                 });
                 debug!(
                     resource_id = %resource_id,
@@ -640,14 +645,14 @@ impl PeerConnection {
             LiveEditMessage::UpdateExchange {
                 resource_id,
                 updates,
-                buffer,
             } => {
                 let connection_id = self.get_id();
+                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
                 self.event_emitter.emit(P2PEvent::ProcessUpdate {
                     resource_id: resource_id.clone(),
                     connection_id,
                     updates: updates.clone(),
-                    buffer: buffer.clone(),
+                    client_id,
                 });
                 Ok(())
             }
@@ -656,10 +661,12 @@ impl PeerConnection {
                 updates,
             } => {
                 let connection_id = self.get_id();
+                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
                 self.event_emitter.emit(P2PEvent::ProcessUpdateResponse {
                     resource_id: resource_id.clone(),
                     connection_id,
                     updates: updates.clone(),
+                    client_id,
                 });
                 Ok(())
             }
@@ -668,10 +675,12 @@ impl PeerConnection {
                 buffer,
             } => {
                 let connection_id = self.get_id();
+                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
                 self.event_emitter.emit(P2PEvent::CurrentBufferExchange {
                     resource_id: resource_id.clone(),
                     connection_id,
                     updates: buffer.clone(),
+                    client_id,
                 });
                 Ok(())
             }

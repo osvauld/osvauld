@@ -16,6 +16,7 @@ use services::{
 };
 use std::sync::Arc;
 use std::time::Instant;
+use tauri::http::response;
 use tokio::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, State};
@@ -179,10 +180,10 @@ pub async fn handle_get_resource(
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
-    let resource = get_resource(&input.resource_id, &repo_ctx, &user.id, &crypto_utils)
-        .await
-        .map_err(|e| e.to_string())?;
-
+    let resource =
+        get_resource_by_id_direct(&input.resource_id, &user.id, &repo_ctx, &crypto_utils)
+            .await
+            .map_err(|e| e.to_string())?;
     let response = ResourceResponse {
         id: resource.id,
         data: resource.data,

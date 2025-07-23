@@ -141,7 +141,6 @@ pub enum LiveEditMessage {
     UpdateExchange {
         resource_id: String,
         updates: String,
-        buffer: Vec<u8>,
     },
     UpdateExchangeResponse {
         resource_id: String,
@@ -149,7 +148,7 @@ pub enum LiveEditMessage {
     },
     CurrentBufferExchange {
         resource_id: String,
-        buffer: Vec<u8>,
+        buffer: String,
     },
     DocumentChange {
         resource_id: String,

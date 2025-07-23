@@ -95,15 +95,20 @@ impl EventManager {
             // Try to parse the payload to extract update data and resource_id
             match serde_json::from_str::<Value>(&payload_str) {
                 Ok(payload) => {
-                    if let (Some(update), Some(resource_id), Some(client_id)) = (
-                        payload.get("update").and_then(|u| u.as_array()),
-                        payload.get("resource_id").and_then(|r| r.as_str()),
-                        payload.get("clientID").and_then(|c| c.as_u64()),
-                    ) {
-                        let doc_type = payload
-                            .get("doc_type")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("default");
+                    let update_array = payload.get("update").and_then(|u| u.as_array()).cloned();
+                    let resource_id = payload
+                        .get("resource_id")
+                        .and_then(|r| r.as_str())
+                        .map(|s| s.to_string());
+                    let client_id = payload.get("clientID").and_then(|c| c.as_u64());
+                    let doc_type = payload
+                        .get("doc_type")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("default")
+                        .to_string();
+                    if let (Some(update), Some(resource_id), Some(client_id), doc_type) =
+                        (update_array, resource_id, client_id, doc_type)
+                    {
                         // Check if this update is for the current note
                         if let Some(current_id) = current_note_state.get_current_note() {
                             if current_id == resource_id {
@@ -121,6 +126,7 @@ impl EventManager {
 
                                         let update_bytes_clone = update_bytes.clone();
                                         // Update the buffer with the new state (only for sync updates)
+                                        let doc_type = doc_type.clone();
                                         tokio::spawn(async move {
                                             info!(
                                                 "Applying {} bytes of {} to Yjs buffer",
@@ -128,7 +134,10 @@ impl EventManager {
                                                 description
                                             );
                                             note_state
-                                                .merge_to_current(update_bytes_clone.clone())
+                                                .merge_to_current(
+                                                    update_bytes_clone.clone(),
+                                                    &doc_type,
+                                                )
                                                 .await;
                                             info!(
                                                 "Updated Yjs state buffer for note: {}",
@@ -393,7 +402,11 @@ impl EventManager {
                 P2PEvent::UpdatesEvent {
                     resource_id,
                     updates,
-                } => self.handle_update_event(resource_id, updates).await,
+                    client_id,
+                } => {
+                    self.handle_update_event(resource_id, updates, client_id)
+                        .await
+                }
                 P2PEvent::LiveEditConnected { connection_id } => {
                     self.handle_live_edit_connected(connection_id).await
                 }
@@ -404,13 +417,13 @@ impl EventManager {
                 P2PEvent::UpdateRequest {
                     resource_id,
                     connection_id,
-                    state_vector,
+                    state_vectors,
                     current_user_id,
                 } => {
                     self.handle_document_update_request(
                         resource_id,
                         connection_id,
-                        state_vector,
+                        state_vectors,
                         current_user_id,
                     )
                     .await
@@ -418,16 +431,14 @@ impl EventManager {
                 P2PEvent::ProcessUpdate {
                     resource_id,
                     connection_id,
-                    state_vector,
                     updates,
-                    buffer,
+                    client_id,
                 } => {
                     self.handle_document_process_update(
                         resource_id,
                         connection_id,
-                        state_vector,
-                        buffer,
                         updates,
+                        client_id,
                     )
                     .await
                 }
@@ -435,11 +446,13 @@ impl EventManager {
                     resource_id,
                     connection_id,
                     updates,
+                    client_id,
                 } => {
                     self.handle_document_process_update_response(
                         resource_id,
                         connection_id,
                         updates,
+                        client_id,
                     )
                     .await
                 }
@@ -447,9 +460,15 @@ impl EventManager {
                     resource_id,
                     connection_id,
                     updates,
+                    client_id,
                 } => {
-                    self.handle_current_buffer_exchange(resource_id, connection_id, updates)
-                        .await
+                    self.handle_current_buffer_exchange(
+                        resource_id,
+                        connection_id,
+                        updates,
+                        client_id,
+                    )
+                    .await
                 }
                 P2PEvent::DocumentChanged {
                     resource_id,
@@ -574,7 +593,7 @@ impl EventManager {
         &self,
         resource_id: String,
         connection_id: String,
-        state_vector: Vec<u8>,
+        state_vectors: String,
         current_user_id: String,
     ) {
         info!("Received update request for resource: {}", resource_id);
@@ -591,19 +610,25 @@ impl EventManager {
             }
 
             // Combine current and previous buffers
-            let combined_updates = current_note_state.get_combined_updates().await;
-            // Send the update exchange
-            if let Err(e) = self.p2p_sender.send_live_edit_update_exchange(
-                connection_id.clone(),
-                resource_id.clone(),
-                state_vector.clone(),
-                combined_updates,
-                current_user_id,
-            ) {
-                error!("Failed to send update exchange: {}", e);
-            } else {
-                info!("Sent update exchange for resource: {}", resource_id);
+            match current_note_state.get_combined_updates().await {
+                Ok(combined_updates) => {
+                    if let Err(e) = self.p2p_sender.send_live_edit_update_exchange(
+                        connection_id.clone(),
+                        resource_id.clone(),
+                        state_vectors.clone(),
+                        combined_updates,
+                        current_user_id,
+                    ) {
+                        error!("Failed to send update exchange: {}", e);
+                    } else {
+                        info!("Sent update exchange for resource: {}", resource_id);
+                    }
+                }
+                Err(e) => {
+                    error!("failed to get buffer {}", e);
+                }
             }
+            // Send the update exchange
         } else {
             error!("No current document set, cannot handle update request");
         }
@@ -613,9 +638,8 @@ impl EventManager {
         &self,
         resource_id: String,
         connection_id: String,
-        state_vector: Vec<u8>,
-        buffer: Vec<u8>,
-        updates: Vec<u8>,
+        remote_updates: String,
+        client_id: u32,
     ) {
         info!("Processing document update for resource: {}", resource_id);
 
@@ -630,62 +654,29 @@ impl EventManager {
                 false
             };
 
-        // Combine remote updates (peer's buffer and updates)
-        let mut remote_updates = Vec::new();
-        remote_updates.extend_from_slice(&updates);
-        if !buffer.is_empty() {
-            remote_updates.extend_from_slice(&buffer);
-        }
-
-        if !is_current_document {
-            // Document mismatch - notify peer
-            info!(
-                "Document mismatch: current is {:?}, update is for {}",
-                current_note_state.get_current_note(),
-                resource_id
-            );
-
-            // Emit document changed event
-            if let Err(e) = self
-                .p2p_sender
-                .send_document_changed(connection_id.clone(), resource_id.clone())
-            {
-                error!("Failed to send document changed notification: {}", e);
-            }
-
-            // Still apply remote updates to frontend
-            if !remote_updates.is_empty() {
-                self.handle_update_event(resource_id.clone(), remote_updates.clone())
+        if is_current_document {
+            match current_note_state.get_combined_updates().await {
+                Ok(local_buffer) => {
+                    self.handle_update_event(
+                        resource_id.clone(),
+                        remote_updates.clone(),
+                        client_id,
+                    )
                     .await;
-            }
 
-            // Send empty local buffer with remote updates back as response
-            if let Err(e) = self.p2p_sender.send_live_edit_update_exchange_response(
-                connection_id,
-                resource_id,
-                state_vector,
-                Vec::new(),     // Empty local buffer
-                remote_updates, // Include remote updates in response
-            ) {
-                error!("Failed to send update exchange response: {}", e);
-            }
-        } else {
-            let local_buffer = current_note_state.get_combined_updates().await;
-            // Apply remote updates to frontend
-            if !remote_updates.is_empty() {
-                self.handle_update_event(resource_id.clone(), remote_updates.clone())
-                    .await;
-            }
-
-            // Send both local buffer and remote updates in response
-            if let Err(e) = self.p2p_sender.send_live_edit_update_exchange_response(
-                connection_id,
-                resource_id,
-                state_vector,
-                local_buffer,
-                remote_updates,
-            ) {
-                error!("Failed to send update exchange response: {}", e);
+                    // Send both local buffer and remote updates in response
+                    if let Err(e) = self.p2p_sender.send_live_edit_update_exchange_response(
+                        connection_id,
+                        resource_id,
+                        local_buffer,
+                        remote_updates,
+                    ) {
+                        error!("Failed to send update exchange response: {}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("failed to get buffer details")
+                }
             }
         }
     }
@@ -694,7 +685,8 @@ impl EventManager {
         &self,
         resource_id: String,
         connection_id: String,
-        updates: Vec<u8>,
+        updates: String,
+        client_id: u32,
     ) {
         info!(
             "Processing update response for resource: {}, from connection: {}",
@@ -724,35 +716,41 @@ impl EventManager {
             // Apply updates to frontend if any
             if !updates.is_empty() {
                 info!("Applying {} bytes of updates to frontend", updates.len());
-                self.handle_update_event(resource_id.clone(), updates).await;
+                self.handle_update_event(resource_id.clone(), updates, client_id)
+                    .await;
             }
             //TODO: make this current buffer
-            let current_buffer = current_note_state.get_combined_updates().await;
+            match current_note_state.get_combined_updates().await {
+                Ok(current_buffer) => {
+                    // Send current buffer to peer (now we always send, even if empty)
+                    info!(
+                        "Sending final current buffer ({} bytes) exchange",
+                        current_buffer.len()
+                    );
 
-            // Send current buffer to peer (now we always send, even if empty)
-            info!(
-                "Sending final current buffer ({} bytes) exchange",
-                current_buffer.len()
-            );
+                    if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
+                        connection_id.clone(),
+                        resource_id.clone(),
+                        current_buffer,
+                    ) {
+                        error!("Failed to send current buffer: {}", e);
+                    }
 
-            if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
-                connection_id.clone(),
-                resource_id.clone(),
-                current_buffer,
-            ) {
-                error!("Failed to send current buffer: {}", e);
-            }
-
-            // Notify frontend that live editing is now active with this peer
-            if let Err(e) = self.app_handle.emit(
-                "live-edit-active",
-                serde_json::json!({
-                    "connection_id": connection_id,
-                    "resource_id": resource_id,
-                }),
-            ) {
-                error!("Failed to emit live-edit-active event: {}", e);
-            }
+                    // Notify frontend that live editing is now active with this peer
+                    if let Err(e) = self.app_handle.emit(
+                        "live-edit-active",
+                        serde_json::json!({
+                            "connection_id": connection_id,
+                            "resource_id": resource_id,
+                        }),
+                    ) {
+                        error!("Failed to emit live-edit-active event: {}", e);
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to get combined updates: {}", e);
+                }
+            };
         } else {
             warn!("No active document, ignoring update response");
         }
@@ -762,7 +760,8 @@ impl EventManager {
         &self,
         resource_id: String,
         connection_id: String,
-        updates: Vec<u8>,
+        updates: String,
+        client_id: u32,
     ) {
         info!(
             "Processing current buffer exchange for resource: {}, from connection: {}",
@@ -778,7 +777,8 @@ impl EventManager {
                 "Forwarding {} bytes of buffer updates to frontend",
                 updates.len()
             );
-            self.handle_update_event(resource_id.clone(), updates).await;
+            self.handle_update_event(resource_id.clone(), updates, client_id)
+                .await;
         }
 
         // Verify this is the document we're currently editing
@@ -805,26 +805,33 @@ impl EventManager {
 
                 // Get current buffer to send back
 
-                let current_buffer = current_note_state.get_combined_updates().await;
-                // Send current buffer to peer
-                if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
-                    connection_id.clone(),
-                    resource_id.clone(),
-                    current_buffer,
-                ) {
-                    error!("Failed to send current buffer response: {}", e);
-                }
+                match current_note_state.get_combined_updates().await {
+                    Ok(current_buffer) => {
+                        if let Err(e) = self.p2p_sender.send_current_buffer_exchange(
+                            connection_id.clone(),
+                            resource_id.clone(),
+                            current_buffer,
+                        ) {
+                            error!("Failed to send current buffer response: {}", e);
+                        }
 
-                // Notify frontend that live editing is now active with this peer
-                if let Err(e) = self.app_handle.emit(
-                    "live-edit-active",
-                    serde_json::json!({
-                        "connection_id": connection_id,
-                        "resource_id": resource_id,
-                    }),
-                ) {
-                    error!("Failed to emit live-edit-active event: {}", e);
+                        // Notify frontend that live editing is now active with this peer
+                        if let Err(e) = self.app_handle.emit(
+                            "live-edit-active",
+                            serde_json::json!({
+                                "connection_id": connection_id,
+                                "resource_id": resource_id,
+                            }),
+                        ) {
+                            error!("Failed to emit live-edit-active event: {}", e);
+                        }
+                    }
+
+                    Err(e) => {
+                        error!("Failed to emit live-edit-active event: {}", e);
+                    }
                 }
+                // Send current buffer to peer
             } else {
                 // Connection is already active, no need to send anything back
                 info!(
@@ -969,28 +976,30 @@ impl EventManager {
     }
 
     /// Handle updates event
-    async fn handle_update_event(&self, resource_id: String, updates: Vec<u8>) {
+    async fn handle_update_event(&self, resource_id: String, updates: String, client_id: u32) {
         info!(
             "Received updates event for resource {}, with {} bytes",
             resource_id,
             updates.len()
         );
 
-        // Keep the updates as a Vec<u8> but send them as an array to JSON
-        // YJS expects Uint8Array and the frontend will convert it properly
-        let payload = serde_json::json!({
-            "resource_id": resource_id,
-            "updates": updates
-        });
+        let current_note_state = self.current_note_state.clone();
+        if let Some(resource_id) = current_note_state.get_current_note() {
+            let payload = serde_json::json!({
+                "resource_id": resource_id,
+                "updates": updates,
+                "client_id": client_id
+            });
 
-        // Emit to the frontend for direct application to the ProseMirror document
-        if let Err(e) = self.app_handle.emit("document-updates", payload) {
-            error!("Failed to emit document-updates event: {}", e);
-        } else {
-            info!(
-                "Successfully emitted document-updates event for resource: {}",
-                resource_id
-            );
+            // Emit to the frontend for direct application to the ProseMirror document
+            if let Err(e) = self.app_handle.emit("document-updates", payload) {
+                error!("Failed to emit document-updates event: {}", e);
+            } else {
+                info!(
+                    "Successfully emitted document-updates event for resource: {}",
+                    resource_id
+                );
+            }
         }
     }
 

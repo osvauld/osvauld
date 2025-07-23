@@ -1,6 +1,9 @@
 use core::fmt;
 
-use crate::models::{ResourceKey, ResourceVectorClock, ShareRecord, document};
+use crate::models::{
+    ResourceKey, ResourceVectorClock, ShareRecord,
+    document::{YjsDocExt, create_doc},
+};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -83,196 +86,118 @@ impl DecryptedResource {
             })
     }
 
-    /// Get all available document states for this resource
-    pub fn get_all_document_states(&self) -> std::collections::HashMap<String, Vec<u8>> {
-        let mut states = std::collections::HashMap::new();
+    pub async fn get_state_vectors(&self) -> Result<String, String> {
+        let mut result = serde_json::Map::new();
 
         for state_key in self.resource_type.document_state_keys() {
             if let Some(state_data) = self.get_document_state(state_key) {
-                states.insert(state_key.to_string(), state_data);
+                let mut doc = create_doc();
+                doc.apply_update_v2(&state_data).await?;
+                let state_vector = doc.get_state_vector_v2().await;
+
+                let vector_array: Vec<serde_json::Value> = state_vector
+                    .iter()
+                    .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                    .collect();
+
+                let mut doc_data = serde_json::Map::new();
+                doc_data.insert("updates".to_string(), serde_json::Value::Array(vec![])); // Empty updates
+                doc_data.insert(
+                    "state_vector".to_string(),
+                    serde_json::Value::Array(vector_array),
+                );
+
+                result.insert(state_key.to_string(), serde_json::Value::Object(doc_data));
             }
         }
 
-        states
+        serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize state vectors: {}", e))
     }
+    /// Input: {"yjs_state": {"updates": [1,2,3], "state_vector": [4,5,6]}, "image_state": {...}}
+    /// Logic:
+    /// - If updates empty + state_vector present → generate updates for peer
+    /// - If updates present + state_vector empty → apply updates only  
+    /// - If both present → apply updates AND generate updates for peer
+    /// - If both empty → do nothing
+    /// /// Returns: {"yjs_state": {"updates": [1,2,3], "state_vector": [4,5,6]}, "image_state": {"updates": [7,8,9], "state_vector": [10,11,12]}}
+    pub async fn sync_updates(&mut self, input_data: &str) -> Result<String, String> {
+        let input_json: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(input_data).map_err(|e| format!("Invalid input JSON: {}", e))?;
 
-    /// Get the primary document state (main content for sync)
-    pub fn get_primary_document_state(&self) -> Option<Vec<u8>> {
-        self.resource_type
-            .primary_state_key()
-            .and_then(|key| self.get_document_state(key))
-    }
-    pub async fn get_state_vectors(&self) -> Result<String, String> {
-        let mut state_vectors = serde_json::Map::new();
+        let mut result_updates = serde_json::Map::new();
 
         for state_key in self.resource_type.document_state_keys() {
-            if let Some(state_data) = self.get_document_state(state_key) {
-                match document::get_state_vector(&state_data).await {
-                    Ok(state_vector) => {
-                        // Convert Vec<u8> to JSON array
-                        let vector_array: Vec<serde_json::Value> = state_vector
+            if let Some(our_state_data) = self.get_document_state(state_key) {
+                if let Some(doc_data) = input_json.get(state_key) {
+                    let mut doc = create_doc();
+                    doc.apply_update_v2(&our_state_data).await?;
+
+                    // Parse input updates and state vector
+                    let input_updates: Vec<u8> = doc_data
+                        .get("updates")
+                        .and_then(|u| u.as_array())
+                        .map(|array| {
+                            array
+                                .iter()
+                                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    let input_state_vector: Vec<u8> = doc_data
+                        .get("state_vector")
+                        .and_then(|sv| sv.as_array())
+                        .map(|array| {
+                            array
+                                .iter()
+                                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+
+                    let has_updates = !input_updates.is_empty();
+                    let has_state_vector = !input_state_vector.is_empty();
+                    let mut doc_was_updated = false;
+
+                    // Apply updates if present
+                    if has_updates {
+                        doc.apply_update_v2(&input_updates).await?;
+                        doc_was_updated = true;
+                    }
+
+                    // Generate updates for peer if state vector present
+                    if has_state_vector {
+                        let updates_for_peer = doc.get_diff_update_v2(&input_state_vector).await?;
+                        let current_state_vector = doc.get_state_vector_v2().await;
+
+                        // Always return both updates and current state vector
+                        let updates_array: Vec<serde_json::Value> = updates_for_peer
                             .iter()
                             .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
                             .collect();
 
-                        state_vectors.insert(
-                            format!("{}_vector", state_key),
-                            serde_json::Value::Array(vector_array),
-                        );
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "Failed to get state vector for {}: {}",
-                            state_key, e
-                        ));
-                    }
-                }
-            }
-        }
-
-        serde_json::to_string(&state_vectors)
-            .map_err(|e| format!("Failed to serialize state vectors: {}", e))
-    }
-    /// Generate updates for a peer based on their state vectors
-    /// Takes peer state vectors as JSON string, returns updates as JSON string
-    pub async fn generate_updates_for_peer(
-        &self,
-        peer_state_vectors: &str,
-    ) -> Result<String, String> {
-        // Parse peer state vectors JSON
-        let peer_vectors: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(peer_state_vectors)
-                .map_err(|e| format!("Invalid peer state vectors JSON: {}", e))?;
-
-        let mut result_updates = serde_json::Map::new();
-
-        // Process each document state type for this resource
-        for state_key in self.resource_type.document_state_keys() {
-            // Get our document state
-            if let Some(our_state_data) = self.get_document_state(state_key) {
-                // Get peer's state vector for this document type
-                let peer_vector_key = format!("{}_vector", state_key);
-                if let Some(peer_vector_json) = peer_vectors.get(&peer_vector_key) {
-                    // Convert peer's state vector from JSON array to Vec<u8>
-                    let peer_state_vector: Vec<u8> = match peer_vector_json.as_array() {
-                        Some(array) => array
+                        let state_vector_array: Vec<serde_json::Value> = current_state_vector
                             .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n as u8))
-                            .collect(),
-                        None => {
-                            return Err(format!(
-                                "Peer state vector for {} is not an array",
-                                state_key
-                            ));
-                        }
-                    };
+                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                            .collect();
 
-                    // Generate updates for this document type
-                    match document::generate_updates_for_peer(&our_state_data, &peer_state_vector)
-                        .await
-                    {
-                        Ok((updates, current_state_vector)) => {
-                            // Convert updates to JSON array
-                            let updates_array: Vec<serde_json::Value> = updates
-                                .iter()
-                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                                .collect();
-
-                            // Convert current state vector to JSON array
-                            let state_vector_array: Vec<serde_json::Value> = current_state_vector
-                                .iter()
-                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                                .collect();
-
-                            // Add to result
-                            let mut document_result = serde_json::Map::new();
-                            document_result.insert(
-                                "updates".to_string(),
-                                serde_json::Value::Array(updates_array),
-                            );
-                            document_result.insert(
-                                "state_vector".to_string(),
-                                serde_json::Value::Array(state_vector_array),
-                            );
-
-                            result_updates.insert(
-                                state_key.to_string(),
-                                serde_json::Value::Object(document_result),
-                            );
-                        }
-                        Err(e) => {
-                            return Err(format!(
-                                "Failed to generate updates for {}: {}",
-                                state_key, e
-                            ));
-                        }
+                        let mut doc_result = serde_json::Map::new();
+                        doc_result.insert(
+                            "updates".to_string(),
+                            serde_json::Value::Array(updates_array),
+                        );
+                        doc_result.insert(
+                            "state_vector".to_string(),
+                            serde_json::Value::Array(state_vector_array),
+                        );
+                        result_updates
+                            .insert(state_key.to_string(), serde_json::Value::Object(doc_result));
                     }
-                }
-            }
-        }
 
-        serde_json::to_string(&result_updates)
-            .map_err(|e| format!("Failed to serialize updates: {}", e))
-    }
-
-    /// Apply updates from peer and generate updates to send back to peer
-    /// Takes peer updates with state vectors as JSON string, mutates self with applied updates, returns peer updates as JSON string
-    pub async fn apply_updates_and_get_peer_updates(
-        &mut self,
-        peer_updates_with_vectors: &str,
-    ) -> Result<String, String> {
-        // Parse peer updates JSON (contains both updates and state vectors)
-        let updates_json: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(peer_updates_with_vectors)
-                .map_err(|e| format!("Invalid peer updates JSON: {}", e))?;
-
-        let mut result_updates = serde_json::Map::new();
-
-        // Process each document state type for this resource
-        for state_key in self.resource_type.document_state_keys() {
-            // Get our current document state
-            if let Some(our_state_data) = self.get_document_state(state_key) {
-                // Extract peer updates and state vector from the JSON structure
-                let (peer_updates_for_doc, peer_state_vector) =
-                    if let Some(peer_doc_data) = updates_json.get(state_key) {
-                        let updates = if let Some(updates_array) =
-                            peer_doc_data.get("updates").and_then(|u| u.as_array())
-                        {
-                            updates_array
-                                .iter()
-                                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                                .collect::<Vec<u8>>()
-                        } else {
-                            Vec::new()
-                        };
-
-                        let state_vector = if let Some(vector_array) = peer_doc_data
-                            .get("state_vector")
-                            .and_then(|sv| sv.as_array())
-                        {
-                            vector_array
-                                .iter()
-                                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                                .collect::<Vec<u8>>()
-                        } else {
-                            Vec::new()
-                        };
-
-                        (updates, state_vector)
-                    } else {
-                        (Vec::new(), Vec::new()) // No data for this document type
-                    };
-
-                // Apply peer updates, then compare our new state with their state vector to generate updates for them
-                match document::apply_updates_and_generate_for_peer(
-                    &our_state_data,
-                    &peer_updates_for_doc,
-                    &peer_state_vector,
-                )
-                .await
-                {
-                    Ok((new_state, updates_for_peer, _current_state_vector)) => {
-                        // Mutate our resource data with the new merged state
+                    // Update our resource data if doc was modified
+                    if doc_was_updated {
+                        let new_state = doc.get_state_as_update_v2().await;
                         let state_array: Vec<serde_json::Value> = new_state
                             .iter()
                             .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
@@ -284,101 +209,13 @@ impl DecryptedResource {
                                 serde_json::Value::Array(state_array),
                             );
                         }
-
-                        // Convert updates for peer to JSON array
-                        let updates_array: Vec<serde_json::Value> = updates_for_peer
-                            .iter()
-                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                            .collect();
-
-                        // Add to result - only return updates for peer (they don't need our state vector)
-                        let mut document_result = serde_json::Map::new();
-                        document_result.insert(
-                            "updates".to_string(),
-                            serde_json::Value::Array(updates_array),
-                        );
-
-                        result_updates.insert(
-                            state_key.to_string(),
-                            serde_json::Value::Object(document_result),
-                        );
-                    }
-                    Err(e) => {
-                        return Err(format!(
-                            "Failed to apply updates and generate for peer for {}: {}",
-                            state_key, e
-                        ));
                     }
                 }
             }
         }
+
         serde_json::to_string(&result_updates)
-            .map_err(|e| format!("Failed to serialize peer updates: {}", e))
-    }
-    /// Apply updates from peer (final step - just apply, no response needed)
-    /// Takes peer updates as JSON string and mutates self with applied updates
-    pub async fn apply_updates(&mut self, peer_updates: &str) -> Result<(), String> {
-        // Parse peer updates JSON
-        let updates_json: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(peer_updates)
-                .map_err(|e| format!("Invalid peer updates JSON: {}", e))?;
-
-        // Process each document state type for this resource
-        for state_key in self.resource_type.document_state_keys() {
-            // Get our current document state
-            if let Some(our_state_data) = self.get_document_state(state_key) {
-                // Extract peer updates from the JSON structure
-                let peer_updates_for_doc = if let Some(peer_doc_data) = updates_json.get(state_key)
-                {
-                    if let Some(updates_array) =
-                        peer_doc_data.get("updates").and_then(|u| u.as_array())
-                    {
-                        updates_array
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n as u8))
-                            .collect::<Vec<u8>>()
-                    } else {
-                        Vec::new()
-                    }
-                } else {
-                    Vec::new() // No updates for this document type
-                };
-
-                // Apply the updates to get new merged state
-                if !peer_updates_for_doc.is_empty() {
-                    match document::apply_updates_and_generate_for_peer(
-                        &our_state_data,
-                        &peer_updates_for_doc,
-                        &[], // Empty state vector since we don't need to generate updates
-                    )
-                    .await
-                    {
-                        Ok((new_state, _updates_for_peer, _current_state_vector)) => {
-                            // Mutate our resource data with the new merged state
-                            let state_array: Vec<serde_json::Value> = new_state
-                                .iter()
-                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                                .collect();
-
-                            if let Some(data_obj) = self.data.as_object_mut() {
-                                data_obj.insert(
-                                    state_key.to_string(),
-                                    serde_json::Value::Array(state_array),
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            return Err(format!(
-                                "Failed to apply updates for {}: {}",
-                                state_key, e
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
+            .map_err(|e| format!("Failed to serialize result: {}", e))
     }
 }
 

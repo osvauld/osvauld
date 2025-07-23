@@ -424,17 +424,28 @@ class DataState {
   async handleDocumentUpdates(event: any) {
     try {
       const { resource_id, updates } = event.payload;
-
-
-      // Convert the updates array to Uint8Array for YJS
-      const updatesArray = new Uint8Array(updates);
-
-      if (this.currentNoteId && this.currentNoteId === resource_id) {
-        // If this is the current note, apply the updates directly to the editor
+      if (resource_id == this.currentNoteId) {
+        const updatesJson = JSON.parse(updates)
+        const imageUpdates = updatesJson.image_state.updates;
+        const documentUpdates = updatesJson.yjs_state.updates;
+        const imageUpdateArray = new Uint8Array(imageUpdates);
+        const documentUpdateArray = new Uint8Array(documentUpdates);
         const coordinator = this.getNotesCoordinator();
-        coordinator?.applyRemoteUpdate(updatesArray, 0);
-        // The editor will save the note automatically
+        coordinator?.applyRemoteUpdate(imageUpdateArray, updatesJson.client_id, "images");
+
+        coordinator?.applyRemoteUpdate(documentUpdateArray, updatesJson.client_id, "main");
+
       }
+
+      // // Convert the updates array to Uint8Array for YJS
+      // const updatesArray = new Uint8Array(updates);
+      //
+      // if (this.currentNoteId && this.currentNoteId === resource_id) {
+      //   // If this is the current note, apply the updates directly to the editor
+      //   const coordinator = this.getNotesCoordinator();
+      //   coordinator?.applyRemoteUpdate(updatesArray, 0);
+      //   // The editor will save the note automatically
+      // }
     } catch (error) {
       console.error("Error handling document-updates:", error);
     }

@@ -1,5 +1,5 @@
 import * as Y from "yjs";
-import { Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
+import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import type {
   CommentThread,
   ImageMetadata,
@@ -43,10 +43,17 @@ export class YjsManager {
     this.destroy();
 
     // Create new documents
-    const mainDoc = new Y.Doc();
-    const imageDoc = new Y.Doc();
+    const mainDoc = new Y.Doc({
+      gc: true,
+      gcFilter: () => false,
+    });
+    const imageDoc = new Y.Doc({
+      gc: true,
+      gcFilter: () => false
+    });
 
     mainDoc.clientID = this.config.clientId;
+    imageDoc.clientID = this.config.clientId;
 
     // Initialize YJS structures
     const type = mainDoc.getXmlFragment("prosemirror");
@@ -57,12 +64,12 @@ export class YjsManager {
 
     // Set up update handlers
     if (this.config.onUpdate) {
-      mainDoc.on("update", (update: Uint8Array, origin: any) => {
+      mainDoc.on("updateV2", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
           this.config.onUpdate!(update, origin, "main");
         }
       });
-      imageDoc.on("update", (update: Uint8Array, origin: any) => {
+      imageDoc.on("updateV2", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
           this.config.onUpdate!(update, origin, "images");
         }
@@ -169,7 +176,7 @@ export class YjsManager {
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
 
-    Y.applyUpdate(targetDoc, updateArray, origin);
+    Y.applyUpdateV2(targetDoc, updateArray, origin);
 
     const endTime = performance.now();
     const updateTime = endTime - startTime;
@@ -184,18 +191,9 @@ export class YjsManager {
     if (!this.documents) return new Uint8Array();
 
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
-    return Y.encodeStateAsUpdate(targetDoc);
+    return Y.encodeStateAsUpdateV2(targetDoc);
   }
 
-  /**
-   * Get state vector for sync
-   */
-  getStateVector(docType: 'main' | 'images' = 'main'): Uint8Array {
-    if (!this.documents) return new Uint8Array();
-
-    const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
-    return Y.encodeStateVector(targetDoc);
-  }
   /**
    * Apply awareness update from remote clients
    */
@@ -214,10 +212,6 @@ export class YjsManager {
       }
 
       console.log(`📡 Applying awareness update from client ${sender}, size: ${updateArray.length}`);
-
-      // Import the applyAwarenessUpdate function from y-protocols
-      const { applyAwarenessUpdate } = await import('y-protocols/awareness');
-
       // Apply the awareness update with 'remote' origin to prevent loops
       applyAwarenessUpdate(this.documents.awareness, updateArray, 'remote');
 
