@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use crate::{current_note_state::CurrentNoteState, types::ResourceResponse, user_state::UserState};
+use crate::{
+    current_note_state::CurrentNoteState,
+    preview_generator::generate_preview_html,
+    types::{ResourcePreview, ResourceResponse},
+    user_state::{self, UserState},
+};
 use crypto_utils::CryptoUtils;
 use log::{error, info, warn};
 use network::p2p::{P2PEvent, incoming::P2PSender};
@@ -279,15 +284,20 @@ impl EventManager {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
             let app_handle_clone = app_handle.clone();
-            let note_id = payload.trim_matches('"').to_string();
+                let note_id = if payload == "null" || payload.trim_matches('"').is_empty() {
+            None
+        } else {
+            Some(payload.trim_matches('"').to_string())
+        };
             let p2p_sender_clone = p2p_sender.clone();
 
-            info!("Received note-change event with note_id: {}", note_id);
+            info!("Received note-change event with note_id: {:?}", note_id);
              let previous_note_id = note_state.get_current_note();
         // Check if we're actually changing documents (not just refreshing the same one)
-        if let Some(prev_id) = previous_note_id.clone() {
-            if prev_id != note_id {
-                info!("Document changing from {} to {}", prev_id, note_id);
+              if let Some(prev_id) = previous_note_id.clone() {
+            // If changing from a document to null OR to a different document
+            if note_id.is_none() || (note_id.is_some() && note_id.as_ref().unwrap() != &prev_id) {
+                info!("Document changing from {} to {:?}", prev_id, note_id);
                 // Get active connections for the previous note before clearing
                 let active_connections = note_state.get_active_connections();
                 if !active_connections.is_empty() {
@@ -312,56 +322,59 @@ impl EventManager {
                 }
             }
         }
-
             // Clear previous shared users state
             note_state.clear_shared_users();
 
             // Set current note
-            note_state.set_current_note(Some(note_id.clone()));
+            note_state.set_current_note(note_id.clone());
 
+          if let Some(note_id_str) = note_id {
             // Clone what we need for the async block
             let note_state = note_state.clone();
-            let note_id = note_id.clone();
+            let note_id = note_id_str.clone();
             let repo_ctx = repo_ctx.clone();
             let p2p_sender = p2p_sender.clone();
             let app_handle = app_handle.clone();
             // Spawn an async task to fetch shared users
             tokio::spawn(async move {
                 // Use UserService to get shared users for the note
-                   let user_state = app_handle_clone.state::<UserState>();
-                 let current_user = match user_state.get_user().await {
-       Ok(user) => user,
-       Err(e) => {
-           error!("Failed to get current user: {}", e);
-           return;
-       }
-   };
-   let current_device = match user_state.get_device().await {
-       Ok(device) => device,
-       Err(e) => {
-           error!("Failed to get current device: {}", e);
-           return;
-       }
-   };
-   let current_user_id = current_user.id;
-   let current_device_id = current_device.id;
-                  match  get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id,true, &repo_ctx)
+                let user_state = app_handle_clone.state::<UserState>();
+                let current_user = match user_state.get_user().await {
+                    Ok(user) => user,
+                    Err(e) => {
+                        error!("Failed to get current user: {}", e);
+                        return;
+                    }
+                };
+                let current_device = match user_state.get_device().await {
+                    Ok(device) => device,
+                    Err(e) => {
+                        error!("Failed to get current device: {}", e);
+                        return;
+                    }
+                };
+                let current_user_id = current_user.id;
+                let current_device_id = current_device.id;
+                match get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id, true, &repo_ctx)
                     .await
                 {
                     Ok((shared_devices, shared_users)) => {
                         if let Err(e) = p2p_sender.send_live_edit_requests(shared_devices.clone()) {
                             error!("Failed to send live edit requests: {}", e);
                         }
-                       let _ = app_handle.emit("shared-users-update", shared_users); 
+                        let _ = app_handle.emit("shared-users-update", shared_users); 
                         // Update the note state with the shared users
-                         note_state.set_shared_users(shared_devices.clone());
+                        note_state.set_shared_users(shared_devices.clone());
                     }
                     Err(e) => {
                         error!("Failed to get shared users for note {}: {}", note_id, e);
                     }
                 }
             });
-        });
+        } else {
+            info!("Note cleared - no shared users to fetch");
+        }
+    });
     }
 
     // Add a method to access the current note state
@@ -486,7 +499,7 @@ impl EventManager {
                             continue; // Skip this event and continue processing
                         }
                     };
-                    let resource = get_resource_by_id_direct(
+                    let decrypted_resource = get_resource_by_id_direct(
                         &resource_id,
                         &current_user.id,
                         &self.repo_ctx,
@@ -495,14 +508,29 @@ impl EventManager {
                     .await
                     .unwrap();
 
-                    let response = ResourceResponse {
-                        id: resource.id.clone(),
-                        data: resource.data,
-                        favourite: resource.favourite,
-                        last_accessed: resource.last_accessed,
-                        folder_id: resource.folder_id,
+                    let (preview, title) =
+                        match generate_preview_html(&decrypted_resource.data, 3).await {
+                            Ok((preview, title)) => (preview, title),
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to generate preview for resource {}: {}",
+                                    decrypted_resource.id, e
+                                );
+                                (String::new(), String::new()) // Use empty string as fallback
+                            }
+                        };
+
+                    let resource_preview = ResourcePreview {
+                        id: decrypted_resource.id.clone(),
+                        title,
+                        preview,
+                        favourite: decrypted_resource.favourite,
+                        last_accessed: decrypted_resource.last_accessed,
+                        folder_id: decrypted_resource.folder_id.clone(),
+                        last_modified: decrypted_resource.last_accessed,
                     };
-                    if let Err(e) = self.app_handle.emit("resource-added", response) {
+
+                    if let Err(e) = self.app_handle.emit("resource-added", resource_preview) {
                         error!("Failed to emit live-edit-initialized event: {}", e);
                     }
                 }
@@ -999,6 +1027,50 @@ impl EventManager {
                     "Successfully emitted document-updates event for resource: {}",
                     resource_id
                 );
+            }
+        } else {
+            let user_state = self.app_handle.state::<UserState>();
+            let current_user = match user_state.get_user().await {
+                Ok(user) => user,
+                Err(e) => {
+                    error!("Failed to get current user: {}", e);
+                    return;
+                }
+            };
+            match get_resource_by_id_direct(
+                &resource_id,
+                &current_user.id,
+                &self.repo_ctx,
+                &self.crypto_utils,
+            )
+            .await
+            {
+                Ok(decrypted_resource) => {
+                    let (preview, title) =
+                        match generate_preview_html(&decrypted_resource.data, 3).await {
+                            Ok((preview, title)) => (preview, title),
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to generate preview for resource {}: {}",
+                                    decrypted_resource.id.clone(),
+                                    e
+                                );
+                                (String::new(), String::new()) // Use empty string as fallback
+                            }
+                        };
+
+                    let resource_preview = ResourcePreview {
+                        id: decrypted_resource.id.clone(),
+                        title,
+                        preview,
+                        favourite: decrypted_resource.favourite,
+                        last_accessed: decrypted_resource.last_accessed,
+                        folder_id: decrypted_resource.folder_id.clone(),
+                        last_modified: decrypted_resource.last_accessed,
+                    };
+                    let _ = self.app_handle.emit("resource-update", resource_preview);
+                }
+                Err(e) => {}
             }
         }
     }

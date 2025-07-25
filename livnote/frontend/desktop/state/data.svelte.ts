@@ -2,7 +2,7 @@ import { sendMessage } from "../utils/helper";
 import { uiState } from './ui.svelte';
 import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
-import { createEmptyNoteContent, generatePreview } from "../components/notes/documentUtils";
+import { createEmptyNoteContent } from "../components/notes/documentUtils";
 import type { Note, NotePreview, Collaborator } from "../types/notes.types";
 import { NotesCoordinator } from "../components/notes/notesCoordinator";
 // Define interfaces
@@ -133,6 +133,7 @@ class DataState {
       folderId: this.currentVault.id,
       resourceType: "notes"
     });
+    console.log(note);
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(note.id);
     uiState.setNoteFetching(false);
@@ -379,32 +380,25 @@ class DataState {
 
   handleResourceAdded(event: any) {
 
-    const fullNote: Note = event.payload;
-    const preview = generatePreview(fullNote)
-    this.notes = [...this.notes, preview];
+    const notePreview = event.payload;
+    this.notes = [...this.notes, notePreview];
   }
 
   handleResourceUpdate(event: any) {
-    const updatedResource = event.payload;
-    const updatedPreview = generatePreview(updatedResource)
-    const resourceIndex = this.notes.findIndex(note => note.id === updatedPreview.id);
+    const updatedResourcePreview = event.payload;
+    console.log(updatedResourcePreview);
+    const resourceIndex = this.notes.findIndex(note => note.id === updatedResourcePreview.id);
 
     if (resourceIndex !== -1) {
       // Create a new array with the updated resource
       this.notes = [
         ...this.notes.slice(0, resourceIndex),
-        updatedPreview,
+        updatedResourcePreview,
         ...this.notes.slice(resourceIndex + 1)
       ];
 
-      // Also update currentNote if it's the same note that was updated
-      // TODO
-      // if (this.currentNote && this.currentNote.id === updatedResource.id) {
-      //   this.currentNote = updatedResource;
-      // }
     } else {
-      // If the resource doesn't exist in the notes array, add it
-      this.notes = [...this.notes, updatedResource];
+      this.notes = [...this.notes, updatedResourcePreview];
     }
   }
 
@@ -432,20 +426,9 @@ class DataState {
         const documentUpdateArray = new Uint8Array(documentUpdates);
         const coordinator = this.getNotesCoordinator();
         coordinator?.applyRemoteUpdate(imageUpdateArray, updatesJson.client_id, "images");
-
         coordinator?.applyRemoteUpdate(documentUpdateArray, updatesJson.client_id, "main");
 
       }
-
-      // // Convert the updates array to Uint8Array for YJS
-      // const updatesArray = new Uint8Array(updates);
-      //
-      // if (this.currentNoteId && this.currentNoteId === resource_id) {
-      //   // If this is the current note, apply the updates directly to the editor
-      //   const coordinator = this.getNotesCoordinator();
-      //   coordinator?.applyRemoteUpdate(updatesArray, 0);
-      //   // The editor will save the note automatically
-      // }
     } catch (error) {
       console.error("Error handling document-updates:", error);
     }

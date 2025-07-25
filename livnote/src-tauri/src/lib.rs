@@ -4,6 +4,7 @@ use tauri::Manager;
 pub mod current_note_state;
 pub mod handlers;
 pub mod listners;
+pub mod preview_generator;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{

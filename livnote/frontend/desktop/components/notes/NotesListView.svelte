@@ -120,7 +120,7 @@
 								</div>
 								<div class="p-4">
 									<NotePreview
-										previewHTML={note.previewHTML}
+										previewHTML={note.preview}
 										maxHeight="180px"
 										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

@@ -80,6 +80,7 @@
 
 		try {
 			const noteContent = dataState.getCurrentNoteData()?.data;
+			console.log("NOTE CONTENT", noteContent);
 			if (!noteContent) {
 				throw new Error("No note content available");
 			}

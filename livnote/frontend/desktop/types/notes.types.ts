@@ -64,7 +64,7 @@ export interface Note {
 export interface NotePreview {
   id: string;
   title?: string;
-  previewHTML: any;
+  preview: any;
   favourite?: boolean;
   folderId?: string;
   lastModified?: number;

@@ -1,6 +1,8 @@
+use crate::preview_generator::{PreviewGenerator, generate_preview_html};
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
-    ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput, UpdateResources,
+    ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,
+    UpdateResources,
 };
 
 use crate::user_state::UserState;
@@ -9,6 +11,7 @@ use log::info;
 use network::P2PService;
 use osvauld_core::models::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
+use serde_json::de;
 use services::{
     create_resource, delete_resource, get_all_resources, get_resource, get_resource_by_id_direct,
     get_resources_for_folder, get_shared_user_devices_for_note, share_resource, toggle_fav,
@@ -16,7 +19,6 @@ use services::{
 };
 use std::sync::Arc;
 use std::time::Instant;
-use tauri::http::response;
 use tokio::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, State};
@@ -41,6 +43,27 @@ pub async fn handle_add_resource(
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    let (preview, title) = match generate_preview_html(&resource_added.data, 3).await {
+        Ok((preview, title)) => (preview, title),
+        Err(e) => {
+            eprintln!(
+                "Failed to generate preview for resource {}: {}",
+                resource_added.id, e
+            );
+            (String::new(), String::new()) // Use empty string as fallback
+        }
+    };
+
+    let resource_preview = ResourcePreview {
+        id: resource_added.id.clone(),
+        title,
+        preview,
+        folder_id: resource_added.folder_id.clone(),
+        favourite: resource_added.favourite,
+        last_accessed: resource_added.last_accessed,
+        last_modified: resource_added.last_accessed,
+    };
     let response = ResourceResponse {
         id: resource_added.id.clone(),
         data: resource_added.data,
@@ -48,8 +71,9 @@ pub async fn handle_add_resource(
         last_accessed: resource_added.last_accessed,
         folder_id: resource_added.folder_id,
     };
+
     app_handle
-        .emit("resource-added", response.clone())
+        .emit("resource-added", resource_preview)
         .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::SelectedResourceResponse(response))
@@ -159,15 +183,30 @@ pub async fn handle_update_resource(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let response = ResourceResponse {
-        id: decrypted_resource.id,
-        data: decrypted_resource.data,
+
+    let (preview, title) = match generate_preview_html(&decrypted_resource.data, 3).await {
+        Ok((preview, title)) => (preview, title),
+        Err(e) => {
+            eprintln!(
+                "Failed to generate preview for resource {}: {}",
+                decrypted_resource.id, e
+            );
+            (String::new(), String::new()) // Use empty string as fallback
+        }
+    };
+
+    let resource_preview = ResourcePreview {
+        id: decrypted_resource.id.clone(),
+        title,
+        preview,
+        folder_id: decrypted_resource.folder_id.clone(),
         favourite: decrypted_resource.favourite,
         last_accessed: decrypted_resource.last_accessed,
-        folder_id: decrypted_resource.folder_id,
+        last_modified: decrypted_resource.last_accessed,
     };
+
     app_handle
-        .emit("resource-update", response)
+        .emit("resource-update", resource_preview)
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::UpdateResources)
 }
@@ -280,14 +319,37 @@ pub async fn emit_all_resources(
             .await
         {
             Ok(decrypted_resource) => {
+                let (preview, title) =
+                    match generate_preview_html(&decrypted_resource.data, 3).await {
+                        Ok((preview, title)) => (preview, title),
+                        Err(e) => {
+                            eprintln!(
+                                "Failed to generate preview for resource {}: {}",
+                                decrypted_resource.id.clone(),
+                                e
+                            );
+                            (String::new(), String::new()) // Use empty string as fallback
+                        }
+                    };
+
+                info!("title {}", &title);
+                let resource_preview = ResourcePreview {
+                    id: decrypted_resource.id.clone(),
+                    title,
+                    preview,
+                    favourite: decrypted_resource.favourite,
+                    last_accessed: decrypted_resource.last_accessed,
+                    folder_id: decrypted_resource.folder_id.clone(),
+                    last_modified: decrypted_resource.last_accessed,
+                };
                 let response = ResourceResponse {
-                    id: decrypted_resource.id,
+                    id: decrypted_resource.id.clone(),
                     data: decrypted_resource.data,
                     favourite: decrypted_resource.favourite,
                     last_accessed: decrypted_resource.last_accessed,
                     folder_id: decrypted_resource.folder_id,
                 };
-                let _ = app_handle.emit("resource-added", response.clone());
+                let _ = app_handle.emit("resource-added", resource_preview);
                 info!(
                     "Selected resource processed in {:?}",
                     selected_start.elapsed()
@@ -335,14 +397,28 @@ pub async fn emit_all_resources(
             {
                 Ok(decrypted_resource) => {
                     let get_resource_time = get_resource_start.elapsed();
+                    let (preview, title) =
+                        match generate_preview_html(&decrypted_resource.data, 3).await {
+                            Ok((preview, title)) => (preview, title),
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to generate preview for resource {}: {}",
+                                    decrypted_resource.id, e
+                                );
+                                (String::new(), String::new()) // Use empty string as fallback
+                            }
+                        };
 
+                    info!("title {}", &title);
                     let emit_start = Instant::now();
-                    let response = ResourceResponse {
+                    let response = ResourcePreview {
                         id: decrypted_resource.id,
-                        data: decrypted_resource.data,
+                        preview,
+                        title,
                         favourite: decrypted_resource.favourite,
                         last_accessed: decrypted_resource.last_accessed,
                         folder_id: decrypted_resource.folder_id,
+                        last_modified: decrypted_resource.last_accessed,
                     };
 
                     if let Err(e) = app_handle_clone.emit("resource-added", response) {
