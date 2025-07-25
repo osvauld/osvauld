@@ -18,7 +18,8 @@ class LazyImageNodeView implements NodeView {
   // Store node data for lazy loading
   private nodeAttrs: any;
   private imageStorage: ImageStorageService;
-
+  private imageDataListener: ((event: CustomEvent) => void) | null = null;
+  private isWaitingForData = false;
   constructor(
     node: PMNode,
     view: EditorView,
@@ -181,8 +182,54 @@ class LazyImageNodeView implements NodeView {
     if (imageSrc) {
       this.displayImage(imageSrc);
     } else {
-      this.listenForImageEvents();
+      this.showWaitingForDataState();
+      this.listenForImageData();
     }
+  }
+
+  private listenForImageData(): void {
+    // Remove any existing listener
+    this.removeImageDataListener();
+
+    this.imageDataListener = (event: CustomEvent) => {
+      console.log(event);
+      if (event.detail.imageId === this.imageId && this.isWaitingForData) {
+        console.log(`🖼️ Received image data for ${this.imageId}`);
+        this.displayImage(event.detail.src);
+        this.removeImageDataListener();
+        this.isWaitingForData = false;
+      }
+    };
+
+    document.addEventListener('image-data-available', this.imageDataListener as EventListener);
+
+    // Fallback timeout - only fail after reasonable wait
+    setTimeout(() => {
+      if (this.isWaitingForData && !this.isDestroyed) {
+        console.warn(`⏰ Timeout waiting for image data: ${this.imageId}`);
+        this.onImageError('Image data not received');
+        this.removeImageDataListener();
+        this.isWaitingForData = false;
+      }
+    }, 15000); // 15 second timeout
+  }
+
+  private removeImageDataListener(): void {
+    if (this.imageDataListener) {
+      document.removeEventListener('image-data-available', this.imageDataListener as EventListener);
+      this.imageDataListener = null;
+    }
+  }
+  private showWaitingForDataState(): void {
+    if (!this.placeholder) return;
+
+    this.isWaitingForData = true;
+    this.placeholder.innerHTML = `
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <div class="spinner" style="width: 16px; height: 16px; border: 2px solid #3a3b44; border-top: 2px solid #85889C; border-radius: 50%; animation: spin 1s linear infinite;"></div>
+        <div style="font-size: 12px; color: #85889C;">Waiting for image data...</div>
+      </div>
+    `;
   }
 
   /**
@@ -202,53 +249,10 @@ class LazyImageNodeView implements NodeView {
     }
   }
 
-  /**
-   * Listen for image loading events (instead of polling)
-   */
-  private listenForImageEvents(): void {
-    const handleImageReady = () => {
-      if (this.isDestroyed || !this.imageId) return;
 
-      const imageSrc = this.imageStorage.getImageSrc(this.imageId);
-      if (imageSrc) {
-        this.displayImage(imageSrc);
-        this.removeImageEventListeners();
-      }
-    };
 
-    // Store bound functions for cleanup
-    this.handleAssetsLoaded = handleImageReady;
-    this.handleImagesLoaded = handleImageReady;
 
-    document.addEventListener('assets-loaded', this.handleAssetsLoaded);
-    document.addEventListener('images-loaded', this.handleImagesLoaded);
 
-    // Fallback timeout
-    setTimeout(() => {
-      if (!this.isDestroyed && this.img && !this.img.src) {
-        this.onImageError('Image not found');
-        this.removeImageEventListeners();
-      }
-    }, 10000);
-  }
-
-  // Store bound functions for cleanup
-  private handleAssetsLoaded: (() => void) | null = null;
-  private handleImagesLoaded: (() => void) | null = null;
-
-  /**
-   * Remove image event listeners
-   */
-  private removeImageEventListeners(): void {
-    if (this.handleAssetsLoaded) {
-      document.removeEventListener('assets-loaded', this.handleAssetsLoaded);
-      this.handleAssetsLoaded = null;
-    }
-    if (this.handleImagesLoaded) {
-      document.removeEventListener('images-loaded', this.handleImagesLoaded);
-      this.handleImagesLoaded = null;
-    }
-  }
 
   /**
    * Display the loaded image
@@ -322,9 +326,7 @@ class LazyImageNodeView implements NodeView {
       this.intersectionObserver.disconnect();
       this.intersectionObserver = null;
     }
-
-    // Remove event listeners
-    this.removeImageEventListeners();
+    this.removeImageDataListener();
 
     // Clean up image
     if (this.img) {

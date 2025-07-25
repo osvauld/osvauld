@@ -171,9 +171,19 @@ export class ImageStorageService {
         const asset = this.imagesMap.get(key);
         if (asset) {
           this.imageCache.set(key, asset.data);
+          document.dispatchEvent(new CustomEvent('image-data-available', {
+            detail: {
+              imageId: key,
+              asset: asset,
+              src: asset.data
+            }
+          }));
         }
       } else if (change.action === 'delete') {
         this.imageCache.delete(key);
+        document.dispatchEvent(new CustomEvent('image-data-removed', {
+          detail: { imageId: key }
+        }));
       }
     });
   }
