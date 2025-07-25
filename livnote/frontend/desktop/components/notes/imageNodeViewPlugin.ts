@@ -192,9 +192,7 @@ class LazyImageNodeView implements NodeView {
     this.removeImageDataListener();
 
     this.imageDataListener = (event: CustomEvent) => {
-      console.log(event);
       if (event.detail.imageId === this.imageId && this.isWaitingForData) {
-        console.log(`🖼️ Received image data for ${this.imageId}`);
         this.displayImage(event.detail.src);
         this.removeImageDataListener();
         this.isWaitingForData = false;
@@ -367,7 +365,6 @@ export function imageNodeViewPlugin(imageStorage: ImageStorageService) {
  * Utility function to notify all image node views that assets have been loaded
  */
 export function notifyImageNodesAssetsLoaded(noteId?: string) {
-  console.log(`[ImageNodeViewPlugin] Notifying image nodes that assets are loaded for note: ${noteId || 'current'}`);
 
   // Dispatch both events for backward compatibility
   document.dispatchEvent(new CustomEvent('images-loaded', {

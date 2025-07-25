@@ -13,79 +13,36 @@ export class ImageStorageService {
   private clientId: number;
   private imageCache: Map<string, string> = new Map();
 
-  // Performance tracking
-  private loadMetrics: ImageLoadMetrics = {
-    totalTime: 0,
-    imageCount: 0,
-    totalSize: 0,
-    individualLoadTimes: new Map()
-  };
-  private currentLoadStartTime: number = 0;
-
   constructor(imagesMap: Y.Map<ImageAsset>, clientId: number) {
     this.imagesMap = imagesMap;
     this.clientId = clientId;
     this.imagesMap.observe(this.handleImageMapUpdate.bind(this));
   }
 
-  /**
-   * Start tracking load time
-   */
-  startLoadTracking(): void {
-    this.currentLoadStartTime = performance.now();
-    this.loadMetrics = {
-      totalTime: 0,
-      imageCount: 0,
-      totalSize: 0,
-      individualLoadTimes: new Map()
-    };
-  }
 
-  /**
-   * End tracking and return metrics
-   */
-  endLoadTracking(): ImageLoadMetrics {
-    this.loadMetrics.totalTime = performance.now() - this.currentLoadStartTime;
-    return { ...this.loadMetrics };
-  }
 
   /**
    * Initialize cache from YJS map (called after YJS state is applied)
    */
   initializeCacheFromYjs(): void {
-    const startTime = performance.now();
     this.imageCache.clear();
-
     let totalSize = 0;
     let count = 0;
-
     this.imagesMap.forEach((asset, id) => {
       const loadStart = performance.now();
-
-      // Cache the base64 data
       this.imageCache.set(id, asset.data);
-
-      const loadTime = performance.now() - loadStart;
-      this.loadMetrics.individualLoadTimes.set(id, loadTime);
-
       totalSize += asset.size || 0;
       count++;
     });
 
-    this.loadMetrics.imageCount = count;
-    this.loadMetrics.totalSize = totalSize;
 
-    const totalTime = performance.now() - startTime;
-    console.log(`[PERF] Loaded ${count} images from YJS in ${totalTime}ms, total size: ${totalSize} bytes`);
   }
 
   /**
    * Store an image in YJS map
    */
   async storeImage(base64Data: string, mimeType: string, filename?: string): Promise<string> {
-    const storeStart = performance.now();
     const imageId = this.generateImageId();
-
     const dimensions = await this.extractImageDimensions(base64Data);
 
     const asset: ImageAsset = {
@@ -99,15 +56,9 @@ export class ImageStorageService {
       timestamp: Date.now(),
       filename
     };
-
-    // Store in Y.Map - this will sync to other clients
     this.imagesMap.set(imageId, asset);
-
     // Cache it immediately
     this.imageCache.set(imageId, base64Data);
-
-    const storeTime = performance.now() - storeStart;
-    console.log(`[PERF] Stored image ${imageId} in YJS in ${storeTime}ms, size: ${asset.size} bytes`);
 
     return imageId;
   }
@@ -155,12 +106,6 @@ export class ImageStorageService {
     return Array.from(this.imagesMap.keys());
   }
 
-  /**
-   * Get loading metrics
-   */
-  getLoadMetrics(): ImageLoadMetrics {
-    return { ...this.loadMetrics };
-  }
 
   /**
    * Handle updates to the images map

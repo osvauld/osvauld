@@ -70,7 +70,6 @@
 	};
 	const saveNoteManual = () => {
 		const noteId = dataState.currentNoteId;
-		console.log(noteId);
 		dataState.saveNote(noteId);
 	};
 

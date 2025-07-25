@@ -4,10 +4,8 @@ import { keymap } from "prosemirror-keymap";
 import { wrapInList, splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
 import { exitCode } from "prosemirror-commands";
 import type { Plugin } from "prosemirror-state";
-
-import * as Y from "yjs";
-import { YjsManager } from "./collaboration/yjsManager";
-import { EditorManager } from "./editor/editorManager";
+import { YjsManager } from "./yjsManager";
+import { EditorManager } from "./editorManager";
 import { createEditorSchema } from "./schema/editorSchema";
 import { CommentsStore } from "./commentsStore";
 import { ImageStorageService } from "./imageStorage";
@@ -51,32 +49,26 @@ export class NotesCoordinator {
   private mainDocLoadTime: number = 0;
   private _imageStoreHandler: ((event: CustomEvent) => void) | null = null;
   constructor(private config: NotesCoordinatorConfig) {
-    this.userInfo = config.userInfo; // Initialize userInfo from config
-    // Initialize YJS manager
+    this.userInfo = config.userInfo;
     this.yjsManager = new YjsManager({
-      clientId: this.userInfo.id, // Use the userInfo property
+      clientId: this.userInfo.id,
       onUpdate: (update, origin, docType) => {
         if (config.onCollaborationUpdate) {
           config.onCollaborationUpdate(update, docType);
         }
       },
       onAwarenessChange: (changes, origin) => {
-        console.log('coordinator trigger');
         if (origin === 'local' && config.onAwarenessUpdate) {
-          console.log('changes', changes)
           config.onAwarenessUpdate(changes);
         }
       },
     });
 
     const docs = this.yjsManager.initialize();
-
-    // Initialize services once
     this.commentsStore = new CommentsStore();
     this.commentsStore.setCurrentUser(this.userInfo);
     this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
     this.yjsManager.setUserInfo(this.userInfo);
-    // Initialize editor manager
     this.editorManager = new EditorManager({
       schema: this.schema,
       onTransaction: (tr, newState) => {
@@ -88,53 +80,28 @@ export class NotesCoordinator {
   /**
    * Load existing note
    */
-  // Update the loadNote method
   async loadNote(noteContent: NoteContent): Promise<void> {
-    const totalStartTime = performance.now();
-    console.log("🔄 Starting note loading");
 
-    // Reinitialize YJS to ensure clean state
     const docs = this.yjsManager.initialize();
-
-    // Re-setup services with new documents
     this.commentsStore.setCommentsMap(docs.commentsMap);
     this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
-
-    // Start performance tracking
-    this.imageStorage.startLoadTracking();
-
-    // Track main doc load time
-    const mainDocStart = performance.now();
-
-    // Set up single event handler for when main doc is ready
     docs.mainDoc.once('afterAllTransactions', () => {
-      this.mainDocLoadTime = performance.now() - mainDocStart;
-      console.log(`📄 Main doc loaded in ${this.mainDocLoadTime}ms`);
       this.handleMainDocReady(docs, noteContent);
     });
-
-    // Apply main YJS state
     if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
-      console.log("🔄 Applying main YJS state");
       this.yjsManager.applyUpdate(noteContent.yjs_state, 'main', 'loading');
     } else {
       // No YJS state, trigger manually
       setTimeout(() => {
-        this.mainDocLoadTime = performance.now() - mainDocStart;
         this.handleMainDocReady(docs, noteContent);
       }, 0);
     }
   }
 
   private handleMainDocReady(docs: any, noteContent: NoteContent): void {
-    console.log("📄 Main doc ready, setting up editor");
     this.yjsManager.setUserInfo(this.userInfo);
-
-    // Set title
     const title = this.yjsManager.getMetadata("title") || "Untitled Note";
     dataState.currentNoteTitle = title;
-
-    // Create editor
     const plugins = this.createEditorPlugins(docs);
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
 
@@ -144,53 +111,22 @@ export class NotesCoordinator {
     } else {
       this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
     }
-
-    // Emit editor ready
     document.dispatchEvent(new CustomEvent('editor-view-ready', {
       detail: { getEditorManager: () => this.editorManager }
     }));
-
-    // Emit comments ready
     document.dispatchEvent(new CustomEvent('comments-store-ready', {
       detail: { commentsStore: this.commentsStore }
     }));
 
-    // Start deferred image loading
     this.deferImageLoading(noteContent);
   }
   private async deferImageLoading(noteContent: NoteContent): Promise<void> {
     this.imageLoadStartTime = performance.now();
-    console.log("🖼️ Starting deferred image loading");
-
-    // Apply image YJS state if available
     if (noteContent.image_state && noteContent.image_state.length > 0) {
-      console.log(`🔄 Applying image YJS state (${noteContent.image_state.length} bytes)`);
       this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
     }
-
-    // Initialize cache from YJS
     this.imageStorage?.initializeCacheFromYjs();
-
     this.imageLoadEndTime = performance.now();
-    const loadTime = this.imageLoadEndTime - this.imageLoadStartTime;
-
-    // Get metrics
-    const metrics = this.imageStorage?.getLoadMetrics();
-
-    console.log(`✅ Images loaded in ${loadTime}ms`);
-    console.log(`📊 Image metrics:`, metrics);
-
-    // Emit performance data
-    document.dispatchEvent(new CustomEvent('performance-metrics', {
-      detail: {
-        mainDocLoadTime: this.mainDocLoadTime,
-        imageLoadTime: loadTime,
-        imageMetrics: metrics,
-        totalLoadTime: performance.now() - this.imageLoadStartTime
-      }
-    }));
-
-    // Notify image nodes
     document.dispatchEvent(new CustomEvent('assets-loaded'));
   }
   /**
@@ -198,11 +134,8 @@ export class NotesCoordinator {
    */
   createEditorView(container: HTMLElement): EditorView {
     const view = this.editorManager.createView(container);
-    // Apply any pending YJS state after view is created
     const docs = this.yjsManager.getDocuments();
     if (docs && view) {
-      console.log('🔄 Triggering sync transaction');
-      // Trigger a transaction to sync the view
       const tr = view.state.tr;
       view.dispatch(tr);
     }
@@ -264,6 +197,7 @@ export class NotesCoordinator {
       imageNodeViewPlugin(this.imageStorage!),
     ];
   }
+
   private setupImageStoreListener(): void {
     const handleStoreImageRequest = async (event: CustomEvent) => {
       const { dataUrl, mimeType, filename, callback } = event.detail;
@@ -274,28 +208,20 @@ export class NotesCoordinator {
       }
 
       try {
-        // Store the image using the image storage service
         const imageId = await this.imageStorage.storeImage(dataUrl, mimeType, filename);
-
-        // Get metadata for dimensions
         const metadata = this.imageStorage.getImageMetadata(imageId);
-
-        // Call the callback with the image ID and metadata
         if (callback && typeof callback === 'function') {
           callback(imageId, metadata);
         }
 
-        console.log(`[NotesCoordinator] Image stored via menu: ${imageId}`);
       } catch (error) {
         console.error('Error storing image:', error);
       }
     };
-
     document.addEventListener('store-image-request', handleStoreImageRequest as EventListener);
-
-    // Store the handler for cleanup
     this._imageStoreHandler = handleStoreImageRequest;
   }
+
   /**
    * Create custom cursor for collaboration
    */
@@ -367,7 +293,6 @@ export class NotesCoordinator {
       content: docs.type.toJSON(),
       yjs_state: Array.from(this.yjsManager.getStateAsUpdate('main')),
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
-      assets: [], // Empty array since we're using YJS
       editor_state: editorState.toJSON(),
       client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
@@ -407,9 +332,6 @@ export class NotesCoordinator {
     }
 
     const threadId = this.commentsStore.createThread(position, content);
-
-
-    // Apply mark to editor
     const view = this.editorManager.getView();
     if (view) {
       const { state, dispatch } = view;

@@ -2,10 +2,9 @@ import * as Y from "yjs";
 import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from "y-protocols/awareness";
 import type {
   CommentThread,
-  ImageMetadata,
   ImageAsset,
   UserInfo
-} from "../../../types/notes.types";
+} from "../../types/notes.types";
 
 export interface YjsDocuments {
   mainDoc: Y.Doc;
@@ -39,10 +38,7 @@ export class YjsManager {
    * Initialize YJS documents and structures
    */
   initialize(): YjsDocuments {
-    // Clean up any existing documents
     this.destroy();
-
-    // Create new documents
     const mainDoc = new Y.Doc({
       gc: true,
       gcFilter: () => false,
@@ -55,14 +51,12 @@ export class YjsManager {
     mainDoc.clientID = this.config.clientId;
     imageDoc.clientID = this.config.clientId;
 
-    // Initialize YJS structures
     const type = mainDoc.getXmlFragment("prosemirror");
     const commentsMap = mainDoc.getMap<CommentThread>("comments");
     const metadata = mainDoc.getMap("metadata");
     const imagesMap = imageDoc.getMap<ImageAsset>("images");
     const awareness = new Awareness(mainDoc);
 
-    // Set up update handlers
     if (this.config.onUpdate) {
       mainDoc.on("updateV2", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
@@ -76,28 +70,17 @@ export class YjsManager {
       });
     }
 
-    // Set up awareness handler
     if (this.config.onAwarenessChange) {
       awareness.on('change', async (changes: { added: number[], updated: number[], removed: number[] }, origin: string) => {
-        console.log("YJS Awareness change:", { changes, origin });
 
         if (origin === 'local') {
           try {
             // Get all client IDs that changed (process raw data here)
             const clients = [...changes.added, ...changes.updated, ...changes.removed];
             if (clients.length === 0) {
-              console.log("No clients changed, skipping awareness update");
               return;
             }
-
-            console.log("Processing awareness update for clients:", clients);
-
-            // Import and encode awareness update with proper client data
             const encodedUpdate = encodeAwarenessUpdate(awareness, clients);
-
-            console.log("Encoded awareness update size:", encodedUpdate.length, "bytes");
-
-            // Pass the properly encoded update to the callback, not raw changes
             this.config.onAwarenessChange!(encodedUpdate, origin);
 
           } catch (error) {
@@ -143,14 +126,10 @@ export class YjsManager {
    * Set user info in awareness
    */
   setUserInfo(userInfo: UserInfo): void {
-    console.log("setting user info");
     if (!this.documents) return;
-    console.log("not returning");
-    console.log(this.documents.awareness.getLocalState(), "local state");
     this.documents.awareness.setLocalState({
       user: userInfo
     });
-    console.log(this.documents.awareness.getLocalState(), "local state");
   }
 
   /**
@@ -167,22 +146,11 @@ export class YjsManager {
   /**
    * Apply updates from remote
    */
-  // Add to the applyUpdate method in YjsManager
   applyUpdate(update: Uint8Array | number[], docType: 'main' | 'images' = 'main', origin: any = 'sync'): void {
-    const startTime = performance.now();
-
     if (!this.documents) return;
-
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
     const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
-
     Y.applyUpdateV2(targetDoc, updateArray, origin);
-
-    const endTime = performance.now();
-    const updateTime = endTime - startTime;
-
-    console.log(`[PERF] YJS ${docType} update applied in ${updateTime}ms, size: ${updateArray.length} bytes`);
-
   }
   /**
    * Get state as update
@@ -199,25 +167,16 @@ export class YjsManager {
    */
   async applyAwarenessUpdate(update: Uint8Array | number[], sender: number): Promise<void> {
     if (!this.documents || sender === this.config.clientId) {
-      console.log("Skipping awareness update: no documents or sender is self");
-      return; // Don't apply our own updates
+      return;
     }
 
     try {
       const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
-
       if (updateArray.length === 0) {
         console.warn("⚠️ Received empty awareness update");
         return;
       }
-
-      console.log(`📡 Applying awareness update from client ${sender}, size: ${updateArray.length}`);
-      // Apply the awareness update with 'remote' origin to prevent loops
       applyAwarenessUpdate(this.documents.awareness, updateArray, 'remote');
-
-      console.log("✅ Awareness update applied successfully");
-      console.log("📊 Current awareness states after update:", Array.from(this.documents.awareness.getStates().entries()));
-
     } catch (error) {
       console.error("❌ Error applying awareness update:", error);
     }

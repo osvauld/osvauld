@@ -22,7 +22,6 @@
 			uiState.showToast("Please add/select folder", false);
 			return;
 		}
-		console.log("add note triggered");
 		await dataState.addNote();
 	};
 </script>

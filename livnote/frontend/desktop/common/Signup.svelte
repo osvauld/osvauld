@@ -68,7 +68,6 @@
 
 	const handleUserSignUpComplete = (isLoggedin: boolean): void => {
 		if (isLoggedin) {
-			console.log("Signed up and logged in, navigating to home");
 			onSignedUp?.();
 		}
 	};

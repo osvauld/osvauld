@@ -1,4 +1,4 @@
-use core::fmt;
+use std::fmt;
 
 use crate::models::{
     ResourceKey, ResourceVectorClock, ShareRecord,

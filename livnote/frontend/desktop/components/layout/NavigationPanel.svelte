@@ -50,7 +50,6 @@
 {#if uiState.showNavigationPanel}
 	<nav
 		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative"
-		transition:fly={{ x: 200, duration: 2000 }}
 		aria-label="Main Navigation">
 		{#if uiState.isNavigationPanelManuallyToggled}
 			<button

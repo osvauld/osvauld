@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, onDestroy, untrack } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import { getLastModifiedDate } from "../../utils/helper";
 	import { sendMessage } from "../../utils/helper";
 	import NotePreview from "./NotePreview.svelte";
@@ -12,11 +12,9 @@
 
 	import { dataState, uiState } from "../../state/";
 
-	// Local state for responsive grid
 	let resizeTimer = $state<number | null>(null);
 	let columnCount = $state<number>(1);
 
-	// Function to toggle favorite status
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
 		try {
 			await sendMessage("toggleFav", {
@@ -29,12 +27,10 @@
 		}
 	};
 
-	// Function to handle note selection
 	const selectNote = (note: any) => {
 		dataState.switchNote(note.id);
 	};
 
-	// Calculate grid layout
 	const getColumnCount = (): number => {
 		if (typeof window === "undefined") return 1;
 		if (window.innerWidth >= 1440) return 3;
@@ -46,7 +42,6 @@
 		return items.filter((_, index) => index % columnCount === colIndex);
 	};
 
-	// Handle window resize
 	function handleResize() {
 		if (resizeTimer !== null) {
 			clearTimeout(resizeTimer);
@@ -56,16 +51,13 @@
 			const newColumnCount = getColumnCount();
 			if (newColumnCount !== columnCount) {
 				columnCount = newColumnCount;
-				// Force re-render when column count changes
 				dataState.notes = [...dataState.notes];
 			}
 		}, 250) as unknown as number;
 	}
 
 	onMount(() => {
-		// Initialize column count
 		columnCount = getColumnCount();
-		// Add resize listener
 		window.addEventListener("resize", handleResize);
 	});
 

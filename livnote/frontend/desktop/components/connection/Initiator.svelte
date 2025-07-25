@@ -30,7 +30,6 @@
 	});
 
 	async function connect() {
-		console.log(ticket);
 		if (!ticket.trim()) {
 			error = "Please enter a connection ticket";
 			return;

@@ -1,15 +1,12 @@
 import { LazyStore } from '@tauri-apps/plugin-store';
 import type { Vault } from './data.svelte';
 
-// Create a single LazyStore instance for application settings
 const appStore = new LazyStore('app_settings.json');
 
-// Store keys
 const CURRENT_VAULT_KEY = 'currentVault';
 const CURRENT_NOTE_ID_KEY = 'currentNoteId';
 
 export const StoreService = {
-  // Vault operations
   getCurrentVault: async (): Promise<Vault | null> => {
     try {
       const vault = await appStore.get<Vault>(CURRENT_VAULT_KEY);
@@ -29,7 +26,6 @@ export const StoreService = {
     }
   },
 
-  // Note operations
   getCurrentNoteId: async (): Promise<string | null> => {
     try {
       const noteId = await appStore.get<string>(CURRENT_NOTE_ID_KEY);
@@ -49,7 +45,6 @@ export const StoreService = {
     }
   },
 
-  // Clear specific selections
   clearSelections: async (): Promise<void> => {
     try {
       await appStore.delete(CURRENT_VAULT_KEY);

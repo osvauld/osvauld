@@ -26,7 +26,6 @@
 	let readThreadIds = $state<Set<string>>(new Set());
 	function handleCommentsStoreReady(event: CustomEvent) {
 		const commentsStore = event.detail.commentsStore;
-		console.log("Comments store ready, setting up subscription");
 		setupCommentsSubscriptionWithStore(commentsStore);
 	}
 
@@ -37,12 +36,9 @@
 			commentsUnsubscribe = null;
 		}
 
-		console.log("Comments store initialized:", commentsStore.isInitialized());
-
 		// Subscribe to updates
 		commentsUnsubscribe = commentsStore.subscribe(() => {
 			const newComments = commentsStore.getComments();
-			console.log("Comments updated:", newComments);
 			threads = newComments;
 		});
 

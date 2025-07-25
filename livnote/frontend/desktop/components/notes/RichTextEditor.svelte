@@ -80,15 +80,11 @@
 
 		try {
 			const noteContent = dataState.getCurrentNoteData()?.data;
-			console.log("NOTE CONTENT", noteContent);
 			if (!noteContent) {
 				throw new Error("No note content available");
 			}
-
 			// Start loading - events will handle the rest
-			console.log("load note", performance.now());
 			coordinator.loadNote(noteContent);
-			console.log("load note complete", performance.now());
 		} catch (err) {
 			console.error("Error loading note:", err);
 			error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;
@@ -99,7 +95,6 @@
 	}
 	function handleEditorViewReady(event: CustomEvent) {
 		loadingPhase = "content-loaded";
-		console.log("editor view ready", performance.now());
 
 		const getEditorManager = event.detail.getEditorManager;
 		if (element && getEditorManager) {
@@ -171,9 +166,7 @@
 				loadingPhase = "structure-ready";
 
 				try {
-					console.log("🚀 Starting loadNote (editor setup)", performance.now());
 					await loadNote();
-					console.log("✅ loadNote completed", performance.now());
 				} catch (err) {
 					console.error("❌ loadNote failed:", err);
 					error = `Failed to load note: ${err instanceof Error ? err.message : String(err)}`;

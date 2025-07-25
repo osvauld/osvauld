@@ -5,7 +5,6 @@ import { StoreService } from './storeService';
 import { createEmptyNoteContent } from "../components/notes/documentUtils";
 import type { Note, NotePreview, Collaborator } from "../types/notes.types";
 import { NotesCoordinator } from "../components/notes/notesCoordinator";
-// Define interfaces
 export interface Vault {
   id: string;
   name: string;
@@ -23,7 +22,6 @@ export interface UserDetails {
 
 // Data State class
 class DataState {
-  // Core data state
   vaults = $state<Vault[]>([{ id: "all", name: "All Vaults" }]);
   currentVault = $state<Vault>({ id: "all", name: "All Vaults" });
   notes = $state<NotePreview[]>([]);
@@ -44,14 +42,13 @@ class DataState {
   getNotesCoordinator(): NotesCoordinator | null {
     return this.notesCoordinator;
   }
-  getCurrentNoteId(): String | null {
+  getCurrentNoteId(): string | null {
     return this.currentNoteId;
   }
   setCurrentNoteId(noteId: string | null) {
     this.currentNoteId = noteId;
   }
 
-  // Methods to manage current note data
   setCurrentNoteData(note: Note | null) {
     this.currentNoteData = note;
   }
@@ -59,13 +56,10 @@ class DataState {
   getCurrentNoteData(): Note | null {
     return this.currentNoteData;
   }
-  // Derived values for filtering notes - declare as a class property with $derived
   filteredNotes = $derived.by(() => {
-    // First filter by favorites if needed
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
       : this.notes;
-    // Then filter by current vault if not "all"
     return this.currentVault.id === "all"
       ? favFilter
       : favFilter.filter(note => note.folderId === this.currentVault.id);
@@ -79,7 +73,7 @@ class DataState {
     const note = this.notes.find(note => note.id === id);
     return note || null;
   }
-  // Fetch vaults from backend
+
   async fetchVaults() {
     try {
       const resp = await sendMessage("getFolder");
@@ -88,8 +82,6 @@ class DataState {
         name: item.name || "",
         description: item.description
       }));
-
-      // Keep "All Vaults" at the top
       this.vaults = [{ id: "all", name: "All Vaults" }, ...folderVaults];
     } catch (error) {
       console.error("Error fetching vaults:", error);
@@ -100,7 +92,6 @@ class DataState {
     this.collaborators = newCollaborators;
   }
 
-  // Fetch all notes regardless of vault
   async fetchAllNotes(selectedNotedId?: string) {
     this.isDataLoading = true;
     this.notes = [];
@@ -117,12 +108,12 @@ class DataState {
     }
   }
 
-  // Switch to a different vault
   switchVault(vault: Vault) {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
   }
+
   async addNote() {
     uiState.setNoteFetching(true);
     uiState.setEditorLoading(false);
@@ -133,7 +124,6 @@ class DataState {
       folderId: this.currentVault.id,
       resourceType: "notes"
     });
-    console.log(note);
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(note.id);
     uiState.setNoteFetching(false);
@@ -145,11 +135,10 @@ class DataState {
     });
   }
 
-  getNoteTitle(): String {
+  getNoteTitle(): string {
     return this.getNotesCoordinator()?.getCurrentTitle() || "Untitled";
   }
 
-  // Switch to a different note
   async switchNote(noteId: string) {
     uiState.setNoteFetching(true);
     uiState.setEditorLoading(false);
@@ -158,7 +147,6 @@ class DataState {
     this.setCurrentNoteData(note);
     this.setCurrentNoteId(noteId);
     uiState.setNoteFetching(false);
-    console.log("note loaded in", performance.now());
     StoreService.setCurrentNoteId(noteId);
     if (noteId) {
       emit("note-change", noteId
@@ -176,9 +164,7 @@ class DataState {
     }
   }
 
-  // Clear the current note
   clearCurrentNote() {
-    console.log('clearing current note');
     this.setCurrentNoteId(null);
     this.setCurrentNoteData(null);
     uiState.toggleNoteViewLayout(false);
@@ -189,17 +175,15 @@ class DataState {
 
   }
 
-  // Toggle favorite view filter
   toggleFavoriteView(showFavorites: boolean) {
     this.favoriteSelected = showFavorites;
   }
   private createCoordinator() {
     if (this.notesCoordinator) {
-      // Clean up existing coordinator
       this.notesCoordinator.destroy();
     }
     const userInfo = {
-      name: this.userDetails?.username,
+      name: this.userDetails.username,
       color: this.generateUserColor(),
       id: this.clientId,
     };
@@ -214,7 +198,6 @@ class DataState {
         });
       },
       onAwarenessUpdate: async (changes) => {
-        console.log("awareness-update", changes);
         if (!this.getCurrentNoteId()) return;
 
         await emit("awareness-update", {
@@ -226,7 +209,7 @@ class DataState {
       userInfo,
     },);
   }
-  // Initialize the state
+
   async initializeState() {
     this.isDataLoading = true;
 
@@ -266,33 +249,26 @@ class DataState {
     if (!this.userDetails) {
       throw new Error("User details not available");
     }
-
-    // Decode base64 first, then take first 4 bytes and convert to hex
     const decoded = atob(this.userDetails.deviceId);
     const bytes = new Uint8Array(decoded.length);
     for (let i = 0; i < decoded.length; i++) {
       bytes[i] = decoded.charCodeAt(i);
     }
-
-    // Take first 4 bytes and convert to hex string
     const hex = Array.from(bytes.slice(0, 4))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
     return parseInt(hex, 16);
   }
-  // Restore saved selections from storage
+
   async restoreSavedSelections() {
     try {
-      // Try to get saved vault
       const savedVault = await StoreService.getCurrentVault();
 
       if (savedVault) {
-        // Find if the saved vault exists in the current vaults list
         const vaultExists = this.vaults.some(v => v.id === savedVault.id);
 
         if (vaultExists) {
-          // Apply the saved vault if it exists
           this.currentVault = savedVault;
         }
       }
@@ -303,12 +279,7 @@ class DataState {
   async handleAwarenessUpdates(event: any) {
     try {
       const { resource_id, connection_id, updates, client_id } = event.payload;
-
-
-      // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
-
-      // Parse client_id to number for sender identification
       const senderId = parseInt(client_id, 10);
       const coordinator = this.getNotesCoordinator();
       coordinator?.applyAwarenessUpdate(updatesArray, senderId);
@@ -320,21 +291,13 @@ class DataState {
   async handleLiveUpdates(event: any) {
     try {
       const { resource_id, updates, client_id, doc_type } = event.payload;
-
-      // Check if this is for the current note
       if (!this.currentNoteId || this.currentNoteId !== resource_id) {
-        console.log(`Received live update for non-active note: ${resource_id}`);
         return;
       }
-
-      // Convert the updates array to Uint8Array for YJS
       const updatesArray = new Uint8Array(updates);
-
-      // Parse client_id to number for sender identification
       const senderId = parseInt(client_id, 10);
       const coordinator = this.getNotesCoordinator()
       coordinator?.applyRemoteUpdate(updatesArray, senderId, doc_type);
-
     } catch (error) {
       console.error("Error handling live-updates:", error);
     }
@@ -344,13 +307,9 @@ class DataState {
     this.sharedUsers = event.payload;
   }
 
-
-
   async setupReactiveUpdates() {
-    // Clear any existing unlisteners first
     this._unlisteners = [];
 
-    // Each listen() returns a Promise that resolves to an unlisten function
     const resourceAddedUnlisten = await listen("resource-added", this.handleResourceAdded.bind(this));
     const resourceUpdateUnlisten = await listen("resource-update", this.handleResourceUpdate.bind(this));
     const documentUpdatesUnlisten = await listen("document-updates", this.handleDocumentUpdates.bind(this));
@@ -358,7 +317,6 @@ class DataState {
     const liveUpdatesUnlisten = await listen("live-updates", this.handleLiveUpdates.bind(this));
     const sharedUsersUpdate = await listen("shared-users-update", this.handleSharedUsersUpdate.bind(this));
 
-    // Store all the unlisten functions
     this._unlisteners.push(
       resourceAddedUnlisten,
       resourceUpdateUnlisten,
@@ -368,8 +326,8 @@ class DataState {
       sharedUsersUpdate,
     );
   }
+
   cleanupReactiveUpdates() {
-    // The listen function returns an unlisten function
     if (this._unlisteners) {
       for (const unlisten of this._unlisteners) {
         unlisten();
@@ -379,18 +337,15 @@ class DataState {
   }
 
   handleResourceAdded(event: any) {
-
     const notePreview = event.payload;
     this.notes = [...this.notes, notePreview];
   }
 
   handleResourceUpdate(event: any) {
     const updatedResourcePreview = event.payload;
-    console.log(updatedResourcePreview);
     const resourceIndex = this.notes.findIndex(note => note.id === updatedResourcePreview.id);
 
     if (resourceIndex !== -1) {
-      // Create a new array with the updated resource
       this.notes = [
         ...this.notes.slice(0, resourceIndex),
         updatedResourcePreview,
@@ -408,7 +363,6 @@ class DataState {
       throw new Error("Coordinator not available");
     }
     const noteContent = coordinator.saveNote();
-    console.log("saving note", noteContent);
     await sendMessage("updateCredential", {
       id: noteId,
       data: JSON.stringify(noteContent),
@@ -427,7 +381,6 @@ class DataState {
         const coordinator = this.getNotesCoordinator();
         coordinator?.applyRemoteUpdate(imageUpdateArray, updatesJson.client_id, "images");
         coordinator?.applyRemoteUpdate(documentUpdateArray, updatesJson.client_id, "main");
-
       }
     } catch (error) {
       console.error("Error handling document-updates:", error);
@@ -436,6 +389,4 @@ class DataState {
 
 }
 
-
-// Create the singleton data state
 export const dataState = new DataState();

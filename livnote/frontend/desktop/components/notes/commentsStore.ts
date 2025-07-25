@@ -17,22 +17,16 @@ export class CommentsStore {
    * Set the comments map for the current note
    */
   setCommentsMap(map: Y.Map<CommentThread>): void {
-    // Clean up previous observer
     if (this.currentCommentsMap && this.mapObserver) {
       this.currentCommentsMap.unobserve(this.mapObserver);
     }
 
-    // Set new map
     this.currentCommentsMap = map;
 
-    // Set up new observer
     this.mapObserver = () => {
       this.notifySubscribers();
     };
-
     map.observe(this.mapObserver);
-
-    // Immediately notify subscribers of the change
     this.notifySubscribers();
   }
 

@@ -207,16 +207,9 @@ async function insertImageWithAssetStorage(
   filename?: string
 ): Promise<void> {
   try {
-    console.log(`[PasteHandler] Storing image with asset storage: ${filename || 'unnamed'}`);
 
-    // Store the image using the new asset storage system
-    // This will:
-    // 1. Add metadata to YJS map
-    // 2. Add full asset to assets array
-    // 3. Cache the image data
     const imageId = await imageStorage.storeImage(base64Data, mimeType, filename);
 
-    // Get the stored image metadata to access dimensions
     const imageMetadata = imageStorage.getImageMetadata(imageId);
 
     const { schema } = view.state;
@@ -231,7 +224,6 @@ async function insertImageWithAssetStorage(
     const tr = view.state.tr.replaceSelectionWith(imageNode);
     view.dispatch(tr);
 
-    console.log(`[PasteHandler] Successfully inserted image ${imageId}`);
   } catch (error) {
     console.error("Error inserting image with asset storage:", error);
   }
@@ -243,15 +235,12 @@ async function insertImageWithAssetStorage(
  */
 async function handleHtmlContent(view: EditorView, html: string, imageStorage: ImageStorageService): Promise<void> {
   try {
-    // Create a temporary element to hold the HTML
     const domElement = document.createElement('div');
     domElement.innerHTML = html;
 
-    // Pre-processing step for links wrapped in underline spans
     const spansToProcess = domElement.querySelectorAll('span[style*="text-decoration"]');
     spansToProcess.forEach(span => {
       if (span instanceof HTMLElement && span.style.textDecoration.includes('underline')) {
-        // Check if the span's only significant child is a single <a> tag
         let childLinkElement: HTMLAnchorElement | null = null;
         let hasOtherSignificantContent = false;
 
@@ -287,7 +276,6 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
       }
     });
 
-    // Second pre-processing step: Remove underline style from <a> tags directly
     const allAnchors = domElement.querySelectorAll('a');
     allAnchors.forEach(anchor => {
       if (anchor.style.textDecoration.includes('underline')) {
@@ -302,11 +290,9 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
       }
     });
 
-    // Process embedded images with the new asset storage system
     const images = domElement.querySelectorAll('img');
 
     if (images.length > 0) {
-      console.log(`[PasteHandler] Processing ${images.length} embedded images`);
 
       for (let i = 0; i < images.length; i++) {
         const img = images[i];
@@ -318,16 +304,13 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
               const mimeMatch = src.match(/^data:([^;]+);/);
               const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
 
-              // Store using new asset storage system
               const imageId = await imageStorage.storeImage(src, mimeType);
               img.setAttribute('src', `yjs-image:${imageId}`);
 
-              // Add dimensions if available from metadata
               const imageMetadata = imageStorage.getImageMetadata(imageId);
               if (imageMetadata?.width) img.setAttribute('width', imageMetadata.width.toString());
               if (imageMetadata?.height) img.setAttribute('height', imageMetadata.height.toString());
 
-              console.log(`[PasteHandler] Processed data: image, stored as ${imageId}`);
             } catch (error) {
               console.error('Error processing data: image:', error);
               img.remove();
@@ -338,34 +321,28 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
               const blob = await response.blob();
               const dataUrl = await blobToBase64(blob);
 
-              // Store using new asset storage system
               const imageId = await imageStorage.storeImage(dataUrl, blob.type);
               img.setAttribute('src', `yjs-image:${imageId}`);
 
-              // Add dimensions from metadata
               const imageMetadata = imageStorage.getImageMetadata(imageId);
               if (imageMetadata?.width) img.setAttribute('width', imageMetadata.width.toString());
               if (imageMetadata?.height) img.setAttribute('height', imageMetadata.height.toString());
 
-              console.log(`[PasteHandler] Processed blob: image, stored as ${imageId}`);
             } catch (error) {
               console.error('Error processing blob: image:', error);
               img.remove(); // Remove if blob fetch fails
             }
           }
-          // else, it might be a regular URL, leave it as is for now
         } else {
           img.remove(); // Remove if no src
         }
       }
     }
 
-    // Parse into ProseMirror format
     const { schema } = view.state;
     const parser = DOMParser.fromSchema(schema);
     const slice = parser.parseSlice(domElement);
 
-    // Filter out empty paragraph nodes
     const filteredNodes: PMNode[] = [];
     slice.content.forEach(node => {
       if (node.type === schema.nodes.paragraph) {
@@ -373,7 +350,6 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
           filteredNodes.push(node);
         }
       } else {
-        // Keep non-paragraph nodes
         filteredNodes.push(node);
       }
     });
@@ -385,11 +361,9 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
     const newFragment = Fragment.fromArray(filteredNodes);
     const newSlice = new Slice(newFragment, slice.openStart, slice.openEnd);
 
-    // Insert the content with processed images and filtered paragraphs
     const tr = view.state.tr.replaceSelection(newSlice);
     view.dispatch(tr);
 
-    console.log(`[PasteHandler] Successfully processed HTML content with ${images.length} images`);
   } catch (error) {
     console.error("Error handling HTML content:", error);
   }
@@ -407,26 +381,7 @@ function handleTextContent(view: EditorView, text: string): void {
   }
 }
 
-/**
- * Insert an image node at the current selection
- */
-function insertImage(view: EditorView, src: string): void {
-  try {
-    const { schema } = view.state;
-    const imageNode = schema.nodes.image.create({
-      src: src,
-      alt: 'Pasted image',
-      title: 'Pasted image'
-    });
 
-    const tr = view.state.tr.replaceSelectionWith(imageNode);
-    view.dispatch(tr);
-  } catch (error) {
-    console.error("Error inserting image:", error);
-  }
-}
-
-// Utility functions remain the same but with added logging
 
 /**
  * Check if a blob is likely an image based on magic numbers/signatures

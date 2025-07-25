@@ -54,8 +54,6 @@ export class EditorManager {
   /**
    * Initialize editor state with document
    */
-  // Add these debug logs to your files:
-
 
   initializeState(doc?: any, additionalPlugins: Plugin[] = []): EditorState {
     const plugins = [
