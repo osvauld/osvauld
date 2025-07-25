@@ -25,23 +25,17 @@
 		event.preventDefault();
 
 		try {
-			console.log("sending vault creation request");
 			await sendMessage("addFolder", {
 				name: newVaultName.trim(),
 				description: "",
 			});
-
-			// Fetch updated vaults using our centralized state function
 			await dataState.fetchVaults();
-
-			// Find and switch to the newly created vault
 			const newVault = dataState.vaults.find(
 				(vault) => vault.name === newVaultName,
 			);
 			if (newVault) {
 				dataState.switchVault(newVault);
 			}
-
 			newVaultName = "";
 			uiState.toggleVaultManager();
 		} catch (e) {

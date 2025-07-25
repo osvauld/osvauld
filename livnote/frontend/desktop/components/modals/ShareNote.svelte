@@ -45,7 +45,7 @@
 			availableCollaborators = users;
 
 			// Here you would typically also fetch existing collaborators for the note
-			if (dataState.currentNote?.id) {
+			if (dataState.currentNoteId) {
 				// const noteCollaborators = await sendMessage("getNoteCollaborators", {
 				// 	noteId: dataState.currentNote.id,
 				// }).catch(() => []);
@@ -156,7 +156,7 @@
 
 		try {
 			await sendMessage("shareResource", {
-				resourceId: dataState.currentNote?.id,
+				resourceId: dataState.currentNoteId,
 				userId: user.id,
 			});
 

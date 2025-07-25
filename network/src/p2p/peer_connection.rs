@@ -4,7 +4,7 @@ use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
 use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, HandshakeInit,
-    HandshakeMessage, Message, User, UserManifestComparisonResult,
+    Message, User, UserManifestComparisonResult,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
@@ -266,7 +266,7 @@ impl PeerConnection {
                                 if let Ok(message_str) = String::from_utf8(buffer.clone()) {
                                     match serde_json::from_str::<Message>(&message_str) {
                                         Ok(mut message) => {
-                                            info!(
+                                            debug!(
                                                 "Successfully deserialized message: {:?}",
                                                 message
                                             );
@@ -396,7 +396,7 @@ impl PeerConnection {
     /// Sends a message to the peer
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(&message)), level = "debug")]
     pub async fn send_message(&self, message: Message) -> Result<(), String> {
-        info!("sending message {:?}", message);
+        debug!("sending message {:?}", message);
 
         let serialized_message = match serde_json::to_string(&message) {
             Ok(msg) => {

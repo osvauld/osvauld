@@ -2,7 +2,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 /// Errors that can occur during logging setup
 #[derive(Error, Debug)]
@@ -66,10 +66,7 @@ pub fn init_tracing(config: LogConfig) -> Result<Option<WorkerGuard>, LoggingErr
 
     // Helper function to create a filter based on the config
     let create_filter = || {
-        let filter_string = format!(
-            "p2p_service={},osvauld_services={}",
-            config.level, config.level
-        );
+        let filter_string = format!("network={},services={}", config.level, config.level);
         EnvFilter::from_str(&filter_string).unwrap_or_else(|_| EnvFilter::new(filter_string))
     };
 

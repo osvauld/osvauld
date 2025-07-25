@@ -1,0 +1,155 @@
+/* Text alignment styles */
+.ProseMirror [style*="text-align: center"] {
+  text-align: center;
+}
+
+.ProseMirror [style*="text-align: right"] {
+  text-align: right;
+}
+
+/* Indentation styles for paragraphs and headings */
+.ProseMirror p[data-indent="1"],
+.ProseMirror h1[data-indent="1"],
+.ProseMirror h2[data-indent="1"],
+.ProseMirror h3[data-indent="1"],
+.ProseMirror h4[data-indent="1"],
+.ProseMirror h5[data-indent="1"],
+.ProseMirror h6[data-indent="1"] {
+  margin-left: 2em;
+}
+
+.ProseMirror p[data-indent="2"],
+.ProseMirror h1[data-indent="2"],
+.ProseMirror h2[data-indent="2"],
+.ProseMirror h3[data-indent="2"],
+.ProseMirror h4[data-indent="2"],
+.ProseMirror h5[data-indent="2"],
+.ProseMirror h6[data-indent="2"] {
+  margin-left: 4em;
+}
+
+.ProseMirror p[data-indent="3"],
+.ProseMirror h1[data-indent="3"],
+.ProseMirror h2[data-indent="3"],
+.ProseMirror h3[data-indent="3"],
+.ProseMirror h4[data-indent="3"],
+.ProseMirror h5[data-indent="3"],
+.ProseMirror h6[data-indent="3"] {
+  margin-left: 6em;
+}
+
+/* Inline code style */
+.ProseMirror code {
+  background-color: #3a3b44;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+/* Reset inline code styles when inside a pre (code block) */
+.ProseMirror pre code {
+  background-color: initial;
+  padding: initial;
+  border-radius: initial;
+  font-size: inherit;
+}
+
+/* Code block styles */
+.ProseMirror pre {
+  background-color: #2a2b2f;
+  color: #f0f0f0;
+  font-family: 'Courier New', Courier, monospace;
+  padding: 10px;
+  border-radius: 4px;
+  margin: 1em 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Hide ProseMirror separator elements */
+.ProseMirror-separator {
+  display: none !important;
+}
+
+/* Image node styles */
+.image-node-container {
+  display: inline-block;
+  position: relative;
+  margin: 0.5em 0;
+}
+
+.image-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #2a2b35;
+  border-radius: 4px;
+  color: #85889C;
+  font-size: 14px;
+}
+
+.ProseMirror-selectednode {
+  outline: 2px solid #4094ef;
+  outline-offset: 2px;
+}
+
+/* Comment highlight styles */
+.livnote-comment-highlight {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.livnote-comment-highlight:hover {
+  opacity: 0.8;
+}
+
+.livnote-comment-highlight.active {
+  border-bottom: 2px solid #ffd700;
+  background: rgba(255, 215, 0, 0.1);
+}
+
+.livnote-comment-highlight.resolved {
+  border-bottom: 2px solid #888;
+  background: rgba(136, 136, 136, 0.1);
+}
+
+/* Comment animation */
+.comment-flash {
+  animation: commentFlash 2s ease-in-out;
+}
+
+@keyframes commentFlash {
+
+  0%,
+  100% {
+    background: rgba(255, 215, 0, 0.1);
+  }
+
+  50% {
+    background: rgba(255, 215, 0, 0.3);
+  }
+}
+
+/* Comment text highlight animation */
+.comment-text-highlight {
+  animation: commentTextHighlight 3s ease-in-out;
+}
+
+@keyframes commentTextHighlight {
+
+  0%,
+  100% {
+    background: transparent;
+  }
+
+  50% {
+    background: rgba(255, 215, 0, 0.3);
+  }
+}
+
+/* Pseudo-selection for link input mode */
+.pseudo-selection {
+  background-color: rgba(68, 148, 239, 0.3);
+  border-radius: 2px;
+}
