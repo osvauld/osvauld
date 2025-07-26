@@ -1335,7 +1335,10 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
+ "async-trait",
  "base64 0.22.1",
+ "bs58",
+ "chrono",
  "ed25519-dalek",
  "log",
  "rand 0.8.5",
@@ -1343,6 +1346,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.12",
+ "ucan",
 ]
 
 [[package]]

@@ -40,7 +40,8 @@ pub enum CryptoError {
 
     #[error("Certificate error: {0}")]
     CertError(String),
-    #[error("UCAN error: {0}")] // Add this line
+
+    #[error("UCAN error: {0}")]
     UcanError(#[from] UcanError),
 
     #[error("Other error: {0}")]
@@ -571,6 +572,21 @@ impl CryptoUtils {
         let verifying_key = signing_key.verifying_key();
 
         Ok((signing_key, verifying_key))
+    }
+
+    pub async fn generate_one_time_user_connect_toke(
+        &self,
+        encrypted_private_key: &str,
+        capability_str: &str,
+    ) -> Result<String, CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+        let token = ucan_utils::generate_one_time_connection_token(
+            &signing_key,
+            &verifying_key,
+            capability_str,
+        )
+        .await?;
+        Ok(token)
     }
 }
 
