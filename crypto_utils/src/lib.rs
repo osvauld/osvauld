@@ -1,14 +1,15 @@
 mod crypto_core;
 mod errors;
 pub mod types;
+mod ucan_utils;
 
-use crate::errors::{AesError, CryptoUtilsError, PgpError};
+use crate::errors::{AesError, CryptoUtilsError, PgpError, UcanError};
 use crate::types::{EncryptedResource, GeneratedKeys};
 use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
 
 use base64::{engine::general_purpose, Engine as _};
-use ed25519_dalek::{SecretKey, SigningKey};
+use ed25519_dalek::{SecretKey, SigningKey, VerifyingKey};
 use log::info;
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
@@ -39,6 +40,8 @@ pub enum CryptoError {
 
     #[error("Certificate error: {0}")]
     CertError(String),
+    #[error("UCAN error: {0}")] // Add this line
+    UcanError(#[from] UcanError),
 
     #[error("Other error: {0}")]
     Other(String),
@@ -505,6 +508,69 @@ impl CryptoUtils {
             CryptoError::Other("Invalid private key length, expected 32 bytes".to_string())
         })?;
         Ok(key_array)
+    }
+
+    pub fn generate_and_encrypt_ucan_key(&self) -> Result<(String, String), CryptoError> {
+        // 1. Get the loaded certificate
+        let cert = self
+            .get_cert()
+            .map_err(|e| CryptoError::CryptoUtilsError(e))?;
+        let pub_key = self.get_public_key()?;
+        // 2. Derive UCAN keys from PGP key (deterministic)
+        let (signing_key, verifying_key) =
+            ucan_utils::derive_ucan_keys_from_pgp(cert).map_err(|e| CryptoError::UcanError(e))?;
+
+        // 3. Convert to base64 for storage
+        let private_key_b64 = general_purpose::STANDARD.encode(signing_key.to_bytes());
+        let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
+
+        // 4. Encrypt the private key using the user's PGP public key
+        let encrypted_private_key = encrypt_string_with_public_key(&private_key_b64, &pub_key)
+            .map_err(|e| {
+                CryptoError::Other(format!("Failed to encrypt UCAN private key: {}", e))
+            })?;
+
+        // Return encrypted private key + public key (ready for DB storage)
+        Ok((encrypted_private_key, public_key_b64))
+    }
+
+    /// Decrypt and load UCAN keys from stored encrypted private key
+    pub fn decrypt_ucan_key(
+        &self,
+        encrypted_private_key: &str,
+    ) -> Result<(SigningKey, VerifyingKey), CryptoError> {
+        let policy = &StandardPolicy::new();
+
+        // Get the certificate
+        let cert = self
+            .get_cert()
+            .map_err(|e| CryptoError::CryptoUtilsError(e))?;
+
+        // Get the decryption key from the certificate
+        let decrypt_key =
+            crypto_core::get_decryption_key(cert).map_err(|e| CryptoError::PgpError(e))?;
+
+        // Decrypt the PGP-encrypted private key
+        let enc_bytes = encrypted_private_key.as_bytes();
+        let decrypted_bytes = crypto_core::decrypt_text_pgp(policy, &decrypt_key, enc_bytes)
+            .map_err(|e| CryptoError::PgpError(e))?;
+
+        // Convert decrypted bytes to UTF-8 string (this should be the base64 private key)
+        let utf8_key = String::from_utf8(decrypted_bytes)?;
+
+        // Decode from base64 to get raw key bytes
+        let key_bytes = general_purpose::STANDARD.decode(&utf8_key)?;
+
+        // Convert to 32-byte array (Ed25519 private keys are always 32 bytes)
+        let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
+            CryptoError::Other("Invalid UCAN private key length, expected 32 bytes".to_string())
+        })?;
+
+        // Create Ed25519 keys
+        let signing_key = SigningKey::from_bytes(&key_array);
+        let verifying_key = signing_key.verifying_key();
+
+        Ok((signing_key, verifying_key))
     }
 }
 

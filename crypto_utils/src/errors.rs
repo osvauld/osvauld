@@ -107,4 +107,39 @@ pub enum CryptoUtilsError {
     Utf8ConversionError(String),
     #[error("Failed to get decryption key: {0}")]
     CertificateDecryptionError(String),
+    #[error("Failed to get decryption key: {0}")]
+    Other(String),
+}
+
+#[derive(Error, Debug)]
+pub enum UcanError {
+    #[error("UCAN creation failed: {0}")]
+    CreationError(String),
+
+    #[error("UCAN validation failed: {0}")]
+    ValidationError(String),
+
+    #[error("UCAN signature error: {0}")]
+    SignatureError(String),
+
+    #[error("UCAN encoding error: {0}")]
+    EncodingError(String),
+
+    #[error("UCAN decoding error: {0}")]
+    DecodingError(String),
+
+    #[error("UCAN expired")]
+    ExpiredError,
+
+    #[error("Invalid UCAN format: {0}")]
+    FormatError(String),
+
+    #[error("DID creation error: {0}")]
+    DidError(String),
+
+    #[error("Ed25519 key extraction error: {0}")]
+    KeyExtractionError(String),
+
+    #[error("Crypto utils error: {0}")]
+    CryptoUtilsError(#[from] CryptoUtilsError),
 }
