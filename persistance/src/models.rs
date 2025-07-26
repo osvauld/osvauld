@@ -4,6 +4,7 @@ use crate::database::schema::{
 use diesel::associations::Associations;
 use diesel::prelude::*;
 use osvauld_core::models::{
+    ResourceType,
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
     resource::Resource as DomainResource,
@@ -76,7 +77,7 @@ impl From<&DomainResource> for ResourceModel {
     fn from(resource: &DomainResource) -> Self {
         Self {
             id: resource.id.clone(),
-            resource_type: resource.resource_type.clone(),
+            resource_type: resource.resource_type.to_string(),
             data: resource.data.clone(),
             folder_id: resource.folder_id.clone(),
             signature: resource.signature.clone(),
@@ -94,7 +95,7 @@ impl From<ResourceModel> for DomainResource {
     fn from(model: ResourceModel) -> Self {
         Self {
             id: model.id,
-            resource_type: model.resource_type,
+            resource_type: ResourceType::from_str(&model.resource_type),
             data: model.data,
             folder_id: model.folder_id,
             signature: model.signature,

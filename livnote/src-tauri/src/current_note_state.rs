@@ -1,5 +1,5 @@
 use log::{error, info};
-use osvauld_core::models::document::{apply_update_to_doc, merge_docs_as_update};
+use osvauld_core::models::document::{YjsDocExt, create_doc};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use yrs::Doc;
@@ -7,8 +7,10 @@ use yrs::Doc;
 #[derive(Debug, Clone)]
 struct Buffers {
     note_id: Option<String>,
-    current_doc: Doc,
-    previous_doc: Doc,
+    main_current_doc: Doc,
+    main_previous_doc: Doc,
+    images_current_doc: Doc,
+    images_previous_doc: Doc,
     shared_users: Vec<String>,
     active_connections: HashSet<String>,
 }
@@ -16,8 +18,10 @@ impl Default for Buffers {
     fn default() -> Self {
         Self {
             note_id: None,
-            current_doc: Doc::new(),
-            previous_doc: Doc::new(),
+            main_current_doc: Doc::new(),
+            main_previous_doc: Doc::new(),
+            images_current_doc: Doc::new(),
+            images_previous_doc: Doc::new(),
             shared_users: Vec::new(),
             active_connections: HashSet::new(),
         }
@@ -38,7 +42,12 @@ impl CurrentNoteState {
     pub fn set_current_note(&self, note_id: Option<String>) {
         let mut buffers = self.0.lock().unwrap();
         buffers.note_id = note_id.clone();
-        buffers.previous_doc = std::mem::replace(&mut buffers.current_doc, Doc::new());
+
+        // Move current docs to previous and create new current docs
+        buffers.main_previous_doc = std::mem::replace(&mut buffers.main_current_doc, Doc::new());
+        buffers.images_previous_doc =
+            std::mem::replace(&mut buffers.images_current_doc, Doc::new());
+
         info!("Current note set to: {:?}", note_id);
     }
 
@@ -49,56 +58,134 @@ impl CurrentNoteState {
 
     pub fn move_current_to_previous(&self) {
         let mut buffers = self.0.lock().unwrap();
-        buffers.previous_doc = std::mem::replace(&mut buffers.current_doc, Doc::new());
 
-        info!("Moved current Yjs state to previous buffer");
+        // Move both current docs to their respective previous docs
+        buffers.main_previous_doc = std::mem::replace(&mut buffers.main_current_doc, Doc::new());
+        buffers.images_previous_doc =
+            std::mem::replace(&mut buffers.images_current_doc, Doc::new());
+
+        info!("Moved current docs to previous buffers for both main and images");
     }
 
-    pub async fn merge_to_current(&self, new_updates: Vec<u8>) {
+    pub async fn merge_to_current(&self, new_updates: Vec<u8>, doc_type: &str) {
         if new_updates.is_empty() {
             return;
         }
+
         // Clone what we need outside the mutex
         let self_clone = self.clone();
+
         // Create temporary doc to avoid holding the lock during async operations
         let mut temp_doc = {
             let buffers = self_clone.0.lock().unwrap();
-            buffers.current_doc.clone()
+            match doc_type {
+                "main" => buffers.main_current_doc.clone(),
+                "images" => buffers.images_current_doc.clone(),
+                _ => {
+                    error!("Unknown doc type: {}", doc_type);
+                    return;
+                }
+            }
         };
+
         // Apply updates to the temporary doc
-        if let Err(e) = apply_update_to_doc(&mut temp_doc, &new_updates).await {
-            error!("Failed to apply updates to Yjs document: {}", e);
+        if let Err(e) = temp_doc.apply_update_v2(&new_updates).await {
+            error!("Failed to apply updates to {} document: {}", doc_type, e);
             return;
         }
+
         // Now update the actual doc with the modified temp doc
         let mut buffers = self_clone.0.lock().unwrap();
-        buffers.current_doc = temp_doc;
-        info!("Successfully applied updates to current Yjs document");
-    }
-
-    /// Combine the current and previous documents and return their merged state as an update array
-    pub async fn get_combined_updates(&self) -> Vec<u8> {
-        // Clone the docs outside the mutex
-        let (current_doc, previous_doc) = {
-            let buffers = self.0.lock().unwrap();
-            (buffers.current_doc.clone(), buffers.previous_doc.clone())
-        };
-
-        // Merge the cloned docs
-        let updates = merge_docs_as_update(&current_doc, &previous_doc).await;
+        match doc_type {
+            "main" => buffers.main_current_doc = temp_doc,
+            "images" => buffers.images_current_doc = temp_doc,
+            _ => {
+                error!("Unknown doc type: {}", doc_type);
+                return;
+            }
+        }
 
         info!(
-            "Combined current and previous docs into {} bytes of updates",
-            updates.len()
+            "Successfully applied updates to current {} document",
+            doc_type
         );
-        updates
     }
 
-    pub fn clear_buffers(&self) {
-        let mut buffers = self.0.lock().unwrap();
-        buffers.current_doc = Doc::new();
-        buffers.previous_doc = Doc::new();
-        info!("Yjs state buffers cleared");
+    /// Combine the current and previous documents for both types and return as JSON string
+    pub async fn get_combined_updates(&self) -> Result<String, String> {
+        // Clone the docs outside the mutex
+        let (main_current, mut main_previous, images_current, mut images_previous) = {
+            let buffers = self.0.lock().unwrap();
+            (
+                buffers.main_current_doc.clone(),
+                buffers.main_previous_doc.clone(),
+                buffers.images_current_doc.clone(),
+                buffers.images_previous_doc.clone(),
+            )
+        };
+
+        // Merge docs for each type
+        let main_updates = main_current.get_state_as_update_v2().await;
+        main_previous.apply_update_v2(&main_updates).await;
+        let main_updates = main_previous.get_state_as_update_v2().await;
+
+        let image_current_updates = images_current.get_state_as_update_v2().await;
+        images_previous
+            .apply_update_v2(&image_current_updates)
+            .await?;
+        let images_updates = images_previous.get_state_as_update_v2().await;
+
+        // Convert to JSON format
+        let mut result = serde_json::Map::new();
+
+        // Add yjs_state (main) updates
+        if !main_updates.is_empty() {
+            let main_updates_array: Vec<serde_json::Value> = main_updates
+                .iter()
+                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                .collect();
+
+            let mut main_result = serde_json::Map::new();
+            main_result.insert(
+                "updates".to_string(),
+                serde_json::Value::Array(main_updates_array),
+            );
+            result.insert(
+                "yjs_state".to_string(),
+                serde_json::Value::Object(main_result),
+            );
+        }
+
+        // Add image_state updates
+        if !images_updates.is_empty() {
+            let images_updates_array: Vec<serde_json::Value> = images_updates
+                .iter()
+                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                .collect();
+
+            let mut images_result = serde_json::Map::new();
+            images_result.insert(
+                "updates".to_string(),
+                serde_json::Value::Array(images_updates_array),
+            );
+            result.insert(
+                "image_state".to_string(),
+                serde_json::Value::Object(images_result),
+            );
+        }
+
+        let json_string = serde_json::to_string(&result).unwrap_or_else(|e| {
+            error!("Failed to serialize combined updates: {}", e);
+            "{}".to_string()
+        });
+
+        info!(
+            "Combined updates: main={} bytes, images={} bytes",
+            main_updates.len(),
+            images_updates.len()
+        );
+
+        Ok(json_string)
     }
 
     pub fn set_shared_users(&self, users: Vec<String>) {

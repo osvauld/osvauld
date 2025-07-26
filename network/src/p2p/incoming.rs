@@ -16,16 +16,15 @@ pub enum IncomingEvent {
     LiveEditUpdateExchange {
         connection_id: String,
         resource_id: String,
-        state_vector: Vec<u8>,
-        buffer: Vec<u8>,
+        state_vectors: String,
+        combined_updates: String,
         user_id: String,
     },
     LiveEditUpdateExchangeResponse {
         connection_id: String,
         resource_id: String,
-        state_vector: Vec<u8>,
-        remote_updates: Vec<u8>,
-        local_buffer: Vec<u8>,
+        remote_updates: String,
+        local_buffer: String,
     },
     DocumentChanged {
         connection_id: String,
@@ -34,13 +33,14 @@ pub enum IncomingEvent {
     CurrentBufferExchange {
         connection_id: String,
         resource_id: String,
-        buffer: Vec<u8>,
+        buffer: String,
     },
     SyncUpdateBroadcast {
         connection_ids: Vec<String>,
         resource_id: String,
         client_id: u32,
         updates: Vec<u8>,
+        doc_type: String,
     },
 
     AwarenessUpdateBroadcast {
@@ -106,15 +106,15 @@ impl P2PSender {
         &self,
         connection_id: String,
         resource_id: String,
-        state_vector: Vec<u8>,
-        buffer: Vec<u8>,
+        state_vectors: String,
+        combined_updates: String,
         user_id: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::LiveEditUpdateExchange {
             connection_id,
             resource_id,
-            state_vector,
-            buffer,
+            combined_updates,
+            state_vectors,
             user_id,
         })
     }
@@ -133,14 +133,12 @@ impl P2PSender {
         &self,
         connection_id: String,
         resource_id: String,
-        state_vector: Vec<u8>,
-        local_buffer: Vec<u8>,
-        remote_updates: Vec<u8>,
+        local_buffer: String,
+        remote_updates: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::LiveEditUpdateExchangeResponse {
             connection_id,
             resource_id,
-            state_vector,
             local_buffer,
             remote_updates,
         })
@@ -149,7 +147,7 @@ impl P2PSender {
         &self,
         connection_id: String,
         resource_id: String,
-        buffer: Vec<u8>,
+        buffer: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::CurrentBufferExchange {
             connection_id,
@@ -163,12 +161,14 @@ impl P2PSender {
         client_id: u32,
         updates: Vec<u8>,
         connection_ids: Vec<String>,
+        doc_type: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::SyncUpdateBroadcast {
             resource_id,
             client_id,
             updates,
             connection_ids,
+            doc_type,
         })
     }
 

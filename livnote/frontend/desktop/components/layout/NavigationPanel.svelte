@@ -6,6 +6,7 @@
 		MobileNote,
 		BlueClose,
 	} from "../../icons";
+	import { fly } from "svelte/transition";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
@@ -34,6 +35,7 @@
 
 	// Function to handle note selection
 	function selectNote(note: any) {
+		//TODO: save old note
 		dataState.switchNote(note.id);
 	}
 
@@ -45,14 +47,10 @@
 	}
 </script>
 
-<!-- Navigation panel that can be hidden -->
 {#if uiState.showNavigationPanel}
 	<nav
 		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative"
-		in:slide={{ axis: "x", duration: 200 }}
-		out:slide={{ axis: "x", duration: 200 }}
 		aria-label="Main Navigation">
-		<!-- Close button (only shown when manually toggled) -->
 		{#if uiState.isNavigationPanelManuallyToggled}
 			<button
 				aria-label="Close navigation panel"

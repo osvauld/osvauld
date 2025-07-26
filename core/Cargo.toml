@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 async-trait = "0.1.87"
+base64 = "0.22.1"
 chrono = "0.4.40"
 log = "0.4.27"
 

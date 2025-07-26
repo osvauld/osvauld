@@ -4,7 +4,10 @@ use osvauld_core::models::{
     p2p::{LiveEditMessage, Message},
     ConnectionAction, ConnectionType,
 };
-use services::{apply_updates_and_get_peer_updates, get_resource_state_vector};
+use services::{
+    apply_buffer_and_peer_updates_and_get_remote_updates,
+    apply_buffer_updates_and_get_remote_updates, get_resource_state_vector,
+};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
 
@@ -27,6 +30,7 @@ impl P2PService {
                         resource_id,
                         client_id,
                         updates,
+                        doc_type,
                     } => {
                         service
                             .handle_sync_update_broadcast(
@@ -34,6 +38,7 @@ impl P2PService {
                                 resource_id,
                                 client_id,
                                 updates,
+                                doc_type,
                             )
                             .await;
                     }
@@ -78,16 +83,16 @@ impl P2PService {
                     IncomingEvent::LiveEditUpdateExchange {
                         connection_id,
                         resource_id,
-                        state_vector,
-                        buffer,
+                        state_vectors,
+                        combined_updates,
                         user_id,
                     } => {
                         let _ = service
                             .handle_live_edit_update_exchange(
                                 connection_id,
                                 resource_id,
-                                state_vector,
-                                buffer,
+                                state_vectors,
+                                combined_updates,
                                 user_id,
                             )
                             .await;
@@ -95,7 +100,6 @@ impl P2PService {
                     IncomingEvent::LiveEditUpdateExchangeResponse {
                         connection_id,
                         resource_id,
-                        state_vector,
                         local_buffer,
                         remote_updates,
                     } => {
@@ -103,7 +107,6 @@ impl P2PService {
                             .handle_live_edit_update_exchange_response(
                                 connection_id,
                                 resource_id,
-                                state_vector,
                                 local_buffer,
                                 remote_updates,
                             )
@@ -251,12 +254,12 @@ impl P2PService {
                     )
                     .await
                     {
-                        Ok(state_vector) => {
+                        Ok(state_vectors) => {
                             // Create a state vector exchange message
                             let state_vector_message =
                                 Message::LiveEdit(LiveEditMessage::StateVectorExchange {
                                     resource_id: resource_id.clone(),
-                                    state_vector,
+                                    state_vectors,
                                 });
 
                             // Send the state vector exchange message
@@ -305,8 +308,8 @@ impl P2PService {
         &self,
         connection_id: String,
         resource_id: String,
-        state_vector: Vec<u8>,
-        buffer: Vec<u8>,
+        state_vectors: String,
+        combined_updates: String,
         user_id: String,
     ) -> Result<(), String> {
         info!("Received update request for resource: {}", resource_id);
@@ -314,23 +317,21 @@ impl P2PService {
         match self.get_connection_by_id(&connection_id).await {
             // Generate updates and state vector based on peer's state vector
             Ok(connection) => {
-                match apply_updates_and_get_peer_updates(
+                match apply_buffer_updates_and_get_remote_updates(
                     &resource_id,
                     &user_id,
-                    &buffer,
-                    &state_vector,
+                    &combined_updates,
+                    &state_vectors,
                     &self.repo_ctx,
                     &self.crypto_utils,
                 )
                 .await
                 {
-                    Ok((updates, current_state_vector)) => {
+                    Ok(updates) => {
                         info!("Generated {} bytes of updates for peer", updates.len());
                         let live_edit_message = LiveEditMessage::UpdateExchange {
                             resource_id,
                             updates,
-                            buffer,
-                            state_vector: current_state_vector,
                         };
                         let message = Message::LiveEdit(live_edit_message);
                         if let Err(e) = connection.send_message(message).await {
@@ -359,9 +360,8 @@ impl P2PService {
         &self,
         connection_id: String,
         resource_id: String,
-        state_vector: Vec<u8>,
-        local_buffer: Vec<u8>,
-        remote_updates: Vec<u8>,
+        local_buffer: String,
+        remote_updates: String,
     ) -> Result<(), String> {
         info!(
             "Processing update exchange response for resource: {}",
@@ -372,51 +372,26 @@ impl P2PService {
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
                 // Combine local buffer and remote updates for processing
-                let mut combined_updates = Vec::new();
-
-                // Add local buffer first if it's not empty
-                if !local_buffer.is_empty() {
-                    info!(
-                        "Adding local buffer ({} bytes) to processing",
-                        local_buffer.len()
-                    );
-                    combined_updates.extend_from_slice(&local_buffer);
-                }
-
-                // Add remote updates if they're not empty
-                if !remote_updates.is_empty() {
-                    info!(
-                        "Adding remote updates ({} bytes) to processing",
-                        remote_updates.len()
-                    );
-                    combined_updates.extend_from_slice(&remote_updates);
-                }
-
-                if combined_updates.is_empty() {
-                    info!("No updates to process for resource: {}", resource_id);
-                    return Ok(());
-                }
 
                 let user = self.get_current_user().await?;
                 // Process the combined updates and get updates for peer
-                match apply_updates_and_get_peer_updates(
+                match apply_buffer_and_peer_updates_and_get_remote_updates(
                     &resource_id,
                     &user.id,
-                    &combined_updates,
-                    &state_vector,
+                    &remote_updates,
+                    &local_buffer,
                     &self.repo_ctx,
                     &self.crypto_utils,
                 )
                 .await
                 {
-                    Ok((updates, current_state_vector)) => {
+                    Ok(updates) => {
                         info!("Generated {} bytes of updates for peer", updates.len());
 
                         // Create UpdateExchangeResponse message
                         let live_edit_message = LiveEditMessage::UpdateExchangeResponse {
                             resource_id,
                             updates,
-                            state_vector: current_state_vector,
                         };
 
                         let message = Message::LiveEdit(live_edit_message);
@@ -449,7 +424,7 @@ impl P2PService {
         &self,
         connection_id: String,
         resource_id: String,
-        buffer: Vec<u8>,
+        buffer: String,
     ) {
         info!(
             "Sending current buffer exchange for resource: {}",
@@ -601,11 +576,13 @@ impl P2PService {
         resource_id: String,
         client_id: u32,
         updates: Vec<u8>,
+        doc_type: String,
     ) {
         let message = Message::LiveEdit(LiveEditMessage::DocumentUpdate {
             resource_id: resource_id.clone(),
             client_id,
             updates,
+            doc_type,
         });
 
         self.broadcast_live_edit_message(

@@ -5,9 +5,9 @@
   "identifier": "com.osvauld.app",
   "build": {
     "beforeDevCommand": "cd ./frontend/desktop && pnpm dev",
-    "beforeBuildCommand": "cd ../frontends/packages/livnote/desktop && pnpm build",
+    "beforeBuildCommand": "cd ./frontend/desktop && pnpm build",
     "devUrl": "http://localhost:1421",
-    "frontendDist": "../../frontends/packages/livnote/desktop/dist"
+    "frontendDist": "../frontend/desktop/dist"
   },
   "app": {
     "withGlobalTauri": true,

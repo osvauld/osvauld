@@ -12,7 +12,6 @@
 	const handleAddUser = async (userKey: string) => {
 		try {
 			await sendMessage("addKnownUser", userKey);
-			console.log("initiating first connection");
 			uiState.showToast("User added successfully", true);
 		} catch (error) {
 			uiState.showToast("Failed to add user", false);
@@ -22,7 +21,7 @@
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
-		if (!userDetails.trim()) return;
+		if (!userDetails.trim() || isSubmitting) return;
 
 		isSubmitting = true;
 		try {
@@ -30,6 +29,13 @@
 			userDetails = ""; // Clear form on success
 		} finally {
 			isSubmitting = false;
+		}
+	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === "Enter" && !e.shiftKey) {
+			e.preventDefault();
+			handleSubmit(e);
 		}
 	}
 </script>
@@ -56,8 +62,8 @@
 					placeholder="Paste user id here..."
 					rows="10"
 					required
-					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:border-transparent resize-none transition-colors grow"
-				></textarea>
+					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-livnotePink focus:border-transparent resize-none transition-colors grow"
+					onkeydown={handleKeyDown}></textarea>
 				<p class="text-xs text-osvauld-fieldText">
 					The user id is a unique public key and used to identify them over
 					internet. It should be in the correct format as provided.
@@ -69,13 +75,13 @@
 				<button
 					type="button"
 					onclick={handleClear}
-					class="px-6 py-3 border border-osvauld-addfieldgrey text-osvauld-fieldText hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
+					class="px-6 py-3 border border-osvauld-addfieldgrey text-osvauld-fieldText hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer">
 					Clear
 				</button>
 				<button
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
-					class=" bg-osvauld-carolinablue disabled:bg-gray-600 disabled:cursor-not-allowed text-osvauld-frameblack font-bold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
+					class=" bg-livnotePink text-osvauld-frameblack font-bold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
 					{isSubmitting ? "Adding User..." : "Add User"}
 				</button>
 			</div>

@@ -12,11 +12,9 @@
 
 	import { dataState, uiState } from "../../state/";
 
-	// Local state for responsive grid
 	let resizeTimer = $state<number | null>(null);
 	let columnCount = $state<number>(1);
 
-	// Function to toggle favorite status
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
 		try {
 			await sendMessage("toggleFav", {
@@ -29,12 +27,10 @@
 		}
 	};
 
-	// Function to handle note selection
 	const selectNote = (note: any) => {
 		dataState.switchNote(note.id);
 	};
 
-	// Calculate grid layout
 	const getColumnCount = (): number => {
 		if (typeof window === "undefined") return 1;
 		if (window.innerWidth >= 1440) return 3;
@@ -46,30 +42,26 @@
 		return items.filter((_, index) => index % columnCount === colIndex);
 	};
 
-	// Handle window resize
 	function handleResize() {
-		// Debounce resize handling
 		if (resizeTimer !== null) {
 			clearTimeout(resizeTimer);
 		}
 
 		resizeTimer = setTimeout(() => {
-			// Update column count
-			columnCount = getColumnCount();
-			// Force a re-render
-			dataState.notes = [...dataState.notes];
+			const newColumnCount = getColumnCount();
+			if (newColumnCount !== columnCount) {
+				columnCount = newColumnCount;
+				dataState.notes = [...dataState.notes];
+			}
 		}, 250) as unknown as number;
 	}
 
 	onMount(() => {
-		// Initialize column count
 		columnCount = getColumnCount();
-		// Add resize listener
 		window.addEventListener("resize", handleResize);
 	});
 
 	onDestroy(() => {
-		// Clean up resize listener
 		window.removeEventListener("resize", handleResize);
 		if (resizeTimer !== null) {
 			clearTimeout(resizeTimer);
@@ -119,9 +111,8 @@
 									</button>
 								</div>
 								<div class="p-4">
-									<!-- Rich text preview -->
 									<NotePreview
-										editorState={note.previewEditorState}
+										previewHTML={note.preview}
 										maxHeight="180px"
 										minHeight="180px" />
 									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">

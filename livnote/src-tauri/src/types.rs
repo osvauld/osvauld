@@ -77,6 +77,17 @@ pub struct SavePassphraseInput {
     pub passphrase: String,
 }
 
+#[derive(Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourcePreview {
+    pub id: String,
+    pub preview: String,
+    pub title: String,
+    pub folder_id: String,
+    pub favourite: bool,
+    pub last_modified: i64,
+    pub last_accessed: i64,
+}
 #[derive(Deserialize)]
 pub struct LoadPvtKeyInput {
     pub passphrase: String,

@@ -2,7 +2,7 @@ use crypto_utils::{CryptoUtils, encrypt_data_for_user};
 use log::info;
 use osvauld_core::models::{
     DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
-    ResourceWithKey, ShareRecord, User, document,
+    ResourceWithKey, ShareRecord, User,
 };
 use osvauld_core::repositories::RepositoryError;
 use persistance::database::RepositoryContext;
@@ -45,7 +45,6 @@ pub async fn create_resource(
         folder_id,
         "signature".to_string(),
     );
-    info!("{:?}", resource);
     let signature = {
         let crypto = crypto_utils.lock().await;
         crypto
@@ -221,24 +220,18 @@ pub async fn get_resource(
     repo_ctx: &RepositoryContext,
     user_id: &str,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<DecryptedResource, ResourceServiceError> {
+) -> Result<(DecryptedResource, String), ResourceServiceError> {
     // Get encrypted resource from repository
     let resource_with_key = repo_ctx
         .resource_repo
         .find_by_id(resource_id, user_id)
         .await
         .map_err(ResourceServiceError::RepositoryError)?;
-
+    let encrypted_key = resource_with_key.encrypted_key.clone();
     // Use the helper function with a single-element vector
-    let decrypted_resources = decrypt_resources(vec![resource_with_key], crypto_utils).await?;
+    let decrypted_resources = decrypt_single_resource(resource_with_key, crypto_utils).await?;
 
-    // Extract the single result (with proper error handling)
-    decrypted_resources
-        .into_iter()
-        .next()
-        .ok_or(ResourceServiceError::CryptoError(
-            "Failed to decrypt resource".to_string(),
-        ))
+    Ok((decrypted_resources, encrypted_key))
 }
 
 pub async fn get_resources_for_folder(
@@ -395,58 +388,19 @@ pub async fn get_resource_state_vector(
     user_id: &str,
     repo_ctx: &RepositoryContext,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<Vec<u8>, RepositoryError> {
+) -> Result<String, RepositoryError> {
     // 1. Get the decrypted resource
-    let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
-    {
-        Ok(resource) => resource,
-        Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-    };
+    let (decrypted_resource, _) =
+        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
+            Ok(resource) => resource,
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+    let state_vectors = decrypted_resource
+        .get_state_vectors()
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
 
-    // 2. Extract yjs_state from the data field
-    // The data field is already parsed as a Value, so we can access it directly
-    let yjs_state = match decrypted_resource.data.get("yjs_state") {
-        Some(state) => {
-            // Convert the JSON array to a Vec<u8>
-            match state.as_array() {
-                Some(array) => {
-                    array
-                        .iter()
-                        .try_fold(Vec::new(), |mut acc, v| match v.as_u64() {
-                            Some(n) if n <= 255 => {
-                                acc.push(n as u8);
-                                Ok(acc)
-                            }
-                            Some(n) => Err(RepositoryError::CustomError(format!(
-                                "yjs_state contains value {} which exceeds u8 range",
-                                n
-                            ))),
-                            None => Err(RepositoryError::CustomError(
-                                "yjs_state contains non-numeric value".to_string(),
-                            )),
-                        })?
-                }
-                None => {
-                    return Err(RepositoryError::CustomError(
-                        "yjs_state is not an array".to_string(),
-                    ));
-                }
-            }
-        }
-        None => {
-            return Err(RepositoryError::CustomError(
-                "yjs_state not found in resource data".to_string(),
-            ));
-        }
-    };
-
-    // 3. Use document.rs to get the state vector
-    let state_vector = match document::get_state_vector(&yjs_state).await {
-        Ok(vector) => vector,
-        Err(e) => return Err(RepositoryError::CustomError(e)),
-    };
-
-    Ok(state_vector)
+    Ok(state_vectors)
 }
 
 // Also update the generate_updates_for_peer function similarly
@@ -455,104 +409,146 @@ pub async fn generate_updates_for_peer(
     user_id: &str,
     repo_ctx: &RepositoryContext,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-    peer_state_vector: &[u8],
-) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
+    peer_state_vectors: &String,
+) -> Result<String, RepositoryError> {
     // 1. Get the decrypted resource
     let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
     {
-        Ok(resource) => resource,
+        Ok((resource, _)) => resource,
         Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
     };
+    let mut decrypted_resource = decrypted_resource;
+    let updates = decrypted_resource
+        .sync_updates(peer_state_vectors)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
 
-    // 2. Extract yjs_state from the data field
-    let yjs_state = match decrypted_resource.data.get("yjs_state") {
-        Some(state) => match state.as_array() {
-            Some(array) => array
-                .iter()
-                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                .collect::<Vec<u8>>(),
-            None => {
-                return Err(RepositoryError::CustomError(
-                    "yjs_state is not an array".to_string(),
-                ));
-            }
-        },
-        None => {
-            return Err(RepositoryError::CustomError(
-                "yjs_state not found in resource data".to_string(),
-            ));
-        }
-    };
-
-    // 3. Use document.rs to generate updates for the peer
-    let (updates, state_vector) =
-        match document::generate_updates_for_peer(&yjs_state, peer_state_vector).await {
-            Ok(updates) => updates,
-            Err(e) => return Err(RepositoryError::CustomError(e)),
-        };
-
-    Ok((updates, state_vector))
+    Ok(updates)
 }
 /// Apply updates from a peer and generate any updates they might need in return
 ///
 /// # Arguments
 /// * `resource_id` - The ID of the resource being updated
-/// * `updates` - The updates received from the peer
-/// * `peer_state_vector` - The state vector from the peer
+/// * `updates` - The updates  and state_vectors received from the peer
 ///
 /// # Returns
-/// * `Result<(Vec<u8>, Vec<u8>), RepositoryError>` - (Updates for peer, Current state vector)
+/// * `Result<String, RepositoryError>` - (Updates for peer, Current state vector)
 pub async fn apply_updates_and_get_peer_updates(
     resource_id: &str,
     user_id: &str,
-    updates: &[u8],
-    peer_state_vector: &[u8],
+    updates: &str,
     repo_ctx: &RepositoryContext,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<(Vec<u8>, Vec<u8>), RepositoryError> {
+) -> Result<String, RepositoryError> {
     // 1. Get the current resource with its YJS state
-    let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
-    {
-        Ok(resource) => resource,
-        Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-    };
-
-    // 2. Extract the current yjs_state from the data field
-    let current_yjs_state = match decrypted_resource.data.get("yjs_state") {
-        Some(state) => match state.as_array() {
-            Some(array) => array
-                .iter()
-                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                .collect::<Vec<u8>>(),
-            None => {
-                return Err(RepositoryError::CustomError(
-                    "yjs_state is not an array".to_string(),
-                ));
-            }
-        },
-        None => {
-            return Err(RepositoryError::CustomError(
-                "yjs_state not found in resource data".to_string(),
-            ));
-        }
-    };
-
-    // 3. Use document.rs to apply the updates and generate any updates for the peer
-    let (peer_updates, current_state_vector) =
-        match document::apply_updates_and_generate_peer_updates(
-            &current_yjs_state,
-            updates,
-            peer_state_vector,
-        )
-        .await
-        {
-            Ok((updates, state_vector)) => (updates, state_vector),
-            Err(e) => return Err(RepositoryError::CustomError(e)),
+    let (decrypted_resource, encrypted_key) =
+        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
+            Ok((resource, encrypted_key)) => (resource, encrypted_key),
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
         };
+    let mut decrypted_resource = decrypted_resource;
+    let remote_updates = decrypted_resource
+        .sync_updates(updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
 
-    // 4. Return both the updates needed by the peer and the current state vector
-    Ok((peer_updates, current_state_vector))
+    let encrypted_data = {
+        let crypto = crypto_utils.lock().await;
+        crypto
+            .update_resource(&decrypted_resource.data.to_string(), &encrypted_key)
+            .map_err(|e| RepositoryError::CustomError(e.to_string()))?
+    };
+
+    repo_ctx
+        .resource_repo
+        .update_resource(&encrypted_data, resource_id)
+        .await?;
+    Ok(remote_updates)
 }
+
+pub async fn apply_buffer_updates_and_get_remote_updates(
+    resource_id: &str,
+    user_id: &str,
+    updates: &str,
+    peer_state_vectors: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<String, RepositoryError> {
+    // 1. Get the current resource with its YJS state
+    let (decrypted_resource, _encrypted_key) =
+        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
+            Ok((resource, encrypted_key)) => (resource, encrypted_key),
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+    let mut decrypted_resource = decrypted_resource;
+    let _ = decrypted_resource
+        .sync_updates(updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+    let remote_updates = decrypted_resource
+        .sync_updates(peer_state_vectors)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+
+    Ok(remote_updates)
+}
+
+pub async fn apply_buffer_and_peer_updates_and_get_remote_updates(
+    resource_id: &str,
+    user_id: &str,
+    remote_updates: &str,
+    local_updates: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<String, RepositoryError> {
+    // 1. Get the current resource with its YJS state
+    let (decrypted_resource, _encrypted_key) =
+        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
+            Ok((resource, encrypted_key)) => (resource, encrypted_key),
+            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
+        };
+    let mut decrypted_resource = decrypted_resource;
+    let _remote_updates = decrypted_resource
+        .sync_updates(local_updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+
+    let remote_updates = decrypted_resource
+        .sync_updates(remote_updates)
+        .await
+        .map_err(|e| RepositoryError::CustomError(e))?;
+
+    Ok(remote_updates)
+}
+
+pub async fn apply_updates(
+    resource_id: &str,
+    updates: &str,
+    user_id: &str,
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<(), String> {
+    let (decrypted_resource, encrypted_key) =
+        get_resource(resource_id, repo_ctx, user_id, crypto_utils)
+            .await
+            .map_err(|e| e.to_string())?;
+    let mut decrypted_resource = decrypted_resource;
+    decrypted_resource.sync_updates(updates).await?;
+    let encrypted_data = {
+        let crypto = crypto_utils.lock().await;
+        crypto
+            .update_resource(&decrypted_resource.data.to_string(), &encrypted_key)
+            .map_err(|e| e.to_string())?
+    };
+
+    repo_ctx
+        .resource_repo
+        .update_resource(&encrypted_data, resource_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub async fn get_share_records_for_resource(
     resource_id: &str,
     repo_ctx: &RepositoryContext,

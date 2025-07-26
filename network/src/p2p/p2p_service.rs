@@ -235,7 +235,6 @@ pub async fn request_connections(&self) -> Result<(), String> {
         .partition(|device| first_user_ids.contains(&device.user_id));
     
     
-    // Spawn all connection tasks concurrently
     
     // Connect to user devices (DeviceSync)
     for device in user_devices {
