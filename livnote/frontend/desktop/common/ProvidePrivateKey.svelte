@@ -22,51 +22,50 @@
 	};
 </script>
 
-<div class="relative pr-16 flex flex-col justify-center items-center">
-	<button
-		class="absolute right-0 top-[13rem] cursor-pointer bg-osvauld-fieldActive border border-transparent focus:border-livnotePink outline-0 rounded-lg z-999 p-2.5"
-		onclick={() => {
-			navigator.clipboard.writeText(collectedRecoveryString);
-			isCopied = true;
-			setTimeout(() => {
-				isCopied = false;
-			}, 2000);
-		}}>
-		{#if isCopied}<Tick />{:else}
-			<CopyIcon color="#85889C" />
-		{/if}
-	</button>
 
-	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">
-		This is your recovery Key
-	</h1>
-	<p
-		class="text-sm font-inter font-extralight text-mobile-textActive mb-6 text-center">
-		This helps you recover your account if you lose your password.<br />you can
-		find this in settlings later
-	</p>
-	<div
-		class="h-[343px] w-full sm:w-[600px] md:w-[800px] lg:w-[1000px] xl:w-[1173px] max-w-[1173px] text-osvauld-quarzowhite bg-osvauld-frameblack rounded-lg border border-osvauld-iconblack focus-within:border-livnotePink relative p-1.5 transition-colors duration-300 select-none">
+<div class="h-full w-full flex flex-col items-center justify-around py-10">
+	<div class="flex flex-col items-center justify-center mb-4">
+		<h1 class="text-xl font-semibold text-white">This is your recovery Key</h1>
+		<p class="text-sm font-inter font-extralight text-mobile-textActive  text-center">This helps you recover your account if you lose your password.<br />you can find this in settlings later</p>
+    </div>
+	<div class="mb-4 relative w-full">
 		<div
-			class="w-full max-w-full h-full border-0 tracking-wider font-light text-sm font-mono resize-none text-wrap scrollbar-thin overflow-y-scroll overflow-x-hidden p-1 outline-0 placeholder-placeholderGray break-all">
-			{collectedRecoveryString}
-		</div>
-		{#if !revealKey}
+			class="h-[343px] text-osvauld-quarzowhite bg-osvauld-frameblack rounded-lg border border-osvauld-iconblack focus-within:border-livnotePink relative p-1.5 transition-colors duration-300 select-none">
 			<div
-				class="absolute inset-0 backdrop-blur-[3px] cursor-pointer rounded-md transition-all duration-300">
+				class="w-full max-w-full h-full border-0 tracking-wider font-light text-sm font-mono resize-none text-wrap scrollbar-thin overflow-y-scroll overflow-x-hidden p-1 outline-0 placeholder-placeholderGray break-all">
+				{collectedRecoveryString}
 			</div>
-		{/if}
-	</div>
-	<div class="flex gap-13 text-md font-medium mt-[9rem] select-none">
+			{#if !revealKey}
+				<div
+					class="absolute inset-0 bg-transparent bg-opacity-50 backdrop-blur-[3px] cursor-pointer rounded-md transition-all duration-300"
+					style="-webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);">
+				</div>
+			{/if}
+		</div>
 		<button
-			class="w-[13.75rem] py-3.5 px-5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive focus:border-livnotePink outline-0 transition-colors duration-300"
+			class="absolute right-2 top-2 cursor-pointer bg-osvauld-fieldActive border border-transparent focus:border-livnotePink outline-0 rounded-lg z-999 p-2.5"
+			onclick={() => {
+				navigator.clipboard.writeText(collectedRecoveryString);
+				isCopied = true;
+				setTimeout(() => {
+					isCopied = false;
+				}, 2000);
+			}}>
+			{#if isCopied}<Tick />{:else}
+				<CopyIcon color="#85889C" />
+			{/if}
+		</button>
+	</div>
+	<div class="flex gap-4">
+		<button
+			class="w-[12rem] h-12 px-5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive focus:border-livnotePink outline-0 transition-colors duration-300"
 			onclick={skipReveal}>
 			Not now
 		</button>
 		<button
 			onclick={handleLogin}
 			disabled={!collectedRecoveryString}
-			class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300 enabled:hover:bg-livnotePink enabled:hover:text-mobile-bgPrimary">
+			class="w-[12rem] h-12 px-5 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300 bg-livnotePink text-black">
 			{revealKey ? "Proceed" : "Reveal my key"}
 		</button>
 	</div>

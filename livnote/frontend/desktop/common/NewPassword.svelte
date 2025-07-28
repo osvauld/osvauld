@@ -72,18 +72,21 @@
 	const preventDefault = (e: Event) => e.preventDefault();
 </script>
 
-<form onsubmit={handleSubmit} class="flex flex-col items-center justify-center select-none">
-	<h1 class="text-xl font-semibold text-white mb-3 -mt-10">Set passphrase</h1>
-	<p class="text-sm font-inter font-extralight text-mobile-textActive mb-14 text-center">This will be used to encrypt and decrypt your data. <br/> This will not leave your device.</p>
-	<div class="h-[20rem] mt-6">
+
+<form onsubmit={handleSubmit} class="h-full flex flex-col items-center justify-around py-10">
+	<div class="flex flex-col items-center justify-center mb-4">
+		<h1 class="text-xl font-semibold text-white">Set passphrase</h1>
+		<p class="text-sm font-inter font-extralight text-mobile-textActive  text-center">This will be used to encrypt and decrypt your data. <br/> This will not leave your device.</p>
+    </div>
+	<div class="mb-4">
 		<label
 			for="new-passphrase"
-			class="font-normal text-osvauld-quarzowhite self-start "
+			class="font-normal mb-2 text-white self-start block"
 			>Enter passphrase</label>
 		<div
-			class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink mt-2">
+			class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
 			<input
-				class="select-none w-[20rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent focus:ring-0  outline-none"
+				class="w-full h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal focus:ring-0 focus:focus:outline-none"
 				type={showPassword ? "text" : "password"}
 				id="new-passphrase"
 				autocomplete="off"
@@ -112,12 +115,12 @@
 			onStrengthChange={handleStrengthChange} />
 		<label
 			for="confirm-passphrase"
-			class="font-normal mt-2 text-osvauld-quarzowhite self-start"
+			class="font-normal mb-2 text-white self-start block"
 			>Confirm passphrase</label>
 		<div
-			class="flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink mt-2">
+			class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
 			<input
-				class=" w-[20rem] h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal border-transparent ring-0 outline-none"
+				class="w-full h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal focus:ring-0 focus:focus:outline-none"
 				type={showReenteredPassword ? "text" : "password"}
 				id="confirm-passphrase"
 				autocomplete="off"
@@ -137,15 +140,19 @@
 			</button>
 		</div>
 	</div>
-
 	<button
-		class="w-[24rem] py-2 px-10 mt-8 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray bg-livnotePink text-bgPrimary focus:border-livnotePink outline-0 transition-colors duration-300"
+		class="w-[24rem] h-12 px-10 rounded-lg font-medium flex justify-center items-center whitespace-nowrap cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300"
+		class:bg-livnotePink={!submitDisabled}
+		class:text-black={!submitDisabled}
+		class:bg-signupGray={submitDisabled}
+		class:text-white={submitDisabled}
 		type="submit"
 		disabled={submitDisabled}>
 		{#if isLoaderActive}
-			<Loader color="#000" size={28} />
+			<Loader color="#000" size={20} />
 		{:else}
 			<span>Submit</span>
 		{/if}
 	</button>
+
 </form>
