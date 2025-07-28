@@ -1119,103 +1119,29 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
   dropdownMenu.className = "dropdown-menu font-family-dropdown";
   dropdownMenu.style.display = "none";
 
-  // Function to get system fonts
-  const getSystemFonts = (): Array<{ name: string; value: string }> => {
-    const fontFamilies: Array<{ name: string; value: string }> = [];
-    
-    // Common system fonts that are likely to be available
-    const commonFonts = [
-      "Arial", "Arial Black", "Arial Narrow", "Arial Rounded MT Bold",
-      "Bookman Old Style", "Bradley Hand ITC", "Brush Script MT", "Calibri",
-      "Cambria", "Candara", "Century Gothic", "Century Schoolbook",
-      "Comic Sans MS", "Consolas", "Constantia", "Corbel",
-      "Courier", "Courier New", "Franklin Gothic Book", "Franklin Gothic Medium",
-      "Garamond", "Georgia", "Gill Sans", "Gill Sans MT",
-      "Haettenschweiler", "Helvetica", "Helvetica Neue", "Impact",
-      "Lucida Console", "Lucida Grande", "Lucida Sans", "Lucida Sans Unicode",
-      "Microsoft Sans Serif", "Monaco", "Monotype Corsiva", "MS Gothic",
-      "MS Mincho", "MS PGothic", "MS PMincho", "MS Reference Sans Serif",
-      "MS Reference Specialty", "Myriad Pro", "Optima", "Palatino",
-      "Palatino Linotype", "Perpetua", "Rockwell", "Rockwell Extra Bold",
-      "Segoe UI", "Segoe UI Light", "Segoe UI Semibold", "Segoe UI Symbol",
-      "Tahoma", "Times", "Times New Roman", "Trebuchet MS",
-      "Verdana", "Webdings", "Wingdings", "Wingdings 2", "Wingdings 3"
-    ];
-
-    // Function to check if a font is available using canvas measurement
-    const isFontAvailable = (fontName: string): boolean => {
-      const canvas = document.createElement('canvas');
-      const context = canvas.getContext('2d');
-      if (!context) return false;
-      
-      // Get the width with a fallback font
-      context.font = `12px Arial`;
-      const fallbackWidth = context.measureText('abcdefghijklmnopqrstuvwxyz0123456789').width;
-      
-      // Get the width with the target font
-      context.font = `12px "${fontName}", Arial`;
-      const targetWidth = context.measureText('abcdefghijklmnopqrstuvwxyz0123456789').width;
-      
-      // If widths are different, the font is available
-      return Math.abs(targetWidth - fallbackWidth) > 1;
-    };
-
-    // Add common fonts with appropriate fallbacks, checking availability
-    commonFonts.forEach(font => {
-      const fontName = font.replace(/['"]/g, ''); // Remove quotes for display
-      let fontValue = font;
-      
-      // Add appropriate fallbacks based on font characteristics
-      if (font.toLowerCase().includes('sans') || ['Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Segoe UI', 'Calibri', 'Candara', 'Corbel', 'Franklin Gothic', 'Gill Sans', 'Lucida Sans', 'Myriad Pro', 'Optima', 'Trebuchet MS'].includes(font)) {
-        fontValue = `"${font}", sans-serif`;
-      } else if (font.toLowerCase().includes('serif') || ['Times', 'Georgia', 'Garamond', 'Palatino', 'Bookman', 'Century', 'Perpetua', 'Rockwell'].includes(font)) {
-        fontValue = `"${font}", serif`;
-      } else if (font.toLowerCase().includes('mono') || ['Courier', 'Consolas', 'Monaco', 'Lucida Console'].includes(font)) {
-        fontValue = `"${font}", monospace`;
-      } else if (font.toLowerCase().includes('cursive') || ['Brush Script', 'Monotype Corsiva', 'Bradley Hand'].includes(font)) {
-        fontValue = `"${font}", cursive`;
-      } else if (font.toLowerCase().includes('fantasy') || ['Impact', 'Webdings', 'Wingdings'].includes(font)) {
-        fontValue = `"${font}", fantasy`;
-      } else {
-        // Default to sans-serif for unknown fonts
-        fontValue = `"${font}", sans-serif`;
-      }
-      
-      // Check if font is available (with a small delay to avoid blocking)
-      if (isFontAvailable(fontName)) {
-        fontFamilies.push({ name: fontName, value: fontValue });
-      }
-    });
-
-    // If no fonts were detected as available, fall back to the original list
-    if (fontFamilies.length === 0) {
-      commonFonts.forEach(font => {
-        const fontName = font.replace(/['"]/g, '');
-        let fontValue = font;
-        
-        if (font.toLowerCase().includes('sans') || ['Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Segoe UI', 'Calibri', 'Candara', 'Corbel', 'Franklin Gothic', 'Gill Sans', 'Lucida Sans', 'Myriad Pro', 'Optima', 'Trebuchet MS'].includes(font)) {
-          fontValue = `"${font}", sans-serif`;
-        } else if (font.toLowerCase().includes('serif') || ['Times', 'Georgia', 'Garamond', 'Palatino', 'Bookman', 'Century', 'Perpetua', 'Rockwell'].includes(font)) {
-          fontValue = `"${font}", serif`;
-        } else if (font.toLowerCase().includes('mono') || ['Courier', 'Consolas', 'Monaco', 'Lucida Console'].includes(font)) {
-          fontValue = `"${font}", monospace`;
-        } else if (font.toLowerCase().includes('cursive') || ['Brush Script', 'Monotype Corsiva', 'Bradley Hand'].includes(font)) {
-          fontValue = `"${font}", cursive`;
-        } else if (font.toLowerCase().includes('fantasy') || ['Impact', 'Webdings', 'Wingdings'].includes(font)) {
-          fontValue = `"${font}", fantasy`;
-        } else {
-          fontValue = `"${font}", sans-serif`;
-        }
-        
-        fontFamilies.push({ name: fontName, value: fontValue });
-      });
-    }
-
-    return fontFamilies;
-  };
-
-  // Get system fonts
-  const fontFamilies = getSystemFonts();
+  // Common system fonts list - simplified and cleaned up
+  const fontFamilies = [
+    { name: "Arial", value: "Arial, sans-serif" },
+    { name: "Arial Black", value: "'Arial Black', sans-serif" },
+    { name: "Calibri", value: "Calibri, sans-serif" },
+    { name: "Cambria", value: "Cambria, serif" },
+    { name: "Candara", value: "Candara, sans-serif" },
+    { name: "Comic Sans MS", value: "'Comic Sans MS', cursive" },
+    { name: "Consolas", value: "Consolas, monospace" },
+    { name: "Constantia", value: "Constantia, serif" },
+    { name: "Corbel", value: "Corbel, sans-serif" },
+    { name: "Courier New", value: "'Courier New', monospace" },
+    { name: "Georgia", value: "Georgia, serif" },
+    { name: "Helvetica", value: "Helvetica, sans-serif" },
+    { name: "Helvetica Neue", value: "'Helvetica Neue', sans-serif" },
+    { name: "Impact", value: "Impact, sans-serif" },
+    { name: "Lucida Grande", value: "'Lucida Grande', sans-serif" },
+    { name: "Segoe UI", value: "'Segoe UI', sans-serif" },
+    { name: "Tahoma", value: "Tahoma, sans-serif" },
+    { name: "Times New Roman", value: "'Times New Roman', serif" },
+    { name: "Trebuchet MS", value: "'Trebuchet MS', sans-serif" },
+    { name: "Verdana", value: "Verdana, sans-serif" }
+  ];
 
   // Create font family options
   fontFamilies.forEach(font => {
@@ -1256,74 +1182,7 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
     dropdownMenu.appendChild(fontItem);
   });
 
-  // Add "Custom Font" input option
-  const customFontContainer = document.createElement("div");
-  customFontContainer.className = "dropdown-item custom-font-container";
-  customFontContainer.style.padding = "8px";
-  
-  const customFontInput = document.createElement("input");
-  customFontInput.type = "text";
-  customFontInput.placeholder = "Enter font name...";
-  customFontInput.className = "custom-font-input";
-  customFontInput.style.width = "100%";
-  customFontInput.style.padding = "4px 8px";
-  customFontInput.style.border = "1px solid #ccc";
-  customFontInput.style.borderRadius = "4px";
-  customFontInput.style.fontSize = "12px";
-  
-  const applyCustomFontButton = document.createElement("button");
-  applyCustomFontButton.textContent = "Apply";
-  applyCustomFontButton.className = "apply-custom-font-button";
-  applyCustomFontButton.style.marginLeft = "4px";
-  applyCustomFontButton.style.padding = "4px 8px";
-  applyCustomFontButton.style.border = "1px solid #ccc";
-  applyCustomFontButton.style.borderRadius = "4px";
-  applyCustomFontButton.style.fontSize = "12px";
-  applyCustomFontButton.style.backgroundColor = "#f0f0f0";
-  applyCustomFontButton.style.cursor = "pointer";
-  
-  applyCustomFontButton.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const customFontName = customFontInput.value.trim();
-    if (customFontName) {
-      const { state, dispatch } = view;
-      const { from, to, empty } = state.selection;
 
-      const tr = state.tr;
-      const fontValue = `"${customFontName}", sans-serif`;
-
-      if (empty) {
-        // No text selected - apply font family to cursor position for future typing
-        tr.addStoredMark(schema.marks.fontFamily.create({ family: fontValue }));
-      } else {
-        // Text is selected - apply font family to selected text
-        tr.removeMark(from, to, schema.marks.fontFamily);
-        tr.addMark(from, to, schema.marks.fontFamily.create({ family: fontValue }));
-      }
-
-      dispatch(tr);
-
-      // Update button text
-      const fontNameSpan = fontButton.querySelector('.font-name');
-      if (fontNameSpan) {
-        fontNameSpan.textContent = customFontName;
-      }
-
-      customFontInput.value = "";
-      hideDropdowns();
-      view.focus();
-    }
-  });
-  
-  customFontInput.addEventListener("keypress", (e) => {
-    if (e.key === "Enter") {
-      applyCustomFontButton.click();
-    }
-  });
-  
-  customFontContainer.appendChild(customFontInput);
-  customFontContainer.appendChild(applyCustomFontButton);
-  dropdownMenu.appendChild(customFontContainer);
 
   // Add "Remove Font" button
   const removeFontButton = document.createElement("button");
