@@ -112,6 +112,8 @@ class DataState {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
+    // Reset favorite selection when switching vaults
+    this.favoriteSelected = false;
   }
 
   async addNote() {
