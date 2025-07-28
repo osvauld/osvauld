@@ -27,6 +27,7 @@
 		switch (id) {
 			case "logout":
 				await sendMessage("logout");
+				dataState.clearAllState();
 				uiState.setWelcomeScreen(true);
 				break;
 			case "userid":
