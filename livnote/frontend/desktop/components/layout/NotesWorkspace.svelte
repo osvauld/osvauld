@@ -1,12 +1,11 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { BackArrow, Star as EmptyStar, FavStar as Star } from "../../icons";
+	import { BackArrow, Star as EmptyStar, FavStar as Star, MenuToggle } from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
-	import Hamburger from "../../icons/Hamburger.svelte";
-	import { fade, fly } from "svelte/transition";
+	import { fade } from "svelte/transition";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
@@ -112,10 +111,11 @@
 				<!-- Burger menu toggle - only show when navigation panel is hidden -->
 				{#if !uiState.showNavigationPanel}
 					<button
-						aria-label="Toggle navigation panel"
-						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						aria-label="Open navigation panel"
+						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-e-resize"
+						title="Open navigation panel"
 						onclick={toggleNavigationPanel}>
-						<Hamburger />
+						<MenuToggle />
 					</button>
 				{/if}
 
