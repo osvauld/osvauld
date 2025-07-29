@@ -34,11 +34,15 @@ pub async fn handle_add_user(
     let username = details.username;
     let user_public_key = details.user_public_key;
     let device_public_key = details.device_public_key;
+    let one_time_token = details.ucan_token;
+    let ucan_pub_key = details.ucan_pub_key;
 
     let (user, device) = add_known_user(
         username,
         user_public_key,
         device_public_key,
+        one_time_token,
+        ucan_pub_key,
         &repo_ctx,
         &crypto_utils,
     )

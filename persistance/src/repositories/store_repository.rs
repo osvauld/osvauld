@@ -168,7 +168,7 @@ impl StoreRepository for SqliteStoreRepository {
     async fn get_ucan_key(&self) -> Result<String, RepositoryError> {
         let mut conn = self.connection.lock().await;
 
-        let device_key: String = store_items::table
+        let ucan_key: String = store_items::table
             .filter(store_items::key.eq("ucan_key"))
             .select(store_items::value)
             .first(&mut *conn)
@@ -177,6 +177,6 @@ impl StoreRepository for SqliteStoreRepository {
                 _ => RepositoryError::DatabaseError(e.to_string()),
             })?;
 
-        Ok(device_key)
+        Ok(ucan_key)
     }
 }

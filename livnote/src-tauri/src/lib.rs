@@ -8,8 +8,8 @@ pub mod preview_generator;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, get_user_details, handle_add_device,
-    handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
+    check_private_key_loaded, check_signup_status, get_one_time_ucan_token, get_user_details,
+    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{
     handle_add_folder, handle_get_folders, handle_soft_delete_folder,
@@ -102,9 +102,9 @@ pub fn run() {
                     let repo_ctx = initialize_repositories(connection.clone());
 
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
-
+                    let domain = Arc::new("livnote".to_string());
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
-                        P2PService::new(repo_ctx.clone(), crypto_utils.clone());
+                        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain);
                     let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
                     rt.spawn(async move {
@@ -175,6 +175,7 @@ pub fn run() {
             handle_share_resource,
             get_user_details,
             emit_all_resources,
+            get_one_time_ucan_token
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

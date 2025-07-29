@@ -1,7 +1,8 @@
 use crate::errors::UcanError;
-use anyhow::Result;
+use crate::types::TokenValidation;
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use ed25519_dalek::{ed25519::signature::SignerMut, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
 use openpgp::{
     packet::key::{SecretParts, UnspecifiedRole},
     policy::StandardPolicy,
@@ -10,50 +11,74 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
-use ucan::{builder::UcanBuilder, capability::Capability, crypto::KeyMaterial, Ucan};
-pub struct Ed25519KeyMaterial {
-    signing_key: SigningKey,
-    verifying_key: VerifyingKey,
+use ucan::{
+    builder::UcanBuilder,
+    capability::Capability,
+    crypto::{
+        did::{DidParser, ED25519_MAGIC_BYTES},
+        JwtSignatureAlgorithm, KeyMaterial,
+    },
+    Ucan,
+};
+/// Constructor function for DID parser - converts bytes to Ed25519KeyMaterial
+pub fn bytes_to_ed25519_key(bytes: Vec<u8>) -> Result<Box<dyn KeyMaterial>> {
+    let key_bytes: [u8; 32] = bytes
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("Invalid key length: expected 32 bytes"))?;
+
+    let public_key = VerifyingKey::from_bytes(&key_bytes)
+        .map_err(|e| anyhow!("Invalid Ed25519 public key: {}", e))?;
+
+    Ok(Box::new(Ed25519KeyMaterial(public_key, None)))
 }
-use chrono::{Local, Utc};
+
+#[derive(Clone)]
+pub struct Ed25519KeyMaterial(pub VerifyingKey, pub Option<SigningKey>);
+
 impl Ed25519KeyMaterial {
     pub fn new(signing_key: SigningKey, verifying_key: VerifyingKey) -> Self {
-        Self {
-            signing_key,
-            verifying_key,
-        }
+        Self(verifying_key, Some(signing_key))
+    }
+
+    pub fn new_verify_only(verifying_key: VerifyingKey) -> Self {
+        Self(verifying_key, None)
     }
 }
-#[async_trait]
+
+#[cfg_attr(target_arch="wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl KeyMaterial for Ed25519KeyMaterial {
     fn get_jwt_algorithm_name(&self) -> String {
-        "EdDSA".to_string()
+        JwtSignatureAlgorithm::EdDSA.to_string()
     }
 
     async fn get_did(&self) -> Result<String> {
-        let public_key_bytes = self.verifying_key.to_bytes();
-        let did = format!("did:key:z{}", bs58::encode(public_key_bytes).into_string());
-        Ok(did)
+        let bytes = [ED25519_MAGIC_BYTES, self.0.as_bytes()].concat();
+        Ok(format!("did:key:z{}", bs58::encode(bytes).into_string()))
     }
 
     async fn sign(&self, payload: &[u8]) -> Result<Vec<u8>> {
-        let signature = self
-            .signing_key
-            .try_sign(payload)
-            .map_err(|e| anyhow::anyhow!("Signing failed: {}", e))?;
-        Ok(signature.to_bytes().to_vec())
+        match &self.1 {
+            Some(private_key) => {
+                use ed25519_dalek::Signer;
+                let signature = private_key.sign(payload);
+                Ok(signature.to_bytes().to_vec())
+            }
+            None => Err(anyhow!("No private key; cannot sign data")),
+        }
     }
 
     async fn verify(&self, payload: &[u8], signature: &[u8]) -> Result<()> {
         let sig_array: [u8; 64] = signature
             .try_into()
-            .map_err(|_| anyhow::anyhow!("Invalid signature length"))?;
+            .map_err(|_| anyhow!("Invalid signature length"))?;
+        let signature = Signature::from_bytes(&sig_array);
 
-        let signature = ed25519_dalek::Signature::from_bytes(&sig_array);
-
-        self.verifying_key
+        use ed25519_dalek::Verifier;
+        self.0
             .verify(payload, &signature)
-            .map_err(|e| anyhow::anyhow!("Signature verification failed: {}", e))?;
+            .map_err(|e| anyhow!("Could not verify signature: {:?}", e))?;
 
         Ok(())
     }
@@ -177,7 +202,7 @@ pub async fn generate_one_time_connection_token(
     capability_str: &str,
 ) -> Result<String, UcanError> {
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
-    let expiry_seconds = (Utc::now().timestamp() + (24 * 60 * 60)) as u64;
+    let expiry_seconds = 24 * 60 * 60;
     let capability = Capability::from((capability_str, "use", &json!({})));
     let ucan = UcanBuilder::default()
         .issued_by(&key_material)
@@ -187,12 +212,89 @@ pub async fn generate_one_time_connection_token(
         .build()
         .map_err(|e| UcanError::KeyExtractionError(format!("UCAN build error: {}", e)))?
         .sign()
-        .await // Add await here since sign() is async
+        .await
         .map_err(|e| UcanError::KeyExtractionError(format!("UCAN signing error: {}", e)))?;
 
     let token = ucan
         .encode()
         .map_err(|e| UcanError::KeyExtractionError(format!("UCAN encoding error: {}", e)))?;
+
+    Ok(token)
+}
+
+/// Check if a UCAN token is a one-time connect token
+fn is_one_time_connect_token(ucan: &Ucan, capability_prefix: &str) -> bool {
+    let is_wildcard_audience = ucan.audience() == "*";
+
+    let connect_capability = format!("{}:connect", capability_prefix);
+    let has_connect_capability = ucan
+        .capabilities()
+        .iter()
+        .any(|cap| cap.resource == connect_capability);
+
+    is_wildcard_audience && has_connect_capability
+}
+
+/// Validate UCAN connect token and check if it's one-time
+pub async fn validate_connect_ucan_token(
+    token: &str,
+    capability_prefix: &str,
+) -> Result<TokenValidation, String> {
+    let ucan = Ucan::try_from(token).map_err(|e| format!("Failed to parse UCAN: {}", e))?;
+    let key_constructors: &[(
+        &'static [u8],
+        fn(Vec<u8>) -> anyhow::Result<Box<dyn KeyMaterial>>,
+    )] = &[(ED25519_MAGIC_BYTES, bytes_to_ed25519_key)];
+    let mut did_parser = DidParser::new(key_constructors);
+
+    let now = chrono::Utc::now().timestamp() as u64;
+
+    let is_valid = ucan.validate(Some(now), &mut did_parser).await.is_ok();
+    let is_one_time = is_one_time_connect_token(&ucan, capability_prefix);
+
+    Ok(TokenValidation {
+        is_valid,
+        is_one_time,
+    })
+}
+
+/// Generate a delegation and connection token
+/// This creates a token with very long validity that grants both connection and delegation capabilities
+/// Issued directly by root authority (not delegated from one-time token)
+pub async fn generate_delegation_and_connection_token(
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+    capability_prefix: &str,
+    audience_ucan_pub_key: &str,
+) -> Result<String, UcanError> {
+    let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
+
+    // Connect capability
+    let connect_capability = format!("{}:connect", capability_prefix);
+    let connect_cap = Capability::from((connect_capability.as_str(), "use", &json!({})));
+
+    // Share capability
+    let share_capability = format!("{}:share", capability_prefix);
+    let share_cap = Capability::from((share_capability.as_str(), "use", &json!({})));
+
+    let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
+
+    // Build delegation token with both capabilities and long expiry
+    let ucan = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(audience_ucan_pub_key)
+        .with_lifetime(long_lifetime)
+        .claiming_capability(connect_cap)
+        .claiming_capability(share_cap)
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    let token = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
 
     Ok(token)
 }

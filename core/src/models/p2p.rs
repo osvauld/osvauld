@@ -78,41 +78,38 @@ pub enum ResourceUpdateMsg {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum HandshakeMessage {
-    HandshakeInit(HandshakeInit),
-    HandshakeResponse(HandshakeResponse),
-    HandshakeConfirm(HandshakeConfirm),
-    HandshakeAck,
+    HandshakeFirstConnectRequest(FirstConnectRequest),
+    HandshakeFirstConnectResponse(FirstConnectResponse),
+    HandshakeExchange(UcanAndUserExchange),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HandshakeInit {
+pub struct FirstConnectRequest {
+    pub devices: Vec<Device>,
+    pub issued_ucan: String,
+    pub signed_ucan_pub: String,
+    pub one_time_ucan: String,
+    pub peer_device: Device,
+    pub peer_user: User,
     pub connection_type: ConnectionType,
-    pub user: User,
-    pub device: Device,
-    pub challenge: String,
-    pub timestamp: u64,
-    pub action: ConnectionAction,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HandshakeResponse {
-    pub user: User,
-    pub device: Device,
-    pub challenge: String,
-    pub timestamp: u64,
-    pub challenge_signature: String,
+pub struct FirstConnectResponse {
+    pub devices: Vec<Device>,
+    pub issued_ucan: String,
+    pub signed_ucan_pub: String,
+    pub ucan_token: String,
+    pub peer_user: User,
+    pub peer_device: Device,
 }
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HandshakeConfirm {
-    pub challenge_signature: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct HandshakeResult {
+pub struct UcanAndUserExchange {
+    pub signed_ucan_pub: String,
+    pub ucan_token: String,
+    pub peer_user: User,
+    pub peer_device: Device,
     pub connection_type: ConnectionType,
-    pub device: Device,
-    pub user: User,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

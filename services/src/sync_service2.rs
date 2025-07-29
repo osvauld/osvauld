@@ -409,29 +409,6 @@ pub async fn add_resource_sync(
         .map_err(|e| e.to_string())
 }
 
-pub async fn get_rendezvous_payload(
-    current_device_id: &str,
-    repo_ctx: &RepositoryContext,
-) -> Result<Vec<String>, String> {
-    let device_mapping = repo_ctx
-        .user_repo
-        .get_user_device_mapping()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let mut payload = Vec::new();
-
-    for (user_id, device_ids) in device_mapping {
-        for device_id in device_ids {
-            // Skip the current device
-            if device_id != current_device_id {
-                payload.push(format!("{}:{}", user_id, device_id));
-            }
-        }
-    }
-    Ok(payload)
-}
-
 pub async fn process_first_user_connection_request(
     user_with_devices: UserWithDevices,
     repo_ctx: &RepositoryContext,

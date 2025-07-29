@@ -1,15 +1,14 @@
 use crate::types::{
-    AddDeviceInput, CryptoResponse, ExportedCertificate, FirstDeviceConnectInput, LoadPvtKeyInput,
-    PasswordChangeInput, SavePassphraseInput,
+    AddDeviceInput, CryptoResponse, ExportedCertificate, LoadPvtKeyInput, PasswordChangeInput,
+    SavePassphraseInput, UcanOneTimeTokenOut,
 };
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::{error, info};
 use network::P2PService;
-use osvauld_core::models::p2p::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
 use services::{
-    change_passphrase, create_default_folder, export_certificate, get_rendezvous_payload,
+    change_passphrase, create_default_folder, export_certificate, generate_one_time_ucan_token,
     handle_signup, import_user, is_signed_up, load_certificate,
 };
 use std::sync::Arc;
@@ -134,4 +133,17 @@ pub async fn handle_logout(
     let mut crypto = crypto_utils.lock().await;
     crypto.clear_cert();
     Ok(CryptoResponse::Success)
+}
+#[tauri::command]
+pub async fn get_one_time_ucan_token(
+    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    repo_ctx: State<'_, RepositoryContext>,
+) -> Result<CryptoResponse, String> {
+    let (ucan_token, ucan_pub_key) =
+        generate_one_time_ucan_token("livnote:connect", &crypto_utils, &repo_ctx).await?;
+    info!("ucan_token {}", ucan_token);
+    Ok(CryptoResponse::OneTimeUcanToken(UcanOneTimeTokenOut {
+        ucan_token,
+        ucan_pub_key,
+    }))
 }

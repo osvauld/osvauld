@@ -23,6 +23,7 @@
 		"src/**/*.ts",
 		"src/**/*.js",
 		"src/**/*.svelte",
+    "icons/*.svelte",
 		"components/**/*.ts",
 		"components/**/*.js",
 		"components/**/*.svelte",
@@ -32,7 +33,6 @@
 		"common/**/*.js",
 		"common/**/*.svelte",
 		"utils/*.ts",
-		"icons/*.svelte",
 		"icons/*/ts"
 	],
 	"exclude": [

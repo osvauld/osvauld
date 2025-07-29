@@ -19,40 +19,18 @@ pub struct ServiceContext {
 
 /// Represents a peer-to-peer connection with another device or user
 pub struct PeerConnection {
-    /// The underlying connection
     pub connection: Arc<Connection>,
-
-    /// Type of connection (Device or User) - filled during handshake
     pub connection_type: Option<ConnectionType>,
-
-    /// Device information of the peer - filled during handshake
     pub device: Device,
-
-    /// Node ID derived from device key - filled during handshake  
     pub node_id: String,
-
-    /// User information of the peer - filled during handshake
     pub user: User,
-
-    /// Connection action to execute after handshake
     pub action: Option<ConnectionAction>,
-
-    /// Whether this peer initiated the connection
     pub is_initiator: bool,
     pub is_live_edit: bool,
-
-    /// Whether handshake is complete
     pub handshake_complete: Arc<Mutex<bool>>,
-
-    /// Handle to the message handling task
     pub task_handle: tokio::task::JoinHandle<()>,
-
-    /// Service context containing service dependencies
     pub context: Arc<ServiceContext>,
-
-    /// Event emitter for broadcasting events
     pub event_emitter: P2PEventEmitter,
-
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub crypto_utils: Arc<Mutex<CryptoUtils>>,
@@ -60,6 +38,7 @@ pub struct PeerConnection {
     pub device_manifest_result: Arc<Mutex<Option<DeviceManifestComparisonResult>>>,
     pub user_manifest_result: Arc<Mutex<Option<UserManifestComparisonResult>>>,
     pub challenge: String,
+    pub domain: String,
 }
 
 impl PeerConnection {
@@ -80,6 +59,7 @@ impl PeerConnection {
         local_device: Device,
         challenge: String,
         live_edit: bool,
+        domain: String,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -107,6 +87,7 @@ impl PeerConnection {
             device_manifest_result: Arc::new(Mutex::new(None)),
             user_manifest_result: Arc::new(Mutex::new(None)),
             challenge,
+            domain,
         };
 
         debug!("Starting message handler for the connection");
@@ -467,6 +448,7 @@ impl PeerConnection {
             handshake_complete: self.handshake_complete.clone(),
             challenge: self.challenge.clone(),
             is_live_edit: self.is_live_edit.clone(),
+            domain: self.domain.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Result<User, String> {

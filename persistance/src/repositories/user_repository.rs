@@ -271,7 +271,10 @@ impl UserRepository for SqliteUserRepository {
                     .values(&user_model)
                     .on_conflict(users::id)
                     .do_update()
-                    .set(users::first_sync.eq(true))
+                    .set((
+                        users::ucan_pub_key.eq(&user_with_devices.user.ucan_pub_key),
+                        users::ucan_token.eq(&user_with_devices.user.ucan_token),
+                    ))
                     .execute(conn)?;
 
                 // 2. Insert associated devices
@@ -348,5 +351,22 @@ impl UserRepository for SqliteUserRepository {
             .collect();
 
         Ok(result)
+    }
+
+    async fn get_user_by_device_id(&self, device_id: &str) -> Result<User, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let user_model = devices::table
+            .inner_join(users::table.on(devices::user_id.eq(users::id)))
+            .filter(devices::id.eq(device_id))
+            .select(users::all_columns)
+            .first::<UserModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        let user: User = user_model.into();
+        Ok(user)
     }
 }

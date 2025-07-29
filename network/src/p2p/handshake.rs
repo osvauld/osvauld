@@ -1,11 +1,10 @@
 use super::P2PEvent;
 use crate::p2p::peer_connection::PeerConnection;
-use crypto_utils::verify_signature;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, HandshakeConfirm, HandshakeInit, HandshakeMessage,
-    HandshakeResponse, Message, User,
+    ConnectionAction, ConnectionType, Device, FirstConnectRequest, FirstConnectResponse,
+    HandshakeMessage, Message, UcanAndUserExchange, User, UserWithDevices,
 };
-use services::generate_challenge;
+use services::get_my_user_devices;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 impl PeerConnection {
@@ -16,22 +15,92 @@ impl PeerConnection {
         current_user: User,
         current_device: Device,
     ) -> Result<(), String> {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let handshake_init = HandshakeInit {
-            connection_type,
-            user: current_user,
-            device: current_device,
-            challenge: self.challenge.clone(),
-            timestamp,
-            action,
-        };
-        self.send_message(Message::Handshake(HandshakeMessage::HandshakeInit(
-            handshake_init,
-        )))
-        .await?;
+        let peer_id = self
+            .connection
+            .remote_node_id()
+            .map_err(|e| e.to_string())?;
+        let user = self
+            .repo_ctx
+            .user_repo
+            .get_user_by_device_id(&peer_id.to_string())
+            .await
+            .map_err(|e| e.to_string())?;
+        let token_validation =
+            crypto_utils::validate_connect_token(&user.ucan_token, &self.domain).await?;
+        if !token_validation.is_valid {
+            return Err("token invalid".to_string());
+        }
+        if user.first_sync {
+            let user_devices = get_my_user_devices(&user.id, &self.repo_ctx)
+                .await
+                .map_err(|e| e.to_string())?;
+            let (new_ucan_token, signed_ucan_pub) = {
+                let encrypted_pvt_key = self
+                    .repo_ctx
+                    .store_repo
+                    .get_ucan_key()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let crypto = self.crypto_utils.lock().await;
+                let ucan_pub_key = crypto
+                    .get_public_ucan_key(&encrypted_pvt_key)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let signed_pub_key = crypto
+                    .sign_clear_text_message(&ucan_pub_key)
+                    .map_err(|e| e.to_string())?;
+                let issued_token = crypto
+                    .issue_connect_and_share_user_token(
+                        &encrypted_pvt_key,
+                        &self.domain,
+                        &user.ucan_pub_key,
+                    )
+                    .await
+                    .map_err(|e| e.to_string())?;
+                (issued_token, signed_pub_key)
+            };
+            self.send_message(Message::Handshake(
+                HandshakeMessage::HandshakeFirstConnectRequest(FirstConnectRequest {
+                    devices: user_devices,
+                    issued_ucan: new_ucan_token,
+                    signed_ucan_pub,
+                    one_time_ucan: user.ucan_token.clone(),
+                    peer_device: current_device,
+                    peer_user: current_user,
+                    connection_type,
+                }),
+            ))
+            .await?;
+        } else {
+            let signed_ucan_pub = {
+                let encrypted_pvt_key = self
+                    .repo_ctx
+                    .store_repo
+                    .get_ucan_key()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let crypto = self.crypto_utils.lock().await;
+                let ucan_pub_key = crypto
+                    .get_public_ucan_key(&encrypted_pvt_key)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                crypto
+                    .sign_clear_text_message(&ucan_pub_key)
+                    .map_err(|e| e.to_string())?
+            };
+            let exchange_message = UcanAndUserExchange {
+                ucan_token: user.ucan_token,
+                peer_user: current_user,
+                peer_device: current_device,
+                connection_type,
+                signed_ucan_pub,
+            };
+            self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
+                exchange_message,
+            )))
+            .await?;
+        }
         Ok(())
     }
     pub async fn handle_handshake_message(
@@ -39,17 +108,93 @@ impl PeerConnection {
         payload: &mut HandshakeMessage,
     ) -> Result<(), String> {
         match payload {
-            HandshakeMessage::HandshakeInit(payload) => self.process_handshake_init(payload).await,
-            HandshakeMessage::HandshakeResponse(payload) => {
-                self.process_handshake_response(payload).await
+            HandshakeMessage::HandshakeFirstConnectRequest(payload) => {
+                self.process_first_user_connection_request(payload).await
             }
-            HandshakeMessage::HandshakeConfirm(payload) => {
-                self.process_handshake_confirm(payload).await
+            HandshakeMessage::HandshakeFirstConnectResponse(payload) => {
+                self.process_first_user_connection_handshake_response(payload)
+                    .await
             }
-            HandshakeMessage::HandshakeAck => self.process_handshake_ack().await,
+            HandshakeMessage::HandshakeExchange(payload) => {
+                self.process_exchange_message(payload).await
+            }
         }
     }
-    pub async fn process_handshake_init(&mut self, payload: &HandshakeInit) -> Result<(), String> {
+
+    pub async fn process_exchange_message(
+        &mut self,
+        payload: &UcanAndUserExchange,
+    ) -> Result<(), String> {
+        let ucan_pub_key = crypto_utils::verify_clear_text_message(
+            &payload.peer_user.public_key,
+            &payload.signed_ucan_pub,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        let token_validation =
+            crypto_utils::validate_connect_token(&payload.ucan_token, &self.domain)
+                .await
+                .map_err(|e| e.to_string())?;
+        if !token_validation.is_valid {
+            return Err("invalid token".to_string());
+        }
+        self.user = payload.peer_user.clone();
+        self.device = payload.peer_device.clone();
+        if self.is_initiator {
+            let mut handshake_complete = self.handshake_complete.lock().await;
+            *handshake_complete = true;
+        } else {
+            let signed_ucan_pub = {
+                let encrypted_pvt_key = self
+                    .repo_ctx
+                    .store_repo
+                    .get_ucan_key()
+                    .await
+                    .map_err(|e| e.to_string())?;
+
+                let crypto = self.crypto_utils.lock().await;
+                crypto
+                    .get_public_ucan_key(&encrypted_pvt_key)
+                    .await
+                    .map_err(|e| e.to_string())?
+            };
+            let current_user = self.get_local_user().await?;
+            let current_device = self
+                .get_local_device()
+                .await
+                .ok_or("No current device available")?;
+
+            let peer_id = self
+                .connection
+                .remote_node_id()
+                .map_err(|e| e.to_string())?;
+            let peer_user = self
+                .repo_ctx
+                .user_repo
+                .get_user_by_device_id(&peer_id.to_string())
+                .await
+                .map_err(|e| e.to_string())?;
+            let exchange_message = UcanAndUserExchange {
+                signed_ucan_pub,
+                peer_user: current_user,
+                peer_device: current_device,
+                ucan_token: peer_user.ucan_token,
+                connection_type: payload.connection_type.clone(),
+            };
+            let mut handshake_complete = self.handshake_complete.lock().await;
+            *handshake_complete = true;
+            self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
+                exchange_message,
+            )))
+            .await?;
+        }
+        Ok(())
+    }
+
+    pub async fn process_first_user_connection_request(
+        &mut self,
+        payload: &FirstConnectRequest,
+    ) -> Result<(), String> {
         // Get our current user and device
         let current_user = self.get_local_user().await?;
         let current_device = self
@@ -57,146 +202,118 @@ impl PeerConnection {
             .await
             .ok_or("No current device available")?;
 
-        // Generate our challenge
+        let token_validation =
+            crypto_utils::validate_connect_token(&payload.one_time_ucan, &self.domain).await?;
+        if !token_validation.is_valid {
+            return Err("validation failed".to_string());
+        }
+        let peer_ucan_pub = crypto_utils::verify_clear_text_message(
+            &payload.peer_user.public_key,
+            &payload.signed_ucan_pub,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
 
-        // Sign their challenge
-        let their_challenge_signature = {
-            let crypto_utils = self.crypto_utils.lock().await;
-            crypto_utils.sign_message(&payload.challenge).map_err(|e| {
-                error!("Failed to sign initiator's challenge: {}", e);
-                format!("Failed to sign challenge: {}", e)
-            })?
+        let (peer_issued_ucan_token, signed_ucan_pub) = {
+            let encrypted_pvt_key = self
+                .repo_ctx
+                .store_repo
+                .get_ucan_key()
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let crypto = self.crypto_utils.lock().await;
+            let ucan_pub_key = crypto
+                .get_public_ucan_key(&encrypted_pvt_key)
+                .await
+                .map_err(|e| e.to_string())?;
+            let signed_ucan_pub = crypto
+                .sign_clear_text_message(&ucan_pub_key)
+                .map_err(|e| e.to_string())?;
+            let issued_token = crypto
+                .issue_connect_and_share_user_token(
+                    &encrypted_pvt_key,
+                    &self.domain,
+                    &peer_ucan_pub,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            (issued_token, signed_ucan_pub)
         };
+        let mut user = payload.peer_user.clone();
+        user.first_sync = true;
+        user.owner = false;
+        user.ucan_token = peer_issued_ucan_token.clone();
+        user.ucan_pub_key = peer_ucan_pub;
         self.connection_type = Some(payload.connection_type.clone());
-        self.device = payload.device.clone();
-        self.user = payload.user.clone();
-        self.action = Some(payload.action.clone());
-
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        // Create HandshakeResponse
-        let handshake_response = HandshakeResponse {
-            user: current_user.clone(),
-            device: current_device.clone(),
-            challenge: self.challenge.clone(),
-            timestamp,
-            challenge_signature: their_challenge_signature,
+        self.device = payload.peer_device.clone();
+        self.user = user.clone();
+        let user_with_devices = UserWithDevices {
+            user,
+            devices: payload.devices.clone(),
         };
-
-        // Send the response
-        self.send_message(Message::Handshake(HandshakeMessage::HandshakeResponse(
-            handshake_response,
-        )))
+        self.repo_ctx
+            .user_repo
+            .add_users_with_devices_bulk(&vec![user_with_devices])
+            .await
+            .map_err(|e| e.to_string())?;
+        let my_devices = get_my_user_devices(&current_user.id, &self.repo_ctx).await?;
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+        let handshake_response = FirstConnectResponse {
+            peer_user: current_user.clone(),
+            peer_device: current_device.clone(),
+            devices: my_devices,
+            ucan_token: payload.issued_ucan.clone(),
+            issued_ucan: peer_issued_ucan_token,
+            signed_ucan_pub,
+        };
+        self.send_message(Message::Handshake(
+            HandshakeMessage::HandshakeFirstConnectResponse(handshake_response),
+        ))
         .await?;
 
+        info!("first handshake completed for user sent message to peer");
         Ok(())
     }
 
-    pub async fn process_handshake_response(
+    pub async fn process_first_user_connection_handshake_response(
         &mut self,
-        payload: &HandshakeResponse,
+        payload: &FirstConnectResponse,
     ) -> Result<(), String> {
-        // Validate timestamp (allow 5 minutes skew)
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        if payload.timestamp.abs_diff(current_time) > 300 {
-            error!("HandshakeResponse timestamp too old or too far in future");
-            return Err("Timestamp validation failed".to_string());
-        }
-
-        // Get our original challenge that we sent in HandshakeInit
-        let our_challenge = self.challenge.clone();
-        // Verify that the receiver correctly signed our challenge
-        let verified = verify_signature(
-            &payload.user.public_key,
-            &our_challenge,
-            &payload.challenge_signature,
+        self.user.ucan_token = payload.ucan_token.clone();
+        let peer_ucan_pub = crypto_utils::verify_clear_text_message(
+            &payload.peer_user.public_key,
+            &payload.signed_ucan_pub,
         )
-        .map_err(|e| {
-            error!("Failed to verify challenge signature: {}", e);
-            format!("Signature verification failed: {}", e)
-        })?;
-
-        if !verified {
-            error!("Invalid challenge signature from receiver");
-            return Err("Challenge signature verification failed".to_string());
+        .await
+        .map_err(|e| e.to_string())?;
+        let token_validation_result =
+            crypto_utils::validate_connect_token(&payload.issued_ucan, &self.domain)
+                .await
+                .map_err(|e| e.to_string())?;
+        if !token_validation_result.is_valid {
+            return Err("token invalid".to_string());
         }
-        self.device = payload.device.clone();
-        self.user = payload.user.clone();
-
-        info!("Successfully verified receiver's signature of our challenge");
-
-        // Sign their challenge and send confirmation
-        let their_challenge = payload.challenge.clone();
-
-        let our_signature = {
-            let crypto_utils = self.crypto_utils.lock().await;
-            crypto_utils.sign_message(&their_challenge).map_err(|e| {
-                error!("Failed to sign receiver's challenge: {}", e);
-                format!("Failed to sign challenge: {}", e)
-            })?
+        let mut user = payload.peer_user.clone();
+        user.ucan_token = payload.issued_ucan.clone();
+        user.first_sync = true;
+        user.owner = false;
+        user.ucan_pub_key = peer_ucan_pub;
+        self.user = user.clone();
+        self.device = payload.peer_device.clone();
+        let user_with_devices = UserWithDevices {
+            user,
+            devices: payload.devices.clone(),
         };
-        // Create and send HandshakeConfirm
-        let handshake_confirm = HandshakeConfirm {
-            challenge_signature: our_signature,
-        };
-
-        self.send_message(Message::Handshake(HandshakeMessage::HandshakeConfirm(
-            handshake_confirm,
-        )))
-        .await?;
-
-        // Update our connection with peer data and mark handshake complete
-        info!("Initiator: Handshake completed successfully");
-        Ok(())
-    }
-    pub async fn process_handshake_confirm(
-        &mut self,
-        payload: &HandshakeConfirm,
-    ) -> Result<(), String> {
-        // Get our challenge that we sent in HandshakeResponse
-        let our_challenge = self.challenge.clone();
-
-        // Verify that the initiator correctly signed our challenge
-        let verified = verify_signature(
-            &self.user.public_key,
-            &our_challenge,
-            &payload.challenge_signature,
-        )
-        .map_err(|e| {
-            error!("Failed to verify confirmation signature: {}", e);
-            format!("Confirmation signature verification failed: {}", e)
-        })?;
-
-        if !verified {
-            error!("Invalid confirmation signature from initiator");
-            return Err("Confirmation signature verification failed".to_string());
-        }
-
-        info!("Successfully verified initiator's signature of our challenge");
-        let mut handshake_guard = self.handshake_complete.lock().await;
-        *handshake_guard = true;
-        // Get the stored initiator data from HandshakeInit
-
-        self.send_message(Message::Handshake(HandshakeMessage::HandshakeAck))
-            .await?;
-        info!("Receiver: Handshake completed successfully");
-        Ok(())
-    }
-    pub async fn process_handshake_ack(&self) -> Result<(), String> {
-        let mut handshake_guard = self.handshake_complete.lock().await;
-        *handshake_guard = true;
-        self.execute_connection_action().await?;
-        if self.is_live_edit {
-            self.event_emitter.emit(P2PEvent::LiveEditConnected {
-                connection_id: self.node_id.clone(),
-            });
-        }
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+        self.repo_ctx
+            .user_repo
+            .add_users_with_devices_bulk(&vec![user_with_devices])
+            .await
+            .map_err(|e| e.to_string())?;
+        info!("first handshake completed for user");
         Ok(())
     }
 

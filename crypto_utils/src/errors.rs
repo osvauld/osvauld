@@ -83,6 +83,10 @@ pub enum PgpError {
     VerifierCreationError(String),
     #[error("Verification error: {0}")]
     VerificationError(String),
+    #[error("utf conversion error: {0}")]
+    Utf8ConversionError(String),
+    #[error("failed to validate the signature: {0}")]
+    InvalidSignature(String),
 }
 
 #[derive(Error, Debug)]
@@ -142,4 +146,34 @@ pub enum UcanError {
 
     #[error("Crypto utils error: {0}")]
     CryptoUtilsError(#[from] CryptoUtilsError),
+}
+
+#[derive(Error, Debug)]
+pub enum CryptoError {
+    #[error("AES error: {0}")]
+    AesError(#[from] AesError),
+
+    #[error("PGP error: {0}")]
+    PgpError(#[from] PgpError),
+
+    #[error("Crypto utils error: {0}")]
+    CryptoUtilsError(#[from] CryptoUtilsError),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("UTF-8 conversion error: {0}")]
+    Utf8Error(#[from] std::string::FromUtf8Error),
+
+    #[error("Base64 decode error: {0}")]
+    Base64Error(#[from] base64::DecodeError),
+
+    #[error("Certificate error: {0}")]
+    CertError(String),
+
+    #[error("UCAN error: {0}")]
+    UcanError(#[from] UcanError),
+
+    #[error("Other error: {0}")]
+    Other(String),
 }

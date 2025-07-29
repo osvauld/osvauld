@@ -93,6 +93,8 @@ diesel::table! {
         updated_at -> BigInt,
         created_at -> BigInt,
         signature -> Text,
+        ucan_token -> Text,
+        ucan_pub_key -> Text,
         owner -> Bool,
         first_sync -> Bool,
         deleted -> Bool,

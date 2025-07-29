@@ -19,3 +19,9 @@ pub struct EncryptedResource {
     pub encrypted_data: String,
     pub encrypted_key: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct TokenValidation {
+    pub is_valid: bool,
+    pub is_one_time: bool,
+}

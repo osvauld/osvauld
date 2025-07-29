@@ -1,13 +1,13 @@
 mod crypto_core;
 mod errors;
+pub mod signature_utils;
 pub mod types;
 mod ucan_utils;
-
-use crate::errors::{AesError, CryptoUtilsError, PgpError, UcanError};
+use crate::errors::CryptoError;
+use crate::errors::{CryptoUtilsError, PgpError};
 use crate::types::{EncryptedResource, GeneratedKeys};
 use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
-
 use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{SecretKey, SigningKey, VerifyingKey};
 use log::info;
@@ -15,41 +15,10 @@ use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
 use std::str::FromStr;
-use thiserror::Error;
-
-// Define a comprehensive error type
-#[derive(Error, Debug)]
-pub enum CryptoError {
-    #[error("AES error: {0}")]
-    AesError(#[from] AesError),
-
-    #[error("PGP error: {0}")]
-    PgpError(#[from] PgpError),
-
-    #[error("Crypto utils error: {0}")]
-    CryptoUtilsError(#[from] CryptoUtilsError),
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("UTF-8 conversion error: {0}")]
-    Utf8Error(#[from] std::string::FromUtf8Error),
-
-    #[error("Base64 decode error: {0}")]
-    Base64Error(#[from] base64::DecodeError),
-
-    #[error("Certificate error: {0}")]
-    CertError(String),
-
-    #[error("UCAN error: {0}")]
-    UcanError(#[from] UcanError),
-
-    #[error("Other error: {0}")]
-    Other(String),
-}
+use std::time::Duration;
+use types::TokenValidation;
 
 // Public API - Stateless Functions
-
 /// Generate a new PGP key pair and encrypt the private key with a password
 pub fn generate_keys(password: &str, username: &str) -> Result<GeneratedKeys, CryptoError> {
     // Convert errors from generate_certificate
@@ -273,6 +242,40 @@ pub fn verify_signature(
 ) -> Result<bool, PgpError> {
     crypto_core::verify_signature(public_key, message, signature)
 }
+
+pub async fn validate_connect_token(
+    token: &str,
+    capability_prefix: &str,
+) -> Result<TokenValidation, String> {
+    ucan_utils::validate_connect_ucan_token(token, capability_prefix).await
+}
+/// Verifies a cleartext signed message and returns the original message on success.
+///
+/// This function wraps the underlying verification logic to provide a simple API.
+/// It returns an error if the signature is invalid, expired, malformed, or if
+/// the message cannot be extracted.
+pub async fn verify_clear_text_message(
+    public_key: &str,
+    signed_message: &str,
+) -> Result<String, CryptoError> {
+    let (is_valid, message_option) =
+        signature_utils::verify_message_cleartext(public_key, signed_message)
+            .map_err(|e| CryptoError::from(e))?; // Assuming conversion from PgpError
+    if is_valid {
+        if let Some(message) = message_option {
+            Ok(message)
+        } else {
+            Err(PgpError::InvalidSignature(
+                "Signature is valid but message content is missing.".to_string(),
+            ))?
+        }
+    } else {
+        Err(PgpError::InvalidSignature(
+            "PGP signature verification failed.".to_string(),
+        ))?
+    }
+}
+
 // Stateful Certificate Operations
 // These operations require a loaded certificate
 pub struct CryptoUtils {
@@ -574,19 +577,62 @@ impl CryptoUtils {
         Ok((signing_key, verifying_key))
     }
 
-    pub async fn generate_one_time_user_connect_toke(
+    pub async fn generate_one_time_user_connect_token(
         &self,
         encrypted_private_key: &str,
         capability_str: &str,
-    ) -> Result<String, CryptoError> {
+    ) -> Result<(String, String), CryptoError> {
         let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+
         let token = ucan_utils::generate_one_time_connection_token(
             &signing_key,
             &verifying_key,
             capability_str,
         )
         .await?;
+
+        // Convert the verifying key (public key) to base64 string
+        let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
+
+        Ok((token, public_key_b64))
+    }
+
+    pub async fn issue_connect_and_share_user_token(
+        &self,
+        encrypted_private_key: &str,
+        capability_str: &str,
+        audience_ucan_pub_key: &str,
+    ) -> Result<String, CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+
+        let token = ucan_utils::generate_delegation_and_connection_token(
+            &signing_key,
+            &verifying_key,
+            capability_str,
+            audience_ucan_pub_key,
+        )
+        .await?;
         Ok(token)
+    }
+
+    pub async fn get_public_ucan_key(
+        &self,
+        encrypted_private_key: &str,
+    ) -> Result<String, CryptoError> {
+        let (_signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+        let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
+        Ok(public_key_b64)
+    }
+
+    pub fn sign_clear_text_message(&self, message: &str) -> Result<String, CryptoError> {
+        let cert = self.get_cert()?;
+        let keypair = crypto_core::get_signing_keypair(cert)
+            .map_err(|e| CryptoUtilsError::SigningKeyError(e.to_string()))?;
+        let expiry_duration = Duration::from_secs(10 * 60); // 10 minutes
+        let signed_message =
+            signature_utils::sign_message_cleartext(&keypair, message, Some(expiry_duration))
+                .map_err(|e| CryptoError::from(e))?; // Assuming a From/Into conversion exists
+        Ok(signed_message)
     }
 }
 

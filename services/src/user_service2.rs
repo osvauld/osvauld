@@ -10,6 +10,8 @@ pub async fn add_known_user(
     username: String,
     user_public_key: String,
     device_public_key: String,
+    one_time_token: String,
+    ucan_pub_key: String,
     repo_ctx: &RepositoryContext,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(User, Device), String> {
@@ -27,6 +29,8 @@ pub async fn add_known_user(
         signature,
         false,
         false,
+        one_time_token,
+        ucan_pub_key,
     );
     let device = Device::new(device_public_key.clone(), device_public_key, user_id);
     let user_data = UserWithDevices {

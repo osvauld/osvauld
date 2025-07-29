@@ -5,6 +5,8 @@ CREATE TABLE users (
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     signature TEXT NOT NULL,
+    ucan_token TEXT NOT NULL,
+    ucan_pub_key TEXT NOT NULL,
     owner BOOLEAN NOT NULL DEFAULT FALSE,
     first_sync BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL,

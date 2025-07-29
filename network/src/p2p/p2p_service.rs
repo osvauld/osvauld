@@ -22,7 +22,6 @@ use tokio::time::timeout;
 use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
-    // HashMap of connections with user:device as the key
     pub connections: ConnectionManager,
     pub service_context: Arc<ServiceContext>,
 }
@@ -35,6 +34,7 @@ pub struct P2PService {
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
+    pub domain: Arc<String>,
 }
 
 impl P2PService {
@@ -43,6 +43,7 @@ impl P2PService {
     pub fn new(
         repo_ctx: RepositoryContext,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
+        domain: Arc<String>,
     ) -> (
         Self,
         mpsc::UnboundedReceiver<P2PEvent>,
@@ -68,6 +69,7 @@ impl P2PService {
             current_device: Arc::new(RwLock::new(None)),
             repo_ctx,
             crypto_utils,
+            domain,
         };
 
         debug!("P2P service instance created successfully");
@@ -478,7 +480,8 @@ pub async fn request_connections(&self) -> Result<(), String> {
             local_user.clone(),
             local_device.clone(),
             challenge,
-            is_live_edit
+            is_live_edit,
+            self.domain.to_string(),
         );
 
         let peer_connection_arc = Arc::new(peer_connection);

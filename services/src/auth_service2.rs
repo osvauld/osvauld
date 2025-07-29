@@ -5,15 +5,13 @@ use crypto_utils::{
 use osvauld_core::models::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
-
 use rand::{RngCore, rngs::OsRng};
 
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Handle user signup - generates user and certificate
-async fn create_user(username: &str, passphrase: &str) -> Result<(User, Certificate), String> {
+async fn create_certificate(username: &str, passphrase: &str) -> Result<Certificate, String> {
     // Generate primary keys for the user
     let primary_key = generate_keys(passphrase, username).map_err(|e| e.to_string())?;
 
@@ -24,17 +22,7 @@ async fn create_user(username: &str, passphrase: &str) -> Result<(User, Certific
         salt: primary_key.salt.clone(),
     };
 
-    let user_id = get_key_id(&certificate.public_key).map_err(|e| e.to_string())?;
-    let user = User::new(
-        username.to_string(),
-        user_id,
-        certificate.public_key.clone(),
-        "signature".to_string(),
-        true,
-        true,
-    );
-
-    Ok((user, certificate))
+    Ok(certificate)
 }
 
 /// Create device objects for a user - generates device, certificate, and sync records
@@ -64,7 +52,7 @@ pub async fn handle_signup(
     repo_context: &RepositoryContext,
 ) -> Result<(), String> {
     // Create user and primary certificate
-    let (user, primary_certificate) = create_user(username, passphrase).await?;
+    let primary_certificate = create_certificate(username, passphrase).await?;
     let mut crypto = CryptoUtils::new();
     crypto
         .decrypt_and_load_certificate(
@@ -75,6 +63,18 @@ pub async fn handle_signup(
         .map_err(|e| e.to_string())?;
     let ucan_certificate = generate_ucan_key(&crypto).await?;
     crypto.clear_cert();
+
+    let user_id = get_key_id(&primary_certificate.public_key).map_err(|e| e.to_string())?;
+    let user = User::new(
+        username.to_string(),
+        user_id,
+        primary_certificate.public_key.clone(),
+        "signature".to_string(),
+        true,
+        true,
+        "owner_token".to_string(),
+        ucan_certificate.public_key.clone(),
+    );
     // Create device and device certificate
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     repo_context
@@ -220,20 +220,6 @@ pub async fn import_user(
         salt: result.salt,
     };
     //TODO: fix signature problem.
-    let user = User::new(
-        username.to_string(),
-        user_id.clone(),
-        primary_certificate.public_key.clone(),
-        "signature".to_string(),
-        true,
-        true,
-    );
-    let peer_device = Device::new(
-        peer_device_id.to_string(),
-        peer_device_id.to_string(),
-        user_id.clone(),
-    );
-    let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     let mut crypto = CryptoUtils::new();
     crypto
         .decrypt_and_load_certificate(
@@ -243,6 +229,23 @@ pub async fn import_user(
         )
         .map_err(|e| e.to_string())?;
     let ucan_certificate = generate_ucan_key(&crypto).await?;
+
+    let user = User::new(
+        username.to_string(),
+        user_id.clone(),
+        primary_certificate.public_key.clone(),
+        "signature".to_string(),
+        true,
+        true,
+        "owner_token".to_string(),
+        ucan_certificate.public_key.clone(),
+    );
+    let peer_device = Device::new(
+        peer_device_id.to_string(),
+        peer_device_id.to_string(),
+        user_id.clone(),
+    );
+    let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     crypto.clear_cert();
 
     repo_ctx
@@ -258,18 +261,6 @@ pub async fn import_user(
         .await
         .map_err(|e| e.to_string())?;
     Ok((user, primary_certificate))
-}
-pub async fn sign_random_challenge(
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<(String, String), String> {
-    let challenge = generate_challenge();
-    let signature = crypto_utils
-        .lock()
-        .await
-        .sign_message(&challenge)
-        .map_err(|e| e.to_string())?;
-
-    Ok((challenge, signature))
 }
 
 pub fn generate_challenge() -> String {
@@ -300,4 +291,25 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> Result<Certificate, St
     };
 
     Ok(ucan_certificate)
+}
+
+pub async fn generate_one_time_ucan_token(
+    capability_str: &str,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    repo_ctx: &RepositoryContext,
+) -> Result<(String, String), String> {
+    let encrypted_ucan_pvt_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let (ucan_token, ucan_public_key) = {
+        let crypto = crypto_utils.lock().await;
+        crypto
+            .generate_one_time_user_connect_token(&encrypted_ucan_pvt_key, capability_str)
+            .await
+            .map_err(|e| e.to_string())?
+    };
+    Ok((ucan_token, ucan_public_key))
 }

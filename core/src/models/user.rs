@@ -11,6 +11,8 @@ pub struct User {
     pub public_key: String,
     pub created_at: i64,
     pub signature: String,
+    pub ucan_token: String,
+    pub ucan_pub_key: String,
     pub first_sync: bool,
     pub updated_at: i64,
     pub owner: bool,
@@ -26,6 +28,8 @@ impl User {
         signature: String,
         owner: bool,
         first_sync: bool,
+        ucan_token: String,
+        ucan_pub_key: String,
     ) -> Self {
         let now = Local::now().timestamp_millis();
 
@@ -36,6 +40,8 @@ impl User {
             signature,
             owner,
             first_sync,
+            ucan_token,
+            ucan_pub_key,
             created_at: now,
             updated_at: now,
             deleted: false,
