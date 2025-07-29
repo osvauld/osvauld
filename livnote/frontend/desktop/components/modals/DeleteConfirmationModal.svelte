@@ -16,13 +16,16 @@
 			await sendMessage("deleteFolder", {
 				folderId: dataState.currentVault.id,
 			});
+			// Refresh vaults list to reflect the deletion
+			await dataState.fetchVaults();
 			// Reset to All Vaults
 			dataState.switchVault({ id: "all", name: "All Vaults" });
 		} else if (item === "note") {
-			if (!dataState.currentNote) return;
+			const currentNoteId = dataState.getCurrentNoteId();
+			if (!currentNoteId) return;
 
 			await sendMessage("deleteResource", {
-				resourceId: dataState.currentNote.id,
+				resourceId: currentNoteId,
 			});
 
 			// Clear the current note and update UI

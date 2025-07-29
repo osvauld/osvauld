@@ -154,6 +154,10 @@ class UIState {
     this.isEditorLoading = loading;
   }
 
+  setNoteSaved(saved: boolean) {
+    this.noteSaved = saved;
+  }
+
   clearAllLoadingStates() {
     this.isNoteFetching = false;
     this.isEditorLoading = false;

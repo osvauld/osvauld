@@ -28,7 +28,7 @@
 	let replyFormRef = $state<HTMLDivElement>();
 
 	// Derived values
-	const commentCount = $derived(thread.comments.length);
+	const commentCount = $derived(thread.comments.length - 1);
 	const mainComment = $derived(thread.comments[0]);
 	const replies = $derived(thread.comments.slice(1));
 	const previewText = $derived(getPreviewText());
@@ -126,12 +126,12 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="group rounded-md overflow-hidden transition-all duration-200 hover:bg-[#1a1b23] hover:border-[#3a3b44] {isSelected
-		? 'bg-[#1a1b23] border-[#3a3b44]'
+	class="group rounded-md overflow-hidden transition-all duration-200 hover:bg-osvauld-frameblack hover:border-osvauld-defaultBorder {isSelected
+		? 'bg-osvauld-frameblack border-osvauld-defaultBorder'
 		: ''} {thread.resolved ? 'opacity-70' : ''} {isHighlighted
 		? 'animate-pulse'
 		: ''}"
-	onmouseleave={() => (isExpanded = false)}>
+	>
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -215,9 +215,9 @@
 	{#if isExpanded}
 		<div class="p-2 border-t border-osvauld-defaultBorder">
 			{#if replies.length > 0}
-				<div class="mt-3 pl-1">
+				<div class="mt-3 ml-2 pl-1 border-l border-osvauld-defaultBorder">
 					{#each replies as reply (reply.id)}
-						<div class="mb-3 pl-3">
+						<div class="mb-3 pl-2 border-b border-osvauld-defaultBorder">
 							<div class="flex justify-start items-center gap-2">
 								<span
 									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder"
@@ -289,4 +289,4 @@
 	{/if}
 </div>
 
-<div class="w-full h-px bg-[#2a2b2f] my-0.5"></div>
+<div class="w-full h-px bg-[#2a2b2f] my-1.5"></div>

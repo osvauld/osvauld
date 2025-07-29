@@ -1,19 +1,17 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { BackArrow, Star as EmptyStar, FavStar as Star } from "../../icons";
+	import { BackArrow, Star as EmptyStar, FavStar as Star, MenuToggle } from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
-	import Hamburger from "../../icons/Hamburger.svelte";
-	import { fade, fly } from "svelte/transition";
+	import { fade } from "svelte/transition";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
 	let isEditingTitle = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
-	let saved = $state(false);
 	// Derived state for favorite status
 	let isFavourite = $derived(
 		dataState.getCurrentNoteData()?.favourite ?? false,
@@ -46,10 +44,16 @@
 		}, 0);
 	}
 
-	function saveTitle() {
+	function saveTitle(event: FocusEvent | KeyboardEvent) {
+		if (event.type === "blur" && newNoteTitle.trim().length === 0) {
+			isEditingTitle = false;
+			return;
+		}
+		if (newNoteTitle.trim().length === 0) return;
 		let coordinator = dataState.getNotesCoordinator();
 		coordinator?.saveNote(newNoteTitle);
 		dataState.currentNoteTitle = newNoteTitle;
+		isEditingTitle = false;
 	}
 
 	const getInitial = (name: string): string => {
@@ -57,7 +61,7 @@
 	};
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Enter") {
-			saveTitle();
+			saveTitle(event);
 		} else if (event.key === "Escape") {
 			isEditingTitle = false;
 		}
@@ -107,10 +111,11 @@
 				<!-- Burger menu toggle - only show when navigation panel is hidden -->
 				{#if !uiState.showNavigationPanel}
 					<button
-						aria-label="Toggle navigation panel"
-						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						aria-label="Open navigation panel"
+						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-e-resize"
+						title="Open navigation panel"
 						onclick={toggleNavigationPanel}>
-						<Hamburger />
+						<MenuToggle />
 					</button>
 				{/if}
 
@@ -122,20 +127,20 @@
 
 				{#if isEditingTitle}
 					<div
-						class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
+						class="grow mx-5 flex justify-between items-center py-1 px-3 border rounded-lg border-osvauld-iconblack">
 						<input
 							bind:this={inputRef}
 							bind:value={newNoteTitle}
 							maxlength="20"
 							onkeydown={handleKeydown}
 							onblur={saveTitle}
-							class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+							class="text-white text-4xl  border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
 					</div>
 				{:else}
 					<span
 						role="button"
 						tabindex="0"
-						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
+						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive select-none"
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>

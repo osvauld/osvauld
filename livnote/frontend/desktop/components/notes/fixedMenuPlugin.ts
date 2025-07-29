@@ -158,7 +158,6 @@ style.textContent += `
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: #2a2b2f;
     border: 1px solid #3a3b44;
     border-radius: 4px;
     color: #bfc0cc;

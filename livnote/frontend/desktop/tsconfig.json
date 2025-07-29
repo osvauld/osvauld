@@ -32,8 +32,8 @@
 		"common/**/*.js",
 		"common/**/*.svelte",
 		"utils/*.ts",
-		"icons/*.svelte",
-		"icons/*/ts"
+		"icons/**/*.svelte",
+		"icons/**/*.ts"
 	],
 	"exclude": [
 		"node_modules/*"

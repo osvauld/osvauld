@@ -1119,18 +1119,27 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
   dropdownMenu.className = "dropdown-menu font-family-dropdown";
   dropdownMenu.style.display = "none";
 
-  // Common font families list
+  // Common system fonts list - simplified and cleaned up
   const fontFamilies = [
     { name: "Arial", value: "Arial, sans-serif" },
     { name: "Arial Black", value: "'Arial Black', sans-serif" },
+    { name: "Calibri", value: "Calibri, sans-serif" },
+    { name: "Cambria", value: "Cambria, serif" },
+    { name: "Candara", value: "Candara, sans-serif" },
     { name: "Comic Sans MS", value: "'Comic Sans MS', cursive" },
+    { name: "Consolas", value: "Consolas, monospace" },
+    { name: "Constantia", value: "Constantia, serif" },
+    { name: "Corbel", value: "Corbel, sans-serif" },
     { name: "Courier New", value: "'Courier New', monospace" },
-    { name: "Helvetica Neue", value: "'Helvetica Neue', sans-serif" },
+    { name: "Georgia", value: "Georgia, serif" },
     { name: "Helvetica", value: "Helvetica, sans-serif" },
+    { name: "Helvetica Neue", value: "'Helvetica Neue', sans-serif" },
     { name: "Impact", value: "Impact, sans-serif" },
     { name: "Lucida Grande", value: "'Lucida Grande', sans-serif" },
+    { name: "Segoe UI", value: "'Segoe UI', sans-serif" },
     { name: "Tahoma", value: "Tahoma, sans-serif" },
     { name: "Times New Roman", value: "'Times New Roman', serif" },
+    { name: "Trebuchet MS", value: "'Trebuchet MS', sans-serif" },
     { name: "Verdana", value: "Verdana, sans-serif" }
   ];
 
@@ -1172,6 +1181,8 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
     });
     dropdownMenu.appendChild(fontItem);
   });
+
+
 
   // Add "Remove Font" button
   const removeFontButton = document.createElement("button");
@@ -1224,8 +1235,27 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
       if (fontNameSpan) {
         if (fontFamilyMark) {
           // Find the display name for this font family
-          const fontMatch = fontFamilies.find(f => f.value === fontFamilyMark.attrs.family);
-          fontNameSpan.textContent = fontMatch ? fontMatch.name : "Custom";
+          const fontFamilyValue = fontFamilyMark.attrs.family;
+          
+          // Try exact match first
+          let fontMatch = fontFamilies.find(f => f.value === fontFamilyValue);
+          
+          // If no exact match, try to match the font name without fallbacks
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => f.name === fontName);
+          }
+          
+          // If still no match, try partial matching
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => 
+              f.name.toLowerCase() === fontName.toLowerCase() ||
+              f.value.toLowerCase().includes(fontName.toLowerCase())
+            );
+          }
+          
+          fontNameSpan.textContent = fontMatch ? fontMatch.name : fontFamilyValue.split(',')[0].replace(/['"]/g, '').trim();
         } else {
           fontNameSpan.textContent = "Arial";
         }
@@ -1267,8 +1297,27 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
       if (fontNameSpan) {
         if (finalFont) {
           // Find the display name for this font family
-          const fontMatch = fontFamilies.find(f => f.value === finalFont);
-          fontNameSpan.textContent = fontMatch ? fontMatch.name : "Custom";
+          const fontFamilyValue = finalFont;
+          
+          // Try exact match first
+          let fontMatch = fontFamilies.find(f => f.value === fontFamilyValue);
+          
+          // If no exact match, try to match the font name without fallbacks
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => f.name === fontName);
+          }
+          
+          // If still no match, try partial matching
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => 
+              f.name.toLowerCase() === fontName.toLowerCase() ||
+              f.value.toLowerCase().includes(fontName.toLowerCase())
+            );
+          }
+          
+          fontNameSpan.textContent = fontMatch ? fontMatch.name : fontFamilyValue.split(',')[0].replace(/['"]/g, '').trim();
         } else {
           fontNameSpan.textContent = "Arial";
         }
