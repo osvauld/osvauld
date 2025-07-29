@@ -13,7 +13,6 @@
 	let isEditingTitle = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
-	let saved = $state(false);
 	// Derived state for favorite status
 	let isFavourite = $derived(
 		dataState.getCurrentNoteData()?.favourite ?? false,
@@ -46,10 +45,16 @@
 		}, 0);
 	}
 
-	function saveTitle() {
+	function saveTitle(event: FocusEvent | KeyboardEvent) {
+		if (event.type === "blur" && newNoteTitle.trim().length === 0) {
+			isEditingTitle = false;
+			return;
+		}
+		if (newNoteTitle.trim().length === 0) return;
 		let coordinator = dataState.getNotesCoordinator();
 		coordinator?.saveNote(newNoteTitle);
 		dataState.currentNoteTitle = newNoteTitle;
+		isEditingTitle = false;
 	}
 
 	const getInitial = (name: string): string => {
@@ -57,7 +62,7 @@
 	};
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Enter") {
-			saveTitle();
+			saveTitle(event);
 		} else if (event.key === "Escape") {
 			isEditingTitle = false;
 		}
@@ -122,20 +127,20 @@
 
 				{#if isEditingTitle}
 					<div
-						class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
+						class="grow mx-5 flex justify-between items-center py-1 px-3 border rounded-lg border-osvauld-iconblack">
 						<input
 							bind:this={inputRef}
 							bind:value={newNoteTitle}
 							maxlength="20"
 							onkeydown={handleKeydown}
 							onblur={saveTitle}
-							class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+							class="text-white text-4xl  border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
 					</div>
 				{:else}
 					<span
 						role="button"
 						tabindex="0"
-						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
+						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive select-none"
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
