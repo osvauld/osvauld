@@ -89,7 +89,7 @@
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}>
-				<Profile color="#4D4F60" />
+				<Profile color="#6E7681" />
 				<span class="ml-2 capitalize">{dataState.userDetails?.username}</span>
 				<span
 					class="ml-auto transition-transform ease-linear"

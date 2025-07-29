@@ -12,7 +12,6 @@
 
 	// Import VaultManager
 	import VaultManager from "../ui/VaultManager.svelte";
-	import { slide } from "svelte/transition";
 
 	// Define an enum for section selection
 	enum Section {

@@ -79,7 +79,7 @@
 </script>
 
 <div
-	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0">
+	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
 			onclick={saveNoteManual}
