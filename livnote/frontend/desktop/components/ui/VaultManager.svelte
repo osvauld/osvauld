@@ -31,12 +31,14 @@
 			});
 			await dataState.fetchVaults();
 			const newVault = dataState.vaults.find(
-				(vault) => vault.name === newVaultName,
+				(vault) => vault.name === newVaultName.trim(),
 			);
 			if (newVault) {
 				dataState.switchVault(newVault);
 			}
+			// Reset form state reactively
 			newVaultName = "";
+			newVaultInputActive = false;
 			uiState.toggleVaultManager();
 		} catch (e) {
 			console.log("Vault creation failed", e);
@@ -94,7 +96,7 @@
 							role="none"
 							onclick={(e) => e.stopPropagation()}
 							onkeydown={(e) =>
-								e.key === "Escape" && uiState.closeVaultManager()}>
+								e.key === "Escape" && uiState.toggleVaultManager()}>
 							<span class="text-sm text-center">New Folder </span>
 							<span class="w-full border-b border-osvauld-modalFieldActive"
 							></span>
@@ -103,7 +105,7 @@
 								<input
 									type="text"
 									id="new-vault-name"
-									class="bg-mobile-bgSeconary p-2 border-0 outline-0 focus:ring-0 rounded-lg"
+									class="bg-mobile-bgSeconary p-2 border-0 outline-0 focus:ring-0 rounded-lg placeholder:text-sm placeholder:text-osvauld-iconblack"
 									placeholder="Title"
 									autocomplete="off"
 									autocorrect="off"
@@ -111,11 +113,11 @@
 									bind:value={newVaultName} />
 								<button
 									type="submit"
-									class="h-[48px] flex justify-center items-center gap-1 rounded-lg font-medium text-base mt-6"
+									class="h-[48px] flex justify-center items-center gap-1 rounded-lg mt-6 text-base cursor-pointer"
 									class:bg-signupGray={isCreationDisabled}
 									class:text-white={isCreationDisabled}
-									class:bg-mobile-highlightBlue={!isCreationDisabled}
-									class:text-mobile-bgPrimary={!isCreationDisabled}
+									class:bg-livnotePink={!isCreationDisabled}
+									class:text-black={!isCreationDisabled}
 									disabled={isCreationDisabled}
 									>Create new folder <Add
 										color={isCreationDisabled ? "#fff" : "#000"} /></button>

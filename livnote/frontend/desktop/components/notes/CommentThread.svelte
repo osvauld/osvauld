@@ -28,7 +28,7 @@
 	let replyFormRef = $state<HTMLDivElement>();
 
 	// Derived values
-	const commentCount = $derived(thread.comments.length);
+	const commentCount = $derived(thread.comments.length - 1);
 	const mainComment = $derived(thread.comments[0]);
 	const replies = $derived(thread.comments.slice(1));
 	const previewText = $derived(getPreviewText());

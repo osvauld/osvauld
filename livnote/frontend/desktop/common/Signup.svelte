@@ -122,8 +122,8 @@
 </script>
 
 <div
-	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 relative">
-	<div class="h-full flex flex-col items-center pt-[13.5rem]">
+	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 py-16 relative">
+	<div class="h-full flex flex-col items-center">
 		<img src={LivnoteLogo} alt="Livnote Logo" class="mb-10 select-none" />
 		{#if currentView === "welcome"}
 			<InitiationScreen onFlowSelect={triggerOnboardingFlow} />

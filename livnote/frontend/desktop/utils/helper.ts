@@ -42,7 +42,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
         invoke("emit_all_resources", {
           selectedResourceId: selectedResourceId ?? null
         }),
-      logout: () => invoke("logout"),
+      logout: () => invoke("handle_logout"),
       sendSnapshot: (data: any) => invoke("send_snapshot", { snapshot: data }),
       updateCredential: (data: any) =>
         invoke("handle_update_resource", { input: data }),
