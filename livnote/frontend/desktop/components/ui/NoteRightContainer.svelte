@@ -79,14 +79,13 @@
 </script>
 
 <div
-	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0">
+	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
 			onclick={saveNoteManual}
 			class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center">
-					<span class="text-[#9DD062] mr-2">Saved</span>
 					<Tick color="#9DD062" />
 				</span>
 			{:else}

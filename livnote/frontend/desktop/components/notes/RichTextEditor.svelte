@@ -36,6 +36,7 @@
 			loadingPhase === "preparing" ||
 			loadingPhase === "structure-ready",
 	);
+	
 	let showContent = $derived(
 		!uiState.isNoteLoading &&
 			(loadingPhase === "content-loaded" || loadingPhase === "ready"),
@@ -102,6 +103,17 @@
 			view = editorManager.createView(element);
 			loadingPhase = "ready";
 			uiState.setEditorLoading(false);
+			
+			// Set up auto-save interval (10 seconds)
+			if (autoSaveInterval) {
+				clearInterval(autoSaveInterval);
+			}
+			autoSaveInterval = setInterval(() => {
+				if (dataState.currentNoteId && view) {
+					dataState.saveNote(dataState.currentNoteId);
+				}
+			}, 10000); 
+			
 			// Focus editor
 			setTimeout(() => {
 				if (view) {
@@ -380,7 +392,7 @@
 
 			<!-- Skeleton overlay -->
 			{#if showSkeleton}
-				<div class="absolute inset-0 p-6 space-y-4 bg-black/90 z-50">
+				<div class="absolute inset-0 p-6 space-y-4 bg-[#16171f] z-50">
 					<div class="animate-pulse space-y-6">
 						<div class="text-white text-sm mb-4 bg-blue-600 p-2 rounded">
 							{#if uiState.isNoteFetching}
@@ -395,17 +407,16 @@
 						<!-- Title skeleton -->
 						<div class="h-8 bg-gray-600 rounded-lg w-3/4"></div>
 
-						<!-- Content skeletons -->
-						<div class="space-y-3">
-							<div class="h-4 bg-gray-600 rounded w-full"></div>
-							<div class="h-4 bg-gray-600 rounded w-5/6"></div>
-							<div class="h-4 bg-gray-600 rounded w-4/5"></div>
-						</div>
 
-						<div class="space-y-3">
-							<div class="h-4 bg-gray-600 rounded w-full"></div>
-							<div class="h-4 bg-gray-600 rounded w-3/4"></div>
-						</div>
+						<div class="h-4 bg-gray-600 rounded w-5/6"></div>
+						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
+
+						<div class="h-4 bg-gray-600 rounded w-5/6"></div>
+						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
+
+						<div class="h-24 bg-gray-600 rounded w-5/6"></div>
+						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
+						<div class="h-4 bg-gray-600 rounded w-full"></div>
 					</div>
 				</div>
 			{/if}
