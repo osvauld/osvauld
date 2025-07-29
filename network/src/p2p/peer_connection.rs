@@ -3,8 +3,8 @@ use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, HandshakeInit,
-    Message, User, UserManifestComparisonResult,
+    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, User,
+    UserManifestComparisonResult,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;

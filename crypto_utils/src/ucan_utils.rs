@@ -2,7 +2,9 @@ use crate::errors::UcanError;
 use crate::types::TokenValidation;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{Signature, SigningKey, VerifyingKey};
+use log::info;
 use openpgp::{
     packet::key::{SecretParts, UnspecifiedRole},
     policy::StandardPolicy,
@@ -238,6 +240,7 @@ fn is_one_time_connect_token(ucan: &Ucan, capability_prefix: &str) -> bool {
 /// Validate UCAN connect token and check if it's one-time
 pub async fn validate_connect_ucan_token(
     token: &str,
+    peer_ucan_pub_b64: &str,
     capability_prefix: &str,
 ) -> Result<TokenValidation, String> {
     let ucan = Ucan::try_from(token).map_err(|e| format!("Failed to parse UCAN: {}", e))?;
@@ -246,18 +249,55 @@ pub async fn validate_connect_ucan_token(
         fn(Vec<u8>) -> anyhow::Result<Box<dyn KeyMaterial>>,
     )] = &[(ED25519_MAGIC_BYTES, bytes_to_ed25519_key)];
     let mut did_parser = DidParser::new(key_constructors);
-
     let now = chrono::Utc::now().timestamp() as u64;
+    let keys_match = {
+        // Get the public key from the UCAN issuer's DID string ("did:key:z...")
+        let issuer_did = ucan.issuer();
+        let decoded_did = bs58::decode(&issuer_did[9..]) // Skip "did:key:z"
+            .into_vec()
+            .map_err(|e| format!("Failed to decode issuer DID: {}", e))?;
 
-    let is_valid = ucan.validate(Some(now), &mut did_parser).await.is_ok();
+        // The raw key is after the 2-byte multicodec prefix for Ed25519 (0xed01)
+        if decoded_did.len() <= 2 {
+            return Err("Invalid issuer DID format: too short".to_string());
+        }
+        let ucan_issuer_key_bytes = &decoded_did[2..];
+
+        // Decode the PGP-attested public key from base64
+        let attested_key_bytes = general_purpose::STANDARD
+            .decode(peer_ucan_pub_b64)
+            .map_err(|e| format!("Failed to decode peer_ucan_pub_b64: {}", e))?;
+
+        // +++ START OF DEBUG LOGGING +++
+        let issuer_key_b64_for_log = general_purpose::STANDARD.encode(ucan_issuer_key_bytes);
+        info!("-------------------------------------------------");
+        info!("[UCAN VALIDATION] Comparing Keys...");
+        info!(
+            "[UCAN VALIDATION] Key from Token Issuer: {}",
+            issuer_key_b64_for_log
+        );
+        info!(
+            "[UCAN VALIDATION] Key from DB Record:    {}",
+            peer_ucan_pub_b64
+        );
+        info!("-------------------------------------------------");
+        // +++ END OF DEBUG LOGGING +++
+
+        // Perform the comparison
+        ucan_issuer_key_bytes == attested_key_bytes.as_slice()
+    };
+    info!("keys_match {}", keys_match);
+
+    // 3. Final validation
+    let is_structurally_valid = ucan.validate(Some(now), &mut did_parser).await.is_ok();
     let is_one_time = is_one_time_connect_token(&ucan, capability_prefix);
 
     Ok(TokenValidation {
-        is_valid,
+        // A token is only valid if it's structurally sound AND the keys match
+        is_valid: is_structurally_valid && keys_match,
         is_one_time,
     })
 }
-
 /// Generate a delegation and connection token
 /// This creates a token with very long validity that grants both connection and delegation capabilities
 /// Issued directly by root authority (not delegated from one-time token)

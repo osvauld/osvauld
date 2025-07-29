@@ -512,7 +512,6 @@ pub async fn request_connections(&self) -> Result<(), String> {
                 .await
             {
                 error!("Failed to initiate handshake: {}", e);
-                // Connection is already inserted, handshake will happen via messages
             }
         }
 

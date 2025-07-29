@@ -245,9 +245,10 @@ pub fn verify_signature(
 
 pub async fn validate_connect_token(
     token: &str,
+    peer_ucan_pub: &str,
     capability_prefix: &str,
 ) -> Result<TokenValidation, String> {
-    ucan_utils::validate_connect_ucan_token(token, capability_prefix).await
+    ucan_utils::validate_connect_ucan_token(token, peer_ucan_pub, capability_prefix).await
 }
 /// Verifies a cleartext signed message and returns the original message on success.
 ///
@@ -593,7 +594,7 @@ impl CryptoUtils {
 
         // Convert the verifying key (public key) to base64 string
         let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
-
+        let _ = validate_connect_token(&token, &public_key_b64, &capability_str).await;
         Ok((token, public_key_b64))
     }
 

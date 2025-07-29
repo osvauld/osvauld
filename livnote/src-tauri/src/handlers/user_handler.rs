@@ -17,17 +17,17 @@ pub async fn handle_add_user(
     repo_ctx: State<'_, RepositoryContext>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    // Decode the base64 string
-    let json_bytes = general_purpose::STANDARD
-        .decode(input)
-        .map_err(|e| format!("Failed to decode input: {}", e))?;
-
-    // Convert bytes to UTF-8 string
-    let json_str = String::from_utf8(json_bytes)
-        .map_err(|e| format!("Invalid UTF-8 in decoded input: {}", e))?;
+    // // Decode the base64 string
+    // let json_bytes = general_purpose::STANDARD
+    //     .decode(input)
+    //     .map_err(|e| format!("Failed to decode input: {}", e))?;
+    //
+    // // Convert bytes to UTF-8 string
+    // let json_str = String::from_utf8(json_bytes)
+    //     .map_err(|e| format!("Invalid UTF-8 in decoded input: {}", e))?;
 
     // Deserialize the JSON string to our UserDetails struct
-    let details: UserDetails = serde_json::from_str(&json_str)
+    let details: UserDetails = serde_json::from_str(&input)
         .map_err(|e| format!("Failed to deserialize user details: {}", e))?;
 
     // Now you can use the extracted fields

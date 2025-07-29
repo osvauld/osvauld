@@ -4671,6 +4671,7 @@ name = "network"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "crypto_utils",
  "futures-lite",
  "iroh 0.90.0",

@@ -41,8 +41,7 @@
 						ucan_token,
 						ucan_pub_key,
 					};
-					console.log(userDetails);
-					await writeToClipboard(btoa(JSON.stringify(userDetails)));
+					await writeToClipboard(JSON.stringify(userDetails));
 					uiState.showToast("UserID copied to clipboard", true);
 				} catch (error) {
 					console.error("Error copying user ID:", error);
