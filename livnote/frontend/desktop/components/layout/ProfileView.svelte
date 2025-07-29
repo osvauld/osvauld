@@ -11,7 +11,6 @@
 	import AddUserForm from "../ui/AddUserForm.svelte";
 	import AddDevice from "../ui/AddDevice.svelte";
 
-	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
 		{ id: "add", label: "Add Device", icon: QrScanner },
 		{ id: "devices", label: "My Devices", icon: Devices },
@@ -20,14 +19,11 @@
 		{ id: "export", label: "Emergency Key", icon: DownloadIcon },
 	] as const;
 
-	// Extract the union type from MENUITEMS for type safety
 	type MenuItemId = (typeof MENUITEMS)[number]["id"];
 
-	// Single state to track the currently active menu item
 	let activeMenuItem = $state<MenuItemId | null>("addUser");
 	
-	// References to all menu buttons for focus management
-	let menuButtons = $state<Record<MenuItemId, HTMLButtonElement>>({} as Record<MenuItemId, HTMLButtonElement>);
+	let menuButtons = $state<Record<string, HTMLButtonElement>>({});
 
 	// Watch for password prompt modal state changes to handle focus
 	$effect(() => {
@@ -35,8 +31,10 @@
 		if (!uiState.passwordPromptModal.show) {
 			// Use setTimeout to ensure DOM is updated and focus works properly
 			setTimeout(() => {
-				const activeButton = menuButtons[activeMenuItem!];
-				activeButton?.focus();
+				if (activeMenuItem) {
+					const activeButton = menuButtons[activeMenuItem];
+					activeButton?.focus();
+				}
 			}, 0);
 		}
 	});
