@@ -41,6 +41,17 @@ style.textContent += `
     transition: max-height 0.2s ease-in;
     flex-wrap: wrap;
   }
+  
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 2px) {
+    .secondary-menu {
+      margin: -2px;
+    }
+    
+    .secondary-menu > * {
+      margin: 2px;
+    }
+  }
   .secondary-menu.visible {
     max-height: 100px; /* Adjust as needed */
     padding: 10px 0px 0px 0px; /* Restore padding when visible */
@@ -84,6 +95,17 @@ style.textContent += `
     position: absolute;
     z-index: 100;
     width: auto;
+  }
+  
+  /* Fallback for browsers that don't support gap in grid */
+  @supports not (gap: 8px) {
+    .color-picker-dropdown {
+      grid-gap: 8px;
+    }
+    
+    .color-picker-dropdown > * {
+      margin: 4px;
+    }
   }
   
   .color-swatch {
@@ -144,6 +166,13 @@ style.textContent += `
     font-size: 14px;
     min-width: 100px;
     transition: background-color 0.1s ease;
+  }
+  
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 8px) {
+    .font-family-dropdown-button > *:not(:last-child) {
+      margin-right: 8px;
+    }
   }
 
   .font-family-dropdown-button:hover {
