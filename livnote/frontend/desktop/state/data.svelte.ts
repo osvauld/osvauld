@@ -408,6 +408,12 @@ class DataState {
       id: noteId,
       data: JSON.stringify(noteContent),
     });
+    
+    uiState.setNoteSaved(true);
+    
+    setTimeout(() => {
+      uiState.setNoteSaved(false);
+    }, 1500);
   }
 
   async handleDocumentUpdates(event: any) {

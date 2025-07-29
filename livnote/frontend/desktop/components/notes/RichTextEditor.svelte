@@ -102,6 +102,17 @@
 			view = editorManager.createView(element);
 			loadingPhase = "ready";
 			uiState.setEditorLoading(false);
+			
+			// Set up auto-save interval (10 seconds)
+			if (autoSaveInterval) {
+				clearInterval(autoSaveInterval);
+			}
+			autoSaveInterval = setInterval(() => {
+				if (dataState.currentNoteId && view) {
+					dataState.saveNote(dataState.currentNoteId);
+				}
+			}, 10000); 
+			
 			// Focus editor
 			setTimeout(() => {
 				if (view) {
