@@ -257,7 +257,7 @@ pub async fn request_connections(&self) -> Result<(), String> {
     for device in first_user_connection_devices {
         let self_clone = self.clone();
          tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&device.id, ConnectionType::User, Some(ConnectionAction::UserFirstConnection)).await {
+            match self_clone.connect_with_ticket(&device.id, ConnectionType::User, Some(ConnectionAction::UserSync)).await {
                 Ok(_) => {
                     info!("Successfully connected to first-time user: {}", &device.id);
                 }

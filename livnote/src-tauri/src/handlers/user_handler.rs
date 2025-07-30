@@ -18,16 +18,16 @@ pub async fn handle_add_user(
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     // // Decode the base64 string
-    // let json_bytes = general_purpose::STANDARD
-    //     .decode(input)
-    //     .map_err(|e| format!("Failed to decode input: {}", e))?;
-    //
-    // // Convert bytes to UTF-8 string
-    // let json_str = String::from_utf8(json_bytes)
-    //     .map_err(|e| format!("Invalid UTF-8 in decoded input: {}", e))?;
+    let json_bytes = general_purpose::STANDARD
+        .decode(input)
+        .map_err(|e| format!("Failed to decode input: {}", e))?;
+
+    // Convert bytes to UTF-8 string
+    let json_str = String::from_utf8(json_bytes)
+        .map_err(|e| format!("Invalid UTF-8 in decoded input: {}", e))?;
 
     // Deserialize the JSON string to our UserDetails struct
-    let details: UserDetails = serde_json::from_str(&input)
+    let details: UserDetails = serde_json::from_str(&json_str)
         .map_err(|e| format!("Failed to deserialize user details: {}", e))?;
 
     // Now you can use the extracted fields
@@ -56,7 +56,7 @@ pub async fn handle_add_user(
             .connect_with_ticket(
                 &device.id,
                 ConnectionType::User,
-                Some(ConnectionAction::UserFirstConnection),
+                Some(ConnectionAction::UserSync),
             )
             .await
         {

@@ -120,3 +120,51 @@ pub async fn get_shared_user_devices_for_note(
 
     Ok((shared_device_ids, shared_users))
 }
+
+pub async fn get_ucan_pub_key(
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<String, String> {
+    let encrypted_ucan_pvt_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| e.to_string())?;
+    let crypto = crypto_utils.lock().await;
+    crypto
+        .get_public_ucan_key(&encrypted_ucan_pvt_key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn issue_connect_ucan_token(
+    repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    domain: &str,
+    peer_ucan_pub_key: &str,
+) -> Result<String, String> {
+    let encrypted_pvt_key = repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
+        error!("Failed to get UCAN key for issuing new token: {}", e);
+        e.to_string()
+    })?;
+    let crypto = crypto_utils.lock().await;
+    crypto
+        .issue_connect_and_share_user_token(&encrypted_pvt_key, domain, peer_ucan_pub_key)
+        .await
+        .map_err(|e| {
+            error!("Failed to issue connect and share token: {}", e);
+            e.to_string()
+        })
+}
+
+pub async fn sign_ucan_pub_key(
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    repo_ctx: &RepositoryContext,
+) -> Result<String, String> {
+    let ucan_pub_key = get_ucan_pub_key(repo_ctx, crypto_utils).await?;
+    let crypto = crypto_utils.lock().await;
+    crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
+        error!("Failed to sign local UCAN public key: {}", e);
+        e.to_string()
+    })
+}

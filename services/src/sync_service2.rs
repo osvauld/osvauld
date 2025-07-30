@@ -1,12 +1,17 @@
+use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
     ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
     DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ResourceComparisonResult,
-    ResourceManifestData, ResourceSyncData, ResourceVectorClock, UserComparisonResult,
+    ResourceManifestData, ResourceSyncData, ResourceVectorClock, User, UserComparisonResult,
     UserManifestComparisonResult, UserManifestDifferences, UserManifestPayload,
     UserManifestRequestPayload, UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices, user,
 };
 use persistance::database::RepositoryContext;
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+use tokio::sync::Mutex;
 use tracing::{Span, info, instrument};
 #[derive(Debug, Clone)]
 pub struct SetComparison {
@@ -574,7 +579,9 @@ pub fn process_resource_gaps(
 
 pub async fn create_user_network_sync_payload(
     manifest_diff: &UserManifestDifferences,
+    peer_user: &User,
     repo_ctx: &RepositoryContext,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<UserNetworkSyncPayload, String> {
     // 1. Get unknown users with their devices
     let unknown_users_with_devices = repo_ctx
@@ -600,6 +607,7 @@ pub async fn create_user_network_sync_payload(
         devices: unknown_devices_from_common_users,
     })
 }
+
 pub async fn process_user_network_sync_payload(
     payload: &mut UserNetworkSyncPayload,
     repo_ctx: &RepositoryContext,

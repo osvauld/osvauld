@@ -618,9 +618,9 @@ impl CryptoUtils {
 
     pub async fn get_public_ucan_key(
         &self,
-        encrypted_private_key: &str,
+        encrypted_ucan_private_key: &str,
     ) -> Result<String, CryptoError> {
-        let (_signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+        let (_signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
         let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
         Ok(public_key_b64)
     }

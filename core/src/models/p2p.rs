@@ -24,17 +24,11 @@ pub enum Message {
     DeviceNetworkSyncAck,
     ResourceAdditionRequest(ResourceSyncData),
     ResourceAdditionComplete,
-    FirstUserConnection(FirstUserExchange),
     UserManifestPayload(UserManifestPayload),
     UserNetworkSync(UserNetworkSyncPayload),
     UserNetworkSyncAck,
     RetryRequest,
     Handshake(HandshakeMessage),
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum FirstUserExchange {
-    Request(UserWithDevices),
-    Response(UserWithDevices),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -115,7 +109,6 @@ pub struct UcanAndUserExchange {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionAction {
     DeviceSync,
-    UserFirstConnection,
     AddDevice,
     LiveEdit,
     UserSync,

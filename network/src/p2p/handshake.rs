@@ -5,7 +5,9 @@ use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, FirstConnectRequest, FirstConnectResponse,
     HandshakeMessage, Message, UcanAndUserExchange, User, UserWithDevices,
 };
-use services::get_my_user_devices;
+use services::{
+    get_my_user_devices, get_ucan_pub_key, issue_connect_ucan_token, sign_ucan_pub_key,
+};
 use tracing::{debug, error, info, instrument};
 
 impl PeerConnection {
@@ -27,7 +29,6 @@ impl PeerConnection {
             error!("Failed to get remote node id: {}", e);
             e.to_string()
         })?;
-
         debug!("Successfully retrieved peer id: {}", peer_id);
         let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
         let user = self
@@ -55,30 +56,8 @@ impl PeerConnection {
         }
         debug!("Peer token is valid");
 
-        let signed_ucan_pub = {
-            let encrypted_pvt_key = self.repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
-                error!("Failed to get UCAN key from store: {}", e);
-                e.to_string()
-            })?;
-            debug!("Retrieved encrypted private key for UCAN");
-
-            let crypto = self.crypto_utils.lock().await;
-            let ucan_pub_key = crypto
-                .get_public_ucan_key(&encrypted_pvt_key)
-                .await
-                .map_err(|e| {
-                    error!("Failed to get public UCAN key: {}", e);
-                    e.to_string()
-                })?;
-            debug!("Generated public UCAN key");
-
-            crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
-                error!("Failed to sign the UCAN public key: {}", e);
-                e.to_string()
-            })?
-        };
+        let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
         debug!("Successfully signed the UCAN public key");
-
         if user.first_sync {
             info!("Peer is a first-time connection, preparing FirstConnectRequest");
             let user_devices = get_my_user_devices(&user.id, &self.repo_ctx)
@@ -89,25 +68,13 @@ impl PeerConnection {
                 })?;
             debug!("Retrieved {} devices for the user", user_devices.len());
 
-            let new_ucan_token = {
-                let encrypted_pvt_key =
-                    self.repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
-                        error!("Failed to get UCAN key for issuing new token: {}", e);
-                        e.to_string()
-                    })?;
-                let crypto = self.crypto_utils.lock().await;
-                crypto
-                    .issue_connect_and_share_user_token(
-                        &encrypted_pvt_key,
-                        &self.domain,
-                        &user.ucan_pub_key,
-                    )
-                    .await
-                    .map_err(|e| {
-                        error!("Failed to issue new connect token: {}", e);
-                        e.to_string()
-                    })?
-            };
+            let new_ucan_token = issue_connect_ucan_token(
+                &self.repo_ctx,
+                &self.crypto_utils,
+                &self.domain,
+                &user.ucan_pub_key,
+            )
+            .await?;
             debug!("Successfully issued new UCAN token for peer");
 
             self.send_message(Message::Handshake(
@@ -201,28 +168,7 @@ impl PeerConnection {
             info!("Handshake marked as complete for initiator.");
         } else {
             info!("This peer is the responder. Preparing and sending exchange response.");
-            let signed_ucan_pub = {
-                let encrypted_pvt_key =
-                    self.repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
-                        error!("(Responder) Failed to get UCAN key: {}", e);
-                        e.to_string()
-                    })?;
-                debug!("(Responder) Retrieved encrypted private key for UCAN");
-
-                let crypto = self.crypto_utils.lock().await;
-                let ucan_pub_key = crypto
-                    .get_public_ucan_key(&encrypted_pvt_key)
-                    .await
-                    .map_err(|e| {
-                        error!("(Responder) Failed to get public UCAN key: {}", e);
-                        e.to_string()
-                    })?;
-                debug!("(Responder) Generated public UCAN key");
-                crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
-                    error!("(Responder) Failed to sign UCAN public key: {}", e);
-                    e.to_string()
-                })?
-            };
+            let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
             debug!("(Responder) Successfully signed the UCAN public key");
 
             let current_user = self.get_local_user().await?;
@@ -308,34 +254,14 @@ impl PeerConnection {
         info!("Peer's one-time UCAN is valid. Proceeding to issue persistent UCAN.");
 
         let (peer_issued_ucan_token, signed_ucan_pub) = {
-            let encrypted_pvt_key = self.repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
-                error!("Failed to get UCAN key for issuing new token: {}", e);
-                e.to_string()
-            })?;
-
-            let crypto = self.crypto_utils.lock().await;
-            let ucan_pub_key = crypto
-                .get_public_ucan_key(&encrypted_pvt_key)
-                .await
-                .map_err(|e| {
-                    error!("Failed to get local public UCAN key: {}", e);
-                    e.to_string()
-                })?;
-            let signed_ucan_pub = crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
-                error!("Failed to sign local UCAN public key: {}", e);
-                e.to_string()
-            })?;
-            let issued_token = crypto
-                .issue_connect_and_share_user_token(
-                    &encrypted_pvt_key,
-                    &self.domain,
-                    &peer_ucan_pub,
-                )
-                .await
-                .map_err(|e| {
-                    error!("Failed to issue connect and share token: {}", e);
-                    e.to_string()
-                })?;
+            let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
+            let issued_token = issue_connect_ucan_token(
+                &self.repo_ctx,
+                &self.crypto_utils,
+                &self.domain,
+                &peer_ucan_pub,
+            )
+            .await?;
             debug!("Successfully issued new UCAN token for peer and signed local public key");
             (issued_token, signed_ucan_pub)
         };
@@ -345,7 +271,6 @@ impl PeerConnection {
         user.owner = false;
         user.ucan_token = peer_issued_ucan_token.clone();
         user.ucan_pub_key = peer_ucan_pub;
-
         self.connection_type = Some(payload.connection_type.clone());
         self.device = payload.peer_device.clone();
         self.user = user.clone();
@@ -475,9 +400,6 @@ impl PeerConnection {
             // Execute the appropriate action
             match action {
                 ConnectionAction::DeviceSync => self.start_add_device_process().await,
-                ConnectionAction::UserFirstConnection => {
-                    self.send_first_user_connection_payload(true).await
-                }
                 ConnectionAction::AddDevice => {
                     info!("Initiator: Starting add device phase");
                     self.start_add_device_process().await
