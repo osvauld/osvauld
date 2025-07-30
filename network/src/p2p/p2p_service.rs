@@ -418,7 +418,6 @@ pub async fn request_connections(&self) -> Result<(), String> {
         action: Option<ConnectionAction>,
     ) -> Result<Arc<PeerConnection>, P2PError> {
         debug!("Creating peer connection for handshake");
-
         // Get local device and user
         let local_device = self.get_current_device().await?;
         let local_user = self.get_current_user().await?;
@@ -475,7 +474,7 @@ pub async fn request_connections(&self) -> Result<(), String> {
             self.crypto_utils.clone(),
             self.repo_ctx.clone(),
             action.clone(),
-        connection_type.clone(),
+            connection_type.clone(),
             peer_node_id.to_string(),
             local_user.clone(),
             local_device.clone(),

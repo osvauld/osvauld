@@ -57,8 +57,8 @@ impl PeerConnection {
         debug!("Peer token is valid");
 
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
-        debug!("Successfully signed the UCAN public key");
-        if user.first_sync {
+        debug!("Successfully signed the UCAN public key, {:?}", user);
+        if !user.first_sync {
             info!("Peer is a first-time connection, preparing FirstConnectRequest");
             let user_devices = get_my_user_devices(&user.id, &self.repo_ctx)
                 .await
