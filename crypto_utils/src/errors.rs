@@ -120,9 +120,6 @@ pub enum UcanError {
     #[error("UCAN creation failed: {0}")]
     CreationError(String),
 
-    #[error("UCAN validation failed: {0}")]
-    ValidationError(String),
-
     #[error("UCAN signature error: {0}")]
     SignatureError(String),
 
@@ -146,6 +143,22 @@ pub enum UcanError {
 
     #[error("Crypto utils error: {0}")]
     CryptoUtilsError(#[from] CryptoUtilsError),
+    #[error("Failed to parse UCAN token: {0}")]
+    ParseError(String),
+    #[error("UCAN validation failed: {0}")]
+    ValidationError(String),
+    #[error("The presenter of the token is not its intended audience.")]
+    InvalidAudience,
+    #[error("Failed to decode DID string: {0}")]
+    DidDecodeError(String),
+    #[error("Failed to decode base64 key: {0}")]
+    Base64DecodeError(String),
+    #[error("Invalid DID format: {0}")]
+    InvalidDidFormat(String),
+    #[error("The provided public key does not match the key in the DID.")]
+    PublicKeyMismatch,
+    #[error("The required capability was not found in the UCAN.")]
+    CapabilityNotFound,
 }
 
 #[derive(Error, Debug)]

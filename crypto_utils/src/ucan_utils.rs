@@ -338,3 +338,105 @@ pub async fn generate_delegation_and_connection_token(
 
     Ok(token)
 }
+/// Parses a UCAN token string and performs basic structural and cryptographic
+/// validation, including signature and expiration checks.
+///
+/// ### Arguments
+/// * `token` - The raw UCAN token string.
+///
+/// ### Returns
+/// A `Result` containing the parsed and validated `Ucan` object, or a
+/// `UcanError` on failure.
+pub async fn validate_structure(token: &str) -> Result<Ucan, UcanError> {
+    let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
+    let key_constructors: &[(
+        &'static [u8],
+        fn(Vec<u8>) -> Result<Box<dyn ucan::crypto::KeyMaterial>>,
+    )] = &[(ED25519_MAGIC_BYTES, crate::ucan_utils::bytes_to_ed25519_key)];
+    let mut did_parser = DidParser::new(key_constructors);
+
+    let now = chrono::Utc::now().timestamp() as u64;
+    ucan.validate(Some(now), &mut did_parser)
+        .await
+        .map_err(|e| UcanError::ValidationError(e.to_string()))?;
+
+    Ok(ucan)
+}
+/// Validates that the presenter of a UCAN is its intended audience by comparing
+/// the raw public key from the `aud` field with the presenter's public key.
+///
+/// ### Arguments
+/// * `ucan` - A reference to the parsed and structurally valid UCAN.
+/// * `presenter_ucan_pub_b64` - The base64-encoded public key of the peer presenting the token.
+///
+/// ### Returns
+/// A `Result` that is empty on success, or a `UcanError` on failure.
+pub fn validate_audience(ucan: &Ucan, presenter_ucan_pub_b64: &str) -> Result<(), UcanError> {
+    verify_did_key_match(ucan.audience(), presenter_ucan_pub_b64).map_err(|e| match e {
+        UcanError::PublicKeyMismatch => UcanError::InvalidAudience,
+        _ => e,
+    })
+}
+
+/// Verifies if the public key in a did:key string matches a base64-encoded key.
+fn verify_did_key_match(did: &str, key_b64: &str) -> Result<(), UcanError> {
+    let key_from_did = if did.starts_with("did:key:z") {
+        let decoded_did = bs58::decode(&did[9..])
+            .into_vec()
+            .map_err(|e| UcanError::DidError(e.to_string()))?;
+
+        if decoded_did.len() <= 2 {
+            return Err(UcanError::FormatError("DID is too short".to_string()));
+        }
+        decoded_did[2..].to_vec()
+    } else {
+        return Err(UcanError::FormatError("Unsupported DID method".to_string()));
+    };
+
+    let key_from_b64 = general_purpose::STANDARD
+        .decode(key_b64)
+        .map_err(|e| UcanError::DecodingError(e.to_string()))?;
+
+    if key_from_did != key_from_b64 {
+        return Err(UcanError::PublicKeyMismatch);
+    }
+
+    Ok(())
+}
+
+/// Verifies that the UCAN contains a capability that grants the required permission.
+/// This function supports wildcard matching for hierarchical resources (e.g., a
+/// capability for "my-app:*" grants permission for "my-app:feature-a").
+///
+/// ### Arguments
+/// * `ucan` - A reference to the parsed and structurally valid UCAN.
+/// * `required_resource` - The resource string that permission is required for.
+/// * `required_ability` - The ability string that is required.
+///
+/// ### Returns
+/// A `Result` that is empty on success, or a `UcanError::CapabilityNotFound` on failure.
+pub fn check_capability(
+    ucan: &Ucan,
+    required_resource: &str,
+    required_ability: &str,
+) -> Result<(), UcanError> {
+    for capability in ucan.capabilities().iter() {
+        if capability.ability == required_ability {
+            let cap_resource = capability.resource;
+
+            if cap_resource.ends_with('*') {
+                let prefix = &cap_resource[..cap_resource.len() - 1];
+                if required_resource.starts_with(prefix) {
+                    return Ok(()); // Permission granted by wildcard.
+                }
+            } else {
+                if cap_resource == required_resource {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    // 3. If the loop completes, no suitable capability was found.
+    Err(UcanError::CapabilityNotFound)
+}
