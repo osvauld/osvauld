@@ -3,7 +3,7 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { listen } from "@tauri-apps/api/event";
 	import { onMount, onDestroy } from "svelte";
-	import { sendMessage } from "../utils/helper";
+	import { sendMessage, writeToClipboard } from "../utils/helper";
 	let connectionTicket = "";
 	let status = $state("Ready to connect");
 	let error = $state("");
@@ -93,7 +93,7 @@
 
 	async function copyTicket() {
 		try {
-			await navigator.clipboard.writeText(recoveryString);
+							await writeToClipboard(recoveryString);
 			const originalStatus = status;
 			status = "Connection Ticket copied!";
 			setTimeout(() => {

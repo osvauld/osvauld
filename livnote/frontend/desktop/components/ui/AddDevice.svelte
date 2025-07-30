@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { sendMessage } from "../../utils/helper";
+	import { sendMessage, writeToClipboard } from "../../utils/helper";
 	import { dataState } from "../../state/";
 
 	let copied = $state(false);
@@ -56,7 +56,7 @@
 
 	async function handleCopy() {
 		try {
-			await navigator.clipboard.writeText(identificationKey);
+			await writeToClipboard(identificationKey);
 			copied = true;
 			setTimeout(() => {
 				copied = false;

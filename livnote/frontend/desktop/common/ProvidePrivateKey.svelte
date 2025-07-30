@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { CopyIcon, Tick } from "../icons";
+	import { writeToClipboard } from "../utils/helper";
 
 	let { onLogin, collectedRecoveryString = $bindable() } = $props<{
 		onLogin: (isLoggedin: boolean) => void;
@@ -44,13 +45,13 @@
 		</div>
 		<button
 			class="absolute right-2 top-2 cursor-pointer bg-osvauld-fieldActive border border-transparent focus:border-livnotePink outline-0 rounded-lg z-999 p-2.5"
-			onclick={() => {
-				navigator.clipboard.writeText(collectedRecoveryString);
-				isCopied = true;
-				setTimeout(() => {
-					isCopied = false;
-				}, 2000);
-			}}>
+					onclick={async () => {
+			await writeToClipboard(collectedRecoveryString);
+			isCopied = true;
+			setTimeout(() => {
+				isCopied = false;
+			}, 2000);
+		}}>
 			{#if isCopied}<Tick />{:else}
 				<CopyIcon color="#85889C" />
 			{/if}

@@ -16,6 +16,7 @@
 		"@types/node": "^22.16.5",
 		"@typescript-eslint/eslint-plugin": "^8.37.0",
 		"@typescript-eslint/parser": "^8.37.0",
+		"@vitejs/plugin-legacy": "6",
 		"autoprefixer": "^10.4.21",
 		"eslint": "^9.31.0",
 		"eslint-plugin-svelte": "^2.46.1",
