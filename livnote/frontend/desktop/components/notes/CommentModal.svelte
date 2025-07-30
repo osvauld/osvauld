@@ -61,6 +61,7 @@
 		align-items: center;
 		justify-content: center;
 		z-index: 1000;
+		-webkit-backdrop-filter: blur(2px);
 		backdrop-filter: blur(2px);
 	}
 

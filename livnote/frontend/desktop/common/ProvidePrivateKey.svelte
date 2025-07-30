@@ -37,7 +37,7 @@
 			</div>
 			{#if !revealKey}
 				<div
-					class="absolute inset-0 bg-transparent bg-opacity-50 backdrop-blur-[3px] cursor-pointer rounded-md transition-all duration-300"
+					class="absolute inset-0 bg-black/50 rounded-md cursor-pointer backdrop-blur-[3px] transition-all duration-300"
 					style="-webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);">
 				</div>
 			{/if}

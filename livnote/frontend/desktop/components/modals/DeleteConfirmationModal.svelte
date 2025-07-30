@@ -57,7 +57,7 @@
 </script>
 
 <div
-	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px]"
+	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur/80 backdrop-filter backdrop-blur-[2px]"
 	on:click={handleModalBackdropClick}
 	role="presentation">
 	<form
