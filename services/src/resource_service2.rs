@@ -55,28 +55,31 @@ pub async fn create_resource(
 
     // Create the resource key for the user
     let resource_key = ResourceKey::new(resource.id.clone(), user.id.clone(), encrypted_key, true);
-    //signature string combinattion of resource_id, shared by and shared to users ids
-    let signature_string = format!(
-        "{}{}{}{}",
-        resource.id,
-        user.id.clone(),
-        user.id.clone(),
-        PermissionLevel::Admin.to_string()
-    );
-    let signature = {
+
+    let encrypted_ucan_pvt_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
         crypto
-            .sign_and_hash_message(&signature_string)
+            .generate_resource_owner_ucan(
+                &encrypted_ucan_pvt_key,
+                &resource.id,
+                &"livnote".to_string(),
+            )
+            .await
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
     };
-
     // Create the share record (user sharing with themselves as owner)
     let share_record = ShareRecord::prepare_share_record(
         resource.id.clone(),
         user.id.clone(),
         user.id.clone(),
         PermissionLevel::Admin,
-        signature,
+        ucan_token,
+        ucan_cid,
     );
 
     // Get user's devices to create vector clocks
@@ -90,7 +93,6 @@ pub async fn create_resource(
     // Create initial vector clocks for all user's devices
     let vector_clocks =
         ResourceVectorClock::create_initial_entries(&resource.id, &device_ids, current_device_id);
-    info!(" vecto clocks{:?}", vector_clocks);
 
     // Save everything in a single transaction
     repo_ctx
@@ -358,6 +360,7 @@ pub async fn share_resource(
         current_user_id.to_string(),
         recipient_user_id.to_string(),
         PermissionLevel::Write, // Default permission level
+        signature.clone(),
         signature,
     );
 

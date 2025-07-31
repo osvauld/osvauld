@@ -159,6 +159,7 @@ impl PeerConnection {
             info!("This peer is the initiator. Completing handshake.");
             let mut handshake_complete = self.handshake_complete.lock().await;
             *handshake_complete = true;
+            self.start_user_network_sync().await?;
             info!("Handshake marked as complete for initiator.");
         } else {
             info!("This peer is the responder. Preparing and sending exchange response.");
@@ -371,6 +372,7 @@ impl PeerConnection {
                 e.to_string()
             })?;
         info!("Successfully added peer user and devices to repository. Handshake complete.");
+        self.start_user_network_sync().await?;
         Ok(())
     }
 

@@ -452,3 +452,65 @@ fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
     let did = format!("did:key:z{}", bs58::encode(did_bytes).into_string());
     Ok(did)
 }
+
+/// Generates a "root" UCAN for a new resource, issued by the owner to themselves.
+///
+/// This token grants full permissions and serves as the root of authority for
+/// any future delegations.
+pub async fn generate_resource_owner_ucan(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    resource_id: &str,
+    capability_prefix: &str,
+) -> Result<(String, String), UcanError> {
+    // 1. Create KeyMaterial for the owner using the struct from ucan_utils.rs.
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+
+    // 2. The issuer and audience are the same for the owner's root token.
+    // The get_did method is defined by the KeyMaterial trait.
+    let owner_did = key_material
+        .get_did()
+        .await
+        .map_err(|e| UcanError::DidError(e.to_string()))?;
+
+    // 3. A root token should have a very long lifetime.
+    let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
+
+    // 4. Define the full set of capabilities for the owner.
+    let resource_uri = format!("{}:resource:{}", capability_prefix, resource_id);
+    let capabilities = vec![
+        Capability::from((resource_uri.as_str(), "crud/read", &json!({}))),
+        Capability::from((resource_uri.as_str(), "crud/update", &json!({}))),
+        Capability::from((resource_uri.as_str(), "crud/delete", &json!({}))),
+        // The "ucan/share" capability is essential for allowing delegation.
+        Capability::from((resource_uri.as_str(), "ucan/share", &json!({}))),
+    ];
+
+    // 5. Build the UCAN using the builder definition provided.
+    let mut builder = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(&owner_did)
+        .with_lifetime(long_lifetime);
+
+    // Add each capability to the builder.
+    for cap in capabilities {
+        builder = builder.claiming_capability(cap);
+    }
+
+    // Finalize the builder, sign it, and encode it as a string.
+    let ucan = builder
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+    let token_cid = ucan
+        .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
+        .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?;
+    // 6. Return the encoded token string.
+    let token_str = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+    Ok((token_str, token_cid.to_string()))
+}

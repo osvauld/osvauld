@@ -1,4 +1,4 @@
-use crate::preview_generator::{PreviewGenerator, generate_preview_html};
+use crate::preview_generator::generate_preview_html;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
     ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,
@@ -7,21 +7,19 @@ use crate::types::{
 
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
+use log::error;
 use log::info;
 use network::P2PService;
 use osvauld_core::models::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
-use serde_json::de;
 use services::{
-    create_resource, delete_resource, get_all_resources, get_resource, get_resource_by_id_direct,
-    get_resources_for_folder, get_shared_user_devices_for_note, share_resource, toggle_fav,
-    update_last_accessed, update_resource,
+    create_resource, delete_resource, get_all_resources, get_resource_by_id_direct,
+    get_resources_for_folder, share_resource, toggle_fav, update_last_accessed, update_resource,
 };
 use std::sync::Arc;
 use std::time::Instant;
-use tokio::sync::Mutex;
-
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::Mutex;
 #[tauri::command]
 pub async fn handle_add_resource(
     input: AddResourceInput,
@@ -42,7 +40,10 @@ pub async fn handle_add_resource(
         &crypto_utils,
     )
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| {
+        error!("failed to decrypt resource {:?}", e);
+        e.to_string()
+    })?;
 
     let (preview, title) = match generate_preview_html(&resource_added.data, 3).await {
         Ok((preview, title)) => (preview, title),

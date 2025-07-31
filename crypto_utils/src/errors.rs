@@ -165,6 +165,8 @@ pub enum UcanError {
     #[error("The UCAN's proof chain is invalid: {0}")]
     ProofChainInvalid(String),
 
+    #[error("Failed to convert ucan to CID {0}")]
+    UcanCidConvertionFailed(String),
     #[error(
         "Delegation is not permitted; the parent UCAN lacks the required 'ucan/share' capability."
     )]

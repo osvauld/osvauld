@@ -650,6 +650,23 @@ impl CryptoUtils {
                 .map_err(|e| CryptoError::from(e))?; // Assuming a From/Into conversion exists
         Ok(signed_message)
     }
+
+    pub async fn generate_resource_owner_ucan(
+        &self,
+        encrypted_ucan_private_key: &str,
+        resource_id: &str,
+        capability_prefix: &str,
+    ) -> Result<(String, String), CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+        let (token, cid) = ucan_utils::generate_resource_owner_ucan(
+            &signing_key,
+            &verifying_key,
+            resource_id,
+            capability_prefix,
+        )
+        .await?;
+        Ok((token, cid))
+    }
 }
 
 // Implement Default for CryptoUtils
