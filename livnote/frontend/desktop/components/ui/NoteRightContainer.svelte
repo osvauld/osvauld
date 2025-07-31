@@ -15,7 +15,6 @@
 	import { pdfGenerator } from "../../utils/pdfGenerator";
 	// Import ShareNote component
 	import ShareNote from "../modals/ShareNote.svelte";
-	import { onMount } from "svelte";
 
 	// Local UI state
 	let showShareList = $state(false);
@@ -24,7 +23,6 @@
 	let isPdfGenerating = $state(false);
 	let saved = $state(false);
 
-	let lastModifiedTimestamp = $state<number | undefined>(undefined);
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
@@ -159,6 +157,6 @@
 
 	<div
 		class="border-b-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
-		<p class="text-statusColor">Last modified : Not available</p>
+		<p class="text-statusColor">Last modified: {getLastModifiedDate(dataState.getCurrentNoteData()?.data.last_modified)}</p>
 	</div>
 </div>
