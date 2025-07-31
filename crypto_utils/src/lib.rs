@@ -16,7 +16,6 @@ use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
 use std::str::FromStr;
 use std::time::Duration;
-use types::TokenValidation;
 
 // Public API - Stateless Functions
 /// Generate a new PGP key pair and encrypt the private key with a password
@@ -247,8 +246,25 @@ pub async fn validate_connect_token(
     token: &str,
     peer_ucan_pub: &str,
     capability_prefix: &str,
-) -> Result<TokenValidation, String> {
-    ucan_utils::validate_connect_ucan_token(token, peer_ucan_pub, capability_prefix).await
+    user_ucan_pub: &str,
+) -> Result<bool, CryptoError> {
+    // 1. Validate the UCAN's structure, signature, and expiration.
+    let ucan = ucan_utils::validate_structure(token).await?;
+    let is_one_time = ucan_utils::is_one_time_connect_token(&ucan, capability_prefix);
+    // 2. Validate that the audience is recipient.
+    if !is_one_time {
+        ucan_utils::validate_audience(&ucan, peer_ucan_pub)?;
+    }
+
+    // 3. Check for the specific 'connect' capability.
+    let required_resource = format!("{}:connect", capability_prefix);
+    ucan_utils::check_capability(&ucan, &required_resource, "use")?;
+
+    // 4. Verify the proof chain to ensure authority originates from the verifier.
+    ucan_utils::verify_authority(&ucan, user_ucan_pub).await?;
+
+    // If all checks pass, the token is valid.
+    Ok(true)
 }
 /// Verifies a cleartext signed message and returns the original message on success.
 ///
@@ -594,7 +610,6 @@ impl CryptoUtils {
 
         // Convert the verifying key (public key) to base64 string
         let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
-        let _ = validate_connect_token(&token, &public_key_b64, &capability_str).await;
         Ok((token, public_key_b64))
     }
 

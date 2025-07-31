@@ -5,9 +5,7 @@ use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, FirstConnectRequest, FirstConnectResponse,
     HandshakeMessage, Message, UcanAndUserExchange, User, UserWithDevices,
 };
-use services::{
-    get_my_user_devices, get_ucan_pub_key, issue_connect_ucan_token, sign_ucan_pub_key,
-};
+use services::{get_my_user_devices, issue_connect_ucan_token, sign_ucan_pub_key};
 use tracing::{debug, error, info, instrument};
 
 impl PeerConnection {
@@ -41,20 +39,6 @@ impl PeerConnection {
                 e.to_string()
             })?;
         debug!("Successfully retrieved user for peer");
-
-        let token_validation = crypto_utils::validate_connect_token(
-            &user.ucan_token,
-            &user.ucan_pub_key,
-            &self.domain,
-        )
-        .await?;
-        debug!("Token validation completed");
-
-        if !token_validation.is_valid {
-            error!("Peer token is invalid");
-            return Err("token invalid".to_string());
-        }
-        debug!("Peer token is valid");
 
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
         debug!("Successfully signed the UCAN public key, {:?}", user);
@@ -143,15 +127,25 @@ impl PeerConnection {
         })?;
         debug!("Successfully verified peer's signed UCAN public key");
 
-        let token_validation =
-            crypto_utils::validate_connect_token(&payload.ucan_token, &peer_ucan_pub, &self.domain)
-                .await
-                .map_err(|e| {
-                    error!("Peer's connect token validation failed: {}", e);
-                    e.to_string()
-                })?;
+        let current_user = self.get_local_user().await?;
+        let current_device = self
+            .get_local_device()
+            .await
+            .ok_or("No current device available")?;
+        debug!("(Responder) Retrieved local user and device");
+        let token_validation = crypto_utils::validate_connect_token(
+            &payload.ucan_token,
+            &peer_ucan_pub,
+            &self.domain,
+            &current_user.ucan_pub_key,
+        )
+        .await
+        .map_err(|e| {
+            error!("Peer's connect token validation failed: {}", e);
+            e.to_string()
+        })?;
 
-        if !token_validation.is_valid {
+        if !token_validation {
             error!("Peer's connect token is invalid");
             return Err("invalid token".to_string());
         }
@@ -170,13 +164,6 @@ impl PeerConnection {
             info!("This peer is the responder. Preparing and sending exchange response.");
             let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
             debug!("(Responder) Successfully signed the UCAN public key");
-
-            let current_user = self.get_local_user().await?;
-            let current_device = self
-                .get_local_device()
-                .await
-                .ok_or("No current device available")?;
-            debug!("(Responder) Retrieved local user and device");
 
             let peer_id = self.connection.remote_node_id().map_err(|e| {
                 error!("(Responder) Failed to get remote node id: {}", e);
@@ -239,15 +226,16 @@ impl PeerConnection {
         })?;
         debug!("Successfully verified peer's signed UCAN public key");
 
-        let token_validation = crypto_utils::validate_connect_token(
+        let one_time_token_validation = crypto_utils::validate_connect_token(
             &payload.one_time_ucan,
             &peer_ucan_pub,
             &self.domain,
+            &current_user.ucan_pub_key,
         )
-        .await?;
+        .await
+        .map_err(|e| e.to_string())?;
         debug!("Completed validation of one-time UCAN");
-
-        if !token_validation.is_valid {
+        if !one_time_token_validation {
             error!("Peer's one-time UCAN is invalid.");
             return Err("validation failed".to_string());
         }
@@ -333,10 +321,13 @@ impl PeerConnection {
         })?;
         debug!("Successfully verified peer's signed UCAN public key from response");
 
+        let current_user = self.get_local_user().await?;
+        debug!("Retrieved local user and device information");
         let token_validation_result = crypto_utils::validate_connect_token(
-            &payload.issued_ucan,
+            &payload.ucan_token,
             &peer_ucan_pub,
             &self.domain,
+            &current_user.ucan_pub_key,
         )
         .await
         .map_err(|e| {
@@ -344,7 +335,7 @@ impl PeerConnection {
             e.to_string()
         })?;
 
-        if !token_validation_result.is_valid {
+        if !token_validation_result {
             error!("The UCAN issued by the peer is invalid");
             return Err("token invalid".to_string());
         }

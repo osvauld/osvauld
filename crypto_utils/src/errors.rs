@@ -159,6 +159,16 @@ pub enum UcanError {
     PublicKeyMismatch,
     #[error("The required capability was not found in the UCAN.")]
     CapabilityNotFound,
+    #[error("A proof is required for this UCAN, but none was found.")]
+    ProofRequired,
+
+    #[error("The UCAN's proof chain is invalid: {0}")]
+    ProofChainInvalid(String),
+
+    #[error(
+        "Delegation is not permitted; the parent UCAN lacks the required 'ucan/share' capability."
+    )]
+    DelegationNotPermitted,
 }
 
 #[derive(Error, Debug)]

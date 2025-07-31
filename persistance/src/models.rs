@@ -185,8 +185,8 @@ pub struct UserModel {
     pub signature: String,
     pub ucan_token: String,
     pub ucan_pub_key: String,
-    pub first_sync: bool,
     pub owner: bool,
+    pub first_sync: bool,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
 }

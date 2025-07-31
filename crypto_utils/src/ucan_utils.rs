@@ -1,5 +1,4 @@
 use crate::errors::UcanError;
-use crate::types::TokenValidation;
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use base64::{engine::general_purpose, Engine as _};
@@ -13,6 +12,7 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
+use std::boxed::Box;
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
@@ -225,7 +225,7 @@ pub async fn generate_one_time_connection_token(
 }
 
 /// Check if a UCAN token is a one-time connect token
-fn is_one_time_connect_token(ucan: &Ucan, capability_prefix: &str) -> bool {
+pub fn is_one_time_connect_token(ucan: &Ucan, capability_prefix: &str) -> bool {
     let is_wildcard_audience = ucan.audience() == "*";
 
     let connect_capability = format!("{}:connect", capability_prefix);
@@ -237,67 +237,6 @@ fn is_one_time_connect_token(ucan: &Ucan, capability_prefix: &str) -> bool {
     is_wildcard_audience && has_connect_capability
 }
 
-/// Validate UCAN connect token and check if it's one-time
-pub async fn validate_connect_ucan_token(
-    token: &str,
-    peer_ucan_pub_b64: &str,
-    capability_prefix: &str,
-) -> Result<TokenValidation, String> {
-    let ucan = Ucan::try_from(token).map_err(|e| format!("Failed to parse UCAN: {}", e))?;
-    let key_constructors: &[(
-        &'static [u8],
-        fn(Vec<u8>) -> anyhow::Result<Box<dyn KeyMaterial>>,
-    )] = &[(ED25519_MAGIC_BYTES, bytes_to_ed25519_key)];
-    let mut did_parser = DidParser::new(key_constructors);
-    let now = chrono::Utc::now().timestamp() as u64;
-    let keys_match = {
-        // Get the public key from the UCAN issuer's DID string ("did:key:z...")
-        let issuer_did = ucan.issuer();
-        let decoded_did = bs58::decode(&issuer_did[9..]) // Skip "did:key:z"
-            .into_vec()
-            .map_err(|e| format!("Failed to decode issuer DID: {}", e))?;
-
-        // The raw key is after the 2-byte multicodec prefix for Ed25519 (0xed01)
-        if decoded_did.len() <= 2 {
-            return Err("Invalid issuer DID format: too short".to_string());
-        }
-        let ucan_issuer_key_bytes = &decoded_did[2..];
-
-        // Decode the PGP-attested public key from base64
-        let attested_key_bytes = general_purpose::STANDARD
-            .decode(peer_ucan_pub_b64)
-            .map_err(|e| format!("Failed to decode peer_ucan_pub_b64: {}", e))?;
-
-        // +++ START OF DEBUG LOGGING +++
-        let issuer_key_b64_for_log = general_purpose::STANDARD.encode(ucan_issuer_key_bytes);
-        info!("-------------------------------------------------");
-        info!("[UCAN VALIDATION] Comparing Keys...");
-        info!(
-            "[UCAN VALIDATION] Key from Token Issuer: {}",
-            issuer_key_b64_for_log
-        );
-        info!(
-            "[UCAN VALIDATION] Key from DB Record:    {}",
-            peer_ucan_pub_b64
-        );
-        info!("-------------------------------------------------");
-        // +++ END OF DEBUG LOGGING +++
-
-        // Perform the comparison
-        ucan_issuer_key_bytes == attested_key_bytes.as_slice()
-    };
-    info!("keys_match {}", keys_match);
-
-    // 3. Final validation
-    let is_structurally_valid = ucan.validate(Some(now), &mut did_parser).await.is_ok();
-    let is_one_time = is_one_time_connect_token(&ucan, capability_prefix);
-
-    Ok(TokenValidation {
-        // A token is only valid if it's structurally sound AND the keys match
-        is_valid: is_structurally_valid && keys_match,
-        is_one_time,
-    })
-}
 /// Generate a delegation and connection token
 /// This creates a token with very long validity that grants both connection and delegation capabilities
 /// Issued directly by root authority (not delegated from one-time token)
@@ -305,24 +244,25 @@ pub async fn generate_delegation_and_connection_token(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
     capability_prefix: &str,
-    audience_ucan_pub_key: &str,
+    audience_ucan_pub_key: &str, // Still takes the base64 key
 ) -> Result<String, UcanError> {
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
 
-    // Connect capability
+    // Convert the audience public key to a DID string.
+    let audience_did = pub_key_b64_to_did(audience_ucan_pub_key)?;
+
     let connect_capability = format!("{}:connect", capability_prefix);
     let connect_cap = Capability::from((connect_capability.as_str(), "use", &json!({})));
 
-    // Share capability
     let share_capability = format!("{}:share", capability_prefix);
     let share_cap = Capability::from((share_capability.as_str(), "use", &json!({})));
 
     let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
 
-    // Build delegation token with both capabilities and long expiry
+    // Build the token using the newly created DID for the audience.
     let ucan = UcanBuilder::default()
         .issued_by(&key_material)
-        .for_audience(audience_ucan_pub_key)
+        .for_audience(&audience_did) // Use the DID string here
         .with_lifetime(long_lifetime)
         .claiming_capability(connect_cap)
         .claiming_capability(share_cap)
@@ -338,6 +278,7 @@ pub async fn generate_delegation_and_connection_token(
 
     Ok(token)
 }
+
 /// Parses a UCAN token string and performs basic structural and cryptographic
 /// validation, including signature and expiration checks.
 ///
@@ -380,6 +321,7 @@ pub fn validate_audience(ucan: &Ucan, presenter_ucan_pub_b64: &str) -> Result<()
 
 /// Verifies if the public key in a did:key string matches a base64-encoded key.
 fn verify_did_key_match(did: &str, key_b64: &str) -> Result<(), UcanError> {
+    info!("did {}", did);
     let key_from_did = if did.starts_with("did:key:z") {
         let decoded_did = bs58::decode(&did[9..])
             .into_vec()
@@ -427,7 +369,7 @@ pub fn check_capability(
             if cap_resource.ends_with('*') {
                 let prefix = &cap_resource[..cap_resource.len() - 1];
                 if required_resource.starts_with(prefix) {
-                    return Ok(()); // Permission granted by wildcard.
+                    return Ok(());
                 }
             } else {
                 if cap_resource == required_resource {
@@ -437,6 +379,76 @@ pub fn check_capability(
         }
     }
 
-    // 3. If the loop completes, no suitable capability was found.
+    //  If the loop completes, no suitable capability was found.
     Err(UcanError::CapabilityNotFound)
+}
+
+/// Recursively verifies the UCAN's authority by checking its proof chain.
+/// It ensures that the UCAN was either issued directly by the verifier or
+/// was delegated by a trusted party in a chain that originates from the verifier.
+///
+/// ### Arguments
+/// * `ucan` - The UCAN to verify.
+/// * `verifier_ucan_pub_b64` - The base64-encoded public key of the authority (the verifier).
+///
+/// ### Returns
+/// A `Result` that is empty on success.
+pub async fn verify_authority(ucan: &Ucan, verifier_ucan_pub_b64: &str) -> Result<(), UcanError> {
+    let issuer_did = ucan.issuer();
+
+    // 1. Base Case: Check if the UCAN was issued directly by the verifier.
+    match verify_did_key_match(issuer_did, verifier_ucan_pub_b64) {
+        Ok(()) => return Ok(()), // Success! Direct authority confirmed.
+        Err(UcanError::PublicKeyMismatch) => {
+            // This is expected for a delegated UCAN. We proceed to check proofs.
+        }
+        Err(e) => return Err(e), // Propagate other errors.
+    }
+
+    // 2. Recursive Step: If not issued by the verifier, a proof is required.
+    if let Some(proofs_vec) = ucan.proofs() {
+        if proofs_vec.is_empty() {
+            return Err(UcanError::ProofRequired);
+        }
+
+        for proof_cid_string in proofs_vec {
+            let parent_ucan = match validate_structure(proof_cid_string).await {
+                Ok(ucan) => ucan,
+                Err(_) => continue,
+            };
+
+            if parent_ucan.audience() != ucan.issuer() {
+                continue;
+            }
+
+            if check_capability(&parent_ucan, "*", "ucan/share").is_err() {
+                return Err(UcanError::DelegationNotPermitted);
+            }
+
+            let recursive_call = verify_authority(&parent_ucan, verifier_ucan_pub_b64);
+            if Box::pin(recursive_call).await.is_ok() {
+                return Ok(());
+            }
+        }
+    } else {
+        return Err(UcanError::ProofRequired);
+    }
+
+    // If the loop finishes and no valid proof chain was found, fail.
+    Err(UcanError::ProofChainInvalid(
+        "No valid proof chain leads back to the verifier.".to_string(),
+    ))
+}
+
+fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
+    let key_bytes = general_purpose::STANDARD
+        .decode(key_b64)
+        .map_err(|e| UcanError::DecodingError(e.to_string()))?;
+
+    // Prepend the Ed25519 multicodec prefix
+    let did_bytes = [ED25519_MAGIC_BYTES, key_bytes.as_slice()].concat();
+
+    // bs58 encode and format as a did:key
+    let did = format!("did:key:z{}", bs58::encode(did_bytes).into_string());
+    Ok(did)
 }

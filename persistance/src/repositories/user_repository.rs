@@ -274,6 +274,7 @@ impl UserRepository for SqliteUserRepository {
                     .set((
                         users::ucan_pub_key.eq(&user_with_devices.user.ucan_pub_key),
                         users::ucan_token.eq(&user_with_devices.user.ucan_token),
+                        users::first_sync.eq(&user_with_devices.user.first_sync),
                     ))
                     .execute(conn)?;
 
