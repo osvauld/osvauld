@@ -14,13 +14,12 @@ use tracing::{debug, error, info, instrument};
 impl PeerConnection {
     #[instrument(skip(self), fields(
         connection_id = %self.get_id(),
-        user_id = %self.user.id
     ), level = "info")]
     pub async fn start_add_device_process(&self) -> Result<(), String> {
         info!("Starting add device process");
         debug!("Retrieving device manifest for user");
-
-        let manifest = match get_device_manifest(&self.repo_ctx, &self.user.id).await {
+        let peer_user = self.get_peer_user().await;
+        let manifest = match get_device_manifest(&self.repo_ctx, &peer_user.id).await {
             Ok(manifest) => {
                 debug!(
                     manifest_resource_count = manifest.resources.len(),
@@ -51,7 +50,6 @@ impl PeerConnection {
 
     #[instrument(skip(self, payload), fields(
         connection_id = %self.get_id(),
-        user_id = %self.user.id,
         known_device_count = payload.known_device_ids.len(),
         other_users_count = payload.other_users.len(),
         folder_count = payload.folder_ids.len(),
@@ -69,8 +67,8 @@ impl PeerConnection {
             payload.folder_ids.len(),
             payload.resources.len()
         );
-
-        let result = match process_device_manifest_request(payload, &self.repo_ctx, &self.user.id)
+        let peer_user = self.get_peer_user().await;
+        let result = match process_device_manifest_request(payload, &self.repo_ctx, &peer_user.id)
             .await
         {
             Ok(result) => {

@@ -42,12 +42,14 @@ CREATE TABLE resources (
     folder_id TEXT NOT NULL,
     signature TEXT NOT NULL,
     favourite BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by TEXT NOT NULL,
     last_accessed BIGINT NOT NULL,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     FOREIGN KEY (folder_id) REFERENCES folders (id)
+    FOREIGN KEY (created_by) REFERENCES users (id)
 );
 
 CREATE TABLE resource_vector_clocks (

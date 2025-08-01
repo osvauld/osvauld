@@ -2,7 +2,7 @@ use crypto_utils::{CryptoUtils, encrypt_data_for_user};
 use log::info;
 use osvauld_core::models::{
     DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
-    ResourceWithKey, ShareRecord, User,
+    ResourceWithKey, ShareOperation, ShareRecord, User,
 };
 use osvauld_core::repositories::RepositoryError;
 use persistance::database::RepositoryContext;
@@ -44,6 +44,7 @@ pub async fn create_resource(
         encrypted_data,
         folder_id,
         "signature".to_string(),
+        user.id.clone(),
     );
     let signature = {
         let crypto = crypto_utils.lock().await;
@@ -307,15 +308,35 @@ async fn decrypt_resources(
 pub async fn share_resource(
     recipient_user_id: &str,
     resource_id: &str,
-    current_user_id: &str,
+    permissions: Vec<(String, String)>,
+    current_user: &User,
     repo_ctx: &RepositoryContext,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(), ResourceServiceError> {
     // 1. Get the resource key for the current user (resource owner)
     let resource_key = repo_ctx
         .resource_key_repo
-        .find_by_resource_and_user(resource_id, current_user_id)
+        .find_by_resource_and_user(resource_id, &current_user.id)
         .await?;
+    let delegator_share_record = repo_ctx
+        .share_repo
+        .find_by_resource_and_operation_and_user(
+            resource_id,
+            &ShareOperation::Share.to_string(),
+            &current_user.id,
+        )
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let prf_map = repo_ctx
+        .share_repo
+        .get_proof_map_for_resource(resource_id)
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let resource_owner = repo_ctx
+        .resource_repo
+        .find_owner_by_resource_id(resource_id)
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
 
     // 2. Get the recipient user to access their public key
     let recipient_user = repo_ctx
@@ -339,29 +360,36 @@ pub async fn share_resource(
         false,
     );
 
+    let encrypted_ucan_pvt_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
     // 5. Create the signature for the share record
-    let signature_string = format!(
-        "{}{}{}{}",
-        resource_id,
-        current_user_id,
-        recipient_user_id,
-        PermissionLevel::Write.to_string()
-    );
-    let signature = {
+    let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
         crypto
-            .sign_and_hash_message(&signature_string)
+            .issue_delegated_ucan(
+                &encrypted_ucan_pvt_key,
+                &delegator_share_record.ucan_token,
+                &resource_owner.ucan_pub_key,
+                resource_id,
+                &recipient_user.ucan_pub_key,
+                permissions,
+                &prf_map,
+            )
+            .await
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
     };
 
     // 6. Create the share record
     let share_record = ShareRecord::prepare_share_record(
         resource_id.to_string(),
-        current_user_id.to_string(),
+        current_user.id.to_string(),
         recipient_user_id.to_string(),
         PermissionLevel::Write, // Default permission level
-        signature.clone(),
-        signature,
+        ucan_token,
+        ucan_cid,
     );
 
     // 7. Get recipient's devices to create vector clocks

@@ -120,6 +120,7 @@ pub trait ResourceRepository: Send + Sync {
         sync_data: &ResourceSyncData,
     ) -> Result<(), RepositoryError>;
     async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError>;
+    async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError>;
 }
 
 #[async_trait]
@@ -293,4 +294,10 @@ pub trait ShareRepository: Send + Sync {
         &self,
         resource_id: &str,
     ) -> Result<HashMap<String, (String, String)>, RepositoryError>;
+    async fn find_by_resource_and_operation_and_user(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        user_id: &str,
+    ) -> Result<ShareRecord, RepositoryError>;
 }

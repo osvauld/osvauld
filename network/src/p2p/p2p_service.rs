@@ -523,7 +523,7 @@ pub async fn request_connections(&self) -> Result<(), String> {
         Ok(peer_connection_arc)
     }
 
-    #[instrument(skip(self,  conn_type), fields( conn_type = ?conn_type ), level = "info")]
+    #[instrument(skip(self,  conn_type),  level = "info")]
     pub async fn connect_with_ticket(
         &self,
         device_id: &str,

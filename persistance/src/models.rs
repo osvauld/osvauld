@@ -66,6 +66,7 @@ pub struct ResourceModel {
     pub folder_id: String,
     pub signature: String,
     pub favourite: bool,
+    pub created_by: String,
     pub last_accessed: i64,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
@@ -83,6 +84,7 @@ impl From<&DomainResource> for ResourceModel {
             signature: resource.signature.clone(),
             favourite: resource.favourite,
             last_accessed: resource.last_accessed,
+            created_by: resource.created_by.clone(),
             deleted: resource.deleted,
             deleted_at: resource.deleted_at,
             created_at: resource.created_at,
@@ -101,6 +103,7 @@ impl From<ResourceModel> for DomainResource {
             signature: model.signature,
             created_at: model.created_at,
             updated_at: model.updated_at,
+            created_by: model.created_by,
             last_accessed: model.last_accessed,
             favourite: model.favourite,
             deleted: model.deleted,
@@ -174,7 +177,7 @@ impl DeviceModel {
     }
 }
 
-#[derive(Queryable, Insertable, Identifiable)]
+#[derive(Queryable, Insertable, Identifiable, Selectable)]
 #[diesel(table_name = users)]
 pub struct UserModel {
     pub id: String,

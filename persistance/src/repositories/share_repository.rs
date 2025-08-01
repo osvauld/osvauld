@@ -167,4 +167,24 @@ impl ShareRepository for SqliteShareRepository {
 
         Ok(proof_map)
     }
+    async fn find_by_resource_and_operation_and_user(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        user_id: &str,
+    ) -> Result<ShareRecord, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let share_record_model = share_records::table
+            .filter(share_records::resource_id.eq(resource_id))
+            .filter(share_records::recipient_user_id.eq(user_id))
+            .filter(share_records::operation_type.eq(operation_type))
+            .first::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(share_record_model.to_domain())
+    }
 }

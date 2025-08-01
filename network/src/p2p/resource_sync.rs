@@ -17,15 +17,10 @@ use tracing::{debug, error, info, instrument};
 impl PeerConnection {
     #[instrument(skip(self), fields(
     connection_id = %self.get_id(),
-    device_id = %self.device.id,
-    connection_type = ?self.connection_type
 ), level = "info")]
     pub async fn send_resources(&self) -> Result<(), String> {
         info!("Starting resource transmission process");
-        let connection_type = match self.connection_type.clone() {
-            Some(ct) => ct,
-            None => return Err("connection type is none".to_string()),
-        };
+        let connection_type = self.get_connection_type().await;
         // Collect resource IDs to avoid borrowing issues
         let resource_ids: Vec<String> = match connection_type {
             ConnectionType::Device => {
@@ -79,8 +74,9 @@ impl PeerConnection {
                 "Processing resource for transmission"
             );
 
+            let peer_device = self.get_peer_device().await;
             let resource_payload =
-                match get_resource_for_remote_addition(resource_id, &self.device, &self.repo_ctx)
+                match get_resource_for_remote_addition(resource_id, &peer_device, &self.repo_ctx)
                     .await
                 {
                     Ok(payload) => {
@@ -140,10 +136,7 @@ impl PeerConnection {
     ) -> Result<(), String> {
         info!("Processing resource addition request");
         debug!("Adding resource to local repository");
-        let connection_type = match self.connection_type.clone() {
-            Some(ct) => ct,
-            None => return Err("connection type is none".to_string()),
-        };
+        let connection_type = self.get_connection_type().await;
         match add_resource_sync(payload, &self.repo_ctx, &connection_type).await {
             Ok(_) => {
                 info!(
@@ -163,10 +156,7 @@ impl PeerConnection {
                 return Err(format!("Failed to add resource sync: {}", e));
             }
         }
-        let connection_type = match self.connection_type.clone() {
-            Some(ct) => ct,
-            None => return Err("connection type is none".to_string()),
-        };
+        let connection_type = self.get_connection_type().await;
         let is_empty = match connection_type {
             ConnectionType::Device => {
                 self.remove_device_local_missing_resource(&payload.resource.id)
@@ -193,10 +183,7 @@ impl PeerConnection {
         if self.is_initiator {
             debug!("Processing as initiator - checking for resources requiring sync");
 
-            let connection_type = match self.connection_type.clone() {
-                Some(ct) => ct,
-                None => return Err("connection type is none".to_string()),
-            };
+            let connection_type = self.get_connection_type().await;
             let resource_ids: Vec<String> = match connection_type {
                 ConnectionType::Device => {
                     let manifest = self.get_device_manifest_result().await?;
@@ -458,7 +445,8 @@ impl PeerConnection {
                         return Err(format!("Failed to send final update merge: {}", e));
                     }
                 }
-                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
+                let peer_device = self.get_peer_device().await;
+                let client_id = peer_device.get_client_id().map_err(|e| e.to_string())?;
 
                 // Emit updates event to frontend
                 self.event_emitter.emit(P2PEvent::UpdatesEvent {
@@ -493,8 +481,8 @@ impl PeerConnection {
                     &self.crypto_utils,
                 )
                 .await?;
-
-                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
+                let peer_device = self.get_peer_device().await;
+                let client_id = peer_device.get_client_id().map_err(|e| e.to_string())?;
                 // Emit updates event to frontend
                 self.event_emitter.emit(P2PEvent::UpdatesEvent {
                     resource_id: resource_id.clone(),
@@ -647,7 +635,9 @@ impl PeerConnection {
                 updates,
             } => {
                 let connection_id = self.get_id();
-                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
+
+                let peer_device = self.get_peer_device().await;
+                let client_id = peer_device.get_client_id().map_err(|e| e.to_string())?;
                 self.event_emitter.emit(P2PEvent::ProcessUpdate {
                     resource_id: resource_id.clone(),
                     connection_id,
@@ -661,7 +651,8 @@ impl PeerConnection {
                 updates,
             } => {
                 let connection_id = self.get_id();
-                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
+                let peer_device = self.get_peer_device().await;
+                let client_id = peer_device.get_client_id().map_err(|e| e.to_string())?;
                 self.event_emitter.emit(P2PEvent::ProcessUpdateResponse {
                     resource_id: resource_id.clone(),
                     connection_id,
@@ -675,7 +666,9 @@ impl PeerConnection {
                 buffer,
             } => {
                 let connection_id = self.get_id();
-                let client_id = self.device.get_client_id().map_err(|e| e.to_string())?;
+
+                let peer_device = self.get_peer_device().await;
+                let client_id = peer_device.get_client_id().map_err(|e| e.to_string())?;
                 self.event_emitter.emit(P2PEvent::CurrentBufferExchange {
                     resource_id: resource_id.clone(),
                     connection_id,

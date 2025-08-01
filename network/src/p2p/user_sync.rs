@@ -10,7 +10,8 @@ use services::{
 impl PeerConnection {
     pub async fn start_user_network_sync(&self) -> Result<(), String> {
         if self.is_initiator {
-            let user_manifest = get_user_manifest(&self.repo_ctx, &self.user.id).await?;
+            let peer_user = self.get_peer_user().await;
+            let user_manifest = get_user_manifest(&self.repo_ctx, &peer_user.id).await?;
             self.send_message(Message::UserManifestPayload(UserManifestPayload::Request(
                 user_manifest,
             )))
@@ -25,8 +26,9 @@ impl PeerConnection {
     ) -> Result<(), String> {
         match payload {
             UserManifestPayload::Request(request_payload) => {
+                let peer_user = self.get_peer_user().await;
                 let manifest_result =
-                    process_user_manifest_request(request_payload, &self.repo_ctx, &self.user.id)
+                    process_user_manifest_request(request_payload, &self.repo_ctx, &peer_user.id)
                         .await?;
                 self.set_user_manifest_comparison_result(manifest_result.clone())
                     .await;
@@ -44,9 +46,10 @@ impl PeerConnection {
             }
             UserManifestPayload::Ack => {
                 let manifest = self.get_user_manifest_result().await?;
+                let peer_user = self.get_peer_user().await;
                 let payload = create_user_network_sync_payload(
                     &manifest.remote_missing,
-                    &self.user,
+                    &peer_user,
                     &self.repo_ctx,
                     &self.crypto_utils,
                 )
@@ -64,9 +67,11 @@ impl PeerConnection {
     ) -> Result<(), String> {
         if self.is_initiator {
             let manifest = self.get_user_manifest_result().await?;
+
+            let peer_user = self.get_peer_user().await;
             let local_payload = create_user_network_sync_payload(
                 &manifest.remote_missing,
-                &self.user,
+                &peer_user,
                 &self.repo_ctx,
                 &self.crypto_utils,
             )

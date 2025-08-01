@@ -20,10 +20,10 @@ pub struct ServiceContext {
 /// Represents a peer-to-peer connection with another device or user
 pub struct PeerConnection {
     pub connection: Arc<Connection>,
-    pub connection_type: Option<ConnectionType>,
-    pub device: Device,
+    pub connection_type: Arc<RwLock<Option<ConnectionType>>>,
+    pub device: Arc<RwLock<Device>>,
     pub node_id: String,
-    pub user: User,
+    pub user: Arc<RwLock<User>>,
     pub action: Option<ConnectionAction>,
     pub is_initiator: bool,
     pub is_live_edit: bool,
@@ -69,11 +69,11 @@ impl PeerConnection {
         // Create the PeerConnection instance with all optional fields
         let mut peer_connection = Self {
             connection,
-            connection_type,
-            device: local_device,
+            connection_type: Arc::new(RwLock::new(connection_type)),
+            device: Arc::new(RwLock::new(local_device)),
             node_id,
-            user: local_user,
             action,
+            user: Arc::new(RwLock::new(local_user)),
             is_initiator,
             handshake_complete: Arc::new(Mutex::new(false)),
             is_live_edit: live_edit,
@@ -130,7 +130,31 @@ impl PeerConnection {
             None => Err("user manifest is empty".to_string()),
         }
     }
+    pub async fn get_peer_device(&self) -> Device {
+        self.device.read().await.clone()
+    }
+    pub async fn get_peer_user(&self) -> User {
+        self.user.read().await.clone()
+    }
+    pub async fn set_peer_user_and_device(&self, new_user: User, new_device: Device) {
+        let mut user_guard = self.user.write().await;
+        let mut device_guard = self.device.write().await;
+        *user_guard = new_user;
+        *device_guard = new_device;
+    }
 
+    pub async fn set_connection_type(&self, connection_type: ConnectionType) {
+        let mut conn_guard = self.connection_type.write().await;
+        *conn_guard = Some(connection_type);
+    }
+
+    pub async fn get_connection_type(&self) -> ConnectionType {
+        let conn_type = self.connection_type.read().await.clone();
+        match conn_type {
+            Some(conn) => conn,
+            None => ConnectionType::User,
+        }
+    }
     /// Removes a resource from local_missing.unknown_resources in device manifest
     #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
     pub async fn remove_device_local_missing_resource(&self, resource_id: &str) -> bool {
@@ -211,9 +235,8 @@ impl PeerConnection {
     /// Starts the message handler task
     fn start_message_handler(&self) -> tokio::task::JoinHandle<()> {
         let _connection = self.connection.clone();
-        let mut self_clone = self.clone();
+        let self_clone = self.clone();
         let conn_id = self.get_id();
-
         tokio::spawn(async move {
             info!("Starting message listener for connection {}", conn_id);
             self_clone.handle_messages().await;
@@ -223,7 +246,7 @@ impl PeerConnection {
 
     /// Handles incoming messages from the peer
     #[instrument(skip_all, level = "debug")]
-    async fn handle_messages(&mut self) {
+    async fn handle_messages(&self) {
         let conn_id = self.get_id();
         info!("Message handler started for connection {}", conn_id);
 
@@ -329,8 +352,8 @@ impl PeerConnection {
     }
 
     /// Process a received message by delegating to the appropriate handler
-    #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
-    async fn process_message(&mut self, message: &mut Message) -> Result<(), String> {
+    #[instrument(skip(self), level = "debug")]
+    async fn process_message(&self, message: &mut Message) -> Result<(), String> {
         match message {
             Message::Ping => {
                 debug!("Received ping");

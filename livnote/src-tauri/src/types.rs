@@ -205,6 +205,7 @@ pub struct GetResource {
 pub struct ShareResource {
     pub user_id: String,
     pub resource_id: String,
+    pub permissions: Vec<(String, String)>,
 }
 
 #[derive(Serialize, Deserialize)]

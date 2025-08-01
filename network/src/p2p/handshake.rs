@@ -29,7 +29,7 @@ impl PeerConnection {
         })?;
         debug!("Successfully retrieved peer id: {}", peer_id);
         let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
-        let user = self
+        let peer_user = self
             .repo_ctx
             .user_repo
             .get_user_by_device_id(&device_id_b64)
@@ -41,13 +41,13 @@ impl PeerConnection {
         debug!("Successfully retrieved user for peer");
 
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, &self.repo_ctx).await?;
-        debug!("Successfully signed the UCAN public key, {:?}", user);
-        if !user.first_sync {
+        debug!("Successfully signed the UCAN public key, {:?}", peer_user);
+        if !peer_user.first_sync {
             info!("Peer is a first-time connection, preparing FirstConnectRequest");
-            let user_devices = get_my_user_devices(&user.id, &self.repo_ctx)
+            let user_devices = get_my_user_devices(&current_user.id, &self.repo_ctx)
                 .await
                 .map_err(|e| {
-                    error!("Failed to get devices for user {}: {}", user.id, e);
+                    error!("Failed to get devices for user {}: {}", current_user.id, e);
                     e.to_string()
                 })?;
             debug!("Retrieved {} devices for the user", user_devices.len());
@@ -56,7 +56,7 @@ impl PeerConnection {
                 &self.repo_ctx,
                 &self.crypto_utils,
                 &self.domain,
-                &user.ucan_pub_key,
+                &peer_user.ucan_pub_key,
             )
             .await?;
             debug!("Successfully issued new UCAN token for peer");
@@ -66,7 +66,7 @@ impl PeerConnection {
                     devices: user_devices,
                     issued_ucan: new_ucan_token,
                     signed_ucan_pub,
-                    one_time_ucan: user.ucan_token.clone(),
+                    one_time_ucan: peer_user.ucan_token.clone(),
                     peer_device: current_device,
                     peer_user: current_user,
                     connection_type,
@@ -77,7 +77,7 @@ impl PeerConnection {
         } else {
             info!("Peer is an existing user, preparing HandshakeExchange");
             let exchange_message = UcanAndUserExchange {
-                ucan_token: user.ucan_token,
+                ucan_token: peer_user.ucan_token,
                 peer_user: current_user,
                 peer_device: current_device,
                 connection_type,
@@ -87,13 +87,15 @@ impl PeerConnection {
                 exchange_message,
             )))
             .await?;
+            self.set_connection_type(ConnectionType::User).await;
+
             info!("Sent HandshakeExchange to peer");
         }
         info!("Handshake initiation process completed successfully");
         Ok(())
     }
     pub async fn handle_handshake_message(
-        &mut self,
+        &self,
         payload: &mut HandshakeMessage,
     ) -> Result<(), String> {
         match payload {
@@ -112,7 +114,7 @@ impl PeerConnection {
 
     #[instrument(skip(self, payload), fields(connection_id = %self.get_id(), is_initiator = self.is_initiator), level = "info")]
     pub async fn process_exchange_message(
-        &mut self,
+        &self,
         payload: &UcanAndUserExchange,
     ) -> Result<(), String> {
         info!("Processing handshake exchange message");
@@ -150,10 +152,8 @@ impl PeerConnection {
             return Err("invalid token".to_string());
         }
         debug!("Peer's connect token is valid");
-
-        self.user = payload.peer_user.clone();
-        self.device = payload.peer_device.clone();
-        debug!(peer_user_id = %self.user.id, peer_device_id = %self.device.id, "Updated local peer user and device info");
+        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
+            .await;
 
         if self.is_initiator {
             info!("This peer is the initiator. Completing handshake.");
@@ -170,10 +170,12 @@ impl PeerConnection {
                 error!("(Responder) Failed to get remote node id: {}", e);
                 e.to_string()
             })?;
+            let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
+
             let peer_user = self
                 .repo_ctx
                 .user_repo
-                .get_user_by_device_id(&peer_id.to_string())
+                .get_user_by_device_id(&device_id_b64)
                 .await
                 .map_err(|e| {
                     error!(
@@ -198,6 +200,8 @@ impl PeerConnection {
                 exchange_message,
             )))
             .await?;
+            self.set_connection_type(ConnectionType::User);
+
             info!("(Responder) Sent handshake exchange response and marked handshake as complete.");
         }
         Ok(())
@@ -205,7 +209,7 @@ impl PeerConnection {
 
     #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
     pub async fn process_first_user_connection_request(
-        &mut self,
+        &self,
         payload: &FirstConnectRequest,
     ) -> Result<(), String> {
         info!("Processing first user connection request");
@@ -258,12 +262,11 @@ impl PeerConnection {
         let mut user = payload.peer_user.clone();
         user.first_sync = true;
         user.owner = false;
-        user.ucan_token = peer_issued_ucan_token.clone();
+        user.ucan_token = payload.issued_ucan.clone();
         user.ucan_pub_key = peer_ucan_pub;
-        self.connection_type = Some(payload.connection_type.clone());
-        self.device = payload.peer_device.clone();
-        self.user = user.clone();
-        info!(peer_user_id = %user.id, peer_device_id = %self.device.id, "Prepared new user object and updated connection state");
+        self.set_connection_type(ConnectionType::User);
+        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
+            .await;
 
         let user_with_devices = UserWithDevices {
             user,
@@ -304,11 +307,10 @@ impl PeerConnection {
     }
     #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
     pub async fn process_first_user_connection_handshake_response(
-        &mut self,
+        &self,
         payload: &FirstConnectResponse,
     ) -> Result<(), String> {
         info!("Processing first user connection handshake response");
-        self.user.ucan_token = payload.ucan_token.clone();
         debug!("Updated local user's UCAN token with the one from the payload");
 
         let peer_ucan_pub = crypto_utils::verify_clear_text_message(
@@ -348,9 +350,8 @@ impl PeerConnection {
         user.owner = false;
         user.ucan_pub_key = peer_ucan_pub;
 
-        self.user = user.clone();
-        self.device = payload.peer_device.clone();
-        info!(peer_user_id = %user.id, peer_device_id = %self.device.id, "Prepared peer user object and updated connection state");
+        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
+            .await;
 
         let user_with_devices = UserWithDevices {
             user,
@@ -376,7 +377,7 @@ impl PeerConnection {
         Ok(())
     }
 
-    #[instrument(skip(self), fields(action = ?self.action, is_initiator = self.is_initiator), level = "info")]
+    #[instrument(skip(self), level = "info")]
     pub async fn execute_connection_action(&self) -> Result<(), String> {
         // Only execute if we have an action and we're the initiator
         if let Some(action) = &self.action {

@@ -18,13 +18,20 @@ pub struct Resource {
     pub created_at: i64,
     pub updated_at: i64,
     pub favourite: bool,
+    pub created_by: String,
     pub last_accessed: i64,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
 }
 
 impl Resource {
-    pub fn new(resource_type: String, data: String, folder_id: String, signature: String) -> Self {
+    pub fn new(
+        resource_type: String,
+        data: String,
+        folder_id: String,
+        signature: String,
+        created_by: String,
+    ) -> Self {
         let now = Local::now().timestamp_millis();
 
         Self {
@@ -36,6 +43,7 @@ impl Resource {
             created_at: now,
             updated_at: now,
             favourite: false,
+            created_by,
             last_accessed: now,
             deleted: false,
             deleted_at: None,

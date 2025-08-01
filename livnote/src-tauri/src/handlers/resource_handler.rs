@@ -246,7 +246,8 @@ pub async fn handle_share_resource(
     share_resource(
         &input.user_id,
         &input.resource_id,
-        &user.id,
+        input.permissions.clone(),
+        &user,
         &repo_ctx,
         &crypto_utils,
     )

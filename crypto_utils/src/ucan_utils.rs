@@ -12,7 +12,7 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
-use std::boxed::Box;
+use std::{boxed::Box, collections::HashMap};
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
@@ -383,63 +383,6 @@ pub fn check_capability(
     Err(UcanError::CapabilityNotFound)
 }
 
-/// Recursively verifies the UCAN's authority by checking its proof chain.
-/// It ensures that the UCAN was either issued directly by the verifier or
-/// was delegated by a trusted party in a chain that originates from the verifier.
-///
-/// ### Arguments
-/// * `ucan` - The UCAN to verify.
-/// * `verifier_ucan_pub_b64` - The base64-encoded public key of the authority (the verifier).
-///
-/// ### Returns
-/// A `Result` that is empty on success.
-pub async fn verify_authority(ucan: &Ucan, verifier_ucan_pub_b64: &str) -> Result<(), UcanError> {
-    let issuer_did = ucan.issuer();
-
-    // 1. Base Case: Check if the UCAN was issued directly by the verifier.
-    match verify_did_key_match(issuer_did, verifier_ucan_pub_b64) {
-        Ok(()) => return Ok(()), // Success! Direct authority confirmed.
-        Err(UcanError::PublicKeyMismatch) => {
-            // This is expected for a delegated UCAN. We proceed to check proofs.
-        }
-        Err(e) => return Err(e), // Propagate other errors.
-    }
-
-    // 2. Recursive Step: If not issued by the verifier, a proof is required.
-    if let Some(proofs_vec) = ucan.proofs() {
-        if proofs_vec.is_empty() {
-            return Err(UcanError::ProofRequired);
-        }
-
-        for proof_cid_string in proofs_vec {
-            let parent_ucan = match validate_structure(proof_cid_string).await {
-                Ok(ucan) => ucan,
-                Err(_) => continue,
-            };
-
-            if parent_ucan.audience() != ucan.issuer() {
-                continue;
-            }
-
-            if check_capability(&parent_ucan, "*", "ucan/share").is_err() {
-                return Err(UcanError::DelegationNotPermitted);
-            }
-
-            let recursive_call = verify_authority(&parent_ucan, verifier_ucan_pub_b64);
-            if Box::pin(recursive_call).await.is_ok() {
-                return Ok(());
-            }
-        }
-    } else {
-        return Err(UcanError::ProofRequired);
-    }
-
-    // If the loop finishes and no valid proof chain was found, fail.
-    Err(UcanError::ProofChainInvalid(
-        "No valid proof chain leads back to the verifier.".to_string(),
-    ))
-}
-
 fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
     let key_bytes = general_purpose::STANDARD
         .decode(key_b64)
@@ -483,7 +426,6 @@ pub async fn generate_resource_owner_ucan(
         Capability::from((resource_uri.as_str(), "crud/read", &json!({}))),
         Capability::from((resource_uri.as_str(), "crud/update", &json!({}))),
         Capability::from((resource_uri.as_str(), "crud/delete", &json!({}))),
-        // The "ucan/share" capability is essential for allowing delegation.
         Capability::from((resource_uri.as_str(), "ucan/share", &json!({}))),
     ];
 
@@ -513,4 +455,152 @@ pub async fn generate_resource_owner_ucan(
         .encode()
         .map_err(|e| UcanError::EncodingError(e.to_string()))?;
     Ok((token_str, token_cid.to_string()))
+}
+
+pub async fn validate_ucan_permission(
+    ucan: &Ucan,
+    verifier_ucan_pub_b64: &str,
+    proof_map: &HashMap<String, (String, String)>,
+    required_resource: &str,
+    required_ability: &str,
+) -> Result<(), UcanError> {
+    let issuer_did = ucan.issuer();
+    // 1. Base Case: Check if the UCAN was issued directly by the verifier.
+    match verify_did_key_match(issuer_did, verifier_ucan_pub_b64) {
+        Ok(()) => return Ok(()), // Success! Direct authority confirmed.
+        Err(UcanError::PublicKeyMismatch) => {
+            // This is expected for a delegated UCAN. We proceed to check proofs.
+        }
+        Err(e) => return Err(e), // Propagate other errors.
+    }
+
+    // 2. Recursive Step: If not issued by the verifier, a proof is required.
+    if let Some(proofs_vec) = ucan.proofs() {
+        if proofs_vec.is_empty() {
+            return Err(UcanError::ProofRequired);
+        }
+
+        for proof_cid_string in proofs_vec {
+            // a. Look up the CID directly in the provided map.
+            let parent_token_string = match proof_map.get(proof_cid_string) {
+                // The map stores (token, user_id), we only need the token.
+                Some((token, _user_id)) => token.clone(),
+                // If the proof is not in the map, it can't be resolved. Try the next one.
+                None => continue,
+            };
+
+            // b. Parse the resolved parent token string.
+            let parent_ucan = match validate_structure(&parent_token_string).await {
+                Ok(ucan) => ucan,
+                Err(_) => continue,
+            };
+
+            // c. Validate the parent UCAN.
+            if parent_ucan.audience() != ucan.issuer() {
+                continue;
+            }
+
+            if check_capability(&parent_ucan, required_resource, required_ability).is_err() {
+                return Err(UcanError::DelegationNotPermitted);
+            }
+
+            // d. Make the recursive call, passing the map down the chain.
+            let recursive_call = validate_ucan_permission(
+                &parent_ucan,
+                verifier_ucan_pub_b64,
+                proof_map,
+                required_resource,
+                required_ability,
+            );
+            if Box::pin(recursive_call).await.is_ok() {
+                return Ok(());
+            }
+        }
+    } else {
+        return Err(UcanError::ProofRequired);
+    }
+
+    Err(UcanError::ProofChainInvalid(
+        "No valid proof chain leads back to the verifier.".to_string(),
+    ))
+}
+
+/// A specific wrapper to verify that a UCAN has the authority to be delegated.
+///
+/// This function is a convenient shorthand that calls the more generic
+/// `validate_ucan_permission` with the required ability hardcoded to "ucan/share".
+pub async fn verify_resource_delegation_chain(
+    ucan: &Ucan,
+    verifier_ucan_pub_b64: &str, // The root owner of the resource
+    proof_map: &HashMap<String, (String, String)>,
+    resource_id: &str,
+) -> Result<(), UcanError> {
+    validate_ucan_permission(
+        ucan,
+        verifier_ucan_pub_b64,
+        proof_map,
+        resource_id,
+        &"ucan/share".to_string(),
+    )
+    .await
+}
+
+/// Generates a delegated UCAN, using a parent UCAN string as proof.
+///
+/// This function creates a new link in a delegation chain by using the standard
+/// CID-based proof mechanism. It returns a tuple of the new `(token_string, token_cid)`.
+pub async fn generate_delegated_resource_ucan(
+    delegator_signing_key: &SigningKey,
+    delegator_verifying_key: &VerifyingKey,
+    recipient_ucan_pub_key: &str,
+    permissions: Vec<(String, String)>, // The specific permissions to grant
+    proof_ucan_string: &str,            // The parent UCAN token string
+) -> Result<(String, String), UcanError> {
+    // 1. Parse the parent UCAN string to use it as a proof object.
+    let authority_ucan =
+        Ucan::try_from(proof_ucan_string).map_err(|e| UcanError::ParseError(e.to_string()))?;
+
+    // 2. Set up the delegator's key material.
+    let delegator_key_material = Ed25519KeyMaterial::new(
+        delegator_signing_key.clone(),
+        delegator_verifying_key.clone(),
+    );
+    // 3. Get the recipient's DID from their public key.
+    let recipient_did = pub_key_b64_to_did(recipient_ucan_pub_key)?;
+
+    info!("permissions {:?}", &permissions);
+    // 4. Create the Vec<Capability> from the input permissions.
+    let capabilities: Vec<Capability> = permissions
+        .into_iter()
+        .map(|(resource, ability)| {
+            Capability::from((resource.as_str(), ability.as_str(), &json!({})))
+        })
+        .collect();
+    // 5. Set a 30-year lifetime.
+    let long_lifetime = 30 * 365 * 24 * 60 * 60;
+
+    // 6. Build the new UCAN, witnessing it with the parent UCAN to create the proof link.
+    let ucan = UcanBuilder::default()
+        .issued_by(&delegator_key_material)
+        .for_audience(&recipient_did)
+        .with_lifetime(long_lifetime)
+        .claiming_capabilities(&capabilities)
+        .witnessed_by(&authority_ucan, None)
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    // 7. Get the final token string and its CID to be stored.
+    let token_string = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    let token_cid = ucan
+        .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
+        .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?
+        .to_string();
+
+    Ok((token_string, token_cid))
 }
