@@ -6,16 +6,21 @@
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
 	import { fade } from "svelte/transition";
+	import { sendMessage } from "../../utils/helper";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
 	let isEditingTitle = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
-	// Derived state for favorite status
-	let isFavourite = $derived(
-		dataState.getCurrentNoteData()?.favourite ?? false,
-	);
+	// Derived state for favorite status using the reactive notes array
+	let isFavourite = $derived(() => {
+		const noteId = dataState.currentNoteId;
+		if (!noteId) return false;
+		const note = dataState.getNoteById(noteId);
+		return note?.favourite ?? false;
+	});
+
 	// Toggle navigation panel
 	function toggleNavigationPanel() {
 		uiState.toggleNavigationPanel();
@@ -77,8 +82,19 @@
 
 	const toggleFav = async (e: Event) => {
 		e.stopPropagation();
-		//TODO
-		// Update the note in the notes array
+		try {
+			const noteId = dataState.currentNoteId;
+			if (noteId === null) return;
+			
+			await sendMessage("toggleFav", {
+				resourceId: noteId,
+			});
+			dataState.updateNoteFavorite(noteId);
+
+		} catch (err) {
+			console.error("Error toggling favorite:", err);
+			uiState.showToast("Failed to update favorite status", false);
+		}
 	};
 
 	onMount(async () => {
@@ -150,7 +166,7 @@
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					onclick={toggleFav}>
-					{#if isFavourite}
+					{#if isFavourite()}
 						<Star />
 					{:else}
 						<EmptyStar color="#85889C" />
