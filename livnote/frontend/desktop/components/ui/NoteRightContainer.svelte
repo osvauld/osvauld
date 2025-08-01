@@ -22,7 +22,7 @@
 	let showDownloadTooltip = $state(false);
 	let isPdfGenerating = $state(false);
 	let saved = $state(false);
-
+	let lastModifiedDate = $state("");
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
@@ -66,13 +66,25 @@
 	const handleDeleteBtn = (item: "folder" | "note") => {
 		uiState.showDeleteConfirmation(item);
 	};
+
 	const saveNoteManual = () => {
 		const noteId = dataState.currentNoteId;
-		dataState.saveNote(noteId);
+		if (noteId) {
+			dataState.saveNote(noteId);
+		}
 	};
 
 	$effect(() => {
 		saved = uiState.noteSaved;
+	});
+
+	$effect(() => {
+		const currentNote = dataState.currentNoteData;
+		if (currentNote?.data?.last_modified) {
+			lastModifiedDate = getLastModifiedDate(currentNote.data.last_modified);
+		} else {
+			lastModifiedDate = "";
+		}
 	});
 </script>
 
@@ -157,6 +169,6 @@
 
 	<div
 		class="border-b-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
-		<p class="text-statusColor">Last modified: {getLastModifiedDate(dataState.getCurrentNoteData()?.data.last_modified)}</p>
+		<p class="text-statusColor">Last modified: {lastModifiedDate}</p>
 	</div>
 </div>
