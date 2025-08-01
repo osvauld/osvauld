@@ -290,14 +290,11 @@ pub trait ShareRepository: Send + Sync {
         &self,
         user_id: &str,
     ) -> Result<Vec<ShareRecord>, RepositoryError>;
-    async fn get_proof_map_for_resource(
-        &self,
-        resource_id: &str,
-    ) -> Result<HashMap<String, (String, String)>, RepositoryError>;
     async fn find_by_resource_and_operation_and_user(
         &self,
         resource_id: &str,
         operation_type: &str,
         user_id: &str,
     ) -> Result<ShareRecord, RepositoryError>;
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
 }

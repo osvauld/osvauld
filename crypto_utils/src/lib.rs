@@ -16,9 +16,9 @@ use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
 use std::collections::HashMap;
+use std::future::Future;
 use std::str::FromStr;
 use std::time::Duration;
-
 // Public API - Stateless Functions
 /// Generate a new PGP key pair and encrypt the private key with a password
 pub fn generate_keys(password: &str, username: &str) -> Result<GeneratedKeys, CryptoError> {
@@ -244,27 +244,36 @@ pub fn verify_signature(
     crypto_core::verify_signature(public_key, message, signature)
 }
 
-pub async fn validate_connect_token(
+pub async fn validate_connect_token<F, Fut>(
     token: &str,
-    peer_ucan_pub: &str,
-    capability_prefix: &str,
-    user_ucan_pub: &str,
-) -> Result<bool, CryptoError> {
-    // 1. Validate the UCAN's structure, signature, and expiration.
+    presenter_ucan_pub: &str,
+    verifier_ucan_pub: &str,
+    verifier_user_id: &str,
+    domain: &str,
+    proof_resolver: &F,
+) -> Result<bool, CryptoError>
+where
+    F: Fn(&str) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String, UcanError>> + Send,
+{
     let ucan = ucan_utils::validate_structure(token).await?;
-    let is_one_time = ucan_utils::is_one_time_connect_token(&ucan, capability_prefix);
-    // 2. Validate that the audience is recipient.
-    if !is_one_time {
-        ucan_utils::validate_audience(&ucan, peer_ucan_pub)?;
+    let required_resource = format!("{}:user-connect:{}", domain, verifier_user_id);
+    if ucan_utils::is_one_time_connect_token(&ucan, domain) {
+        ucan_utils::verify_did_key_match(ucan.issuer(), verifier_ucan_pub)?;
+        ucan_utils::check_capability(&ucan, &required_resource, "use")?;
+    } else {
+        ucan_utils::validate_audience(&ucan, presenter_ucan_pub)?;
+        ucan_utils::validate_ucan_permission(
+            &ucan,
+            verifier_ucan_pub,
+            proof_resolver,
+            &required_resource,
+            "connect",
+        )
+        .await?;
     }
-    // 3. Check for the specific 'connect' capability.
-    let required_resource = format!("{}:connect", capability_prefix);
-    ucan_utils::check_capability(&ucan, &required_resource, "use")?;
 
-    // 4. Verify the proof chain to ensure authority originates from the verifier.
-    // ucan_utils::verify_authority(&ucan, user_ucan_pub).await?;
-
-    // If all checks pass, the token is valid.
+    // If all checks for the appropriate path pass, the token is valid.
     Ok(true)
 }
 /// Verifies a cleartext signed message and returns the original message on success.
@@ -294,13 +303,17 @@ pub async fn verify_clear_text_message(
     }
 }
 
-pub async fn validate_authority_for_update(
+pub async fn validate_authority_for_update<F, Fut>(
     ucan_token: &str,
     peer_ucan_pub: &str,
     root_ucan_pub: &str,
     resource_id: &str,
-    proof_map: &HashMap<String, (String, String)>,
-) -> Result<bool, CryptoError> {
+    proof_resolver: &F,
+) -> Result<bool, CryptoError>
+where
+    F: Fn(&str) -> Fut,
+    Fut: Future<Output = Result<String, UcanError>>,
+{
     let ucan = ucan_utils::validate_structure(ucan_token)
         .await
         .map_err(CryptoError::UcanError)?;
@@ -310,7 +323,7 @@ pub async fn validate_authority_for_update(
     ucan_utils::validate_ucan_permission(
         &ucan,
         root_ucan_pub,
-        proof_map,
+        proof_resolver,
         resource_id,
         &"crud/update".to_string(),
     )
@@ -623,18 +636,21 @@ impl CryptoUtils {
     pub async fn generate_one_time_user_connect_token(
         &self,
         encrypted_private_key: &str,
-        capability_str: &str,
+        domain: &str,
     ) -> Result<(String, String), CryptoError> {
+        let public_key = self.get_public_key()?;
+        let user_id = get_key_id(&public_key)?;
+        let capability = format!("{}:user-connect:{}", domain, user_id);
         let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
 
         let token = ucan_utils::generate_one_time_connection_token(
             &signing_key,
             &verifying_key,
-            capability_str,
+            &capability,
         )
         .await?;
 
-        // Convert the verifying key (public key) to base64 string
+        // 6. Return the UCAN token and the public key associated with it.
         let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
         Ok((token, public_key_b64))
     }
@@ -642,16 +658,20 @@ impl CryptoUtils {
     pub async fn issue_connect_and_share_user_token(
         &self,
         encrypted_private_key: &str,
-        capability_str: &str,
+        domain: &str,
         audience_ucan_pub_key: &str,
     ) -> Result<String, CryptoError> {
         let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
-
+        let public_key = self.get_public_key()?;
+        let user_id = get_key_id(&public_key)?;
+        let lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
         let token = ucan_utils::generate_delegation_and_connection_token(
             &signing_key,
             &verifying_key,
-            capability_str,
+            &user_id,
             audience_ucan_pub_key,
+            domain,
+            lifetime,
         )
         .await?;
         Ok(token)
@@ -703,24 +723,29 @@ impl CryptoUtils {
     ///    permissions, using the delegator's UCAN as its proof.
     ///
     /// Returns a tuple of the new `(token_string, token_cid)`.
-    pub async fn issue_delegated_ucan(
+    pub async fn issue_delegated_resource_ucan<F, Fut>(
         &self,
         encrypted_delegator_private_key: &str,
         proof_ucan_string: &str,
-        verifier_ucan_pub_b64: &str, // Public key of the resource's root owner
-        resource_id: &str,           // The specific resource being delegated
+        verifier_ucan_pub_b64: &str,
+        resource_id: &str,
         recipient_ucan_pub_key: &str,
         permissions_to_grant: Vec<(String, String)>,
-        proof_map: &HashMap<String, (String, String)>,
-    ) -> Result<(String, String), CryptoError> {
+        proof_resolver: &F,
+    ) -> Result<(String, String), CryptoError>
+    where
+        F: Fn(&str) -> Fut,
+        Fut: Future<Output = Result<String, UcanError>>,
+    {
         let ucan_to_prove = ucan_utils::validate_structure(proof_ucan_string).await?;
 
         // This uses the convenient wrapper function we defined.
-        ucan_utils::verify_resource_delegation_chain(
+        ucan_utils::validate_ucan_permission(
             &ucan_to_prove,
             verifier_ucan_pub_b64,
-            proof_map,
+            proof_resolver,
             resource_id,
+            &"ucan/share".to_string(),
         )
         .await?;
 
@@ -731,7 +756,7 @@ impl CryptoUtils {
 
         // Step 4: Generate the new delegated token for the recipient.
         // This calls the full generator function we finalized.
-        let (new_token, new_cid) = ucan_utils::generate_delegated_resource_ucan(
+        let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
             &delegator_signing_key,
             &delegator_verifying_key,
             recipient_ucan_pub_key,

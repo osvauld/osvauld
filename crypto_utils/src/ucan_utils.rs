@@ -12,6 +12,7 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
+use std::future::Future;
 use std::{boxed::Box, collections::HashMap};
 use ucan::{
     builder::UcanBuilder,
@@ -225,45 +226,38 @@ pub async fn generate_one_time_connection_token(
 }
 
 /// Check if a UCAN token is a one-time connect token
-pub fn is_one_time_connect_token(ucan: &Ucan, capability_prefix: &str) -> bool {
+pub fn is_one_time_connect_token(ucan: &Ucan, domain: &str) -> bool {
     let is_wildcard_audience = ucan.audience() == "*";
-
-    let connect_capability = format!("{}:connect", capability_prefix);
+    let required_prefix = format!("{}:user-connect", domain);
     let has_connect_capability = ucan
         .capabilities()
         .iter()
-        .any(|cap| cap.resource == connect_capability);
+        .any(|cap| cap.resource.starts_with(&required_prefix) && cap.ability == "use");
 
     is_wildcard_audience && has_connect_capability
 }
 
 /// Generate a delegation and connection token
-/// This creates a token with very long validity that grants both connection and delegation capabilities
+/// This creates a token  that grants both connection and delegation capabilities
 /// Issued directly by root authority (not delegated from one-time token)
 pub async fn generate_delegation_and_connection_token(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
-    capability_prefix: &str,
-    audience_ucan_pub_key: &str, // Still takes the base64 key
+    issuer_user_id: &str,
+    audience_ucan_pub_key: &str,
+    domain: &str,
+    lifetime_seconds: u64,
 ) -> Result<String, UcanError> {
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
-
-    // Convert the audience public key to a DID string.
     let audience_did = pub_key_b64_to_did(audience_ucan_pub_key)?;
-
-    let connect_capability = format!("{}:connect", capability_prefix);
-    let connect_cap = Capability::from((connect_capability.as_str(), "use", &json!({})));
-
-    let share_capability = format!("{}:share", capability_prefix);
-    let share_cap = Capability::from((share_capability.as_str(), "use", &json!({})));
-
-    let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
-
-    // Build the token using the newly created DID for the audience.
+    let connect_resource = format!("{}:connect:{}", domain, issuer_user_id);
+    let share_resource = format!("{}:share:{}", domain, issuer_user_id);
+    let connect_cap = Capability::from((connect_resource.as_str(), "use", &json!({})));
+    let share_cap = Capability::from((share_resource.as_str(), "use", &json!({})));
     let ucan = UcanBuilder::default()
         .issued_by(&key_material)
-        .for_audience(&audience_did) // Use the DID string here
-        .with_lifetime(long_lifetime)
+        .for_audience(&audience_did)
+        .with_lifetime(lifetime_seconds)
         .claiming_capability(connect_cap)
         .claiming_capability(share_cap)
         .build()
@@ -271,7 +265,6 @@ pub async fn generate_delegation_and_connection_token(
         .sign()
         .await
         .map_err(|e| UcanError::SignatureError(e.to_string()))?;
-
     let token = ucan
         .encode()
         .map_err(|e| UcanError::EncodingError(e.to_string()))?;
@@ -320,7 +313,7 @@ pub fn validate_audience(ucan: &Ucan, presenter_ucan_pub_b64: &str) -> Result<()
 }
 
 /// Verifies if the public key in a did:key string matches a base64-encoded key.
-fn verify_did_key_match(did: &str, key_b64: &str) -> Result<(), UcanError> {
+pub fn verify_did_key_match(did: &str, key_b64: &str) -> Result<(), UcanError> {
     info!("did {}", did);
     let key_from_did = if did.starts_with("did:key:z") {
         let decoded_did = bs58::decode(&did[9..])
@@ -457,13 +450,17 @@ pub async fn generate_resource_owner_ucan(
     Ok((token_str, token_cid.to_string()))
 }
 
-pub async fn validate_ucan_permission(
+pub async fn validate_ucan_permission<F, Fut>(
     ucan: &Ucan,
     verifier_ucan_pub_b64: &str,
-    proof_map: &HashMap<String, (String, String)>,
+    proof_resolver: &F,
     required_resource: &str,
     required_ability: &str,
-) -> Result<(), UcanError> {
+) -> Result<(), UcanError>
+where
+    F: Fn(&str) -> Fut,
+    Fut: Future<Output = Result<String, UcanError>>,
+{
     let issuer_did = ucan.issuer();
     // 1. Base Case: Check if the UCAN was issued directly by the verifier.
     match verify_did_key_match(issuer_did, verifier_ucan_pub_b64) {
@@ -481,12 +478,10 @@ pub async fn validate_ucan_permission(
         }
 
         for proof_cid_string in proofs_vec {
-            // a. Look up the CID directly in the provided map.
-            let parent_token_string = match proof_map.get(proof_cid_string) {
-                // The map stores (token, user_id), we only need the token.
-                Some((token, _user_id)) => token.clone(),
-                // If the proof is not in the map, it can't be resolved. Try the next one.
-                None => continue,
+            // a. Look up the CID directly in the resolver.
+            let parent_token_string = match proof_resolver(proof_cid_string).await {
+                Ok(token) => token,
+                Err(_) => continue, // If resolver fails to find the proof, try the next one.
             };
 
             // b. Parse the resolved parent token string.
@@ -508,7 +503,7 @@ pub async fn validate_ucan_permission(
             let recursive_call = validate_ucan_permission(
                 &parent_ucan,
                 verifier_ucan_pub_b64,
-                proof_map,
+                proof_resolver,
                 required_resource,
                 required_ability,
             );
@@ -525,31 +520,11 @@ pub async fn validate_ucan_permission(
     ))
 }
 
-/// A specific wrapper to verify that a UCAN has the authority to be delegated.
-///
-/// This function is a convenient shorthand that calls the more generic
-/// `validate_ucan_permission` with the required ability hardcoded to "ucan/share".
-pub async fn verify_resource_delegation_chain(
-    ucan: &Ucan,
-    verifier_ucan_pub_b64: &str, // The root owner of the resource
-    proof_map: &HashMap<String, (String, String)>,
-    resource_id: &str,
-) -> Result<(), UcanError> {
-    validate_ucan_permission(
-        ucan,
-        verifier_ucan_pub_b64,
-        proof_map,
-        resource_id,
-        &"ucan/share".to_string(),
-    )
-    .await
-}
-
 /// Generates a delegated UCAN, using a parent UCAN string as proof.
 ///
 /// This function creates a new link in a delegation chain by using the standard
 /// CID-based proof mechanism. It returns a tuple of the new `(token_string, token_cid)`.
-pub async fn generate_delegated_resource_ucan(
+pub async fn generate_delegated_ucan(
     delegator_signing_key: &SigningKey,
     delegator_verifying_key: &VerifyingKey,
     recipient_ucan_pub_key: &str,
@@ -568,7 +543,6 @@ pub async fn generate_delegated_resource_ucan(
     // 3. Get the recipient's DID from their public key.
     let recipient_did = pub_key_b64_to_did(recipient_ucan_pub_key)?;
 
-    info!("permissions {:?}", &permissions);
     // 4. Create the Vec<Capability> from the input permissions.
     let capabilities: Vec<Capability> = permissions
         .into_iter()

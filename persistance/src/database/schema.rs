@@ -97,6 +97,7 @@ diesel::table! {
         signature -> Text,
         ucan_token -> Text,
         ucan_pub_key -> Text,
+        ucan_cid -> Text,
         owner -> Bool,
         first_sync -> Bool,
         deleted -> Bool,

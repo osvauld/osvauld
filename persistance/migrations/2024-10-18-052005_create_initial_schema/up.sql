@@ -7,6 +7,7 @@ CREATE TABLE users (
     signature TEXT NOT NULL,
     ucan_token TEXT NOT NULL,
     ucan_pub_key TEXT NOT NULL,
+    ucan_cid TEXT NOT NULL,
     owner BOOLEAN NOT NULL DEFAULT FALSE,
     first_sync BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL,

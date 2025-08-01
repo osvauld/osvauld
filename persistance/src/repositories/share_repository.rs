@@ -143,30 +143,6 @@ impl ShareRepository for SqliteShareRepository {
 
         Ok(share_records)
     }
-    async fn get_proof_map_for_resource(
-        &self,
-        resource_id: &str,
-    ) -> Result<HashMap<String, (String, String)>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
-
-        // 1. Fetch all share records associated with the resource.
-        let share_record_models = share_records::table
-            .filter(share_records::resource_id.eq(resource_id))
-            .load::<ShareRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
-        // 2. Transform the vector of records into the desired HashMap.
-        let proof_map = share_record_models
-            .into_iter()
-            .map(|model| {
-                // The key is the UCAN CID.
-                // The value is a tuple of (ucan_token, recipient_user_id).
-                (model.ucan_cid, (model.ucan_token, model.recipient_user_id))
-            })
-            .collect::<HashMap<String, (String, String)>>();
-
-        Ok(proof_map)
-    }
     async fn find_by_resource_and_operation_and_user(
         &self,
         resource_id: &str,
@@ -186,5 +162,16 @@ impl ShareRepository for SqliteShareRepository {
             })?;
 
         Ok(share_record_model.to_domain())
+    }
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let share_record_model = share_records::table
+            .filter(share_records::ucan_cid.eq(cid))
+            .first::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+        Ok(share_record_model.ucan_token)
     }
 }

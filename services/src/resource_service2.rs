@@ -369,7 +369,7 @@ pub async fn share_resource(
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
         crypto
-            .issue_delegated_ucan(
+            .issue_delegated_resource_ucan(
                 &encrypted_ucan_pvt_key,
                 &delegator_share_record.ucan_token,
                 &resource_owner.ucan_pub_key,
