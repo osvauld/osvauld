@@ -79,7 +79,8 @@
 	});
 
 	$effect(() => {
-		const currentNote = dataState.currentNoteData;
+		const noteId = dataState.currentNoteId;
+		const currentNote = dataState.getCurrentNoteData()
 		if (currentNote?.data?.last_modified) {
 			lastModifiedDate = getLastModifiedDate(currentNote.data.last_modified);
 		} else {
