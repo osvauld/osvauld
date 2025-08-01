@@ -428,20 +428,22 @@ pub async fn process_first_user_connection_request(
 pub async fn get_user_manifest(
     repo_ctx: &RepositoryContext,
     peer_user_id: &str,
+    current_user_id: &str,
 ) -> Result<UserManifestRequestPayload, String> {
-    info!("peer user id {}", peer_user_id);
     let share_records = repo_ctx
         .share_repo
         .get_user_share_records(peer_user_id)
         .await
         .map_err(|e| e.to_string())?;
-    info!("share records {:?}", share_records);
     let mut unique_resource_ids = HashSet::new();
     let mut unique_user_ids = HashSet::new();
     for record in share_records {
         unique_user_ids.insert(record.recipient_user_id);
         unique_resource_ids.insert(record.resource_id);
     }
+    //Inserting current and peer users, because they know each other
+    unique_user_ids.insert(current_user_id.to_string());
+    unique_user_ids.insert(peer_user_id.to_string());
     let unique_user_ids_vec: Vec<String> = unique_user_ids.into_iter().collect();
     let unique_resource_ids_vec: Vec<String> = unique_resource_ids.into_iter().collect();
     let user_manifest = repo_ctx
@@ -465,8 +467,9 @@ pub async fn process_user_manifest_request(
     remote_payload: &UserManifestRequestPayload,
     repo_ctx: &RepositoryContext,
     peer_user_id: &str,
+    current_user_id: &str,
 ) -> Result<UserManifestComparisonResult, String> {
-    let local_payload = get_user_manifest(repo_ctx, peer_user_id).await?;
+    let local_payload = get_user_manifest(repo_ctx, peer_user_id, current_user_id).await?;
     let user_gaps = process_user_gaps(&local_payload, remote_payload);
     let resource_gaps = process_resource_gaps(&local_payload, remote_payload);
     Ok(UserManifestComparisonResult {

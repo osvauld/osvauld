@@ -11,7 +11,9 @@ impl PeerConnection {
     pub async fn start_user_network_sync(&self) -> Result<(), String> {
         if self.is_initiator {
             let peer_user = self.get_peer_user().await;
-            let user_manifest = get_user_manifest(&self.repo_ctx, &peer_user.id).await?;
+            let current_user = self.get_local_user().await?;
+            let user_manifest =
+                get_user_manifest(&self.repo_ctx, &peer_user.id, &current_user.id).await?;
             self.send_message(Message::UserManifestPayload(UserManifestPayload::Request(
                 user_manifest,
             )))
@@ -27,9 +29,14 @@ impl PeerConnection {
         match payload {
             UserManifestPayload::Request(request_payload) => {
                 let peer_user = self.get_peer_user().await;
-                let manifest_result =
-                    process_user_manifest_request(request_payload, &self.repo_ctx, &peer_user.id)
-                        .await?;
+                let current_user = self.get_local_user().await?;
+                let manifest_result = process_user_manifest_request(
+                    request_payload,
+                    &self.repo_ctx,
+                    &peer_user.id,
+                    &current_user.id,
+                )
+                .await?;
                 self.set_user_manifest_comparison_result(manifest_result.clone())
                     .await;
                 self.send_message(Message::UserManifestPayload(UserManifestPayload::Response(

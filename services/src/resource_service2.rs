@@ -434,6 +434,23 @@ pub async fn get_resource_state_vector(
     Ok(state_vectors)
 }
 
+pub async fn get_resource_ucan_key(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: &RepositoryContext,
+) -> Result<String, ResourceServiceError> {
+    let delegator_share_record = repo_ctx
+        .share_repo
+        .find_by_resource_and_operation_and_user(
+            resource_id,
+            &ShareOperation::Share.to_string(),
+            user_id,
+        )
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    Ok(delegator_share_record.ucan_token)
+}
+
 // Also update the generate_updates_for_peer function similarly
 pub async fn generate_updates_for_peer(
     resource_id: &str,
@@ -654,6 +671,7 @@ pub async fn merge_share_records(
         .collect();
     Ok(local_only_records)
 }
+
 pub async fn update_vector_clocks(
     add_clock: &[ResourceVectorClock],
     update_clock: &[ResourceVectorClock],
@@ -664,9 +682,43 @@ pub async fn update_vector_clocks(
         .update_vector_clocks(&update_clock, &add_clock)
         .await
 }
+
 pub async fn add_share_records(
     share_records: &[ShareRecord],
     repo_ctx: &RepositoryContext,
 ) -> Result<(), RepositoryError> {
     repo_ctx.share_repo.save_many(share_records).await
+}
+
+pub async fn validate_authority_for_update(
+    resource_id: &str,
+    token: &str,
+    peer_user_id: &str,
+    repo_ctx: &RepositoryContext,
+) -> Result<bool, ResourceServiceError> {
+    let peer_user = repo_ctx
+        .user_repo
+        .get_user_by_id(peer_user_id)
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let resource_owner = repo_ctx
+        .resource_repo
+        .find_owner_by_resource_id(resource_id)
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let prf_map = repo_ctx
+        .share_repo
+        .get_proof_map_for_resource(resource_id)
+        .await
+        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let token = crypto_utils::validate_authority_for_update(
+        token,
+        &peer_user.ucan_pub_key,
+        &resource_owner.ucan_pub_key,
+        resource_id,
+        &prf_map,
+    )
+    .await
+    .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+    Ok(token)
 }

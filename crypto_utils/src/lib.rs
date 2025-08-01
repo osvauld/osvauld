@@ -10,6 +10,7 @@ use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use anyhow::Result;
 use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{SecretKey, SigningKey, VerifyingKey};
+use errors::UcanError;
 use log::info;
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
@@ -291,6 +292,31 @@ pub async fn verify_clear_text_message(
             "PGP signature verification failed.".to_string(),
         ))?
     }
+}
+
+pub async fn validate_authority_for_update(
+    ucan_token: &str,
+    peer_ucan_pub: &str,
+    root_ucan_pub: &str,
+    resource_id: &str,
+    proof_map: &HashMap<String, (String, String)>,
+) -> Result<bool, CryptoError> {
+    let ucan = ucan_utils::validate_structure(ucan_token)
+        .await
+        .map_err(CryptoError::UcanError)?;
+
+    ucan_utils::validate_audience(&ucan, peer_ucan_pub).map_err(CryptoError::UcanError)?;
+
+    ucan_utils::validate_ucan_permission(
+        &ucan,
+        root_ucan_pub,
+        proof_map,
+        resource_id,
+        &"crud/update".to_string(),
+    )
+    .await
+    .map(|_| true)
+    .map_err(CryptoError::UcanError)
 }
 
 // Stateful Certificate Operations

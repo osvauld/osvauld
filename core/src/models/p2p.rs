@@ -49,11 +49,13 @@ pub enum ResourceUpdateMsg {
     StateVectorRequest {
         resource_id: String,
         state_vectors: String,
+        ucan_token: String,
     },
     // Response with updates and state vector
     UpdatesResponse {
         resource_id: String,
         updates: String,
+        ucan_token: String,
     },
     FinalUpdateMerge {
         resource_id: String,

@@ -7,8 +7,8 @@ use osvauld_core::models::{
 use services::{
     add_resource_sync, add_share_records, apply_updates, apply_updates_and_get_peer_updates,
     generate_updates_for_peer, get_resource_for_remote_addition, get_resource_state_vector,
-    get_share_records_for_resource, get_vector_clocks_for_resource, merge_share_records,
-    merge_vector_clocks, update_vector_clocks,
+    get_resource_ucan_key, get_share_records_for_resource, get_vector_clocks_for_resource,
+    merge_share_records, merge_vector_clocks, update_vector_clocks, validate_authority_for_update,
 };
 
 use tracing::{debug, error, info, instrument};
@@ -236,10 +236,14 @@ impl PeerConnection {
                             return Err(format!("Failed to get resource state vector: {}", e));
                         }
                     };
+                    let ucan_token = get_resource_ucan_key(resource_id, &user.id, &self.repo_ctx)
+                        .await
+                        .map_err(|e| e.to_string())?;
 
                     let message = ResourceUpdateMsg::StateVectorRequest {
                         resource_id: resource_id.to_string(),
                         state_vectors,
+                        ucan_token,
                     };
 
                     match self.send_message(Message::MergeUpdate(message)).await {
@@ -287,11 +291,25 @@ impl PeerConnection {
             ResourceUpdateMsg::StateVectorRequest {
                 resource_id,
                 state_vectors,
+                ucan_token,
             } => {
                 debug!(
                     resource_id = %resource_id,
                     "Processing state vector request"
                 );
+                let peer_user = self.get_peer_user().await;
+                let is_token_valid = validate_authority_for_update(
+                    resource_id,
+                    ucan_token,
+                    &peer_user.id,
+                    &self.repo_ctx,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                if !is_token_valid {
+                    error!("token is invalid");
+                    return Err("update permission is missing".to_string());
+                }
 
                 let updates = match generate_updates_for_peer(
                     resource_id,
@@ -320,9 +338,13 @@ impl PeerConnection {
                     }
                 };
 
+                let ucan_token = get_resource_ucan_key(resource_id, &user.id, &self.repo_ctx)
+                    .await
+                    .map_err(|e| e.to_string())?;
                 let message = ResourceUpdateMsg::UpdatesResponse {
                     resource_id: resource_id.to_string(),
                     updates,
+                    ucan_token,
                 };
 
                 match self.send_message(Message::MergeUpdate(message)).await {
@@ -345,6 +367,7 @@ impl PeerConnection {
             ResourceUpdateMsg::UpdatesResponse {
                 resource_id,
                 updates,
+                ucan_token,
             } => {
                 debug!(
                     resource_id = %resource_id,
@@ -353,6 +376,19 @@ impl PeerConnection {
                 );
                 let user = self.get_local_user().await?;
 
+                let peer_user = self.get_peer_user().await;
+                let is_token_valid = validate_authority_for_update(
+                    resource_id,
+                    ucan_token,
+                    &peer_user.id,
+                    &self.repo_ctx,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+                if !is_token_valid {
+                    error!("token is invalid");
+                    return Err("update permission is missing".to_string());
+                }
                 let remote_updates = match apply_updates_and_get_peer_updates(
                     resource_id,
                     &user.id,

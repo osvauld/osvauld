@@ -352,7 +352,7 @@ impl PeerConnection {
     }
 
     /// Process a received message by delegating to the appropriate handler
-    #[instrument(skip(self), level = "debug")]
+    #[instrument(skip_all, level = "info")]
     async fn process_message(&self, message: &mut Message) -> Result<(), String> {
         match message {
             Message::Ping => {
