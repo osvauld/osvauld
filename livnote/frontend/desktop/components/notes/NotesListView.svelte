@@ -79,7 +79,9 @@
 		{:else if dataState.filteredNotes.length === 0}
 			<div class="flex justify-center items-center h-full">
 				<div class="text-osvauld-fieldText">
-					No notes found. Create a new note to get started.
+					{dataState.favoriteSelected 
+						? "No favourites found." 
+						: "No notes found. Create a new note to get started."}
 				</div>
 			</div>
 		{:else}
@@ -89,7 +91,7 @@
 						{#each getColumnItems(dataState.filteredNotes, colIndex) as note (note.id)}
 							<div
 								role="presentation"
-								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-osvauld-carolinablue transition-colors duration-200 cursor-pointer"
+								class="bg-osvauld-frameblack border border-osvauld-borderColor rounded-lg overflow-hidden hover:border-livnotelavender transition-colors duration-200 cursor-pointer"
 								onclick={() => selectNote(note)}>
 								<div
 									class="p-4 border-b border-osvauld-borderColor flex justify-between items-center">

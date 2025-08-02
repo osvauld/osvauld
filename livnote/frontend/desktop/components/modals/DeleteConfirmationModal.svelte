@@ -20,7 +20,7 @@
 			await dataState.fetchVaults();
 			await dataState.fetchAllNotes();
 			// Reset to All Vaults
-			dataState.switchVault({ id: "all", name: "All Folders" });
+			dataState.switchVault({ id: "all", name: "Home" });
 		} else if (item === "note") {
 			const currentNoteId = dataState.getCurrentNoteId();
 			if (!currentNoteId) return;
