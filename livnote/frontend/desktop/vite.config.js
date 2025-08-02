@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
-import path from "path";
 import { sveltePreprocess } from "svelte-preprocess";
 import tailwindcss from "@tailwindcss/vite";
+import legacy from "@vitejs/plugin-legacy";
 
 export default defineConfig(({ mode }) => {
   const isDev = mode === "development";
@@ -24,11 +24,16 @@ export default defineConfig(({ mode }) => {
           runes: true,
         },
       }),
+      legacy({
+        targets: ['chrome >= 58', 'firefox >= 54', 'safari >= 11', 'edge >= 79'],
+        modernPolyfills: true,
+        renderLegacyChunks: false,
+      }),
     ],
 
 
     build: {
-      target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "safari13",
+      target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome58" : "safari11",
       minify: !process.env.TAURI_ENV_DEBUG ? "esbuild" : false,
       sourcemap: true,
       outDir: "dist",

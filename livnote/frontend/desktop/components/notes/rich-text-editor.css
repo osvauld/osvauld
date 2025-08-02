@@ -13,6 +13,17 @@
     border-top-right-radius: 8px;
 }
 
+/* Fallback for browsers that don't support gap in flexbox */
+@supports not (gap: 4px) {
+    .editor-fixed-menu {
+        margin: -2px;
+    }
+    
+    .editor-fixed-menu > * {
+        margin: 2px;
+    }
+}
+
 .editor-menu-group {
     display: flex;
     align-items: center;
@@ -21,6 +32,17 @@
     margin-right: 5px;
     border-right: 1px solid #2a2b2f;
     min-height: 30px;
+}
+
+/* Fallback for browsers that don't support gap in flexbox */
+@supports not (gap: 3px) {
+    .editor-menu-group {
+        margin: -1.5px;
+    }
+    
+    .editor-menu-group > * {
+        margin: 1.5px;
+    }
 }
 
 .editor-menu-group:last-child {

@@ -8,7 +8,8 @@ const config = {
     },
     scss: {
       prependData: '@use "sass:math";'
-    }
+    },
+    postcss: true // Enable PostCSS processing for vanilla CSS in <style> blocks
   }),
   compilerOptions: {
     runes: true

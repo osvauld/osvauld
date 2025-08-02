@@ -2,6 +2,7 @@
 	import { invoke } from "@tauri-apps/api/core";
 	import { onMount, onDestroy } from "svelte";
 	import { listen } from "@tauri-apps/api/event";
+	import { readFromClipboard } from "../../utils/helper";
 
 	let ticket = $state("");
 	let status = $state("Ready to connect");
@@ -49,7 +50,7 @@
 
 	async function pasteTicket() {
 		try {
-			const text = await navigator.clipboard.readText();
+			const text = await readFromClipboard();
 			ticket = text;
 			error = "";
 		} catch (err: unknown) {
