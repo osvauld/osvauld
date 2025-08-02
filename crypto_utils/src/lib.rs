@@ -1,5 +1,5 @@
 mod crypto_core;
-mod errors;
+pub mod errors;
 pub mod signature_utils;
 pub mod types;
 mod ucan_utils;
@@ -15,7 +15,6 @@ use log::info;
 use openpgp::{policy::StandardPolicy, serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
 use sequoia_openpgp::{self as openpgp};
-use std::collections::HashMap;
 use std::future::Future;
 use std::str::FromStr;
 use std::time::Duration;
@@ -254,7 +253,8 @@ pub async fn validate_connect_token<F, Fut>(
 ) -> Result<bool, CryptoError>
 where
     F: Fn(&str) -> Fut + Send + Sync,
-    Fut: Future<Output = Result<String, UcanError>> + Send,
+
+    Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
 {
     let ucan = ucan_utils::validate_structure(token).await?;
     let required_resource = format!("{}:user-connect:{}", domain, verifier_user_id);
@@ -311,8 +311,8 @@ pub async fn validate_authority_for_update<F, Fut>(
     proof_resolver: &F,
 ) -> Result<bool, CryptoError>
 where
-    F: Fn(&str) -> Fut,
-    Fut: Future<Output = Result<String, UcanError>>,
+    F: Fn(&str) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
 {
     let ucan = ucan_utils::validate_structure(ucan_token)
         .await
@@ -331,7 +331,9 @@ where
     .map(|_| true)
     .map_err(CryptoError::UcanError)
 }
-
+pub fn get_cid_from_ucan_token(ucan_token: &str) -> Result<String, UcanError> {
+    ucan_utils::get_ucan_cid(ucan_token)
+}
 // Stateful Certificate Operations
 // These operations require a loaded certificate
 pub struct CryptoUtils {
@@ -734,8 +736,8 @@ impl CryptoUtils {
         proof_resolver: &F,
     ) -> Result<(String, String), CryptoError>
     where
-        F: Fn(&str) -> Fut,
-        Fut: Future<Output = Result<String, UcanError>>,
+        F: Fn(&str) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
     {
         let ucan_to_prove = ucan_utils::validate_structure(proof_ucan_string).await?;
 

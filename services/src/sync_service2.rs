@@ -20,7 +20,7 @@ pub struct SetComparison {
     pub common: HashSet<String>,
 }
 pub async fn get_device_manifest(
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     current_user_id: &str,
 ) -> Result<DeviceManifestRequestPayload, String> {
     let resource_manfest = repo_ctx
@@ -56,7 +56,7 @@ pub async fn get_device_manifest(
 
 pub async fn process_device_manifest_request(
     remote_manifest_payload: &DeviceManifestRequestPayload,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     current_user_id: &str,
 ) -> Result<DeviceManifestComparisonResult, String> {
     let local_manifest_payload = get_device_manifest(repo_ctx, current_user_id).await?;
@@ -294,7 +294,7 @@ fn compare_resources_for_common_resources(
 
 pub async fn create_device_network_sync_payload(
     manifest_diff: &DeviceManifestDifferences,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<DeviceNetworkSyncPayload, String> {
     // 1. Get unknown users with their devices
     let unknown_users_with_devices = repo_ctx
@@ -342,7 +342,7 @@ pub async fn create_device_network_sync_payload(
 
 pub async fn process_device_network_sync(
     payload: &mut DeviceNetworkSyncPayload,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(), String> {
     for user_with_device in &mut payload.unknown_users_with_devices {
         user_with_device.user.owner = false;
@@ -375,7 +375,7 @@ pub async fn process_device_network_sync(
 pub async fn get_resource_for_remote_addition(
     resource_id: &str,
     device: &Device,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<ResourceSyncData, String> {
     let new_vector_clock =
         ResourceVectorClock::create_entry_for_new_device(resource_id, &device.id);
@@ -393,7 +393,7 @@ pub async fn get_resource_for_remote_addition(
 }
 pub async fn add_resource_sync(
     payload: &mut ResourceSyncData,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     connection_type: &ConnectionType,
 ) -> Result<(), String> {
     match connection_type {
@@ -416,7 +416,7 @@ pub async fn add_resource_sync(
 
 pub async fn process_first_user_connection_request(
     user_with_devices: UserWithDevices,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(), String> {
     repo_ctx
         .user_repo
@@ -426,7 +426,7 @@ pub async fn process_first_user_connection_request(
 }
 
 pub async fn get_user_manifest(
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     peer_user_id: &str,
     current_user_id: &str,
 ) -> Result<UserManifestRequestPayload, String> {
@@ -465,7 +465,7 @@ pub async fn get_user_manifest(
 }
 pub async fn process_user_manifest_request(
     remote_payload: &UserManifestRequestPayload,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     peer_user_id: &str,
     current_user_id: &str,
 ) -> Result<UserManifestComparisonResult, String> {
@@ -583,7 +583,7 @@ pub fn process_resource_gaps(
 pub async fn create_user_network_sync_payload(
     manifest_diff: &UserManifestDifferences,
     peer_user: &User,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<UserNetworkSyncPayload, String> {
     // 1. Get unknown users with their devices
@@ -613,7 +613,7 @@ pub async fn create_user_network_sync_payload(
 
 pub async fn process_user_network_sync_payload(
     payload: &mut UserNetworkSyncPayload,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(), String> {
     for user_with_device in &mut payload.users {
         user_with_device.user.owner = false;

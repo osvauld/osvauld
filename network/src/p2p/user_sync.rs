@@ -13,7 +13,7 @@ impl PeerConnection {
             let peer_user = self.get_peer_user().await;
             let current_user = self.get_local_user().await?;
             let user_manifest =
-                get_user_manifest(&self.repo_ctx, &peer_user.id, &current_user.id).await?;
+                get_user_manifest(self.repo_ctx.clone(), &peer_user.id, &current_user.id).await?;
             self.send_message(Message::UserManifestPayload(UserManifestPayload::Request(
                 user_manifest,
             )))
@@ -32,7 +32,7 @@ impl PeerConnection {
                 let current_user = self.get_local_user().await?;
                 let manifest_result = process_user_manifest_request(
                     request_payload,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &peer_user.id,
                     &current_user.id,
                 )
@@ -57,7 +57,7 @@ impl PeerConnection {
                 let payload = create_user_network_sync_payload(
                     &manifest.remote_missing,
                     &peer_user,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await?;
@@ -79,7 +79,7 @@ impl PeerConnection {
             let local_payload = create_user_network_sync_payload(
                 &manifest.remote_missing,
                 &peer_user,
-                &self.repo_ctx,
+                self.repo_ctx.clone(),
                 &self.crypto_utils,
             )
             .await?;
@@ -87,7 +87,7 @@ impl PeerConnection {
             self.send_message(message).await?;
         }
 
-        process_user_network_sync_payload(payload, &self.repo_ctx).await?;
+        process_user_network_sync_payload(payload, self.repo_ctx.clone()).await?;
         self.send_message(Message::UserNetworkSyncAck).await?;
         Ok(())
     }

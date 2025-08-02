@@ -49,7 +49,7 @@ async fn create_device(
 pub async fn handle_signup(
     username: &str,
     passphrase: &str,
-    repo_context: &RepositoryContext,
+    repo_context: Arc<RepositoryContext>,
 ) -> Result<(), String> {
     // Create user and primary certificate
     let primary_certificate = create_certificate(username, passphrase).await?;
@@ -74,6 +74,7 @@ pub async fn handle_signup(
         true,
         "owner_token".to_string(),
         ucan_certificate.public_key.clone(),
+        "owner_cid".to_string(),
     );
     // Create device and device certificate
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
@@ -93,7 +94,7 @@ pub async fn handle_signup(
 }
 
 /// Check if user is already signed up
-pub async fn is_signed_up(repo_ctx: &RepositoryContext) -> Result<bool, String> {
+pub async fn is_signed_up(repo_ctx: Arc<RepositoryContext>) -> Result<bool, String> {
     repo_ctx
         .store_repo
         .is_signed_up()
@@ -103,7 +104,7 @@ pub async fn is_signed_up(repo_ctx: &RepositoryContext) -> Result<bool, String> 
 
 pub async fn load_certificate(
     passphrase: &str,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(User, Device), String> {
     let certificate = repo_ctx
@@ -139,7 +140,7 @@ pub async fn load_certificate(
     Ok((user, device))
 }
 
-pub async fn get_current_device(repo_ctx: &RepositoryContext) -> Result<Device, String> {
+pub async fn get_current_device(repo_ctx: Arc<RepositoryContext>) -> Result<Device, String> {
     let device_id = repo_ctx
         .store_repo
         .get_device_key()
@@ -154,7 +155,7 @@ pub async fn get_current_device(repo_ctx: &RepositoryContext) -> Result<Device, 
 }
 pub async fn export_certificate(
     passphrase: String,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<String, String> {
     let certificate = repo_ctx
         .store_repo
@@ -169,7 +170,7 @@ pub async fn export_certificate(
 pub async fn change_passphrase(
     old_password: String,
     new_password: String,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<Certificate, String> {
     let certificate = repo_ctx
         .store_repo
@@ -210,7 +211,7 @@ pub async fn import_user(
     passphrase: &str,
     username: &str,
     peer_device_id: &str,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(User, Certificate), String> {
     let result = import_certificate(certificate, passphrase).map_err(|e| e.to_string())?;
     let user_id = get_key_id(&result.public_key).map_err(|e| e.to_string())?;
@@ -239,6 +240,7 @@ pub async fn import_user(
         true,
         "owner_token".to_string(),
         ucan_certificate.public_key.clone(),
+        "owner_cid".to_string(),
     );
     let peer_device = Device::new(
         peer_device_id.to_string(),
@@ -296,7 +298,7 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> Result<Certificate, St
 pub async fn generate_one_time_ucan_token(
     capability_str: &str,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(String, String), String> {
     let encrypted_ucan_pvt_key = repo_ctx
         .store_repo

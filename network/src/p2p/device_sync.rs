@@ -19,7 +19,7 @@ impl PeerConnection {
         info!("Starting add device process");
         debug!("Retrieving device manifest for user");
         let peer_user = self.get_peer_user().await;
-        let manifest = match get_device_manifest(&self.repo_ctx, &peer_user.id).await {
+        let manifest = match get_device_manifest(self.repo_ctx.clone(), &peer_user.id).await {
             Ok(manifest) => {
                 debug!(
                     manifest_resource_count = manifest.resources.len(),
@@ -68,40 +68,43 @@ impl PeerConnection {
             payload.resources.len()
         );
         let peer_user = self.get_peer_user().await;
-        let result = match process_device_manifest_request(payload, &self.repo_ctx, &peer_user.id)
-            .await
-        {
-            Ok(result) => {
-                debug!(
-                    local_missing_unknown_users = result.local_missing.unknown_users.len(),
-                    local_missing_unknown_devices_common =
-                        result.local_missing.unknown_devices_from_common_users.len(),
-                    local_missing_unknown_devices_current =
-                        result.local_missing.unknown_devices_from_current_user.len(),
-                    local_missing_unknown_resources = result.local_missing.unknown_resources.len(),
-                    local_missing_unknown_folders = result.local_missing.unknown_folders.len(),
-                    remote_missing_unknown_users = result.remote_missing.unknown_users.len(),
-                    remote_missing_unknown_devices_common = result
-                        .remote_missing
-                        .unknown_devices_from_common_users
-                        .len(),
-                    remote_missing_unknown_devices_current = result
-                        .remote_missing
-                        .unknown_devices_from_current_user
-                        .len(),
-                    remote_missing_unknown_resources =
-                        result.remote_missing.unknown_resources.len(),
-                    remote_missing_unknown_folders = result.remote_missing.unknown_folders.len(),
-                    resources_requiring_sync = result.resources_requiring_sync.len(),
-                    "Manifest comparison completed"
-                );
-                result
-            }
-            Err(e) => {
-                error!(error = %e, "Failed to process device manifest request");
-                return Err(format!("Failed to process device manifest request: {}", e));
-            }
-        };
+        let result =
+            match process_device_manifest_request(payload, self.repo_ctx.clone(), &peer_user.id)
+                .await
+            {
+                Ok(result) => {
+                    debug!(
+                        local_missing_unknown_users = result.local_missing.unknown_users.len(),
+                        local_missing_unknown_devices_common =
+                            result.local_missing.unknown_devices_from_common_users.len(),
+                        local_missing_unknown_devices_current =
+                            result.local_missing.unknown_devices_from_current_user.len(),
+                        local_missing_unknown_resources =
+                            result.local_missing.unknown_resources.len(),
+                        local_missing_unknown_folders = result.local_missing.unknown_folders.len(),
+                        remote_missing_unknown_users = result.remote_missing.unknown_users.len(),
+                        remote_missing_unknown_devices_common = result
+                            .remote_missing
+                            .unknown_devices_from_common_users
+                            .len(),
+                        remote_missing_unknown_devices_current = result
+                            .remote_missing
+                            .unknown_devices_from_current_user
+                            .len(),
+                        remote_missing_unknown_resources =
+                            result.remote_missing.unknown_resources.len(),
+                        remote_missing_unknown_folders =
+                            result.remote_missing.unknown_folders.len(),
+                        resources_requiring_sync = result.resources_requiring_sync.len(),
+                        "Manifest comparison completed"
+                    );
+                    result
+                }
+                Err(e) => {
+                    error!(error = %e, "Failed to process device manifest request");
+                    return Err(format!("Failed to process device manifest request: {}", e));
+                }
+            };
 
         match self
             .send_message(Message::DeviceManifestResponse(result.clone()))
@@ -193,7 +196,7 @@ impl PeerConnection {
         let manifest = self.get_device_manifest_result().await?;
         let device_network_payload = match create_device_network_sync_payload(
             &manifest.remote_missing,
-            &self.repo_ctx,
+            self.repo_ctx.clone(),
         )
         .await
         {
@@ -230,7 +233,7 @@ impl PeerConnection {
 
         let device_network_payload = match create_device_network_sync_payload(
             &manifest.remote_missing,
-            &self.repo_ctx,
+            self.repo_ctx.clone(),
         )
         .await
         {
@@ -269,7 +272,7 @@ impl PeerConnection {
             payload.unknown_folders.len()
         );
 
-        match process_device_network_sync(payload, &self.repo_ctx).await {
+        match process_device_network_sync(payload, self.repo_ctx.clone()).await {
             Ok(_) => {
                 info!("Network sync processed successfully");
                 debug!("Sending network sync acknowledgment");

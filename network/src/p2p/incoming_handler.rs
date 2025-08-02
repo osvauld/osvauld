@@ -249,7 +249,7 @@ impl P2PService {
                     match get_resource_state_vector(
                         &resource_id,
                         &user.id,
-                        &self.repo_ctx,
+                        self.repo_ctx.clone(),
                         &self.crypto_utils,
                     )
                     .await
@@ -322,7 +322,7 @@ impl P2PService {
                     &user_id,
                     &combined_updates,
                     &state_vectors,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await
@@ -380,7 +380,7 @@ impl P2PService {
                     &user.id,
                     &remote_updates,
                     &local_buffer,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await

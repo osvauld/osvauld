@@ -30,7 +30,7 @@ pub struct P2PState {
 pub struct P2PService {
     pub state: Arc<Mutex<Option<P2PState>>>,
     pub crypto_utils: Arc<Mutex<CryptoUtils>>,
-    pub repo_ctx: RepositoryContext,
+    pub repo_ctx: Arc<RepositoryContext>,
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
@@ -41,7 +41,7 @@ impl P2PService {
     /// Creates a new P2P service instance
     #[instrument(skip_all, level = "info")]
     pub fn new(
-        repo_ctx: RepositoryContext,
+        repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
         domain: Arc<String>,
     ) -> (

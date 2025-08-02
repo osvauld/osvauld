@@ -26,7 +26,7 @@ pub async fn handle_add_resource(
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
@@ -36,7 +36,7 @@ pub async fn handle_add_resource(
         input.folder_id,
         &user,
         &device.id,
-        &repo_ctx,
+        repo_ctx.inner().clone(),
         &crypto_utils,
     )
     .await
@@ -84,13 +84,18 @@ pub async fn handle_add_resource(
 pub async fn handle_get_resources_for_folder(
     input: GetResourceForFolderInput,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
-    let resources = get_resources_for_folder(&input.folder_id, &crypto_utils, &user.id, &repo_ctx)
-        .await
-        .map_err(|e| e.to_string())?;
+    let resources = get_resources_for_folder(
+        &input.folder_id,
+        &crypto_utils,
+        &user.id,
+        repo_ctx.inner().clone(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     let resource_responses = resources
         .into_iter()
@@ -109,10 +114,10 @@ pub async fn handle_get_resources_for_folder(
 #[tauri::command]
 pub async fn soft_delete_resource(
     input: DeleteResourceInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<(), String> {
     info!("deleting resource {}", input.resource_id);
-    delete_resource(input.resource_id.clone(), &repo_ctx)
+    delete_resource(input.resource_id.clone(), repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -121,9 +126,9 @@ pub async fn soft_delete_resource(
 #[tauri::command]
 pub async fn handle_toggle_fav(
     input: ToggleFavInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    toggle_fav(input.resource_id, &repo_ctx)
+    toggle_fav(input.resource_id, repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
@@ -131,9 +136,9 @@ pub async fn handle_toggle_fav(
 #[tauri::command]
 pub async fn handle_update_last_accessed(
     input: UpdateLastAccessedInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    update_last_accessed(input.resource_id, &repo_ctx)
+    update_last_accessed(input.resource_id, repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
@@ -142,11 +147,11 @@ pub async fn handle_update_last_accessed(
 #[tauri::command]
 pub async fn handle_get_all_resources(
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
-    let resources = get_all_resources(&crypto_utils, &repo_ctx, &user.id)
+    let resources = get_all_resources(&crypto_utils, repo_ctx.inner().clone(), &user.id)
         .await
         .map_err(|e| e.to_string())?;
     let resource_responses = resources
@@ -169,7 +174,7 @@ pub async fn handle_update_resource(
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     //TODO: migrate obsolete user records to another table.
     let current_device = user_state.get_device().await?;
@@ -179,7 +184,7 @@ pub async fn handle_update_resource(
         input.data,
         &user.id,
         &current_device.id,
-        &repo_ctx,
+        repo_ctx.inner().clone(),
         &crypto_utils,
     )
     .await
@@ -216,14 +221,18 @@ pub async fn handle_update_resource(
 pub async fn handle_get_resource(
     input: GetResource,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
-    let resource =
-        get_resource_by_id_direct(&input.resource_id, &user.id, &repo_ctx, &crypto_utils)
-            .await
-            .map_err(|e| e.to_string())?;
+    let resource = get_resource_by_id_direct(
+        &input.resource_id,
+        &user.id,
+        repo_ctx.inner().clone(),
+        &crypto_utils,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     let response = ResourceResponse {
         id: resource.id,
         data: resource.data,
@@ -238,7 +247,7 @@ pub async fn handle_share_resource(
     input: ShareResource,
     user_state: State<'_, UserState>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     // Get current user and device info
@@ -248,7 +257,7 @@ pub async fn handle_share_resource(
         &input.resource_id,
         input.permissions.clone(),
         &user,
-        &repo_ctx,
+        repo_ctx.inner().clone(),
         &crypto_utils,
     )
     .await
@@ -283,7 +292,7 @@ pub async fn emit_all_resources(
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let overall_start = Instant::now();
     info!("Starting emit_all_resources");
@@ -317,8 +326,13 @@ pub async fn emit_all_resources(
         }
 
         // Decrypt selected resource and return it
-        match get_resource_by_id_direct(&selected_resource, &user_id, &repo_ctx, &crypto_utils)
-            .await
+        match get_resource_by_id_direct(
+            &selected_resource,
+            &user_id,
+            repo_ctx.inner().clone(),
+            &crypto_utils,
+        )
+        .await
         {
             Ok(decrypted_resource) => {
                 let (preview, title) =
@@ -392,7 +406,7 @@ pub async fn emit_all_resources(
             match get_resource_by_id_direct(
                 &resource_id,
                 &user_id,
-                &repo_ctx_clone,
+                repo_ctx_clone.clone(),
                 &crypto_utils_clone,
             )
             .await

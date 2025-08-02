@@ -311,7 +311,13 @@ pub fn validate_audience(ucan: &Ucan, presenter_ucan_pub_b64: &str) -> Result<()
         _ => e,
     })
 }
-
+pub fn get_ucan_cid(ucan_token: &str) -> Result<String, UcanError> {
+    let ucan = Ucan::try_from(ucan_token).map_err(|e| UcanError::ParseError(e.to_string()))?;
+    let token_cid = ucan
+        .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
+        .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?;
+    Ok(token_cid.to_string())
+}
 /// Verifies if the public key in a did:key string matches a base64-encoded key.
 pub fn verify_did_key_match(did: &str, key_b64: &str) -> Result<(), UcanError> {
     info!("did {}", did);
@@ -458,8 +464,8 @@ pub async fn validate_ucan_permission<F, Fut>(
     required_ability: &str,
 ) -> Result<(), UcanError>
 where
-    F: Fn(&str) -> Fut,
-    Fut: Future<Output = Result<String, UcanError>>,
+    F: Fn(&str) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
 {
     let issuer_did = ucan.issuer();
     // 1. Base Case: Check if the UCAN was issued directly by the verifier.

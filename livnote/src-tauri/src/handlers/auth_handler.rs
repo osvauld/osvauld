@@ -17,9 +17,9 @@ use tokio::sync::Mutex;
 
 #[tauri::command]
 pub async fn check_signup_status(
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let is_signed_up = is_signed_up(&*repo_ctx).await?;
+    let is_signed_up = is_signed_up(repo_ctx.inner().clone()).await?;
     Ok(CryptoResponse::IsSignedUp { is_signed_up })
 }
 
@@ -39,10 +39,11 @@ pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<Crypto
 #[tauri::command]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let _result = handle_signup(&input.username, &input.passphrase, &repo_ctx).await?;
-    let _ = create_default_folder(&repo_ctx)
+    let _result =
+        handle_signup(&input.username, &input.passphrase, repo_ctx.inner().clone()).await?;
+    let _ = create_default_folder(repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
@@ -62,10 +63,10 @@ pub async fn login(
     user_state: State<'_, UserState>,
     p2p_service: State<'_, Arc<P2PService>>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let (user, current_device) =
-        load_certificate(&input.passphrase, &repo_ctx, &crypto_utils).await?;
+        load_certificate(&input.passphrase, repo_ctx.inner().clone(), &crypto_utils).await?;
     {
         let mut current_user_state = user_state.current_user.write().await;
         current_user_state.user = Some(user.clone());
@@ -93,14 +94,14 @@ pub async fn login(
 #[tauri::command]
 pub async fn handle_add_device(
     input: AddDeviceInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     import_user(
         &input.certificate,
         &input.passphrase,
         &input.username,
         &input.device_id,
-        &repo_ctx,
+        repo_ctx.inner().clone(),
     )
     .await?;
     Ok(CryptoResponse::Success)
@@ -109,19 +110,23 @@ pub async fn handle_add_device(
 #[tauri::command]
 pub async fn handle_export_certificate(
     input: ExportedCertificate,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let exported_cert = export_certificate(input.passphrase, &*repo_ctx).await?;
+    let exported_cert = export_certificate(input.passphrase, repo_ctx.inner().clone()).await?;
     Ok(CryptoResponse::ExportedCertificate(exported_cert))
 }
 
 #[tauri::command]
 pub async fn handle_change_passphrase(
     input: PasswordChangeInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let _new_certificate =
-        change_passphrase(input.old_password, input.new_password, &repo_ctx).await?;
+    let _new_certificate = change_passphrase(
+        input.old_password,
+        input.new_password,
+        repo_ctx.inner().clone(),
+    )
+    .await?;
 
     Ok(CryptoResponse::Success)
 }
@@ -137,10 +142,11 @@ pub async fn handle_logout(
 #[tauri::command]
 pub async fn get_one_time_ucan_token(
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let (ucan_token, ucan_pub_key) =
-        generate_one_time_ucan_token("livnote:connect", &crypto_utils, &repo_ctx).await?;
+        generate_one_time_ucan_token("livnote:connect", &crypto_utils, repo_ctx.inner().clone())
+            .await?;
     info!("ucan_token {}", ucan_token);
     Ok(CryptoResponse::OneTimeUcanToken(UcanOneTimeTokenOut {
         ucan_token,

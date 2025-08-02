@@ -275,6 +275,7 @@ impl UserRepository for SqliteUserRepository {
                         users::ucan_pub_key.eq(&user_with_devices.user.ucan_pub_key),
                         users::ucan_token.eq(&user_with_devices.user.ucan_token),
                         users::first_sync.eq(&user_with_devices.user.first_sync),
+                        users::ucan_cid.eq(&user_with_devices.user.ucan_cid),
                     ))
                     .execute(conn)?;
 
@@ -369,5 +370,16 @@ impl UserRepository for SqliteUserRepository {
 
         let user: User = user_model.into();
         Ok(user)
+    }
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let user_record_model = users::table
+            .filter(users::ucan_cid.eq(cid))
+            .first::<UserModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+        Ok(user_record_model.ucan_token)
     }
 }

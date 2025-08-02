@@ -22,7 +22,7 @@ pub struct EventManager {
     p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
     p2p_sender: P2PSender,
     current_note_state: CurrentNoteState,
-    repo_ctx: RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<Mutex<CryptoUtils>>,
 }
 
@@ -54,7 +54,7 @@ impl EventManager {
         app_handle: AppHandle,
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         p2p_sender: P2PSender,
-        repo_ctx: RepositoryContext,
+        repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
     ) -> Self {
         Self {
@@ -355,7 +355,7 @@ impl EventManager {
                 };
                 let current_user_id = current_user.id;
                 let current_device_id = current_device.id;
-                match get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id, true, &repo_ctx)
+                match get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id, true, repo_ctx.clone())
                     .await
                 {
                     Ok((shared_devices, shared_users)) => {
@@ -502,7 +502,7 @@ impl EventManager {
                     let decrypted_resource = get_resource_by_id_direct(
                         &resource_id,
                         &current_user.id,
-                        &self.repo_ctx,
+                        self.repo_ctx.clone(),
                         &self.crypto_utils,
                     )
                     .await
@@ -1040,7 +1040,7 @@ impl EventManager {
             match get_resource_by_id_direct(
                 &resource_id,
                 &current_user.id,
-                &self.repo_ctx,
+                self.repo_ctx.clone(),
                 &self.crypto_utils,
             )
             .await

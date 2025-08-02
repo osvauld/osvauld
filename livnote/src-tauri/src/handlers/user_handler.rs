@@ -14,7 +14,7 @@ use tokio::sync::Mutex;
 pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     // // Decode the base64 string
@@ -43,7 +43,7 @@ pub async fn handle_add_user(
         device_public_key,
         one_time_token,
         ucan_pub_key,
-        &repo_ctx,
+        repo_ctx.inner().clone(),
         &crypto_utils,
     )
     .await
@@ -68,9 +68,9 @@ pub async fn handle_add_user(
 
 #[tauri::command]
 pub async fn handle_get_known_users(
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let known_users = get_known_users(&repo_ctx).await?;
+    let known_users = get_known_users(repo_ctx.inner().clone()).await?;
     Ok(CryptoResponse::GetKnownUsers(known_users))
 }
 

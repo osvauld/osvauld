@@ -75,26 +75,29 @@ impl PeerConnection {
             );
 
             let peer_device = self.get_peer_device().await;
-            let resource_payload =
-                match get_resource_for_remote_addition(resource_id, &peer_device, &self.repo_ctx)
-                    .await
-                {
-                    Ok(payload) => {
-                        debug!(
-                            resource_id = %resource_id,
-                            "Resource payload prepared for transmission"
-                        );
-                        payload
-                    }
-                    Err(e) => {
-                        error!(
-                            error = %e,
-                            resource_id = %resource_id,
-                            "Failed to get resource for remote addition"
-                        );
-                        return Err(format!("Failed to get resource for remote addition: {}", e));
-                    }
-                };
+            let resource_payload = match get_resource_for_remote_addition(
+                resource_id,
+                &peer_device,
+                self.repo_ctx.clone(),
+            )
+            .await
+            {
+                Ok(payload) => {
+                    debug!(
+                        resource_id = %resource_id,
+                        "Resource payload prepared for transmission"
+                    );
+                    payload
+                }
+                Err(e) => {
+                    error!(
+                        error = %e,
+                        resource_id = %resource_id,
+                        "Failed to get resource for remote addition"
+                    );
+                    return Err(format!("Failed to get resource for remote addition: {}", e));
+                }
+            };
 
             match self
                 .send_message(Message::ResourceAdditionRequest(resource_payload))
@@ -137,7 +140,7 @@ impl PeerConnection {
         info!("Processing resource addition request");
         debug!("Adding resource to local repository");
         let connection_type = self.get_connection_type().await;
-        match add_resource_sync(payload, &self.repo_ctx, &connection_type).await {
+        match add_resource_sync(payload, self.repo_ctx.clone(), &connection_type).await {
             Ok(_) => {
                 info!(
                     resource_id = %payload.resource.id,
@@ -215,7 +218,7 @@ impl PeerConnection {
                     let state_vectors = match get_resource_state_vector(
                         resource_id,
                         &user.id,
-                        &self.repo_ctx,
+                        self.repo_ctx.clone(),
                         &self.crypto_utils,
                     )
                     .await
@@ -236,9 +239,10 @@ impl PeerConnection {
                             return Err(format!("Failed to get resource state vector: {}", e));
                         }
                     };
-                    let ucan_token = get_resource_ucan_key(resource_id, &user.id, &self.repo_ctx)
-                        .await
-                        .map_err(|e| e.to_string())?;
+                    let ucan_token =
+                        get_resource_ucan_key(resource_id, &user.id, self.repo_ctx.clone())
+                            .await
+                            .map_err(|e| e.to_string())?;
 
                     let message = ResourceUpdateMsg::StateVectorRequest {
                         resource_id: resource_id.to_string(),
@@ -302,7 +306,7 @@ impl PeerConnection {
                     resource_id,
                     ucan_token,
                     &peer_user.id,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                 )
                 .await
                 .map_err(|e| e.to_string())?;
@@ -314,7 +318,7 @@ impl PeerConnection {
                 let updates = match generate_updates_for_peer(
                     resource_id,
                     &user.id,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                     &state_vectors,
                 )
@@ -338,9 +342,10 @@ impl PeerConnection {
                     }
                 };
 
-                let ucan_token = get_resource_ucan_key(resource_id, &user.id, &self.repo_ctx)
-                    .await
-                    .map_err(|e| e.to_string())?;
+                let ucan_token =
+                    get_resource_ucan_key(resource_id, &user.id, self.repo_ctx.clone())
+                        .await
+                        .map_err(|e| e.to_string())?;
                 let message = ResourceUpdateMsg::UpdatesResponse {
                     resource_id: resource_id.to_string(),
                     updates,
@@ -381,7 +386,7 @@ impl PeerConnection {
                     resource_id,
                     ucan_token,
                     &peer_user.id,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                 )
                 .await
                 .map_err(|e| e.to_string())?;
@@ -393,7 +398,7 @@ impl PeerConnection {
                     resource_id,
                     &user.id,
                     updates,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await
@@ -419,44 +424,52 @@ impl PeerConnection {
                     }
                 };
 
-                let share_records =
-                    match get_share_records_for_resource(resource_id, &self.repo_ctx).await {
-                        Ok(records) => {
-                            debug!(
-                                resource_id = %resource_id,
-                                share_record_count = records.len(),
-                                "Retrieved share records for resource"
-                            );
-                            records
-                        }
-                        Err(e) => {
-                            error!(
-                                error = %e,
-                                resource_id = %resource_id,
-                                "Failed to get share records for resource"
-                            );
-                            return Err(format!("Failed to get share records: {}", e));
-                        }
-                    };
+                let share_records = match get_share_records_for_resource(
+                    resource_id,
+                    self.repo_ctx.clone(),
+                )
+                .await
+                {
+                    Ok(records) => {
+                        debug!(
+                            resource_id = %resource_id,
+                            share_record_count = records.len(),
+                            "Retrieved share records for resource"
+                        );
+                        records
+                    }
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %resource_id,
+                            "Failed to get share records for resource"
+                        );
+                        return Err(format!("Failed to get share records: {}", e));
+                    }
+                };
 
-                let vector_clocks =
-                    match get_vector_clocks_for_resource(resource_id, &self.repo_ctx).await {
-                        Ok(clocks) => {
-                            debug!(
-                                resource_id = %resource_id,
-                                "Retrieved vector clocks for resource"
-                            );
-                            clocks
-                        }
-                        Err(e) => {
-                            error!(
-                                error = %e,
-                                resource_id = %resource_id,
-                                "Failed to get vector clocks for resource"
-                            );
-                            return Err(format!("Failed to get vector clocks: {}", e));
-                        }
-                    };
+                let vector_clocks = match get_vector_clocks_for_resource(
+                    resource_id,
+                    self.repo_ctx.clone(),
+                )
+                .await
+                {
+                    Ok(clocks) => {
+                        debug!(
+                            resource_id = %resource_id,
+                            "Retrieved vector clocks for resource"
+                        );
+                        clocks
+                    }
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %resource_id,
+                            "Failed to get vector clocks for resource"
+                        );
+                        return Err(format!("Failed to get vector clocks: {}", e));
+                    }
+                };
 
                 let message = ResourceUpdateMsg::FinalUpdateMerge {
                     resource_id: resource_id.clone(),
@@ -513,7 +526,7 @@ impl PeerConnection {
                     resource_id,
                     updates,
                     &user.id,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await?;
@@ -531,7 +544,9 @@ impl PeerConnection {
                 );
 
                 let (add_clock, update_clock) =
-                    match merge_vector_clocks(resource_id, vector_clocks, &self.repo_ctx).await {
+                    match merge_vector_clocks(resource_id, vector_clocks, self.repo_ctx.clone())
+                        .await
+                    {
                         Ok((add, update)) => {
                             debug!(
                                 resource_id = %resource_id,
@@ -550,7 +565,9 @@ impl PeerConnection {
                     };
 
                 let remote_share_records =
-                    match merge_share_records(resource_id, &share_records, &self.repo_ctx).await {
+                    match merge_share_records(resource_id, &share_records, self.repo_ctx.clone())
+                        .await
+                    {
                         Ok(records) => {
                             debug!(
                                 resource_id = %resource_id,
@@ -605,7 +622,7 @@ impl PeerConnection {
                     "Processing vector clock response"
                 );
 
-                match update_vector_clocks(add_clock, update_clock, &self.repo_ctx).await {
+                match update_vector_clocks(add_clock, update_clock, self.repo_ctx.clone()).await {
                     Ok(_) => {
                         debug!(
                             resource_id = %resource_id,
@@ -622,7 +639,7 @@ impl PeerConnection {
                     }
                 }
 
-                match add_share_records(share_records, &self.repo_ctx).await {
+                match add_share_records(share_records, self.repo_ctx.clone()).await {
                     Ok(_) => {
                         info!(
                             resource_id = %resource_id,

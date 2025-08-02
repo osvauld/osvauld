@@ -100,7 +100,7 @@ pub fn run() {
                 Ok(connection) => {
                     app.manage(connection.clone());
                     let repo_ctx = initialize_repositories(connection.clone());
-
+                    let repo_ctx = Arc::new(initialize_repositories(connection.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
                     let domain = Arc::new("livnote".to_string());
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
@@ -131,7 +131,7 @@ pub fn run() {
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(p2p_service.clone());
-                    app.manage(repo_ctx);
+                    app.manage(repo_ctx.clone());
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);
