@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { BackArrow, Star as EmptyStar, FavStar as Star, MenuToggle } from "../../icons";
+	import {
+		BackArrow,
+		Star as EmptyStar,
+		FavStar as Star,
+		MenuToggle,
+	} from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
@@ -13,6 +18,7 @@
 	let isEditingTitle = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
+	let isNavigatingBack = false;
 	// Derived state for favorite status using the reactive notes array
 	let isFavourite = $derived(() => {
 		const noteId = dataState.currentNoteId;
@@ -21,8 +27,74 @@
 		return note?.favourite ?? false;
 	});
 
+	// Title editing functions
+	const startEditingTitle = () => {
+		isEditingTitle = true;
+
+		// Focus the input after the DOM updates
+		setTimeout(() => {
+			if (inputRef) {
+				inputRef.focus();
+				inputRef.select();
+			}
+		}, 0);
+	};
+
+	const handleBackButtonMouseDown = () => {
+		isNavigatingBack = true;
+	};
+
+	const saveTitle = () => {
+		if (isNavigatingBack || newNoteTitle.trim().length === 0) {
+			isEditingTitle = false;
+			return;
+		}
+		let coordinator = dataState.getNotesCoordinator();
+		coordinator?.saveNote(newNoteTitle);
+		dataState.currentNoteTitle = newNoteTitle;
+		isEditingTitle = false;
+	};
+
+	const getInitial = (name: string): string => {
+		return name.charAt(0).toUpperCase();
+	};
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (event.key === "Enter") {
+			saveTitle();
+		} else if (event.key === "Escape") {
+			isEditingTitle = false;
+		}
+	}
+
+	// Back button handler - saves and returns to list view
+	const handleBackButton = () => {
+		const noteId = dataState.currentNoteId;
+		if (noteId) {
+			dataState.saveNote(noteId);
+		}
+		dataState.clearCurrentNote();
+		uiState.toggleNoteViewLayout(false);
+	};
+
+	const toggleFav = async (e: Event) => {
+		e.stopPropagation();
+		try {
+			const noteId = dataState.currentNoteId;
+			if (noteId === null) return;
+
+			await sendMessage("toggleFav", {
+				resourceId: noteId,
+			});
+			dataState.updateNoteFavorite(noteId);
+		} catch (err) {
+			console.error("Error toggling favorite:", err);
+			uiState.showToast("Failed to update favorite status", false);
+		}
+	};
+
 	// Toggle navigation panel
-	function toggleNavigationPanel() {
+	const toggleNavigationPanel = () => {
 		uiState.toggleNavigationPanel();
 		if (!uiState.showNavigationPanel) {
 			// When hiding panel - set CSS var to 0 to allow editor to go under min width
@@ -33,67 +105,6 @@
 				"--min-editor-width",
 				`${uiState.MIN_EDITOR_WIDTH}px`,
 			);
-		}
-	}
-
-	// Title editing functions
-	function startEditingTitle() {
-		isEditingTitle = true;
-
-		// Focus the input after the DOM updates
-		setTimeout(() => {
-			if (inputRef) {
-				inputRef.focus();
-				inputRef.select();
-			}
-		}, 0);
-	}
-
-	function saveTitle(event: FocusEvent | KeyboardEvent) {
-		if (event.type === "blur" && newNoteTitle.trim().length === 0) {
-			isEditingTitle = false;
-			return;
-		}
-		if (newNoteTitle.trim().length === 0) return;
-		let coordinator = dataState.getNotesCoordinator();
-		coordinator?.saveNote(newNoteTitle);
-		dataState.currentNoteTitle = newNoteTitle;
-		isEditingTitle = false;
-	}
-
-	const getInitial = (name: string): string => {
-		return name.charAt(0).toUpperCase();
-	};
-	function handleKeydown(event: KeyboardEvent) {
-		if (event.key === "Enter") {
-			saveTitle(event);
-		} else if (event.key === "Escape") {
-			isEditingTitle = false;
-		}
-	}
-
-	// Back button handler - saves and returns to list view
-	const handleBackButton = () => {
-		const noteId = dataState.currentNoteId;
-		dataState.saveNote(noteId);
-		dataState.clearCurrentNote();
-		uiState.toggleNoteViewLayout(false);
-	};
-
-	const toggleFav = async (e: Event) => {
-		e.stopPropagation();
-		try {
-			const noteId = dataState.currentNoteId;
-			if (noteId === null) return;
-			
-			await sendMessage("toggleFav", {
-				resourceId: noteId,
-			});
-			dataState.updateNoteFavorite(noteId);
-
-		} catch (err) {
-			console.error("Error toggling favorite:", err);
-			uiState.showToast("Failed to update favorite status", false);
 		}
 	};
 
@@ -137,6 +148,7 @@
 
 				<button
 					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+					onmousedown={handleBackButtonMouseDown}
 					onclick={handleBackButton}>
 					<BackArrow />
 				</button>
@@ -150,7 +162,7 @@
 							maxlength="20"
 							onkeydown={handleKeydown}
 							onblur={saveTitle}
-							class="text-white text-4xl  border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+							class="text-white text-4xl border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
 					</div>
 				{:else}
 					<span

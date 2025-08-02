@@ -56,6 +56,11 @@ class DataState {
   getCurrentNoteData(): Note | null {
     return this.currentNoteData;
   }
+
+  setCurrentNoteTitle(title: string) {
+    this.currentNoteTitle = title;
+  }
+
   filteredNotes = $derived.by(() => {
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
@@ -171,12 +176,11 @@ class DataState {
   clearCurrentNote() {
     this.setCurrentNoteId(null);
     this.setCurrentNoteData(null);
-    uiState.toggleNoteViewLayout(false);
+    this.setCurrentNoteTitle("");
     StoreService.setCurrentNoteId(null);
     emit("note-change", null).catch(error => {
       console.error("Error clearing current note:", error);
     });
-
   }
 
   toggleFavoriteView(showFavorites: boolean) {
