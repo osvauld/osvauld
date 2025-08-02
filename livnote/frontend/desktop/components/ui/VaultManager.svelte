@@ -80,7 +80,7 @@
 						}}>
 						<span><MobileHome color={isActive ? "#F2F2F0" : "#85889C"} /></span>
 						<span class="grow text-left pl-2 capitalize max-w-full truncate"
-							>{vault.id === "all" ? "All Vaults" : vault.name}</span>
+							>{vault.id === "all" ? "All Folders" : vault.name}</span>
 					</button>
 				{/each}
 			</div>

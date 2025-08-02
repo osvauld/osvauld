@@ -35,7 +35,7 @@
 			onclick={() => uiState.toggleVaultManager()}>
 			<span class="flex-1 truncate text-left py-1"
 				>{dataState.currentVault.id === "all"
-					? "All Vaults"
+					? "All Folders"
 					: dataState.currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
