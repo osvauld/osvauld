@@ -38,7 +38,7 @@
 						username: dataState.userDetails?.username,
 					};
 					await writeToClipboard(btoa(JSON.stringify(userDetails)));
-					uiState.showToast("User Address copied to clipboard", true);
+					uiState.showToast("User Address copied to clipboard, valid for 24 hours", true);
 				} catch (error) {
 					console.error("Error copying user Address:", error);
 					uiState.showToast("Failed to copy User Address", false);

@@ -115,7 +115,7 @@
     onclick={handleBackdropClick}>
     
     <div
-        class=" bg-osvauld-frameblack border border-osvauld-activeBorder rounded-xl w-[38rem] max-w-[90vw] "
+        class=" bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[40rem] max-w-[90vw] "
         role="dialog"
         aria-labelledby="add-user-title"
         id="connect-user-modal"
@@ -129,7 +129,7 @@
             <header class="flex justify-between items-start mb-6">
                 <h2 
                     id="add-user-title"
-                    class="text-2xl font-normal text-white">
+                    class="text-2xl font-extralight text-white">
                     Connect a User
                 </h2>
                 <button
@@ -141,17 +141,19 @@
                 </button>
             </header>
 
+            <div class="h-0.5 bg-borderActive w-[calc(110%)] mx-4 ml-[-24px] mb-5 scale-y-50 origin-top-left"></div>
+
             <!-- Information Section -->
             <div class="flex items-start gap-3 mb-6 p-4 bg-osvauld-fieldActive rounded-lg">
-                <div class="text-osvauld-fieldText mt-0.5 flex-shrink-0">
-                    <InfoIcon color="#4D4F60" />
+                <div class="text-osvauld-fieldText mt-0.5 flex-shrink-0 w-12 flex justify-center p-2.5">
+                    <InfoIcon size={28} />
                 </div>
                 <p 
                     id="add-user-description"
-                    class="text-sm text-osvauld-fieldText leading-relaxed">
+                    class="text-sm text-osvauld-fieldText text-start">
                     To collaborate in Livnote, you need to first establish a private, peer-to-peer connection. 
-                    This is not an invite to a workspace—it's a secure handshake over your personal network. 
-                    Once connected, you can seamlessly collaborate on livnotes together - without cloud storage, 
+                    This is not an invite to a workspace - it's a secure handshake over your personal network. 
+                    Connection will be established when other user comes online. Once connected, you can seamlessly collaborate on livnotes together - without cloud storage, 
                     or server.
                 </p>
             </div>
@@ -179,11 +181,12 @@
                     <p 
                         id="user-id-help"
                         class="text-xs text-osvauld-fieldText">
-                        User Address is a unique identification for establishing asecure peer-to-peer connection
+                        User Address is a unique identification for establishing a secure peer-to-peer connection. 
                     </p>
                 </div>
 
                 <!-- Action Buttons -->
+                <div class="h-0.5 bg-borderActive w-[calc(120%)] mx-4 ml-[-24px] scale-y-50 origin-top-left"></div>
                 <div class="flex justify-end gap-3 pt-4 font-light text-lg">
                     <button
                         type="button"
@@ -194,8 +197,8 @@
                     <button
                         type="submit"
                         disabled={!userDetails.trim() || isSubmitting}
-                        class="px-6 py-2.5 bg-osvauld-frameblack border border-livnotePink text-white rounded-lg cursor-pointer hover:bg-livnotePink hover:text-osvauld-frameblack transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                        {isSubmitting ? "Adding..." : "Add user"}
+                        class="px-6 py-2.5 bg-osvauld-frameblack font-normal border border-livnotePink text-livnotePink rounded-lg cursor-pointer hover:bg-livnotePink hover:text-osvauld-frameblack transition-colors">
+                        {isSubmitting ? "Connecting..." : "Establish Connection"}
                     </button>
                 </div>
             </form>
