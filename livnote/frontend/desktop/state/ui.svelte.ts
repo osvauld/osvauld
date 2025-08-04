@@ -15,7 +15,9 @@ interface PasswordPrompt {
   show: boolean;
 }
 
-
+interface ConnectUserModal {
+  show: boolean;
+}
 
 type ModalKey = 'showConnector' | 'showSyncQr';
 
@@ -43,6 +45,10 @@ class UIState {
 
   passwordPromptModal = $state<PasswordPrompt>({
     isChangePassword: false,
+    show: false,
+  });
+
+  connectUserModal = $state<ConnectUserModal>({
     show: false,
   });
 
@@ -88,6 +94,14 @@ class UIState {
   hidePasswordPrompt() {
     this.passwordPromptModal.isChangePassword = false;
     this.passwordPromptModal.show = false;
+  }
+
+  showConnectUserModal() {
+    this.connectUserModal.show = true;
+  }
+
+  hideConnectUserModal() {
+    this.connectUserModal.show = false;
   }
 
   toggleModal(modalKey: ModalKey, value?: boolean) {
