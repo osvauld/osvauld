@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sendMessage } from "../../utils/helper";
-	import { uiState } from "../../state/ui.svelte";
+	import { uiState, dataState } from "../../state";
 
 	let userDetails = $state("");
 	let isSubmitting = $state(false);
@@ -22,6 +22,26 @@
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
 		if (!userDetails.trim() || isSubmitting) return;
+
+		// Check if user is trying to add their own UserID
+		try {
+			const inputUserDetails = JSON.parse(atob(userDetails.trim()));
+			const currentUserDetails = {
+				user_public_key: dataState.userDetails?.publicKey,
+				device_public_key: dataState.userDetails?.deviceKey,
+				username: dataState.userDetails?.username,
+			};
+			
+			// Compare the input with current user's details
+			if (JSON.stringify(inputUserDetails) === JSON.stringify(currentUserDetails)) {
+				uiState.showToast("Cannot add your own UserID", false);
+				handleClear();
+				return;
+			}
+		} catch (error) {
+			// If parsing fails, it might not be a valid UserID format, but we'll let the backend handle that
+			console.log("UserID format validation will be handled by backend");
+		}
 
 		isSubmitting = true;
 		try {
@@ -81,7 +101,7 @@
 				<button
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
-					class=" bg-livnotePink text-osvauld-frameblack font-bold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
+					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
 					{isSubmitting ? "Adding User..." : "Add User"}
 				</button>
 			</div>

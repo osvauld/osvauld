@@ -5,6 +5,7 @@
 	import {
 		BinIcon as Bin,
 		Star as EmptyStar,
+		FavStar as Star,
 		RightArrow as Arrow,
 		MobileHome as Home,
 		Add,
@@ -35,7 +36,7 @@
 			onclick={() => uiState.toggleVaultManager()}>
 			<span class="flex-1 truncate text-left py-1"
 				>{dataState.currentVault.id === "all"
-					? "All Vaults"
+					? "Home"
 					: dataState.currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
@@ -51,30 +52,20 @@
 	<div
 		class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base">
 		<button
-			class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
+			class="w-full flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
 				   transition-colors
-				   {!dataState.favoriteSelected
-				? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
-				: ''}"
-			onclick={() => dataState.toggleFavoriteView(false)}
-			aria-current={!dataState.favoriteSelected ? "page" : undefined}>
-			<Home
-				size={20}
-				color={!dataState.favoriteSelected ? "#BFC0CC" : "#85889C"} />
-			<span>Home</span>
-		</button>
-
-		<button
-			class="w-full flex items-center gap-2 px-3 py-3 rounded-lg
 				   {dataState.favoriteSelected
-				? 'text-osvauld-fieldTextActive bg-osvauld-fieldActive'
+				? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 				: ''}"
-			onclick={() => dataState.toggleFavoriteView(true)}
+			onclick={() => dataState.toggleFavoriteView(!dataState.favoriteSelected)}
 			aria-current={dataState.favoriteSelected ? "page" : undefined}>
+			{#if dataState.favoriteSelected}
+				<Star size={20}/>
+			{:else}
 			<EmptyStar
-				color={dataState.favoriteSelected ? "#BFC0CC" : "#85889C"}
 				size={20} />
-			<span>Favourites</span>
+			{/if}
+			<span >Favourites</span>
 		</button>
 	</div>
 	<div

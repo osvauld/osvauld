@@ -83,8 +83,7 @@ style.textContent += `
   }
 
   /* Styles for the Text Color Picker */
-  .color-picker-dropdown {
-    display: grid; 
+  .dropdown-menu.color-picker-dropdown {
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
     padding: 12px;
@@ -94,7 +93,8 @@ style.textContent += `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     position: absolute;
     z-index: 100;
-    width: auto;
+    width: 120px;
+    min-width: auto;
   }
   
   /* Fallback for browsers that don't support gap in grid */
