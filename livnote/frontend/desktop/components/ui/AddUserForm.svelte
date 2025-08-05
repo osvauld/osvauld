@@ -12,10 +12,10 @@
 	const handleAddUser = async (userKey: string) => {
 		try {
 			await sendMessage("addKnownUser", userKey);
-			uiState.showToast("User added successfully", true);
+			uiState.showToast("User Connected successfully", true);
 		} catch (error) {
-			uiState.showToast("Failed to add user", false);
-			console.error("Error adding user:", error);
+			uiState.showToast("Failed to connect user", false);
+			console.error("Error connecting user:", error);
 		}
 	};
 
@@ -63,9 +63,9 @@
 <div class="h-full flex flex-col text-base">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
-		<h1 class="text-2xl font-semibold text-white mb-2">Add User</h1>
+		<h1 class="text-2xl font-semibold text-white mb-2">Connect a User</h1>
 		<p class="text-osvauld-fieldText text-sm">
-			Add a new user to your workspace by entering their user id below.
+			Establish a peer-to-peer connection with a user by entering their user address below.
 		</p>
 	</div>
 
@@ -74,19 +74,18 @@
 		<form onsubmit={handleSubmit} class="space-y-6 flex flex-col h-full">
 			<div class="space-y-2 grow flex flex-col">
 				<label for="userDetails" class="block text-sm font-medium text-white">
-					User ID
+					User Address
 				</label>
 				<textarea
 					id="userDetails"
 					bind:value={userDetails}
-					placeholder="Paste user id here..."
+					placeholder="Paste here..."
 					rows="10"
 					required
 					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-livnotePink focus:border-transparent resize-none transition-colors grow"
 					onkeydown={handleKeyDown}></textarea>
 				<p class="text-xs text-osvauld-fieldText">
-					The user id is a unique public key and used to identify them over
-					internet. It should be in the correct format as provided.
+					The address uniquely identifies user over the internet. Vaild for 24 hours after generation. It should be in the correct format as provided.
 				</p>
 			</div>
 
@@ -102,7 +101,7 @@
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
 					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
-					{isSubmitting ? "Adding User..." : "Add User"}
+					{isSubmitting ? "Establishing Connection..." : "Establish Connection"}
 				</button>
 			</div>
 		</form>

@@ -6,6 +6,7 @@
 		QrScanner,
 		Key,
 		Settings,
+		ClosePanel
 	} from "../../icons";
 	import { uiState } from "../../state/ui.svelte";
 	import AddUserForm from "../ui/AddUserForm.svelte";
@@ -13,8 +14,8 @@
 
 	const MENUITEMS = [
 		{ id: "add", label: "Add Device", icon: QrScanner },
-		{ id: "devices", label: "My Devices", icon: Devices },
-		{ id: "addUser", label: "Add User", icon: UserPlus },
+		// { id: "devices", label: "My Devices", icon: Devices },
+		{ id: "addUser", label: "Connect a User", icon: UserPlus },
 		{ id: "change", label: "Change Password", icon: Key },
 		{ id: "export", label: "Emergency Key", icon: DownloadIcon },
 	] as const;
@@ -45,9 +46,9 @@
 			case "addUser":
 				activeMenuItem = id;
 				break;
-			case "devices":
-				activeMenuItem = "addUser";
-				break;
+			// case "devices":
+			// 	activeMenuItem = "addUser";
+			// 	break;
 			case "export":
 				uiState.showPasswordPrompt(false);
 				break;
@@ -61,10 +62,10 @@
 <div class="grow max-h-full overflow-hidden flex text-4xl text-white">
 	<nav
 		class="w-[22.5rem] shrink-0 h-full max-h-full flex flex-col py-10 px-4 border-r border-osvauld-borderColor">
-		<h1
-			class="flex justify-start items-center gap-2 text-osvauld-fieldText text-xl pl-6 select-none cursor-default">
-			<span><Settings /></span>Settings
-		</h1>
+		<div
+			class="flex justify-between items-center gap-2 text-osvauld-fieldText text-xl pl-6 select-none cursor-default">
+		<span class="flex items-center gap-2"><Settings />Settings </span> <button  class="cursor-pointer p-2  hover:text-osvauld-sideListTextActive" onclick={() => uiState.profileViewLayout = false} ><ClosePanel /></button>
+		</div>
 		<div
 			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-4 py-1 gap-1">
 		</div>

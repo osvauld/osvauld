@@ -32,11 +32,11 @@
     const handleAddUser = async (userKey: string) => {
         try {
             await sendMessage("addKnownUser", userKey);
-            uiState.showToast("User added successfully", true);
+            uiState.showToast("User Connected successfully", true);
             closeModal();
         } catch (error) {
-            uiState.showToast("Failed to add user", false);
-            console.error("Error adding user:", error);
+            uiState.showToast("Failed to connect user", false);
+            console.error("Error Connecting user:", error);
         }
     };
 
@@ -123,7 +123,7 @@
         in:fly
         out:fly>
 
-        <div class="flex flex-col h-full max-h-[90vh] overflow-y-auto p-6">
+        <div class="flex flex-col h-full max-h-[90vh] overflow-y-auto overflow-x-hidden p-6">
             
             <!-- Header -->
             <header class="flex justify-between items-start mb-6">
@@ -135,7 +135,7 @@
                 <button
                     type="button"
                     class="p-1 text-textActive hover:text-osvauld-sideListTextActive transition-colors rounded cursor-pointer"
-                    aria-label="Close add user modal"
+                    aria-label="Close Connect user modal"
                     onclick={closeModal}>
                     <ClosePanel />
                 </button>
@@ -151,10 +151,7 @@
                 <p 
                     id="add-user-description"
                     class="text-sm text-osvauld-fieldText text-start">
-                    To collaborate in Livnote, you need to first establish a private, peer-to-peer connection. 
-                    This is not an invite to a workspace - it's a secure handshake over your personal network. 
-                    Connection will be established when other user comes online. Once connected, you can seamlessly collaborate on livnotes together - without cloud storage, 
-                    or server.
+                    Livnote establishes a direct, peer-to-peer link with your collaborator. We don't host any central servers, so this secure digital handshake requires their unique Livnote Address to work. Ask your collaborator to find and share this address with you from their profile.
                 </p>
             </div>
 

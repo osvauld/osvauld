@@ -84,8 +84,8 @@
 				placeholder="Search..." />
 		</div> -->
 		<button 
-			class="flex items-center gap-2 text-textActive border-2 border-borderActive rounded-xl px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
-			aria-label="Open add user modal"
+			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+			aria-label="Open Connect user modal"
 			aria-haspopup="dialog"
 			aria-controls="connect-user-modal"
 			aria-expanded={uiState.connectUserModal.show}
