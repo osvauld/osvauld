@@ -29,8 +29,8 @@
 						I am new here
 					</button>
 				</div>
-				<p class="font-inter text-disclaimerGray text-center text-sm">
-					By continuing you agree to our Terms of Use and Privacy Policy
-				</p>
+				<!-- <p class="font-inter text-disclaimerGray text-center text-sm">
+					By continuing you agree to our <a href="https://www.osvauld.com/terms/" class="italic">Terms of Use</a> and  <a href="https://www.osvauld.com/privacy/" class="italic">Privacy Policy</a>
+				</p> -->
 		</div>
 	</div>
