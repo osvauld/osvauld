@@ -218,7 +218,7 @@
 	aria-labelledby="dialog-title">
 	<div class="flex justify-between items-center">
 		<span id="dialog-title" class="text-3xl text-osvauld-quarzowhite"
-			>Add Collaborators</span>
+			>Invite to edit</span>
 		<button
 			class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 			aria-label="Close panel"
