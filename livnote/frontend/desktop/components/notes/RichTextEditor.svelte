@@ -367,11 +367,10 @@
 
 	:global(.ProseMirror p.is-empty::before) {
 		content: attr(data-placeholder);
-		color: #888;
+		color: #85889c;
 		pointer-events: none;
 		font-style: italic;
 		position: absolute;
-		left: 3px;
 		top: 50%;
 		transform: translateY(-50%);
 		font-size: 16px;
