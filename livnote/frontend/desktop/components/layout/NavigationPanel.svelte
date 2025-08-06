@@ -49,13 +49,15 @@
 	<nav
 		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
 		in:fly={{ x: -200, duration: 400 }}
-		aria-label="Main Navigation">
+		aria-label="Main Navigation"
+	>
 		{#if uiState.isNavigationPanelManuallyToggled}
 			<button
 				aria-label="Collapse navigation panel"
-				class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md  transition-colors cursor-w-resize"
+				class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
 				title="Collapse panel"
-				onclick={closeNavigationPanel}>
+				onclick={closeNavigationPanel}
+			>
 				<MenuToggle />
 			</button>
 		{/if}
@@ -66,7 +68,8 @@
 				aria-label="Switch Folder"
 				aria-controls="Folder selector"
 				aria-expanded={uiState.vaultManagerActive}
-				onclick={() => uiState.toggleVaultManager()}>
+				onclick={() => uiState.toggleVaultManager()}
+			>
 				<span class="flex-1 truncate text-left py-1"
 					>{dataState.currentVault.id === "all"
 						? "Home"
@@ -75,13 +78,15 @@
 					class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
 						? '-rotate-90'
 						: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
-				></button>
+				></button
+			>
 			{#if uiState.vaultManagerActive}
 				<FolderManager position="navigationPanel" />
 			{/if}
 		</div>
 		<div
-			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1">
+			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1"
+		>
 			<!-- <ul class="space-y-1 font-light text-base text-" role="list">
 				<li>
 					<button
@@ -123,8 +128,9 @@
 			<div class="text-osvauld-fieldText text-center p-4">Loading...</div>
 		{:else}
 			<ul
-				class="font-light text-base space-y-1 text-osvauld-fieldText max-h-full overflow-y-scroll px-1 scrollbar-thin "
-				role="list">
+				class="font-light text-base space-y-1 text-osvauld-fieldText max-h-full overflow-y-scroll px-1 scrollbar-thin"
+				role="list"
+			>
 				{#each dataState.filteredNotes as note (note.id)}
 					{@const hoveredOrSelected =
 						hoveredCredential === note.id ||
@@ -138,11 +144,13 @@
 								: ''}"
 							onmouseenter={() => (hoveredCredential = note.id)}
 							onmouseleave={() => (hoveredCredential = null)}
-							onclick={() => selectNote(note)}>
+							onclick={() => selectNote(note)}
+						>
 							<div class="flex items-center gap-3 truncate">
 								<span class="shrink-0">
 									<MobileNote
-										color={hoveredOrSelected ? "#F2F2F0" : "#85889C"} />
+										color={hoveredOrSelected ? "#F2F2F0" : "#85889C"}
+									/>
 								</span>
 								<span class="truncate">
 									{note?.title}
