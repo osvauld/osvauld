@@ -88,7 +88,8 @@ export class YjsManager {
           }
         }
 
-        // this.syncCollaboratorsToDataState();
+        // Sync collaborators whenever awareness changes
+        this.syncCollaboratorsToDataState();
       });
     }
 
@@ -177,10 +178,55 @@ export class YjsManager {
         return;
       }
       applyAwarenessUpdate(this.documents.awareness, updateArray, 'remote');
+      
+      // Sync collaborators after applying awareness update
+      this.syncCollaboratorsToDataState();
     } catch (error) {
       console.error("❌ Error applying awareness update:", error);
     }
   }
+
+  /**
+   * Sync collaborators from awareness state to dataState
+   */
+  public syncCollaboratorsToDataState(): void {
+    if (!this.documents) return;
+
+    const awareness = this.documents.awareness;
+    const states = awareness.getStates();
+    const collaborators: any[] = [];
+
+    // console.log("🔍 Awareness states:", states);
+    // console.log("🔍 Current client ID:", this.config.clientId);
+
+    states.forEach((state: any, clientId: number) => {
+      // Skip our own client
+      if (clientId === this.config.clientId) return;
+      
+      // console.log(`🔍 Client ${clientId} state:`, state);
+      
+      // Check if state has user info and is not null/undefined
+      if (state && state.user && state.user.name) {
+        collaborators.push({
+          id: clientId.toString(),
+          name: state.user.name,
+          color: state.user.color,
+          clientId: clientId
+        });
+      }
+    });
+
+    // console.log("🔍 Final collaborators:", collaborators);
+
+    // Import dataState and update collaborators
+    import("../../state").then(({ dataState }) => {
+      dataState.updateCollaborators(collaborators);
+    }).catch(error => {
+      console.error("Error updating collaborators:", error);
+    });
+  }
+
+
   /**
    * Check if documents are initialized
    */

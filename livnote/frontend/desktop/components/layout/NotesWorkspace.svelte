@@ -19,6 +19,7 @@
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
 	let isNavigatingBack = false;
+	let collaboratorSyncInterval: number | null = null;
 	// Derived state for favorite status using the reactive notes array
 	let isFavourite = $derived(() => {
 		const noteId = dataState.currentNoteId;
@@ -93,6 +94,32 @@
 		}
 	};
 
+	// Set up periodic collaborator syncing
+	const setupCollaboratorSync = () => {
+		// Clear any existing interval
+		if (collaboratorSyncInterval) {
+			clearInterval(collaboratorSyncInterval);
+		}
+
+		// Set up new interval to sync collaborators every 2 seconds
+		collaboratorSyncInterval = setInterval(() => {
+			if (dataState.currentNoteId) {
+				const coordinator = dataState.getNotesCoordinator();
+				if (coordinator) {
+					coordinator.syncCollaborators();
+				}
+			}
+		}, 2000);
+	};
+
+	// Clean up collaborator sync interval
+	const cleanupCollaboratorSync = () => {
+		if (collaboratorSyncInterval) {
+			clearInterval(collaboratorSyncInterval);
+			collaboratorSyncInterval = null;
+		}
+	};
+
 	// Toggle navigation panel
 	const toggleNavigationPanel = () => {
 		uiState.toggleNavigationPanel();
@@ -108,7 +135,7 @@
 		}
 	};
 
-	onMount(async () => {
+	onMount(() => {
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
 		}
@@ -116,6 +143,14 @@
 			"--min-editor-width",
 			`${uiState.MIN_EDITOR_WIDTH}px`,
 		);
+
+		// Set up collaborator syncing
+		setupCollaboratorSync();
+
+		// Clean up on unmount
+		return () => {
+			cleanupCollaboratorSync();
+		};
 	});
 </script>
 
@@ -187,39 +222,32 @@
 			</div>
 
 			{#if dataState.collaborators.length > 0}
-				<div class="mx-6 px-6 border-x border-osvauld-borderColor">
-					<span class="text-statusColor font-light text-sm block mb-3"
-						>Live Collaborators</span>
-					<div class="flex items-center">
-						<div class="flex">
-							{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+				<div class="ml-auto flex items-center">
+					{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+						<div
+							class="relative {index !== 0 ? '-ml-3' : ''}"
+							in:fade={{ duration: 200 }}
+							out:fade={{ duration: 200 }}>
+							<div
+								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
+								{getInitial(collaborator.name)}
+								<!-- Live indicator dot -->
 								<div
-									class="relative {index !== 0 ? '-ml-3' : ''}"
-									in:fade={{ duration: 200 }}
-									out:fade={{ duration: 200 }}>
-									<div
-										class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
-										{getInitial(collaborator.name)}
-
-										<!-- Live indicator dot -->
-										<div
-											class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
-											in:fade={{ duration: 200 }}>
-										</div>
-									</div>
+									class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
+									in:fade={{ duration: 200 }}>
 								</div>
-							{/each}
-
-							{#if dataState.collaborators.length > 3}
-								<div class="relative -ml-3">
-									<div
-										class="w-10 h-10 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
-										+{dataState.collaborators.length - 3}
-									</div>
-								</div>
-							{/if}
+							</div>
 						</div>
-					</div>
+					{/each}
+
+					{#if dataState.collaborators.length > 3}
+						<div class="relative -ml-3">
+							<div
+								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
+								+{dataState.collaborators.length - 3}
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

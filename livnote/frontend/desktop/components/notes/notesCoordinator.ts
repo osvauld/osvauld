@@ -118,6 +118,9 @@ export class NotesCoordinator {
       detail: { commentsStore: this.commentsStore }
     }));
 
+    // Sync collaborators after note is loaded
+    this.yjsManager.syncCollaboratorsToDataState();
+
     this.deferImageLoading(noteContent);
   }
   private async deferImageLoading(noteContent: NoteContent): Promise<void> {
@@ -313,6 +316,13 @@ export class NotesCoordinator {
     this.yjsManager.applyAwarenessUpdate(update, sender);
   }
 
+  /**
+   * Sync collaborators from awareness state
+   */
+  syncCollaborators(): void {
+    this.yjsManager.syncCollaboratorsToDataState();
+  }
+
 
 
   /**
@@ -361,6 +371,9 @@ export class NotesCoordinator {
     if (this._imageStoreHandler) {
       document.removeEventListener('store-image-request', this._imageStoreHandler as EventListener);
     }
+    
+    // Clear collaborators when destroying
+    dataState.updateCollaborators([]);
   }
 
   /**
