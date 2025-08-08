@@ -212,13 +212,6 @@ export function slashCommandPlugin(schema: Schema) {
 					view.focus();
 				});
 
-				if (filteredCommands.length > 0) {
-					const firstItem = content.querySelector(".menu-item") as HTMLElement;
-					if (firstItem) {
-						firstItem.classList.add("selected");
-					}
-				}
-
 				// Icon
 				const icon = document.createElement("div");
 				icon.className = "menu-item-icon";
@@ -241,6 +234,12 @@ export function slashCommandPlugin(schema: Schema) {
 
 				content.appendChild(item);
 			});
+
+			// Ensure there is always a default selected item
+			if (!content.querySelector(".menu-item.selected")) {
+				const firstItem = content.querySelector(".menu-item") as HTMLElement;
+				if (firstItem) firstItem.classList.add("selected");
+			}
 		}
 
 		// Create footer
@@ -479,10 +478,13 @@ export function slashCommandPlugin(schema: Schema) {
 						}
 					}
 					return false;
-				} else if (event.key === "Escape") {
-					closeMenu();
-					return true;
-				}
+                } else if (event.key === "Escape") {
+                    // Consume Escape to close the menu and prevent other handlers
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeMenu();
+                    return true;
+                }
 
 				return false;
 			},

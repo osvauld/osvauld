@@ -63,31 +63,36 @@ export class EditorManager {
 	/**
 	 * Create base plugins that are always needed
 	 */
-	private createBasePlugins(): Plugin[] {
-		return [
-			keymap(baseKeymap),
-			keymap({
-				"Mod-z": undo,
-				"Mod-y": redo,
-				"Mod-Shift-z": redo,
-			}),
-			dropCursor(),
-			gapCursor(),
-			history(),
-			activeNodePlaceholderPlugin(),
-		];
-	}
+    private createBasePlugins(): Plugin[] {
+        // Base plugins without baseKeymap; we'll append baseKeymap last overall in initializeState
+        return [
+            keymap({
+                "Mod-z": undo,
+                "Mod-y": redo,
+                "Mod-Shift-z": redo,
+            }),
+            dropCursor(),
+            gapCursor(),
+            history(),
+            activeNodePlaceholderPlugin(),
+        ];
+    }
 
 	/**
 	 * Initialize editor state with document
 	 */
 
-	initializeState(doc?: any, additionalPlugins: Plugin[] = []): EditorState {
-		const plugins = [
-			...this.createBasePlugins(),
-			...(this.config.plugins || []),
-			...additionalPlugins,
-		];
+    initializeState(doc?: any, additionalPlugins: Plugin[] = []): EditorState {
+        const base = this.createBasePlugins();
+        const fromConfig = this.config.plugins || [];
+        const extra = additionalPlugins;
+        // Ensure baseKeymap comes LAST across the entire plugin list so custom handlers win first
+        const plugins: Plugin[] = [
+            ...base,
+            ...fromConfig,
+            ...extra,
+            keymap(baseKeymap),
+        ];
 
 		this.editorState = EditorState.create({
 			schema: this.config.schema,
