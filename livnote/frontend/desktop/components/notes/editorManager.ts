@@ -128,6 +128,13 @@ export class EditorManager {
 		this.editorView = new EditorView(container, {
 			state: editorState,
 			dispatchTransaction,
+			// Disable browser autocorrect/capitalization suggestions in the editor
+			attributes: {
+				spellcheck: "false",
+				autocorrect: "off",
+				autocapitalize: "off",
+				"data-gramm": "false",
+			},
 		});
 
 		return this.editorView;
