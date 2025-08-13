@@ -59,6 +59,7 @@ impl PeerConnection {
                     &peer_user,
                     self.repo_ctx.clone(),
                     &self.crypto_utils,
+                    &self.domain,
                 )
                 .await?;
                 let message = Message::UserNetworkSync(payload);
@@ -81,6 +82,7 @@ impl PeerConnection {
                 &peer_user,
                 self.repo_ctx.clone(),
                 &self.crypto_utils,
+                &self.domain,
             )
             .await?;
             let message = Message::UserNetworkSync(local_payload);

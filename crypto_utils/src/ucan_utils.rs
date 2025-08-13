@@ -12,8 +12,8 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
+use std::boxed::Box;
 use std::future::Future;
-use std::{boxed::Box, collections::HashMap};
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
@@ -250,8 +250,8 @@ pub async fn generate_delegation_and_connection_token(
 ) -> Result<String, UcanError> {
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
     let audience_did = pub_key_b64_to_did(audience_ucan_pub_key)?;
-    let connect_resource = format!("{}:connect:{}", domain, issuer_user_id);
-    let share_resource = format!("{}:share:{}", domain, issuer_user_id);
+    let connect_resource = format!("{}:user-connect:{}", domain, issuer_user_id);
+    let share_resource = format!("{}:user-share:{}", domain, issuer_user_id);
     let connect_cap = Capability::from((connect_resource.as_str(), "use", &json!({})));
     let share_cap = Capability::from((share_resource.as_str(), "use", &json!({})));
     let ucan = UcanBuilder::default()
@@ -583,4 +583,96 @@ pub async fn generate_delegated_ucan(
         .to_string();
 
     Ok((token_string, token_cid))
+}
+/// Generate a delegated user connection token with embedded proof
+pub async fn generate_delegated_user_connection_token(
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+    target_user_id: &str,
+    audience_ucan_pub_key: &str,
+    domain: &str,
+    parent_token: &str,
+) -> Result<String, UcanError> {
+    let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
+    let audience_did = pub_key_b64_to_did(audience_ucan_pub_key)?;
+
+    let connect_resource = format!("{}:user-connect:{}", domain, target_user_id);
+    let connect_capability = Capability::from((connect_resource.as_str(), "use", &json!({})));
+
+    let lifetime = 30 * 365 * 24 * 60 * 60; // 30 years
+
+    // Calculate CID of parent token for standard prf field
+    let parent_ucan =
+        Ucan::try_from(parent_token).map_err(|e| UcanError::ParseError(e.to_string()))?;
+
+    let ucan = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(&audience_did)
+        .with_lifetime(lifetime)
+        .claiming_capability(connect_capability)
+        .witnessed_by(&parent_ucan, None) // Standard CID reference
+        .with_fact("proof", parent_token.to_string()) // Embedded proof
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    let token_string = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    Ok(token_string)
+}
+pub async fn validate_embedded_proof_chain(
+    proof_token: &str,
+    target_user_id: &str,              // For capability validation
+    target_user_ucan_pub: &str,        // For root authority verification
+    domain: &str,                      // For domain consistency
+    expected_issuer_did: Option<&str>, // Current token's issuer should match this
+) -> Result<(), UcanError> {
+    // 1. Parse and structurally validate
+    let proof_ucan = validate_structure(proof_token).await?;
+
+    // 2. Verify issuer matches expected (audience of parent token)
+    if let Some(expected_did) = expected_issuer_did {
+        if proof_ucan.issuer() != expected_did {
+            return Err(UcanError::InvalidIssuer);
+        }
+    }
+
+    // 3. Check capability for target user
+    let required_resource = format!("{}:user-connect:{}", domain, target_user_id);
+    check_capability(&proof_ucan, &required_resource, "use")?;
+
+    // 4. Base case: Check if issued by target user (root authority)
+    if verify_did_key_match(proof_ucan.issuer(), target_user_ucan_pub).is_ok() {
+        return Ok(()); // Reached root authority
+    }
+    if let Some(facts_map) = proof_ucan.facts() {
+        if let Some(proof_value) = facts_map.get("proof") {
+            if let Some(nested_proof) = proof_value.as_str() {
+                let nested_proof_cid = get_ucan_cid(nested_proof)?;
+                if let Some(prf_cids) = proof_ucan.proofs().as_ref() {
+                    if !prf_cids.contains(&nested_proof_cid) {
+                        return Err(UcanError::ProofChainInvalid("CID mismatch".to_string()));
+                    }
+                }
+
+                return Box::pin(validate_embedded_proof_chain(
+                    nested_proof,
+                    target_user_id,
+                    target_user_ucan_pub,
+                    domain,
+                    Some(proof_ucan.audience()),
+                ))
+                .await;
+            }
+        }
+    }
+
+    // No proof chain and not root authority = invalid
+    Err(UcanError::ProofChainInvalid(
+        "Chain doesn't reach root".to_string(),
+    ))
 }

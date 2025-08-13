@@ -8,9 +8,9 @@ use crate::p2p::{
     peer_connection::{PeerConnection, ServiceContext},
 };
 
-use iroh::endpoint::Connection;
 use crypto_utils::CryptoUtils;
-use iroh::{Endpoint, NodeId, RelayMode, NodeAddr};
+use iroh::endpoint::Connection;
+use iroh::{Endpoint, NodeAddr, NodeId, RelayMode};
 use osvauld_core::models::{ConnectionAction, ConnectionType, Device, Message, User};
 use persistance::database::RepositoryContext;
 use services::generate_challenge;
@@ -216,92 +216,117 @@ impl P2PService {
         self.start_listening().await?;
         self.request_connections().await?;
         Ok(())
+    }
+    pub async fn request_connections(&self) -> Result<(), String> {
+        let current_device = self.get_current_device().await?;
+        let all_devices = self
+            .repo_ctx
+            .device_repo
+            .get_all_devices_except(&[current_device.id])
+            .await
+            .map_err(|e| e.to_string())?;
+        let all_users = self
+            .repo_ctx
+            .user_repo
+            .get_known_users()
+            .await
+            .map_err(|e| e.to_string())?;
+        let (user_devices, other_devices): (Vec<_>, Vec<_>) = all_devices
+            .into_iter()
+            .partition(|device| device.user_id == current_device.user_id);
 
-}
-pub async fn request_connections(&self) -> Result<(), String> {
-    let current_device = self.get_current_device().await?;
-    let all_devices = self.repo_ctx.device_repo.get_all_devices_except(&[current_device.id]).await.map_err(|e| e.to_string())?;
-    let all_users = self.repo_ctx.user_repo.get_known_users().await.map_err(|e| e.to_string())?;
-    let (user_devices, other_devices): (Vec<_>, Vec<_>) = all_devices
-        .into_iter()
-        .partition(|device| device.user_id == current_device.user_id );
-    
-    let first_users: Vec<User> = all_users
-        .into_iter()
-        .filter(|user| user.first_sync)
-        .collect();
-    
-    let first_user_ids: HashSet<_> = first_users.iter().map(|user| user.id.clone()).collect();
-    let (first_user_connection_devices, other_devices): (Vec<_>, Vec<_>) = other_devices
-        .into_iter()
-        .partition(|device| first_user_ids.contains(&device.user_id));
-    
-    
-    
-    // Connect to user devices (DeviceSync)
-    for device in user_devices {
-        let self_clone = self.clone();
-        tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&device.id, ConnectionType::Device,  Some(ConnectionAction::DeviceSync)).await {
-                Ok(_) => {
-                    info!("Successfully connected to user device: {}", &device.id);
-                }
-                Err(e) => {
-                    error!("Failed to connect to user device {}: {}", &device.id, e);
-                }
-            }
-        });
-    }
-    
-    // Connect to first-time users (UserFirstConnection)
-    for device in first_user_connection_devices {
-        let self_clone = self.clone();
-         tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&device.id, ConnectionType::User, Some(ConnectionAction::UserSync)).await {
-                Ok(_) => {
-                    info!("Successfully connected to first-time user: {}", &device.id);
-                }
-                Err(e) => {
-                    error!("Failed to connect to first-time user {}: {}", &device.id, e);
-                }
-            }
-        });
-    }
-    
-    // Connect to other users (UserSync)
-    for device in other_devices{
-        let self_clone = self.clone();
-         tokio::spawn(async move {
-            match self_clone.connect_with_ticket(&device.id, ConnectionType::User,  Some(ConnectionAction::UserSync)).await {
-                Ok(_) => {
-                    info!("Successfully connected to other user: {}", &device.id);
-                }
-                Err(e) => {
-                    error!("Failed to connect to other user {}: {}", &device.id, e);
-                }
-            }
-        });
-    }
-    
-    
-    Ok(())
-}
+        let first_users: Vec<User> = all_users
+            .into_iter()
+            .filter(|user| user.first_sync)
+            .collect();
 
-    /// Starts listening for inceming connections
+        let first_user_ids: HashSet<_> = first_users.iter().map(|user| user.id.clone()).collect();
+        let (first_user_connection_devices, other_devices): (Vec<_>, Vec<_>) = other_devices
+            .into_iter()
+            .partition(|device| first_user_ids.contains(&device.user_id));
+
+        // Connect to user devices (DeviceSync)
+        for device in user_devices {
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                match self_clone
+                    .connect_with_ticket(
+                        &device.id,
+                        ConnectionType::Device,
+                        Some(ConnectionAction::DeviceSync),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Successfully connected to user device: {}", &device.id);
+                    }
+                    Err(e) => {
+                        error!("Failed to connect to user device {}: {}", &device.id, e);
+                    }
+                }
+            });
+        }
+
+        // Connect to first-time users (UserFirstConnection)
+        for device in first_user_connection_devices {
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                match self_clone
+                    .connect_with_ticket(
+                        &device.id,
+                        ConnectionType::User,
+                        Some(ConnectionAction::UserSync),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Successfully connected to first-time user: {}", &device.id);
+                    }
+                    Err(e) => {
+                        error!("Failed to connect to first-time user {}: {}", &device.id, e);
+                    }
+                }
+            });
+        }
+
+        // Connect to other users (UserSync)
+        for device in other_devices {
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                match self_clone
+                    .connect_with_ticket(
+                        &device.id,
+                        ConnectionType::User,
+                        Some(ConnectionAction::UserSync),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Successfully connected to other user: {}", &device.id);
+                    }
+                    Err(e) => {
+                        error!("Failed to connect to other user {}: {}", &device.id, e);
+                    }
+                }
+            });
+        }
+
+        Ok(())
+    }
+
     pub async fn start_listening(&self) -> Result<(), P2PError> {
         info!("Starting P2P listener");
 
-         let endpoint = {
-        let state_guard = self.state.lock().await;
-        let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
-        debug!(
-            "Listener using endpoint with node ID: {}",
-            state.endpoint.node_id()
-        );
-        state.endpoint.clone()
-    };
+        let endpoint = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard.as_ref().ok_or(P2PError::NotInitialized)?;
+            debug!(
+                "Listener using endpoint with node ID: {}",
+                state.endpoint.node_id()
+            );
+            state.endpoint.clone()
+        };
         let self_clone = self.clone(); // Clone self for use in the spawned task
-
 
         tokio::spawn(
             async move {
@@ -352,7 +377,6 @@ pub async fn request_connections(&self) -> Result<(), String> {
                         }
                     }
                 }
-                
                 warn!("P2P listener stopped accepting connections");
             }
             .instrument(info_span!("p2p_listener"))
@@ -446,13 +470,16 @@ pub async fn request_connections(&self) -> Result<(), String> {
                             connection_id
                         );
                     }
-                }else {
-                    error!("State not available during cleanup for connection: {}", connection_id);
+                } else {
+                    error!(
+                        "State not available during cleanup for connection: {}",
+                        connection_id
+                    );
                 }
             });
         });
         // Create PeerConnection with local user/device (will be updated during handshake)
-        let is_live_edit= state
+        let is_live_edit = state
             .connections
             .get_and_clear_pending_live_edit_requests(&peer_node_id.to_string())
             .await;
@@ -460,7 +487,6 @@ pub async fn request_connections(&self) -> Result<(), String> {
             info!(
                 "Found pending live edit request for connection: {}",
                 &peer_node_id.to_string()
-                
             );
         }
         let challenge = generate_challenge();
@@ -523,7 +549,7 @@ pub async fn request_connections(&self) -> Result<(), String> {
         Ok(peer_connection_arc)
     }
 
-    #[instrument(skip(self,  conn_type),  level = "info")]
+    #[instrument(skip(self, conn_type), level = "info")]
     pub async fn connect_with_ticket(
         &self,
         device_id: &str,

@@ -585,14 +585,38 @@ pub async fn create_user_network_sync_payload(
     peer_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    domain: &str,
 ) -> Result<UserNetworkSyncPayload, String> {
     // 1. Get unknown users with their devices
-    let unknown_users_with_devices = repo_ctx
+    let mut unknown_users_with_devices = repo_ctx
         .user_repo
         .get_users_with_devices_by_user_ids(&manifest_diff.unknown_users)
         .await
         .map_err(|e| format!("Failed to get unknown users with devices: {}", e))?;
+    let encrypted_ucan_pvt_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| e.to_string())?;
+    for user_with_devices in &mut unknown_users_with_devices {
+        // Generate delegated token for peer to connect to this user
+        let delegated_token = {
+            let crypto = crypto_utils.lock().await;
+            crypto
+                .issue_delegated_user_connect_token(
+                    &encrypted_ucan_pvt_key,
+                    domain,
+                    &user_with_devices.user.id,
+                    &peer_user.ucan_pub_key,
+                    &user_with_devices.user.ucan_token,
+                )
+                .await
+                .map_err(|e| e.to_string())?
+        };
 
+        // Store the delegated token in the user object for transmission
+        user_with_devices.user.ucan_token = delegated_token;
+    }
     // 2. Get unknown devices from common users
     let common_user_device_ids: Vec<String> = manifest_diff
         .unknown_devices_from_common_users

@@ -73,8 +73,8 @@ pub async fn handle_signup(
         true,
         true,
         "owner_token".to_string(),
-        ucan_certificate.public_key.clone(),
         "owner_cid".to_string(),
+        ucan_certificate.public_key.clone(),
     );
     // Create device and device certificate
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;

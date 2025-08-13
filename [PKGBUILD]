@@ -1,0 +1,69 @@
+
+# Maintainer: Your Name <your.email@example.com>
+pkgname=livnote
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A p2p secure offline first collaborative editor"
+arch=('x86_64')
+url="https://github.com/yourusername/osvauld"  # Replace with your actual repository URL
+license=('MIT')  # Replace with your actual license
+depends=('webkit2gtk' 'gtk3' 'libayatana-appindicator')
+makedepends=('rust' 'cargo' 'nodejs' 'pnpm' 'git')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/yourusername/$pkgname/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # Replace with actual checksum when you have a release
+
+prepare() {
+    cd "$pkgname-$pkgver"
+    
+    # Install frontend dependencies
+    cd frontend/desktop
+    pnpm install --frozen-lockfile
+    cd ../..
+    
+    # Update Rust dependencies
+    cargo fetch --locked --target "$CARCH-unknown-linux-gnu"
+}
+
+build() {
+    cd "$pkgname-$pkgver"
+    
+    # Build the frontend
+    cd frontend/desktop
+    pnpm build
+    cd ../..
+    
+    # Build the Tauri application (no bundle needed for Arch)
+    cargo tauri build
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    
+    # Install the binary
+    install -Dm755 "src-tauri/target/release/$pkgname" "$pkgdir/usr/bin/$pkgname"
+    
+    # Create and install desktop file
+    mkdir -p "$pkgdir/usr/share/applications"
+    cat > "$pkgdir/usr/share/applications/$pkgname.desktop" << EOF
+[Desktop Entry]
+Name=osvauld
+Comment=A Tauri-based desktop application
+Exec=/usr/bin/$pkgname
+Icon=$pkgname
+Type=Application
+Categories=Utility;
+StartupWMClass=$pkgname
+EOF
+    
+    # Install icons
+    install -Dm644 "src-tauri/icons/32x32.png" \
+        "$pkgdir/usr/share/icons/hicolor/32x32/apps/$pkgname.png"
+    install -Dm644 "src-tauri/icons/128x128.png" \
+        "$pkgdir/usr/share/icons/hicolor/128x128/apps/$pkgname.png"
+    
+    # Install high-res icon if available
+    if [ -f "src-tauri/icons/128x128@2x.png" ]; then
+        install -Dm644 "src-tauri/icons/128x128@2x.png" \
+            "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+    fi
+}

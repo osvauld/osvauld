@@ -243,19 +243,13 @@ pub fn verify_signature(
     crypto_core::verify_signature(public_key, message, signature)
 }
 
-pub async fn validate_connect_token<F, Fut>(
+pub async fn validate_connect_token(
     token: &str,
     presenter_ucan_pub: &str,
     verifier_ucan_pub: &str,
     verifier_user_id: &str,
     domain: &str,
-    proof_resolver: &F,
-) -> Result<bool, CryptoError>
-where
-    F: Fn(&str) -> Fut + Send + Sync,
-
-    Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
-{
+) -> Result<bool, CryptoError> {
     let ucan = ucan_utils::validate_structure(token).await?;
     let required_resource = format!("{}:user-connect:{}", domain, verifier_user_id);
     if ucan_utils::is_one_time_connect_token(&ucan, domain) {
@@ -263,17 +257,16 @@ where
         ucan_utils::check_capability(&ucan, &required_resource, "use")?;
     } else {
         ucan_utils::validate_audience(&ucan, presenter_ucan_pub)?;
-        ucan_utils::validate_ucan_permission(
-            &ucan,
+        ucan_utils::validate_embedded_proof_chain(
+            token,
+            verifier_user_id,
             verifier_ucan_pub,
-            proof_resolver,
-            &required_resource,
-            "connect",
+            domain,
+            None,
         )
         .await?;
     }
 
-    // If all checks for the appropriate path pass, the token is valid.
     Ok(true)
 }
 /// Verifies a cleartext signed message and returns the original message on success.
@@ -678,7 +671,30 @@ impl CryptoUtils {
         .await?;
         Ok(token)
     }
+    /// Issue a delegated user connection token with embedded proof chain
+    /// This is used when delegating connection authority through a trust network
+    pub async fn issue_delegated_user_connect_token(
+        &self,
+        encrypted_private_key: &str,
+        domain: &str,
+        target_user_id: &str,
+        audience_ucan_pub_key: &str,
+        parent_token: &str, // The proof token to embed
+    ) -> Result<String, CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
 
+        let token = ucan_utils::generate_delegated_user_connection_token(
+            &signing_key,
+            &verifying_key,
+            target_user_id,
+            audience_ucan_pub_key,
+            domain,
+            parent_token,
+        )
+        .await?;
+
+        Ok(token)
+    }
     pub async fn get_public_ucan_key(
         &self,
         encrypted_ucan_private_key: &str,

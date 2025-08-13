@@ -171,6 +171,8 @@ pub enum UcanError {
         "Delegation is not permitted; the parent UCAN lacks the required 'ucan/share' capability."
     )]
     DelegationNotPermitted,
+    #[error("Invalid Issuer")]
+    InvalidIssuer,
 }
 
 #[derive(Error, Debug)]

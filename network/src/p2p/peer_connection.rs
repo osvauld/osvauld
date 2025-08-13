@@ -9,7 +9,7 @@ use osvauld_core::models::{
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {

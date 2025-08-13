@@ -1,7 +1,6 @@
 use super::P2PEvent;
 use crate::p2p::peer_connection::PeerConnection;
 use base64::{engine::general_purpose, Engine as _};
-use crypto_utils::errors::UcanError;
 use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, FirstConnectRequest, FirstConnectResponse,
     HandshakeMessage, Message, UcanAndUserExchange, User, UserWithDevices,
@@ -136,25 +135,12 @@ impl PeerConnection {
             .await
             .ok_or("No current device available")?;
         debug!("(Responder) Retrieved local user and device");
-        let repo_ctx_clone = self.repo_ctx.clone();
-        let proof_resolver = move |cid: &str| {
-            let cid_owned = cid.to_string();
-            let repo_ctx_for_async = repo_ctx_clone.clone();
-            async move {
-                repo_ctx_for_async
-                    .user_repo
-                    .get_ucan_by_cid(&cid_owned) // Use the owned String as a reference.
-                    .await
-                    .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-            }
-        };
         let token_validation = crypto_utils::validate_connect_token(
             &payload.ucan_token,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
             &current_user.id,
             &self.domain,
-            &proof_resolver,
         )
         .await
         .map_err(|e| {
@@ -216,7 +202,7 @@ impl PeerConnection {
                 exchange_message,
             )))
             .await?;
-            self.set_connection_type(ConnectionType::User);
+            self.set_connection_type(ConnectionType::User).await;
 
             info!("(Responder) Sent handshake exchange response and marked handshake as complete.");
         }
@@ -247,25 +233,12 @@ impl PeerConnection {
         })?;
         debug!("Successfully verified peer's signed UCAN public key");
 
-        let repo_ctx_clone = self.repo_ctx.clone();
-        let proof_resolver = move |cid: &str| {
-            let cid_owned = cid.to_string();
-            let repo_ctx_for_async = repo_ctx_clone.clone();
-            async move {
-                repo_ctx_for_async
-                    .user_repo
-                    .get_ucan_by_cid(&cid_owned) // Use the owned String as a reference.
-                    .await
-                    .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-            }
-        };
         let one_time_token_validation = crypto_utils::validate_connect_token(
             &payload.one_time_ucan,
             &peer_ucan_pub,
-            &self.domain,
             &current_user.ucan_pub_key,
             &current_user.id,
-            &proof_resolver,
+            &self.domain,
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -295,7 +268,7 @@ impl PeerConnection {
         user.owner = false;
         user.ucan_token = payload.issued_ucan.clone();
         user.ucan_pub_key = peer_ucan_pub;
-        self.set_connection_type(ConnectionType::User);
+        self.set_connection_type(ConnectionType::User).await;
         self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
             .await;
 
@@ -357,25 +330,12 @@ impl PeerConnection {
 
         let current_user = self.get_local_user().await?;
         debug!("Retrieved local user and device information");
-        let repo_ctx_clone = self.repo_ctx.clone();
-        let proof_resolver = move |cid: &str| {
-            let cid_owned = cid.to_string();
-            let repo_ctx_for_async = repo_ctx_clone.clone();
-            async move {
-                repo_ctx_for_async
-                    .user_repo
-                    .get_ucan_by_cid(&cid_owned) // Use the owned String as a reference.
-                    .await
-                    .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-            }
-        };
         let token_validation_result = crypto_utils::validate_connect_token(
             &payload.ucan_token,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
             &current_user.id,
             &self.domain,
-            &proof_resolver,
         )
         .await
         .map_err(|e| {
