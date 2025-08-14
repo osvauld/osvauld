@@ -6,14 +6,12 @@
 	import CommentThreadComponent from "./CommentThread.svelte";
 	import { dataState } from "../../state";
 
-	// Props using Svelte 5 runes
 	interface Props {
 		onClose?: () => void;
 	}
 
 	const { onClose }: Props = $props();
 
-	// State - much simpler now!
 	let selectedThreadId = $state<string | null>(null);
 	let showResolved = $state(false);
 	let highlightedThreadId = $state<string | null>(null);

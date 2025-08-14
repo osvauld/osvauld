@@ -186,6 +186,10 @@ export class NotesCoordinator {
     return [
       ySyncPlugin(docs.type),
       yCursorPlugin(docs.awareness, {
+        awarenessStateFilter: (state: any, clientId: number) => {
+          return clientId !== this.userInfo.id;
+        },
+
         cursorBuilder: this.createCustomCursor.bind(this),
       }),
       yUndoPlugin(),
@@ -230,10 +234,6 @@ export class NotesCoordinator {
    */
   private createCustomCursor(user: UserInfo): HTMLElement {
     const cursor = document.createElement('span');
-
-    if (user.id === this.userInfo.id) {
-      return cursor
-    }
     cursor.style.borderLeft = `2px solid ${user.color}`;
     cursor.style.marginLeft = '-1px';
     cursor.style.paddingLeft = '1px';

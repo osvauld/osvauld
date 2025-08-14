@@ -24,7 +24,8 @@ const imageSpec: NodeSpec = {
         alt: dom.getAttribute("alt"),
         title: dom.getAttribute("title"),
         width: dom.getAttribute("width"),
-        height: dom.getAttribute("height")
+        height: dom.getAttribute("height"),
+        margin: { default: 12 }
       };
     }
   }],
