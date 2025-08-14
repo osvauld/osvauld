@@ -56,6 +56,8 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
         invoke('update_current_note', { input: data })
       },
       getUserDetails: () => invoke('get_user_details'),
+      getOneTimeUcanToken: () => invoke('get_one_time_ucan_token'),
+
     };
     //@ts-ignore
     const handler = handlerMap[action];

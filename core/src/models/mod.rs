@@ -1,4 +1,4 @@
-pub mod auth;
+pub mod certificate;
 pub mod device;
 pub mod document;
 pub mod folder;
@@ -10,7 +10,7 @@ pub mod sync;
 pub mod user;
 pub mod vector_clock;
 
-pub use auth::*;
+pub use certificate::*;
 pub use device::*;
 pub use document::*;
 pub use folder::*;

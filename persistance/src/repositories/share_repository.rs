@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::share_record::ShareRecord;
 use osvauld_core::repositories::{RepositoryError, ShareRepository};
+use std::collections::HashMap;
 
 pub struct SqliteShareRepository {
     connection: DbConnection,
@@ -141,5 +142,36 @@ impl ShareRepository for SqliteShareRepository {
         let share_records = ShareRecordModel::to_domain_records(all_share_records);
 
         Ok(share_records)
+    }
+    async fn find_by_resource_and_operation_and_user(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        user_id: &str,
+    ) -> Result<ShareRecord, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let share_record_model = share_records::table
+            .filter(share_records::resource_id.eq(resource_id))
+            .filter(share_records::recipient_user_id.eq(user_id))
+            .filter(share_records::operation_type.eq(operation_type))
+            .first::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(share_record_model.to_domain())
+    }
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let share_record_model = share_records::table
+            .filter(share_records::ucan_cid.eq(cid))
+            .first::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+        Ok(share_record_model.ucan_token)
     }
 }

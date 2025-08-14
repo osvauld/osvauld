@@ -2,7 +2,7 @@ use std::str::FromStr;
 use thiserror::Error;
 use tracing::Level;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 /// Errors that can occur during logging setup
 #[derive(Error, Debug)]

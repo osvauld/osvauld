@@ -192,7 +192,7 @@ export const activeItemStyle = `
 export function hideDropdowns() {
   const dropdowns = document.querySelectorAll(".dropdown-menu, .submenu");
   dropdowns.forEach((dropdown) => {
-    if (dropdown instanceof HTMLElement) {
+    if (dropdown instanceof HTMLElement && dropdown.style.display !== "none") {
       dropdown.style.display = "none";
     }
   });

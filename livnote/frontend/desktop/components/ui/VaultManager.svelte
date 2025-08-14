@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { slide, fly } from "svelte/transition";
-	import { Add, MobileHome } from "../../icons";
+	import { Add, MobileHome, FolderIcon } from "../../icons";
 	import { sendMessage } from "../../utils/helper";
 	import { dataState, uiState } from "../../state/";
 	// import { LL } from "../../icons/i18n/i18n-svelte";
@@ -78,9 +78,15 @@
 							e.stopPropagation();
 							handleVaultSwitch(vault);
 						}}>
-						<span><MobileHome color={isActive ? "#F2F2F0" : "#85889C"} /></span>
+						<span>
+							{#if vault.id === "all"}	
+								<MobileHome color={isActive ? "#F2F2F0" : "#85889C"} />
+							{:else}
+								<FolderIcon color={isActive ? "#F2F2F0" : "#85889C"} />
+							{/if}
+						</span>
 						<span class="grow text-left pl-2 capitalize max-w-full truncate"
-							>{vault.id === "all" ? "All Vaults" : vault.name}</span>
+							>{vault.id === "all" ? "Home" : vault.name}</span>
 					</button>
 				{/each}
 			</div>
@@ -105,7 +111,7 @@
 								<input
 									type="text"
 									id="new-vault-name"
-									class="bg-mobile-bgSeconary p-2 border-0 outline-0 focus:ring-0 rounded-lg placeholder:text-sm placeholder:text-osvauld-iconblack"
+									class="bg-mobile-bgSeconary p-2 border-0 outline-0 focus:ring-0 rounded-lg text-white placeholder:text-sm placeholder:text-osvauld-iconblack"
 									placeholder="Title"
 									autocomplete="off"
 									autocorrect="off"

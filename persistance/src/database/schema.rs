@@ -55,6 +55,7 @@ diesel::table! {
         folder_id -> Text,
         signature -> Text,
         favourite -> Bool,
+        created_by -> Text,
         last_accessed -> BigInt,
         deleted -> Bool,
         deleted_at -> Nullable<BigInt>,
@@ -70,7 +71,8 @@ diesel::table! {
         shared_by_user_id -> Text,
         recipient_user_id -> Text,
         permission_level -> Text,
-        signature -> Text,
+        ucan_token -> Text,
+        ucan_cid -> Text,
         operation_type -> Text,
         created_at -> BigInt,
         updated_at -> BigInt,
@@ -93,6 +95,9 @@ diesel::table! {
         updated_at -> BigInt,
         created_at -> BigInt,
         signature -> Text,
+        ucan_token -> Text,
+        ucan_pub_key -> Text,
+        ucan_cid -> Text,
         owner -> Bool,
         first_sync -> Bool,
         deleted -> Bool,
@@ -106,6 +111,7 @@ diesel::joinable!(resource_keys -> users (user_id));
 diesel::joinable!(resource_vector_clocks -> devices (device_id));
 diesel::joinable!(resource_vector_clocks -> resources (resource_id));
 diesel::joinable!(resources -> folders (folder_id));
+diesel::joinable!(resources -> users (created_by));
 diesel::joinable!(share_records -> resources (resource_id));
 
 diesel::allow_tables_to_appear_in_same_query!(

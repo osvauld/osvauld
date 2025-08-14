@@ -106,6 +106,7 @@ impl UserRepository for SqliteUserRepository {
         device: &Device,
         device_certificate: &Certificate,
         peer_device: Option<&Device>,
+        ucan_certificate: &Certificate,
     ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let now = Local::now().timestamp_millis();
@@ -160,6 +161,14 @@ impl UserRepository for SqliteUserRepository {
                 ))
                 .execute(conn)?;
 
+            // 3. Store ucan certificate
+            diesel::insert_into(store_items::table)
+                .values((
+                    store_items::key.eq("ucan_key"),
+                    store_items::value.eq(&ucan_certificate.private_key),
+                    store_items::updated_at.eq(now),
+                ))
+                .execute(conn)?;
             // 5. Save device
             let device_model = DeviceModel::from(device);
             diesel::insert_into(devices::table)
@@ -171,7 +180,7 @@ impl UserRepository for SqliteUserRepository {
                     .values(&device_model)
                     .execute(conn)?;
             }
-            // 5. Save peer device
+
             Ok(())
         })
         .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
@@ -262,7 +271,12 @@ impl UserRepository for SqliteUserRepository {
                     .values(&user_model)
                     .on_conflict(users::id)
                     .do_update()
-                    .set(users::first_sync.eq(true))
+                    .set((
+                        users::ucan_pub_key.eq(&user_with_devices.user.ucan_pub_key),
+                        users::ucan_token.eq(&user_with_devices.user.ucan_token),
+                        users::first_sync.eq(&user_with_devices.user.first_sync),
+                        users::ucan_cid.eq(&user_with_devices.user.ucan_cid),
+                    ))
                     .execute(conn)?;
 
                 // 2. Insert associated devices
@@ -339,5 +353,33 @@ impl UserRepository for SqliteUserRepository {
             .collect();
 
         Ok(result)
+    }
+
+    async fn get_user_by_device_id(&self, device_id: &str) -> Result<User, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let user_model = devices::table
+            .inner_join(users::table.on(devices::user_id.eq(users::id)))
+            .filter(devices::id.eq(device_id))
+            .select(users::all_columns)
+            .first::<UserModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        let user: User = user_model.into();
+        Ok(user)
+    }
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let user_record_model = users::table
+            .filter(users::ucan_cid.eq(cid))
+            .first::<UserModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+        Ok(user_record_model.ucan_token)
     }
 }

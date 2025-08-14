@@ -69,12 +69,19 @@ pub enum CryptoResponse {
     },
     GetKnownUsers(Vec<User>),
     UserDetailsForShare(String),
+    OneTimeUcanToken(UcanOneTimeTokenOut),
 }
 
 #[derive(Deserialize)]
 pub struct SavePassphraseInput {
     pub username: String,
     pub passphrase: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct UcanOneTimeTokenOut {
+    pub ucan_token: String,
+    pub ucan_pub_key: String,
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -136,19 +143,7 @@ pub struct PasswordChangeInput {
     pub old_password: String,
     pub new_password: String,
 }
-#[derive(Deserialize)]
-pub struct FirstDeviceConnectInput {
-    pub ticket: String,
-}
 
-// pub struct ResourceType {
-//     pub resource_id: String,
-//     pub resource_type: String,
-//     pub data: String,
-//     pub folder_id: String,
-//     pub signature: String,
-//     pub permission: String,
-// }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddFolderInput {
@@ -210,6 +205,7 @@ pub struct GetResource {
 pub struct ShareResource {
     pub user_id: String,
     pub resource_id: String,
+    pub permissions: Vec<(String, String)>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -217,4 +213,6 @@ pub struct UserDetails {
     pub user_public_key: String,
     pub device_public_key: String,
     pub username: String,
+    pub ucan_token: String,
+    pub ucan_pub_key: String,
 }

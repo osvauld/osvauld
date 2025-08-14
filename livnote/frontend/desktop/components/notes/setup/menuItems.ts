@@ -225,9 +225,9 @@ export function addIndentButtons(container: HTMLElement, schema: Schema, view: E
   view.dom.addEventListener("mouseup", updateIndentButtonsState);
 
   // Wrap view.dispatch to update state after transactions
-  const originalDispatch = view.dispatch;
+  const oldIndentDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr); // Apply the transaction first
+    oldIndentDispatch(tr); // Apply the transaction first
     // Update the display if the document changed or the selection moved
     if (tr.docChanged || tr.selectionSet) {
       updateIndentButtonsState();
@@ -629,9 +629,9 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // view.dom.removeEventListener("mouseup", updateFontSizeDisplay);
 
   // Wrap the view's dispatch function to update on any relevant transaction
-  const originalDispatch = view.dispatch;
+  const oldSizeDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr); // Apply the transaction first
+    oldSizeDispatch(tr); // Apply the transaction first
     // Update the display if the document changed or the selection moved
     if (tr.docChanged || tr.selectionSet) {
       updateFontSizeDisplay();
@@ -824,9 +824,9 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
   // Add event listeners to update state
   view.dom.addEventListener("keyup", updateButtonActiveState);
   view.dom.addEventListener("mouseup", updateButtonActiveState);
-  const originalDispatch = view.dispatch;
+  const oldSecondaryFormatDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr);
+    oldSecondaryFormatDispatch(tr);
     if (tr.docChanged || tr.selectionSet) {
       updateButtonActiveState();
     }
@@ -967,7 +967,10 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
   // Add "Remove Color" button
   const removeColorButton = document.createElement("button");
   removeColorButton.className = "dropdown-item remove-color-button";
+  removeColorButton.style.whiteSpace = "nowrap";
   removeColorButton.textContent = "Remove Color";
+  removeColorButton.style.padding = "4px 8px";
+  removeColorButton.style.fontSize = "12px";
   removeColorButton.addEventListener("click", (e) => {
     e.stopPropagation();
     const { state, dispatch } = view;
@@ -1051,22 +1054,24 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
     e.stopPropagation();
     if (view.state.selection.empty) return; // Don't open if nothing selected
 
-    const isVisible = dropdownMenu.style.display === "block";
+    const isVisible = dropdownMenu.style.display === "grid";
     hideDropdowns(); // Hide other dropdowns first
     if (!isVisible) {
       updateButtonState(); // Ensure button state is current before showing
-      dropdownMenu.style.display = "block";
+      dropdownMenu.style.display = "grid";
       dropdownMenu.getBoundingClientRect(); // Force reflow
     }
   });
+
+
 
   // Update button state when selection or marks change
   view.dom.addEventListener("keyup", updateButtonState);
   view.dom.addEventListener("mouseup", updateButtonState);
   // Listen for transactions as marks can change programmatically
-  const originalDispatch = view.dispatch;
+  const oldColorDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr);
+    oldColorDispatch(tr);
     if (tr.docChanged || tr.selectionSet) {
       updateButtonState();
     }
@@ -1344,9 +1349,9 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
   view.dom.addEventListener("mouseup", updateButtonState);
 
   // Listen for transactions as marks can change programmatically
-  const originalDispatch = view.dispatch;
+  const oldFontDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr);
+    oldFontDispatch(tr);
     if (tr.docChanged || tr.selectionSet) {
       updateButtonState();
     }

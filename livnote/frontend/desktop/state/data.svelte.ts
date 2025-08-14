@@ -26,7 +26,7 @@ class DataState {
   currentVault = $state<Vault>({ id: "all", name: "All Vaults" });
   notes = $state<NotePreview[]>([]);
   private notesCoordinator: NotesCoordinator | null = null;
-  private currentNoteData: Note | null = null;
+  currentNoteData = $state<Note | null>(null);
   favoriteSelected = $state<boolean>(false);
   language = $state<string>("en");
   currentView = $state<string>("all");
@@ -56,6 +56,11 @@ class DataState {
   getCurrentNoteData(): Note | null {
     return this.currentNoteData;
   }
+
+  setCurrentNoteTitle(title: string) {
+    this.currentNoteTitle = title;
+  }
+
   filteredNotes = $derived.by(() => {
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
@@ -171,12 +176,11 @@ class DataState {
   clearCurrentNote() {
     this.setCurrentNoteId(null);
     this.setCurrentNoteData(null);
-    uiState.toggleNoteViewLayout(false);
+    this.setCurrentNoteTitle("");
     StoreService.setCurrentNoteId(null);
     emit("note-change", null).catch(error => {
       console.error("Error clearing current note:", error);
     });
-
   }
 
   toggleFavoriteView(showFavorites: boolean) {
@@ -186,11 +190,11 @@ class DataState {
     if (this.notesCoordinator) {
       this.notesCoordinator.destroy();
     }
-    
+
     if (!this.userDetails) {
       throw new Error("User details not available for coordinator creation");
     }
-    
+
     const userInfo = {
       name: this.userDetails.username,
       color: this.generateUserColor(),
@@ -224,7 +228,7 @@ class DataState {
 
     // Clear any existing state and event listeners first
     this.clearAllState();
-    
+
     const savedNoteId = await StoreService.getCurrentNoteId();
     await Promise.all([
       this.fetchVaults(),
@@ -252,10 +256,10 @@ class DataState {
     this.currentView = "all";
     this.sharedUsers = [];
     this.collaborators = [];
-    
+
     // Clean up event listeners
     this.cleanupReactiveUpdates();
-    
+
     // Clean up coordinator
     if (this.notesCoordinator) {
       this.notesCoordinator.destroy();
@@ -408,9 +412,9 @@ class DataState {
       id: noteId,
       data: JSON.stringify(noteContent),
     });
-    
+
     uiState.setNoteSaved(true);
-    
+
     setTimeout(() => {
       uiState.setNoteSaved(false);
     }, 1500);

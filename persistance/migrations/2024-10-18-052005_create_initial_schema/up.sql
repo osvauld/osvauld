@@ -5,6 +5,9 @@ CREATE TABLE users (
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     signature TEXT NOT NULL,
+    ucan_token TEXT NOT NULL,
+    ucan_pub_key TEXT NOT NULL,
+    ucan_cid TEXT NOT NULL,
     owner BOOLEAN NOT NULL DEFAULT FALSE,
     first_sync BOOLEAN NOT NULL DEFAULT FALSE,
     deleted BOOLEAN NOT NULL,
@@ -40,12 +43,14 @@ CREATE TABLE resources (
     folder_id TEXT NOT NULL,
     signature TEXT NOT NULL,
     favourite BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by TEXT NOT NULL,
     last_accessed BIGINT NOT NULL,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     FOREIGN KEY (folder_id) REFERENCES folders (id)
+    FOREIGN KEY (created_by) REFERENCES users (id)
 );
 
 CREATE TABLE resource_vector_clocks (
@@ -82,7 +87,8 @@ CREATE TABLE share_records (
     shared_by_user_id TEXT NOT NULL,    
     recipient_user_id TEXT NOT NULL,    
     permission_level TEXT NOT NULL,     
-    signature TEXT NOT NULL,            
+    ucan_token TEXT NOT NULL,            
+    ucan_cid TEXT NOT NULL,
     operation_type TEXT NOT NULL,       
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
