@@ -636,7 +636,7 @@ pub async fn validate_embedded_proof_chain(
 
     // 2. Verify issuer matches expected (audience of parent token)
     if let Some(expected_did) = expected_issuer_did {
-        if proof_ucan.issuer() != expected_did {
+        if proof_ucan.audience() != expected_did {
             return Err(UcanError::InvalidIssuer);
         }
     }
@@ -664,7 +664,7 @@ pub async fn validate_embedded_proof_chain(
                     target_user_id,
                     target_user_ucan_pub,
                     domain,
-                    Some(proof_ucan.audience()),
+                    Some(proof_ucan.issuer()),
                 ))
                 .await;
             }

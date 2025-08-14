@@ -641,6 +641,7 @@ pub async fn process_user_network_sync_payload(
 ) -> Result<(), String> {
     for user_with_device in &mut payload.users {
         user_with_device.user.owner = false;
+        user_with_device.user.first_sync = false;
     }
 
     repo_ctx

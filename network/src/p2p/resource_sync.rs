@@ -307,6 +307,7 @@ impl PeerConnection {
                     ucan_token,
                     &peer_user.id,
                     self.repo_ctx.clone(),
+                    &self.domain,
                 )
                 .await
                 .map_err(|e| e.to_string())?;
@@ -387,6 +388,7 @@ impl PeerConnection {
                     ucan_token,
                     &peer_user.id,
                     self.repo_ctx.clone(),
+                    &self.domain,
                 )
                 .await
                 .map_err(|e| e.to_string())?;

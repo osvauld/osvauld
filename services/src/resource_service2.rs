@@ -705,6 +705,7 @@ pub async fn validate_authority_for_update(
     token: &str,
     peer_user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
+    domain: &str,
 ) -> Result<bool, ResourceServiceError> {
     let peer_user = repo_ctx
         .user_repo
@@ -733,6 +734,7 @@ pub async fn validate_authority_for_update(
         &peer_user.ucan_pub_key,
         &resource_owner.ucan_pub_key,
         resource_id,
+        domain,
         &proof_resolver,
     )
     .await

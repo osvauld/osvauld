@@ -301,6 +301,7 @@ pub async fn validate_authority_for_update<F, Fut>(
     peer_ucan_pub: &str,
     root_ucan_pub: &str,
     resource_id: &str,
+    domain: &str,
     proof_resolver: &F,
 ) -> Result<bool, CryptoError>
 where
@@ -312,12 +313,12 @@ where
         .map_err(CryptoError::UcanError)?;
 
     ucan_utils::validate_audience(&ucan, peer_ucan_pub).map_err(CryptoError::UcanError)?;
-
+    let resource_uri = format!("{}:resource:{}", domain, resource_id);
     ucan_utils::validate_ucan_permission(
         &ucan,
         root_ucan_pub,
         proof_resolver,
-        resource_id,
+        &resource_uri,
         &"crud/update".to_string(),
     )
     .await
