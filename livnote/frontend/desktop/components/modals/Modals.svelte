@@ -2,6 +2,7 @@
 	import Toast from "./Toast.svelte";
 	import DeleteConfirmationModal from "./DeleteConfirmationModal.svelte";
 	import PasswordPromptModal from "../../common/PasswordPromptModal.svelte";
+	import ConnectUserModal from "./ConnectUserModal.svelte";
 	import { uiState } from "../../state/";
 </script>
 
@@ -14,6 +15,10 @@
 	<PasswordPromptModal
 		changePassword={uiState.passwordPromptModal.isChangePassword}
 		onClose={() => uiState.hidePasswordPrompt()} />
+{/if}
+
+{#if uiState.connectUserModal.show}
+	<ConnectUserModal />
 {/if}
 
 {#if uiState.toastMessage.show}

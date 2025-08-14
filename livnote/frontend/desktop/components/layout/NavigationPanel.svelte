@@ -11,7 +11,7 @@
 	import { dataState, uiState } from "../../state";
 
 	// Import VaultManager
-	import VaultManager from "../ui/VaultManager.svelte";
+	import FolderManager from "../ui/FolderManager.svelte";
 
 	// Define an enum for section selection
 	enum Section {
@@ -77,7 +77,7 @@
 						: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
 				></button>
 			{#if uiState.vaultManagerActive}
-				<VaultManager position="navigationPanel" />
+				<FolderManager position="navigationPanel" />
 			{/if}
 		</div>
 		<div

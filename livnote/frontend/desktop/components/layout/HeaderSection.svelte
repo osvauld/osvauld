@@ -3,7 +3,7 @@
 
 	import { sendMessage, writeToClipboard } from "../../utils/helper";
 
-	import { CopyIcon, RightArrow, Logout, Profile, Settings } from "../../icons";
+	import { CopyIcon, RightArrow, Logout, Profile, Settings, ConnectUser } from "../../icons";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
@@ -15,7 +15,7 @@
 	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
 		{ id: "settings", label: "Settings", icon: Settings },
-		{ id: "userid", label: "Copy UserID", icon: CopyIcon },
+		{ id: "userid", label: "Copy User Address", icon: CopyIcon },
 		{ id: "logout", label: "Logout", icon: Logout },
 	] as const;
 
@@ -43,10 +43,10 @@
 						ucan_pub_key,
 					};
 					await writeToClipboard(btoa(JSON.stringify(userDetails)));
-					uiState.showToast("UserID copied to clipboard", true);
+					uiState.showToast("User Address copied to clipboard, valid for 24 hours", true);
 				} catch (error) {
-					console.error("Error copying user ID:", error);
-					uiState.showToast("Failed to copy UserID", false);
+					console.error("Error copying user Address:", error);
+					uiState.showToast("Failed to copy User Address", false);
 				}
 				break;
 			case "settings":
@@ -77,7 +77,7 @@
 		}}>
 		Livnote
 	</span>
-	<div class="grow py-10 px-16 flex items-center justify-start">
+	<div class="grow py-10 px-16 flex items-center justify-end gap-6">
 		<!-- <div
 			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg mr-3">
 			<span class="sr-only">Search</span>
@@ -88,8 +88,24 @@
 				class="ml-4 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
 				placeholder="Search..." />
 		</div> -->
+		<button 
+			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+			aria-label="Open Connect user modal"
+			aria-haspopup="dialog"
+			aria-controls="connect-user-modal"
+			aria-expanded={uiState.connectUserModal.show}
+			onclick={() => uiState.showConnectUserModal()}
+			onkeydown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					uiState.showConnectUserModal();
+				}
+			}}>
+			<span class="font-normal text-base">Connect a User</span>
+			<ConnectUser size={24} />
+		</button>
 		<div
-			class="relative ml-auto text-osvauld-fieldText font-normal text-sm z-40">
+			class="relative  text-osvauld-fieldText font-normal text-base z-40">
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
@@ -121,7 +137,7 @@
 								e.stopPropagation();
 								handleDropDownClick(id);
 							}}>
-							<li class="profileBtn">
+							<li class="profileBtn cursor-pointer">
 								<Icon
 									color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
 									size={24} />

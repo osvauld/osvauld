@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { uiState, dataState } from "../../state";
-	import VaultManager from "./VaultManager.svelte";
+	import FolderManager from "./FolderManager.svelte";
 
 	import {
 		BinIcon as Bin,
@@ -46,7 +46,7 @@
 			</span>
 		</button>
 		{#if uiState.vaultManagerActive}
-			<VaultManager position="noteList" />
+			<FolderManager position="noteList" />
 		{/if}
 	</div>
 	<div

@@ -2,9 +2,9 @@
 	import { slide, fly } from "svelte/transition";
 	import { Add, MobileHome, FolderIcon } from "../../icons";
 	import { sendMessage } from "../../utils/helper";
-	import { dataState, uiState } from "../../state/";
+	import { dataState, uiState } from "../../state";
 	// import { LL } from "../../icons/i18n/i18n-svelte";
-	import type { Vault } from "../../state/data.svelte.ts";
+	import type { Vault } from "../../state/data.svelte";
 
 	// No need for vaultManagerActive prop anymore
 	let newVaultInputActive = $state(false);
