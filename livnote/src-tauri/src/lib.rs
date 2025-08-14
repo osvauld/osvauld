@@ -10,6 +10,8 @@ pub mod user_state;
 use crate::handlers::auth_handler::{
     check_private_key_loaded, check_signup_status, get_one_time_ucan_token, get_user_details,
     handle_add_device, handle_change_passphrase, handle_export_certificate, handle_sign_up, login,
+ handle_logout
+ dev
 };
 use crate::handlers::folder_handler::{
     handle_add_folder, handle_get_folders, handle_soft_delete_folder,
@@ -171,7 +173,9 @@ pub fn run() {
             handle_share_resource,
             get_user_details,
             emit_all_resources,
-            get_one_time_ucan_token
+            get_one_time_ucan_token,
+            handle_logout,
+
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -101,8 +101,8 @@ export const markdownShortcutsPlugin = (schema: Schema) => {
     orderedListRule(schema),
     inlineMarkRule(schema.marks.strong, /\*\*([^\*]+)\*\*$/),      // **text**
     inlineMarkRule(schema.marks.strong, /__([^_]+)__$/),          // __text__
-    inlineMarkRule(schema.marks.em, /(?<!\*)\*([^\*]+)\*(?!\*)$/),    // *text*
-    inlineMarkRule(schema.marks.em, /(?<!_)_([^_]+)_(?!_)$/),      // _text_
+    inlineMarkRule(schema.marks.em, /(?:^|[^*])\*([^\*]+)\*(?!\*)$/),    // *text*
+    inlineMarkRule(schema.marks.em, /(?:^|[^_])_([^_]+)_(?!_)$/),      // _text_
     inlineMarkRule(schema.marks.strikethrough, /~~([^~]+)~~$/),    // ~~text~~
     inlineCodeInputRule(schema),                                  // ``code``
     codeBlockRule(schema),                                       // ```

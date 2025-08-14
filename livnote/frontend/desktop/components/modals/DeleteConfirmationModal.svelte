@@ -16,13 +16,17 @@
 			await sendMessage("deleteFolder", {
 				folderId: dataState.currentVault.id,
 			});
+			// Refresh vaults list to reflect the deletion
+			await dataState.fetchVaults();
+			await dataState.fetchAllNotes();
 			// Reset to All Vaults
-			dataState.switchVault({ id: "all", name: "All Vaults" });
+			dataState.switchVault({ id: "all", name: "Home" });
 		} else if (item === "note") {
-			if (!dataState.currentNote) return;
+			const currentNoteId = dataState.getCurrentNoteId();
+			if (!currentNoteId) return;
 
 			await sendMessage("deleteResource", {
-				resourceId: dataState.currentNote.id,
+				resourceId: currentNoteId,
 			});
 
 			// Clear the current note and update UI
@@ -54,14 +58,13 @@
 </script>
 
 <div
-	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur backdrop-filter backdrop-blur-[2px]"
-	on:click={handleModalBackdropClick}
+	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur/80 backdrop-filter backdrop-blur-[2px]"
+	onclick={handleModalBackdropClick}
 	role="presentation">
 	<form
 		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[14rem] flex flex-col items-start justify-center gap-3"
 		in:fly
-		on:submit={deleteConfirmation}
-		on:click={(e) => e.stopPropagation()}>
+		onsubmit={deleteConfirmation}>
 		<div class="flex justify-between items-center w-full">
 			<span class="text-[21px] font-medium text-osvauld-quarzowhite capitalize"
 				>Delete
@@ -72,7 +75,7 @@
 			</span>
 			<button
 				class="cursor-pointer p-2"
-				on:click={handleCancelClick}
+				onclick={handleCancelClick}
 				type="button">
 				<ClosePanel />
 			</button>
@@ -96,7 +99,7 @@
 			<button
 				class="font-medium text-base rounded-md py-[5px] px-[15px] text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
 				type="button"
-				on:click={handleCancelClick}>
+				onclick={handleCancelClick}>
 				Cancel
 			</button>
 			<button

@@ -2,9 +2,8 @@
 	import {
 		RightArrow as Arrow,
 		MobileHome as Home,
-		Star,
 		MobileNote,
-		BlueClose,
+		MenuToggle,
 	} from "../../icons";
 	import { fly } from "svelte/transition";
 
@@ -13,7 +12,6 @@
 
 	// Import VaultManager
 	import VaultManager from "../ui/VaultManager.svelte";
-	import { slide } from "svelte/transition";
 
 	// Define an enum for section selection
 	enum Section {
@@ -49,27 +47,29 @@
 
 {#if uiState.showNavigationPanel}
 	<nav
-		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative"
+		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
+		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation">
 		{#if uiState.isNavigationPanelManuallyToggled}
 			<button
-				aria-label="Close navigation panel"
-				class="absolute top-1.5 right-3 p-1.5 mb-2 rounded-md bg-osvauld-fieldActive hover:bg-osvauld-iconblack transition-colors cursor-pointer"
+				aria-label="Collapse navigation panel"
+				class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md  transition-colors cursor-w-resize"
+				title="Collapse panel"
 				onclick={closeNavigationPanel}>
-				<BlueClose color="#85889C" />
+				<MenuToggle />
 			</button>
 		{/if}
 
 		<div class="relative">
 			<button
 				class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
-				aria-label="Switch Vault"
-				aria-controls="vaultSelector"
+				aria-label="Switch Folder"
+				aria-controls="Folder selector"
 				aria-expanded={uiState.vaultManagerActive}
 				onclick={() => uiState.toggleVaultManager()}>
 				<span class="flex-1 truncate text-left py-1"
 					>{dataState.currentVault.id === "all"
-						? "All Vaults"
+						? "Home"
 						: dataState.currentVault.name}</span
 				><span
 					class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
@@ -123,7 +123,7 @@
 			<div class="text-osvauld-fieldText text-center p-4">Loading...</div>
 		{:else}
 			<ul
-				class="font-light text-base space-y-1 text-osvauld-fieldText max-h-3/4 overflow-y-scroll px-1 scrollbar-thin"
+				class="font-light text-base space-y-1 text-osvauld-fieldText max-h-full overflow-y-scroll px-1 scrollbar-thin "
 				role="list">
 				{#each dataState.filteredNotes as note (note.id)}
 					{@const hoveredOrSelected =

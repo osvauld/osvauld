@@ -15,7 +15,6 @@
 	import { pdfGenerator } from "../../utils/pdfGenerator";
 	// Import ShareNote component
 	import ShareNote from "../modals/ShareNote.svelte";
-	import { onMount } from "svelte";
 
 	// Local UI state
 	let showShareList = $state(false);
@@ -23,8 +22,7 @@
 	let showDownloadTooltip = $state(false);
 	let isPdfGenerating = $state(false);
 	let saved = $state(false);
-
-	let lastModifiedTimestamp = $state<number | undefined>(undefined);
+	let lastModifiedDate = $state("");
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
@@ -68,25 +66,37 @@
 	const handleDeleteBtn = (item: "folder" | "note") => {
 		uiState.showDeleteConfirmation(item);
 	};
+
 	const saveNoteManual = () => {
 		const noteId = dataState.currentNoteId;
-		dataState.saveNote(noteId);
+		if (noteId) {
+			dataState.saveNote(noteId);
+		}
 	};
 
 	$effect(() => {
 		saved = uiState.noteSaved;
 	});
+
+	$effect(() => {
+		const noteId = dataState.currentNoteId;
+		const currentNote = dataState.getCurrentNoteData()
+		if (currentNote?.data?.last_modified) {
+			lastModifiedDate = getLastModifiedDate(currentNote.data.last_modified);
+		} else {
+			lastModifiedDate = "";
+		}
+	});
 </script>
 
 <div
-	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0">
+	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor">
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
 			onclick={saveNoteManual}
 			class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]">
 			{#if saved}
 				<span class="whitespace-nowrap flex items-center justify-center">
-					<span class="text-[#9DD062] mr-2">Saved</span>
 					<Tick color="#9DD062" />
 				</span>
 			{:else}
@@ -160,6 +170,6 @@
 
 	<div
 		class="border-b-1 border-osvauld-defaultBorder py-3 w-full text-left text-sm">
-		<p class="text-statusColor">Last modified : Not available</p>
+		<p class="text-statusColor">Last modified: {lastModifiedDate}</p>
 	</div>
 </div>

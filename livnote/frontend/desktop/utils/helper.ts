@@ -42,7 +42,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
         invoke("emit_all_resources", {
           selectedResourceId: selectedResourceId ?? null
         }),
-      logout: () => invoke("logout"),
+      logout: () => invoke("handle_logout"),
       sendSnapshot: (data: any) => invoke("send_snapshot", { snapshot: data }),
       updateCredential: (data: any) =>
         invoke("handle_update_resource", { input: data }),
@@ -81,7 +81,72 @@ export const writeToClipboard = async (text: string) => {
       console.error("Error writing to clipboard:", error);
     }
   } else {
-    navigator.clipboard.writeText(text);
+    // Check if modern Clipboard API is available
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch (error) {
+        console.error("Clipboard API failed, falling back to execCommand:", error);
+        fallbackCopyTextToClipboard(text);
+      }
+    } else {
+      // Fallback for older browsers (Chrome 58, Safari 11, etc.)
+      fallbackCopyTextToClipboard(text);
+    }
+  }
+};
+
+// Fallback function for browsers without Clipboard API support
+function fallbackCopyTextToClipboard(text: string) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  
+  // Avoid scrolling to bottom
+  textArea.style.top = "0";
+  textArea.style.left = "0";
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  
+  try {
+    const successful = document.execCommand('copy');
+    if (!successful) {
+      throw new Error('execCommand copy failed');
+    }
+  } catch (err) {
+    console.error('Fallback: Could not copy text: ', err);
+  }
+  
+  document.body.removeChild(textArea);
+}
+
+// Fallback function for reading clipboard text in older browsers
+export const readFromClipboard = async (): Promise<string> => {
+  const tauriEnv = isTauri();
+  if (tauriEnv) {
+    try {
+      const { readText } = await import("@tauri-apps/plugin-clipboard-manager");
+      return await readText();
+    } catch (error) {
+      console.error("Error reading from clipboard:", error);
+      throw error;
+    }
+  } else {
+    // Check if modern Clipboard API is available
+    if (navigator.clipboard && navigator.clipboard.readText) {
+      try {
+        return await navigator.clipboard.readText();
+      } catch (error) {
+        console.error("Clipboard API readText failed:", error);
+        throw new Error("Clipboard read failed - clipboard access may be denied or not supported");
+      }
+    } else {
+      // No fallback for readText in older browsers - it's not securely possible
+      throw new Error("Clipboard read not supported - please upgrade your browser or copy manually");
+    }
   }
 };
 

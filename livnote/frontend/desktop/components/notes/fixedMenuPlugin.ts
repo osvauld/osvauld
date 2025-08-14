@@ -41,6 +41,17 @@ style.textContent += `
     transition: max-height 0.2s ease-in;
     flex-wrap: wrap;
   }
+  
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 2px) {
+    .secondary-menu {
+      margin: -2px;
+    }
+    
+    .secondary-menu > * {
+      margin: 2px;
+    }
+  }
   .secondary-menu.visible {
     max-height: 100px; /* Adjust as needed */
     padding: 10px 0px 0px 0px; /* Restore padding when visible */
@@ -72,8 +83,7 @@ style.textContent += `
   }
 
   /* Styles for the Text Color Picker */
-  .color-picker-dropdown {
-    display: grid; 
+  .dropdown-menu.color-picker-dropdown {
     grid-template-columns: repeat(3, 1fr);
     gap: 8px;
     padding: 12px;
@@ -83,7 +93,19 @@ style.textContent += `
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
     position: absolute;
     z-index: 100;
-    width: auto;
+    width: 120px;
+    min-width: auto;
+  }
+  
+  /* Fallback for browsers that don't support gap in grid */
+  @supports not (gap: 8px) {
+    .color-picker-dropdown {
+      grid-gap: 8px;
+    }
+    
+    .color-picker-dropdown > * {
+      margin: 4px;
+    }
   }
   
   .color-swatch {
@@ -136,7 +158,6 @@ style.textContent += `
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: #2a2b2f;
     border: 1px solid #3a3b44;
     border-radius: 4px;
     color: #bfc0cc;
@@ -144,6 +165,13 @@ style.textContent += `
     font-size: 14px;
     min-width: 100px;
     transition: background-color 0.1s ease;
+  }
+  
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 8px) {
+    .font-family-dropdown-button > *:not(:last-child) {
+      margin-right: 8px;
+    }
   }
 
   .font-family-dropdown-button:hover {

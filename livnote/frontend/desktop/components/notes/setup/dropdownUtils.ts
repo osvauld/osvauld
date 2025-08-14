@@ -24,6 +24,17 @@ export const dropdownStyle = `
     min-width: 120px;
   }
   
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 5px) {
+    .format-dropdown-button {
+      margin: -2.5px;
+    }
+    
+    .format-dropdown-button > * {
+      margin: 2.5px;
+    }
+  }
+  
   .format-dropdown-button:hover {
     background: #2a2b2f;
   }
@@ -61,6 +72,17 @@ export const dropdownStyle = `
     gap: 8px;
   }
   
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 8px) {
+    .dropdown-item {
+      margin: -4px;
+    }
+    
+    .dropdown-item > * {
+      margin: 4px;
+    }
+  }
+  
   .dropdown-item:hover {
     background: #2a2b2f;
   }
@@ -92,6 +114,17 @@ export const dropdownStyle = `
     gap: 8px;
   }
   
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 8px) {
+    .submenu-item {
+      margin: -4px;
+    }
+    
+    .submenu-item > * {
+      margin: 4px;
+    }
+  }
+  
   .submenu-item:hover {
     background: #2a2b2f;
   }
@@ -104,6 +137,17 @@ export const dropdownStyle = `
     background: transparent;
     border: 1px solid #3a3b44;
     border-radius: 4px;
+  }
+  
+  /* Fallback for browsers that don't support gap in flexbox */
+  @supports not (gap: 4px) {
+    .font-size-controls {
+      margin: -2px;
+    }
+    
+    .font-size-controls > * {
+      margin: 2px;
+    }
   }
 
   .font-size-input {
@@ -148,7 +192,7 @@ export const activeItemStyle = `
 export function hideDropdowns() {
   const dropdowns = document.querySelectorAll(".dropdown-menu, .submenu");
   dropdowns.forEach((dropdown) => {
-    if (dropdown instanceof HTMLElement) {
+    if (dropdown instanceof HTMLElement && dropdown.style.display !== "none") {
       dropdown.style.display = "none";
     }
   });

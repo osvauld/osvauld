@@ -26,7 +26,7 @@ class DataState {
   currentVault = $state<Vault>({ id: "all", name: "All Vaults" });
   notes = $state<NotePreview[]>([]);
   private notesCoordinator: NotesCoordinator | null = null;
-  private currentNoteData: Note | null = null;
+  currentNoteData = $state<Note | null>(null);
   favoriteSelected = $state<boolean>(false);
   language = $state<string>("en");
   currentView = $state<string>("all");
@@ -56,6 +56,11 @@ class DataState {
   getCurrentNoteData(): Note | null {
     return this.currentNoteData;
   }
+
+  setCurrentNoteTitle(title: string) {
+    this.currentNoteTitle = title;
+  }
+
   filteredNotes = $derived.by(() => {
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
@@ -100,6 +105,8 @@ class DataState {
       if (response) {
         this.setCurrentNoteData(response);
       }
+      // The notes array will be populated by the event listeners (resource-added, resource-update)
+      // that are set up in setupReactiveUpdates()
     } catch (error) {
       console.error("Error fetching notes:", error);
       this.notes = [];
@@ -112,6 +119,8 @@ class DataState {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
+    // Reset favorite selection when switching vaults
+    this.favoriteSelected = false;
   }
 
   async addNote() {
@@ -167,12 +176,11 @@ class DataState {
   clearCurrentNote() {
     this.setCurrentNoteId(null);
     this.setCurrentNoteData(null);
-    uiState.toggleNoteViewLayout(false);
+    this.setCurrentNoteTitle("");
     StoreService.setCurrentNoteId(null);
     emit("note-change", null).catch(error => {
       console.error("Error clearing current note:", error);
     });
-
   }
 
   toggleFavoriteView(showFavorites: boolean) {
@@ -182,6 +190,11 @@ class DataState {
     if (this.notesCoordinator) {
       this.notesCoordinator.destroy();
     }
+
+    if (!this.userDetails) {
+      throw new Error("User details not available for coordinator creation");
+    }
+
     const userInfo = {
       name: this.userDetails.username,
       color: this.generateUserColor(),
@@ -213,6 +226,9 @@ class DataState {
   async initializeState() {
     this.isDataLoading = true;
 
+    // Clear any existing state and event listeners first
+    this.clearAllState();
+
     const savedNoteId = await StoreService.getCurrentNoteId();
     await Promise.all([
       this.fetchVaults(),
@@ -226,6 +242,28 @@ class DataState {
       this.fetchAllNotes(savedNoteId)
     } else {
       this.fetchAllNotes();
+    }
+  }
+
+  // Add a method to clear all state when logging out
+  clearAllState() {
+    // Clear notes state
+    this.notes = [];
+    this.currentNoteId = null;
+    this.currentNoteData = null;
+    this.currentNoteTitle = "";
+    this.favoriteSelected = false;
+    this.currentView = "all";
+    this.sharedUsers = [];
+    this.collaborators = [];
+
+    // Clean up event listeners
+    this.cleanupReactiveUpdates();
+
+    // Clean up coordinator
+    if (this.notesCoordinator) {
+      this.notesCoordinator.destroy();
+      this.notesCoordinator = null;
     }
   }
   private generateUserColor(): string {
@@ -338,7 +376,11 @@ class DataState {
 
   handleResourceAdded(event: any) {
     const notePreview = event.payload;
-    this.notes = [...this.notes, notePreview];
+    // Check if note already exists to prevent duplicates
+    const existingNote = this.notes.find(note => note.id === notePreview.id);
+    if (!existingNote) {
+      this.notes = [...this.notes, notePreview];
+    }
   }
 
   handleResourceUpdate(event: any) {
@@ -351,9 +393,12 @@ class DataState {
         updatedResourcePreview,
         ...this.notes.slice(resourceIndex + 1)
       ];
-
     } else {
-      this.notes = [...this.notes, updatedResourcePreview];
+      // Only add if it doesn't already exist
+      const existingNote = this.notes.find(note => note.id === updatedResourcePreview.id);
+      if (!existingNote) {
+        this.notes = [...this.notes, updatedResourcePreview];
+      }
     }
   }
 
@@ -367,6 +412,12 @@ class DataState {
       id: noteId,
       data: JSON.stringify(noteContent),
     });
+
+    uiState.setNoteSaved(true);
+
+    setTimeout(() => {
+      uiState.setNoteSaved(false);
+    }, 1500);
   }
 
   async handleDocumentUpdates(event: any) {

@@ -225,9 +225,9 @@ export function addIndentButtons(container: HTMLElement, schema: Schema, view: E
   view.dom.addEventListener("mouseup", updateIndentButtonsState);
 
   // Wrap view.dispatch to update state after transactions
-  const originalDispatch = view.dispatch;
+  const oldIndentDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr); // Apply the transaction first
+    oldIndentDispatch(tr); // Apply the transaction first
     // Update the display if the document changed or the selection moved
     if (tr.docChanged || tr.selectionSet) {
       updateIndentButtonsState();
@@ -629,9 +629,9 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
   // view.dom.removeEventListener("mouseup", updateFontSizeDisplay);
 
   // Wrap the view's dispatch function to update on any relevant transaction
-  const originalDispatch = view.dispatch;
+  const oldSizeDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr); // Apply the transaction first
+    oldSizeDispatch(tr); // Apply the transaction first
     // Update the display if the document changed or the selection moved
     if (tr.docChanged || tr.selectionSet) {
       updateFontSizeDisplay();
@@ -824,9 +824,9 @@ export function addSecondaryFormattingItems(container: HTMLElement, schema: Sche
   // Add event listeners to update state
   view.dom.addEventListener("keyup", updateButtonActiveState);
   view.dom.addEventListener("mouseup", updateButtonActiveState);
-  const originalDispatch = view.dispatch;
+  const oldSecondaryFormatDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr);
+    oldSecondaryFormatDispatch(tr);
     if (tr.docChanged || tr.selectionSet) {
       updateButtonActiveState();
     }
@@ -967,7 +967,10 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
   // Add "Remove Color" button
   const removeColorButton = document.createElement("button");
   removeColorButton.className = "dropdown-item remove-color-button";
+  removeColorButton.style.whiteSpace = "nowrap";
   removeColorButton.textContent = "Remove Color";
+  removeColorButton.style.padding = "4px 8px";
+  removeColorButton.style.fontSize = "12px";
   removeColorButton.addEventListener("click", (e) => {
     e.stopPropagation();
     const { state, dispatch } = view;
@@ -1051,22 +1054,24 @@ export function addTextColorPicker(container: HTMLElement, schema: Schema, view:
     e.stopPropagation();
     if (view.state.selection.empty) return; // Don't open if nothing selected
 
-    const isVisible = dropdownMenu.style.display === "block";
+    const isVisible = dropdownMenu.style.display === "grid";
     hideDropdowns(); // Hide other dropdowns first
     if (!isVisible) {
       updateButtonState(); // Ensure button state is current before showing
-      dropdownMenu.style.display = "block";
+      dropdownMenu.style.display = "grid";
       dropdownMenu.getBoundingClientRect(); // Force reflow
     }
   });
+
+
 
   // Update button state when selection or marks change
   view.dom.addEventListener("keyup", updateButtonState);
   view.dom.addEventListener("mouseup", updateButtonState);
   // Listen for transactions as marks can change programmatically
-  const originalDispatch = view.dispatch;
+  const oldColorDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr);
+    oldColorDispatch(tr);
     if (tr.docChanged || tr.selectionSet) {
       updateButtonState();
     }
@@ -1119,18 +1124,27 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
   dropdownMenu.className = "dropdown-menu font-family-dropdown";
   dropdownMenu.style.display = "none";
 
-  // Common font families list
+  // Common system fonts list - simplified and cleaned up
   const fontFamilies = [
     { name: "Arial", value: "Arial, sans-serif" },
     { name: "Arial Black", value: "'Arial Black', sans-serif" },
+    { name: "Calibri", value: "Calibri, sans-serif" },
+    { name: "Cambria", value: "Cambria, serif" },
+    { name: "Candara", value: "Candara, sans-serif" },
     { name: "Comic Sans MS", value: "'Comic Sans MS', cursive" },
+    { name: "Consolas", value: "Consolas, monospace" },
+    { name: "Constantia", value: "Constantia, serif" },
+    { name: "Corbel", value: "Corbel, sans-serif" },
     { name: "Courier New", value: "'Courier New', monospace" },
-    { name: "Helvetica Neue", value: "'Helvetica Neue', sans-serif" },
+    { name: "Georgia", value: "Georgia, serif" },
     { name: "Helvetica", value: "Helvetica, sans-serif" },
+    { name: "Helvetica Neue", value: "'Helvetica Neue', sans-serif" },
     { name: "Impact", value: "Impact, sans-serif" },
     { name: "Lucida Grande", value: "'Lucida Grande', sans-serif" },
+    { name: "Segoe UI", value: "'Segoe UI', sans-serif" },
     { name: "Tahoma", value: "Tahoma, sans-serif" },
     { name: "Times New Roman", value: "'Times New Roman', serif" },
+    { name: "Trebuchet MS", value: "'Trebuchet MS', sans-serif" },
     { name: "Verdana", value: "Verdana, sans-serif" }
   ];
 
@@ -1172,6 +1186,8 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
     });
     dropdownMenu.appendChild(fontItem);
   });
+
+
 
   // Add "Remove Font" button
   const removeFontButton = document.createElement("button");
@@ -1224,8 +1240,27 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
       if (fontNameSpan) {
         if (fontFamilyMark) {
           // Find the display name for this font family
-          const fontMatch = fontFamilies.find(f => f.value === fontFamilyMark.attrs.family);
-          fontNameSpan.textContent = fontMatch ? fontMatch.name : "Custom";
+          const fontFamilyValue = fontFamilyMark.attrs.family;
+          
+          // Try exact match first
+          let fontMatch = fontFamilies.find(f => f.value === fontFamilyValue);
+          
+          // If no exact match, try to match the font name without fallbacks
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => f.name === fontName);
+          }
+          
+          // If still no match, try partial matching
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => 
+              f.name.toLowerCase() === fontName.toLowerCase() ||
+              f.value.toLowerCase().includes(fontName.toLowerCase())
+            );
+          }
+          
+          fontNameSpan.textContent = fontMatch ? fontMatch.name : fontFamilyValue.split(',')[0].replace(/['"]/g, '').trim();
         } else {
           fontNameSpan.textContent = "Arial";
         }
@@ -1267,8 +1302,27 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
       if (fontNameSpan) {
         if (finalFont) {
           // Find the display name for this font family
-          const fontMatch = fontFamilies.find(f => f.value === finalFont);
-          fontNameSpan.textContent = fontMatch ? fontMatch.name : "Custom";
+          const fontFamilyValue = finalFont;
+          
+          // Try exact match first
+          let fontMatch = fontFamilies.find(f => f.value === fontFamilyValue);
+          
+          // If no exact match, try to match the font name without fallbacks
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => f.name === fontName);
+          }
+          
+          // If still no match, try partial matching
+          if (!fontMatch) {
+            const fontName = fontFamilyValue.replace(/['"]/g, '').split(',')[0].trim();
+            fontMatch = fontFamilies.find(f => 
+              f.name.toLowerCase() === fontName.toLowerCase() ||
+              f.value.toLowerCase().includes(fontName.toLowerCase())
+            );
+          }
+          
+          fontNameSpan.textContent = fontMatch ? fontMatch.name : fontFamilyValue.split(',')[0].replace(/['"]/g, '').trim();
         } else {
           fontNameSpan.textContent = "Arial";
         }
@@ -1295,9 +1349,9 @@ export function addFontFamilyDropdown(container: HTMLElement, schema: Schema, vi
   view.dom.addEventListener("mouseup", updateButtonState);
 
   // Listen for transactions as marks can change programmatically
-  const originalDispatch = view.dispatch;
+  const oldFontDispatch = view.dispatch;
   view.dispatch = (tr) => {
-    originalDispatch(tr);
+    oldFontDispatch(tr);
     if (tr.docChanged || tr.selectionSet) {
       updateButtonState();
     }

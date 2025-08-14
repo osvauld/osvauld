@@ -1,40 +1,34 @@
 <script lang="ts">
 	import { onMount } from "svelte";
-	import { BackArrow, Star as EmptyStar, FavStar as Star } from "../../icons";
+	import {
+		BackArrow,
+		Star as EmptyStar,
+		FavStar as Star,
+		MenuToggle,
+	} from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
-	import Hamburger from "../../icons/Hamburger.svelte";
-	import { fade, fly } from "svelte/transition";
+	import { fade } from "svelte/transition";
+	import { sendMessage } from "../../utils/helper";
 
 	// Local UI state using $state
 	let newNoteTitle = $state("");
 	let isEditingTitle = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
-	let saved = $state(false);
-	// Derived state for favorite status
-	let isFavourite = $derived(
-		dataState.getCurrentNoteData()?.favourite ?? false,
-	);
-	// Toggle navigation panel
-	function toggleNavigationPanel() {
-		uiState.toggleNavigationPanel();
-		if (!uiState.showNavigationPanel) {
-			// When hiding panel - set CSS var to 0 to allow editor to go under min width
-			document.documentElement.style.setProperty("--min-editor-width", "0px");
-		} else {
-			// When showing panel - restore the min width
-			document.documentElement.style.setProperty(
-				"--min-editor-width",
-				`${uiState.MIN_EDITOR_WIDTH}px`,
-			);
-		}
-	}
+	let isNavigatingBack = false;
+	// Derived state for favorite status using the reactive notes array
+	let isFavourite = $derived(() => {
+		const noteId = dataState.currentNoteId;
+		if (!noteId) return false;
+		const note = dataState.getNoteById(noteId);
+		return note?.favourite ?? false;
+	});
 
 	// Title editing functions
-	function startEditingTitle() {
+	const startEditingTitle = () => {
 		isEditingTitle = true;
 
 		// Focus the input after the DOM updates
@@ -44,17 +38,27 @@
 				inputRef.select();
 			}
 		}, 0);
-	}
+	};
 
-	function saveTitle() {
+	const handleBackButtonMouseDown = () => {
+		isNavigatingBack = true;
+	};
+
+	const saveTitle = () => {
+		if (isNavigatingBack || newNoteTitle.trim().length === 0) {
+			isEditingTitle = false;
+			return;
+		}
 		let coordinator = dataState.getNotesCoordinator();
 		coordinator?.saveNote(newNoteTitle);
 		dataState.currentNoteTitle = newNoteTitle;
-	}
+		isEditingTitle = false;
+	};
 
 	const getInitial = (name: string): string => {
 		return name.charAt(0).toUpperCase();
 	};
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === "Enter") {
 			saveTitle();
@@ -66,15 +70,42 @@
 	// Back button handler - saves and returns to list view
 	const handleBackButton = () => {
 		const noteId = dataState.currentNoteId;
-		dataState.saveNote(noteId);
+		if (noteId) {
+			dataState.saveNote(noteId);
+		}
 		dataState.clearCurrentNote();
 		uiState.toggleNoteViewLayout(false);
 	};
 
 	const toggleFav = async (e: Event) => {
 		e.stopPropagation();
-		//TODO
-		// Update the note in the notes array
+		try {
+			const noteId = dataState.currentNoteId;
+			if (noteId === null) return;
+
+			await sendMessage("toggleFav", {
+				resourceId: noteId,
+			});
+			dataState.updateNoteFavorite(noteId);
+		} catch (err) {
+			console.error("Error toggling favorite:", err);
+			uiState.showToast("Failed to update favorite status", false);
+		}
+	};
+
+	// Toggle navigation panel
+	const toggleNavigationPanel = () => {
+		uiState.toggleNavigationPanel();
+		if (!uiState.showNavigationPanel) {
+			// When hiding panel - set CSS var to 0 to allow editor to go under min width
+			document.documentElement.style.setProperty("--min-editor-width", "0px");
+		} else {
+			// When showing panel - restore the min width
+			document.documentElement.style.setProperty(
+				"--min-editor-width",
+				`${uiState.MIN_EDITOR_WIDTH}px`,
+			);
+		}
 	};
 
 	onMount(async () => {
@@ -107,35 +138,37 @@
 				<!-- Burger menu toggle - only show when navigation panel is hidden -->
 				{#if !uiState.showNavigationPanel}
 					<button
-						aria-label="Toggle navigation panel"
-						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+						aria-label="Open navigation panel"
+						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-e-resize"
+						title="Open navigation panel"
 						onclick={toggleNavigationPanel}>
-						<Hamburger />
+						<MenuToggle />
 					</button>
 				{/if}
 
 				<button
 					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+					onmousedown={handleBackButtonMouseDown}
 					onclick={handleBackButton}>
 					<BackArrow />
 				</button>
 
 				{#if isEditingTitle}
 					<div
-						class="grow mx-5 flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack">
+						class="grow mx-5 flex justify-between items-center py-1 px-3 border rounded-lg border-osvauld-iconblack">
 						<input
 							bind:this={inputRef}
 							bind:value={newNoteTitle}
 							maxlength="20"
 							onkeydown={handleKeydown}
 							onblur={saveTitle}
-							class="text-white text-4xl bg-osvauld-frameblack border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+							class="text-white text-4xl border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
 					</div>
 				{:else}
 					<span
 						role="button"
 						tabindex="0"
-						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive"
+						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive select-none"
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
 							e.key === "Enter" && startEditingTitle()}>
@@ -145,7 +178,7 @@
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					onclick={toggleFav}>
-					{#if isFavourite}
+					{#if isFavourite()}
 						<Star />
 					{:else}
 						<EmptyStar color="#85889C" />
