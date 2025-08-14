@@ -48,6 +48,7 @@ pub trait StoreRepository: Send + Sync {
     async fn store_device_key(&self, device_key: &str) -> Result<(), RepositoryError>;
     async fn get_device_key(&self) -> Result<String, RepositoryError>;
     async fn get_node_key(&self) -> Result<String, RepositoryError>;
+    async fn get_ucan_key(&self) -> Result<String, RepositoryError>;
 }
 
 #[async_trait]
@@ -119,6 +120,7 @@ pub trait ResourceRepository: Send + Sync {
         sync_data: &ResourceSyncData,
     ) -> Result<(), RepositoryError>;
     async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError>;
+    async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError>;
 }
 
 #[async_trait]
@@ -168,6 +170,7 @@ pub trait UserRepository: Send + Sync {
         device: &Device,
         device_certificate: &Certificate,
         peer_device: Option<&Device>,
+        ucan_certificate: &Certificate,
     ) -> Result<(), RepositoryError>;
     async fn get_other_users_with_device_ids(
         &self,
@@ -190,6 +193,8 @@ pub trait UserRepository: Send + Sync {
     ) -> Result<Vec<UserWithDeviceIds>, RepositoryError>;
 
     async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, RepositoryError>;
+    async fn get_user_by_device_id(&self, device_id: &str) -> Result<User, RepositoryError>;
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
 }
 
 #[async_trait]
@@ -286,4 +291,11 @@ pub trait ShareRepository: Send + Sync {
         &self,
         user_id: &str,
     ) -> Result<Vec<ShareRecord>, RepositoryError>;
+    async fn find_by_resource_and_operation_and_user(
+        &self,
+        resource_id: &str,
+        operation_type: &str,
+        user_id: &str,
+    ) -> Result<ShareRecord, RepositoryError>;
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
 }

@@ -1,9 +1,10 @@
 use crate::DbConnection;
 use crate::database::schema::{
-    devices, resource_keys, resource_vector_clocks, resources, share_records,
+    devices, resource_keys, resource_vector_clocks, resources, share_records, users,
 };
 use crate::models::{
     DeviceModel, ResourceKeyModel, ResourceModel, ResourceVectorClockModel, ShareRecordModel,
+    UserModel,
 };
 use async_trait::async_trait;
 use chrono::Local;
@@ -12,7 +13,7 @@ use diesel::prelude::*;
 use log::{debug, error, info};
 use osvauld_core::models::{
     Device, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceSyncData,
-    ResourceVectorClock, ResourceWithKey, ShareRecord,
+    ResourceVectorClock, ResourceWithKey, ShareRecord, User,
 };
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 use std::collections::HashMap;
@@ -548,27 +549,26 @@ impl ResourceRepository for SqliteResourceRepository {
             vector_clocks,
         })
     }
-async fn save_resource_sync_data(
-    &self,
-    sync_data: &ResourceSyncData,
-) -> Result<(), RepositoryError> {
-    let resource_id = &sync_data.resource.id;
-    
-    debug!(
-        "Starting resource sync data save - resource_id: {}, resource_type: {}, resource_keys: {}, share_records: {}, vector_clocks: {}",
-        resource_id,
-        sync_data.resource.resource_type,
-        sync_data.resource_keys.len(),
-        sync_data.share_records.len(),
-        sync_data.vector_clocks.len()
-    );
+    async fn save_resource_sync_data(
+        &self,
+        sync_data: &ResourceSyncData,
+    ) -> Result<(), RepositoryError> {
+        let resource_id = &sync_data.resource.id;
 
-    let mut conn = self.connection.lock().await;
-    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        debug!(
+            "Starting resource sync data save - resource_id: {}, resource_type: {}, resource_keys: {}, share_records: {}, vector_clocks: {}",
+            resource_id,
+            sync_data.resource.resource_type,
+            sync_data.resource_keys.len(),
+            sync_data.share_records.len(),
+            sync_data.vector_clocks.len()
+        );
+
+        let mut conn = self.connection.lock().await;
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // 1. Insert the resource
         debug!("Inserting resource: {}", resource_id);
         let resource_model = ResourceModel::from(&sync_data.resource);
-        
         debug!(
             "Resource model details - id: {},  type: {}, , folder_id: {:?}",
             resource_model.id,
@@ -596,7 +596,6 @@ async fn save_resource_sync_data(
 
         for (index, resource_key) in sync_data.resource_keys.iter().enumerate() {
             let resource_key_model = ResourceKeyModel::from(resource_key);
-            
             debug!(
                 "Resource key model details - index: {}, key_id: {}, resource_id: {}, user_id: {}",
                 index,
@@ -638,7 +637,6 @@ async fn save_resource_sync_data(
 
         for (index, share_record) in sync_data.share_records.iter().enumerate() {
             let share_record_model = ShareRecordModel::from(share_record);
-            
             debug!(
                 "Share record model details - index: {}, share_id: {}, resource_id: {}, user_id: {}, permission: {}",
                 index,
@@ -681,7 +679,6 @@ async fn save_resource_sync_data(
 
         for (index, vector_clock) in sync_data.vector_clocks.iter().enumerate() {
             let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
-            
             debug!(
                 "Vector clock model details - index: {}, clock_id: {}, resource_id: {}, device_id: {}, clock_value: {}",
                 index,
@@ -727,17 +724,32 @@ async fn save_resource_sync_data(
         RepositoryError::DatabaseError(e.to_string())
     })?;
 
-    Ok(())
-}
+        Ok(())
+    }
 
-async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError> {
-    let mut conn = self.connection.lock().await;
-    
-    resources::table
-        .filter(resources::deleted.eq(false))
-        .select(resources::id)
-        .order_by(resources::last_accessed.desc())
-        .load::<String>(&mut *conn)
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
-}
+    async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        resources::table
+            .filter(resources::deleted.eq(false))
+            .select(resources::id)
+            .order_by(resources::last_accessed.desc())
+            .load::<String>(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+    }
+    async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        // With the `created_by` field, we can now find the owner with a more direct query.
+        let user_model = users::table
+            .inner_join(resources::table.on(users::id.eq(resources::created_by)))
+            .filter(resources::id.eq(resource_id))
+            .select(UserModel::as_select())
+            .first::<UserModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(user_model.into())
+    }
 }

@@ -3,7 +3,7 @@ use crate::database::schema::store_items;
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::prelude::*;
-use osvauld_core::models::auth::Certificate;
+use osvauld_core::models::certificate::Certificate;
 use osvauld_core::repositories::{RepositoryError, StoreRepository};
 
 pub struct SqliteStoreRepository {
@@ -163,5 +163,20 @@ impl StoreRepository for SqliteStoreRepository {
             })?;
 
         Ok(device_key)
+    }
+
+    async fn get_ucan_key(&self) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let ucan_key: String = store_items::table
+            .filter(store_items::key.eq("ucan_key"))
+            .select(store_items::value)
+            .first(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(ucan_key)
     }
 }

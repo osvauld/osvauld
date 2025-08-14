@@ -155,9 +155,16 @@
 		if (!user || !user.id) return;
 
 		try {
+			const abilities = ["crud/read", "crud/update", "ucan/share"];
+			const resourceURI = `livnote:resource:${dataState.currentNoteId}`;
+			const permissionsToGrant = abilities.map((ability) => [
+				resourceURI,
+				ability,
+			]);
 			await sendMessage("shareResource", {
 				resourceId: dataState.currentNoteId,
 				userId: user.id,
+				permissions: permissionsToGrant,
 			});
 
 			// Show success toast

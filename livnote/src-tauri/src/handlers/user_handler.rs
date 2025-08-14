@@ -14,10 +14,10 @@ use tokio::sync::Mutex;
 pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    // Decode the base64 string
+    // // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
         .decode(input)
         .map_err(|e| format!("Failed to decode input: {}", e))?;
@@ -34,12 +34,16 @@ pub async fn handle_add_user(
     let username = details.username;
     let user_public_key = details.user_public_key;
     let device_public_key = details.device_public_key;
+    let one_time_token = details.ucan_token;
+    let ucan_pub_key = details.ucan_pub_key;
 
     let (user, device) = add_known_user(
         username,
         user_public_key,
         device_public_key,
-        &repo_ctx,
+        one_time_token,
+        ucan_pub_key,
+        repo_ctx.inner().clone(),
         &crypto_utils,
     )
     .await
@@ -52,7 +56,7 @@ pub async fn handle_add_user(
             .connect_with_ticket(
                 &device.id,
                 ConnectionType::User,
-                Some(ConnectionAction::UserFirstConnection),
+                Some(ConnectionAction::UserSync),
             )
             .await
         {
@@ -64,9 +68,9 @@ pub async fn handle_add_user(
 
 #[tauri::command]
 pub async fn handle_get_known_users(
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let known_users = get_known_users(&repo_ctx).await?;
+    let known_users = get_known_users(repo_ctx.inner().clone()).await?;
     Ok(CryptoResponse::GetKnownUsers(known_users))
 }
 

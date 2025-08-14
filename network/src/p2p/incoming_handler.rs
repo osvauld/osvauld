@@ -1,8 +1,8 @@
-use crate::p2p::incoming::IncomingEvent;
 use crate::p2p::P2PService;
+use crate::p2p::incoming::IncomingEvent;
 use osvauld_core::models::{
-    p2p::{LiveEditMessage, Message},
     ConnectionAction, ConnectionType,
+    p2p::{LiveEditMessage, Message},
 };
 use services::{
     apply_buffer_and_peer_updates_and_get_remote_updates,
@@ -166,8 +166,11 @@ impl P2PService {
                     .await
                 {
                     Ok(Some(connection)) => {
-                        info!("Successfully established live edit connection to device: {} (connection: {})", 
-                              device_id, connection.get_id());
+                        info!(
+                            "Successfully established live edit connection to device: {} (connection: {})",
+                            device_id,
+                            connection.get_id()
+                        );
                     }
                     Ok(None) => {
                         info!(
@@ -249,7 +252,7 @@ impl P2PService {
                     match get_resource_state_vector(
                         &resource_id,
                         &user.id,
-                        &self.repo_ctx,
+                        self.repo_ctx.clone(),
                         &self.crypto_utils,
                     )
                     .await
@@ -322,7 +325,7 @@ impl P2PService {
                     &user_id,
                     &combined_updates,
                     &state_vectors,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await
@@ -380,7 +383,7 @@ impl P2PService {
                     &user.id,
                     &remote_updates,
                     &local_buffer,
-                    &self.repo_ctx,
+                    self.repo_ctx.clone(),
                     &self.crypto_utils,
                 )
                 .await

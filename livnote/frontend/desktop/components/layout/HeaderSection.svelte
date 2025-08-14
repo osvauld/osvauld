@@ -32,10 +32,15 @@
 				break;
 			case "userid":
 				try {
+					const { ucan_token, ucan_pub_key } = await sendMessage(
+						"getOneTimeUcanToken",
+					);
 					const userDetails = {
 						user_public_key: dataState.userDetails?.publicKey,
 						device_public_key: dataState.userDetails?.deviceKey,
 						username: dataState.userDetails?.username,
+						ucan_token,
+						ucan_pub_key,
 					};
 					await writeToClipboard(btoa(JSON.stringify(userDetails)));
 					uiState.showToast("UserID copied to clipboard", true);

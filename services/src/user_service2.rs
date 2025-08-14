@@ -10,7 +10,9 @@ pub async fn add_known_user(
     username: String,
     user_public_key: String,
     device_public_key: String,
-    repo_ctx: &RepositoryContext,
+    one_time_token: String,
+    ucan_pub_key: String,
+    repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<(User, Device), String> {
     let user_id = get_key_id(&user_public_key.clone()).map_err(|e| e.to_string())?;
@@ -20,6 +22,9 @@ pub async fn add_known_user(
             .sign_message(&user_public_key)
             .map_err(|e| e.to_string())?
     };
+    let ucan_cid =
+        crypto_utils::get_cid_from_ucan_token(&one_time_token).map_err(|e| e.to_string())?;
+
     let user = User::new(
         username,
         user_id.clone(),
@@ -27,6 +32,9 @@ pub async fn add_known_user(
         signature,
         false,
         false,
+        one_time_token,
+        ucan_cid,
+        ucan_pub_key,
     );
     let device = Device::new(device_public_key.clone(), device_public_key, user_id);
     let user_data = UserWithDevices {
@@ -40,7 +48,7 @@ pub async fn add_known_user(
         .map_err(|e| e.to_string())?;
     Ok((user, device))
 }
-pub async fn get_known_users(repo_ctx: &RepositoryContext) -> Result<Vec<User>, String> {
+pub async fn get_known_users(repo_ctx: Arc<RepositoryContext>) -> Result<Vec<User>, String> {
     repo_ctx
         .user_repo
         .get_known_users()
@@ -50,7 +58,7 @@ pub async fn get_known_users(repo_ctx: &RepositoryContext) -> Result<Vec<User>, 
 
 pub async fn get_my_user_devices(
     user_id: &str,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<Vec<Device>, String> {
     repo_ctx
         .device_repo
@@ -64,7 +72,7 @@ pub async fn get_shared_user_devices_for_note(
     current_user_id: &str,
     current_device_id: &str,
     skip_current_user: bool,
-    repo_ctx: &RepositoryContext,
+    repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(Vec<String>, Vec<User>), String> {
     // Get all share records for this note
     let share_records = repo_ctx
@@ -115,4 +123,52 @@ pub async fn get_shared_user_devices_for_note(
     }
 
     Ok((shared_device_ids, shared_users))
+}
+
+pub async fn get_ucan_pub_key(
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> Result<String, String> {
+    let encrypted_ucan_pvt_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| e.to_string())?;
+    let crypto = crypto_utils.lock().await;
+    crypto
+        .get_public_ucan_key(&encrypted_ucan_pvt_key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+pub async fn issue_connect_ucan_token(
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    domain: &str,
+    peer_ucan_pub_key: &str,
+) -> Result<String, String> {
+    let encrypted_pvt_key = repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
+        error!("Failed to get UCAN key for issuing new token: {}", e);
+        e.to_string()
+    })?;
+    let crypto = crypto_utils.lock().await;
+    crypto
+        .issue_connect_and_share_user_token(&encrypted_pvt_key, domain, peer_ucan_pub_key)
+        .await
+        .map_err(|e| {
+            error!("Failed to issue connect and share token: {}", e);
+            e.to_string()
+        })
+}
+
+pub async fn sign_ucan_pub_key(
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    repo_ctx: Arc<RepositoryContext>,
+) -> Result<String, String> {
+    let ucan_pub_key = get_ucan_pub_key(repo_ctx, crypto_utils).await?;
+    let crypto = crypto_utils.lock().await;
+    crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
+        error!("Failed to sign local UCAN public key: {}", e);
+        e.to_string()
+    })
 }

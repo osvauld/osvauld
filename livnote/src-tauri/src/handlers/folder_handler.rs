@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::types::{AddFolderInput, CryptoResponse, FolderResponse, SoftDeleteFolder};
 use persistance::database::RepositoryContext;
 use services::{create_folder, get_all_folders, soft_delete_folder};
@@ -6,21 +8,25 @@ use tauri::State;
 #[tauri::command]
 pub async fn handle_add_folder(
     input: AddFolderInput,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     log::info!("Adding folder: ");
-    let folder = create_folder(input.name, Some(input.description), &repo_ctx)
-        .await
-        .map_err(|e| e.to_string())?;
+    let folder = create_folder(
+        input.name,
+        Some(input.description),
+        repo_ctx.inner().clone(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::FolderCreated(folder))
 }
 
 #[tauri::command]
 pub async fn handle_get_folders(
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let folders = get_all_folders(&repo_ctx)
+    let folders = get_all_folders(repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -39,9 +45,9 @@ pub async fn handle_get_folders(
 #[tauri::command]
 pub async fn handle_soft_delete_folder(
     input: SoftDeleteFolder,
-    repo_ctx: State<'_, RepositoryContext>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    soft_delete_folder(&input.folder_id, &repo_ctx)
+    soft_delete_folder(&input.folder_id, repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
     // sync_service

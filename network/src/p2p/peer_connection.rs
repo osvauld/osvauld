@@ -3,13 +3,13 @@ use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, HandshakeInit,
-    Message, User, UserManifestComparisonResult,
+    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, User,
+    UserManifestComparisonResult,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -19,47 +19,26 @@ pub struct ServiceContext {
 
 /// Represents a peer-to-peer connection with another device or user
 pub struct PeerConnection {
-    /// The underlying connection
     pub connection: Arc<Connection>,
-
-    /// Type of connection (Device or User) - filled during handshake
-    pub connection_type: Option<ConnectionType>,
-
-    /// Device information of the peer - filled during handshake
-    pub device: Device,
-
-    /// Node ID derived from device key - filled during handshake  
+    pub connection_type: Arc<RwLock<Option<ConnectionType>>>,
+    pub device: Arc<RwLock<Device>>,
     pub node_id: String,
-
-    /// User information of the peer - filled during handshake
-    pub user: User,
-
-    /// Connection action to execute after handshake
+    pub user: Arc<RwLock<User>>,
     pub action: Option<ConnectionAction>,
-
-    /// Whether this peer initiated the connection
     pub is_initiator: bool,
     pub is_live_edit: bool,
-
-    /// Whether handshake is complete
     pub handshake_complete: Arc<Mutex<bool>>,
-
-    /// Handle to the message handling task
     pub task_handle: tokio::task::JoinHandle<()>,
-
-    /// Service context containing service dependencies
     pub context: Arc<ServiceContext>,
-
-    /// Event emitter for broadcasting events
     pub event_emitter: P2PEventEmitter,
-
     pub on_close: Arc<Mutex<Option<Box<dyn Fn(String) + Send + Sync>>>>,
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub crypto_utils: Arc<Mutex<CryptoUtils>>,
-    pub repo_ctx: RepositoryContext,
+    pub repo_ctx: Arc<RepositoryContext>,
     pub device_manifest_result: Arc<Mutex<Option<DeviceManifestComparisonResult>>>,
     pub user_manifest_result: Arc<Mutex<Option<UserManifestComparisonResult>>>,
     pub challenge: String,
+    pub domain: String,
 }
 
 impl PeerConnection {
@@ -72,7 +51,7 @@ impl PeerConnection {
         event_emitter: P2PEventEmitter,
         on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
         crypto_utils: Arc<Mutex<CryptoUtils>>,
-        repo_ctx: RepositoryContext,
+        repo_ctx: Arc<RepositoryContext>,
         action: Option<ConnectionAction>,
         connection_type: Option<ConnectionType>,
         node_id: String,
@@ -80,6 +59,7 @@ impl PeerConnection {
         local_device: Device,
         challenge: String,
         live_edit: bool,
+        domain: String,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -89,11 +69,11 @@ impl PeerConnection {
         // Create the PeerConnection instance with all optional fields
         let mut peer_connection = Self {
             connection,
-            connection_type,
-            device: local_device,
+            connection_type: Arc::new(RwLock::new(connection_type)),
+            device: Arc::new(RwLock::new(local_device)),
             node_id,
-            user: local_user,
             action,
+            user: Arc::new(RwLock::new(local_user)),
             is_initiator,
             handshake_complete: Arc::new(Mutex::new(false)),
             is_live_edit: live_edit,
@@ -107,6 +87,7 @@ impl PeerConnection {
             device_manifest_result: Arc::new(Mutex::new(None)),
             user_manifest_result: Arc::new(Mutex::new(None)),
             challenge,
+            domain,
         };
 
         debug!("Starting message handler for the connection");
@@ -149,7 +130,31 @@ impl PeerConnection {
             None => Err("user manifest is empty".to_string()),
         }
     }
+    pub async fn get_peer_device(&self) -> Device {
+        self.device.read().await.clone()
+    }
+    pub async fn get_peer_user(&self) -> User {
+        self.user.read().await.clone()
+    }
+    pub async fn set_peer_user_and_device(&self, new_user: User, new_device: Device) {
+        let mut user_guard = self.user.write().await;
+        let mut device_guard = self.device.write().await;
+        *user_guard = new_user;
+        *device_guard = new_device;
+    }
 
+    pub async fn set_connection_type(&self, connection_type: ConnectionType) {
+        let mut conn_guard = self.connection_type.write().await;
+        *conn_guard = Some(connection_type);
+    }
+
+    pub async fn get_connection_type(&self) -> ConnectionType {
+        let conn_type = self.connection_type.read().await.clone();
+        match conn_type {
+            Some(conn) => conn,
+            None => ConnectionType::User,
+        }
+    }
     /// Removes a resource from local_missing.unknown_resources in device manifest
     #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
     pub async fn remove_device_local_missing_resource(&self, resource_id: &str) -> bool {
@@ -230,9 +235,8 @@ impl PeerConnection {
     /// Starts the message handler task
     fn start_message_handler(&self) -> tokio::task::JoinHandle<()> {
         let _connection = self.connection.clone();
-        let mut self_clone = self.clone();
+        let self_clone = self.clone();
         let conn_id = self.get_id();
-
         tokio::spawn(async move {
             info!("Starting message listener for connection {}", conn_id);
             self_clone.handle_messages().await;
@@ -242,7 +246,7 @@ impl PeerConnection {
 
     /// Handles incoming messages from the peer
     #[instrument(skip_all, level = "debug")]
-    async fn handle_messages(&mut self) {
+    async fn handle_messages(&self) {
         let conn_id = self.get_id();
         info!("Message handler started for connection {}", conn_id);
 
@@ -348,8 +352,8 @@ impl PeerConnection {
     }
 
     /// Process a received message by delegating to the appropriate handler
-    #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
-    async fn process_message(&mut self, message: &mut Message) -> Result<(), String> {
+    #[instrument(skip_all, level = "info")]
+    async fn process_message(&self, message: &mut Message) -> Result<(), String> {
         match message {
             Message::Ping => {
                 debug!("Received ping");
@@ -380,9 +384,6 @@ impl PeerConnection {
                 self.process_resource_addition_request(payload).await
             }
             Message::ResourceAdditionComplete => self.process_resource_addition_complete().await,
-            Message::FirstUserConnection(payload) => {
-                self.process_first_connection_exchange(payload).await
-            }
             Message::UserManifestPayload(payload) => {
                 self.process_user_manifest_payload(payload).await
             }
@@ -467,6 +468,7 @@ impl PeerConnection {
             handshake_complete: self.handshake_complete.clone(),
             challenge: self.challenge.clone(),
             is_live_edit: self.is_live_edit.clone(),
+            domain: self.domain.clone(),
         }
     }
     pub async fn get_local_user(&self) -> Result<User, String> {

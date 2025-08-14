@@ -65,7 +65,8 @@ pub struct ShareRecord {
     pub shared_by_user_id: String,
     pub recipient_user_id: String,
     pub permission_level: PermissionLevel,
-    pub signature: String,
+    pub ucan_token: String,
+    pub ucan_cid: String,
     pub operation_type: ShareOperation,
     pub created_at: i64,
     pub updated_at: i64,
@@ -77,7 +78,8 @@ impl ShareRecord {
         shared_by_user_id: String,
         recipient_user_id: String,
         permission_level: PermissionLevel,
-        signature: String,
+        ucan_token: String,
+        ucan_cid: String,
     ) -> ShareRecord {
         let now = Local::now().timestamp_millis();
 
@@ -87,7 +89,8 @@ impl ShareRecord {
             shared_by_user_id,
             recipient_user_id,
             permission_level,
-            signature,
+            ucan_token,
+            ucan_cid,
             operation_type: ShareOperation::Share,
             created_at: now,
             updated_at: now,
