@@ -111,7 +111,7 @@ pub enum CryptoUtilsError {
     Utf8ConversionError(String),
     #[error("Failed to get decryption key: {0}")]
     CertificateDecryptionError(String),
-    #[error("Failed to get decryption key: {0}")]
+    #[error(" {0}")]
     Other(String),
 }
 

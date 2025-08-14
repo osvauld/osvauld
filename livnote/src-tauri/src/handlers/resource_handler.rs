@@ -36,6 +36,7 @@ pub async fn handle_add_resource(
         input.folder_id,
         &user,
         &device.id,
+        &"livnote".to_string(),
         repo_ctx.inner().clone(),
         &crypto_utils,
     )

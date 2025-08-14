@@ -146,7 +146,6 @@ pub async fn get_one_time_ucan_token(
 ) -> Result<CryptoResponse, String> {
     let (ucan_token, ucan_pub_key) =
         generate_one_time_ucan_token("livnote", &crypto_utils, repo_ctx.inner().clone()).await?;
-    info!("ucan_token {}", ucan_token);
     Ok(CryptoResponse::OneTimeUcanToken(UcanOneTimeTokenOut {
         ucan_token,
         ucan_pub_key,

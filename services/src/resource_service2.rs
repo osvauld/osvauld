@@ -29,6 +29,7 @@ pub async fn create_resource(
     folder_id: String,
     user: &User,
     current_device_id: &str,
+    domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
 ) -> Result<DecryptedResource, ResourceServiceError> {
@@ -65,11 +66,7 @@ pub async fn create_resource(
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
         crypto
-            .generate_resource_owner_ucan(
-                &encrypted_ucan_pvt_key,
-                &resource.id,
-                &"livnote".to_string(),
-            )
+            .generate_resource_owner_ucan(&encrypted_ucan_pvt_key, &resource.id, domain)
             .await
             .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
     };
@@ -363,18 +360,7 @@ pub async fn share_resource(
         .map_err(|e| ResourceServiceError::RepositoryError(e))?;
     // 5. Create the signature for the share record
     let repo_ctx_clone = repo_ctx.clone();
-    let proof_resolver = move |cid: &str| {
-        let cid_owned = cid.to_string();
-        let repo_ctx_for_async = repo_ctx_clone.clone();
-        async move {
-            repo_ctx_for_async
-                .share_repo
-                .get_ucan_by_cid(&cid_owned) // Use the owned String as a reference.
-                .await
-                .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-        }
-    };
-
+    let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
 
@@ -718,17 +704,7 @@ pub async fn validate_authority_for_update(
         .await
         .map_err(|e| ResourceServiceError::RepositoryError(e))?;
     let repo_ctx_clone = repo_ctx.clone();
-    let proof_resolver = move |cid: &str| {
-        let cid_owned = cid.to_string();
-        let repo_ctx_for_async = repo_ctx_clone.clone();
-        async move {
-            repo_ctx_for_async
-                .share_repo
-                .get_ucan_by_cid(&cid_owned) // Use the owned String as a reference.
-                .await
-                .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-        }
-    };
+    let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
     let token = crypto_utils::validate_authority_for_update(
         token,
         &peer_user.ucan_pub_key,
@@ -740,4 +716,11 @@ pub async fn validate_authority_for_update(
     .await
     .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
     Ok(token)
+}
+async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
+    repo_ctx
+        .share_repo
+        .get_ucan_by_cid(&cid)
+        .await
+        .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
 }

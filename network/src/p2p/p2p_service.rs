@@ -34,6 +34,7 @@ pub struct P2PService {
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
+    // app space in which the sdk operates
     pub domain: Arc<String>,
 }
 

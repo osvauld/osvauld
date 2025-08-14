@@ -99,7 +99,6 @@ pub fn run() {
             match db_connection {
                 Ok(connection) => {
                     app.manage(connection.clone());
-                    let repo_ctx = initialize_repositories(connection.clone());
                     let repo_ctx = Arc::new(initialize_repositories(connection.clone()));
                     let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
                     let domain = Arc::new("livnote".to_string());
@@ -125,9 +124,6 @@ pub fn run() {
                     rt.spawn(async move {
                         event_manager.start_listening();
                     });
-
-                    // Manage all services
-
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(p2p_service.clone());
