@@ -3,7 +3,8 @@ import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from "y-protoc
 import type {
   CommentThread,
   ImageAsset,
-  UserInfo
+  UserInfo,
+  Collaborator
 } from "../../types/notes.types";
 
 export interface YjsDocuments {
@@ -30,6 +31,7 @@ export class YjsManager {
   private documents: YjsDocuments | null = null;
   private config: YjsManagerConfig;
   private afterTransactionsHandler: (() => void) | null = null;
+  private cachedDataState: any = null;
   constructor(config: YjsManagerConfig) {
     this.config = config;
   }
@@ -191,7 +193,7 @@ export class YjsManager {
 
     const awareness = this.documents.awareness;
     const states = awareness.getStates();
-    const collaborators: any[] = [];
+    const collaborators: Collaborator[] = [];
 
     // console.log("🔍 Awareness states:", states);
     // console.log("🔍 Current client ID:", this.config.clientId);
@@ -215,12 +217,17 @@ export class YjsManager {
 
     // console.log("🔍 Final collaborators:", collaborators);
 
-    // Import dataState and update collaborators
-    import("../../state").then(({ dataState }) => {
-      dataState.updateCollaborators(collaborators);
-    }).catch(error => {
-      console.error("Error updating collaborators:", error);
-    });
+    // Use cached dataState if available, otherwise import and cache it
+    if (this.cachedDataState) {
+      this.cachedDataState.updateCollaborators(collaborators);
+    } else {
+      import("../../state").then(({ dataState }) => {
+        this.cachedDataState = dataState;
+        this.cachedDataState.updateCollaborators(collaborators);
+      }).catch(error => {
+        console.error("Error updating collaborators:", error);
+      });
+    }
   }
 
 
