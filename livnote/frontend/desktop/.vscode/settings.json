@@ -19,6 +19,6 @@
   "[html]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
-  "prettier.configPath": "../.prettierrc",
+  "prettier.configPath": "../../.prettierrc",
   "prettier.requireConfig": false
 } 

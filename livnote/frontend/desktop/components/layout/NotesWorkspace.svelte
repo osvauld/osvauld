@@ -232,6 +232,8 @@
 					{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
 						<div
 							class="relative {index !== 0 ? '-ml-3' : ''}"
+							aria-label={collaborator.name}
+							title={collaborator.name}
 							in:fade={{ duration: 200 }}
 							out:fade={{ duration: 200 }}
 						>
@@ -249,7 +251,7 @@
 					{/each}
 
 					{#if dataState.collaborators.length > 3}
-						<div class="relative -ml-3">
+						<div class="relative -ml-3" aria-label={`+${dataState.collaborators.length - 3} more collaborators`}>
 							<div
 								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center"
 							>

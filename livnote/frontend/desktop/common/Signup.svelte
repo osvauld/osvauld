@@ -173,7 +173,7 @@
 
 	const handleReturnedNewPassword = async (passphrase: string): Promise<void> => {
 		// Route to appropriate handler based on user flow
-		if (collectedRecoveryString) {
+		if (userFlow === "EXISTING_USER") {
 			await handleRecoveryPasswordSetup(passphrase);
 		} else {
 			await handleNewUserPasswordSetup(passphrase);

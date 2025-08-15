@@ -31,6 +31,7 @@
 		autocapitalize="off"
 		autocomplete="off"
 		aria-required="true"
+		aria-invalid={errorMessage}
 		bind:value={collectedRecoveryString}
 		spellcheck="false"
 		rows="8"
@@ -53,7 +54,7 @@
 			I have lost my key
 		</button> -->
 	<button
-		onclick={() => handleProceed()}
+		onclick={handleProceed}
 		disabled={!collectedRecoveryString}
 		class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer border border-signupGray focus:border-livnotePink outline-0 transition-colors duration-300 enabled:bg-livnotePink enabled:text-black">
 		Recover
