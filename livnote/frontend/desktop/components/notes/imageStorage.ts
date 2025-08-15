@@ -9,14 +9,28 @@ export interface ImageLoadMetrics {
 }
 
 export class ImageStorageService {
-  private imagesMap: Y.Map<ImageAsset>; // Full asset data in YJS
+  private imagesMap: Y.Map<ImageAsset> | null = null;
   private clientId: number;
   private imageCache: Map<string, string> = new Map();
-
-  constructor(imagesMap: Y.Map<ImageAsset>, clientId: number) {
-    this.imagesMap = imagesMap;
+  private mapObserver: ((event: Y.YMapEvent<ImageAsset>) => void) | null = null;
+  constructor(clientId: number) {
     this.clientId = clientId;
-    this.imagesMap.observe(this.handleImageMapUpdate.bind(this));
+  }
+  setImageMap(map: Y.Map<ImageAsset>): void {
+    // 1. Clean up the observer from the previous map, if it exists
+    if (this.imagesMap && this.mapObserver) {
+      this.imagesMap.unobserve(this.mapObserver);
+    }
+
+    // 2. Set the new map
+    this.imagesMap = map;
+    this.mapObserver = this.handleImageMapUpdate.bind(this);
+
+    // 3. Observe the new map
+    this.imagesMap.observe(this.mapObserver);
+
+    // 4. Initialize the cache with data from the new map
+    this.initializeCacheFromYjs();
   }
 
 
@@ -26,16 +40,9 @@ export class ImageStorageService {
    */
   initializeCacheFromYjs(): void {
     this.imageCache.clear();
-    let totalSize = 0;
-    let count = 0;
     this.imagesMap.forEach((asset, id) => {
-      const loadStart = performance.now();
       this.imageCache.set(id, asset.data);
-      totalSize += asset.size || 0;
-      count++;
     });
-
-
   }
 
   /**
@@ -169,5 +176,13 @@ export class ImageStorageService {
    */
   clearCache(): void {
     this.imageCache.clear();
+  }
+  destroy(): void {
+    if (this.imagesMap && this.mapObserver) {
+      this.imagesMap.unobserve(this.mapObserver);
+    }
+    this.clearCache();
+    this.imagesMap = null;
+    this.mapObserver = null;
   }
 }

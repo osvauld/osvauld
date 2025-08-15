@@ -355,6 +355,7 @@ export function imageNodeViewPlugin(imageStorage: ImageStorageService) {
     view() {
       return {
         destroy: () => {
+
         }
       };
     }

@@ -199,6 +199,7 @@ class DataState {
       name: this.userDetails.username,
       color: this.generateUserColor(),
       id: this.clientId,
+      userId: this.userDetails.userId,
     };
     this.notesCoordinator = new NotesCoordinator({
       onCollaborationUpdate: async (update, docType) => {

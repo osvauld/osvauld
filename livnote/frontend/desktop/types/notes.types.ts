@@ -66,6 +66,7 @@ export interface UserInfo {
   name: string;
   color: string;
   id: number;
+  userId: string;
 }
 
 /**
@@ -125,7 +126,7 @@ export interface CommentThread {
   position: CommentPosition;
   created_at: number;
   updated_at: number;
-  is_read?: boolean; // Track if user has read this thread
+  readBy?: { [userId: string]: boolean }
 }
 
 /**

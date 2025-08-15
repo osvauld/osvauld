@@ -63,7 +63,7 @@ export class NotesCoordinator {
     const docs = this.yjsManager.initialize();
     this.commentsStore = new CommentsStore();
     this.commentsStore.setCurrentUser(this.userInfo);
-    this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
+    this.imageStorage = new ImageStorageService(this.userInfo.id);
     this.yjsManager.setUserInfo(this.userInfo);
     this.editorManager = new EditorManager({
       schema: this.schema,
@@ -80,18 +80,12 @@ export class NotesCoordinator {
 
     const docs = this.yjsManager.initialize();
     this.commentsStore.setCommentsMap(docs.commentsMap);
-    this.imageStorage = new ImageStorageService(docs.imagesMap, this.userInfo.id);
+    this.imageStorage?.setImageMap(docs.imagesMap);
     docs.mainDoc.once('afterAllTransactions', () => {
       this.handleMainDocReady(docs, noteContent);
     });
-    if (noteContent.main_doc && noteContent.main_doc.length > 0) {
-      this.yjsManager.applyUpdate(noteContent.main_doc, 'main', 'loading');
-    } else {
-      // No YJS state, trigger manually
-      setTimeout(() => {
-        this.handleMainDocReady(docs, noteContent);
-      }, 0);
-    }
+    this.yjsManager.applyUpdate(noteContent.main_doc, 'main', 'loading');
+
   }
 
   private handleMainDocReady(docs: any, noteContent: NoteContent): void {
@@ -181,7 +175,7 @@ export class NotesCoordinator {
       ySyncPlugin(docs.type),
       yCursorPlugin(docs.awareness, {
         awarenessStateFilter: (state: any, clientId: number) => {
-          return clientId !== this.userInfo.id;
+          return clientId !== docs.mainDoc.clientID;
         },
 
         cursorBuilder: this.createCustomCursor.bind(this),
@@ -358,6 +352,7 @@ export class NotesCoordinator {
     this.editorManager.destroy();
     this.yjsManager.destroy();
     this.imageStorage?.clearCache();
+    this.imageStorage?.destroy();
     this.commentsStore.destroy();
     if (this._imageStoreHandler) {
       document.removeEventListener('store-image-request', this._imageStoreHandler as EventListener);

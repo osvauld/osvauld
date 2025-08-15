@@ -167,6 +167,7 @@
 	$effect(() => {
 		if (dataState.currentNoteId) {
 			// Set editor loading in UI state
+			cleanupEditor();
 			uiState.setEditorLoading(true);
 
 			// Set local loading phases for skeleton
