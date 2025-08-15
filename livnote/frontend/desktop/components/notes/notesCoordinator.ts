@@ -2,7 +2,7 @@ import { EditorView } from "prosemirror-view";
 import { ySyncPlugin, yCursorPlugin, yUndoPlugin, initProseMirrorDoc } from "y-prosemirror";
 import { keymap } from "prosemirror-keymap";
 import { wrapInList, splitListItem, liftListItem, sinkListItem } from "prosemirror-schema-list";
-import { exitCode, chainCommands, deleteSelection, joinBackward, selectNodeBackward, setBlockType } from "prosemirror-commands";
+import { exitCode } from "prosemirror-commands";
 import type { Plugin } from "prosemirror-state";
 import { YjsManager } from "./yjsManager";
 import { EditorManager } from "./editorManager";
@@ -103,21 +103,10 @@ export class NotesCoordinator {
     const title = this.yjsManager.getMetadata("title") || "Untitled Note";
     dataState.currentNoteTitle = title;
     const plugins = this.createEditorPlugins(docs);
-    const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema) as any;
+    const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
 
-    const editorStateObj =
-      typeof noteContent.editor_state === 'object' && noteContent.editor_state
-        ? (noteContent.editor_state as Record<string, unknown>)
-        : null;
-
-    if (
-      prosemirrorDoc.doc.childCount === 0 &&
-      editorStateObj &&
-      Object.prototype.hasOwnProperty.call(editorStateObj, 'doc')
-    ) {
-      const fallbackDoc = this.schema.nodeFromJSON(
-        (editorStateObj as any).doc
-      );
+    if (prosemirrorDoc.doc.childCount === 0 && noteContent.editor_state?.doc) {
+      const fallbackDoc = this.schema.nodeFromJSON(noteContent.editor_state.doc);
       this.editorManager.initializeState(fallbackDoc, plugins);
     } else {
       this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
@@ -160,65 +149,6 @@ export class NotesCoordinator {
    * Create all editor plugins
    */
   private createEditorPlugins(docs: any): Plugin[] {
-    // Local command: delete a single character before the cursor when native deletion is suppressed
-    const deleteCharBeforeCommand = (state: any, dispatch: any) => {
-      const { selection } = state;
-      if (!selection.empty) return false;
-
-      // Access $cursor via TextSelection-specific property
-      const $cursor = (selection as any).$cursor;
-      if (!$cursor) return false;
-
-      // If not at the very start of the parent, delete one unit before
-      if ($cursor.parentOffset > 0) {
-        if (dispatch) dispatch(state.tr.delete($cursor.pos - 1, $cursor.pos).scrollIntoView());
-        return true;
-      }
-      return false;
-    };
-
-    // Smart Backspace behavior to ensure single-character deletion and graceful
-    // handling of empty list items / blocks
-    const backspaceSmart = (state: any, dispatch: any, view: any) => {
-      const { $from, empty } = state.selection;
-      if (!empty) return false;
-
-      const { schema } = state;
-
-      // If inside an empty list_item paragraph, lift the list item on Backspace
-      if (
-        $from.depth > 0 &&
-        $from.node(-1).type === schema.nodes.list_item &&
-        $from.parent.isTextblock &&
-        $from.parent.content.size === 0
-      ) {
-        return liftListItem(schema.nodes.list_item)(state, dispatch, view);
-      }
-
-      // Optional UX: convert empty non-paragraph blocks to paragraph
-      const block = $from.parent;
-      if (
-        block.isTextblock &&
-        block.content.size === 0 &&
-        schema.nodes.paragraph &&
-        block.type !== schema.nodes.paragraph
-      ) {
-        return setBlockType(schema.nodes.paragraph)(state, dispatch);
-      }
-
-      // Ensure actual character deletion occurs before join/selection behavior
-      return chainCommands(
-        deleteSelection,
-        deleteCharBeforeCommand,
-        joinBackward,
-        selectNodeBackward
-      )(state, dispatch, view);
-    };
-
-    const backspaceKeymap = keymap({
-      Backspace: backspaceSmart,
-    });
-
     const listKeymap = keymap({
       Enter: splitListItem(this.schema.nodes.list_item),
       Tab: sinkListItem(this.schema.nodes.list_item),
@@ -259,7 +189,6 @@ export class NotesCoordinator {
         cursorBuilder: this.createCustomCursor.bind(this),
       }),
       yUndoPlugin(),
-      backspaceKeymap,
       listKeymap,
       codeBlockKeymap,
       hardBreakKeymap,
@@ -292,7 +221,7 @@ export class NotesCoordinator {
         console.error('Error storing image:', error);
       }
     };
-    document.addEventListener('store-image-request', (handleStoreImageRequest as unknown) as EventListener);
+    document.addEventListener('store-image-request', handleStoreImageRequest as EventListener);
     this._imageStoreHandler = handleStoreImageRequest;
   }
 
