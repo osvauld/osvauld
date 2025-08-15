@@ -145,9 +145,12 @@
 		<button
 			onclick={() => (showShareList = true)}
 			class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
-			aria-label="share with users">
+			aria-label="Invite Collaborators to edit"
+			aria-haspopup="dialog"
+			aria-expanded={showShareList}
+			>
 			<span class="mr-2 pl-2 whitespace-nowrap">Invite to edit</span>
-			<TwoPeople color="#010109" size={24} />
+			<TwoPeople  size={24} />
 		</button>
 
 		{#if showShareList}
