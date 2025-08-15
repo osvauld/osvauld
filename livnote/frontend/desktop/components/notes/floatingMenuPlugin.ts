@@ -8,6 +8,114 @@ export const floatingMenuKey = new PluginKey("floating-menu");
 
 type MenuMode = "buttons" | "linkInput";
 
+// CSS-in-JS Styles
+const FLOATING_MENU_STYLES = `
+  .floating-menu {
+    position: fixed;
+    z-index: 50;
+    background-color: #16171f;
+    border: 1px solid #2a2b2f;
+    border-radius: 10px;
+    padding: 6px;
+    display: none;
+    gap: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.15s ease, transform 0.15s ease;
+  }
+
+  .floating-menu.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .floating-menu-buttons {
+    display: flex;
+    gap: 4px;
+  }
+
+  .floating-menu-button {
+    background-color: #2a2b2f;
+    color: #bfc0cc;
+    border: none;
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 500;
+    min-width: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    transition: background-color 0.15s ease;
+  }
+
+  .floating-menu-button:hover {
+    background-color: #2a2b2f;
+  }
+
+  .floating-menu-button.active {
+    background-color: #2a2b2f;
+  }
+
+  .floating-menu-link-input {
+    display: none;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .floating-menu-input {
+    flex-grow: 1;
+    padding: 4px 8px;
+    border: 1px solid #2a2b2f;
+    border-radius: 4px;
+    background-color: #16171f;
+    color: #bfc0cc;
+    font-size: 0.875rem;
+    outline: none;
+  }
+
+  .floating-menu-input:focus {
+    border-color: #3a3b44;
+  }
+
+  .floating-menu-done-button {
+    background-color: #2a2b2f;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #bfc0cc;
+    padding: 4px 8px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+  }
+
+  .floating-menu-done-button:hover {
+    background-color: #3a3b44;
+  }
+
+  .pseudo-selection {
+    background-color: rgba(74, 175, 80, 0.2);
+    border-radius: 2px;
+  }
+`;
+
+// Style injection function
+function injectStyles() {
+  // Check if styles are already injected
+  if (document.querySelector("#floating-menu-styles")) {
+    return;
+  }
+
+  const styleElement = document.createElement("style");
+  styleElement.id = "floating-menu-styles";
+  styleElement.textContent = FLOATING_MENU_STYLES;
+  document.head.appendChild(styleElement);
+}
+
 export function floatingMenuPlugin(schema: Schema) {
   let menu: HTMLElement | null = null;
   let view: EditorView | null = null;
@@ -22,29 +130,19 @@ export function floatingMenuPlugin(schema: Schema) {
   let linkDoneButton: HTMLButtonElement | null = null;
   let linkButton: HTMLButtonElement | null = null; // Reference to the link button itself
 
+  // Inject styles when plugin is created
+  injectStyles();
+
   // Create the menu element and its internal structure
   function createMenu() {
     if (menu) return menu;
 
     menu = document.createElement("div");
     menu.className = "floating-menu";
-    menu.style.position = "fixed"; // Changed from absolute to fixed
-    menu.style.zIndex = "50";
-    menu.style.background = "#16171f";
-    menu.style.border = "1px solid #2a2b2f";
-    menu.style.borderRadius = "4px";
-    menu.style.padding = "4px";
-    menu.style.display = "none"; // Start hidden
-    menu.style.gap = "4px";
-    menu.style.boxShadow = "0 2px 8px rgba(0, 0, 0, 0.25)";
-    menu.style.opacity = "0";
-    menu.style.transform = "translateY(8px)";
-    menu.style.transition = "opacity 0.15s ease, transform 0.15s ease";
 
     // --- Buttons Container ---
     buttonsContainer = document.createElement("div");
-    buttonsContainer.style.display = "flex";
-    buttonsContainer.style.gap = "4px";
+    buttonsContainer.className = "floating-menu-buttons";
 
     if (schema.marks.strong) {
       const boldButton = createButton("Bold", "B", "strong", () => {
@@ -56,7 +154,10 @@ export function floatingMenuPlugin(schema: Schema) {
       buttonsContainer.appendChild(boldButton);
     }
     if (schema.marks.em) {
-      const italicButton = createButton("Italic", "I", "em", () => {
+      const italicButton = createButton("Italic", `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" >
+        <path d="m16.7 4.7-.1.9h-.3c-.6 0-1 0-1.4.3-.3.3-.4.6-.5 1.1l-2.1 9.8v.6c0 .5.4.8 1.4.8h.2l-.2.8H8l.2-.8h.2c1.1 0 1.8-.5 2-1.5l2-9.8.1-.5c0-.6-.4-.8-1.4-.8h-.3l.2-.9h5.8Z" fill-rule="evenodd" fill="currentColor">
+        </path>
+      </svg>`, "em", () => {
         if (view) {
           toggleMark(schema.marks.em)(view.state, view.dispatch);
           view.focus();
@@ -88,9 +189,10 @@ export function floatingMenuPlugin(schema: Schema) {
     // Add Comment Button
     if (schema.marks.comment) {
       const commentButton = createButton("Add Comment", 
-        `<svg width="16" height="16" viewBox="0 0 24 24" fill="#85889C">
-          <path d="M21.99 4c0-1.1-.89-2-2-2H4c-1.1 0-2 .9-2 2v12c0 1.1.89 2 2 2h14l4 4-.01-18z"/>
-        </svg>`, 
+        `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+<path fill-rule="evenodd" clip-rule="evenodd" d="M6.77 21.7C6.925 21.765 7.09 21.795 7.25 21.795L7.255 21.79C7.575 21.79 7.895 21.665 8.135 21.425L11.56 18H19.25C20.765 18 22 16.765 22 15.25V5.75C22 4.235 20.765 3 19.25 3H4.75C3.235 3 2 4.235 2 5.75V15.25C2 16.765 3.235 18 4.75 18H6V20.545C6 21.055 6.3 21.505 6.77 21.7ZM3.5 5.75C3.5 5.06 4.06 4.5 4.75 4.5H19.25C19.94 4.5 20.5 5.06 20.5 5.75V15.25C20.5 15.94 19.94 16.5 19.25 16.5H10.94L7.5 19.94V16.5H4.75C4.06 16.5 3.5 15.94 3.5 15.25V5.75ZM17.5 8H6.5V9.5H17.5V8ZM13.5 11.5H6.5V13H13.5V11.5Z"/>
+</svg>
+`, 
         "comment", 
         handleCommentButtonClick
       );
@@ -100,21 +202,12 @@ export function floatingMenuPlugin(schema: Schema) {
 
     // --- Link Input Container (initially hidden) ---
     linkInputContainer = document.createElement("div");
-    linkInputContainer.style.display = "none"; // Hidden by default
-    linkInputContainer.style.gap = "4px";
-    linkInputContainer.style.alignItems = "center";
+    linkInputContainer.className = "floating-menu-link-input";
 
     linkInput = document.createElement("input");
     linkInput.type = "text";
     linkInput.placeholder = "Enter Link";
-    linkInput.style.flexGrow = "1";
-    linkInput.style.padding = "4px 6px";
-    linkInput.style.border = "1px solid #3a3b44";
-    linkInput.style.borderRadius = "3px";
-    linkInput.style.background = "#1e1f29";
-    linkInput.style.color = "#bfc0cc";
-    linkInput.style.fontSize = "13px";
-    linkInput.style.outlineWidth = "2px";
+    linkInput.className = "floating-menu-input";
     linkInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             e.preventDefault();
@@ -130,12 +223,7 @@ export function floatingMenuPlugin(schema: Schema) {
 
     linkDoneButton = document.createElement("button");
     linkDoneButton.textContent = "Done";
-    linkDoneButton.className = "floating-menu-button"; // Reuse some styling
-    linkDoneButton.style.background = "#4CAF50";
-    linkDoneButton.style.borderRadius = "4px";
-    linkDoneButton.style.fontSize = "12px";
-    linkDoneButton.style.color = "white";
-    linkDoneButton.style.padding = "4px 8px";
+    linkDoneButton.className = "floating-menu-done-button";
     linkDoneButton.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -290,32 +378,6 @@ export function floatingMenuPlugin(schema: Schema) {
     button.innerHTML = labelOrHTML;
     button.dataset.markType = markType; // Store mark type for updates
 
-    // Base styles (can be overridden by classes)
-    button.style.background = "#2a2b2f";
-    button.style.color = "#bfc0cc";
-    button.style.border = "none";
-    button.style.padding = "4px 8px";
-    button.style.borderRadius = "4px";
-    button.style.cursor = "pointer";
-    button.style.fontSize = "14px";
-    button.style.minWidth = "30px";
-    button.style.display = "flex";
-    button.style.alignItems = "center";
-    button.style.justifyContent = "center";
-    button.style.height = "28px"; // Ensure consistent height
-
-    // Add hover effect
-    button.addEventListener("mouseenter", () => {
-      if (currentMode === "buttons") button.style.background = "#3a3b44";
-    });
-    button.addEventListener("mouseleave", () => {
-      if (currentMode === "buttons") {
-         // Re-apply active style if needed, otherwise default
-         const isActive = button.classList.contains('active');
-         button.style.background = isActive ? "#3a3b44" : "#2a2b2f"; 
-      }
-    });
-
     // Add click handler
     button.addEventListener("mousedown", (e) => {
       e.preventDefault();
@@ -354,15 +416,12 @@ export function floatingMenuPlugin(schema: Schema) {
       }
 
       button.classList.toggle('active', isActive);
-      // Update background style based on active state for hover consistency
-      button.style.background = isActive ? "#3a3b44" : "#2a2b2f";
     });
   }
 
   function hideMenu() {
     if (!menu || !isMenuVisible) return;
-    menu.style.opacity = "0";
-    menu.style.transform = "translateY(8px)";
+    menu.classList.remove("visible");
     
     // Clear pseudo-selection decoration immediately when starting to hide
     if (pseudoSelectionDecoration && view) {
@@ -376,8 +435,8 @@ export function floatingMenuPlugin(schema: Schema) {
       // Reset to button mode state (decoration is already cleared)
       if (currentMode === "linkInput") {
          currentMode = "buttons"; // Reset mode state, UI handled by display none
-         buttonsContainer?.style.setProperty('display', 'flex');
-         linkInputContainer?.style.setProperty('display', 'none');
+         if (buttonsContainer) buttonsContainer.style.display = "flex";
+         if (linkInputContainer) linkInputContainer.style.display = "none";
       }
     }, 150);
     isMenuVisible = false;
@@ -388,16 +447,15 @@ export function floatingMenuPlugin(schema: Schema) {
     menu.style.display = "flex";
     // Ensure correct UI is visible based on mode *before* showing
     if (currentMode === 'buttons') {
-        buttonsContainer?.style.setProperty('display', 'flex');
-        linkInputContainer?.style.setProperty('display', 'none');
+        if (buttonsContainer) buttonsContainer.style.display = "flex";
+        if (linkInputContainer) linkInputContainer.style.display = "none";
     } else {
-        buttonsContainer?.style.setProperty('display', 'none');
-        linkInputContainer?.style.setProperty('display', 'flex');
+        if (buttonsContainer) buttonsContainer.style.display = "none";
+        if (linkInputContainer) linkInputContainer.style.display = "flex";
     }
     // Force a reflow
     menu.getBoundingClientRect();
-    menu.style.opacity = "1";
-    menu.style.transform = "translateY(0)";
+    menu.classList.add("visible");
     isMenuVisible = true;
   }
 

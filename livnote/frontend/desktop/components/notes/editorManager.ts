@@ -1,5 +1,5 @@
 import { EditorState, Plugin } from "prosemirror-state";
-import { EditorView } from "prosemirror-view";
+import { EditorView, Decoration, DecorationSet } from "prosemirror-view";
 import { Schema } from "prosemirror-model";
 import { baseKeymap } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
@@ -9,15 +9,41 @@ import { history } from "prosemirror-history";
 import { undo, redo } from "y-prosemirror";
 import type { Transaction } from "prosemirror-state";
 
+const activeNodePlaceholderPlugin = () => {
+	return new Plugin({
+		props: {
+			decorations(state) {
+				const { selection, doc } = state;
+				const { $from, empty } = selection;
+
+				if (
+					!empty ||
+					$from.parent.type.name !== "paragraph" ||
+					$from.parent.content.size > 0
+				) {
+					return null;
+				}
+
+				const placeholder = Decoration.node($from.before(), $from.after(), {
+					class: "is-empty",
+					"data-placeholder": "Write, press '/' for commands...",
+				});
+
+				return DecorationSet.create(doc, [placeholder]);
+			},
+		},
+	});
+};
+
 export interface EditorConfig {
-  schema: Schema;
-  plugins?: Plugin[];
-  onTransaction?: (tr: Transaction, newState: EditorState) => void;
+	schema: Schema;
+	plugins?: Plugin[];
+	onTransaction?: (tr: Transaction, newState: EditorState) => void;
 }
 
 export interface EditorInstance {
-  view: EditorView;
-  state: EditorState;
+	view: EditorView;
+	state: EditorState;
 }
 
 /**
@@ -25,170 +51,186 @@ export interface EditorInstance {
  * Separated from YJS and collaboration concerns
  */
 export class EditorManager {
-  private config: EditorConfig;
-  private editorView: EditorView | null = null;
-  private editorState: EditorState | null = null;
-  private container: HTMLElement | null = null;
+	private config: EditorConfig;
+	private editorView: EditorView | null = null;
+	private editorState: EditorState | null = null;
+	private container: HTMLElement | null = null;
 
-  constructor(config: EditorConfig) {
-    this.config = config;
-  }
+	constructor(config: EditorConfig) {
+		this.config = config;
+	}
 
-  /**
-   * Create base plugins that are always needed
-   */
-  private createBasePlugins(): Plugin[] {
-    return [
-      keymap(baseKeymap),
-      keymap({
-        "Mod-z": undo,
-        "Mod-y": redo,
-        "Mod-Shift-z": redo,
-      }),
-      dropCursor(),
-      gapCursor(),
-      history(),
-    ];
-  }
-
-  /**
-   * Initialize editor state with document
-   */
-
-  initializeState(doc?: any, additionalPlugins: Plugin[] = []): EditorState {
-    const plugins = [
-      ...this.createBasePlugins(),
-      ...(this.config.plugins || []),
-      ...additionalPlugins
-    ];
-
-    this.editorState = EditorState.create({
-      schema: this.config.schema,
-      doc,
-      plugins
-    });
-
-    return this.editorState;
-  }
-
-  /**
-   * Create editor view in container
-   */
-  createView(container: HTMLElement, state?: EditorState): EditorView {
-    if (this.editorView) {
-      this.destroyView();
+	/**
+	 * Create base plugins that are always needed
+	 */
+    private createBasePlugins(): Plugin[] {
+        // Base plugins without baseKeymap; we'll append baseKeymap last overall in initializeState
+        return [
+            keymap({
+                "Mod-z": undo,
+                "Mod-y": redo,
+                "Mod-Shift-z": redo,
+            }),
+            dropCursor(),
+            gapCursor(),
+            history(),
+            activeNodePlaceholderPlugin(),
+        ];
     }
 
-    this.container = container;
-    const editorState = state || this.editorState;
+	/**
+	 * Initialize editor state with document
+	 */
 
-    if (!editorState) {
-      throw new Error("Editor state must be initialized before creating view");
-    }
+    initializeState(doc?: any, additionalPlugins: Plugin[] = []): EditorState {
+        const base = this.createBasePlugins();
+        const fromConfig = this.config.plugins || [];
+        const extra = additionalPlugins;
+        // Ensure baseKeymap comes LAST across the entire plugin list so custom handlers win first
+        const plugins: Plugin[] = [
+            ...base,
+            ...fromConfig,
+            ...extra,
+            keymap(baseKeymap),
+        ];
 
-    const dispatchTransaction = (tr: Transaction) => {
-      if (!this.editorView) return;
+		this.editorState = EditorState.create({
+			schema: this.config.schema,
+			doc: doc || undefined,
+			plugins,
+		});
 
-      const newState = this.editorView.state.apply(tr);
-      this.editorView.updateState(newState);
-      this.editorState = newState;
+		return this.editorState;
+	}
 
-      if (this.config.onTransaction) {
-        this.config.onTransaction(tr, newState);
-      }
-    };
+	/**
+	 * Create editor view in container
+	 */
+	createView(container: HTMLElement, state?: EditorState): EditorView {
+		if (this.editorView) {
+			this.destroyView();
+		}
 
-    this.editorView = new EditorView(container, {
-      state: editorState,
-      dispatchTransaction
-    });
+		this.container = container;
+		const editorState = state || this.editorState;
 
-    return this.editorView;
-  }
-  /**
-   * Update editor state
-   */
-  updateState(newState: EditorState): void {
-    if (!this.editorView) {
-      throw new Error("Editor view not initialized");
-    }
+		if (!editorState) {
+			throw new Error("Editor state must be initialized before creating view");
+		}
 
-    this.editorState = newState;
-    this.editorView.updateState(newState);
-  }
+		const dispatchTransaction = (tr: Transaction) => {
+			if (!this.editorView) return;
 
-  /**
-   * Get current editor state
-   */
-  getState(): EditorState | null {
-    return this.editorState;
-  }
+			const newState = this.editorView.state.apply(tr);
+			this.editorView.updateState(newState);
+			this.editorState = newState;
 
-  /**
-   * Get editor view
-   */
-  getView(): EditorView | null {
-    return this.editorView;
-  }
+			if (this.config.onTransaction) {
+				this.config.onTransaction(tr, newState);
+			}
+		};
 
-  /**
-   * Get editor instance
-   */
-  getInstance(): EditorInstance | null {
-    if (!this.editorView || !this.editorState) {
-      return null;
-    }
+		this.editorView = new EditorView(container, {
+			state: editorState,
+			dispatchTransaction,
+			// Disable browser autocorrect/capitalization suggestions in the editor
+			attributes: {
+				role: "textbox",
+				"aria-multiline": "true",
+		    	"aria-label": "Rich text editor",
+				spellcheck: "false",
+				autocorrect: "off",
+				autocapitalize: "off",
+				"data-gramm": "false",
+			},
+		});
 
-    return {
-      view: this.editorView,
-      state: this.editorState
-    };
-  }
+		return this.editorView;
+	}
+	/**
+	 * Update editor state
+	 */
+	updateState(newState: EditorState): void {
+		if (!this.editorView) {
+			throw new Error("Editor view not initialized");
+		}
 
-  /**
-   * Focus the editor
-   */
-  focus(): void {
-    this.editorView?.focus();
-  }
+		this.editorState = newState;
+		this.editorView.updateState(newState);
+	}
 
-  /**
-   * Destroy the editor view
-   */
-  destroyView(): void {
-    if (this.editorView) {
-      this.editorView.destroy();
-      this.editorView = null;
-    }
-  }
+	/**
+	 * Get current editor state
+	 */
+	getState(): EditorState | null {
+		return this.editorState;
+	}
 
-  /**
-   * Destroy everything
-   */
-  destroy(): void {
-    this.destroyView();
-    this.editorState = null;
-    this.container = null;
-  }
+	/**
+	 * Get editor view
+	 */
+	getView(): EditorView | null {
+		return this.editorView;
+	}
 
-  /**
-   * Check if editor is initialized
-   */
-  isInitialized(): boolean {
-    return this.editorView !== null && this.editorState !== null;
-  }
+	/**
+	 * Get editor instance
+	 */
+	getInstance(): EditorInstance | null {
+		if (!this.editorView || !this.editorState) {
+			return null;
+		}
 
-  /**
-   * Get editor content as JSON
-   */
-  getJSON(): any {
-    return this.editorState?.toJSON();
-  }
+		return {
+			view: this.editorView,
+			state: this.editorState,
+		};
+	}
 
-  /**
-   * Get document content
-   */
-  getDocContent(): any {
-    return this.editorState?.doc.toJSON();
-  }
+	/**
+	 * Focus the editor
+	 */
+	focus(): void {
+		this.editorView?.focus();
+	}
+
+	/**
+	 * Destroy the editor view
+	 */
+	destroyView(): void {
+		if (this.editorView) {
+			this.editorView.destroy();
+			this.editorView = null;
+		}
+	}
+
+	/**
+	 * Destroy everything
+	 */
+	destroy(): void {
+		this.destroyView();
+		this.editorState = null;
+		this.container = null;
+	}
+
+	/**
+	 * Check if editor is initialized
+	 */
+	isInitialized(): boolean {
+		return this.editorView !== null && this.editorState !== null;
+	}
+
+	/**
+	 * Get editor content as JSON
+	 */
+	getJSON(): any {
+		return this.editorState?.toJSON();
+	}
+
+	/**
+	 * Get document content
+	 */
+	getDocContent(): any {
+		return this.editorState?.doc.toJSON();
+	}
 }

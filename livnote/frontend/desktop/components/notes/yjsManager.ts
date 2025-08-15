@@ -3,7 +3,8 @@ import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from "y-protoc
 import type {
   CommentThread,
   ImageAsset,
-  UserInfo
+  UserInfo,
+  Collaborator
 } from "../../types/notes.types";
 
 export interface YjsDocuments {
@@ -30,6 +31,7 @@ export class YjsManager {
   private documents: YjsDocuments | null = null;
   private config: YjsManagerConfig;
   private afterTransactionsHandler: (() => void) | null = null;
+  private cachedDataState: any = null;
   constructor(config: YjsManagerConfig) {
     this.config = config;
   }
@@ -88,7 +90,8 @@ export class YjsManager {
           }
         }
 
-        // this.syncCollaboratorsToDataState();
+        // Sync collaborators whenever awareness changes
+        this.syncCollaboratorsToDataState();
       });
     }
 
@@ -181,6 +184,53 @@ export class YjsManager {
       console.error("❌ Error applying awareness update:", error);
     }
   }
+
+  /**
+   * Sync collaborators from awareness state to dataState
+   */
+  public syncCollaboratorsToDataState(): void {
+    if (!this.documents) return;
+
+    const awareness = this.documents.awareness;
+    const states = awareness.getStates();
+    const collaborators: Collaborator[] = [];
+
+    // console.log("🔍 Awareness states:", states);
+    // console.log("🔍 Current client ID:", this.config.clientId);
+
+    states.forEach((state: any, clientId: number) => {
+      // Skip our own client
+      if (clientId === this.config.clientId) return;
+      
+      // console.log(`🔍 Client ${clientId} state:`, state);
+      
+      // Check if state has user info and is not null/undefined
+      if (state && state.user && state.user.name) {
+        collaborators.push({
+          id: clientId.toString(),
+          name: state.user.name,
+          color: state.user.color,
+          clientId: clientId
+        });
+      }
+    });
+
+    // console.log("🔍 Final collaborators:", collaborators);
+
+    // Use cached dataState if available, otherwise import and cache it
+    if (this.cachedDataState) {
+      this.cachedDataState.updateCollaborators(collaborators);
+    } else {
+      import("../../state").then(({ dataState }) => {
+        this.cachedDataState = dataState;
+        this.cachedDataState.updateCollaborators(collaborators);
+      }).catch(error => {
+        console.error("Error updating collaborators:", error);
+      });
+    }
+  }
+
+
   /**
    * Check if documents are initialized
    */

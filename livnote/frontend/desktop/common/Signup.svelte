@@ -46,8 +46,49 @@
 
 	const goBack = (): void => {
 		if (viewHistory.length > 0) {
-			currentView = viewHistory[viewHistory.length - 1];
+			const previousView = viewHistory[viewHistory.length - 1];
+			currentView = previousView;
 			viewHistory = viewHistory.slice(0, -1);
+			
+			// Clear states based on the target view to prevent cross-flow contamination
+			clearStatesForView(previousView);
+		}
+	};
+
+	const clearStatesForView = (targetView: ViewState): void => {
+		// Always clear loader state when navigating
+		isLoaderActive = false;
+		
+		switch (targetView) {
+			case "welcome":
+				// Reset all flow-related states when going back to welcome
+				userFlow = null;
+				collectedRecoveryString = "";
+				collectedUsername = "";
+				break;
+				
+			case VIEW_STATES.EXISTING_USER.IMPORT:
+				// Clear recovery string when going back to import step
+				collectedRecoveryString = "";
+				break;
+				
+			case VIEW_STATES.NEW_USER.COLLECT_USERNAME:
+				// Clear username when going back to username collection
+				collectedUsername = "";
+				// Also clear recovery string if it was set during new user flow
+				collectedRecoveryString = "";
+				break;
+				
+			case VIEW_STATES.EXISTING_USER.SET_PASSPHRASE:
+			case VIEW_STATES.NEW_USER.SET_PASSPHRASE:
+				// Keep existing data for password setup steps
+				// Only clear loader state (handled above)
+				break;
+				
+			case VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY:
+				// Keep recovery string for private key provision
+				// Only clear loader state (handled above)
+				break;
 		}
 	};
 
@@ -77,46 +118,65 @@
 		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
 	};
 
-	const handleReturnedNewPassword = async (passphrase: string) => {
+	const handleRecoveryPasswordSetup = async (passphrase: string): Promise<void> => {
 		isLoaderActive = true;
 
 		try {
-			if (collectedRecoveryString) {
-				// for recovery flow
-				let parsedRecoveryData;
-				try {
-					parsedRecoveryData = JSON.parse(collectedRecoveryString);
-				} catch (error) {
-					console.error("Error parsing recovery data:", error);
-					isLoaderActive = false;
-					return;
-				}
-				const result = await sendMessage("addDevice", {
-					passphrase,
-					certificate: parsedRecoveryData.certificate,
-					username: parsedRecoveryData.username,
-					device_id: parsedRecoveryData.deviceId,
-				});
-				//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
-				await sendMessage("login", { passphrase });
-				handleUserSignUpComplete(true);
-			} else {
-				// for new user flow
-				const response = await sendMessage("savePassphrase", {
-					passphrase,
-					username: collectedUsername,
-				});
-				const privatekey = await sendMessage("login", { passphrase });
-				const certificate = await sendMessage("exportCertificate", {
-					passphrase,
-				});
-				collectedRecoveryString = JSON.stringify(certificate);
-				navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
+			let parsedRecoveryData;
+			try {
+				parsedRecoveryData = JSON.parse(collectedRecoveryString);
+			} catch (error) {
+				console.error("Error parsing recovery data:", error);
+				// No check on validity of private key imported on previous step
+				// So error will occur here
+				// need to disable button here
+				collectedRecoveryString = "";
+				return;
 			}
+
+			const result = await sendMessage("addDevice", {
+				passphrase,
+				certificate: parsedRecoveryData.certificate,
+				username: parsedRecoveryData.username,
+				device_id: parsedRecoveryData.deviceId,
+			});
+			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
+			await sendMessage("login", { passphrase });
+			handleUserSignUpComplete(true);
 		} catch (error) {
-			console.error("Error during password setup:", error);
+			console.error("Error during recovery password setup:", error);
 		} finally {
 			isLoaderActive = false;
+		}
+	};
+
+	const handleNewUserPasswordSetup = async (passphrase: string): Promise<void> => {
+		isLoaderActive = true;
+
+		try {
+			const response = await sendMessage("savePassphrase", {
+				passphrase,
+				username: collectedUsername,
+			});
+			const privatekey = await sendMessage("login", { passphrase });
+			const certificate = await sendMessage("exportCertificate", {
+				passphrase,
+			});
+			collectedRecoveryString = JSON.stringify(certificate);
+			navigateTo(VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY);
+		} catch (error) {
+			console.error("Error during new user password setup:", error);
+		} finally {
+			isLoaderActive = false;
+		}
+	};
+
+	const handleReturnedNewPassword = async (passphrase: string): Promise<void> => {
+		// Route to appropriate handler based on user flow
+		if (userFlow === "EXISTING_USER") {
+			await handleRecoveryPasswordSetup(passphrase);
+		} else {
+			await handleNewUserPasswordSetup(passphrase);
 		}
 	};
 </script>

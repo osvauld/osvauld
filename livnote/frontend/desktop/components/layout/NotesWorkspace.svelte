@@ -19,6 +19,7 @@
 	let inputRef = $state<HTMLInputElement | null>(null);
 	let userId = $state("");
 	let isNavigatingBack = false;
+	let collaboratorSyncInterval: number | null = null;
 	// Derived state for favorite status using the reactive notes array
 	let isFavourite = $derived(() => {
 		const noteId = dataState.currentNoteId;
@@ -93,6 +94,32 @@
 		}
 	};
 
+	// Set up periodic collaborator syncing
+	const setupCollaboratorSync = () => {
+		// Clear any existing interval
+		if (collaboratorSyncInterval) {
+			clearInterval(collaboratorSyncInterval);
+		}
+
+		// Set up new interval to sync collaborators every 2 seconds
+		collaboratorSyncInterval = setInterval(() => {
+			if (dataState.currentNoteId) {
+				const coordinator = dataState.getNotesCoordinator();
+				if (coordinator) {
+					coordinator.syncCollaborators();
+				}
+			}
+		}, 2000);
+	};
+
+	// Clean up collaborator sync interval
+	const cleanupCollaboratorSync = () => {
+		if (collaboratorSyncInterval) {
+			clearInterval(collaboratorSyncInterval);
+			collaboratorSyncInterval = null;
+		}
+	};
+
 	// Toggle navigation panel
 	const toggleNavigationPanel = () => {
 		uiState.toggleNavigationPanel();
@@ -108,7 +135,7 @@
 		}
 	};
 
-	onMount(async () => {
+	onMount(() => {
 		if (dataState.userDetails?.userId) {
 			userId = dataState.userDetails?.userId;
 		}
@@ -116,6 +143,14 @@
 			"--min-editor-width",
 			`${uiState.MIN_EDITOR_WIDTH}px`,
 		);
+
+		// Set up collaborator syncing
+		setupCollaboratorSync();
+
+		// Clean up on unmount
+		return () => {
+			cleanupCollaboratorSync();
+		};
 	});
 </script>
 
@@ -128,7 +163,8 @@
 
 <div
 	class="flex grow max-h-full max-w-full"
-	class:manual-toggle={uiState.isNavigationPanelManuallyToggled}>
+	class:manual-toggle={uiState.isNavigationPanelManuallyToggled}
+>
 	<NavigationPanel />
 
 	<div class="flex-1 flex flex-col overflow-hidden">
@@ -141,7 +177,8 @@
 						aria-label="Open navigation panel"
 						class="mr-3 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-e-resize"
 						title="Open navigation panel"
-						onclick={toggleNavigationPanel}>
+						onclick={toggleNavigationPanel}
+					>
 						<MenuToggle />
 					</button>
 				{/if}
@@ -149,20 +186,23 @@
 				<button
 					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					onmousedown={handleBackButtonMouseDown}
-					onclick={handleBackButton}>
+					onclick={handleBackButton}
+				>
 					<BackArrow />
 				</button>
 
 				{#if isEditingTitle}
 					<div
-						class="grow mx-5 flex justify-between items-center py-1 px-3 border rounded-lg border-osvauld-iconblack">
+						class="grow mx-5 flex justify-between items-center py-1 px-3 border rounded-lg border-osvauld-iconblack"
+					>
 						<input
 							bind:this={inputRef}
 							bind:value={newNoteTitle}
 							maxlength="20"
 							onkeydown={handleKeydown}
 							onblur={saveTitle}
-							class="text-white text-4xl border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0" />
+							class="text-white text-4xl border-0 tracking-wider font-semibold border-transparent focus:border-osvauld-iconblack focus:outline-0 focus:ring-0 active:outline-none focus:ring-offset-0"
+						/>
 					</div>
 				{:else}
 					<span
@@ -171,13 +211,15 @@
 						class="grow truncate mx-5 py-2 font-semibold text-4xl text-osvauld-sideListTextActive select-none"
 						ondblclick={startEditingTitle}
 						onkeydown={(e: KeyboardEvent) =>
-							e.key === "Enter" && startEditingTitle()}>
+							e.key === "Enter" && startEditingTitle()}
+					>
 						{dataState.currentNoteTitle}
 					</span>
 				{/if}
 				<button
 					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
-					onclick={toggleFav}>
+					onclick={toggleFav}
+				>
 					{#if isFavourite()}
 						<Star />
 					{:else}
@@ -185,41 +227,38 @@
 					{/if}
 				</button>
 			</div>
-
 			{#if dataState.collaborators.length > 0}
-				<div class="mx-6 px-6 border-x border-osvauld-borderColor">
-					<span class="text-statusColor font-light text-sm block mb-3"
-						>Live Collaborators</span>
-					<div class="flex items-center">
-						<div class="flex">
-							{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+				<div class="ml-auto flex items-center">
+					{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+						<div
+							class="relative {index !== 0 ? '-ml-3' : ''}"
+							aria-label={collaborator.name}
+							title={collaborator.name}
+							in:fade={{ duration: 200 }}
+							out:fade={{ duration: 200 }}
+						>
+							<div
+								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative"
+							>
+								{getInitial(collaborator.name)}
+								<!-- Live indicator dot -->
 								<div
-									class="relative {index !== 0 ? '-ml-3' : ''}"
+									class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
 									in:fade={{ duration: 200 }}
-									out:fade={{ duration: 200 }}>
-									<div
-										class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative">
-										{getInitial(collaborator.name)}
-
-										<!-- Live indicator dot -->
-										<div
-											class="absolute bottom-0 left-0 w-3 h-3 bg-green-500 rounded-full border-2 border-osvauld-fieldActive"
-											in:fade={{ duration: 200 }}>
-										</div>
-									</div>
-								</div>
-							{/each}
-
-							{#if dataState.collaborators.length > 3}
-								<div class="relative -ml-3">
-									<div
-										class="w-10 h-10 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center">
-										+{dataState.collaborators.length - 3}
-									</div>
-								</div>
-							{/if}
+								></div>
+							</div>
 						</div>
-					</div>
+					{/each}
+
+					{#if dataState.collaborators.length > 3}
+						<div class="relative -ml-3" aria-label={`+${dataState.collaborators.length - 3} more collaborators`}>
+							<div
+								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center"
+							>
+								+{dataState.collaborators.length - 3}
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

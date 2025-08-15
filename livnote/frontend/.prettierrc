@@ -14,7 +14,6 @@
   ],
   "svelteSortOrder": "options-scripts-styles-markup",
   "svelteStrictMode": true,
-  "svelteBracketNewLine": false,
   "svelteAllowShorthand": true,
   "svelteIndentScriptAndStyle": true
 }

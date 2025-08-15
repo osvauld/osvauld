@@ -3,7 +3,14 @@
 
 	import { sendMessage, writeToClipboard } from "../../utils/helper";
 
-	import { CopyIcon, RightArrow, Logout, Profile, Settings, ConnectUser } from "../../icons";
+	import {
+		CopyIcon,
+		RightArrow,
+		Logout,
+		Profile,
+		Settings,
+		ConnectUser,
+	} from "../../icons";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
@@ -43,7 +50,10 @@
 						ucan_pub_key,
 					};
 					await writeToClipboard(btoa(JSON.stringify(userDetails)));
-					uiState.showToast("User Address copied to clipboard, valid for 24 hours", true);
+					uiState.showToast(
+						"User Address copied to clipboard, valid for 24 hours",
+						true,
+					);
 				} catch (error) {
 					console.error("Error copying user Address:", error);
 					uiState.showToast("Failed to copy User Address", false);
@@ -74,7 +84,8 @@
 				e.preventDefault();
 				uiState.toggleProfileViewLayout(false);
 			}
-		}}>
+		}}
+	>
 		Livnote
 	</span>
 	<div class="grow py-10 px-16 flex items-center justify-end gap-6">
@@ -88,7 +99,7 @@
 				class="ml-4 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
 				placeholder="Search..." />
 		</div> -->
-		<button 
+		<button
 			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
 			aria-label="Open Connect user modal"
 			aria-haspopup="dialog"
@@ -100,21 +111,23 @@
 					e.preventDefault();
 					uiState.showConnectUserModal();
 				}
-			}}>
+			}}
+		>
 			<span class="font-normal text-base">Connect a User</span>
 			<ConnectUser size={24} />
 		</button>
-		<div
-			class="relative  text-osvauld-fieldText font-normal text-base z-40">
+		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
 			<button
 				aria-label="Open Profile View"
 				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
-				onclick={() => (showDropdown = !showDropdown)}>
+				onclick={() => (showDropdown = !showDropdown)}
+			>
 				<Profile color="#6E7681" />
 				<span class="ml-2 capitalize">{dataState.userDetails?.username}</span>
 				<span
 					class="ml-auto transition-transform ease-linear"
-					class:rotate-90={showDropdown}>
+					class:rotate-90={showDropdown}
+				>
 					<RightArrow />
 				</span>
 			</button>
@@ -123,12 +136,13 @@
 					class="bg-transparent fixed inset-0 z-40"
 					role="presentation"
 					aria-hidden="true"
-					onclick={handleOutsideClick}>
-				</div>
+					onclick={handleOutsideClick}
+				></div>
 				<ul
 					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
 					in:slide
-					out:slide>
+					out:slide
+				>
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button
 							onmouseenter={() => (hoveredItem = id)}
@@ -136,11 +150,13 @@
 							onclick={(e) => {
 								e.stopPropagation();
 								handleDropDownClick(id);
-							}}>
+							}}
+						>
 							<li class="profileBtn cursor-pointer">
 								<Icon
 									color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
-									size={24} />
+									size={24}
+								/>
 								{label}
 							</li>
 						</button>

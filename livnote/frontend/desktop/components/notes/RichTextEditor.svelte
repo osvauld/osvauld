@@ -36,7 +36,7 @@
 			loadingPhase === "preparing" ||
 			loadingPhase === "structure-ready",
 	);
-	
+
 	let showContent = $derived(
 		!uiState.isNoteLoading &&
 			(loadingPhase === "content-loaded" || loadingPhase === "ready"),
@@ -103,7 +103,7 @@
 			view = editorManager.createView(element);
 			loadingPhase = "ready";
 			uiState.setEditorLoading(false);
-			
+
 			// Set up auto-save interval (10 seconds)
 			if (autoSaveInterval) {
 				clearInterval(autoSaveInterval);
@@ -112,8 +112,8 @@
 				if (dataState.currentNoteId && view) {
 					dataState.saveNote(dataState.currentNoteId);
 				}
-			}, 10000); 
-			
+			}, 10000);
+
 			// Focus editor
 			setTimeout(() => {
 				if (view) {
@@ -358,7 +358,24 @@
 		overflow-wrap: break-word;
 		word-wrap: break-word;
 		word-break: break-word;
+		position: relative;
 	}
+
+	:global(.ProseMirror p.is-empty) {
+		position: relative;
+	}
+
+	:global(.ProseMirror p.is-empty::before) {
+		content: attr(data-placeholder);
+		color: #85889c;
+		pointer-events: none;
+		font-style: italic;
+		position: absolute;
+		top: 50%;
+		transform: translateY(-50%);
+		font-size: 16px;
+	}
+
 	@keyframes shimmer {
 		0% {
 			background-position: -200px 0;
@@ -387,8 +404,8 @@
 				bind:this={element}
 				class="h-full max-h-full overflow-y-scroll scrollbar-thin"
 				class:opacity-0={showSkeleton}
-				class:opacity-100={showContent}>
-			</div>
+				class:opacity-100={showContent}
+			></div>
 
 			<!-- Skeleton overlay -->
 			{#if showSkeleton}
@@ -406,7 +423,6 @@
 
 						<!-- Title skeleton -->
 						<div class="h-8 bg-gray-600 rounded-lg w-3/4"></div>
-
 
 						<div class="h-4 bg-gray-600 rounded w-5/6"></div>
 						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
@@ -438,4 +454,5 @@
 	isVisible={showCommentModal}
 	selectedText={modalSelectedText}
 	onSave={handleSaveComment}
-	onCancel={handleCancelComment} />
+	onCancel={handleCancelComment}
+/>
