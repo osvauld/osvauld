@@ -388,15 +388,18 @@ export function slashCommandPlugin(schema: Schema) {
 							positionMenu(view);
 							view.focus();
 							isMenuOpen = true;
-						} else {
-							menu = renderMenu(view, filteredCommands);
-							if (menu.parentNode) {
-								menu.parentNode.replaceChild(menu, menu);
-							} else {
-								editorView.dom.parentNode?.appendChild(menu);
+						} 
+						else {
+								const newMenu = renderMenu(view, filteredCommands);
+								if (menu && menu.parentNode) {
+									menu.parentNode.replaceChild(newMenu, menu);
+									menu = newMenu;
+								} else {
+									menu = newMenu;
+									editorView.dom.parentNode?.appendChild(menu);
+								}
+								positionMenu(view);
 							}
-							positionMenu(view);
-						}
 					} else if (isMenuOpen && CLOSE_REGEX.test(textBefore)) {
 						const match = CLOSE_REGEX.exec(textBefore);
 						const query = match ? match[1] : "";
@@ -415,6 +418,8 @@ export function slashCommandPlugin(schema: Schema) {
 						scrollHandler = null;
 					}
 					closeMenu();
+					menu = null;
+ 					lastState = null;
 				},
 			};
 		},

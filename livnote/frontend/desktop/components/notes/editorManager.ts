@@ -135,6 +135,9 @@ export class EditorManager {
 			dispatchTransaction,
 			// Disable browser autocorrect/capitalization suggestions in the editor
 			attributes: {
+				role: "textbox",
+				"aria-multiline": "true",
+		    	"aria-label": "Rich text editor",
 				spellcheck: "false",
 				autocorrect: "off",
 				autocapitalize: "off",

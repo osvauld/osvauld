@@ -178,9 +178,6 @@ export class YjsManager {
         return;
       }
       applyAwarenessUpdate(this.documents.awareness, updateArray, 'remote');
-      
-      // Sync collaborators after applying awareness update
-      this.syncCollaboratorsToDataState();
     } catch (error) {
       console.error("❌ Error applying awareness update:", error);
     }
