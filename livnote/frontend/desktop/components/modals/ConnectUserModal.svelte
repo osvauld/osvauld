@@ -151,7 +151,7 @@
                 <p 
                     id="add-user-description"
                     class="text-sm text-osvauld-fieldText text-start">
-                    Livnote establishes a direct, peer-to-peer link with your collaborator. We don't host any central servers, so this secure digital handshake requires their unique Livnote Address to work. Ask your collaborator to find and share this address with you from their profile.
+                    Livnote creates a direct, peer-to-peer connection between users to enable secure collaboration. This private handshake requires their unique user address - ask them to share it with you via any medium. The connection activates only when both users are online. Once connected, you can invite them to your notes!
                 </p>
             </div>
 
@@ -166,7 +166,7 @@
                     <textarea
                         id="userDetails"
                         bind:value={userDetails}
-                        placeholder="Paste here.."
+                        placeholder="Paste user’s address here.."
                         rows="6"
                         required
                         class="w-full px-4 py-3 text-sm bg-osvauld-frameblack border border-livnotePink rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-livnotePink focus:border-transparent resize-none transition-colors"
@@ -178,7 +178,7 @@
                     <p 
                         id="user-id-help"
                         class="text-xs text-osvauld-fieldText">
-                        User Address is a unique identification for establishing a secure peer-to-peer connection. 
+                        User address is a publicly shareable identifier address - safe and meant to be shared.
                     </p>
                 </div>
 
@@ -195,7 +195,7 @@
                         type="submit"
                         disabled={!userDetails.trim() || isSubmitting}
                         class="px-6 py-2.5 bg-osvauld-frameblack font-normal border border-livnotePink text-livnotePink rounded-lg cursor-pointer hover:bg-livnotePink hover:text-osvauld-frameblack transition-colors">
-                        {isSubmitting ? "Connecting..." : "Establish Connection"}
+                        {isSubmitting ? "Connecting..." : "Connect"}
                     </button>
                 </div>
             </form>
