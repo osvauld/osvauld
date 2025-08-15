@@ -26,14 +26,8 @@ export function createEmptyNoteContent(clientId: number, username?: string): Not
 
   // Create note content
   const noteContent: NoteContent = {
-    content: tempType.toJSON(),
-    yjs_state: Array.from(Y.encodeStateAsUpdateV2(tempYDoc)),
+    main_doc: Array.from(Y.encodeStateAsUpdateV2(tempYDoc)),
     image_state: Array.from(Y.encodeStateAsUpdateV2(tempImageDoc)), // Separate image doc
-    assets: [], // Empty since we're using YJS only
-    editor_state: {
-      doc: prosemirrorDoc.doc.toJSON(),
-      selection: { type: "text", anchor: 1, head: 1 }
-    },
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title: "Untitled Note",

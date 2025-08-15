@@ -426,7 +426,7 @@ class DataState {
       if (resource_id == this.currentNoteId) {
         const updatesJson = JSON.parse(updates)
         const imageUpdates = updatesJson.image_state.updates;
-        const documentUpdates = updatesJson.yjs_state.updates;
+        const documentUpdates = updatesJson.main_doc.updates;
         const imageUpdateArray = new Uint8Array(imageUpdates);
         const documentUpdateArray = new Uint8Array(documentUpdates);
         const coordinator = this.getNotesCoordinator();

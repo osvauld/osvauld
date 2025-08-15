@@ -7,10 +7,8 @@ import * as Y from "yjs";
  * Note content structure for storage, retrieval and synchronization
  */
 export interface NoteContent {
-  content: string | Record<string, unknown>;
-  yjs_state: Uint8Array | number[];
+  main_doc: Uint8Array | number[];
   image_state: Uint8Array | number[];
-  editor_state: string | Record<string, unknown>;
   client_id?: string;
   last_modified?: number;
   last_accessed?: number;

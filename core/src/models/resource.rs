@@ -269,7 +269,7 @@ impl ResourceType {
     /// Returns the document state keys that this resource type uses
     pub fn document_state_keys(&self) -> Vec<&'static str> {
         match self {
-            ResourceType::Notes => vec!["yjs_state", "image_state"],
+            ResourceType::Notes => vec!["main_doc", "image_state"],
             ResourceType::Default => vec!["yjs_state"],
         }
     }
@@ -277,7 +277,7 @@ impl ResourceType {
     /// Returns the primary document state key (used for main content sync)
     pub fn primary_state_key(&self) -> Option<&'static str> {
         match self {
-            ResourceType::Notes => Some("yjs_state"),
+            ResourceType::Notes => Some("main_doc"),
             ResourceType::Default => Some("yjs_state"),
         }
     }

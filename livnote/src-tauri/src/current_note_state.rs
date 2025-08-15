@@ -151,7 +151,7 @@ impl CurrentNoteState {
                 serde_json::Value::Array(main_updates_array),
             );
             result.insert(
-                "yjs_state".to_string(),
+                "main_doc".to_string(),
                 serde_json::Value::Object(main_result),
             );
         }

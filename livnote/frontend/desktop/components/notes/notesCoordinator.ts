@@ -42,11 +42,7 @@ export class NotesCoordinator {
   private commentsStore: CommentsStore;
   private imageStorage: ImageStorageService | null = null;
   private schema = createEditorSchema();
-  private currentAssets: ImageAsset[] = [];
   private userInfo: UserInfo;
-  private imageLoadStartTime: number = 0;
-  private imageLoadEndTime: number = 0;
-  private mainDocLoadTime: number = 0;
   private _imageStoreHandler: ((event: CustomEvent) => void) | null = null;
   constructor(private config: NotesCoordinatorConfig) {
     this.userInfo = config.userInfo;
@@ -88,8 +84,8 @@ export class NotesCoordinator {
     docs.mainDoc.once('afterAllTransactions', () => {
       this.handleMainDocReady(docs, noteContent);
     });
-    if (noteContent.yjs_state && noteContent.yjs_state.length > 0) {
-      this.yjsManager.applyUpdate(noteContent.yjs_state, 'main', 'loading');
+    if (noteContent.main_doc && noteContent.main_doc.length > 0) {
+      this.yjsManager.applyUpdate(noteContent.main_doc, 'main', 'loading');
     } else {
       // No YJS state, trigger manually
       setTimeout(() => {
@@ -124,12 +120,10 @@ export class NotesCoordinator {
     this.deferImageLoading(noteContent);
   }
   private async deferImageLoading(noteContent: NoteContent): Promise<void> {
-    this.imageLoadStartTime = performance.now();
     if (noteContent.image_state && noteContent.image_state.length > 0) {
       this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
     }
     this.imageStorage?.initializeCacheFromYjs();
-    this.imageLoadEndTime = performance.now();
     document.dispatchEvent(new CustomEvent('assets-loaded'));
   }
   /**
@@ -293,10 +287,8 @@ export class NotesCoordinator {
     }
 
     return {
-      content: docs.type.toJSON(),
-      yjs_state: Array.from(this.yjsManager.getStateAsUpdate('main')),
+      main_doc: Array.from(this.yjsManager.getStateAsUpdate('main')),
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
-      editor_state: editorState.toJSON(),
       client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
       title: this.yjsManager.getMetadata("title") || "Untitled Note",
@@ -366,7 +358,6 @@ export class NotesCoordinator {
     this.editorManager.destroy();
     this.yjsManager.destroy();
     this.imageStorage?.clearCache();
-    this.currentAssets = [];
     this.commentsStore.destroy();
     if (this._imageStoreHandler) {
       document.removeEventListener('store-image-request', this._imageStoreHandler as EventListener);
