@@ -29,6 +29,22 @@ class LazyImageNodeView implements NodeView {
   private imageDataListener: ((event: CustomEvent) => void) | null = null;
   private isWaitingForData = false;
 
+  // Add resize state tracking
+  private isResizing: boolean = false;
+  private resizeStartData: {
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+    handle: string;
+    aspectRatio: number;
+  } | null = null;
+  private resizeOverlay: HTMLDivElement | null = null;
+
+  // Add reference to editor view and getPos
+  private view: EditorView;
+  private getPos: () => number;
+
   constructor(
     node: PMNode,
     view: EditorView,
@@ -38,6 +54,8 @@ class LazyImageNodeView implements NodeView {
     // Store data for later use
     this.nodeAttrs = node.attrs;
     this.imageStorage = imageStorage;
+    this.view = view;
+    this.getPos = getPos;
 
     // Extract image ID early
     if (node.attrs.src?.startsWith('yjs-image:')) {
@@ -59,9 +77,9 @@ class LazyImageNodeView implements NodeView {
     this.dom = document.createElement('div');
     this.dom.className = 'image-node-container';
     this.dom.style.display = 'inline-block';
-    this.dom.style.position = 'relative'; // Important for absolute positioning of children
+    this.dom.style.position = 'relative';
     this.dom.style.lineHeight = '0';
-    this.dom.style.verticalAlign = 'bottom'; // Prevent extra space below
+    this.dom.style.verticalAlign = 'bottom';
 
     // Create the actual image placeholder
     const imagePlaceholder = document.createElement('div');
@@ -156,8 +174,12 @@ class LazyImageNodeView implements NodeView {
         
         .image-node-container img {
           display: block;
-          max-width: 100%;
-          height: auto;
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: contain;
           vertical-align: top;
         }
         
@@ -172,6 +194,33 @@ class LazyImageNodeView implements NodeView {
           -webkit-user-select: none;
           -moz-user-select: none;
           -ms-user-select: none;
+        }
+
+        /* Resize overlay for visual feedback */
+        .resize-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 9999;
+          cursor: inherit;
+          background: transparent;
+        }
+
+        /* Size indicator tooltip */
+        .size-indicator {
+          position: absolute;
+          background: #007AFF;
+          color: white;
+          padding: 4px 8px;
+          border-radius: 4px;
+          font-size: 12px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          white-space: nowrap;
+          pointer-events: none;
+          z-index: 10000;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         }
       `;
       document.head.appendChild(style);
@@ -237,11 +286,11 @@ class LazyImageNodeView implements NodeView {
         handle.style.transform = 'scale(1)';
       });
 
-      // Add mousedown handler for resize (Phase 3)
+      // Add mousedown handler for resize (Phase 3 - IMPLEMENTED)
       handle.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        // Phase 3: We'll implement actual resize logic here
+        this.startResize(e, pos.name);
       });
 
       this.resizeHandles.push(handle);
@@ -249,6 +298,237 @@ class LazyImageNodeView implements NodeView {
     });
 
     this.dom.appendChild(this.resizeContainer);
+  }
+
+  /**
+   * Start the resize operation
+   */
+  private startResize(e: MouseEvent, handle: string): void {
+    if (this.isDestroyed) return;
+
+    this.isResizing = true;
+
+    // Get current dimensions
+    const rect = this.dom.getBoundingClientRect();
+    const currentWidth = rect.width;
+    const currentHeight = rect.height;
+
+    // Store initial resize data
+    this.resizeStartData = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: currentWidth,
+      startHeight: currentHeight,
+      handle: handle,
+      aspectRatio: currentWidth / currentHeight
+    };
+
+    // Create resize overlay to capture mouse events
+    this.createResizeOverlay(handle);
+
+    // Add event listeners
+    document.addEventListener('mousemove', this.handleResize);
+    document.addEventListener('mouseup', this.endResize);
+
+    // Prevent text selection during resize
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = this.getCursorForHandle(handle);
+  }
+
+  /**
+   * Handle resize mouse movement
+   */
+  private handleResize = (e: MouseEvent): void => {
+    if (!this.isResizing || !this.resizeStartData) return;
+
+    e.preventDefault();
+
+    const deltaX = e.clientX - this.resizeStartData.startX;
+    const deltaY = e.clientY - this.resizeStartData.startY;
+
+    let newWidth = this.resizeStartData.startWidth;
+    let newHeight = this.resizeStartData.startHeight;
+
+    // Calculate new dimensions based on handle position
+    switch (this.resizeStartData.handle) {
+      case 'se': // Southeast (bottom-right)
+        newWidth = Math.max(50, this.resizeStartData.startWidth + deltaX);
+        newHeight = Math.max(50, this.resizeStartData.startHeight + deltaY);
+        break;
+      case 'sw': // Southwest (bottom-left)
+        newWidth = Math.max(50, this.resizeStartData.startWidth - deltaX);
+        newHeight = Math.max(50, this.resizeStartData.startHeight + deltaY);
+        break;
+      case 'ne': // Northeast (top-right)
+        newWidth = Math.max(50, this.resizeStartData.startWidth + deltaX);
+        newHeight = Math.max(50, this.resizeStartData.startHeight - deltaY);
+        break;
+      case 'nw': // Northwest (top-left)
+        newWidth = Math.max(50, this.resizeStartData.startWidth - deltaX);
+        newHeight = Math.max(50, this.resizeStartData.startHeight - deltaY);
+        break;
+    }
+
+    // Maintain aspect ratio if shift key is held
+    if (e.shiftKey && this.resizeStartData.aspectRatio) {
+      const scaleFactor = Math.max(
+        newWidth / this.resizeStartData.startWidth,
+        newHeight / this.resizeStartData.startHeight
+      );
+      newWidth = this.resizeStartData.startWidth * scaleFactor;
+      newHeight = this.resizeStartData.startHeight * scaleFactor;
+    }
+
+    // Apply maximum dimensions
+    newWidth = Math.min(newWidth, 1200);
+    newHeight = Math.min(newHeight, 800);
+
+    // Round to integers
+    newWidth = Math.round(newWidth);
+    newHeight = Math.round(newHeight);
+
+    // Update visual dimensions
+    this.updateVisualDimensions(newWidth, newHeight);
+
+    // Show size indicator
+    this.showSizeIndicator(newWidth, newHeight, e.clientX, e.clientY);
+  };
+
+  /**
+   * End the resize operation
+   */
+  private endResize = (e: MouseEvent): void => {
+    if (!this.isResizing || !this.resizeStartData) return;
+
+    this.isResizing = false;
+
+    // Get final dimensions
+    const rect = this.dom.getBoundingClientRect();
+    const finalWidth = Math.round(rect.width);
+    const finalHeight = Math.round(rect.height);
+
+    // Update the node in ProseMirror
+    this.updateNodeDimensions(finalWidth, finalHeight);
+
+    // Clean up
+    document.removeEventListener('mousemove', this.handleResize);
+    document.removeEventListener('mouseup', this.endResize);
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+
+    // Remove overlay
+    if (this.resizeOverlay) {
+      this.resizeOverlay.remove();
+      this.resizeOverlay = null;
+    }
+
+    // Remove size indicator
+    this.removeSizeIndicator();
+
+    this.resizeStartData = null;
+  };
+
+  /**
+   * Update visual dimensions during resize
+   */
+  private updateVisualDimensions(width: number, height: number): void {
+    // Update container dimensions
+    this.dom.style.width = `${width}px`;
+    this.dom.style.height = `${height}px`;
+
+    // Update placeholder if still loading
+    if (this.placeholder) {
+      this.placeholder.style.width = `${width}px`;
+      this.placeholder.style.height = `${height}px`;
+    }
+
+    // Update image if loaded - FIXED: Make image fill the container
+    if (this.img) {
+      // Make the image fill the entire container
+      this.img.style.width = '100%';
+      this.img.style.height = '100%';
+      this.img.style.objectFit = 'contain'; // or 'cover' if you want to fill without maintaining aspect ratio
+      this.img.style.position = 'absolute';
+      this.img.style.top = '0';
+      this.img.style.left = '0';
+    }
+  }
+
+  /**
+   * Update node dimensions in ProseMirror document
+   */
+  private updateNodeDimensions(width: number, height: number): void {
+    const pos = this.getPos();
+    const { tr } = this.view.state;
+
+    // Get the current node
+    const node = this.view.state.doc.nodeAt(pos);
+    if (!node) return;
+
+    // Create new attributes with updated dimensions
+    const newAttrs = {
+      ...node.attrs,
+      width: width,
+      height: height
+    };
+
+    // Update the node
+    tr.setNodeMarkup(pos, undefined, newAttrs);
+    this.view.dispatch(tr);
+
+    // Update stored attributes
+    this.nodeAttrs.width = width;
+    this.nodeAttrs.height = height;
+  }
+
+  /**
+   * Create resize overlay to capture mouse events
+   */
+  private createResizeOverlay(handle: string): void {
+    this.resizeOverlay = document.createElement('div');
+    this.resizeOverlay.className = 'resize-overlay';
+    this.resizeOverlay.style.cursor = this.getCursorForHandle(handle);
+    document.body.appendChild(this.resizeOverlay);
+  }
+
+  /**
+   * Get cursor style for handle position
+   */
+  private getCursorForHandle(handle: string): string {
+    const cursors: { [key: string]: string } = {
+      'nw': 'nw-resize',
+      'ne': 'ne-resize',
+      'sw': 'sw-resize',
+      'se': 'se-resize'
+    };
+    return cursors[handle] || 'default';
+  }
+
+  /**
+   * Show size indicator tooltip
+   */
+  private showSizeIndicator(width: number, height: number, x: number, y: number): void {
+    let indicator = document.querySelector('.size-indicator') as HTMLDivElement;
+
+    if (!indicator) {
+      indicator = document.createElement('div');
+      indicator.className = 'size-indicator';
+      document.body.appendChild(indicator);
+    }
+
+    indicator.textContent = `${width} × ${height}`;
+    indicator.style.left = `${x + 10}px`;
+    indicator.style.top = `${y - 30}px`;
+  }
+
+  /**
+   * Remove size indicator
+   */
+  private removeSizeIndicator(): void {
+    const indicator = document.querySelector('.size-indicator');
+    if (indicator) {
+      indicator.remove();
+    }
   }
 
   /**
@@ -294,7 +574,6 @@ class LazyImageNodeView implements NodeView {
     this.attemptImageLoad();
   }
 
-
   /**
    * Create image element
    */
@@ -306,21 +585,21 @@ class LazyImageNodeView implements NodeView {
     if (this.nodeAttrs.height) this.img.height = this.nodeAttrs.height;
     this.img.style.display = 'none';
     this.img.style.borderRadius = '4px';
-    this.img.style.position = 'absolute'; // Position absolutely within container
+    this.img.style.position = 'absolute';
     this.img.style.top = '0';
     this.img.style.left = '0';
     this.img.style.width = '100%';
     this.img.style.height = '100%';
-    this.img.style.objectFit = 'contain'; // Maintain aspect ratio
+    this.img.style.objectFit = 'contain';
 
-    // Add image to container (not before placeholder)
+    // Add image to container
     this.dom.appendChild(this.img);
   }
+
   /**
    * Attempt to load the image
    */
   private attemptImageLoad(): void {
-
     if (!this.imageId || !this.img) {
       this.handleExternalImage();
       return;
@@ -386,14 +665,10 @@ class LazyImageNodeView implements NodeView {
 
     if (src && (src.startsWith('data:') || src.startsWith('http') || src.startsWith('blob:'))) {
       if (this.img) {
-        // Set up handlers BEFORE setting src
         this.img.onload = () => this.onImageLoad();
         this.img.onerror = () => this.onImageError('Failed to load external image');
-
-        // Now set the src
         this.img.src = src;
 
-        // Check if already loaded (for cached images)
         if (this.img.complete && this.img.naturalHeight !== 0) {
           this.onImageLoad();
         }
@@ -402,14 +677,13 @@ class LazyImageNodeView implements NodeView {
       this.onImageError('Unknown image format');
     }
   }
+
   /**
    * Display the loaded image
    */
   private displayImage(src: string): void {
-
     if (this.isDestroyed || !this.img) return;
 
-    // Set up handlers BEFORE setting src
     this.img.onload = () => {
       this.onImageLoad();
     };
@@ -417,10 +691,8 @@ class LazyImageNodeView implements NodeView {
       this.onImageError('Failed to display image');
     };
 
-    // Now set the src
     this.img.src = src;
 
-    // For base64 images that might load synchronously
     if (this.img.complete && this.img.naturalHeight !== 0) {
       this.onImageLoad();
     }
@@ -429,9 +701,7 @@ class LazyImageNodeView implements NodeView {
   /**
    * Handle successful image load
    */
-
   private onImageLoad(): void {
-
     if (this.isDestroyed || !this.img) return;
 
     this.img.style.display = 'block';
@@ -441,28 +711,26 @@ class LazyImageNodeView implements NodeView {
       this.placeholder = null;
     }
 
-    // Ensure container has proper dimensions
-    const actualWidth = this.img.naturalWidth || this.nodeAttrs.width || 200;
-    const actualHeight = this.img.naturalHeight || this.nodeAttrs.height || 150;
+    // Use stored dimensions or natural dimensions
+    const actualWidth = this.nodeAttrs.width || this.img.naturalWidth || 200;
+    const actualHeight = this.nodeAttrs.height || this.img.naturalHeight || 150;
 
-    // Update container to match actual image size
+    // Update container to match dimensions
     this.dom.style.width = `${actualWidth}px`;
     this.dom.style.height = `${actualHeight}px`;
 
-    // Reset image styles to fill container properly
-    this.img.style.position = 'static';
-    this.img.style.width = 'auto';
-    this.img.style.height = 'auto';
-    this.img.style.maxWidth = '100%';
-    this.img.style.maxHeight = '100%';
-
+    // FIXED: Make image fill the container properly
+    this.img.style.position = 'absolute';
+    this.img.style.top = '0';
+    this.img.style.left = '0';
+    this.img.style.width = '100%';
+    this.img.style.height = '100%';
+    this.img.style.objectFit = 'contain'; // Maintains aspect ratio within container
   }
-
 
   private createFullPlaceholder(): void {
     if (!this.placeholder) return;
 
-    // Clear minimal placeholder content
     this.placeholder.innerHTML = '';
     this.placeholder.style.backgroundColor = '#2a2b35';
     this.placeholder.style.display = 'flex';
@@ -472,6 +740,7 @@ class LazyImageNodeView implements NodeView {
     this.placeholder.style.color = '#85889C';
     this.placeholder.style.fontSize = '14px';
   }
+
   /**
    * Handle image load error
    */
@@ -485,15 +754,13 @@ class LazyImageNodeView implements NodeView {
   }
 
   /**
-   * Handle node selection - UPDATED FOR PHASE 2
+   * Handle node selection
    */
   selectNode(): void {
-
     this.isSelected = true;
     this.dom.classList.add('image-selected');
     this.dom.classList.add('ProseMirror-selectednode');
 
-    // Create and show selection border
     if (!this.selectionRing) {
       this.selectionRing = document.createElement('div');
       this.selectionRing.className = 'image-selection-ring';
@@ -511,26 +778,23 @@ class LazyImageNodeView implements NodeView {
 
     this.selectionRing.style.display = 'block';
 
-    // Create and show resize handles (Phase 2)
+    // Create and show resize handles
     this.createResizeHandles();
     this.toggleResizeHandles(true);
   }
 
   /**
-   * Handle node deselection - UPDATED FOR PHASE 2
+   * Handle node deselection
    */
   deselectNode(): void {
-
     this.isSelected = false;
     this.dom.classList.remove('image-selected');
     this.dom.classList.remove('ProseMirror-selectednode');
 
-    // Hide the selection ring
     if (this.selectionRing) {
       this.selectionRing.style.display = 'none';
     }
 
-    // Hide resize handles (Phase 2)
     this.toggleResizeHandles(false);
   }
 
@@ -538,9 +802,12 @@ class LazyImageNodeView implements NodeView {
    * Stop event propagation for certain events
    */
   stopEvent(event: Event): boolean {
-    // Stop events from bubbling to prevent ProseMirror's default handling
+    // Allow resize events to be handled
+    if (this.isResizing) {
+      return true;
+    }
+
     if (event.type === 'mousedown' || event.type === 'click') {
-      // Allow the selection to work but prevent default paragraph selection
       return false;
     }
     return false;
@@ -550,7 +817,6 @@ class LazyImageNodeView implements NodeView {
    * Ignore mutations to avoid unnecessary re-renders
    */
   ignoreMutation(mutation: MutationRecord): boolean {
-    // Ignore all mutations to our custom node
     return true;
   }
 
@@ -558,18 +824,37 @@ class LazyImageNodeView implements NodeView {
    * Update node to handle attribute changes
    */
   update(node: PMNode): boolean {
-    // Check if it's still an image node
     if (node.type.name !== 'image') return false;
 
     // Update stored attributes
     this.nodeAttrs = node.attrs;
 
-    // Update dimensions if image is loaded
-    if (this.img && this.isFullyLoaded) {
-      if (node.attrs.width) this.img.width = node.attrs.width;
-      if (node.attrs.height) this.img.height = node.attrs.height;
-      this.dom.style.width = `${node.attrs.width}px`;
-      this.dom.style.height = `${node.attrs.height}px`;
+    // Update dimensions if not currently resizing
+    if (!this.isResizing) {
+      const width = node.attrs.width;
+      const height = node.attrs.height;
+
+      if (width && height) {
+        // Update container dimensions
+        this.dom.style.width = `${width}px`;
+        this.dom.style.height = `${height}px`;
+
+        // Update placeholder if it exists
+        if (this.placeholder) {
+          this.placeholder.style.width = `${width}px`;
+          this.placeholder.style.height = `${height}px`;
+        }
+
+        // FIXED: Ensure image fills container after update
+        if (this.img && this.isFullyLoaded) {
+          this.img.style.position = 'absolute';
+          this.img.style.top = '0';
+          this.img.style.left = '0';
+          this.img.style.width = '100%';
+          this.img.style.height = '100%';
+          this.img.style.objectFit = 'contain';
+        }
+      }
     }
 
     return true;
@@ -580,6 +865,22 @@ class LazyImageNodeView implements NodeView {
    */
   destroy(): void {
     this.isDestroyed = true;
+
+    // Clean up resize listeners if active
+    if (this.isResizing) {
+      document.removeEventListener('mousemove', this.handleResize);
+      document.removeEventListener('mouseup', this.endResize);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+    }
+
+    // Remove overlays
+    if (this.resizeOverlay) {
+      this.resizeOverlay.remove();
+      this.resizeOverlay = null;
+    }
+
+    this.removeSizeIndicator();
 
     if (this.intersectionObserver) {
       this.intersectionObserver.disconnect();
@@ -597,6 +898,8 @@ class LazyImageNodeView implements NodeView {
 
     this.placeholder = null;
     this.selectionRing = null;
+    this.resizeContainer = null;
+    this.resizeHandles = [];
     this.isFullyLoaded = false;
     this.isSelected = false;
   }
