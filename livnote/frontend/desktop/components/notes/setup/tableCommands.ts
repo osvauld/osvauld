@@ -1,4 +1,4 @@
-import { EditorState, Transaction } from "prosemirror-state";
+import { EditorState, Transaction, Selection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { Schema } from "prosemirror-model";
 
@@ -127,4 +127,118 @@ export function getTableInfo(state: EditorState) {
   }
 
   return null;
+}
+
+/**
+ * Delete entire table command
+ * This ensures the complete table is removed, not just cells
+ */
+export function deleteTable(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const tableInfo = getTableInfo(state);
+
+  if (!tableInfo) return false;
+
+  if (dispatch) {
+    const { tablePos, table } = tableInfo;
+    const tr = state.tr;
+
+    // Delete the entire table node
+    tr.delete(tablePos, tablePos + table.nodeSize);
+
+    // Ensure we have valid content after deletion
+    // If document becomes empty, add a paragraph
+    if (tr.doc.content.size === 0) {
+      const paragraph = state.schema.nodes.paragraph.create();
+      tr.insert(0, paragraph);
+      tr.setSelection(Selection.near(tr.doc.resolve(1)));
+    } else {
+      // Place cursor after deletion
+      try {
+        const $pos = tr.doc.resolve(Math.min(tablePos, tr.doc.content.size - 1));
+        tr.setSelection(Selection.near($pos));
+      } catch (e) {
+        // Fallback to start of document
+        tr.setSelection(Selection.near(tr.doc.resolve(1)));
+      }
+    }
+
+    dispatch(tr);
+  }
+
+  return true;
+}
+
+/**
+ * Check if the table has only one cell remaining
+ */
+export function isLastCellInTable(state: EditorState): boolean {
+  const tableInfo = getTableInfo(state);
+  if (!tableInfo) return false;
+
+  const { table } = tableInfo;
+  let cellCount = 0;
+
+  table.forEach((row: any) => {
+    row.forEach(() => {
+      cellCount++;
+    });
+  });
+
+  return cellCount === 1;
+}
+
+/**
+ * Enhanced delete backward command that handles table deletion
+ */
+export function deleteBackwardEnhanced(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const { $from, empty } = state.selection;
+
+  // Check if we're at the start of a cell in a table with only one cell
+  if (empty && isInTable(state)) {
+    const tableInfo = getTableInfo(state);
+
+    if (tableInfo) {
+      // Check if cursor is at the very start of the cell content
+      const cellStart = $from.start($from.depth);
+      const cursorAtCellStart = $from.pos === cellStart;
+
+      // If we're at the start of the last cell and it's empty, delete the table
+      if (cursorAtCellStart && isLastCellInTable(state)) {
+        const cell = $from.parent;
+        if (cell.content.size === 0 ||
+          (cell.content.size === 2 && cell.firstChild?.type.name === 'paragraph' && cell.firstChild.content.size === 0)) {
+          return deleteTable(state, dispatch);
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Enhanced select all that can select entire table
+ */
+export function selectTable(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
+  const tableInfo = getTableInfo(state);
+
+  if (!tableInfo) return false;
+
+  if (dispatch) {
+    const { tablePos, table } = tableInfo;
+    const tr = state.tr;
+
+    // Create a node selection for the entire table
+    const resolvedPos = state.doc.resolve(tablePos);
+    const selection = state.selection.constructor.create(
+      state.doc,
+      tablePos,
+      tablePos + table.nodeSize
+    );
+
+    tr.setSelection(selection);
+    dispatch(tr);
+  }
+
+  return true;
 }
