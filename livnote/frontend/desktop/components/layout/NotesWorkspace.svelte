@@ -140,6 +140,10 @@
 		}
 	};
 
+	const toggleNoteRightPanel = () => {
+		uiState.toggleNoteRightPanel();
+	}
+
 	onMount(() => {
 		document.documentElement.style.setProperty(
 			"--min-editor-width",
@@ -267,6 +271,16 @@
 					{/if}
 				</div>
 			{/if}
+			{#if !uiState.showNoteRightPanel}
+			<button
+				aria-label="Open note right panel"
+				class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
+				title="Open note right panel"
+				onclick={toggleNoteRightPanel}
+			>
+				<MenuToggle />
+			</button>
+		{/if}
 		</div>
 
 		<!-- Editor Component -->
