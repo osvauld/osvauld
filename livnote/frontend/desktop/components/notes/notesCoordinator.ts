@@ -9,7 +9,7 @@ import { EditorManager } from "./editorManager";
 import { createEditorSchema } from "./schema/editorSchema";
 import { CommentsStore } from "./commentsStore";
 import { ImageStorageService } from "./imageStorage";
-
+import { getTablePlugins } from "./setup/tablePlugin";
 // Import existing plugins
 import { slashCommandPlugin } from "./slashCommandPlugin";
 import { fixedMenuPlugin } from "./fixedMenuPlugin";
@@ -190,6 +190,7 @@ export class NotesCoordinator {
       floatingMenuPlugin(this.schema),
       markdownShortcutsPlugin(this.schema),
       imageNodeViewPlugin(this.imageStorage!),
+      ...getTablePlugins(this.schema),
     ];
   }
 
@@ -357,7 +358,7 @@ export class NotesCoordinator {
     if (this._imageStoreHandler) {
       document.removeEventListener('store-image-request', this._imageStoreHandler as EventListener);
     }
-    
+
     // Clear collaborators when destroying
     dataState.updateCollaborators([]);
   }

@@ -1,7 +1,7 @@
 import { Schema, type NodeSpec, type MarkSpec } from "prosemirror-model";
 import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
-
+import { tableNodes } from "prosemirror-tables";
 /**
  * Custom node specifications
  */
@@ -314,15 +314,38 @@ export function createEditorSchema(): Schema {
     .update("heading", modifiedHeadingSpec);
 
   // Add list nodes and image node
-  const finalNodes = addListNodes(modifiedNodes, "paragraph block*", "block")
+  const nodesWithListsAndImage = addListNodes(modifiedNodes, "paragraph block*", "block")
     .addToEnd("image", imageSpec);
+
+  // Add table nodes - this is the new part!
+  const tableNodeSpecs = tableNodes({
+    tableGroup: "block",
+    cellContent: "block+", // Allows rich content (paragraphs, headings, lists, etc.)
+    cellAttributes: {
+      background: {
+        default: null,
+        getFromDOM(dom: HTMLElement) {
+          return dom.style.backgroundColor || null;
+        },
+        setDOMAttr(value: string | null, attrs: any) {
+          if (value) attrs.style = (attrs.style || "") + `background-color: ${value};`;
+        }
+      }
+    }
+  });
+
+  // Add table nodes to the schema
+  const finalNodes = nodesWithListsAndImage
+    .addToEnd("table", tableNodeSpecs.table)
+    .addToEnd("table_row", tableNodeSpecs.table_row)
+    .addToEnd("table_cell", tableNodeSpecs.table_cell)
+    .addToEnd("table_header", tableNodeSpecs.table_header);
 
   return new Schema({
     nodes: finalNodes,
     marks: customMarks
   });
 }
-
 /**
  * Get mark by name from schema
  */
