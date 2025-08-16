@@ -6,14 +6,12 @@
 	import CommentThreadComponent from "./CommentThread.svelte";
 	import { dataState } from "../../state";
 
-	// Props using Svelte 5 runes
 	interface Props {
 		onClose?: () => void;
 	}
 
 	const { onClose }: Props = $props();
 
-	// State - much simpler now!
 	let selectedThreadId = $state<string | null>(null);
 	let showResolved = $state(false);
 	let highlightedThreadId = $state<string | null>(null);
@@ -21,20 +19,26 @@
 	let animationTimeoutId: ReturnType<typeof setTimeout> | null = null;
 	let commentsUnsubscribe: (() => void) | null = null;
 	let threads = $state<CommentThread[]>([]);
-	// Robust unread tracking with localStorage persistence
-	const READ_STATUS_KEY = "livnote_read_threads";
-	let readThreadIds = $state<Set<string>>(new Set());
+	let commentsStore: any = null;
+	let currentUserId: string | null = null;
+
 	function handleCommentsStoreReady(event: CustomEvent) {
-		const commentsStore = event.detail.commentsStore;
-		setupCommentsSubscriptionWithStore(commentsStore);
+		const commentsStoreInstance = event.detail.commentsStore;
+		setupCommentsSubscriptionWithStore(commentsStoreInstance);
 	}
 
-	function setupCommentsSubscriptionWithStore(commentsStore: any) {
+	function setupCommentsSubscriptionWithStore(commentsStoreInstance: any) {
 		// Clean up previous subscription
 		if (commentsUnsubscribe) {
 			commentsUnsubscribe();
 			commentsUnsubscribe = null;
 		}
+
+		// Store reference to commentsStore
+		commentsStore = commentsStoreInstance;
+
+		// Get current user ID
+		currentUserId = dataState.userDetails?.userId || null;
 
 		// Subscribe to updates
 		commentsUnsubscribe = commentsStore.subscribe(() => {
@@ -44,34 +48,6 @@
 
 		// Get initial threads
 		threads = commentsStore.getComments();
-	}
-	// Load read status from localStorage
-	function loadReadStatus() {
-		try {
-			const stored = localStorage.getItem(READ_STATUS_KEY);
-			if (stored) {
-				const ids = JSON.parse(stored);
-				readThreadIds = new Set(ids);
-			}
-		} catch (error) {
-			console.error("Error loading read status:", error);
-		}
-	}
-
-	// Save read status to localStorage (debounced)
-	let saveTimeoutId: ReturnType<typeof setTimeout> | null = null;
-	function saveReadStatus() {
-		if (saveTimeoutId) {
-			clearTimeout(saveTimeoutId);
-		}
-		saveTimeoutId = setTimeout(() => {
-			try {
-				const ids = Array.from(readThreadIds);
-				localStorage.setItem(READ_STATUS_KEY, JSON.stringify(ids));
-			} catch (error) {
-				console.error("Error saving read status:", error);
-			}
-		}, 100);
 	}
 
 	// Derived values
@@ -98,11 +74,14 @@
 		);
 	});
 
-	// Check for unread comments
+	// Check for unread comments using CommentsStore
 	const hasUnreadComments = $derived.by(() => {
+		if (!commentsStore || !currentUserId) return false;
+
 		return threads.some(
 			(thread: CommentThread) =>
-				!thread.resolved && !readThreadIds.has(thread.id),
+				!thread.resolved &&
+				!commentsStore.isThreadReadByUser(thread.id, currentUserId),
 		);
 	});
 
@@ -117,9 +96,9 @@
 	}
 
 	function markThreadAsRead(threadId: string) {
-		// Create a new Set to ensure reactivity
-		readThreadIds = new Set([...readThreadIds, threadId]);
-		saveReadStatus();
+		if (commentsStore && currentUserId) {
+			commentsStore.markThreadAsRead(threadId, currentUserId);
+		}
 	}
 
 	function scrollToCommentInEditor(threadId: string) {
@@ -199,9 +178,8 @@
 		}, 4000);
 	}
 
-	// Much simpler onMount - just load read status and listen for highlight events
+	// Listen for events
 	onMount(() => {
-		loadReadStatus();
 		document.addEventListener(
 			"comments-store-ready",
 			handleCommentsStoreReady as EventListener,
@@ -233,9 +211,6 @@
 		// Clean up timeouts
 		if (animationTimeoutId) {
 			clearTimeout(animationTimeoutId);
-		}
-		if (saveTimeoutId) {
-			clearTimeout(saveTimeoutId);
 		}
 		if (commentsUnsubscribe) {
 			commentsUnsubscribe();

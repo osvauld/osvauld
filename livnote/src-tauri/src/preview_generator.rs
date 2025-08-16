@@ -1,4 +1,3 @@
-use log::info;
 use osvauld_core::models::document::{YjsDocExt, create_doc};
 use regex::Regex;
 use std::collections::HashMap;
@@ -27,12 +26,12 @@ impl PreviewGenerator {
     /// Generate preview HTML from YJS states
     pub async fn generate_preview_html(
         &self,
-        yjs_state: &[u8],
+        main_doc_state: &[u8],
         image_state: &[u8],
         max_nodes: usize,
     ) -> Result<(String, String), Box<dyn std::error::Error>> {
         // Extract content from main YJS state
-        let (content_html, title) = self.extract_content_from_yjs_state(yjs_state).await?;
+        let (content_html, title) = self.extract_content_from_yjs_state(main_doc_state).await?;
 
         if content_html.is_empty() {
             return Ok((String::new(), title));
@@ -192,8 +191,8 @@ pub async fn generate_preview_html(
     data: &serde_json::Value,
     max_nodes: usize,
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let yjs_state = data
-        .get("yjs_state")
+    let main_doc = data
+        .get("main_doc")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -213,6 +212,6 @@ pub async fn generate_preview_html(
         .unwrap_or_default();
     let generator = PreviewGenerator::new()?;
     generator
-        .generate_preview_html(&yjs_state, &image_state, max_nodes)
+        .generate_preview_html(&main_doc, &image_state, max_nodes)
         .await
 }

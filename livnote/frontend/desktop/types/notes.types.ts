@@ -7,10 +7,8 @@ import * as Y from "yjs";
  * Note content structure for storage, retrieval and synchronization
  */
 export interface NoteContent {
-  content: string | Record<string, unknown>;
-  yjs_state: Uint8Array | number[];
+  main_doc: Uint8Array | number[];
   image_state: Uint8Array | number[];
-  editor_state: string | Record<string, unknown>;
   client_id?: string;
   last_modified?: number;
   last_accessed?: number;
@@ -68,6 +66,7 @@ export interface UserInfo {
   name: string;
   color: string;
   id: number;
+  userId: string;
 }
 
 /**
@@ -127,7 +126,7 @@ export interface CommentThread {
   position: CommentPosition;
   created_at: number;
   updated_at: number;
-  is_read?: boolean; // Track if user has read this thread
+  readBy?: { [userId: string]: boolean }
 }
 
 /**

@@ -50,9 +50,6 @@ export class YjsManager {
       gcFilter: () => false
     });
 
-    mainDoc.clientID = this.config.clientId;
-    imageDoc.clientID = this.config.clientId;
-
     const type = mainDoc.getXmlFragment("prosemirror");
     const commentsMap = mainDoc.getMap<CommentThread>("comments");
     const metadata = mainDoc.getMap("metadata");
@@ -249,6 +246,7 @@ export class YjsManager {
         this.afterTransactionsHandler = null;
       }
 
+      this.documents.awareness.destroy();
       this.documents.mainDoc.destroy();
       this.documents.imageDoc.destroy();
       this.documents = null;

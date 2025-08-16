@@ -307,4 +307,49 @@ export class CommentsStore {
   private generateCommentId(): string {
     return 'comment_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
   }
+  /**
+     * Mark a thread as read for a specific user
+     */
+  markThreadAsRead(threadId: string, userId: string): boolean {
+    if (!this.currentCommentsMap) return false;
+
+    const thread = this.currentCommentsMap.get(threadId);
+    if (!thread) {
+      console.error("Thread not found:", threadId);
+      return false;
+    }
+
+    const updatedThread: CommentThread = {
+      ...thread,
+      readBy: {
+        ...thread.readBy,
+        [userId]: true
+      },
+      updated_at: Date.now()
+    };
+
+    this.currentCommentsMap.set(threadId, updatedThread);
+    return true;
+  }
+
+  /**
+   * Check if a thread has been read by a specific user
+   */
+  isThreadReadByUser(threadId: string, userId: string): boolean {
+    if (!this.currentCommentsMap) return false;
+
+    const thread = this.currentCommentsMap.get(threadId);
+    if (!thread) return false;
+
+    return thread.readBy?.[userId] === true;
+  }
+
+  /**
+   * Get unread threads for a specific user
+   */
+  getUnreadThreadsForUser(userId: string): CommentThread[] {
+    return this.getComments().filter(thread =>
+      !thread.resolved && !this.isThreadReadByUser(thread.id, userId)
+    );
+  }
 }
