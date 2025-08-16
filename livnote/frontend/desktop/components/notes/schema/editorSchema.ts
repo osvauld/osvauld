@@ -12,28 +12,37 @@ const imageSpec: NodeSpec = {
     alt: { default: null },
     title: { default: null },
     width: { default: null },
-    height: { default: null }
+    height: { default: null },
+    margin: { default: 12 }
   },
   group: "inline",
   draggable: true,
   parseDOM: [{
     tag: "img[src]",
     getAttrs(dom: HTMLElement) {
+      const marginAttr = dom.getAttribute("data-margin");
+      const margin = marginAttr != null ? parseInt(marginAttr, 10) : 12;
       return {
         src: dom.getAttribute("src"),
         alt: dom.getAttribute("alt"),
         title: dom.getAttribute("title"),
         width: dom.getAttribute("width"),
         height: dom.getAttribute("height"),
-        margin: { default: 12 }
+        margin
       };
     }
   }],
   toDOM(node) {
-    return ["img", node.attrs];
+    const { margin, ...htmlAttrs } = node.attrs;
+    const finalMargin = margin ?? 12;
+
+    return ["img", {
+      ...htmlAttrs,
+      style: `margin: ${finalMargin}px`,
+      "data-margin": finalMargin
+    }];
   }
 };
-
 /**
  * Helper to add indent and align attributes to a node spec
  */
