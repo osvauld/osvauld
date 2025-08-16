@@ -1,47 +1,32 @@
-/* Table wrapper with padding for controls */
-.tableWrapper {
-  padding: 40px;
-  margin: 2em 0;
-  position: relative;
-}
-
-/* Base table styling */
+/* Base table styles */
 .ProseMirror table {
   border-collapse: collapse;
   table-layout: fixed;
   width: 100%;
-  margin: 0;
-  /* Remove margin since wrapper handles spacing */
+  margin: 2em 0;
   background: #16171f;
   border: 1px solid #2a2b2f;
   border-radius: 8px;
-  transition: all 0.3s ease;
   position: relative;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-/* Enhanced table hover effect */
-.ProseMirror table:hover {
-  box-shadow: 0 8px 24px rgba(64, 148, 239, 0.15);
-  border-color: #4094ef;
-  transform: translateY(-1px);
+  transition: all 0.3s ease;
+  overflow: hidden;
 }
 
 /* Table cells */
 .ProseMirror td,
 .ProseMirror th {
-  min-width: 1em;
+  min-width: 50px;
   border: 1px solid #2a2b2f;
-  padding: 16px 20px;
+  padding: 12px 16px;
   vertical-align: top;
   box-sizing: border-box;
   position: relative;
   background: #16171f;
   color: #bfc0cc;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease;
 }
 
-/* Header cells styling */
+/* Header cells */
 .ProseMirror th {
   font-weight: 600;
   text-align: left;
@@ -52,25 +37,22 @@
   letter-spacing: 0.025em;
 }
 
-/* Row hover effects */
-.ProseMirror tr:hover td,
-.ProseMirror tr:hover th {
-  background: #252630;
+/* Row hover effect */
+.ProseMirror tr:hover td {
+  background: rgba(37, 38, 48, 0.5);
 }
 
 .ProseMirror tr:hover th {
-  background: #2a2b35;
+  background: rgba(42, 43, 53, 0.8);
 }
 
-/* Cell content */
-.ProseMirror td>*,
-.ProseMirror th>* {
-  margin-bottom: 0;
-}
-
-.ProseMirror td>p,
-.ProseMirror th>p {
-  margin: 0;
+/* Cell focus */
+.ProseMirror td:focus,
+.ProseMirror th:focus {
+  outline: 2px solid #4094ef;
+  outline-offset: -2px;
+  background: rgba(64, 148, 239, 0.05) !important;
+  z-index: 1;
 }
 
 /* Selected cells */
@@ -82,10 +64,9 @@
   right: 0;
   top: 0;
   bottom: 0;
-  background: linear-gradient(135deg, rgba(64, 148, 239, 0.15), rgba(64, 148, 239, 0.25));
+  background: rgba(64, 148, 239, 0.15);
   pointer-events: none;
-  border-radius: 6px;
-  border: 2px solid rgba(64, 148, 239, 0.5);
+  border: 1px solid rgba(64, 148, 239, 0.4);
 }
 
 /* Column resize handle */
@@ -95,229 +76,138 @@
   top: 0;
   bottom: -2px;
   width: 4px;
-  background: linear-gradient(to bottom, transparent, #4094ef, transparent);
-  pointer-events: none;
-  border-radius: 2px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
+  background: transparent;
+  pointer-events: auto;
+  cursor: col-resize;
+  z-index: 20;
 }
 
-.ProseMirror table:hover .column-resize-handle {
-  opacity: 1;
+.ProseMirror .column-resize-handle:hover,
+.ProseMirror .column-resize-handle.dragging {
+  background: linear-gradient(to bottom, transparent, #4094ef, transparent);
 }
 
 .ProseMirror.resize-cursor {
-  cursor: ew-resize;
   cursor: col-resize;
 }
 
-/* Table node selection */
+/* Table node selection (whole table selected) */
 .ProseMirror table.ProseMirror-selectednode {
   outline: 3px solid #4094ef;
-  outline-offset: 4px;
-  border-radius: 12px;
-  box-shadow: 0 0 0 1px rgba(64, 148, 239, 0.2);
-}
-
-/* Focus styles for cells */
-.ProseMirror td.ProseMirror-focused,
-.ProseMirror th.ProseMirror-focused {
-  outline: 2px solid #4094ef;
-  outline-offset: -2px;
-  border-radius: 6px;
-  background: rgba(64, 148, 239, 0.05) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 20px rgba(64, 148, 239, 0.2);
 }
 
 /* Empty cell placeholder */
 .ProseMirror td:empty::before,
 .ProseMirror th:empty::before {
-  content: "";
-  display: inline-block;
-  width: 1px;
-  height: 1.4em;
-  background: rgba(191, 192, 204, 0.1);
-}
-
-/* NEW HOVER CONTROLS STYLES */
-
-/* Hover Controls Container */
-.table-hover-controls-enhanced {
-  pointer-events: none;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-}
-
-/* Add buttons styling */
-.table-add-btn {
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-  backdrop-filter: blur(8px);
-}
-
-.table-add-btn:hover {
-  transform: scale(1.15) !important;
-  box-shadow: 0 8px 20px rgba(64, 148, 239, 0.4) !important;
-}
-
-.table-add-btn:active {
-  transform: scale(1.05) !important;
-}
-
-.table-add-btn:focus {
-  outline: 2px solid #4094ef;
-  outline-offset: 2px;
-}
-
-/* Menu buttons */
-.table-menu-btn {
-  transition: all 0.2s ease;
-  backdrop-filter: blur(4px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-}
-
-.table-menu-btn:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-}
-
-.table-menu-btn:active {
-  transform: scale(0.95) !important;
-}
-
-.table-menu-btn:focus {
-  outline: 2px solid #4094ef;
-  outline-offset: 2px;
-}
-
-/* Context menu */
-.table-context-menu {
-  animation: menuAppear 0.15s ease-out;
-}
-
-@keyframes menuAppear {
-  from {
-    opacity: 0;
-    transform: scale(0.95) translateY(-4px);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.table-menu-item {
-  position: relative;
-}
-
-.table-menu-item::before {
   content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: transparent;
-  transition: background 0.15s ease;
+  display: inline-block;
+  height: 1.4em;
 }
 
-.table-menu-item:hover::before {
-  background: #4094ef;
+/* Cell content alignment */
+.ProseMirror td p,
+.ProseMirror th p {
+  margin: 0;
 }
 
-/* Animation for control appearance */
-@keyframes controlsAppear {
+.ProseMirror td>*:not(:last-child),
+.ProseMirror th>*:not(:last-child) {
+  margin-bottom: 0.5em;
+}
+
+/* Cell alignment helpers */
+.ProseMirror td[align="center"],
+.ProseMirror th[align="center"] {
+  text-align: center;
+}
+
+.ProseMirror td[align="right"],
+.ProseMirror th[align="right"] {
+  text-align: right;
+}
+
+/* Multi-cell selection visual feedback */
+.ProseMirror .selectedCell {
+  background: rgba(64, 148, 239, 0.08) !important;
+}
+
+/* Animation for new rows/columns */
+@keyframes slideIn {
   from {
     opacity: 0;
-    transform: scale(0.8) translateY(4px);
+    transform: scale(0.95);
   }
 
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: scale(1);
   }
 }
 
-.table-add-btn,
-.table-menu-btn {
-  animation: controlsAppear 0.3s ease-out;
+.ProseMirror tr.new-row {
+  animation: slideIn 0.3s ease;
 }
 
-/* Tooltips */
-.table-add-btn[title]:hover::after,
-.table-menu-btn[title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #1a1b23;
-  color: #e4e4e7;
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  z-index: 1000;
-  margin-bottom: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  pointer-events: none;
+/* Merged cells styling */
+.ProseMirror td[colspan],
+.ProseMirror th[colspan] {
+  text-align: center;
 }
 
-/* Subtle pulse animation for better discoverability */
-@keyframes subtlePulse {
+.ProseMirror td[rowspan],
+.ProseMirror th[rowspan] {
+  vertical-align: middle;
+}
 
-  0%,
-  100% {
-    box-shadow: 0 4px 12px rgba(64, 148, 239, 0.3);
+/* Print styles */
+@media print {
+  .ProseMirror table {
+    break-inside: avoid;
+    margin: 1em 0;
+    border: 1px solid #ccc;
   }
 
-  50% {
-    box-shadow: 0 4px 16px rgba(64, 148, 239, 0.5);
+  .ProseMirror td,
+  .ProseMirror th {
+    border: 1px solid #ccc;
+    padding: 8px;
+    background: white;
+    color: black;
   }
-}
 
-.ProseMirror table:hover .table-add-btn {
-  animation: subtlePulse 3s ease-in-out infinite;
+  .ProseMirror th {
+    background: #f0f0f0;
+    font-weight: bold;
+  }
 }
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .ProseMirror table {
-    margin: 2em 0;
+    font-size: 14px;
   }
 
   .ProseMirror td,
   .ProseMirror th {
-    padding: 12px 16px;
-    font-size: 14px;
-  }
-
-  .table-add-btn {
-    width: 28px !important;
-    height: 28px !important;
-    font-size: 16px !important;
-  }
-
-  .table-menu-btn {
-    width: 20px !important;
-    height: 20px !important;
-    font-size: 12px !important;
-  }
-
-  .table-context-menu {
-    min-width: 160px;
+    padding: 8px 12px;
   }
 }
 
-/* Dark mode specific enhancements */
+/* Dark mode adjustments */
 @media (prefers-color-scheme: dark) {
   .ProseMirror table {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   }
+}
 
-  .table-add-btn {
-    border-color: rgba(255, 255, 255, 0.2);
-  }
+/* Performance optimizations */
+.ProseMirror table {
+  will-change: transform;
+}
 
-  .table-menu-btn {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
+.ProseMirror td,
+.ProseMirror th {
+  will-change: background-color;
 }

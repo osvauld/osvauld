@@ -16,7 +16,9 @@ import {
 } from "prosemirror-tables";
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
-import { tableHoverPlugin } from "./tableHoverControls";
+import { tableContextMenuPlugin } from "./tableContextMenuPlugin";
+import { deleteTable, deleteBackwardEnhanced, selectTable, isInTable, isLastCellInTable } from "./tableCommands";
+
 /**
  * Creates the table editing plugin with keyboard shortcuts
  */
@@ -28,12 +30,28 @@ export function createTableKeymap(schema: Schema): Plugin {
     "Shift-Tab": goToNextCell(-1),
 
     // Row operations
-    "Mod-Shift-=": addRowAfter,
-    "Mod-Shift--": deleteRow,
+    "Mod-Alt-Up": addRowBefore,
+    "Mod-Alt-Down": addRowAfter,
+    "Mod-Shift-Delete": (state, dispatch) => {
+      // Try to delete row first
+      if (deleteRow(state, dispatch)) {
+        return true;
+      }
+      // If that fails (last row), delete the entire table
+      return deleteTable(state, dispatch);
+    },
 
     // Column operations  
-    "Mod-Shift-\\": addColumnAfter,
-    "Mod-Shift-Backspace": deleteColumn,
+    "Mod-Alt-Left": addColumnBefore,
+    "Mod-Alt-Right": addColumnAfter,
+    "Mod-Alt-Delete": (state, dispatch) => {
+      // Try to delete column first
+      if (deleteColumn(state, dispatch)) {
+        return true;
+      }
+      // If that fails (last column), delete the entire table
+      return deleteTable(state, dispatch);
+    },
 
     // Cell operations
     "Mod-Shift-m": mergeCells,
@@ -42,7 +60,102 @@ export function createTableKeymap(schema: Schema): Plugin {
     // Header toggles
     "Mod-Shift-h": toggleHeaderRow,
     "Mod-Shift-j": toggleHeaderColumn,
+
+    // Delete entire table
+    "Mod-Shift-Backspace": deleteTable,
+
+    // Enhanced backspace handling for table deletion
+    "Backspace": (state, dispatch, view) => {
+      // First try our enhanced delete backward
+      if (deleteBackwardEnhanced(state, dispatch)) {
+        return true;
+      }
+
+      // If we're in a table and at the beginning of a cell
+      if (isInTable(state)) {
+        const { $from, empty } = state.selection;
+
+        if (empty) {
+          // Check if we're at the very start of the cell
+          const cellStart = $from.start($from.depth);
+
+          if ($from.pos === cellStart) {
+            // Check if this is the only cell with no content
+            if (isLastCellInTable(state)) {
+              const cell = $from.parent;
+
+              // If cell is empty or contains only an empty paragraph
+              if (cell.content.size === 0 ||
+                (cell.firstChild?.type.name === 'paragraph' &&
+                  cell.firstChild.content.size === 0)) {
+                return deleteTable(state, dispatch);
+              }
+            }
+          }
+        }
+      }
+
+      // Let default backspace behavior handle it
+      return false;
+    },
+
+    // Delete key handling
+    "Delete": (state, dispatch) => {
+      // If entire table is selected, delete it
+      const { from, to } = state.selection;
+      const tableInfo = getTableInfo(state);
+
+      if (tableInfo) {
+        const { tablePos, table } = tableInfo;
+
+        // Check if entire table is selected
+        if (from <= tablePos && to >= tablePos + table.nodeSize) {
+          return deleteTable(state, dispatch);
+        }
+      }
+
+      return false;
+    },
+
+    // Select entire table
+    "Mod-a": (state, dispatch, view) => {
+      if (isInTable(state)) {
+        // First Cmd+A selects current cell content
+        // Second Cmd+A selects entire table
+        const { $from } = state.selection;
+        const cellStart = $from.start($from.depth);
+        const cellEnd = $from.end($from.depth);
+
+        // Check if current cell is already fully selected
+        if (state.selection.from === cellStart && state.selection.to === cellEnd) {
+          // Select the entire table
+          return selectTable(state, dispatch);
+        }
+      }
+
+      return false;
+    }
   });
+}
+
+// Helper function to get table info (imported from tableCommands)
+function getTableInfo(state: any) {
+  const { $from } = state.selection;
+
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth);
+    if (node.type.spec.tableRole === "table") {
+      return {
+        table: node,
+        tablePos: $from.before(depth),
+        depth: depth,
+        cell: $from.node(depth - 1),
+        cellPos: $from.before(depth - 1)
+      };
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -50,7 +163,6 @@ export function createTableKeymap(schema: Schema): Plugin {
  */
 export function createTablePlugins(schema: Schema): Plugin[] {
   return [
-
     // Core table editing functionality
     tableEditing(),
 
@@ -58,57 +170,16 @@ export function createTablePlugins(schema: Schema): Plugin[] {
     columnResizing({
       handleWidth: 5,
       cellMinWidth: 50,
-      lastColumnResizable: true
+      lastColumnResizable: true,
+      View: undefined
     }),
 
     // Keyboard shortcuts for table operations
     createTableKeymap(schema),
-    tableHoverPlugin()
+
+    // Context menu for table operations
+    tableContextMenuPlugin()
   ];
-}
-
-/**
- * Table utilities plugin for additional functionality
- */
-export function tableUtilsPlugin(): Plugin {
-  return new Plugin({
-    props: {
-      // Handle clicks on table elements
-      handleClick(view, pos, event) {
-        // Future: Add click handlers for table controls
-        return false;
-      },
-
-      // Handle DOM events
-      handleDOMEvents: {
-        // Future: Add hover handlers for table controls
-        mouseover(view, event) {
-          // Placeholder for hover controls
-          return false;
-        },
-
-        mouseout(view, event) {
-          // Placeholder for hover controls cleanup
-          return false;
-        }
-      }
-    },
-
-    // Plugin state for tracking table interactions
-    state: {
-      init() {
-        return {
-          hoveredTable: null,
-          hoveredCell: null
-        };
-      },
-
-      apply(tr, prev) {
-        // Future: Track table hover state changes
-        return prev;
-      }
-    }
-  });
 }
 
 /**
