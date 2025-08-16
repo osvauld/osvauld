@@ -51,7 +51,7 @@
 		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation"
 	>
-		{#if uiState.isNavigationPanelManuallyToggled}
+	
 			<button
 				aria-label="Collapse navigation panel"
 				class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
@@ -60,7 +60,7 @@
 			>
 				<MenuToggle />
 			</button>
-		{/if}
+		
 
 		<div class="relative">
 			<button

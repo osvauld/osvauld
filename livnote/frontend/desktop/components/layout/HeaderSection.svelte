@@ -113,7 +113,7 @@
 				}
 			}}
 		>
-			<span class="font-normal text-base">Connect a User</span>
+			<span class="font-normal text-base whitespace-nowrap">Connect a User</span>
 			<ConnectUser size={24} />
 		</button>
 		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
