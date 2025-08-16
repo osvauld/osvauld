@@ -96,8 +96,9 @@
 			onclick={saveNoteManual}
 			class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]">
 			{#if saved}
-				<span class="whitespace-nowrap flex items-center justify-center">
-					<Tick color="#9DD062" />
+				<span class="whitespace-nowrap flex items-center justify-center gap-1 text-toastGreen">
+					<span >Saved..</span>
+					<Tick color="#9DD062" size={20} />
 				</span>
 			{:else}
 				<span>Save</span>
