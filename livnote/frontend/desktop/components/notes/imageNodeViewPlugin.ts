@@ -74,23 +74,31 @@ class LazyImageNodeView implements NodeView {
    */
   private createImageContainer(): void {
     // Create wrapper container that will hold everything
-    this.dom = document.createElement('div');
+    this.dom = document.createElement('div'); // Back to div for better control
     this.dom.className = 'image-node-container';
-    this.dom.style.display = 'inline-block';
+    this.dom.style.display = 'block'; // Block display
+    this.dom.style.float = 'left'; // Float left to allow text wrapping
+    this.dom.style.clear = 'none';
     this.dom.style.position = 'relative';
     this.dom.style.lineHeight = '0';
-    this.dom.style.verticalAlign = 'bottom';
+    this.dom.style.margin = '8px 12px 8px 0'; // Right and bottom margin for text spacing
+    this.dom.style.cursor = 'default';
+
+    // Make it non-editable to prevent text cursor
+    this.dom.contentEditable = 'false';
+    this.dom.setAttribute('draggable', 'false');
 
     // Create the actual image placeholder
     const imagePlaceholder = document.createElement('div');
     imagePlaceholder.className = 'image-node-lazy';
-    imagePlaceholder.style.display = 'inline-block';
+    imagePlaceholder.style.display = 'block';
     imagePlaceholder.style.width = this.nodeAttrs.width ? `${this.nodeAttrs.width}px` : '200px';
     imagePlaceholder.style.height = this.nodeAttrs.height ? `${this.nodeAttrs.height}px` : '150px';
     imagePlaceholder.style.backgroundColor = '#1a1b23';
     imagePlaceholder.style.border = '1px solid #2a2b35';
     imagePlaceholder.style.borderRadius = '4px';
     imagePlaceholder.style.position = 'relative';
+    imagePlaceholder.style.cursor = 'pointer';
 
     // Minimal loading indicator
     const indicator = document.createElement('div');
@@ -111,8 +119,37 @@ class LazyImageNodeView implements NodeView {
     // Store reference to the placeholder
     this.placeholder = imagePlaceholder;
 
+    // Add click handler to select the image
+    this.dom.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.handleImageClick();
+    });
+
     // Add CSS animation if not exists
     this.ensureStyles();
+  }
+
+  /**
+   * Handle image click to select it properly
+   */
+  private handleImageClick(): void {
+    if (this.isDestroyed || this.isResizing) return;
+
+    const pos = this.getPos();
+    const { tr } = this.view.state;
+
+    // Set selection to the image node
+    const resolvedPos = this.view.state.doc.resolve(pos);
+    const selection = this.view.state.selection.constructor.create(
+      this.view.state.doc,
+      resolvedPos.pos,
+      resolvedPos.pos + 1
+    );
+
+    tr.setSelection(selection);
+    this.view.dispatch(tr);
+    this.view.focus();
   }
 
   /**
@@ -148,13 +185,44 @@ class LazyImageNodeView implements NodeView {
           content: none !important;
         }
         
+        /* Image container with float for text wrapping */
         .image-node-container {
-          cursor: pointer;
+          cursor: default !important;
           user-select: none;
-          display: inline-block;
-          vertical-align: top;
-          line-height: 0;
+          display: block !important;
+          float: left !important;
+          clear: none !important;
           position: relative;
+          line-height: 0;
+          margin: 8px 12px 8px 0;
+          max-width: 100%;
+        }
+        
+        /* Alternative: centered block image */
+        .image-node-container.image-centered {
+          float: none !important;
+          display: block !important;
+          margin: 16px auto !important;
+          clear: both !important;
+        }
+        
+        /* Alternative: right-aligned image */
+        .image-node-container.image-right {
+          float: right !important;
+          margin: 8px 0 8px 12px !important;
+        }
+        
+        /* Alternative: full-width block image */
+        .image-node-container.image-block {
+          float: none !important;
+          display: block !important;
+          margin: 16px 0 !important;
+          clear: both !important;
+        }
+        
+        /* Prevent text cursor near images */
+        .image-node-container:hover {
+          cursor: pointer !important;
         }
         
         /* Our custom selection border */
@@ -181,11 +249,13 @@ class LazyImageNodeView implements NodeView {
           height: 100%;
           object-fit: contain;
           vertical-align: top;
+          cursor: pointer !important;
         }
         
         .image-node-lazy {
           display: block !important;
           vertical-align: top;
+          cursor: pointer !important;
         }
         
         /* Ensure no selection artifacts */
@@ -221,6 +291,29 @@ class LazyImageNodeView implements NodeView {
           pointer-events: none;
           z-index: 10000;
           box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        /* Clear floats after paragraphs with images */
+        .ProseMirror p::after {
+          content: "";
+          display: table;
+          clear: both;
+        }
+        
+        /* Ensure proper paragraph spacing */
+        .ProseMirror p {
+          min-height: 1.5em;
+          line-height: 1.5;
+        }
+        
+        /* Prevent cursor height issues */
+        .ProseMirror {
+          line-height: 1.5;
+        }
+        
+        /* Optional: Add a clear-fix utility class */
+        .clear-both {
+          clear: both !important;
         }
       `;
       document.head.appendChild(style);
@@ -807,9 +900,12 @@ class LazyImageNodeView implements NodeView {
       return true;
     }
 
-    if (event.type === 'mousedown' || event.type === 'click') {
+    // Prevent default text cursor behavior
+    if (event.type === 'mousedown' || event.type === 'click' || event.type === 'mouseover') {
+      // Let ProseMirror handle selection but prevent text cursor
       return false;
     }
+
     return false;
   }
 
@@ -817,6 +913,7 @@ class LazyImageNodeView implements NodeView {
    * Ignore mutations to avoid unnecessary re-renders
    */
   ignoreMutation(mutation: MutationRecord): boolean {
+    // Ignore all mutations to our custom node
     return true;
   }
 
