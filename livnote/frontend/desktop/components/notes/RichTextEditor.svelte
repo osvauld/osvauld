@@ -324,7 +324,7 @@
 	/* Basic editor container structure */
 	.editor-container {
 		margin: 0 auto;
-		width: 100%;
+		width: 210mm;
 		height: 100%;
 		background: #16171f;
 		color: white;
@@ -410,9 +410,9 @@
 
 			<!-- Skeleton overlay -->
 			{#if showSkeleton}
-				<div class="absolute inset-0 p-6 space-y-4 bg-[#16171f] z-50">
+				<div class="absolute inset-0 p-6 space-y-4 bg-[#16171f]">
 					<div class="animate-pulse space-y-6">
-						<div class="text-white text-sm mb-4 bg-blue-600 p-2 rounded">
+						<div class="text-white text-sm mb-4  p-2 rounded">
 							{#if uiState.isNoteFetching}
 								decrypting note ...
 							{:else if uiState.isEditorLoading}

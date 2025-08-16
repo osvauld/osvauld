@@ -17,9 +17,11 @@
 	let newNoteTitle = $state("");
 	let isEditingTitle = $state(false);
 	let inputRef = $state<HTMLInputElement | null>(null);
-	let userId = $state("");
+	let myUsername = dataState.userDetails?.username;
 	let isNavigatingBack = false;
 	let collaboratorSyncInterval: number | null = null;
+
+
 	// Derived state for favorite status using the reactive notes array
 	let isFavourite = $derived(() => {
 		const noteId = dataState.currentNoteId;
@@ -27,6 +29,9 @@
 		const note = dataState.getNoteById(noteId);
 		return note?.favourite ?? false;
 	});
+
+	// Derived state for filtered collaborators (excluding current user)
+	let otherOnlineCollaborators = $derived(dataState.collaborators.filter(c => c.name !== myUsername));
 
 	// Title editing functions
 	const startEditingTitle = () => {
@@ -135,10 +140,11 @@
 		}
 	};
 
+	const toggleNoteRightPanel = () => {
+		uiState.toggleNoteRightPanel();
+	}
+
 	onMount(() => {
-		if (dataState.userDetails?.userId) {
-			userId = dataState.userDetails?.userId;
-		}
 		document.documentElement.style.setProperty(
 			"--min-editor-width",
 			`${uiState.MIN_EDITOR_WIDTH}px`,
@@ -191,7 +197,11 @@
 					<BackArrow />
 				</button>
 
-				{#if isEditingTitle}
+				{#if !dataState.currentNoteTitle}
+					<span class="grow mx-5 py-2 animate-pulse-general">
+						<div class="w-42 h-12 rounded"></div>
+					</span>
+				{:else if isEditingTitle}
 					<div
 						class="grow mx-5 flex justify-between items-center py-1 px-3 border rounded-lg border-osvauld-iconblack"
 					>
@@ -227,18 +237,18 @@
 					{/if}
 				</button>
 			</div>
-			{#if dataState.collaborators.length > 0}
+			{#if otherOnlineCollaborators.length > 0 && myUsername}
 				<div class="ml-auto flex items-center">
-					{#each dataState.collaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+					{#each otherOnlineCollaborators.slice(0, 3) as collaborator, index (collaborator.id)}
 						<div
-							class="relative {index !== 0 ? '-ml-3' : ''}"
+							class="relative {index !== 0 ? '-ml-3' : ''} select-none"
 							aria-label={collaborator.name}
 							title={collaborator.name}
 							in:fade={{ duration: 200 }}
 							out:fade={{ duration: 200 }}
 						>
 							<div
-								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative"
+								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative  cursor-default select-none"
 							>
 								{getInitial(collaborator.name)}
 								<!-- Live indicator dot -->
@@ -250,17 +260,27 @@
 						</div>
 					{/each}
 
-					{#if dataState.collaborators.length > 3}
-						<div class="relative -ml-3" aria-label={`+${dataState.collaborators.length - 3} more collaborators`}>
+					{#if otherOnlineCollaborators.length > 3}
+						<div class="relative -ml-3" aria-label={`+${otherOnlineCollaborators.length - 3} more collaborators`}>
 							<div
 								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center"
 							>
-								+{dataState.collaborators.length - 3}
+								+{otherOnlineCollaborators.length - 3}
 							</div>
 						</div>
 					{/if}
 				</div>
 			{/if}
+			{#if !uiState.showNoteRightPanel}
+			<button
+				aria-label="Open note right panel"
+				class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
+				title="Open note right panel"
+				onclick={toggleNoteRightPanel}
+			>
+				<MenuToggle />
+			</button>
+		{/if}
 		</div>
 
 		<!-- Editor Component -->

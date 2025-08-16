@@ -170,3 +170,23 @@
 .profileBtn {
 	@apply p-3 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
 }
+
+
+@keyframes shimmer {
+	0% {
+		background-position: -200px 0;
+	}
+	100% {
+		background-position: calc(200px + 100%) 0;
+	}
+}
+
+.animate-pulse-general {
+	animation: shimmer 1s ease-in-out infinite;
+}
+
+.animate-pulse-general > div {
+	background: linear-gradient(90deg, #0d0e13 25%, #3a3b44 37%, #0d0e13 63%);
+	background-size: 400px 100%;
+	animation: shimmer 0.5s ease-in-out infinite;
+}

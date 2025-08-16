@@ -63,7 +63,7 @@
 <div class="h-full flex flex-col text-base">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
-		<h1 class="text-2xl font-semibold text-white mb-2">Connect a User</h1>
+		<h1 class="text-2xl font-light text-white mb-2">Connect a User</h1>
 		<p class="text-osvauld-fieldText text-sm">
 			Establish a peer-to-peer connection with a user by entering their user address below.
 		</p>
@@ -101,7 +101,7 @@
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
 					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
-					{isSubmitting ? "Establishing Connection..." : "Establish Connection"}
+					{isSubmitting ? "Connecting.." : "Connect"}
 				</button>
 			</div>
 		</form>

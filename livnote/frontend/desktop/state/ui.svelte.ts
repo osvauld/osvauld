@@ -30,10 +30,11 @@ class UIState {
   noteSaved = $state(false);
 
   showNavigationPanel = $state(true);
+  showNoteRightPanel = $state(true);
   isNavigationPanelManuallyToggled = $state(false);
   isNoteFetching = $state<boolean>(false);
   isEditorLoading = $state<boolean>(false);
-  readonly MIN_EDITOR_WIDTH = 1300; // Minimum editor width in pixels
+  readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
 
   toastMessage = $state<Toast>({
     show: false, message: "", success: true
@@ -151,6 +152,14 @@ class UIState {
       this.showNavigationPanel = !this.showNavigationPanel;
     }
     this.isNavigationPanelManuallyToggled = true;
+  }
+
+  toggleNoteRightPanel(show?: boolean) {
+    if (show !== undefined) {
+      this.showNoteRightPanel = show;
+    } else {
+      this.showNoteRightPanel = !this.showNoteRightPanel;
+    }
   }
 
   resetNavigationPanelManualToggle() {
