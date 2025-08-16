@@ -241,7 +241,6 @@ class LazyImageNodeView implements NodeView {
       handle.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        console.log(`Resize handle ${pos.name} clicked`);
         // Phase 3: We'll implement actual resize logic here
       });
 
@@ -295,22 +294,6 @@ class LazyImageNodeView implements NodeView {
     this.attemptImageLoad();
   }
 
-  /**
-   * Create full placeholder (replacing minimal one)
-   */
-  private createFullPlaceholder(): void {
-    if (!this.placeholder) return;
-
-    // Clear minimal placeholder content
-    this.placeholder.innerHTML = '';
-    this.placeholder.style.backgroundColor = '#2a2b35';
-    this.placeholder.style.display = 'flex';
-    this.placeholder.style.alignItems = 'center';
-    this.placeholder.style.justifyContent = 'center';
-    this.placeholder.textContent = 'Loading image...';
-    this.placeholder.style.color = '#85889C';
-    this.placeholder.style.fontSize = '14px';
-  }
 
   /**
    * Create image element
@@ -323,15 +306,21 @@ class LazyImageNodeView implements NodeView {
     if (this.nodeAttrs.height) this.img.height = this.nodeAttrs.height;
     this.img.style.display = 'none';
     this.img.style.borderRadius = '4px';
+    this.img.style.position = 'absolute'; // Position absolutely within container
+    this.img.style.top = '0';
+    this.img.style.left = '0';
+    this.img.style.width = '100%';
+    this.img.style.height = '100%';
+    this.img.style.objectFit = 'contain'; // Maintain aspect ratio
 
-    // Replace placeholder with image when loaded
-    this.dom.insertBefore(this.img, this.placeholder);
+    // Add image to container (not before placeholder)
+    this.dom.appendChild(this.img);
   }
-
   /**
    * Attempt to load the image
    */
   private attemptImageLoad(): void {
+
     if (!this.imageId || !this.img) {
       this.handleExternalImage();
       return;
@@ -397,45 +386,92 @@ class LazyImageNodeView implements NodeView {
 
     if (src && (src.startsWith('data:') || src.startsWith('http') || src.startsWith('blob:'))) {
       if (this.img) {
-        this.img.src = src;
+        // Set up handlers BEFORE setting src
         this.img.onload = () => this.onImageLoad();
         this.img.onerror = () => this.onImageError('Failed to load external image');
+
+        // Now set the src
+        this.img.src = src;
+
+        // Check if already loaded (for cached images)
+        if (this.img.complete && this.img.naturalHeight !== 0) {
+          this.onImageLoad();
+        }
       }
     } else {
       this.onImageError('Unknown image format');
     }
   }
-
   /**
    * Display the loaded image
    */
   private displayImage(src: string): void {
+
     if (this.isDestroyed || !this.img) return;
 
+    // Set up handlers BEFORE setting src
+    this.img.onload = () => {
+      this.onImageLoad();
+    };
+    this.img.onerror = () => {
+      this.onImageError('Failed to display image');
+    };
+
+    // Now set the src
     this.img.src = src;
-    this.img.onload = () => this.onImageLoad();
-    this.img.onerror = () => this.onImageError('Failed to display image');
+
+    // For base64 images that might load synchronously
+    if (this.img.complete && this.img.naturalHeight !== 0) {
+      this.onImageLoad();
+    }
   }
 
   /**
    * Handle successful image load
    */
-  private onImageLoad(): void {
-    if (this.isDestroyed || !this.img || !this.placeholder) return;
 
-    // Hide placeholder and show image
-    this.placeholder.style.display = 'none';
+  private onImageLoad(): void {
+
+    if (this.isDestroyed || !this.img) return;
+
     this.img.style.display = 'block';
 
-    // Update container size to match image
-    if (this.img.width) {
-      this.dom.style.width = `${this.img.width}px`;
+    if (this.placeholder && this.placeholder.parentNode) {
+      this.placeholder.parentNode.removeChild(this.placeholder);
+      this.placeholder = null;
     }
-    if (this.img.height) {
-      this.dom.style.height = `${this.img.height}px`;
-    }
+
+    // Ensure container has proper dimensions
+    const actualWidth = this.img.naturalWidth || this.nodeAttrs.width || 200;
+    const actualHeight = this.img.naturalHeight || this.nodeAttrs.height || 150;
+
+    // Update container to match actual image size
+    this.dom.style.width = `${actualWidth}px`;
+    this.dom.style.height = `${actualHeight}px`;
+
+    // Reset image styles to fill container properly
+    this.img.style.position = 'static';
+    this.img.style.width = 'auto';
+    this.img.style.height = 'auto';
+    this.img.style.maxWidth = '100%';
+    this.img.style.maxHeight = '100%';
+
   }
 
+
+  private createFullPlaceholder(): void {
+    if (!this.placeholder) return;
+
+    // Clear minimal placeholder content
+    this.placeholder.innerHTML = '';
+    this.placeholder.style.backgroundColor = '#2a2b35';
+    this.placeholder.style.display = 'flex';
+    this.placeholder.style.alignItems = 'center';
+    this.placeholder.style.justifyContent = 'center';
+    this.placeholder.textContent = 'Loading image...';
+    this.placeholder.style.color = '#85889C';
+    this.placeholder.style.fontSize = '14px';
+  }
   /**
    * Handle image load error
    */
@@ -452,7 +488,6 @@ class LazyImageNodeView implements NodeView {
    * Handle node selection - UPDATED FOR PHASE 2
    */
   selectNode(): void {
-    console.log('Image selected');
 
     this.isSelected = true;
     this.dom.classList.add('image-selected');
@@ -485,7 +520,6 @@ class LazyImageNodeView implements NodeView {
    * Handle node deselection - UPDATED FOR PHASE 2
    */
   deselectNode(): void {
-    console.log('Image deselected');
 
     this.isSelected = false;
     this.dom.classList.remove('image-selected');
