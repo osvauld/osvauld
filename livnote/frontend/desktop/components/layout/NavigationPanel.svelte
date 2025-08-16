@@ -64,7 +64,7 @@
 
 		<div class="relative">
 			<button
-				class="w-full text-[26px] text-osvauld-fieldText font-medium leading-6 bg-osvauld-frameblack rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
+				class="w-full text-[26px] text-osvauld-fieldText font-light leading-6  rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
 				aria-label="Switch Folder"
 				aria-controls="Folder selector"
 				aria-expanded={uiState.vaultManagerActive}
