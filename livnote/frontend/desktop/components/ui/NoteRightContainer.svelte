@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { fly } from "svelte/transition";
 	import CommentSidebar from "../notes/CommentSidebar.svelte";
 	import {
 		BinIcon as Bin,
@@ -96,7 +97,9 @@
 
 {#if uiState.showNoteRightPanel}
 <div
-	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor">
+	class="w-[22.5rem] h-full min-h-0 max-h-full py-11 pb-4 px-6 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor"
+	in:fly={{ x: 200, duration: 400 }}
+	>
 	<div class="shrink-0 gap-4 flex justify-between items-center text-base">
 		<button
 			onclick={saveNoteManual}
@@ -181,7 +184,7 @@
 	<div
 		class=" border-osvauld-defaultBorder py-3 pb-0 w-full text-left text-sm flex justify-between items-center">
 		<button
-			class="rounded-lg p-2.5 flex justify-center items-center  cursor-e-resize"
+			class="rounded-lg flex justify-center items-center  cursor-e-resize"
 			title="Close note right panel"
 			onclick={handleToggleNoteRightPanel}>
 			<MenuToggle />
