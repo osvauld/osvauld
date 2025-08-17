@@ -7,6 +7,7 @@
 	import CommentModal from "./CommentModal.svelte";
 	import "./rich-text-editor.css";
 	import "./schema/editorCustomStyles.css"; // Import the new CSS file
+	import "./setup/tableStyles.css";
 
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
