@@ -133,11 +133,48 @@
 		color: #666;
 		font-style: italic;
 	}
+	:global(.note-preview table) {
+		border-collapse: collapse;
+		width: 100%;
+		margin: 0.5em 0;
+		background: rgba(42, 43, 47, 0.5);
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	:global(.note-preview th),
+	:global(.note-preview td) {
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		padding: 8px 12px;
+		text-align: left;
+		color: white;
+	}
+
+	:global(.note-preview th) {
+		background: rgba(140, 158, 255, 0.1);
+		font-weight: 600;
+		color: #e6e6e6;
+	}
+
+	:global(.note-preview td) {
+		background: rgba(42, 43, 47, 0.3);
+	}
+
+	:global(.note-preview tr:hover td) {
+		background: rgba(140, 158, 255, 0.05);
+	}
+
+	/* Remove paragraph margins inside table cells */
+	:global(.note-preview td p),
+	:global(.note-preview th p) {
+		margin: 0;
+	}
 </style>
 
 <div
 	class="preview-container note-preview"
 	in:fly={{ y: 10, duration: 200, delay: 0 }}
-	style="max-height: {maxHeight}; min-height: {minHeight}">
+	style="max-height: {maxHeight}; min-height: {minHeight}"
+>
 	{@html previewHTML}
 </div>

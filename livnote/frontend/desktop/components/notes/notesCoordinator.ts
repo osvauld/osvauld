@@ -93,14 +93,9 @@ export class NotesCoordinator {
     const title = this.yjsManager.getMetadata("title") || "Untitled Note";
     dataState.currentNoteTitle = title;
     const plugins = this.createEditorPlugins(docs);
+    console.log(noteContent);
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
-
-    if (prosemirrorDoc.doc.childCount === 0 && noteContent.editor_state?.doc) {
-      const fallbackDoc = this.schema.nodeFromJSON(noteContent.editor_state.doc);
-      this.editorManager.initializeState(fallbackDoc, plugins);
-    } else {
-      this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
-    }
+    this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
     document.dispatchEvent(new CustomEvent('editor-view-ready', {
       detail: { getEditorManager: () => this.editorManager }
     }));
