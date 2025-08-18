@@ -17,7 +17,7 @@ import {
 import { keymap } from "prosemirror-keymap";
 import { Schema } from "prosemirror-model";
 import { tableContextMenuPlugin } from "./tableContextMenuPlugin";
-import { deleteTable, deleteBackwardEnhanced, selectTable, isInTable, isLastCellInTable } from "./tableCommands";
+import { deleteTable, deleteBackwardEnhanced, selectTable, isInTable, isLastCellInTable, getTableInfo } from "./tableCommands";
 
 /**
  * Creates the table editing plugin with keyboard shortcuts
@@ -138,25 +138,7 @@ export function createTableKeymap(schema: Schema): Plugin {
   });
 }
 
-// Helper function to get table info (imported from tableCommands)
-function getTableInfo(state: any) {
-  const { $from } = state.selection;
 
-  for (let depth = $from.depth; depth > 0; depth--) {
-    const node = $from.node(depth);
-    if (node.type.spec.tableRole === "table") {
-      return {
-        table: node,
-        tablePos: $from.before(depth),
-        depth: depth,
-        cell: $from.node(depth - 1),
-        cellPos: $from.before(depth - 1)
-      };
-    }
-  }
-
-  return null;
-}
 
 /**
  * Creates all table-related plugins

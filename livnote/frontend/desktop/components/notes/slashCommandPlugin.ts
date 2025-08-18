@@ -11,6 +11,8 @@ import { Schema } from "prosemirror-model";
 import { wrapInList } from "prosemirror-schema-list";
 import type { SlashCommandItem } from "../../types/editor.types";
 import { insertTable } from "./setup/tableCommands";
+import { isInTable } from "./setup/tableCommands";
+
 export const slashCommandKey = new PluginKey("slash-command");
 
 const OPEN_REGEX = /(?:^|\s)\/$/;
@@ -157,6 +159,47 @@ export function slashCommandPlugin(schema: Schema) {
   ) {
     const menu = createMenu();
     menu.innerHTML = "";
+
+    // Check if we're inside a table
+    const inTable = isInTable(view.state);
+    
+    if (inTable) {
+      // Show "Right click for options" message instead of commands
+      const header = document.createElement("div");
+      header.className = "slash-menu-header";
+
+      const title = document.createElement("div");
+      title.className = "slash-menu-title";
+      title.textContent = "Table Options";
+      header.appendChild(title);
+
+      const content = document.createElement("div");
+      content.className = "slash-menu-content";
+
+      const message = document.createElement("div");
+      message.className = "menu-item";
+      message.style.textAlign = "center";
+      message.style.color = "#85889C";
+      message.style.fontSize = "0.875rem";
+      message.style.padding = "16px 8px";
+      message.style.fontWeight = "500";
+      message.style.cursor = "default";
+      message.innerHTML = `
+        <div style="margin-bottom: 8px; font-size: 1.5rem; color: #4094ef;">⌘</div>
+        Right click for options
+      `;
+      content.appendChild(message);
+
+      const footer = document.createElement("div");
+      footer.className = "slash-menu-footer";
+      footer.innerHTML = 'Right-click on table for more options';
+
+      menu.appendChild(header);
+      menu.appendChild(content);
+      menu.appendChild(footer);
+      
+      return menu;
+    }
 
     // Create header
     const header = document.createElement("div");
@@ -377,6 +420,12 @@ export function slashCommandPlugin(schema: Schema) {
             return;
           }
 
+          // Check if we're inside a table - if so, don't show slash menu
+          if (isInTable(view.state)) {
+            closeMenu();
+            return;
+          }
+
           const textBefore = $cursor.nodeBefore?.text || "";
 
           if (OPEN_REGEX.test(textBefore)) {
@@ -427,6 +476,11 @@ export function slashCommandPlugin(schema: Schema) {
     props: {
       handleKeyDown(view, event) {
         if (!isMenuOpen) return false;
+
+        // Don't handle key events if we're inside a table
+        if (isInTable(view.state)) {
+          return false;
+        }
 
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
           event.preventDefault();

@@ -116,13 +116,24 @@ export function getTableInfo(state: EditorState) {
   for (let depth = $from.depth; depth > 0; depth--) {
     const node = $from.node(depth);
     if (node.type.spec.tableRole === "table") {
-      return {
-        table: node,
-        tablePos: $from.before(depth),
-        depth: depth,
-        cell: $from.node(depth - 1), // The cell containing cursor
-        cellPos: $from.before(depth - 1)
-      };
+      try {
+        const tablePos = $from.before(depth);
+        const cellPos = $from.before(depth - 1);
+        
+        // Validate positions are within bounds
+        if (tablePos >= 0 && cellPos >= 0) {
+          return {
+            table: node,
+            tablePos: tablePos,
+            depth: depth,
+            cell: $from.node(depth - 1), // The cell containing cursor
+            cellPos: cellPos
+          };
+        }
+      } catch (error) {
+        // If we can't get valid positions, continue to next depth
+        continue;
+      }
     }
   }
 
