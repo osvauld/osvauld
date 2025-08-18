@@ -5,8 +5,6 @@
   width: 100%;
   margin: 2em 0;
   background: #16171f;
-  border: 1px solid #2a2b2f;
-  border-radius: 8px;
   position: relative;
   transition: all 0.3s ease;
   overflow: hidden;
@@ -32,10 +30,10 @@
   text-align: left;
   background: #1c1d26;
   color: #e4e4e7;
-  border-bottom: 2px solid #4094ef;
   font-size: 14px;
   letter-spacing: 0.025em;
 }
+
 
 /* Row hover effect */
 .ProseMirror tr:hover td {
@@ -45,6 +43,11 @@
 .ProseMirror tr:hover th {
   background: rgba(42, 43, 53, 0.8);
 }
+
+.ProseMirror tr:hover th:not(:last-child) {
+  border-right: 1px solid #42444a;
+}
+
 
 /* Cell focus */
 .ProseMirror td:focus,
@@ -84,7 +87,7 @@
 
 .ProseMirror .column-resize-handle:hover,
 .ProseMirror .column-resize-handle.dragging {
-  background: linear-gradient(to bottom, transparent, #4094ef, transparent);
+  background: linear-gradient(to bottom, transparent, #8A86E5, transparent);
 }
 
 .ProseMirror.resize-cursor {
@@ -93,7 +96,7 @@
 
 /* Table node selection (whole table selected) */
 .ProseMirror table.ProseMirror-selectednode {
-  outline: 3px solid #4094ef;
+  outline: 3px solid #8A86E5;
   outline-offset: 2px;
   box-shadow: 0 0 20px rgba(64, 148, 239, 0.2);
 }
@@ -112,9 +115,13 @@
   margin: 0;
 }
 
-.ProseMirror td>*:not(:last-child),
-.ProseMirror th>*:not(:last-child) {
-  margin-bottom: 0.5em;
+
+.ProseMirror td {
+  font-size: 14px;
+}
+
+.ProseMirror td > p.is-empty::before {
+  font-size: 14px;
 }
 
 /* Cell alignment helpers */
@@ -195,12 +202,6 @@
   }
 }
 
-/* Dark mode adjustments */
-@media (prefers-color-scheme: dark) {
-  .ProseMirror table {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  }
-}
 
 /* Performance optimizations */
 .ProseMirror table {

@@ -56,7 +56,6 @@ class TableContextMenu {
         position: fixed;
         background: #1a1b23;
         border: 1px solid #2a2b2f;
-        border-radius: 8px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         min-width: 200px;
         padding: 4px 0;
