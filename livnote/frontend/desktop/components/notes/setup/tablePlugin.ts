@@ -139,7 +139,6 @@ export function createTableKeymap(schema: Schema): Plugin {
 }
 
 
-
 /**
  * Creates all table-related plugins
  */

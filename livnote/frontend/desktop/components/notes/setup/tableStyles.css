@@ -34,7 +34,6 @@
   letter-spacing: 0.025em;
 }
 
-
 /* Row hover effect */
 .ProseMirror tr:hover td {
   background: rgba(37, 38, 48, 0.5);
@@ -44,10 +43,10 @@
   background: rgba(42, 43, 53, 0.8);
 }
 
+
 .ProseMirror tr:hover th:not(:last-child) {
   border-right: 1px solid #42444a;
 }
-
 
 /* Cell focus */
 .ProseMirror td:focus,
@@ -114,7 +113,6 @@
 .ProseMirror th p {
   margin: 0;
 }
-
 
 .ProseMirror td {
   font-size: 14px;
