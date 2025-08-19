@@ -20,6 +20,37 @@ import { tableContextMenuPlugin } from "./tableContextMenuPlugin";
 import { deleteTable, deleteBackwardEnhanced, selectTable, isInTable, isLastCellInTable, getTableInfo } from "./tableCommands";
 
 /**
+ * Custom plugin to prevent cell selection during column resize
+ */
+function createResizeProtectionPlugin(): Plugin {
+  return new Plugin({
+    props: {
+      handleDOMEvents: {
+        mousedown: (view, event) => {
+          // Check if the target is a column resize handle
+          const target = event.target as HTMLElement;
+          if (target && target.classList.contains('column-resize-handle')) {
+            // Prevent table editing from interfering with resize
+            event.stopPropagation();
+            return true;
+          }
+          return false;
+        },
+        mousemove: (view, event) => {
+          // Check if we're currently resizing
+          const target = event.target as HTMLElement;
+          if (target && target.classList.contains('column-resize-handle')) {
+            // Prevent cell selection during resize
+            return true;
+          }
+          return false;
+        }
+      }
+    }
+  });
+}
+
+/**
  * Creates the table editing plugin with keyboard shortcuts
  */
 export function createTableKeymap(schema: Schema): Plugin {
@@ -144,10 +175,7 @@ export function createTableKeymap(schema: Schema): Plugin {
  */
 export function createTablePlugins(schema: Schema): Plugin[] {
   return [
-    // Core table editing functionality
-    tableEditing(),
-
-    // Column resizing by dragging
+    // Column resizing by dragging - MUST come first to handle resize events
     columnResizing({
       handleWidth: 5,
       cellMinWidth: 50,
@@ -155,11 +183,19 @@ export function createTablePlugins(schema: Schema): Plugin[] {
       View: undefined
     }),
 
+    // Core table editing functionality - configured to reduce selection conflicts
+    tableEditing({
+      allowTableNodeSelection: false
+    }),
+
     // Keyboard shortcuts for table operations
     createTableKeymap(schema),
 
     // Context menu for table operations
-    tableContextMenuPlugin()
+    tableContextMenuPlugin(),
+
+    // Resize protection plugin
+    createResizeProtectionPlugin()
   ];
 }
 
