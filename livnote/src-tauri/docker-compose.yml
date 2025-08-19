@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  tauri-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.tauri
+    volumes:
+      - .:/workspace
+      - cargo-cache:/root/.cargo/registry
+      - cargo-git:/root/.cargo/git
+      - node-modules:/workspace/node_modules
+    working_dir: /workspace
+    environment:
+      - PKG_CONFIG_ALLOW_CROSS=1
+      - PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig
+      - PKG_CONFIG_SYSROOT_DIR=/usr/arm-linux-gnueabihf
+    tty: true
+    stdin_open: true
+
+volumes:
+  cargo-cache:
+  cargo-git:
+  node-modules:

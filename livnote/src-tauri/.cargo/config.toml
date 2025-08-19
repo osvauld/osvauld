@@ -1,0 +1,11 @@
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+
+[env]
+PKG_CONFIG_ALLOW_CROSS = "1"
+PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf = "/usr/arm-linux-gnueabihf"
+PKG_CONFIG_PATH_armv7_unknown_linux_gnueabihf = "/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig"
+CC_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-gcc"
+CXX_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-g++"
+AR_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-ar"
+STRIP_armv7_unknown_linux_gnueabihf = "arm-linux-gnueabihf-strip"
