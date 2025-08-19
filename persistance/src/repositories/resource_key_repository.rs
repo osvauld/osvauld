@@ -28,6 +28,27 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         Ok(())
     }
 
+    async fn add_resource_keys(&self, keys: &[ResourceKey]) -> Result<(), RepositoryError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let key_models: Vec<ResourceKeyModel> =
+            keys.iter().map(|key| ResourceKeyModel::from(key)).collect();
+        let mut conn = self.connection.lock().await;
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            for key_model in &key_models {
+                diesel::insert_into(resource_keys::table)
+                    .values(key_model)
+                    .on_conflict(resource_keys::id)
+                    .do_nothing()
+                    .execute(conn)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
     async fn find_by_resource_id(
         &self,
         resource_id: &str,

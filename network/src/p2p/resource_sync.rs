@@ -2,13 +2,14 @@ use crate::p2p::peer_connection::PeerConnection;
 
 use super::P2PEvent;
 use osvauld_core::models::{
-    ConnectionType, LiveEditMessage, Message, ResourceSyncData, ResourceUpdateMsg,
+    ConnectionType, LiveEditMessage, Message, ResourceKey, ResourceSyncData, ResourceUpdateMsg,
 };
 use services::{
     add_resource_sync, add_share_records, apply_updates, apply_updates_and_get_peer_updates,
-    generate_updates_for_peer, get_resource_for_remote_addition, get_resource_state_vector,
-    get_resource_ucan_key, get_share_records_for_resource, get_vector_clocks_for_resource,
-    merge_share_records, merge_vector_clocks, update_vector_clocks, validate_authority_for_update,
+    find_missing_resource_keys, generate_updates_for_peer, get_resource_for_remote_addition,
+    get_resource_keys_for_resource, get_resource_state_vector, get_resource_ucan_key,
+    get_share_records_for_resource, get_vector_clocks_for_resource, merge_share_records,
+    merge_vector_clocks, update_vector_clocks, validate_authority_for_update,
 };
 
 use tracing::{debug, error, info, instrument};
@@ -473,11 +474,34 @@ impl PeerConnection {
                     }
                 };
 
+                let resource_keys = match get_resource_keys_for_resource(
+                    resource_id,
+                    self.repo_ctx.clone(),
+                )
+                .await
+                {
+                    Ok(keys) => {
+                        debug!(
+                            resource_id = %resource_id,
+                            "Retrieved resource keys for resource"
+                        );
+                        keys
+                    }
+                    Err(e) => {
+                        error!(
+                            error = %e,
+                            resource_id = %resource_id,
+                            "Failed to get vector clocks for resource"
+                        );
+                        return Err(format!("Failed to get vector clocks: {}", e));
+                    }
+                };
                 let message = ResourceUpdateMsg::FinalUpdateMerge {
                     resource_id: resource_id.clone(),
                     updates: remote_updates,
                     vector_clocks,
                     share_records,
+                    resource_keys,
                 };
 
                 match self.send_message(Message::MergeUpdate(message)).await {
@@ -515,6 +539,7 @@ impl PeerConnection {
                 updates,
                 vector_clocks,
                 share_records,
+                resource_keys,
             } => {
                 debug!(
                     resource_id = %resource_id,
@@ -544,6 +569,15 @@ impl PeerConnection {
                     resource_id = %resource_id,
                     "Final updates event emitted to frontend"
                 );
+                let local_resource_keys =
+                    get_resource_keys_for_resource(resource_id, self.repo_ctx.clone()).await?;
+                let (local_missing, remote_missing) =
+                    find_missing_resource_keys(&local_resource_keys, resource_keys);
+                self.repo_ctx
+                    .resource_key_repo
+                    .add_resource_keys(&local_missing)
+                    .await
+                    .map_err(|e| e.to_string())?;
 
                 let (add_clock, update_clock) =
                     match merge_vector_clocks(resource_id, vector_clocks, self.repo_ctx.clone())
@@ -593,6 +627,7 @@ impl PeerConnection {
                     update_clock,
                     add_clock,
                     share_records: remote_share_records,
+                    resource_keys: remote_missing,
                 };
 
                 match self.send_message(Message::MergeUpdate(message)).await {
@@ -617,6 +652,7 @@ impl PeerConnection {
                 update_clock,
                 add_clock,
                 share_records,
+                resource_keys,
             } => {
                 debug!(
                     resource_id = %resource_id,
@@ -657,11 +693,15 @@ impl PeerConnection {
                         return Err(format!("Failed to add share records: {}", e));
                     }
                 }
+                self.repo_ctx
+                    .resource_key_repo
+                    .add_resource_keys(resource_keys)
+                    .await
+                    .map_err(|e| e.to_string())?;
             }
         }
         Ok(())
     }
-
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(message)), level = "debug")]
     pub async fn handle_live_edit_flow(&self, message: &LiveEditMessage) -> Result<(), String> {
         let user = self.get_local_user().await?;

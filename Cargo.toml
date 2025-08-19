@@ -6,5 +6,5 @@ members = [
   "core",
   "persistance",
   "services",
-  "network",
+  "network", "kunki",
 ]

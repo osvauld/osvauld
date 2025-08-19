@@ -609,6 +609,36 @@ pub async fn get_vector_clocks_for_resource(
         .await
 }
 
+pub fn find_missing_resource_keys(
+    local: &[ResourceKey],
+    remote: &[ResourceKey],
+) -> (Vec<ResourceKey>, Vec<ResourceKey>) {
+    let missing_in_remote: Vec<ResourceKey> = local
+        .iter()
+        .filter(|item1| !remote.iter().any(|item2| item2.id == item1.id))
+        .cloned()
+        .collect();
+
+    let missing_in_local: Vec<ResourceKey> = remote
+        .iter()
+        .filter(|item2| !local.iter().any(|item1| item1.id == item2.id))
+        .cloned()
+        .collect();
+
+    (missing_in_local, missing_in_remote)
+}
+
+pub async fn get_resource_keys_for_resource(
+    resource_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> Result<Vec<ResourceKey>, String> {
+    repo_ctx
+        .resource_key_repo
+        .find_by_resource_id(resource_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 pub async fn merge_vector_clocks(
     resource_id: &str,
     vector_clocks: &Vec<ResourceVectorClock>,

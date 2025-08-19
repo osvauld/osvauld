@@ -215,6 +215,8 @@ pub trait ResourceKeyRepository: Send + Sync {
         resource_id: &str,
         user_id: &str,
     ) -> Result<(), RepositoryError>;
+
+    async fn add_resource_keys(&self, keys: &[ResourceKey]) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
