@@ -1,3 +1,5 @@
+use crate::models::ResourceKey;
+
 use super::ResourceSyncData;
 use super::device::Device;
 use super::share_record::ShareRecord;
@@ -62,6 +64,7 @@ pub enum ResourceUpdateMsg {
         updates: String,
         vector_clocks: Vec<ResourceVectorClock>,
         share_records: Vec<ShareRecord>,
+        resource_keys: Vec<ResourceKey>,
     },
     // Acknowledgment that sync is complete
     VectorClockResponse {
@@ -69,6 +72,7 @@ pub enum ResourceUpdateMsg {
         update_clock: Vec<ResourceVectorClock>,
         add_clock: Vec<ResourceVectorClock>,
         share_records: Vec<ShareRecord>,
+        resource_keys: Vec<ResourceKey>,
     },
 }
 

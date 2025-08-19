@@ -17,9 +17,9 @@ use services::generate_challenge;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, Mutex};
 use tokio::time::timeout;
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 pub struct P2PState {
     pub endpoint: Arc<Endpoint>,
     pub connections: ConnectionManager,
@@ -332,11 +332,9 @@ impl P2PService {
         tokio::spawn(
             async move {
                 info!("Listener started for incoming connections");
-                
                 while let Some(incoming) = endpoint.accept().await {
                     let connection_span = info_span!("incoming_connection", 
                         remote = %incoming.remote_address());
-                    
                     match incoming.accept() {
                         Ok(connecting) => {
                             info!(parent: &connection_span, "Accepting incoming connection");

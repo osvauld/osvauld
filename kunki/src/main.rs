@@ -125,12 +125,13 @@ async fn handle_init(
     // Create default folder
     services::create_default_folder(repo_ctx.clone()).await?;
 
-    info!("✓ User '{}' created successfully", username);
-    info!("✓ Default folder created");
+    info!("✔ User '{}' created successfully", username);
+    info!("✔ Default folder created");
     info!("Use 'start' command with your passphrase to begin P2P service");
 
     Ok(())
 }
+
 async fn handle_start(
     passphrase: &str,
     print_token: bool,
@@ -149,22 +150,22 @@ async fn handle_start(
     // Load certificate and get user/device
     let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
 
-    info!("✓ Logged in as: {}", user.username);
-    info!("✓ User ID: {}", user.id);
-    info!("✓ Device ID: {}", device.id);
+    info!("✔ Logged in as: {}", user.username);
+    info!("✔ User ID: {}", user.id);
+    info!("✔ Device ID: {}", device.id);
 
     // Generate and print connection token if requested
     if print_token {
         let (token, pub_key) =
             generate_one_time_ucan_token(&domain, &crypto_utils, repo_ctx.clone()).await?;
 
-        println!("\n═══════════════════════════════════════════");
+        println!("\n╔══════════════════════════════════════════╗");
         println!("ONE-TIME CONNECTION TOKEN");
-        println!("═══════════════════════════════════════════");
+        println!("╚══════════════════════════════════════════╝");
         println!("Token: {}", token);
-        println!("═══════════════════════════════════════════");
+        println!("╚══════════════════════════════════════════╝");
         println!("Public Key: {}", pub_key);
-        println!("═══════════════════════════════════════════");
+        println!("╚══════════════════════════════════════════╝");
 
         // Create connection string JSON
         let connection_details = json!({
@@ -180,12 +181,12 @@ async fn handle_start(
         let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
 
         println!("Connection String: {}", encoded_connection);
-        println!("═══════════════════════════════════════════\n");
+        println!("╚══════════════════════════════════════════╝\n");
     }
 
     // Initialize P2P service
     info!("Starting P2P service...");
-    let (p2p_service, mut p2p_receiver, _p2p_sender, mut incoming_receiver) =
+    let (p2p_service, mut p2p_receiver, _p2p_sender, incoming_receiver) =
         P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain.clone());
 
     let p2p_service = Arc::new(p2p_service);
@@ -193,18 +194,26 @@ async fn handle_start(
     // Start P2P service
     p2p_service.start_p2p_service(&device, &user).await?;
 
-    info!("✓ P2P service started");
-    info!("✓ Node ID: {}", device.device_key);
+    info!("✔ P2P service started");
+    info!("✔ Node ID: {}", device.device_key);
     info!("Listening for incoming connections...");
+
+    let p2p_service_clone = p2p_service.clone();
+    let incoming_task = tokio::spawn(async move {
+        P2PService::start_processing_incoming_events(
+            (*p2p_service_clone).clone(),
+            incoming_receiver,
+        );
+        // Keep this task alive
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
+        }
+    });
 
     // Print status
     println!("\n🟢 SERVICE STATUS: ONLINE");
-    println!("📍 Press Ctrl+C to stop the service");
+    println!("🔐 Press Ctrl+C to stop the service");
     println!("🔗 Service is ready to accept connections\n");
-
-    // Start processing incoming events (this spawns its own task internally)
-    let p2p_service_clone = p2p_service.clone();
-    P2PService::start_processing_incoming_events((*p2p_service_clone).clone(), incoming_receiver);
 
     // Handle P2P events
     let event_task = tokio::spawn(async move {
@@ -274,8 +283,14 @@ async fn handle_start(
             }
             info!("Service stopping due to event task completion");
         }
+        result = incoming_task => {
+            match result {
+                Ok(_) => info!("✅ Incoming processor completed"),
+                Err(e) => error!("❌ Incoming processor failed: {}", e),
+            }
+            info!("Service stopping due to incoming task completion");
+        }
     }
-
     info!("🔄 Cleaning up...");
     info!("✅ P2P service stopped gracefully");
     println!("\n🔴 SERVICE STATUS: OFFLINE");
@@ -300,21 +315,21 @@ async fn handle_token(
     // Load certificate to verify passphrase
     let (user, _device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
 
-    info!("✓ Authenticated as: {}", user.username);
+    info!("✔ Authenticated as: {}", user.username);
 
     // Generate connection token
     let (token, pub_key) =
         generate_one_time_ucan_token(domain, &crypto_utils, repo_ctx.clone()).await?;
 
-    println!("\n═══════════════════════════════════════════");
+    println!("\n╔══════════════════════════════════════════╗");
     println!("ONE-TIME CONNECTION TOKEN");
-    println!("═══════════════════════════════════════════");
+    println!("╚══════════════════════════════════════════╝");
     println!("{}", token);
-    println!("═══════════════════════════════════════════");
+    println!("╚══════════════════════════════════════════╝");
     println!("Public Key: {}", pub_key);
     println!("User ID: {}", user.id);
     println!("Username: {}", user.username);
-    println!("═══════════════════════════════════════════\n");
+    println!("╚══════════════════════════════════════════╝\n");
 
     Ok(())
 }
