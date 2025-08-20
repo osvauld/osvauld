@@ -53,53 +53,33 @@ class TableContextMenu {
 
     const styles = `
       .table-context-menu {
-        position: fixed;
-        background: #1a1b23;
-        border: 1px solid #2a2b2f;
-        border-radius: 8px;
+        position: absolute;
+        background-color: #16171f;
+        border-radius: 10px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        border: 1px solid #2a2b2f;
         min-width: 200px;
-        padding: 4px 0;
-        z-index: 10000;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
-        font-size: 14px;
-        animation: contextMenuFadeIn 0.15s ease-out;
-      }
-
-      @keyframes contextMenuFadeIn {
-        from {
-          opacity: 0;
-          transform: scale(0.95);
-        }
-        to {
-          opacity: 1;
-          transform: scale(1);
-        }
+        overflow: hidden;
+        z-index: 50;
+        padding: 6px;
+        top: 0;
+        left: 0;
       }
 
       .context-menu-item {
         display: flex;
         align-items: center;
-        padding: 8px 16px;
-        color: #bfc0cc;
+        padding: 4px 8px;
+        border-radius: 4px;
         cursor: pointer;
+        margin-bottom: 2px;
+        color: #bfc0cc;
         transition: all 0.15s ease;
-        position: relative;
       }
 
       .context-menu-item:hover:not(.disabled) {
-        background: #2a2b2f;
+        background-color: #2a2b2f;
         color: #e4e4e7;
-      }
-
-      .context-menu-item:hover:not(.disabled)::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        top: 0;
-        bottom: 0;
-        width: 3px;
-        background: #4094ef;
       }
 
       .context-menu-item.disabled {
@@ -108,28 +88,29 @@ class TableContextMenu {
       }
 
       .context-menu-icon {
-        width: 20px;
-        margin-right: 8px;
+        margin-right: 4px;
+        color: #aaa;
+        width: 28px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: #85889C;
       }
 
       .context-menu-label {
         flex: 1;
+        font-size: 0.875rem;
+        font-weight: 500;
       }
 
       .context-menu-shortcut {
-        margin-left: 20px;
         color: #85889C;
-        font-size: 12px;
+        font-size: 0.75rem;
       }
 
       .context-menu-divider {
         height: 1px;
         background: #2a2b2f;
-        margin: 4px 0;
+        margin: 4px 8px;
       }
 
       .context-menu-submenu {

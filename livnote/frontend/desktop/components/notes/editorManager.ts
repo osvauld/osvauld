@@ -9,6 +9,20 @@ import { history } from "prosemirror-history";
 import { undo, redo } from "y-prosemirror";
 import type { Transaction } from "prosemirror-state";
 
+// Helper function to check if cursor is inside a table
+function isInTable(state: EditorState): boolean {
+  const { $from } = state.selection;
+
+  for (let depth = $from.depth; depth > 0; depth--) {
+    const node = $from.node(depth);
+    if (node.type.spec.tableRole === "table") {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 const activeNodePlaceholderPlugin = () => {
 	return new Plugin({
 		props: {
@@ -24,9 +38,15 @@ const activeNodePlaceholderPlugin = () => {
 					return null;
 				}
 
+				// Check if we're inside a table
+				const inTable = isInTable(state);
+				const placeholderText = inTable 
+					? "Right click for options" 
+					: "Write, press '/' for commands...";
+
 				const placeholder = Decoration.node($from.before(), $from.after(), {
 					class: "is-empty",
-					"data-placeholder": "Write, press '/' for commands...",
+					"data-placeholder": placeholderText,
 				});
 
 				return DecorationSet.create(doc, [placeholder]);

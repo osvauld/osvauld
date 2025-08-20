@@ -320,12 +320,11 @@
 	}
 </script>
 
-<!-- Rest of the component remains the same -->
 <style>
-	/* Basic editor container structure */
 	.editor-container {
+		width: min(90vw, 900px);
+		max-width: 900px;
 		margin: 0 auto;
-		width: 210mm;
 		height: 100%;
 		background: #16171f;
 		color: white;
@@ -334,6 +333,19 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden; /* Prevent container from growing */
+	}
+
+	@media print, (export-mode: true) {
+		.editor-container {
+			width: 180mm !important;
+			transform: scale(0.95);
+			transform-origin: top left;
+		}
+
+		.ProseMirror {
+			font-size: 11pt !important;
+			line-height: 1.3 !important;
+		}
 	}
 
 	.editor-content-wrapper {
@@ -371,11 +383,16 @@
 		content: attr(data-placeholder);
 		color: #85889c;
 		pointer-events: none;
+		white-space: pre-wrap;
 		font-style: italic;
+		font-size: 16px;
 		position: absolute;
 		top: 50%;
 		transform: translateY(-50%);
-		font-size: 16px;
+	}
+
+	:global(.ProseMirror table p.is-empty::before) {
+		font-size: 12px;
 	}
 
 	@keyframes shimmer {
@@ -413,7 +430,7 @@
 			{#if showSkeleton}
 				<div class="absolute inset-0 p-6 space-y-4 bg-[#16171f]">
 					<div class="animate-pulse space-y-6">
-						<div class="text-white text-sm mb-4  p-2 rounded">
+						<div class="text-white text-sm mb-4 p-2 rounded">
 							{#if uiState.isNoteFetching}
 								decrypting note ...
 							{:else if uiState.isEditorLoading}
