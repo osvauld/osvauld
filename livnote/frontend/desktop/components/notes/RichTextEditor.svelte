@@ -383,11 +383,16 @@
 		content: attr(data-placeholder);
 		color: #85889c;
 		pointer-events: none;
+		white-space: pre-wrap;
 		font-style: italic;
+		font-size: 16px;
 		position: absolute;
 		top: 50%;
 		transform: translateY(-50%);
-		font-size: 16px;
+	}
+
+	:global(.ProseMirror table p.is-empty::before) {
+		font-size: 12px;
 	}
 
 	@keyframes shimmer {

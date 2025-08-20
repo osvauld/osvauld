@@ -178,7 +178,7 @@ export function createTablePlugins(schema: Schema): Plugin[] {
     // Column resizing by dragging - MUST come first to handle resize events
     columnResizing({
       handleWidth: 5,
-      cellMinWidth: 50,
+      cellMinWidth: 100,
       lastColumnResizable: true,
       View: undefined
     }),
