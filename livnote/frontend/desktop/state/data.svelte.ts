@@ -409,11 +409,12 @@ class DataState {
       throw new Error("Coordinator not available");
     }
     const noteContent = coordinator.saveNote();
+    let stateVectors = coordinator.getStateVectors();
     await sendMessage("updateCredential", {
       id: noteId,
       data: JSON.stringify(noteContent),
     });
-
+    emit("resource-update-complete", { id: noteId, state_vectors: stateVectors });
     uiState.setNoteSaved(true);
 
     setTimeout(() => {

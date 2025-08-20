@@ -245,33 +245,70 @@ impl EventManager {
             info!("No active connections to broadcast {} to", description);
         }
     }
-
-    /// Setup listener for resource-update-complete events
     fn setup_resource_update_complete_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-
+        let p2p_sender = self.p2p_sender.clone();
         self.app_handle
-            .listen("resource-update-complete", move |event| {
-                let note_state = current_note_state.clone();
-
-                let payload = event.payload();
-                if let Ok(json) = serde_json::from_str::<Value>(payload) {
-                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                        // Only move current to previous if it's for the current note
-                        if let Some(current_id) = note_state.get_current_note() {
-                            if current_id == id {
-                                note_state.move_current_to_previous();
-                                info!(
-                                    "Moved current to previous buffer after resource update: {}",
-                                    id
-                                );
-                            } else {
-                                info!("Ignoring buffer update for non-active note: {}", id);
+        .listen("resource-update-complete", move |event| {
+            let note_state = current_note_state.clone();
+            let p2p_sender = p2p_sender.clone();
+            let payload = event.payload();
+            if let Ok(json) = serde_json::from_str::<Value>(payload) {
+                if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
+                    if let Some(current_id) = note_state.get_current_note() {
+                        if current_id == id {
+                            note_state.move_current_to_previous();
+                            info!("Moved current to previous buffer after resource update: {}", id);
+                            let should_send = note_state.increment_and_check_counter();
+                            if should_send {
+                                if let Some(state_vectors) = json.get("state_vectors").and_then(|v| v.as_str()) {
+                                    let resource_id = id.to_string();
+                                        let state_vectors = state_vectors.to_string();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = Self::broadcast_update_to_inactive_connections(
+                                            &note_state,
+                                            &p2p_sender,
+                                            &resource_id,
+                                            &state_vectors,
+                                        ).await {
+                                            error!("Failed to broadcast updates to inactive connections: {}", e);
+                                        }
+                                    });
+                                } else {
+                                    error!("No state_vectors found in payload");
+                                }
                             }
                         }
                     }
                 }
-            });
+            }
+        });
+    }
+
+    async fn broadcast_update_to_inactive_connections(
+        note_state: &CurrentNoteState,
+        p2p_sender: &P2PSender,
+        resource_id: &str,
+        state_vectors: &str,
+    ) -> Result<(), String> {
+        let inactive_connections = note_state.get_inactive_connections();
+        if inactive_connections.is_empty() {
+            info!("No inactive connections to update");
+            return Ok(());
+        }
+
+        info!(
+            "Broadcasting updates to {} inactive connections",
+            inactive_connections.len()
+        );
+
+        p2p_sender.send_state_vector_request(
+            inactive_connections.clone(),
+            resource_id.to_string(),
+            state_vectors.to_string(),
+        );
+
+        Ok(())
     }
 
     fn setup_note_change_listener(&self) {
@@ -427,6 +464,9 @@ impl EventManager {
                     resource_id,
                     connection_id,
                 } => self.handle_document_check(resource_id, connection_id).await,
+                P2PEvent::DocumentMismatch { connection_id } => {
+                    self.handle_document_missmatch(connection_id).await
+                }
                 P2PEvent::UpdateRequest {
                     resource_id,
                     connection_id,
@@ -577,6 +617,11 @@ impl EventManager {
         } else {
             warn!("Cannot initiate live editing - no current note selected");
         }
+    }
+
+    async fn handle_document_missmatch(&self, connection_id: String) {
+        self.current_note_state
+            .add_inactive_connection(&connection_id);
     }
 
     async fn handle_document_check(&self, resource_id: String, connection_id: String) {
@@ -1099,6 +1144,7 @@ impl EventManager {
         }
         // Remove this connection from active connections
         current_note_state.remove_active_connection(&connection_id);
+        current_note_state.add_inactive_connection(&connection_id);
 
         info!(
             "Removed connection {} from active connections for resource {}",

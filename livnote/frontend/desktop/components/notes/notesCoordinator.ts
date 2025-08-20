@@ -371,4 +371,25 @@ export class NotesCoordinator {
   getEditorView(): EditorView | null {
     return this.editorManager.getView();
   }
+
+
+  async getStateVectors(): Promise<string> {
+    const result: Record<string, { updates: number[]; state_vector: number[] }> = {};
+
+    // Get state vectors for both document types
+    const mainStateVector = this.yjsManager.getStateVector('main');
+    const imageStateVector = this.yjsManager.getStateVector('images');
+
+    result['main_doc'] = {
+      updates: [],
+      state_vector: Array.from(mainStateVector)
+    };
+
+    result['image_state'] = {
+      updates: [],
+      state_vector: Array.from(imageStateVector)
+    };
+
+    return JSON.stringify(result);
+  }
 }

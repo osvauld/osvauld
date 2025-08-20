@@ -13,17 +13,21 @@ struct Buffers {
     images_previous_doc: Doc,
     shared_users: Vec<String>,
     active_connections: HashSet<String>,
+    inactive_connections: HashSet<String>,
+    update_counter: u32,
 }
 impl Default for Buffers {
     fn default() -> Self {
         Self {
             note_id: None,
+            update_counter: 0,
             main_current_doc: Doc::new(),
             main_previous_doc: Doc::new(),
             images_current_doc: Doc::new(),
             images_previous_doc: Doc::new(),
             shared_users: Vec::new(),
             active_connections: HashSet::new(),
+            inactive_connections: HashSet::new(),
         }
     }
 }
@@ -65,6 +69,16 @@ impl CurrentNoteState {
             std::mem::replace(&mut buffers.images_current_doc, Doc::new());
 
         info!("Moved current docs to previous buffers for both main and images");
+    }
+
+    pub fn increment_and_check_counter(&self) -> bool {
+        let mut buffers = self.0.lock().unwrap();
+        if buffers.update_counter == 5 {
+            buffers.update_counter = 0;
+            return true;
+        }
+        buffers.update_counter += 1;
+        return false;
     }
 
     pub async fn merge_to_current(&self, new_updates: Vec<u8>, doc_type: &str) {
@@ -216,6 +230,11 @@ impl CurrentNoteState {
         buffers.active_connections.iter().cloned().collect()
     }
 
+    pub fn get_inactive_connections(&self) -> Vec<String> {
+        let buffers = self.0.lock().unwrap();
+        buffers.inactive_connections.iter().cloned().collect()
+    }
+
     pub fn is_connection_active(&self, connection_id: &str) -> bool {
         let buffers = self.0.lock().unwrap();
         buffers.active_connections.contains(connection_id)
@@ -226,6 +245,13 @@ impl CurrentNoteState {
         if buffers.active_connections.remove(connection_id) {
             info!("Removed active connection: {}", connection_id);
         }
+    }
+
+    pub fn add_inactive_connection(&self, connection_id: &str) {
+        let mut buffers = self.0.lock().unwrap();
+        buffers
+            .inactive_connections
+            .insert(connection_id.to_string());
     }
 
     pub fn clear_active_connections(&self) {

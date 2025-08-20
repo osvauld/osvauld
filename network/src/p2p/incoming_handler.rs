@@ -1,8 +1,8 @@
-use crate::p2p::P2PService;
 use crate::p2p::incoming::IncomingEvent;
+use crate::p2p::P2PService;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType,
     p2p::{LiveEditMessage, Message},
+    ConnectionAction, ConnectionType,
 };
 use services::{
     apply_buffer_and_peer_updates_and_get_remote_updates,
@@ -131,6 +131,19 @@ impl P2PService {
                     }
                     IncomingEvent::StartLiveConnection { device_ids } => {
                         let _ = service.handle_start_live_edit(&device_ids).await;
+                    }
+                    IncomingEvent::BroadCastStateVectorRequest {
+                        connection_ids,
+                        state_vectors,
+                        resource_id,
+                        ucan_token,
+                    } => {
+                        service.broadcast_state_vector_request(
+                            connection_ids,
+                            state_vectors,
+                            resource_id,
+                            ucan_token,
+                        );
                     }
                 }
             }
@@ -568,6 +581,27 @@ impl P2PService {
                 connections_len,
                 errors.join(", ")
             );
+        }
+    }
+
+    async fn broadcast_state_vector_request(
+        &self,
+        connection_ids: Vec<String>,
+        resource_id: String,
+        state_vectors: String,
+        ucan_token: String,
+    ) {
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+        let message = Message::MergeUpdate(
+            osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
+                resource_id,
+                state_vectors,
+                ucan_token,
+            },
+        );
+        // Send to each connection
+        for connection in connections {
+            let _ = connection.send_message(message.clone()).await;
         }
     }
 

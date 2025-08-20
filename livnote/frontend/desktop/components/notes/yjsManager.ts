@@ -131,7 +131,17 @@ export class YjsManager {
       user: userInfo
     });
   }
+  /**
+   * Get state vector v2 for synchronization
+   * @param docType - Which document to get state vector from ('main' or 'images')
+   * @returns State vector as Uint8Array
+   */
+  getStateVector(docType: 'main' | 'images' = 'main'): Uint8Array {
+    if (!this.documents) return new Uint8Array();
 
+    const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
+    return Y.encodeStateVector(targetDoc);
+  }
   /**
    * Get or set metadata
    */
@@ -198,9 +208,9 @@ export class YjsManager {
     states.forEach((state: any, clientId: number) => {
       // Skip our own client
       if (clientId === this.config.clientId) return;
-      
+
       // console.log(`🔍 Client ${clientId} state:`, state);
-      
+
       // Check if state has user info and is not null/undefined
       if (state && state.user && state.user.name) {
         collaborators.push({

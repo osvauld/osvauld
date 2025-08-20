@@ -772,7 +772,12 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            LiveEditMessage::NotSameDocument => Ok(()),
+            LiveEditMessage::NotSameDocument => {
+                self.event_emitter.emit(P2PEvent::DocumentMismatch {
+                    connection_id: self.get_id(),
+                });
+                Ok(())
+            }
             LiveEditMessage::DocumentChange { resource_id } => {
                 info!("Peer changed document: {}", resource_id);
 
