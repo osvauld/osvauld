@@ -69,7 +69,8 @@
 </style>
 
 <main
-	class="bg-bgPrimary w-screen h-screen text-macchiato-text text-lg !font-sans">
+	class="bg-bgPrimary w-screen h-screen text-macchiato-text text-lg !font-sans"
+>
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">
 			<Loader size={24} color="#1F242A" duration={1} />
@@ -82,7 +83,8 @@
 		</div>
 	{:else}
 		<div
-			class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden">
+			class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden"
+		>
 			<HeaderSection />
 			<!-- App modals right after the header section -->
 			<AppModals />

@@ -31,9 +31,11 @@
 				device_public_key: dataState.userDetails?.deviceKey,
 				username: dataState.userDetails?.username,
 			};
-			
+
 			// Compare the input with current user's details
-			if (JSON.stringify(inputUserDetails) === JSON.stringify(currentUserDetails)) {
+			if (
+				JSON.stringify(inputUserDetails) === JSON.stringify(currentUserDetails)
+			) {
 				uiState.showToast("Cannot add your own UserID", false);
 				handleClear();
 				return;
@@ -60,12 +62,13 @@
 	}
 </script>
 
-<div class="h-full flex flex-col text-base">
+<div class="h-full flex flex-col text-base overflow-y-auto">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
 		<h1 class="text-2xl font-light text-white mb-2">Connect a User</h1>
 		<p class="text-osvauld-fieldText text-sm">
-			Establish a peer-to-peer connection with a user by entering their user address below.
+			Establish a peer-to-peer connection with a user by entering their user
+			address below.
 		</p>
 	</div>
 
@@ -83,9 +86,12 @@
 					rows="10"
 					required
 					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-livnotePink focus:border-transparent resize-none transition-colors grow"
-					onkeydown={handleKeyDown}></textarea>
+					onkeydown={handleKeyDown}
+				></textarea>
 				<p class="text-xs text-osvauld-fieldText">
-					The address uniquely identifies user over the internet. Vaild for 24 hours after generation. It should be in the correct format as provided.
+					The address uniquely identifies user over the internet. Vaild for 24
+					hours after generation. It should be in the correct format as
+					provided.
 				</p>
 			</div>
 
@@ -94,13 +100,15 @@
 				<button
 					type="button"
 					onclick={handleClear}
-					class="px-6 py-3 border border-osvauld-addfieldgrey text-osvauld-fieldText hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer">
+					class="px-6 py-3 border border-osvauld-addfieldgrey text-osvauld-fieldText hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer"
+				>
 					Clear
 				</button>
 				<button
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
-					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors">
+					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors"
+				>
 					{isSubmitting ? "Connecting.." : "Connect"}
 				</button>
 			</div>
