@@ -67,7 +67,7 @@
 	}
 </script>
 
-<div class="h-full flex flex-col text-base">
+<div class="h-full flex flex-col text-base overflow-y-auto pr-4">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
 		<h1 class="text-2xl font-semibold text-white mb-2">Add Device</h1>
@@ -85,36 +85,40 @@
 			</p>
 			<!-- Key Display Area Container -->
 			<div
-				class="w-full bg-osvauld-bgDarker border border-osvauld-borderColor rounded-md font-mono break-words mb-4 overflow-y-auto grow relative text-white max-h-[25rem] overflow-y-auto"
-				style="min-height: 120px;">
+				class="w-full bg-osvauld-bgDarker border border-osvauld-borderColor rounded-md font-mono break-words mb-4 grow relative text-white h-[25rem] overflow-y-auto"
+			>
 				{#if isKeyRevealed}
 					<!-- Revealed Key -->
 					<div
 						class="p-4 select-all whitespace-pre-wrap"
 						role="textbox"
-						aria-label="Identification key">
+						aria-label="Identification key"
+					>
 						{identificationKey}
 					</div>
 				{:else}
 					<!-- Hidden State: Blurred Key as background -->
 					<div
-						class="absolute inset-0 p-4 filter blur-[2px] select-none opacity-60 whitespace-pre-wrap overflow-y-auto">
+						class="absolute inset-0 p-4 filter blur-[2px] select-none opacity-60 whitespace-pre-wrap overflow-y-auto"
+					>
 						{identificationKey}
 					</div>
 
 					<!-- Translucent Overlay with Text or Password Input -->
 					{#if showPasswordInputForReveal}
 						<div
-							class="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black/75 p-4">
+							class="absolute inset-0 flex flex-col items-center justify-center z-10 bg-black/75 p-4"
+						>
 							{#if isLoading}
 								<div
 									class="flex flex-col items-center justify-center"
 									role="status"
-									aria-label="Loading">
+									aria-label="Loading"
+								>
 									<div
 										class="animate-spin rounded-full h-12 w-12 border-b-2 border-osvauld-carolinablue mb-4"
-										aria-hidden="true">
-									</div>
+										aria-hidden="true"
+									></div>
 									<p class="text-osvauld-fieldText">Exporting certificate...</p>
 								</div>
 							{:else}
@@ -123,7 +127,8 @@
 										e.preventDefault();
 										handleSubmitRevealPassword();
 									}}
-									class="flex flex-col items-center w-full max-w-xs">
+									class="flex flex-col items-center w-full max-w-xs"
+								>
 									<input
 										type="password"
 										bind:value={revealPasswordValue}
@@ -134,19 +139,22 @@
 										aria-invalid={!!revealError}
 										aria-describedby={revealError
 											? "password-error"
-											: undefined} />
+											: undefined}
+									/>
 									{#if revealError}
 										<p
 											id="password-error"
 											class="text-red-500 text-xs mb-2"
-											role="alert">
+											role="alert"
+										>
 											{revealError}
 										</p>
 									{/if}
 									<div class="flex flex-col w-full gap-2">
 										<button
 											type="submit"
-											class="bg-osvauld-carolinablue text-osvauld-frameblack font-semibold py-2 px-4 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors text-sm">
+											class="bg-livnotePink text-osvauld-frameblack font-semibold py-2 px-4 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-livnotePink focus:ring-opacity-50 transition-colors text-sm"
+										>
 											Submit & Reveal
 										</button>
 										<button
@@ -156,7 +164,8 @@
 												revealPasswordValue = "";
 												revealError = "";
 											}}
-											class="text-osvauld-fieldText hover:text-white text-xs underline">
+											class="text-osvauld-fieldText hover:text-white text-xs underline"
+										>
 											Cancel
 										</button>
 									</div>
@@ -170,7 +179,8 @@
 							role="button"
 							tabindex="0"
 							onkeydown={(e) => e.key === "Enter" && displayPasswordPrompt()}
-							aria-label="Click to unlock identification key">
+							aria-label="Click to unlock identification key"
+						>
 							<svg
 								xmlns="http://www.w3.org/2000/svg"
 								fill="none"
@@ -178,7 +188,8 @@
 								stroke-width="1.5"
 								stroke="currentColor"
 								class="w-10 h-10 text-osvauld-fieldText mb-3"
-								aria-hidden="true">
+								aria-hidden="true"
+							>
 								<path
 									stroke-linecap="round"
 									stroke-linejoin="round"
@@ -187,7 +198,8 @@
 							</svg>
 							<span
 								class="text-osvauld-fieldText italic text-base px-4 text-center"
-								>Click to Unlock identification key</span>
+								>Click to Unlock identification key</span
+							>
 						</div>
 					{/if}
 				{/if}
@@ -197,8 +209,9 @@
 				type="button"
 				onclick={handleCopy}
 				disabled={!isKeyRevealed || copied}
-				class="w-full max-w-[20rem] bg-osvauld-carolinablue text-osvauld-frameblack disabled:text-white font-semibold mt-6 py-4 px-6 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors disabled:bg-osvauld-fieldActive disabled:cursor-not-allowed"
-				aria-label={copied ? "Copied to clipboard" : "Copy identification key"}>
+				class="w-full max-w-[20rem] bg-livnotePink text-osvauld-frameblack font-semibold mt-6 py-4 px-6 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors"
+				aria-label={copied ? "Copied to clipboard" : "Copy identification key"}
+			>
 				{#if copied}
 					Copied to clipboard!
 				{:else}

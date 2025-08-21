@@ -49,7 +49,7 @@
 			const previousView = viewHistory[viewHistory.length - 1];
 			currentView = previousView;
 			viewHistory = viewHistory.slice(0, -1);
-			
+
 			// Clear states based on the target view to prevent cross-flow contamination
 			clearStatesForView(previousView);
 		}
@@ -58,7 +58,7 @@
 	const clearStatesForView = (targetView: ViewState): void => {
 		// Always clear loader state when navigating
 		isLoaderActive = false;
-		
+
 		switch (targetView) {
 			case "welcome":
 				// Reset all flow-related states when going back to welcome
@@ -66,25 +66,25 @@
 				collectedRecoveryString = "";
 				collectedUsername = "";
 				break;
-				
+
 			case VIEW_STATES.EXISTING_USER.IMPORT:
 				// Clear recovery string when going back to import step
 				collectedRecoveryString = "";
 				break;
-				
+
 			case VIEW_STATES.NEW_USER.COLLECT_USERNAME:
 				// Clear username when going back to username collection
 				collectedUsername = "";
 				// Also clear recovery string if it was set during new user flow
 				collectedRecoveryString = "";
 				break;
-				
+
 			case VIEW_STATES.EXISTING_USER.SET_PASSPHRASE:
 			case VIEW_STATES.NEW_USER.SET_PASSPHRASE:
 				// Keep existing data for password setup steps
 				// Only clear loader state (handled above)
 				break;
-				
+
 			case VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY:
 				// Keep recovery string for private key provision
 				// Only clear loader state (handled above)
@@ -118,7 +118,9 @@
 		navigateTo(VIEW_STATES.NEW_USER.SET_PASSPHRASE);
 	};
 
-	const handleRecoveryPasswordSetup = async (passphrase: string): Promise<void> => {
+	const handleRecoveryPasswordSetup = async (
+		passphrase: string,
+	): Promise<void> => {
 		isLoaderActive = true;
 
 		try {
@@ -150,7 +152,9 @@
 		}
 	};
 
-	const handleNewUserPasswordSetup = async (passphrase: string): Promise<void> => {
+	const handleNewUserPasswordSetup = async (
+		passphrase: string,
+	): Promise<void> => {
 		isLoaderActive = true;
 
 		try {
@@ -171,7 +175,9 @@
 		}
 	};
 
-	const handleReturnedNewPassword = async (passphrase: string): Promise<void> => {
+	const handleReturnedNewPassword = async (
+		passphrase: string,
+	): Promise<void> => {
 		// Route to appropriate handler based on user flow
 		if (userFlow === "EXISTING_USER") {
 			await handleRecoveryPasswordSetup(passphrase);
@@ -182,7 +188,8 @@
 </script>
 
 <div
-	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 py-16 relative">
+	class="h-full w-full flex justify-center items-center text-base text-mobile-textPrimary bg-mobile-bgPrimary ring-offset-mobile-textActive px-32 py-16 relative overflow-y-auto"
+>
 	<div class="h-full flex flex-col items-center">
 		<img src={LivnoteLogo} alt="Livnote Logo" class="mb-10 select-none" />
 		{#if currentView === "welcome"}
@@ -191,7 +198,8 @@
 			<FlowContainer onBack={goBack}>
 				<BaseImportPvtKey
 					onProceed={handleImportProceed}
-					bind:collectedRecoveryString />
+					bind:collectedRecoveryString
+				/>
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.EXISTING_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
@@ -201,7 +209,8 @@
 			<FlowContainer onBack={goBack}>
 				<CollectUsername
 					onProceed={handleUsernameCollected}
-					bind:collectedUsername />
+					bind:collectedUsername
+				/>
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.SET_PASSPHRASE}
 			<FlowContainer onBack={goBack}>
@@ -211,7 +220,8 @@
 			<FlowContainer onBack={goBack}>
 				<ProvidePrivateKey
 					onLogin={handleUserSignUpComplete}
-					bind:collectedRecoveryString />
+					bind:collectedRecoveryString
+				/>
 			</FlowContainer>
 		{/if}
 	</div>

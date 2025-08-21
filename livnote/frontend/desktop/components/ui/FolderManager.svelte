@@ -60,12 +60,14 @@
 <div
 	class="fixed inset-0 bg-transparent z-[999]"
 	role="presentation"
-	onclick={() => uiState.toggleVaultManager()}>
+	onclick={() => uiState.toggleVaultManager()}
+>
 	<div
-		class={`absolute w-[20rem] h-[25rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${position === "noteList" ? "top-60 left-22" : "top-56 left-4"}`}
+		class={`absolute w-[20rem] h-[18rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${position === "noteList" ? "top-60 left-22" : "top-56 left-4"}`}
 		style="width: calc(360px - 2rem);"
 		id="vaultSelector"
-		in:fly>
+		in:fly
+	>
 		<div class="h-full flex flex-col">
 			<div class="flex-1 overflow-y-auto space-y-2 scrollbar-thin p-1">
 				{#each dataState.vaults as vault (vault.id)}
@@ -77,16 +79,18 @@
 						onclick={(e) => {
 							e.stopPropagation();
 							handleVaultSwitch(vault);
-						}}>
+						}}
+					>
 						<span>
-							{#if vault.id === "all"}	
+							{#if vault.id === "all"}
 								<MobileHome color={isActive ? "#F2F2F0" : "#85889C"} />
 							{:else}
 								<FolderIcon color={isActive ? "#F2F2F0" : "#85889C"} />
 							{/if}
 						</span>
 						<span class="grow text-left pl-2 capitalize max-w-full truncate"
-							>{vault.id === "all" ? "Home" : vault.name}</span>
+							>{vault.id === "all" ? "Home" : vault.name}</span
+						>
 					</button>
 				{/each}
 			</div>
@@ -96,13 +100,15 @@
 						class="rounded-[20px] border border-mobile-bgLight px-3 pt-3 pb-4 text-mobile-textPrimary flex flex-col gap-3"
 						in:slide
 						out:slide
-						onsubmit={handleVaultCreation}>
+						onsubmit={handleVaultCreation}
+					>
 						<div
 							class="w-full h-full"
 							role="none"
 							onclick={(e) => e.stopPropagation()}
 							onkeydown={(e) =>
-								e.key === "Escape" && uiState.toggleVaultManager()}>
+								e.key === "Escape" && uiState.toggleVaultManager()}
+						>
 							<span class="text-sm text-center">New Folder </span>
 							<span class="w-full border-b border-osvauld-modalFieldActive"
 							></span>
@@ -116,7 +122,8 @@
 									autocomplete="off"
 									autocorrect="off"
 									use:autofocus
-									bind:value={newVaultName} />
+									bind:value={newVaultName}
+								/>
 								<button
 									type="submit"
 									class="h-[48px] flex justify-center items-center gap-1 rounded-lg mt-6 text-base cursor-pointer"
@@ -126,7 +133,9 @@
 									class:text-black={!isCreationDisabled}
 									disabled={isCreationDisabled}
 									>Create new folder <Add
-										color={isCreationDisabled ? "#fff" : "#000"} /></button>
+										color={isCreationDisabled ? "#fff" : "#000"}
+									/></button
+								>
 							</div>
 						</div>
 					</form>
@@ -134,7 +143,8 @@
 					<button
 						onclick={handleNewVaultInput}
 						class="h-[48px] w-full flex justify-center items-center gap-1 rounded-lg border-2 border-mobile-bgHighlight p-4 active:bg-mobile-bgLight text-mobile-textActive text-base cursor-pointer"
-						>Create new folder<Add color="#85889C" /></button>
+						>Create new folder<Add color="#85889C" /></button
+					>
 				{/if}
 			</div>
 		</div>
