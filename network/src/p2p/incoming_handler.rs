@@ -136,13 +136,11 @@ impl P2PService {
                         connection_ids,
                         state_vectors,
                         resource_id,
-                        ucan_token,
                     } => {
                         service.broadcast_state_vector_request(
                             connection_ids,
                             state_vectors,
                             resource_id,
-                            ucan_token,
                         );
                     }
                 }
@@ -589,9 +587,27 @@ impl P2PService {
         connection_ids: Vec<String>,
         resource_id: String,
         state_vectors: String,
-        ucan_token: String,
     ) {
         let connections = self.get_connections_by_ids(&connection_ids).await;
+        let current_user = match self.get_current_user().await {
+            Ok(user) => user,
+            Err(e) => {
+                error!("failed to fetch user {}", e);
+                return;
+            }
+        };
+        let ucan_token = match self
+            .repo_ctx
+            .share_repo
+            .get_ucan_token_by_resource(&resource_id, &current_user.id)
+            .await
+        {
+            Ok(token) => token,
+            Err(e) => {
+                error!("failed to fetch ucan token");
+                return;
+            }
+        };
         let message = Message::MergeUpdate(
             osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
                 resource_id,

@@ -53,7 +53,6 @@ pub enum IncomingEvent {
         connection_ids: Vec<String>,
         state_vectors: String,
         resource_id: String,
-        ucan_token: String,
     },
     StartLiveConnection {
         device_ids: Vec<String>,
@@ -167,13 +166,11 @@ impl P2PSender {
         connection_ids: Vec<String>,
         resource_id: String,
         state_vectors: String,
-        ucan_token: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::BroadCastStateVectorRequest {
             connection_ids,
             state_vectors,
             resource_id,
-            ucan_token,
         })
     }
     pub fn send_sync_update_to_connections(

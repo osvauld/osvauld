@@ -14,13 +14,11 @@ struct Buffers {
     shared_users: Vec<String>,
     active_connections: HashSet<String>,
     inactive_connections: HashSet<String>,
-    update_counter: u32,
 }
 impl Default for Buffers {
     fn default() -> Self {
         Self {
             note_id: None,
-            update_counter: 0,
             main_current_doc: Doc::new(),
             main_previous_doc: Doc::new(),
             images_current_doc: Doc::new(),
@@ -54,6 +52,11 @@ impl CurrentNoteState {
 
         info!("Current note set to: {:?}", note_id);
     }
+    pub fn reset_to_default(&self) {
+        let mut buffers = self.0.lock().unwrap();
+        *buffers = Buffers::default();
+        info!("Reset note state to default - cleared all data");
+    }
 
     pub fn get_current_note(&self) -> Option<String> {
         let buffers = self.0.lock().unwrap();
@@ -69,16 +72,6 @@ impl CurrentNoteState {
             std::mem::replace(&mut buffers.images_current_doc, Doc::new());
 
         info!("Moved current docs to previous buffers for both main and images");
-    }
-
-    pub fn increment_and_check_counter(&self) -> bool {
-        let mut buffers = self.0.lock().unwrap();
-        if buffers.update_counter == 5 {
-            buffers.update_counter = 0;
-            return true;
-        }
-        buffers.update_counter += 1;
-        return false;
     }
 
     pub async fn merge_to_current(&self, new_updates: Vec<u8>, doc_type: &str) {
@@ -258,5 +251,10 @@ impl CurrentNoteState {
         let mut buffers = self.0.lock().unwrap();
         buffers.active_connections.clear();
         info!("Cleared all active connections");
+    }
+    pub fn clear_inactive_connections(&self) {
+        let mut buffers = self.0.lock().unwrap();
+        buffers.inactive_connections.clear();
+        info!("Cleared all inactive connections");
     }
 }
