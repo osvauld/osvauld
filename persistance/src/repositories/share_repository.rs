@@ -76,6 +76,24 @@ impl ShareRepository for SqliteShareRepository {
         Ok(share_records)
     }
 
+    async fn get_ucan_token_by_resource(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let share_record_model = share_records::table
+            .filter(share_records::resource_id.eq(resource_id))
+            .filter(share_records::recipient_user_id.eq(user_id))
+            .filter(share_records::operation_type.eq("share"))
+            .first::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+        Ok(share_record_model.ucan_token)
+    }
+
     async fn find_by_resource(
         &self,
         resource_id: &str,

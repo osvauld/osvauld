@@ -148,22 +148,25 @@ class DataState {
     return this.getNotesCoordinator()?.getCurrentTitle() || "Untitled";
   }
 
-  async switchNote(noteId: string) {
-    uiState.setNoteFetching(true);
-    uiState.setEditorLoading(false);
-    uiState.toggleNoteViewLayout(true);
-    const note = await sendMessage("getCredential", { resourceId: noteId })
-    this.setCurrentNoteData(note);
-    this.setCurrentNoteId(noteId);
-    uiState.setNoteFetching(false);
-    StoreService.setCurrentNoteId(noteId);
+  async switchNote(noteId: string | null) {
+    emit("note-change", noteId
+    ).catch(error => {
+      uiState.clearAllLoadingStates();
+      console.error("Error updating current note:", error);
+    });
     if (noteId) {
-      emit("note-change", noteId
-      ).catch(error => {
-        uiState.clearAllLoadingStates();
-        console.error("Error updating current note:", error);
-      });
+      uiState.setNoteFetching(true);
+      uiState.setEditorLoading(false);
+      uiState.toggleNoteViewLayout(true);
+      const note = await sendMessage("getCredential", { resourceId: noteId })
+      this.setCurrentNoteData(note);
+      this.setCurrentNoteId(noteId);
+      uiState.setNoteFetching(false);
+      StoreService.setCurrentNoteId(noteId);
+    } else {
+      dataState.clearCurrentNote();
     }
+
   }
 
   updateNoteFavorite(noteId: string) {
@@ -178,9 +181,6 @@ class DataState {
     this.setCurrentNoteData(null);
     this.setCurrentNoteTitle("");
     StoreService.setCurrentNoteId(null);
-    emit("note-change", null).catch(error => {
-      console.error("Error clearing current note:", error);
-    });
   }
 
   toggleFavoriteView(showFavorites: boolean) {
@@ -409,11 +409,12 @@ class DataState {
       throw new Error("Coordinator not available");
     }
     const noteContent = coordinator.saveNote();
+    let stateVectors = coordinator.getStateVectors();
     await sendMessage("updateCredential", {
       id: noteId,
       data: JSON.stringify(noteContent),
     });
-
+    emit("resource-update-complete", { id: noteId, state_vectors: stateVectors });
     uiState.setNoteSaved(true);
 
     setTimeout(() => {

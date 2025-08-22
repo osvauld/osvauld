@@ -300,4 +300,10 @@ pub trait ShareRepository: Send + Sync {
         user_id: &str,
     ) -> Result<ShareRecord, RepositoryError>;
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
+
+    async fn get_ucan_token_by_resource(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> Result<String, RepositoryError>;
 }

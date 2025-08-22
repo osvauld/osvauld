@@ -21,7 +21,6 @@
 	let isNavigatingBack = false;
 	let collaboratorSyncInterval: number | null = null;
 
-
 	// Derived state for favorite status using the reactive notes array
 	let isFavourite = $derived(() => {
 		const noteId = dataState.currentNoteId;
@@ -31,7 +30,9 @@
 	});
 
 	// Derived state for filtered collaborators (excluding current user)
-	let otherOnlineCollaborators = $derived(dataState.collaborators.filter(c => c.name !== myUsername));
+	let otherOnlineCollaborators = $derived(
+		dataState.collaborators.filter((c) => c.name !== myUsername),
+	);
 
 	// Title editing functions
 	const startEditingTitle = () => {
@@ -78,8 +79,8 @@
 		const noteId = dataState.currentNoteId;
 		if (noteId) {
 			dataState.saveNote(noteId);
+			dataState.switchNote(null);
 		}
-		dataState.clearCurrentNote();
 		uiState.toggleNoteViewLayout(false);
 	};
 
@@ -142,7 +143,7 @@
 
 	const toggleNoteRightPanel = () => {
 		uiState.toggleNoteRightPanel();
-	}
+	};
 
 	onMount(() => {
 		document.documentElement.style.setProperty(
@@ -248,7 +249,7 @@
 							out:fade={{ duration: 200 }}
 						>
 							<div
-								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative  cursor-default select-none"
+								class="w-12 h-12 z-10 rounded-full bg-osvauld-fieldActive text-xl font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center relative cursor-default select-none"
 							>
 								{getInitial(collaborator.name)}
 								<!-- Live indicator dot -->
@@ -261,7 +262,10 @@
 					{/each}
 
 					{#if otherOnlineCollaborators.length > 3}
-						<div class="relative -ml-3" aria-label={`+${otherOnlineCollaborators.length - 3} more collaborators`}>
+						<div
+							class="relative -ml-3"
+							aria-label={`+${otherOnlineCollaborators.length - 3} more collaborators`}
+						>
 							<div
 								class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center"
 							>
@@ -272,15 +276,15 @@
 				</div>
 			{/if}
 			{#if !uiState.showNoteRightPanel}
-			<button
-				aria-label="Open note right panel"
-				class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
-				title="Open note right panel"
-				onclick={toggleNoteRightPanel}
-			>
-				<MenuToggle />
-			</button>
-		{/if}
+				<button
+					aria-label="Open note right panel"
+					class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
+					title="Open note right panel"
+					onclick={toggleNoteRightPanel}
+				>
+					<MenuToggle />
+				</button>
+			{/if}
 		</div>
 
 		<!-- Editor Component -->

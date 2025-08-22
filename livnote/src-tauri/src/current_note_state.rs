@@ -13,6 +13,7 @@ struct Buffers {
     images_previous_doc: Doc,
     shared_users: Vec<String>,
     active_connections: HashSet<String>,
+    inactive_connections: HashSet<String>,
 }
 impl Default for Buffers {
     fn default() -> Self {
@@ -24,6 +25,7 @@ impl Default for Buffers {
             images_previous_doc: Doc::new(),
             shared_users: Vec::new(),
             active_connections: HashSet::new(),
+            inactive_connections: HashSet::new(),
         }
     }
 }
@@ -49,6 +51,11 @@ impl CurrentNoteState {
             std::mem::replace(&mut buffers.images_current_doc, Doc::new());
 
         info!("Current note set to: {:?}", note_id);
+    }
+    pub fn reset_to_default(&self) {
+        let mut buffers = self.0.lock().unwrap();
+        *buffers = Buffers::default();
+        info!("Reset note state to default - cleared all data");
     }
 
     pub fn get_current_note(&self) -> Option<String> {
@@ -216,6 +223,11 @@ impl CurrentNoteState {
         buffers.active_connections.iter().cloned().collect()
     }
 
+    pub fn get_inactive_connections(&self) -> Vec<String> {
+        let buffers = self.0.lock().unwrap();
+        buffers.inactive_connections.iter().cloned().collect()
+    }
+
     pub fn is_connection_active(&self, connection_id: &str) -> bool {
         let buffers = self.0.lock().unwrap();
         buffers.active_connections.contains(connection_id)
@@ -228,9 +240,21 @@ impl CurrentNoteState {
         }
     }
 
+    pub fn add_inactive_connection(&self, connection_id: &str) {
+        let mut buffers = self.0.lock().unwrap();
+        buffers
+            .inactive_connections
+            .insert(connection_id.to_string());
+    }
+
     pub fn clear_active_connections(&self) {
         let mut buffers = self.0.lock().unwrap();
         buffers.active_connections.clear();
         info!("Cleared all active connections");
+    }
+    pub fn clear_inactive_connections(&self) {
+        let mut buffers = self.0.lock().unwrap();
+        buffers.inactive_connections.clear();
+        info!("Cleared all inactive connections");
     }
 }

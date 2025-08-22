@@ -177,7 +177,6 @@ pub async fn handle_update_resource(
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    //TODO: migrate obsolete user records to another table.
     let current_device = user_state.get_device().await?;
     let user = user_state.get_user().await?;
     let decrypted_resource = update_resource(

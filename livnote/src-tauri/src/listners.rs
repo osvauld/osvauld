@@ -10,11 +10,11 @@ use crypto_utils::CryptoUtils;
 use log::{error, info, warn};
 use network::p2p::{P2PEvent, incoming::P2PSender};
 use persistance::database::RepositoryContext;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use services::{get_resource_by_id_direct, get_shared_user_devices_for_note};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 use tokio::sync::{Mutex, mpsc};
-
 /// Initializes all listeners for the application
 /// This connects the Tauri event system with the P2P event system
 pub struct EventManager {
@@ -30,6 +30,12 @@ pub struct EventManager {
 enum UpdateType {
     SyncUpdate,
     AwarenessUpdate,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NoteChangePayload {
+    pub note_id: Option<String>,
+    pub state_vectors: serde_json::Value,
 }
 
 impl UpdateType {
@@ -245,19 +251,16 @@ impl EventManager {
             info!("No active connections to broadcast {} to", description);
         }
     }
-
-    /// Setup listener for resource-update-complete events
     fn setup_resource_update_complete_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-
+        let p2p_sender = self.p2p_sender.clone();
         self.app_handle
             .listen("resource-update-complete", move |event| {
                 let note_state = current_note_state.clone();
-
+                let p2p_sender = p2p_sender.clone();
                 let payload = event.payload();
                 if let Ok(json) = serde_json::from_str::<Value>(payload) {
                     if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                        // Only move current to previous if it's for the current note
                         if let Some(current_id) = note_state.get_current_note() {
                             if current_id == id {
                                 note_state.move_current_to_previous();
@@ -265,8 +268,25 @@ impl EventManager {
                                     "Moved current to previous buffer after resource update: {}",
                                     id
                                 );
-                            } else {
-                                info!("Ignoring buffer update for non-active note: {}", id);
+                                // let should_send = note_state.increment_and_check_counter();
+                                // if should_send {
+                                //     if let Some(state_vectors) = json.get("state_vectors").and_then(|v| v.as_str()) {
+                                //         let resource_id = id.to_string();
+                                //             let state_vectors = state_vectors.to_string();
+                                //         tokio::spawn(async move {
+                                //             if let Err(e) = Self::broadcast_update_to_inactive_connections(
+                                //                 &note_state,
+                                //                 &p2p_sender,
+                                //                 &resource_id,
+                                //                 &state_vectors,
+                                //             ).await {
+                                //                 error!("Failed to broadcast updates to inactive connections: {}", e);
+                                //             }
+                                //         });
+                                //     } else {
+                                //         error!("No state_vectors found in payload");
+                                //     }
+                                // }
                             }
                         }
                     }
@@ -276,25 +296,56 @@ impl EventManager {
 
     fn setup_note_change_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-
         let app_handle = self.app_handle.clone();
         let p2p_sender = self.p2p_sender.clone();
         let repo_ctx = self.repo_ctx.clone();
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let payload = event.payload().to_string();
+            info!("payload {}", payload);
             let app_handle_clone = app_handle.clone();
-                let note_id = if payload == "null" || payload.trim_matches('"').is_empty() {
-            None
-        } else {
-            Some(payload.trim_matches('"').to_string())
-        };
+            let note_id = if payload == "null" || payload.trim_matches('"').is_empty() {
+                None
+            } else {
+                Some(payload.trim_matches('"').to_string())
+            };
             let p2p_sender_clone = p2p_sender.clone();
-
             info!("Received note-change event with note_id: {:?}", note_id);
-             let previous_note_id = note_state.get_current_note();
-        // Check if we're actually changing documents (not just refreshing the same one)
-              if let Some(prev_id) = previous_note_id.clone() {
+            let previous_note_id = note_state.get_current_note();
+            if note_id.is_none() {
+                info!("inside note id none");
+                if let Some(prev_id) = previous_note_id.clone() {
+                    let inactive_connections = note_state.get_inactive_connections();
+                    info!("inactive connections {:?}", inactive_connections);
+                    if !inactive_connections.is_empty() {
+
+            if let Err(e) = p2p_sender_clone.send_state_vector_request(
+                            inactive_connections,
+                            prev_id.clone(),
+                            ) {
+                                error!("Failed to broadcast state vectors to inactive connections: {}", e);
+                            }
+                    }
+                }
+            note_state.reset_to_default();
+            return;
+            }
+            if let Some(prev_id) = previous_note_id.clone() {
+                let inactive_connections = note_state.get_inactive_connections();
+                if !inactive_connections.is_empty() {
+                    info!(
+                        "Broadcasting state vectors for note {} to {} inactive connections",
+                        prev_id,
+                        inactive_connections.len()
+                    );
+                    // Send state vector broadcast directly using p2p_sender
+                    if let Err(e) = p2p_sender_clone.send_state_vector_request(
+                        inactive_connections,
+                        prev_id.clone(),
+                    ) {
+                        error!("Failed to broadcast state vectors to inactive connections: {}", e);
+                    }
+                }
             // If changing from a document to null OR to a different document
             if note_id.is_none() || (note_id.is_some() && note_id.as_ref().unwrap() != &prev_id) {
                 info!("Document changing from {} to {:?}", prev_id, note_id);
@@ -318,6 +369,7 @@ impl EventManager {
                     }
                     // Clear active connections for the previous note
                     note_state.clear_active_connections();
+                    note_state.clear_inactive_connections();
                     info!("Cleared all active connections for previous note: {}", prev_id);
                 }
             }
@@ -355,6 +407,7 @@ impl EventManager {
                 };
                 let current_user_id = current_user.id;
                 let current_device_id = current_device.id;
+                info!("note_id {}, user_id {}", &note_id, &current_user_id);
                 match get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id, true, repo_ctx.clone())
                     .await
                 {
@@ -362,7 +415,7 @@ impl EventManager {
                         if let Err(e) = p2p_sender.send_live_edit_requests(shared_devices.clone()) {
                             error!("Failed to send live edit requests: {}", e);
                         }
-                        let _ = app_handle.emit("shared-users-update", shared_users); 
+                        let _ = app_handle.emit("shared-users-update", shared_users);
                         // Update the note state with the shared users
                         note_state.set_shared_users(shared_devices.clone());
                     }
@@ -427,6 +480,9 @@ impl EventManager {
                     resource_id,
                     connection_id,
                 } => self.handle_document_check(resource_id, connection_id).await,
+                P2PEvent::DocumentMismatch { connection_id } => {
+                    self.handle_document_missmatch(connection_id).await
+                }
                 P2PEvent::UpdateRequest {
                     resource_id,
                     connection_id,
@@ -577,6 +633,11 @@ impl EventManager {
         } else {
             warn!("Cannot initiate live editing - no current note selected");
         }
+    }
+
+    async fn handle_document_missmatch(&self, connection_id: String) {
+        self.current_note_state
+            .add_inactive_connection(&connection_id);
     }
 
     async fn handle_document_check(&self, resource_id: String, connection_id: String) {
@@ -1086,7 +1147,7 @@ impl EventManager {
         if let Some(current_resource_id) = current_note_state.get_current_note() {
             if current_resource_id != resource_id {
                 warn!(
-                    "Resource ID mismatch in document changed event: expected {}, got {}. 
+                    "Resource ID mismatch in document changed event: expected {}, got {}.
                 This might indicate state inconsistency.",
                     current_resource_id, resource_id
                 );
@@ -1099,6 +1160,7 @@ impl EventManager {
         }
         // Remove this connection from active connections
         current_note_state.remove_active_connection(&connection_id);
+        current_note_state.add_inactive_connection(&connection_id);
 
         info!(
             "Removed connection {} from active connections for resource {}",

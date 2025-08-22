@@ -1,14 +1,14 @@
-use crate::p2p::P2PService;
 use crate::p2p::incoming::IncomingEvent;
+use crate::p2p::P2PService;
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType,
     p2p::{LiveEditMessage, Message},
+    ConnectionAction, ConnectionType,
 };
 use services::{
     apply_buffer_and_peer_updates_and_get_remote_updates,
     apply_buffer_updates_and_get_remote_updates, get_resource_state_vector,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast::error, mpsc};
 use tracing::{debug, error, info, instrument, warn};
 
 /// Implementation of P2PService methods for handling incoming events and event processing
@@ -131,6 +131,14 @@ impl P2PService {
                     }
                     IncomingEvent::StartLiveConnection { device_ids } => {
                         let _ = service.handle_start_live_edit(&device_ids).await;
+                    }
+                    IncomingEvent::BroadCastStateVectorRequest {
+                        connection_ids,
+                        resource_id,
+                    } => {
+                        service
+                            .broadcast_state_vector_request(connection_ids, resource_id)
+                            .await;
                     }
                 }
             }
@@ -569,6 +577,86 @@ impl P2PService {
                 errors.join(", ")
             );
         }
+    }
+
+    async fn broadcast_state_vector_request(
+        &self,
+        connection_ids: Vec<String>,
+        resource_id: String,
+    ) -> Result<(), String> {
+        info!(
+            "Broadcasting state vector request to {} connections",
+            connection_ids.len()
+        );
+
+        // Early return if no connections
+        if connection_ids.is_empty() {
+            info!("No connections to broadcast to");
+            return Ok(());
+        }
+
+        // Get required data
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+        let current_user = self
+            .get_current_user()
+            .await
+            .map_err(|e| format!("Failed to fetch current user: {}", e))?;
+
+        let state_vectors = get_resource_state_vector(
+            &resource_id,
+            &current_user.id,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await
+        .map_err(|e| format!("Failed to get state vectors: {}", e))?;
+
+        let ucan_token = self
+            .repo_ctx
+            .share_repo
+            .get_ucan_token_by_resource(&resource_id, &current_user.id)
+            .await
+            .map_err(|e| format!("Failed to fetch UCAN token: {}", e))?;
+
+        // Create message once
+        let message = Message::MergeUpdate(
+            osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
+                resource_id: resource_id.clone(),
+                state_vectors,
+                ucan_token,
+            },
+        );
+
+        // Send to all connections and collect results
+        let mut errors = Vec::new();
+        for connection in connections {
+            let connection_id = connection.get_id();
+            info!(
+                "Sending state vector request to connection: {}",
+                connection_id
+            );
+
+            if let Err(e) = connection.send_message(message.clone()).await {
+                let error_msg = format!("Failed to send to connection {}: {}", connection_id, e);
+                error!("{}", error_msg);
+                errors.push(error_msg);
+            }
+        }
+
+        // Return error if any sends failed
+        if !errors.is_empty() {
+            return Err(format!(
+                "Failed to send to {} connections: {}",
+                errors.len(),
+                errors.join("; ")
+            ));
+        }
+
+        info!(
+            "Successfully sent state vector requests to all {} connections",
+            connection_ids.len()
+        );
+        Ok(())
     }
 
     // Simplified sync update handler using the generic function

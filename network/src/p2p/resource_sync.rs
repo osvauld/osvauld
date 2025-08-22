@@ -316,6 +316,7 @@ impl PeerConnection {
                     error!("token is invalid");
                     return Err("update permission is missing".to_string());
                 }
+                info!("state vecotrs {:?}", state_vectors);
 
                 let updates = match generate_updates_for_peer(
                     resource_id,
@@ -772,7 +773,12 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            LiveEditMessage::NotSameDocument => Ok(()),
+            LiveEditMessage::NotSameDocument => {
+                self.event_emitter.emit(P2PEvent::DocumentMismatch {
+                    connection_id: self.get_id(),
+                });
+                Ok(())
+            }
             LiveEditMessage::DocumentChange { resource_id } => {
                 info!("Peer changed document: {}", resource_id);
 
