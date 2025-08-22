@@ -6,7 +6,6 @@ import type {
   UserInfo,
   Collaborator
 } from "../../types/notes.types";
-
 export interface YjsDocuments {
   mainDoc: Y.Doc;
   imageDoc: Y.Doc;

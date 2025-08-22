@@ -1,3 +1,4 @@
+use log::info;
 use tokio::sync::mpsc;
 
 /// Events that can be received and processed by the P2P service
@@ -51,7 +52,6 @@ pub enum IncomingEvent {
     },
     BroadCastStateVectorRequest {
         connection_ids: Vec<String>,
-        state_vectors: String,
         resource_id: String,
     },
     StartLiveConnection {
@@ -165,11 +165,10 @@ impl P2PSender {
         &self,
         connection_ids: Vec<String>,
         resource_id: String,
-        state_vectors: String,
     ) -> Result<(), String> {
+        info!("sending state vector request");
         self.send(IncomingEvent::BroadCastStateVectorRequest {
             connection_ids,
-            state_vectors,
             resource_id,
         })
     }

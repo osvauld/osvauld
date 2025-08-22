@@ -35,7 +35,6 @@ impl PreviewGenerator {
         // Convert ProseMirror XML to HTML
         let html = self.convert_prosemirror_to_html(&content_xml, max_nodes)?;
 
-        info!("generated html {}", html);
         // Process images if we have image state and images in content
         let processed_html = if !image_state.is_empty() && html.contains("yjs-image:") {
             self.process_html_images(&html, image_state).await?

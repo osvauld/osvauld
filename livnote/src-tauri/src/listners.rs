@@ -35,7 +35,7 @@ enum UpdateType {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NoteChangePayload {
     pub note_id: Option<String>,
-    pub state_vectors: String,
+    pub state_vectors: serde_json::Value,
 }
 
 impl UpdateType {
@@ -296,7 +296,6 @@ impl EventManager {
 
     fn setup_note_change_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-
         let app_handle = self.app_handle.clone();
         let p2p_sender = self.p2p_sender.clone();
         let repo_ctx = self.repo_ctx.clone();
@@ -305,25 +304,23 @@ impl EventManager {
             let payload = event.payload().to_string();
             info!("payload {}", payload);
             let app_handle_clone = app_handle.clone();
-            let parsed_payload = match serde_json::from_str::<NoteChangePayload>(&payload) {
-                Ok(parsed_payload) => parsed_payload,
-                Err(e) => {
-                    error!("Failed to parse note-change payload as JSON: {}", e);
-                    return;
-                }
-
+            let note_id = if payload == "null" || payload.trim_matches('"').is_empty() {
+                None
+            } else {
+                Some(payload.trim_matches('"').to_string())
             };
-            let note_id = parsed_payload.note_id.clone();
             let p2p_sender_clone = p2p_sender.clone();
             info!("Received note-change event with note_id: {:?}", note_id);
             let previous_note_id = note_state.get_current_note();
             if note_id.is_none() {
+                info!("inside note id none");
                 if let Some(prev_id) = previous_note_id.clone() {
                     let inactive_connections = note_state.get_inactive_connections();
+                    info!("inactive connections {:?}", inactive_connections);
                     if !inactive_connections.is_empty() {
-                        if let Err(e) = p2p_sender_clone.send_state_vector_request(
+
+            if let Err(e) = p2p_sender_clone.send_state_vector_request(
                             inactive_connections,
-                            parsed_payload.state_vectors.clone(),
                             prev_id.clone(),
                             ) {
                                 error!("Failed to broadcast state vectors to inactive connections: {}", e);
@@ -344,7 +341,6 @@ impl EventManager {
                     // Send state vector broadcast directly using p2p_sender
                     if let Err(e) = p2p_sender_clone.send_state_vector_request(
                         inactive_connections,
-                        parsed_payload.state_vectors.clone(),
                         prev_id.clone(),
                     ) {
                         error!("Failed to broadcast state vectors to inactive connections: {}", e);
@@ -411,6 +407,7 @@ impl EventManager {
                 };
                 let current_user_id = current_user.id;
                 let current_device_id = current_device.id;
+                info!("note_id {}, user_id {}", &note_id, &current_user_id);
                 match get_shared_user_devices_for_note(&note_id, &current_user_id, &current_device_id, true, repo_ctx.clone())
                     .await
                 {

@@ -8,7 +8,7 @@ use services::{
     apply_buffer_and_peer_updates_and_get_remote_updates,
     apply_buffer_updates_and_get_remote_updates, get_resource_state_vector,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast::error, mpsc};
 use tracing::{debug, error, info, instrument, warn};
 
 /// Implementation of P2PService methods for handling incoming events and event processing
@@ -134,14 +134,11 @@ impl P2PService {
                     }
                     IncomingEvent::BroadCastStateVectorRequest {
                         connection_ids,
-                        state_vectors,
                         resource_id,
                     } => {
-                        service.broadcast_state_vector_request(
-                            connection_ids,
-                            state_vectors,
-                            resource_id,
-                        );
+                        service
+                            .broadcast_state_vector_request(connection_ids, resource_id)
+                            .await;
                     }
                 }
             }
@@ -586,39 +583,80 @@ impl P2PService {
         &self,
         connection_ids: Vec<String>,
         resource_id: String,
-        state_vectors: String,
-    ) {
+    ) -> Result<(), String> {
+        info!(
+            "Broadcasting state vector request to {} connections",
+            connection_ids.len()
+        );
+
+        // Early return if no connections
+        if connection_ids.is_empty() {
+            info!("No connections to broadcast to");
+            return Ok(());
+        }
+
+        // Get required data
         let connections = self.get_connections_by_ids(&connection_ids).await;
-        let current_user = match self.get_current_user().await {
-            Ok(user) => user,
-            Err(e) => {
-                error!("failed to fetch user {}", e);
-                return;
-            }
-        };
-        let ucan_token = match self
+        let current_user = self
+            .get_current_user()
+            .await
+            .map_err(|e| format!("Failed to fetch current user: {}", e))?;
+
+        let state_vectors = get_resource_state_vector(
+            &resource_id,
+            &current_user.id,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await
+        .map_err(|e| format!("Failed to get state vectors: {}", e))?;
+
+        let ucan_token = self
             .repo_ctx
             .share_repo
             .get_ucan_token_by_resource(&resource_id, &current_user.id)
             .await
-        {
-            Ok(token) => token,
-            Err(e) => {
-                error!("failed to fetch ucan token");
-                return;
-            }
-        };
+            .map_err(|e| format!("Failed to fetch UCAN token: {}", e))?;
+
+        // Create message once
         let message = Message::MergeUpdate(
             osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
-                resource_id,
+                resource_id: resource_id.clone(),
                 state_vectors,
                 ucan_token,
             },
         );
-        // Send to each connection
+
+        // Send to all connections and collect results
+        let mut errors = Vec::new();
         for connection in connections {
-            let _ = connection.send_message(message.clone()).await;
+            let connection_id = connection.get_id();
+            info!(
+                "Sending state vector request to connection: {}",
+                connection_id
+            );
+
+            if let Err(e) = connection.send_message(message.clone()).await {
+                let error_msg = format!("Failed to send to connection {}: {}", connection_id, e);
+                error!("{}", error_msg);
+                errors.push(error_msg);
+            }
         }
+
+        // Return error if any sends failed
+        if !errors.is_empty() {
+            return Err(format!(
+                "Failed to send to {} connections: {}",
+                errors.len(),
+                errors.join("; ")
+            ));
+        }
+
+        info!(
+            "Successfully sent state vector requests to all {} connections",
+            connection_ids.len()
+        );
+        Ok(())
     }
 
     // Simplified sync update handler using the generic function

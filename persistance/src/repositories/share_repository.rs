@@ -75,6 +75,7 @@ impl ShareRepository for SqliteShareRepository {
 
         Ok(share_records)
     }
+
     async fn get_ucan_token_by_resource(
         &self,
         resource_id: &str,

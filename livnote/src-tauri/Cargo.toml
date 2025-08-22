@@ -51,7 +51,7 @@ persistance = { path = "../../persistance" }
 services = { path = "../../services" }
 tauri = { version = "2.4.1", features = [] }
 tauri-plugin-fs = "2.2.1"
-yrs = { version = "0.23.1", features = ["sync"] }
+yrs = { version = "0.24.0", features = ["sync"] }
 tauri-plugin-dialog = "2.0.0-rc"
 clap = { version = "4.5.40", features = ["derive"] }
 regex = "1.11.1"

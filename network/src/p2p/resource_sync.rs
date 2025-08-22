@@ -316,6 +316,7 @@ impl PeerConnection {
                     error!("token is invalid");
                     return Err("update permission is missing".to_string());
                 }
+                info!("state vecotrs {:?}", state_vectors);
 
                 let updates = match generate_updates_for_peer(
                     resource_id,

@@ -81,7 +81,6 @@
 			dataState.saveNote(noteId);
 			dataState.switchNote(null);
 		}
-		dataState.clearCurrentNote();
 		uiState.toggleNoteViewLayout(false);
 	};
 

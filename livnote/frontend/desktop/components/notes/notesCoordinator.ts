@@ -373,23 +373,18 @@ export class NotesCoordinator {
   }
 
 
-  async getStateVectors(): Promise<string> {
+  async getStateVectors(): Promise<Record<string, any>> {
     const result: Record<string, { updates: number[]; state_vector: number[] }> = {};
-
-    // Get state vectors for both document types
     const mainStateVector = this.yjsManager.getStateVector('main');
     const imageStateVector = this.yjsManager.getStateVector('images');
-
     result['main_doc'] = {
       updates: [],
       state_vector: Array.from(mainStateVector)
     };
-
     result['image_state'] = {
       updates: [],
       state_vector: Array.from(imageStateVector)
     };
-
-    return JSON.stringify(result);
+    return result;
   }
 }

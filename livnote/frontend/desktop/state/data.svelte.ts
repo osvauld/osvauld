@@ -138,7 +138,7 @@ class DataState {
     uiState.setNoteFetching(false);
     uiState.toggleNoteViewLayout(true);
     StoreService.setCurrentNoteId(note.id);
-    emit("note-change", { note_id: note.id, state_vectors: {} }
+    emit("note-change", note.id
     ).catch(error => {
       console.error("Error updating current note:", error);
     });
@@ -149,21 +149,24 @@ class DataState {
   }
 
   async switchNote(noteId: string | null) {
-    uiState.setNoteFetching(true);
-    uiState.setEditorLoading(false);
-    uiState.toggleNoteViewLayout(true);
-    const coordinator = this.getNotesCoordinator();
-    let stateVectors = coordinator.getStateVectors();
-    const note = await sendMessage("getCredential", { resourceId: noteId })
-    this.setCurrentNoteData(note);
-    this.setCurrentNoteId(noteId);
-    uiState.setNoteFetching(false);
-    StoreService.setCurrentNoteId(noteId);
-    emit("note-change", JSON.stringify({ note_id: noteId, state_vectors: stateVectors })
+    emit("note-change", noteId
     ).catch(error => {
       uiState.clearAllLoadingStates();
       console.error("Error updating current note:", error);
     });
+    if (noteId) {
+      uiState.setNoteFetching(true);
+      uiState.setEditorLoading(false);
+      uiState.toggleNoteViewLayout(true);
+      const note = await sendMessage("getCredential", { resourceId: noteId })
+      this.setCurrentNoteData(note);
+      this.setCurrentNoteId(noteId);
+      uiState.setNoteFetching(false);
+      StoreService.setCurrentNoteId(noteId);
+    } else {
+      dataState.clearCurrentNote();
+    }
+
   }
 
   updateNoteFavorite(noteId: string) {
@@ -178,9 +181,6 @@ class DataState {
     this.setCurrentNoteData(null);
     this.setCurrentNoteTitle("");
     StoreService.setCurrentNoteId(null);
-    emit("note-change", null).catch(error => {
-      console.error("Error clearing current note:", error);
-    });
   }
 
   toggleFavoriteView(showFavorites: boolean) {
