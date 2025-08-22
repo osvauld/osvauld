@@ -13,28 +13,21 @@ pub enum IncomingEvent {
         connection_id: String,
         resource_id: String,
         is_match: bool,
+        state_vectors: String,
     },
     LiveEditUpdateExchange {
         connection_id: String,
         resource_id: String,
-        state_vectors: String,
-        combined_updates: String,
-        user_id: String,
+        peer_updates: String,
     },
     LiveEditUpdateExchangeResponse {
         connection_id: String,
         resource_id: String,
-        remote_updates: String,
-        local_buffer: String,
+        peer_updates: String,
     },
     DocumentChanged {
         connection_id: String,
         resource_id: String,
-    },
-    CurrentBufferExchange {
-        connection_id: String,
-        resource_id: String,
-        buffer: String,
     },
     SyncUpdateBroadcast {
         connection_ids: Vec<String>,
@@ -99,11 +92,13 @@ impl P2PSender {
         connection_id: String,
         resource_id: String,
         is_match: bool,
+        state_vectors: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::LiveEditDocumentCheckResponse {
             connection_id,
             resource_id,
             is_match,
+            state_vectors,
         })
     }
 
@@ -111,16 +106,12 @@ impl P2PSender {
         &self,
         connection_id: String,
         resource_id: String,
-        state_vectors: String,
-        combined_updates: String,
-        user_id: String,
+        peer_updates: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::LiveEditUpdateExchange {
             connection_id,
             resource_id,
-            combined_updates,
-            state_vectors,
-            user_id,
+            peer_updates,
         })
     }
     pub fn send_document_changed(
@@ -138,26 +129,12 @@ impl P2PSender {
         &self,
         connection_id: String,
         resource_id: String,
-        local_buffer: String,
-        remote_updates: String,
+        peer_updates: String,
     ) -> Result<(), String> {
         self.send(IncomingEvent::LiveEditUpdateExchangeResponse {
             connection_id,
             resource_id,
-            local_buffer,
-            remote_updates,
-        })
-    }
-    pub fn send_current_buffer_exchange(
-        &self,
-        connection_id: String,
-        resource_id: String,
-        buffer: String,
-    ) -> Result<(), String> {
-        self.send(IncomingEvent::CurrentBufferExchange {
-            connection_id,
-            resource_id,
-            buffer,
+            peer_updates,
         })
     }
 

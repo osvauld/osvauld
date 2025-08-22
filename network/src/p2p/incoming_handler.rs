@@ -2,7 +2,7 @@ use crate::p2p::incoming::IncomingEvent;
 use crate::p2p::P2PService;
 use osvauld_core::models::{
     p2p::{LiveEditMessage, Message},
-    ConnectionAction, ConnectionType,
+    ConnectionAction, ConnectionType, ResourceUpdateMsg,
 };
 use services::{
     apply_buffer_and_peer_updates_and_get_remote_updates,
@@ -71,44 +71,40 @@ impl P2PService {
                         connection_id,
                         resource_id,
                         is_match,
+                        state_vectors,
                     } => {
                         let _ = service
                             .handle_live_edit_document_check_response(
                                 connection_id,
                                 resource_id,
                                 is_match,
+                                state_vectors,
                             )
                             .await;
                     }
                     IncomingEvent::LiveEditUpdateExchange {
                         connection_id,
                         resource_id,
-                        state_vectors,
-                        combined_updates,
-                        user_id,
+                        peer_updates,
                     } => {
                         let _ = service
                             .handle_live_edit_update_exchange(
                                 connection_id,
                                 resource_id,
-                                state_vectors,
-                                combined_updates,
-                                user_id,
+                                peer_updates,
                             )
                             .await;
                     }
                     IncomingEvent::LiveEditUpdateExchangeResponse {
                         connection_id,
                         resource_id,
-                        local_buffer,
-                        remote_updates,
+                        peer_updates,
                     } => {
                         let _ = service
                             .handle_live_edit_update_exchange_response(
                                 connection_id,
                                 resource_id,
-                                local_buffer,
-                                remote_updates,
+                                peer_updates,
                             )
                             .await;
                     }
@@ -118,15 +114,6 @@ impl P2PService {
                     } => {
                         service
                             .handle_document_changed(connection_id, resource_id)
-                            .await;
-                    }
-                    IncomingEvent::CurrentBufferExchange {
-                        connection_id,
-                        resource_id,
-                        buffer,
-                    } => {
-                        service
-                            .handle_current_buffer_exchange(connection_id, resource_id, buffer)
                             .await;
                     }
                     IncomingEvent::StartLiveConnection { device_ids } => {
@@ -245,6 +232,7 @@ impl P2PService {
         connection_id: String,
         resource_id: String,
         is_match: bool,
+        state_vectors: String,
     ) -> Result<(), String> {
         info!(
             "Processing document check response: resource={}, is_match={}",
@@ -252,111 +240,62 @@ impl P2PService {
         );
 
         // Get the connection from the connection manager
-        match self.get_connection_by_id(&connection_id).await {
-            Ok(connection) => {
-                if is_match {
-                    info!("Document match confirmed, proceeding with state vector exchange");
-                    let user = self.get_current_user().await?;
-                    match get_resource_state_vector(
-                        &resource_id,
-                        &user.id,
-                        self.repo_ctx.clone(),
-                        &self.crypto_utils,
-                    )
-                    .await
-                    {
-                        Ok(state_vectors) => {
-                            // Create a state vector exchange message
-                            let state_vector_message =
-                                Message::LiveEdit(LiveEditMessage::StateVectorExchange {
-                                    resource_id: resource_id.clone(),
-                                    state_vectors,
-                                });
+        let connection = self
+            .get_connection_by_id(&connection_id)
+            .await
+            .map_err(|e| format!("Failed to get connection for state vector exchange: {}", e))?;
 
-                            // Send the state vector exchange message
-                            if let Err(e) = connection.send_message(state_vector_message).await {
-                                error!("Failed to send state vector exchange message: {}", e);
-                                return Err(format!(
-                                    "Failed to get state vector for resource {}: {}",
-                                    resource_id, e
-                                ));
-                            } else {
-                                info!("State vector exchange message sent successfully");
-                                return Ok(());
-                            }
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to get state vector for resource {}: {}",
-                                resource_id, e
-                            );
-                            return Err(format!(
-                                "Failed to get connection for state vector exchange: {}",
-                                e
-                            ));
-                        }
-                    }
-                } else {
-                    let message = Message::LiveEdit(LiveEditMessage::NotSameDocument);
-                    if let Err(e) = connection.send_message(message).await {
-                        error!("Failed to send state vector exchange message: {}", e);
-                        return Err(format!("Failed to send not same document message: {}", e));
-                    } else {
-                        info!("State vector exchange message sent successfully");
-                        return Ok(());
-                    }
-                }
-            }
-            Err(e) => {
-                return Err(format!(
-                    "Failed to get connection for state vector exchange: {}",
-                    e
-                ));
-            }
+        if is_match {
+            info!("Document match confirmed, proceeding with state vector exchange");
+
+            // Create a state vector exchange message
+            let state_vector_message = Message::LiveEdit(LiveEditMessage::StateVectorExchange {
+                resource_id: resource_id.clone(),
+                state_vectors,
+            });
+
+            connection
+                .send_message(state_vector_message)
+                .await
+                .map_err(|e| format!("Failed to send state vector exchange message: {}", e))?;
+
+            info!("State vector exchange message sent successfully");
+            Ok(())
+        } else {
+            info!("Document mismatch, sending not same document message");
+
+            let message = Message::LiveEdit(LiveEditMessage::NotSameDocument);
+            connection
+                .send_message(message)
+                .await
+                .map_err(|e| format!("Failed to send not same document message: {}", e))?;
+
+            info!("Not same document message sent successfully");
+            Ok(())
         }
     }
     async fn handle_live_edit_update_exchange(
         &self,
         connection_id: String,
         resource_id: String,
-        state_vectors: String,
-        combined_updates: String,
-        user_id: String,
+        peer_updates: String,
     ) -> Result<(), String> {
         info!("Received update request for resource: {}", resource_id);
 
         match self.get_connection_by_id(&connection_id).await {
             // Generate updates and state vector based on peer's state vector
             Ok(connection) => {
-                match apply_buffer_updates_and_get_remote_updates(
-                    &resource_id,
-                    &user_id,
-                    &combined_updates,
-                    &state_vectors,
-                    self.repo_ctx.clone(),
-                    &self.crypto_utils,
-                )
-                .await
-                {
-                    Ok(updates) => {
-                        info!("Generated {} bytes of updates for peer", updates.len());
-                        let live_edit_message = LiveEditMessage::UpdateExchange {
-                            resource_id,
-                            updates,
-                        };
-                        let message = Message::LiveEdit(live_edit_message);
-                        if let Err(e) = connection.send_message(message).await {
-                            error!("Failed to send state vector exchange message: {}", e);
-                            return Err(format!("Failed to state vector exchange: {}", e));
-                        } else {
-                            info!("State vector exchange message sent successfully");
-                            return Ok(());
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to generate updates for peer: {}", e);
-                        return Err(format!("Failed to state vector exchange: {}", e));
-                    }
+                let live_edit_message = LiveEditMessage::UpdateExchange {
+                    resource_id,
+                    updates: peer_updates,
+                };
+                let message = Message::LiveEdit(live_edit_message);
+                if let Err(e) = connection.send_message(message).await {
+                    error!("Failed to send state vector exchange message: {}", e);
+                    return Err(format!("Failed to state vector exchange: {}", e));
+                } else {
+                    info!("State vector exchange message sent successfully");
+                    return Ok(());
                 }
             }
 
@@ -371,8 +310,7 @@ impl P2PService {
         &self,
         connection_id: String,
         resource_id: String,
-        local_buffer: String,
-        remote_updates: String,
+        peer_updates: String,
     ) -> Result<(), String> {
         info!(
             "Processing update exchange response for resource: {}",
@@ -382,44 +320,21 @@ impl P2PService {
         // Get the connection from the connection manager
         match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
-                // Combine local buffer and remote updates for processing
+                // Create UpdateExchangeResponse message
+                let live_edit_message = LiveEditMessage::UpdateExchangeResponse {
+                    resource_id,
+                    updates: peer_updates,
+                };
 
-                let user = self.get_current_user().await?;
-                // Process the combined updates and get updates for peer
-                match apply_buffer_and_peer_updates_and_get_remote_updates(
-                    &resource_id,
-                    &user.id,
-                    &remote_updates,
-                    &local_buffer,
-                    self.repo_ctx.clone(),
-                    &self.crypto_utils,
-                )
-                .await
-                {
-                    Ok(updates) => {
-                        info!("Generated {} bytes of updates for peer", updates.len());
+                let message = Message::LiveEdit(live_edit_message);
 
-                        // Create UpdateExchangeResponse message
-                        let live_edit_message = LiveEditMessage::UpdateExchangeResponse {
-                            resource_id,
-                            updates,
-                        };
-
-                        let message = Message::LiveEdit(live_edit_message);
-
-                        // Send the message
-                        if let Err(e) = connection.send_message(message).await {
-                            error!("Failed to send update exchange response: {}", e);
-                            return Err(format!("failed to send updated exchange response {}", e));
-                        } else {
-                            info!("Update exchange response sent successfully");
-                            Ok(())
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to generate updates for peer: {}", e);
-                        return Err(format!("failed to send updated exchange response {}", e));
-                    }
+                // Send the message
+                if let Err(e) = connection.send_message(message).await {
+                    error!("Failed to send update exchange response: {}", e);
+                    return Err(format!("failed to send updated exchange response {}", e));
+                } else {
+                    info!("Update exchange response sent successfully");
+                    Ok(())
                 }
             }
             Err(e) => {
@@ -431,39 +346,6 @@ impl P2PService {
             }
         }
     }
-    async fn handle_current_buffer_exchange(
-        &self,
-        connection_id: String,
-        resource_id: String,
-        buffer: String,
-    ) {
-        info!(
-            "Sending current buffer exchange for resource: {}",
-            resource_id
-        );
-
-        match self.get_connection_by_id(&connection_id).await {
-            Ok(connection) => {
-                let message = Message::LiveEdit(LiveEditMessage::CurrentBufferExchange {
-                    resource_id,
-                    buffer,
-                });
-
-                if let Err(e) = connection.send_message(message).await {
-                    error!("Failed to send current buffer exchange: {}", e);
-                } else {
-                    info!("Current buffer exchange sent successfully");
-                }
-            }
-            Err(e) => {
-                error!(
-                    "Failed to get connection for current buffer exchange: {}",
-                    e
-                );
-            }
-        }
-    }
-
     #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id), level = "info")]
     pub async fn handle_document_changed(&self, connection_id: String, resource_id: String) {
         info!(
@@ -619,13 +501,11 @@ impl P2PService {
             .map_err(|e| format!("Failed to fetch UCAN token: {}", e))?;
 
         // Create message once
-        let message = Message::MergeUpdate(
-            osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
-                resource_id: resource_id.clone(),
-                state_vectors,
-                ucan_token,
-            },
-        );
+        let message = Message::MergeUpdate(ResourceUpdateMsg::StateVectorRequest {
+            resource_id: resource_id.clone(),
+            state_vectors,
+            ucan_token,
+        });
 
         // Send to all connections and collect results
         let mut errors = Vec::new();

@@ -50,12 +50,23 @@ impl EventManager {
 
         // Check if we're currently editing this resource
         let is_match = EventManager::is_current_note(&self.current_note_state, &resource_id);
+        let mut state_vectors = String::new();
+        if is_match {
+            state_vectors = match self.current_note_state.get_state_vectors().await {
+                Ok(vector) => vector,
+                Err(e) => {
+                    error!("failed to get state_vectors{} ", e);
+                    return;
+                }
+            }
+        }
 
         // Send the response
         if let Err(e) = self.send_live_edit_document_check_response(
             connection_id.clone(),
             resource_id.clone(),
             is_match,
+            state_vectors,
         ) {
             error!("Failed to send document check response: {}", e);
             return;
@@ -83,7 +94,6 @@ impl EventManager {
         resource_id: String,
         connection_id: String,
         state_vectors: String,
-        current_user_id: String,
     ) {
         info!("Received update request for resource: {}", resource_id);
 
@@ -97,7 +107,11 @@ impl EventManager {
         }
 
         // Combine current and previous buffers
-        let combined_updates = match self.current_note_state.get_combined_updates().await {
+        let peer_updates = match self
+            .current_note_state
+            .generate_updates_for_peer(&state_vectors)
+            .await
+        {
             Ok(updates) => updates,
             Err(e) => {
                 error!("Failed to get buffer: {}", e);
@@ -108,9 +122,7 @@ impl EventManager {
         if let Err(e) = self.send_live_edit_update_exchange(
             connection_id.clone(),
             resource_id.clone(),
-            state_vectors.clone(),
-            combined_updates,
-            current_user_id,
+            peer_updates,
         ) {
             error!("Failed to send update exchange: {}", e);
         } else {
@@ -132,7 +144,11 @@ impl EventManager {
             return;
         }
 
-        let local_buffer = match self.current_note_state.get_combined_updates().await {
+        let peer_updates = match self
+            .current_note_state
+            .apply_updates_and_generate_diff(&remote_updates)
+            .await
+        {
             Ok(buffer) => buffer,
             Err(e) => {
                 error!("Failed to get buffer details: {}", e);
@@ -145,12 +161,9 @@ impl EventManager {
             .await;
 
         // Send both local buffer and remote updates in response
-        if let Err(e) = self.send_live_edit_update_exchange_response(
-            connection_id,
-            resource_id,
-            local_buffer,
-            remote_updates,
-        ) {
+        if let Err(e) =
+            self.send_live_edit_update_exchange_response(connection_id, resource_id, peer_updates)
+        {
             error!("Failed to send update exchange response: {}", e);
         }
     }
@@ -190,104 +203,6 @@ impl EventManager {
             info!("Applying {} bytes of updates to frontend", updates.len());
             self.handle_update_event(resource_id.clone(), updates, client_id)
                 .await;
-        }
-
-        // Send current buffer
-        let current_buffer = match self.current_note_state.get_combined_updates().await {
-            Ok(buffer) => buffer,
-            Err(e) => {
-                error!("Failed to get combined updates: {}", e);
-                return;
-            }
-        };
-
-        info!(
-            "Sending final current buffer ({} bytes) exchange",
-            current_buffer.len()
-        );
-
-        if let Err(e) = self.send_current_buffer_exchange(
-            connection_id.clone(),
-            resource_id.clone(),
-            current_buffer,
-        ) {
-            error!("Failed to send current buffer: {}", e);
-        }
-
-        // Notify frontend that live editing is now active
-        let _ = self.emit_json(
-            "live-edit-active",
-            serde_json::json!({
-                "connection_id": connection_id,
-                "resource_id": resource_id,
-            }),
-        );
-    }
-
-    /// Handle current buffer exchange
-    pub(crate) async fn handle_current_buffer_exchange(
-        &self,
-        resource_id: String,
-        connection_id: String,
-        updates: String,
-        client_id: u32,
-    ) {
-        info!(
-            "Processing current buffer exchange for resource: {}, from connection: {}",
-            resource_id, connection_id
-        );
-
-        // Forward updates to the frontend
-        if !updates.is_empty() {
-            info!(
-                "Forwarding {} bytes of buffer updates to frontend",
-                updates.len()
-            );
-            self.handle_update_event(resource_id.clone(), updates, client_id)
-                .await;
-        }
-
-        // Verify this is the document we're currently editing
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
-            warn!(
-                "Received buffer exchange for non-active document: {}",
-                resource_id
-            );
-            return;
-        }
-
-        // Check if this connection is already active
-        if self.current_note_state.is_connection_active(&connection_id) {
-            info!(
-                "Connection {} is already active for resource {}, no response needed",
-                connection_id, resource_id
-            );
-            return;
-        }
-
-        // Add this connection to active sessions
-        self.current_note_state
-            .add_active_connection(connection_id.clone());
-        info!(
-            "Added connection {} to active sessions for resource {}",
-            connection_id, resource_id
-        );
-
-        // Get and send current buffer back
-        let current_buffer = match self.current_note_state.get_combined_updates().await {
-            Ok(buffer) => buffer,
-            Err(e) => {
-                error!("Failed to get combined updates: {}", e);
-                return;
-            }
-        };
-
-        if let Err(e) = self.send_current_buffer_exchange(
-            connection_id.clone(),
-            resource_id.clone(),
-            current_buffer,
-        ) {
-            error!("Failed to send current buffer response: {}", e);
         }
 
         // Notify frontend that live editing is now active

@@ -58,13 +58,18 @@ impl EventManager {
         connection_id: String,
         resource_id: String,
         is_match: bool,
+        state_vectors: String,
     ) -> Result<(), String> {
         info!(
             "Sending document check response for resource: {}, is_match: {}",
             resource_id, is_match
         );
-        self.p2p_sender
-            .send_live_edit_document_check_response(connection_id, resource_id, is_match)
+        self.p2p_sender.send_live_edit_document_check_response(
+            connection_id,
+            resource_id,
+            is_match,
+            state_vectors,
+        )
     }
 
     /// Send update exchange for live editing
@@ -72,21 +77,14 @@ impl EventManager {
         &self,
         connection_id: String,
         resource_id: String,
-        state_vectors: String,
-        combined_updates: String,
-        current_user_id: String,
+        peer_updates: String,
     ) -> Result<(), String> {
         info!(
             "Sending update exchange for resource: {} to connection: {}",
             resource_id, connection_id
         );
-        self.p2p_sender.send_live_edit_update_exchange(
-            connection_id,
-            resource_id,
-            state_vectors,
-            combined_updates,
-            current_user_id,
-        )
+        self.p2p_sender
+            .send_live_edit_update_exchange(connection_id, resource_id, peer_updates)
     }
 
     /// Send update exchange response
@@ -94,8 +92,7 @@ impl EventManager {
         &self,
         connection_id: String,
         resource_id: String,
-        local_buffer: String,
-        remote_updates: String,
+        peer_updates: String,
     ) -> Result<(), String> {
         info!(
             "Sending update exchange response for resource: {} to connection: {}",
@@ -104,24 +101,8 @@ impl EventManager {
         self.p2p_sender.send_live_edit_update_exchange_response(
             connection_id,
             resource_id,
-            local_buffer,
-            remote_updates,
+            peer_updates,
         )
-    }
-
-    /// Send current buffer exchange
-    pub(super) fn send_current_buffer_exchange(
-        &self,
-        connection_id: String,
-        resource_id: String,
-        current_buffer: String,
-    ) -> Result<(), String> {
-        info!(
-            "Sending current buffer exchange for resource: {} to connection: {}",
-            resource_id, connection_id
-        );
-        self.p2p_sender
-            .send_current_buffer_exchange(connection_id, resource_id, current_buffer)
     }
 
     /// Send document changed notification
