@@ -142,10 +142,6 @@ pub enum LiveEditMessage {
         resource_id: String,
         updates: String,
     },
-    CurrentBufferExchange {
-        resource_id: String,
-        buffer: String,
-    },
     DocumentChange {
         resource_id: String,
     },

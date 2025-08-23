@@ -26,7 +26,9 @@ impl EventManager {
             );
             return;
         }
-
+        self.current_note_state
+            .apply_update(updates.clone(), &doc_type)
+            .await;
         // Create payload for frontend
         let payload = serde_json::json!({
             "resource_id": resource_id,

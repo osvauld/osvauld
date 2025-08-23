@@ -189,6 +189,7 @@ impl EventManager {
             );
             return;
         }
+        let _ = self.current_note_state.apply_peer_updates(&updates).await;
 
         // Add this connection to active sessions
         self.current_note_state
