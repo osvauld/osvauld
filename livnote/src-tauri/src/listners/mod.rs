@@ -77,6 +77,7 @@ impl EventManager {
         // Set up Tauri event listeners
         self.setup_tauri_listeners();
 
+        self.start_reconciliation_timer();
         // Start P2P event listener in background
         tokio::spawn(async move {
             self.listen_for_p2p_events().await;

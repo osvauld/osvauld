@@ -1,6 +1,9 @@
 use crate::EventManager;
+use crate::current_note_state::CurrentNoteState;
 use log::{error, info, warn};
-
+use network::p2p::incoming::P2PSender;
+use rand;
+use tokio::time::{Duration, interval};
 /// Live edit negotiation and connection management handlers
 impl EventManager {
     /// Handle live edit connected event
@@ -50,12 +53,23 @@ impl EventManager {
 
         // Check if we're currently editing this resource
         let is_match = EventManager::is_current_note(&self.current_note_state, &resource_id);
+        let mut state_vectors = String::new();
+        if is_match {
+            state_vectors = match self.current_note_state.get_state_vectors().await {
+                Ok(vector) => vector,
+                Err(e) => {
+                    error!("failed to get state_vectors{} ", e);
+                    return;
+                }
+            }
+        }
 
         // Send the response
         if let Err(e) = self.send_live_edit_document_check_response(
             connection_id.clone(),
             resource_id.clone(),
             is_match,
+            state_vectors,
         ) {
             error!("Failed to send document check response: {}", e);
             return;
@@ -83,7 +97,6 @@ impl EventManager {
         resource_id: String,
         connection_id: String,
         state_vectors: String,
-        current_user_id: String,
     ) {
         info!("Received update request for resource: {}", resource_id);
 
@@ -97,7 +110,11 @@ impl EventManager {
         }
 
         // Combine current and previous buffers
-        let combined_updates = match self.current_note_state.get_combined_updates().await {
+        let peer_updates = match self
+            .current_note_state
+            .generate_updates_for_peer(&state_vectors)
+            .await
+        {
             Ok(updates) => updates,
             Err(e) => {
                 error!("Failed to get buffer: {}", e);
@@ -108,9 +125,7 @@ impl EventManager {
         if let Err(e) = self.send_live_edit_update_exchange(
             connection_id.clone(),
             resource_id.clone(),
-            state_vectors.clone(),
-            combined_updates,
-            current_user_id,
+            peer_updates,
         ) {
             error!("Failed to send update exchange: {}", e);
         } else {
@@ -132,25 +147,28 @@ impl EventManager {
             return;
         }
 
-        let local_buffer = match self.current_note_state.get_combined_updates().await {
+        let peer_updates = match self
+            .current_note_state
+            .apply_updates_and_generate_diff(&remote_updates)
+            .await
+        {
             Ok(buffer) => buffer,
             Err(e) => {
                 error!("Failed to get buffer details: {}", e);
                 return;
             }
         };
+        self.current_note_state
+            .add_active_connection(connection_id.clone());
 
         // Apply the remote updates
         self.handle_update_event(resource_id.clone(), remote_updates.clone(), client_id)
             .await;
 
         // Send both local buffer and remote updates in response
-        if let Err(e) = self.send_live_edit_update_exchange_response(
-            connection_id,
-            resource_id,
-            local_buffer,
-            remote_updates,
-        ) {
+        if let Err(e) =
+            self.send_live_edit_update_exchange_response(connection_id, resource_id, peer_updates)
+        {
             error!("Failed to send update exchange response: {}", e);
         }
     }
@@ -176,6 +194,7 @@ impl EventManager {
             );
             return;
         }
+        let _ = self.current_note_state.apply_peer_updates(&updates).await;
 
         // Add this connection to active sessions
         self.current_note_state
@@ -190,104 +209,6 @@ impl EventManager {
             info!("Applying {} bytes of updates to frontend", updates.len());
             self.handle_update_event(resource_id.clone(), updates, client_id)
                 .await;
-        }
-
-        // Send current buffer
-        let current_buffer = match self.current_note_state.get_combined_updates().await {
-            Ok(buffer) => buffer,
-            Err(e) => {
-                error!("Failed to get combined updates: {}", e);
-                return;
-            }
-        };
-
-        info!(
-            "Sending final current buffer ({} bytes) exchange",
-            current_buffer.len()
-        );
-
-        if let Err(e) = self.send_current_buffer_exchange(
-            connection_id.clone(),
-            resource_id.clone(),
-            current_buffer,
-        ) {
-            error!("Failed to send current buffer: {}", e);
-        }
-
-        // Notify frontend that live editing is now active
-        let _ = self.emit_json(
-            "live-edit-active",
-            serde_json::json!({
-                "connection_id": connection_id,
-                "resource_id": resource_id,
-            }),
-        );
-    }
-
-    /// Handle current buffer exchange
-    pub(crate) async fn handle_current_buffer_exchange(
-        &self,
-        resource_id: String,
-        connection_id: String,
-        updates: String,
-        client_id: u32,
-    ) {
-        info!(
-            "Processing current buffer exchange for resource: {}, from connection: {}",
-            resource_id, connection_id
-        );
-
-        // Forward updates to the frontend
-        if !updates.is_empty() {
-            info!(
-                "Forwarding {} bytes of buffer updates to frontend",
-                updates.len()
-            );
-            self.handle_update_event(resource_id.clone(), updates, client_id)
-                .await;
-        }
-
-        // Verify this is the document we're currently editing
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
-            warn!(
-                "Received buffer exchange for non-active document: {}",
-                resource_id
-            );
-            return;
-        }
-
-        // Check if this connection is already active
-        if self.current_note_state.is_connection_active(&connection_id) {
-            info!(
-                "Connection {} is already active for resource {}, no response needed",
-                connection_id, resource_id
-            );
-            return;
-        }
-
-        // Add this connection to active sessions
-        self.current_note_state
-            .add_active_connection(connection_id.clone());
-        info!(
-            "Added connection {} to active sessions for resource {}",
-            connection_id, resource_id
-        );
-
-        // Get and send current buffer back
-        let current_buffer = match self.current_note_state.get_combined_updates().await {
-            Ok(buffer) => buffer,
-            Err(e) => {
-                error!("Failed to get combined updates: {}", e);
-                return;
-            }
-        };
-
-        if let Err(e) = self.send_current_buffer_exchange(
-            connection_id.clone(),
-            resource_id.clone(),
-            current_buffer,
-        ) {
-            error!("Failed to send current buffer response: {}", e);
         }
 
         // Notify frontend that live editing is now active
@@ -345,5 +266,97 @@ impl EventManager {
                 "resource_id": resource_id,
             }),
         );
+    }
+
+    pub fn start_reconciliation_timer(&self) {
+        let current_note_state = self.current_note_state.clone();
+        let p2p_sender = self.p2p_sender.clone();
+
+        tokio::spawn(async move {
+            // Random interval between 30-60 seconds to avoid thundering herd
+            let base_interval = 30;
+            let jitter = rand::random::<u64>() % 30; // 0-29 seconds
+            let interval_secs = base_interval + jitter;
+
+            let mut interval_timer = interval(Duration::from_secs(interval_secs));
+
+            info!(
+                "Started reconciliation timer with {} second intervals",
+                interval_secs
+            );
+
+            loop {
+                interval_timer.tick().await;
+
+                // Only reconcile if we have an active note
+                if let Some(resource_id) = current_note_state.get_current_note() {
+                    let active_connections = current_note_state.get_active_connections();
+
+                    if !active_connections.is_empty() {
+                        info!(
+                            "Starting reconciliation for {} active connections on note: {}",
+                            active_connections.len(),
+                            resource_id
+                        );
+
+                        Self::perform_reconciliation(
+                            &current_note_state,
+                            &p2p_sender,
+                            &resource_id,
+                            active_connections,
+                        )
+                        .await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Perform reconciliation for active connections
+    async fn perform_reconciliation(
+        current_note_state: &CurrentNoteState,
+        p2p_sender: &P2PSender,
+        resource_id: &str,
+        active_connections: Vec<String>,
+    ) {
+        // Get current state vectors for our local state
+        let local_state_vectors = match current_note_state.get_state_vectors().await {
+            Ok(vectors) => vectors,
+            Err(e) => {
+                error!(
+                    "Failed to get local state vectors for reconciliation: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        info!(
+            "Sending reconciliation requests to {} connections",
+            active_connections.len()
+        );
+
+        for connection_id in active_connections {
+            info!("Sending reconciliation to connection: {}", connection_id);
+
+            // Send document check response with is_match=true and current state vectors
+            // This will trigger the peer to start state vector exchange
+            if let Err(e) = p2p_sender.send_live_edit_document_check_response(
+                connection_id.clone(),
+                resource_id.to_string(),
+                true, // Always true for reconciliation
+                local_state_vectors.clone(),
+            ) {
+                error!(
+                    "Failed to send reconciliation request to connection {}: {}",
+                    connection_id, e
+                );
+            } else {
+                info!(
+                    "Sent reconciliation request to connection: {}",
+                    connection_id
+                );
+            }
+        }
     }
 }

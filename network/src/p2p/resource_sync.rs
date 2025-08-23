@@ -757,22 +757,6 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            LiveEditMessage::CurrentBufferExchange {
-                resource_id,
-                buffer,
-            } => {
-                let connection_id = self.get_id();
-
-                let peer_device = self.get_peer_device().await;
-                let client_id = peer_device.get_client_id().map_err(|e| e.to_string())?;
-                self.event_emitter.emit(P2PEvent::CurrentBufferExchange {
-                    resource_id: resource_id.clone(),
-                    connection_id,
-                    updates: buffer.clone(),
-                    client_id,
-                });
-                Ok(())
-            }
             LiveEditMessage::NotSameDocument => {
                 self.event_emitter.emit(P2PEvent::DocumentMismatch {
                     connection_id: self.get_id(),

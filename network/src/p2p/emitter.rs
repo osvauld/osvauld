@@ -67,12 +67,6 @@ pub enum P2PEvent {
         updates: String,
         client_id: u32,
     },
-    CurrentBufferExchange {
-        resource_id: String,
-        connection_id: String,
-        updates: String,
-        client_id: u32,
-    },
     DocumentChanged {
         resource_id: String,
         connection_id: String,

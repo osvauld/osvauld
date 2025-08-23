@@ -35,13 +35,8 @@ impl EventManager {
                     state_vectors,
                     current_user_id,
                 } => {
-                    self.handle_document_update_request(
-                        resource_id,
-                        connection_id,
-                        state_vectors,
-                        current_user_id,
-                    )
-                    .await
+                    self.handle_document_update_request(resource_id, connection_id, state_vectors)
+                        .await
                 }
                 P2PEvent::ProcessUpdate {
                     resource_id,
@@ -64,20 +59,6 @@ impl EventManager {
                     client_id,
                 } => {
                     self.handle_document_process_update_response(
-                        resource_id,
-                        connection_id,
-                        updates,
-                        client_id,
-                    )
-                    .await
-                }
-                P2PEvent::CurrentBufferExchange {
-                    resource_id,
-                    connection_id,
-                    updates,
-                    client_id,
-                } => {
-                    self.handle_current_buffer_exchange(
                         resource_id,
                         connection_id,
                         updates,

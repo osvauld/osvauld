@@ -5,7 +5,7 @@ use log::{error, info};
 use network::p2p::{P2PEvent, incoming::P2PSender};
 use persistance::database::RepositoryContext;
 use serde_json::Value;
-use services::get_shared_user_devices_for_note;
+use services::{get_resource_by_id_direct, get_shared_user_devices_for_note};
 use std::sync::Arc;
 use tauri::{Emitter, Listener, Manager};
 
@@ -140,7 +140,7 @@ impl EventManager {
                 update_bytes.len(),
                 description
             );
-            note_state.merge_to_current(update_bytes, &doc_type).await;
+            note_state.apply_update(update_bytes, &doc_type).await;
             info!("Updated Yjs state buffer for note: {}", resource_id);
         });
     }
@@ -201,20 +201,6 @@ impl EventManager {
             .listen("resource-update-complete", move |event| {
                 let note_state = current_note_state.clone();
                 let payload = event.payload();
-
-                if let Ok(json) = serde_json::from_str::<Value>(payload) {
-                    if let Some(id) = json.get("id").and_then(|v| v.as_str()) {
-                        if let Some(current_id) = note_state.get_current_note() {
-                            if current_id == id {
-                                note_state.move_current_to_previous();
-                                info!(
-                                    "Moved current to previous buffer after resource update: {}",
-                                    id
-                                );
-                            }
-                        }
-                    }
-                }
             });
     }
 
@@ -223,12 +209,14 @@ impl EventManager {
         let app_handle = self.app_handle.clone();
         let p2p_sender = self.p2p_sender.clone();
         let repo_ctx = self.repo_ctx.clone();
+        let crypto_utils = self.crypto_utils.clone();
 
         self.app_handle.listen("note-change", move |event| {
             let note_state = current_note_state.clone();
             let p2p_sender = p2p_sender.clone();
             let app_handle = app_handle.clone();
             let repo_ctx = repo_ctx.clone();
+            let crypto_utils = crypto_utils.clone();
 
             // Parse the note ID from the payload
             let new_note_id = Self::parse_note_id(event.payload());
@@ -245,22 +233,83 @@ impl EventManager {
             match new_note_id {
                 None => {
                     // No new note, just reset state
-                    note_state.reset_to_default();
+                    tokio::spawn(async move {
+                        note_state.set_current_note(None, None, None).await;
+                    });
                 }
                 Some(note_id) => {
-                    // Clear previous shared users and set new note
+                    // Clear previous shared users
                     note_state.clear_shared_users();
-                    note_state.set_current_note(Some(note_id.clone()));
 
-                    // Fetch and set up shared users for the new note
-                    Self::setup_shared_users_for_note(
-                        note_state, note_id, app_handle, repo_ctx, p2p_sender,
-                    );
+                    // Clone for the async block
+                    let note_id_clone = note_id.clone();
+                    let note_state_clone = note_state.clone();
+                    let app_handle_clone = app_handle.clone();
+                    let repo_ctx_clone = repo_ctx.clone();
+                    let p2p_sender_clone = p2p_sender.clone();
+
+                    // Load the note and set up its state
+                    tokio::spawn(async move {
+                        // Get current user to load the resource
+                        let user_state = app_handle_clone.state::<UserState>();
+                        let current_user = match user_state.get_user().await {
+                            Ok(user) => user,
+                            Err(e) => {
+                                error!("Failed to get current user: {}", e);
+                                return;
+                            }
+                        };
+
+                        // Load the decrypted resource
+                        match get_resource_by_id_direct(
+                            &note_id_clone,
+                            &current_user.id,
+                            repo_ctx_clone.clone(),
+                            &crypto_utils,
+                        )
+                        .await
+                        {
+                            Ok(decrypted_resource) => {
+                                // Extract the document states
+                                let main_doc_state =
+                                    decrypted_resource.get_document_state("main_doc");
+                                let image_state =
+                                    decrypted_resource.get_document_state("image_state");
+
+                                // Set the current note with its document states
+                                note_state_clone
+                                    .set_current_note(
+                                        Some(note_id_clone.clone()),
+                                        main_doc_state,
+                                        image_state,
+                                    )
+                                    .await;
+
+                                info!("Loaded document states for note: {}", note_id_clone);
+                            }
+                            Err(e) => {
+                                error!("Failed to load resource {}: {}", note_id_clone, e);
+                                // Still set the note ID even if loading failed
+                                note_state_clone
+                                    .set_current_note(Some(note_id_clone.clone()), None, None)
+                                    .await;
+                            }
+                        }
+
+                        // Set up shared users after loading the note
+                        Self::setup_shared_users_for_note(
+                            note_state_clone,
+                            note_id_clone,
+                            app_handle_clone,
+                            repo_ctx_clone,
+                            p2p_sender_clone,
+                        )
+                        .await;
+                    });
                 }
             }
         });
     }
-
     /// Parse note ID from event payload
     fn parse_note_id(payload: &str) -> Option<String> {
         let payload = payload.to_string();
@@ -369,65 +418,62 @@ impl EventManager {
             }
         }
     }
-
     /// Set up shared users for the newly opened note
-    fn setup_shared_users_for_note(
+    async fn setup_shared_users_for_note(
         note_state: CurrentNoteState,
         note_id: String,
         app_handle: tauri::AppHandle,
         repo_ctx: Arc<RepositoryContext>,
         p2p_sender: P2PSender,
     ) {
-        tokio::spawn(async move {
-            // Get current user and device
-            let user_state = app_handle.state::<UserState>();
+        // Get current user and device
+        let user_state = app_handle.state::<UserState>();
 
-            let current_user = match user_state.get_user().await {
-                Ok(user) => user,
-                Err(e) => {
-                    error!("Failed to get current user: {}", e);
-                    return;
-                }
-            };
-
-            let current_device = match user_state.get_device().await {
-                Ok(device) => device,
-                Err(e) => {
-                    error!("Failed to get current device: {}", e);
-                    return;
-                }
-            };
-
-            let current_user_id = current_user.id;
-            let current_device_id = current_device.id;
-            info!("note_id {}, user_id {}", &note_id, &current_user_id);
-
-            // Fetch shared users and devices for the note
-            match get_shared_user_devices_for_note(
-                &note_id,
-                &current_user_id,
-                &current_device_id,
-                true,
-                repo_ctx,
-            )
-            .await
-            {
-                Ok((shared_devices, shared_users)) => {
-                    // Send live edit requests to shared devices
-                    if let Err(e) = p2p_sender.send_live_edit_requests(shared_devices.clone()) {
-                        error!("Failed to send live edit requests: {}", e);
-                    }
-
-                    // Emit shared users update to frontend
-                    let _ = app_handle.emit("shared-users-update", shared_users);
-
-                    // Update the note state with shared devices
-                    note_state.set_shared_users(shared_devices);
-                }
-                Err(e) => {
-                    error!("Failed to get shared users for note {}: {}", note_id, e);
-                }
+        let current_user = match user_state.get_user().await {
+            Ok(user) => user,
+            Err(e) => {
+                error!("Failed to get current user: {}", e);
+                return;
             }
-        });
+        };
+
+        let current_device = match user_state.get_device().await {
+            Ok(device) => device,
+            Err(e) => {
+                error!("Failed to get current device: {}", e);
+                return;
+            }
+        };
+
+        let current_user_id = current_user.id;
+        let current_device_id = current_device.id;
+        info!("note_id {}, user_id {}", &note_id, &current_user_id);
+
+        // Fetch shared users and devices for the note
+        match get_shared_user_devices_for_note(
+            &note_id,
+            &current_user_id,
+            &current_device_id,
+            true,
+            repo_ctx,
+        )
+        .await
+        {
+            Ok((shared_devices, shared_users)) => {
+                // Send live edit requests to shared devices
+                if let Err(e) = p2p_sender.send_live_edit_requests(shared_devices.clone()) {
+                    error!("Failed to send live edit requests: {}", e);
+                }
+
+                // Emit shared users update to frontend
+                let _ = app_handle.emit("shared-users-update", shared_users);
+
+                // Update the note state with shared devices
+                note_state.set_shared_users(shared_devices);
+            }
+            Err(e) => {
+                error!("Failed to get shared users for note {}: {}", note_id, e);
+            }
+        }
     }
 }
