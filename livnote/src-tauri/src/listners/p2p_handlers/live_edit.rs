@@ -1,6 +1,9 @@
 use crate::EventManager;
+use crate::current_note_state::CurrentNoteState;
 use log::{error, info, warn};
-
+use network::p2p::incoming::P2PSender;
+use rand;
+use tokio::time::{Duration, interval};
 /// Live edit negotiation and connection management handlers
 impl EventManager {
     /// Handle live edit connected event
@@ -155,6 +158,8 @@ impl EventManager {
                 return;
             }
         };
+        self.current_note_state
+            .add_active_connection(connection_id.clone());
 
         // Apply the remote updates
         self.handle_update_event(resource_id.clone(), remote_updates.clone(), client_id)
@@ -261,5 +266,97 @@ impl EventManager {
                 "resource_id": resource_id,
             }),
         );
+    }
+
+    pub fn start_reconciliation_timer(&self) {
+        let current_note_state = self.current_note_state.clone();
+        let p2p_sender = self.p2p_sender.clone();
+
+        tokio::spawn(async move {
+            // Random interval between 30-60 seconds to avoid thundering herd
+            let base_interval = 30;
+            let jitter = rand::random::<u64>() % 30; // 0-29 seconds
+            let interval_secs = base_interval + jitter;
+
+            let mut interval_timer = interval(Duration::from_secs(interval_secs));
+
+            info!(
+                "Started reconciliation timer with {} second intervals",
+                interval_secs
+            );
+
+            loop {
+                interval_timer.tick().await;
+
+                // Only reconcile if we have an active note
+                if let Some(resource_id) = current_note_state.get_current_note() {
+                    let active_connections = current_note_state.get_active_connections();
+
+                    if !active_connections.is_empty() {
+                        info!(
+                            "Starting reconciliation for {} active connections on note: {}",
+                            active_connections.len(),
+                            resource_id
+                        );
+
+                        Self::perform_reconciliation(
+                            &current_note_state,
+                            &p2p_sender,
+                            &resource_id,
+                            active_connections,
+                        )
+                        .await;
+                    }
+                }
+            }
+        });
+    }
+
+    /// Perform reconciliation for active connections
+    async fn perform_reconciliation(
+        current_note_state: &CurrentNoteState,
+        p2p_sender: &P2PSender,
+        resource_id: &str,
+        active_connections: Vec<String>,
+    ) {
+        // Get current state vectors for our local state
+        let local_state_vectors = match current_note_state.get_state_vectors().await {
+            Ok(vectors) => vectors,
+            Err(e) => {
+                error!(
+                    "Failed to get local state vectors for reconciliation: {}",
+                    e
+                );
+                return;
+            }
+        };
+
+        info!(
+            "Sending reconciliation requests to {} connections",
+            active_connections.len()
+        );
+
+        for connection_id in active_connections {
+            info!("Sending reconciliation to connection: {}", connection_id);
+
+            // Send document check response with is_match=true and current state vectors
+            // This will trigger the peer to start state vector exchange
+            if let Err(e) = p2p_sender.send_live_edit_document_check_response(
+                connection_id.clone(),
+                resource_id.to_string(),
+                true, // Always true for reconciliation
+                local_state_vectors.clone(),
+            ) {
+                error!(
+                    "Failed to send reconciliation request to connection {}: {}",
+                    connection_id, e
+                );
+            } else {
+                info!(
+                    "Sent reconciliation request to connection: {}",
+                    connection_id
+                );
+            }
+        }
     }
 }
