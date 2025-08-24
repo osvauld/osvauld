@@ -1,3 +1,4 @@
+use crate::search_index::SearchIndexManager;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, LoadPvtKeyInput, PasswordChangeInput,
     SavePassphraseInput, UcanOneTimeTokenOut,
@@ -64,6 +65,7 @@ pub async fn login(
     p2p_service: State<'_, Arc<P2PService>>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
+    search_manager: State<'_, Arc<SearchIndexManager>>,
 ) -> Result<CryptoResponse, String> {
     let (user, current_device) =
         load_certificate(&input.passphrase, repo_ctx.inner().clone(), &crypto_utils).await?;
@@ -76,12 +78,24 @@ pub async fn login(
     let p2p_service_clone = p2p_service.inner().clone();
     let device_clone = current_device.clone();
     let user_clone = user.clone();
+    // tokio::spawn(async move {
+    //     if let Err(e) = p2p_service_clone
+    //         .start_p2p_service(&device_clone, &user_clone)
+    //         .await
+    //     {
+    //         error!("Failed to start P2P service: {}", e);
+    //     }
+    // });
+    let search_manager_clone = search_manager.inner().clone();
+    let crypto_utils_clone = crypto_utils.inner().clone();
+    let repo_ctx_clone = repo_ctx.inner().clone();
     tokio::spawn(async move {
-        if let Err(e) = p2p_service_clone
-            .start_p2p_service(&device_clone, &user_clone)
+        match search_manager_clone
+            .initialize(&crypto_utils_clone, &repo_ctx_clone)
             .await
         {
-            error!("Failed to start P2P service: {}", e);
+            Ok(_) => info!("Search index initialized successfully"),
+            Err(e) => error!("Failed to initialize search index: {}", e),
         }
     });
     Ok(CryptoResponse::User {
