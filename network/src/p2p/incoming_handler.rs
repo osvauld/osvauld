@@ -386,78 +386,52 @@ impl P2PService {
         resource_id: &str,
         client_id: u32,
     ) {
-        info!(
-            "Processing {} broadcast for resource {} from client {} to {} connections",
-            message_type,
-            resource_id,
-            client_id,
-            connection_ids.len()
-        );
+        let mut failed_connections = Vec::new();
 
-        if connection_ids.is_empty() {
-            warn!(
-                "Empty connection IDs list, no {} broadcast performed",
-                message_type
-            );
-            return;
-        }
+        // Get connections from state
+        let connections = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard
+                .as_ref()
+                .expect("P2P service not initialized when broadcasting");
+            state.connections.clone()
+        };
 
-        // Get the connections from the connection manager
-        let connections = self.get_connections_by_ids(&connection_ids).await;
-
-        if connections.is_empty() {
-            warn!(
-                "No valid connections found for {} broadcasting",
-                message_type
-            );
-            return;
-        }
-
-        info!(
-            "Broadcasting {} to {} active connections",
-            message_type,
-            connections.len()
-        );
-
-        let mut success_count = 0;
-        let mut errors = Vec::new();
-        let connections_len = connections.len();
-
-        // Send to each connection
-        for connection in connections {
-            let conn_id = connection.get_id();
-            debug!("Sending {} to: {}", message_type, conn_id);
-
-            match connection.send_message(message.clone()).await {
-                Ok(_) => {
-                    success_count += 1;
-                    debug!(
-                        "Successfully sent {} to connection: {}",
-                        message_type, conn_id
-                    );
+        // Try sending to all connections
+        for connection_id in connection_ids {
+            if let Ok(conn) = connections.get_peer_connection(&connection_id).await {
+                if conn.connection.close_reason().is_none() {
+                    // Connection looks healthy, try to send
+                    if let Err(_) = conn.send_message(message.clone()).await {
+                        failed_connections.push(connection_id);
+                    }
+                } else {
+                    // Connection is closed
+                    failed_connections.push(connection_id);
                 }
-                Err(e) => {
-                    let error_msg =
-                        format!("Failed to send {} to {}: {}", message_type, conn_id, e);
-                    error!("{}", error_msg);
-                    errors.push(error_msg);
-                }
+            } else {
+                // No connection exists
+                failed_connections.push(connection_id);
             }
         }
 
-        if errors.is_empty() {
-            info!(
-                "{} broadcast completed successfully to all {} connections",
-                message_type, success_count
-            );
-        } else {
-            error!(
-                "{} broadcast partially successful: {}/{} connections succeeded, errors: {}",
-                message_type,
-                success_count,
-                connections_len,
-                errors.join(", ")
-            );
+        // Spawn reconnection attempts for failed connections (non-blocking)
+        if !failed_connections.is_empty() {
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                for connection_id in failed_connections {
+                    info!("Attempting to reconnect to {}", connection_id);
+
+                    // Fire and forget reconnection
+                    let _ = self_clone
+                        .connect_with_ticket(
+                            &connection_id,
+                            ConnectionType::User,
+                            Some(ConnectionAction::LiveEdit),
+                        )
+                        .await;
+                }
+            });
         }
     }
 
