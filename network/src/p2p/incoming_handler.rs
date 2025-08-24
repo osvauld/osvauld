@@ -192,6 +192,7 @@ impl P2PService {
 
     /// Handles a live edit document check event
     #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id), level = "info")]
+
     pub async fn handle_live_edit_document_check(
         &self,
         connection_id: String,
@@ -202,30 +203,17 @@ impl P2PService {
             resource_id
         );
 
-        // Get the connection from the connection manager
-        match self.get_connection_by_id(&connection_id).await {
-            Ok(connection) => {
-                // Create a LiveEdit DocumentCheck message
-                let document_check = Message::LiveEdit(LiveEditMessage::DocumentCheck {
-                    resource_id: resource_id.clone(),
-                });
+        let document_check = Message::LiveEdit(LiveEditMessage::DocumentCheck {
+            resource_id: resource_id.clone(),
+        });
 
-                // Send the document check message
-                if let Err(e) = connection.send_message(document_check).await {
-                    error!("Failed to send document check message: {}", e);
-                } else {
-                    info!(
-                        "Document check message sent successfully for resource: {}",
-                        resource_id
-                    );
-                }
-            }
-            Err(e) => {
-                error!("Failed to get connection for live editing: {}", e);
-            }
+        if let Err(e) = self
+            .send_or_reconnect(&connection_id, document_check, ConnectionAction::LiveEdit)
+            .await
+        {
+            error!("Failed to send document check: {}", e);
         }
     }
-
     #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id, is_match = is_match), level = "info")]
     pub async fn handle_live_edit_document_check_response(
         &self,

@@ -698,4 +698,43 @@ impl P2PService {
             }
         }
     }
+    /// Send a message, reconnecting if necessary
+    pub async fn send_or_reconnect(
+        &self,
+        connection_id: &str,
+        message: Message,
+        action: ConnectionAction,
+    ) -> Result<(), String> {
+        // Try to get and use existing connection
+        match self.get_connection_by_id(connection_id).await {
+            Ok(connection) => {
+                if connection.connection.close_reason().is_none() {
+                    // Connection is healthy, send message
+                    return connection.send_message(message).await;
+                }
+                // Connection is closed, fall through to reconnect
+            }
+            Err(_) => {
+                // No connection exists, fall through to reconnect
+            }
+        }
+
+        // Attempt reconnection
+        info!(
+            "Connection {} not healthy, attempting reconnection",
+            connection_id
+        );
+
+        match self
+            .connect_with_ticket(connection_id, ConnectionType::User, Some(action))
+            .await
+        {
+            Ok(Some(new_conn)) => {
+                info!("Reconnected to {}, sending message", connection_id);
+                new_conn.send_message(message).await
+            }
+            Ok(None) => Err("Connection in progress".to_string()),
+            Err(e) => Err(format!("Failed to reconnect: {}", e)),
+        }
+    }
 }
