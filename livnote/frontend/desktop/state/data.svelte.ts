@@ -38,6 +38,8 @@ class DataState {
   collaborators = $state<Collaborator[]>([]);
   clientId: number = 0;
   currentNoteTitle = $state<string>("");
+  searchResults = $state<string[]>([]);
+  isSearchActive = $state<boolean>(false);
 
   getNotesCoordinator(): NotesCoordinator | null {
     return this.notesCoordinator;
@@ -60,8 +62,7 @@ class DataState {
   setCurrentNoteTitle(title: string) {
     this.currentNoteTitle = title;
   }
-
-  filteredNotes = $derived.by(() => {
+  private baseFilteredNotes = $derived.by(() => {
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
       : this.notes;
@@ -69,6 +70,26 @@ class DataState {
       ? favFilter
       : favFilter.filter(note => note.folderId === this.currentVault.id);
   });
+
+  // Now filteredNotes applies search on top of base filtering
+  filteredNotes = $derived.by(() => {
+    if (!this.isSearchActive || this.searchResults.length === 0) {
+      return this.baseFilteredNotes;
+    }
+
+    // Apply search filter to base filtered notes
+    return this.baseFilteredNotes.filter(note => this.searchResults.includes(note.id));
+  });
+  setSearchResults(noteIds: string[]) {
+    this.searchResults = noteIds;
+    this.isSearchActive = noteIds.length > 0;
+  }
+
+  // Method to clear search
+  clearSearch() {
+    this.searchResults = [];
+    this.isSearchActive = false;
+  }
   /**
    * Get a note by its ID from the cached notes
    * @param id The ID of the note to find

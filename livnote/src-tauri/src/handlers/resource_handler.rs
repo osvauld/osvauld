@@ -1,4 +1,5 @@
 use crate::preview_generator::generate_preview_html;
+use crate::search_index::SearchIndexManager;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
     ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,
@@ -176,6 +177,7 @@ pub async fn handle_update_resource(
     app_handle: AppHandle,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
+    search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
 ) -> Result<CryptoResponse, String> {
     let current_device = user_state.get_device().await?;
     let user = user_state.get_user().await?;
@@ -214,9 +216,74 @@ pub async fn handle_update_resource(
     app_handle
         .emit("resource-update", resource_preview)
         .map_err(|e| e.to_string())?;
+    let search_manager_clone = search_manager.inner().clone();
+    let resource_id = decrypted_resource.id.clone();
+    let resource_data = decrypted_resource.data.clone();
+    let folder_id = decrypted_resource.folder_id.clone();
+
+    tokio::spawn(async move {
+        info!(
+            "Spawning background task to update search index for resource {}",
+            resource_id
+        );
+        if let Err(e) = search_manager_clone
+            .lock()
+            .await
+            .update_resource(&resource_id, &resource_data, &folder_id)
+            .await
+        {
+            error!(
+                "Failed to update search index for resource {}: {}",
+                resource_id, e
+            );
+        } else {
+            info!(
+                "Successfully updated search index for resource {}",
+                resource_id
+            );
+        }
+    });
     Ok(CryptoResponse::UpdateResources)
 }
+#[derive(serde::Deserialize)]
+pub struct SearchResourcesInput {
+    pub query: String,
+    pub limit: Option<usize>,
+}
 
+#[tauri::command]
+pub async fn handle_search_resources(
+    input: SearchResourcesInput,
+    search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
+) -> Result<CryptoResponse, String> {
+    let limit = input.limit.unwrap_or(50); // Default to 50 results
+
+    info!(
+        "Searching for query: '{}' with limit: {}",
+        input.query, limit
+    );
+
+    // Perform the search
+    let search_results = search_manager
+        .lock()
+        .await
+        .search(&input.query, limit)
+        .await
+        .map_err(|e| {
+            error!("Search failed: {}", e);
+            e.to_string()
+        })?;
+
+    info!("Found {} search results", search_results.len());
+
+    // Extract resource IDs from search results
+    let resource_ids: Vec<String> = search_results
+        .into_iter()
+        .map(|result| result.resource_id)
+        .collect();
+
+    Ok(CryptoResponse::SearchedResourceIds(resource_ids))
+}
 #[tauri::command]
 pub async fn handle_get_resource(
     input: GetResource,

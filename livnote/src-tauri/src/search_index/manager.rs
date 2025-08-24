@@ -6,15 +6,16 @@ use super::search_types::{IndexError, IndexResult, IndexSnapshot, SearchResult};
 use super::storage::SearchIndexStorage;
 
 use crypto_utils::CryptoUtils;
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use persistance::database::RepositoryContext;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use tantivy::schema::*;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 use tokio::sync::{Mutex, RwLock};
-
+use tokio::time::interval;
 pub struct SearchIndexManager {
     index: Arc<RwLock<Option<Index>>>,
     writer: Arc<RwLock<Option<IndexWriter>>>,
@@ -23,6 +24,7 @@ pub struct SearchIndexManager {
     storage: SearchIndexStorage,
     operations: SearchIndexOperations,
     extractor: ContentExtractor,
+    user_pub_key: Option<String>,
 }
 
 impl SearchIndexManager {
@@ -58,17 +60,19 @@ impl SearchIndexManager {
             storage,
             operations,
             extractor,
+            user_pub_key: None,
         })
     }
 
     /// Initialize the index (decrypt from disk if exists, otherwise create new)
     pub async fn initialize(
-        &self,
+        &mut self,
         crypto_utils: &Arc<Mutex<CryptoUtils>>,
         repo_ctx: &Arc<RepositoryContext>,
+        user_pub_key: String,
     ) -> IndexResult<()> {
         info!("Initializing search index...");
-
+        self.user_pub_key = Some(user_pub_key.clone());
         // Check if encrypted index exists and load it
         if let Some(snapshot) = self.storage.load_encrypted(crypto_utils, repo_ctx).await? {
             info!("Restoring index from encrypted snapshot");
@@ -136,11 +140,7 @@ impl SearchIndexManager {
     }
 
     /// Save the current index to disk (encrypted)
-    pub async fn save(
-        &self,
-        crypto_utils: &Arc<Mutex<CryptoUtils>>,
-        repo_ctx: &Arc<RepositoryContext>,
-    ) -> IndexResult<()> {
+    pub async fn save(&self, repo_ctx: &Arc<RepositoryContext>) -> IndexResult<()> {
         info!("Saving search index...");
 
         let reader_guard = self.reader.read().await;
@@ -155,13 +155,49 @@ impl SearchIndexManager {
             version: 1,
             encrypted_key: String::new(), // Will be set by storage
         };
-
-        // Save encrypted
-        self.storage
-            .save_encrypted(snapshot, crypto_utils, repo_ctx)
-            .await?;
+        if let Some(user_pub) = &self.user_pub_key {
+            self.storage
+                .save_encrypted(snapshot, repo_ctx, user_pub.clone())
+                .await?;
+        }
 
         Ok(())
+    }
+    pub fn start_scheduled_save(
+        search_manager: Arc<Mutex<SearchIndexManager>>,
+        repo_ctx: Arc<RepositoryContext>,
+        save_interval_minutes: u64,
+    ) {
+        tokio::spawn(async move {
+            let mut interval =
+                tokio::time::interval(Duration::from_secs(save_interval_minutes * 60));
+
+            // Skip the first tick (immediate execution)
+            interval.tick().await;
+
+            info!(
+                "Started scheduled search index save task (interval: {} minutes)",
+                save_interval_minutes
+            );
+
+            loop {
+                interval.tick().await;
+
+                let save_result = {
+                    let manager = search_manager.lock().await;
+                    manager.save(&repo_ctx).await
+                };
+
+                match save_result {
+                    Ok(_) => {
+                        info!("Scheduled search index save completed successfully");
+                    }
+                    Err(e) => {
+                        error!("Scheduled search index save failed: {}", e);
+                    }
+                }
+            }
+        });
     }
 
     /// Index a resource from JSON value

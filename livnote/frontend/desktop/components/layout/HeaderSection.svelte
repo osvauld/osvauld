@@ -10,6 +10,7 @@
 		Profile,
 		Settings,
 		ConnectUser,
+		Lens,
 	} from "../../icons";
 
 	// Import the centralized state
@@ -18,7 +19,7 @@
 	// Local UI state
 	let showDropdown = $state(false);
 	let hoveredItem = $state("");
-
+	let searchQuery = $state("");
 	// Menu items definition with const assertion for better type safety
 	const MENUITEMS = [
 		{ id: "settings", label: "Settings", icon: Settings },
@@ -67,8 +68,19 @@
 	};
 
 	// Close dropdown when clicking outside
-	const handleOutsideClick = (e: MouseEvent) => {
+	const handleOutsideClick = async (e: MouseEvent) => {
 		showDropdown = false;
+	};
+	const handleSearch = async (event: Event) => {
+		const target = event.target as HTMLInputElement;
+		searchQuery = target.value; // Update the bound variable
+
+		console.log("Search query:", searchQuery);
+		const noteIds = await sendMessage("searchResource", { query: searchQuery });
+		console.log(noteIds);
+		dataState.setSearchResults(noteIds);
+		// Your search logic here
+		// dataState.searchNotes(searchQuery);
 	};
 </script>
 
@@ -89,16 +101,20 @@
 		Livnote
 	</span>
 	<div class="grow py-10 px-16 flex items-center justify-end gap-6">
-		<!-- <div
-			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg mr-3">
+		<div
+			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg mr-3"
+		>
 			<span class="sr-only">Search</span>
 			<Lens color="#4D4F60" />
 			<input
 				type="text"
 				name="search"
 				class="ml-4 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-osvauld-activeBorder placeholder:text-osvauld-activeBorder font-light text-base leading-6"
-				placeholder="Search..." />
-		</div> -->
+				placeholder="Search..."
+				bind:value={searchQuery}
+				oninput={handleSearch}
+			/>
+		</div>
 		<button
 			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
 			aria-label="Open Connect user modal"
@@ -113,7 +129,8 @@
 				}
 			}}
 		>
-			<span class="font-normal text-base whitespace-nowrap">Connect a User</span>
+			<span class="font-normal text-base whitespace-nowrap">Connect a User</span
+			>
 			<ConnectUser size={24} />
 		</button>
 		<div class="relative text-osvauld-fieldText font-normal text-base z-40">

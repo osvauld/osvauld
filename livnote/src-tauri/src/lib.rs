@@ -18,8 +18,8 @@ use crate::handlers::folder_handler::{
 };
 use crate::handlers::resource_handler::{
     emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
-    handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
-    handle_update_last_accessed, handle_update_resource, soft_delete_resource,
+    handle_get_resources_for_folder, handle_search_resources, handle_share_resource,
+    handle_toggle_fav, handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
 use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
 use crate::user_state::UserState;
@@ -82,8 +82,8 @@ pub fn run() {
                     panic!("Cannot continue without app data directory");
                 }
             }
-            let search_manager = SearchIndexManager::new(&app_dir)?;
-            app.manage(Arc::new(search_manager));
+            let search_manager = Arc::new(Mutex::new(SearchIndexManager::new(&app_dir)?));
+            app.manage(search_manager);
             let db_path = app_dir
                 .join(format!("{}.db", args.db_name))
                 .to_str()
@@ -177,6 +177,7 @@ pub fn run() {
             emit_all_resources,
             get_one_time_ucan_token,
             handle_logout,
+            handle_search_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

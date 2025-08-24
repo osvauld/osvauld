@@ -1,7 +1,7 @@
 // search_index/storage.rs
 
 use super::search_types::{IndexError, IndexResult, IndexSnapshot, SerializedDocument};
-use crypto_utils::{CryptoUtils, types::EncryptedResource};
+use crypto_utils::CryptoUtils;
 use log::{error, info};
 use persistance::database::RepositoryContext;
 use std::path::PathBuf;
@@ -24,8 +24,8 @@ impl SearchIndexStorage {
     pub async fn save_encrypted(
         &self,
         snapshot: IndexSnapshot,
-        crypto_utils: &Arc<Mutex<CryptoUtils>>,
         repo_ctx: &Arc<RepositoryContext>,
+        user_pub_key: String,
     ) -> IndexResult<()> {
         info!(
             "Saving encrypted search index with {} documents",
@@ -36,21 +36,16 @@ impl SearchIndexStorage {
         let serialized =
             serde_json::to_vec(&snapshot).map_err(|e| IndexError::SerializationError(e))?;
 
-        // Encrypt the data using add_resource
-        let encrypted = {
-            let crypto = crypto_utils.lock().await;
-            let serialized_str = String::from_utf8(serialized)
+        let serialized_str = String::from_utf8(serialized)
+            .map_err(|e| IndexError::EncryptionError(e.to_string()))?;
+        let (encrypted_data, encrypted_key) =
+            crypto_utils::encrypt_with_public_key(&serialized_str, &user_pub_key)
                 .map_err(|e| IndexError::EncryptionError(e.to_string()))?;
-
-            crypto
-                .add_resource(&serialized_str)
-                .map_err(|e| IndexError::EncryptionError(e.to_string()))?
-        };
 
         // Store the encrypted key in the repository
         repo_ctx
             .store_repo
-            .add_index_key(&encrypted.encrypted_key)
+            .add_index_key(&encrypted_key)
             .await
             .map_err(|e| {
                 IndexError::IoError(std::io::Error::new(
@@ -60,7 +55,7 @@ impl SearchIndexStorage {
             })?;
 
         // Write encrypted data to disk
-        fs::write(&self.encrypted_index_path, encrypted.encrypted_data)
+        fs::write(&self.encrypted_index_path, encrypted_data)
             .await
             .map_err(|e| IndexError::IoError(e))?;
 

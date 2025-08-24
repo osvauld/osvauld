@@ -43,7 +43,6 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
           selectedResourceId: selectedResourceId ?? null
         }),
       logout: () => invoke("handle_logout"),
-      sendSnapshot: (data: any) => invoke("send_snapshot", { snapshot: data }),
       updateCredential: (data: any) =>
         invoke("handle_update_resource", { input: data }),
       getCredential: (data: any) => invoke("handle_get_resource", { input: data }),
@@ -57,7 +56,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       },
       getUserDetails: () => invoke('get_user_details'),
       getOneTimeUcanToken: () => invoke('get_one_time_ucan_token'),
-
+      searchResource: () => invoke("handle_search_resources", { input: data }),
     };
     //@ts-ignore
     const handler = handlerMap[action];
@@ -100,17 +99,17 @@ export const writeToClipboard = async (text: string) => {
 function fallbackCopyTextToClipboard(text: string) {
   const textArea = document.createElement("textarea");
   textArea.value = text;
-  
+
   // Avoid scrolling to bottom
   textArea.style.top = "0";
   textArea.style.left = "0";
   textArea.style.position = "fixed";
   textArea.style.opacity = "0";
-  
+
   document.body.appendChild(textArea);
   textArea.focus();
   textArea.select();
-  
+
   try {
     const successful = document.execCommand('copy');
     if (!successful) {
@@ -119,7 +118,7 @@ function fallbackCopyTextToClipboard(text: string) {
   } catch (err) {
     console.error('Fallback: Could not copy text: ', err);
   }
-  
+
   document.body.removeChild(textArea);
 }
 

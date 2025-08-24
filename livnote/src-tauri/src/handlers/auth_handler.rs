@@ -65,7 +65,7 @@ pub async fn login(
     p2p_service: State<'_, Arc<P2PService>>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
-    search_manager: State<'_, Arc<SearchIndexManager>>,
+    search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
 ) -> Result<CryptoResponse, String> {
     let (user, current_device) =
         load_certificate(&input.passphrase, repo_ctx.inner().clone(), &crypto_utils).await?;
@@ -89,12 +89,22 @@ pub async fn login(
     let search_manager_clone = search_manager.inner().clone();
     let crypto_utils_clone = crypto_utils.inner().clone();
     let repo_ctx_clone = repo_ctx.inner().clone();
+    let user_pub_key = user.public_key.clone();
     tokio::spawn(async move {
         match search_manager_clone
-            .initialize(&crypto_utils_clone, &repo_ctx_clone)
+            .lock()
+            .await
+            .initialize(&crypto_utils_clone, &repo_ctx_clone, user_pub_key)
             .await
         {
-            Ok(_) => info!("Search index initialized successfully"),
+            Ok(_) => {
+                SearchIndexManager::start_scheduled_save(
+                    search_manager_clone.clone(),
+                    repo_ctx_clone.clone(),
+                    5, // Save every 5 minutes
+                );
+                info!("Search index initialized successfully")
+            }
             Err(e) => error!("Failed to initialize search index: {}", e),
         }
     });
