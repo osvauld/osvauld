@@ -7,6 +7,7 @@ use crate::p2p::{
     logger,
     peer_connection::{PeerConnection, ServiceContext},
 };
+use std::str::FromStr;
 
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
@@ -551,14 +552,19 @@ impl P2PService {
     #[instrument(skip(self, conn_type), level = "info")]
     pub async fn connect_with_ticket(
         &self,
-        device_id: &str,
+        device_or_node_id: &str,
         conn_type: ConnectionType,
         action: Option<ConnectionAction>,
     ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
+        let node_id = if let Ok(id) = NodeId::from_str(device_or_node_id) {
+            id
+        } else {
+            // Fall back to treating it as base64 device_id
+            let node_id_bytes = crypto_utils::derive_node_id_from_public_key(device_or_node_id)?;
+            NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?
+        };
 
-        let node_id_bytes = crypto_utils::derive_node_id_from_public_key(&device_id)?;
-        let node_id = NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?;
         // Ensure P2P service is initialized
         self.ensure_initialized().await?;
 
