@@ -192,6 +192,7 @@ impl P2PService {
 
     /// Handles a live edit document check event
     #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id), level = "info")]
+
     pub async fn handle_live_edit_document_check(
         &self,
         connection_id: String,
@@ -202,30 +203,17 @@ impl P2PService {
             resource_id
         );
 
-        // Get the connection from the connection manager
-        match self.get_connection_by_id(&connection_id).await {
-            Ok(connection) => {
-                // Create a LiveEdit DocumentCheck message
-                let document_check = Message::LiveEdit(LiveEditMessage::DocumentCheck {
-                    resource_id: resource_id.clone(),
-                });
+        let document_check = Message::LiveEdit(LiveEditMessage::DocumentCheck {
+            resource_id: resource_id.clone(),
+        });
 
-                // Send the document check message
-                if let Err(e) = connection.send_message(document_check).await {
-                    error!("Failed to send document check message: {}", e);
-                } else {
-                    info!(
-                        "Document check message sent successfully for resource: {}",
-                        resource_id
-                    );
-                }
-            }
-            Err(e) => {
-                error!("Failed to get connection for live editing: {}", e);
-            }
+        if let Err(e) = self
+            .send_or_reconnect(&connection_id, document_check, ConnectionAction::LiveEdit)
+            .await
+        {
+            error!("Failed to send document check: {}", e);
         }
     }
-
     #[instrument(skip(self), fields(connection_id = %connection_id, resource_id = %resource_id, is_match = is_match), level = "info")]
     pub async fn handle_live_edit_document_check_response(
         &self,
@@ -386,78 +374,52 @@ impl P2PService {
         resource_id: &str,
         client_id: u32,
     ) {
-        info!(
-            "Processing {} broadcast for resource {} from client {} to {} connections",
-            message_type,
-            resource_id,
-            client_id,
-            connection_ids.len()
-        );
+        let mut failed_connections = Vec::new();
 
-        if connection_ids.is_empty() {
-            warn!(
-                "Empty connection IDs list, no {} broadcast performed",
-                message_type
-            );
-            return;
-        }
+        // Get connections from state
+        let connections = {
+            let state_guard = self.state.lock().await;
+            let state = state_guard
+                .as_ref()
+                .expect("P2P service not initialized when broadcasting");
+            state.connections.clone()
+        };
 
-        // Get the connections from the connection manager
-        let connections = self.get_connections_by_ids(&connection_ids).await;
-
-        if connections.is_empty() {
-            warn!(
-                "No valid connections found for {} broadcasting",
-                message_type
-            );
-            return;
-        }
-
-        info!(
-            "Broadcasting {} to {} active connections",
-            message_type,
-            connections.len()
-        );
-
-        let mut success_count = 0;
-        let mut errors = Vec::new();
-        let connections_len = connections.len();
-
-        // Send to each connection
-        for connection in connections {
-            let conn_id = connection.get_id();
-            debug!("Sending {} to: {}", message_type, conn_id);
-
-            match connection.send_message(message.clone()).await {
-                Ok(_) => {
-                    success_count += 1;
-                    debug!(
-                        "Successfully sent {} to connection: {}",
-                        message_type, conn_id
-                    );
+        // Try sending to all connections
+        for connection_id in connection_ids {
+            if let Ok(conn) = connections.get_peer_connection(&connection_id).await {
+                if conn.connection.close_reason().is_none() {
+                    // Connection looks healthy, try to send
+                    if let Err(_) = conn.send_message(message.clone()).await {
+                        failed_connections.push(connection_id);
+                    }
+                } else {
+                    // Connection is closed
+                    failed_connections.push(connection_id);
                 }
-                Err(e) => {
-                    let error_msg =
-                        format!("Failed to send {} to {}: {}", message_type, conn_id, e);
-                    error!("{}", error_msg);
-                    errors.push(error_msg);
-                }
+            } else {
+                // No connection exists
+                failed_connections.push(connection_id);
             }
         }
 
-        if errors.is_empty() {
-            info!(
-                "{} broadcast completed successfully to all {} connections",
-                message_type, success_count
-            );
-        } else {
-            error!(
-                "{} broadcast partially successful: {}/{} connections succeeded, errors: {}",
-                message_type,
-                success_count,
-                connections_len,
-                errors.join(", ")
-            );
+        // Spawn reconnection attempts for failed connections (non-blocking)
+        if !failed_connections.is_empty() {
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                for connection_id in failed_connections {
+                    info!("Attempting to reconnect to {}", connection_id);
+
+                    // Fire and forget reconnection
+                    let _ = self_clone
+                        .connect_with_ticket(
+                            &connection_id,
+                            ConnectionType::User,
+                            Some(ConnectionAction::LiveEdit),
+                        )
+                        .await;
+                }
+            });
         }
     }
 

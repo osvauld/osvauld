@@ -7,6 +7,7 @@ use crate::p2p::{
     logger,
     peer_connection::{PeerConnection, ServiceContext},
 };
+use std::str::FromStr;
 
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
@@ -551,14 +552,19 @@ impl P2PService {
     #[instrument(skip(self, conn_type), level = "info")]
     pub async fn connect_with_ticket(
         &self,
-        device_id: &str,
+        device_or_node_id: &str,
         conn_type: ConnectionType,
         action: Option<ConnectionAction>,
     ) -> Result<Option<Arc<PeerConnection>>, P2PError> {
         info!("Starting connection process with ticket");
+        let node_id = if let Ok(id) = NodeId::from_str(device_or_node_id) {
+            id
+        } else {
+            // Fall back to treating it as base64 device_id
+            let node_id_bytes = crypto_utils::derive_node_id_from_public_key(device_or_node_id)?;
+            NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?
+        };
 
-        let node_id_bytes = crypto_utils::derive_node_id_from_public_key(&device_id)?;
-        let node_id = NodeId::try_from(&node_id_bytes).map_err(|e| e.to_string())?;
         // Ensure P2P service is initialized
         self.ensure_initialized().await?;
 
@@ -582,7 +588,7 @@ impl P2PService {
                             .emit(P2PEvent::LiveEditConnected { connection_id });
                     } else {
                         if existing_connection.is_initiator {
-                            let _ = existing_connection.execute_connection_action().await;
+                            let _ = existing_connection.start_user_network_sync().await;
                         } else {
                             let _ = existing_connection
                                 .send_message(Message::RetryRequest)
@@ -696,6 +702,50 @@ impl P2PService {
                 }
                 Err(e)
             }
+        }
+    }
+    /// Send a message, reconnecting if necessary
+    pub async fn send_or_reconnect(
+        &self,
+        connection_id: &str,
+        message: Message,
+        action: ConnectionAction,
+    ) -> Result<(), String> {
+        // Try to get and use existing connection
+        match self.get_connection_by_id(connection_id).await {
+            Ok(connection) => {
+                if connection.connection.close_reason().is_none() {
+                    // Connection is healthy, send message
+                    return connection.send_message(message).await;
+                } else {
+                    let state_guard = self.state.lock().await;
+                    if let Some(state) = state_guard.as_ref() {
+                        let _ = state.connections.remove_connection(connection_id).await;
+                    }
+                }
+                // Connection is closed, fall through to reconnect
+            }
+            Err(_) => {
+                // No connection exists, fall through to reconnect
+            }
+        }
+
+        // Attempt reconnection
+        info!(
+            "Connection {} not healthy, attempting reconnection",
+            connection_id
+        );
+
+        match self
+            .connect_with_ticket(connection_id, ConnectionType::User, Some(action))
+            .await
+        {
+            Ok(Some(new_conn)) => {
+                info!("Reconnected to {}, sending message", connection_id);
+                new_conn.send_message(message).await
+            }
+            Ok(None) => Err("Connection in progress".to_string()),
+            Err(e) => Err(format!("Failed to reconnect: {}", e)),
         }
     }
 }
