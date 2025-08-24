@@ -5,6 +5,7 @@ pub mod current_note_state;
 pub mod handlers;
 pub mod listners;
 pub mod preview_generator;
+pub mod search_index;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
@@ -25,6 +26,7 @@ use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
 use network::P2PService;
+use search_index::SearchIndexManager;
 
 use listners::EventManager;
 use std::fs;
@@ -80,7 +82,8 @@ pub fn run() {
                     panic!("Cannot continue without app data directory");
                 }
             }
-
+            let search_manager = SearchIndexManager::new(&app_dir)?;
+            app.manage(Arc::new(search_manager));
             let db_path = app_dir
                 .join(format!("{}.db", args.db_name))
                 .to_str()
