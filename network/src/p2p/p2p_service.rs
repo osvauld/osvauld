@@ -717,6 +717,11 @@ impl P2PService {
                 if connection.connection.close_reason().is_none() {
                     // Connection is healthy, send message
                     return connection.send_message(message).await;
+                } else {
+                    let state_guard = self.state.lock().await;
+                    if let Some(state) = state_guard.as_ref() {
+                        let _ = state.connections.remove_connection(connection_id).await;
+                    }
                 }
                 // Connection is closed, fall through to reconnect
             }
