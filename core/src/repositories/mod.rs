@@ -49,6 +49,8 @@ pub trait StoreRepository: Send + Sync {
     async fn get_device_key(&self) -> Result<String, RepositoryError>;
     async fn get_node_key(&self) -> Result<String, RepositoryError>;
     async fn get_ucan_key(&self) -> Result<String, RepositoryError>;
+    async fn add_index_key(&self, index_key: &str) -> Result<(), RepositoryError>;
+    async fn get_index_key(&self) -> Result<String, RepositoryError>;
 }
 
 #[async_trait]

@@ -134,6 +134,42 @@ impl StoreRepository for SqliteStoreRepository {
 
         Ok(())
     }
+    async fn add_index_key(&self, index_key: &str) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+        let now = Local::now().timestamp_millis();
+
+        diesel::insert_into(store_items::table)
+            .values((
+                store_items::key.eq("index_key"),
+                store_items::value.eq(index_key),
+                store_items::updated_at.eq(now),
+            ))
+            .on_conflict(store_items::key)
+            .do_update()
+            .set((
+                store_items::value.eq(index_key),
+                store_items::updated_at.eq(now),
+            ))
+            .execute(&mut *conn)
+            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn get_index_key(&self) -> Result<String, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        let index_key: String = store_items::table
+            .filter(store_items::key.eq("index_key"))
+            .select(store_items::value)
+            .first(&mut *conn)
+            .map_err(|e| match e {
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(e.to_string()),
+            })?;
+
+        Ok(index_key)
+    }
 
     async fn get_device_key(&self) -> Result<String, RepositoryError> {
         let mut conn = self.connection.lock().await;
