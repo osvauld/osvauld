@@ -582,7 +582,7 @@ impl P2PService {
                             .emit(P2PEvent::LiveEditConnected { connection_id });
                     } else {
                         if existing_connection.is_initiator {
-                            let _ = existing_connection.execute_connection_action().await;
+                            let _ = existing_connection.start_user_network_sync().await;
                         } else {
                             let _ = existing_connection
                                 .send_message(Message::RetryRequest)

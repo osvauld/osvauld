@@ -9,7 +9,7 @@ use osvauld_core::models::{
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
-use tracing::{Instrument, debug, error, info, info_span, instrument, trace, warn};
+use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -389,7 +389,7 @@ impl PeerConnection {
             }
             Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
             Message::UserNetworkSyncAck => self.send_resources().await,
-            Message::RetryRequest => self.execute_connection_action().await,
+            Message::RetryRequest => self.start_user_network_sync().await,
             Message::Handshake(payload) => self.handle_handshake_message(payload).await,
         }
     }
