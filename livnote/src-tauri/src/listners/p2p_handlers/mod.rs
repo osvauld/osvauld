@@ -1,11 +1,12 @@
 use crate::{
-    EventManager, preview_generator::generate_preview_html, types::ResourcePreview,
-    user_state::UserState,
+    EventManager, preview_generator::generate_preview_html, search_index::SearchIndexManager,
+    types::ResourcePreview, user_state::UserState,
 };
 use log::{error, info};
 use services::get_resource_by_id_direct;
+use std::sync::Arc;
 use tauri::{Emitter, Manager};
-
+use tokio::sync::Mutex;
 pub mod live_edit;
 pub mod system;
 pub mod updates;
@@ -75,6 +76,34 @@ impl EventManager {
             error!("Failed to emit {} event: {}", event_name, e);
             return Err(format!("Failed to emit event: {}", e));
         }
+        let search_manager = self.app_handle.state::<Arc<Mutex<SearchIndexManager>>>();
+        let search_manager_clone = search_manager.inner().clone();
+        let resource_id_clone = decrypted_resource.id.clone();
+        let resource_data = decrypted_resource.data.clone();
+        let folder_id = decrypted_resource.folder_id.clone();
+
+        tokio::spawn(async move {
+            info!(
+                "Spawning background task to update search index for resource {}",
+                resource_id_clone
+            );
+            if let Err(e) = search_manager_clone
+                .lock()
+                .await
+                .update_resource(&resource_id_clone, &resource_data, &folder_id)
+                .await
+            {
+                error!(
+                    "Failed to update search index for resource {}: {}",
+                    resource_id_clone, e
+                );
+            } else {
+                info!(
+                    "Successfully updated search index for resource {}",
+                    resource_id_clone
+                );
+            }
+        });
 
         info!(
             "Successfully emitted {} for resource: {}",

@@ -78,14 +78,14 @@ pub async fn login(
     let p2p_service_clone = p2p_service.inner().clone();
     let device_clone = current_device.clone();
     let user_clone = user.clone();
-    // tokio::spawn(async move {
-    //     if let Err(e) = p2p_service_clone
-    //         .start_p2p_service(&device_clone, &user_clone)
-    //         .await
-    //     {
-    //         error!("Failed to start P2P service: {}", e);
-    //     }
-    // });
+    tokio::spawn(async move {
+        if let Err(e) = p2p_service_clone
+            .start_p2p_service(&device_clone, &user_clone)
+            .await
+        {
+            error!("Failed to start P2P service: {}", e);
+        }
+    });
     let search_manager_clone = search_manager.inner().clone();
     let crypto_utils_clone = crypto_utils.inner().clone();
     let repo_ctx_clone = repo_ctx.inner().clone();
