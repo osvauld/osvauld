@@ -1,5 +1,7 @@
 // search_index/manager.rs
 
+use crate::search_index::search_types::SerializedDocument;
+
 use super::extractor::ContentExtractor;
 use super::operations::SearchIndexOperations;
 use super::search_types::{IndexError, IndexResult, IndexSnapshot, SearchResult};
@@ -143,24 +145,67 @@ impl SearchIndexManager {
     pub async fn save(&self, repo_ctx: &Arc<RepositoryContext>) -> IndexResult<()> {
         info!("Saving search index...");
 
-        let reader_guard = self.reader.read().await;
-        let reader = reader_guard.as_ref().ok_or(IndexError::NotInitialized)?;
+        // Extract what we need under a short-lived lock
+        let (documents, user_pub_key) = {
+            let reader_guard = self.reader.read().await;
+            let reader = reader_guard.as_ref().ok_or(IndexError::NotInitialized)?;
 
-        // Extract all documents
-        let documents = self.operations.extract_all_documents(reader)?;
+            // Extract all documents while holding the lock
+            let documents = self.operations.extract_all_documents(reader)?;
+            let user_pub_key = self
+                .user_pub_key
+                .clone()
+                .ok_or(IndexError::NotInitialized)?;
 
-        // Create snapshot
+            (documents, user_pub_key)
+            // Lock is dropped here
+        };
+
+        // Create snapshot (no locks held during this)
         let snapshot = IndexSnapshot {
             documents,
             version: 1,
             encrypted_key: String::new(), // Will be set by storage
         };
-        if let Some(user_pub) = &self.user_pub_key {
-            self.storage
-                .save_encrypted(snapshot, repo_ctx, user_pub.clone())
-                .await?;
-        }
 
+        // Perform I/O operations without holding any locks
+        self.storage
+            .save_encrypted(snapshot, repo_ctx, user_pub_key)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Extract documents and user key for saving (minimal lock time)
+    pub async fn extract_for_save(&self) -> IndexResult<(Vec<SerializedDocument>, String)> {
+        let reader_guard = self.reader.read().await;
+        let reader = reader_guard.as_ref().ok_or(IndexError::NotInitialized)?;
+        let documents = self.operations.extract_all_documents(reader)?;
+        let user_pub_key = self
+            .user_pub_key
+            .clone()
+            .ok_or(IndexError::NotInitialized)?;
+        Ok((documents, user_pub_key))
+    }
+
+    /// Save extracted data to disk (no locks held during I/O)
+    pub async fn save_extracted_data(
+        &self,
+        documents: Vec<SerializedDocument>,
+        user_pub_key: String,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> IndexResult<()> {
+        info!("Saving search index...");
+
+        let snapshot = IndexSnapshot {
+            documents,
+            version: 1,
+            encrypted_key: String::new(), // Will be set by storage
+        };
+
+        self.storage
+            .save_encrypted(snapshot, repo_ctx, user_pub_key)
+            .await?;
         Ok(())
     }
     pub fn start_scheduled_save(
@@ -183,17 +228,49 @@ impl SearchIndexManager {
             loop {
                 interval.tick().await;
 
-                let save_result = {
+                // Extract everything we need under lock (short duration)
+                let extract_result = {
                     let manager = search_manager.lock().await;
-                    manager.save(&repo_ctx).await
+                    if !manager.is_initialized().await {
+                        return; // Early return if not initialized
+                    }
+
+                    // Extract data and clone storage reference
+                    match manager.extract_for_save().await {
+                        Ok((documents, user_pub_key)) => {
+                            // Clone the storage reference while we have the lock
+                            let storage_clone = manager.storage.clone();
+                            Ok((documents, user_pub_key, storage_clone))
+                        }
+                        Err(e) => Err(e),
+                    }
+                    // Lock is dropped here
                 };
 
-                match save_result {
-                    Ok(_) => {
-                        info!("Scheduled search index save completed successfully");
+                match extract_result {
+                    Ok((documents, user_pub_key, storage)) => {
+                        // Perform I/O without holding any locks
+                        let snapshot = IndexSnapshot {
+                            documents,
+                            version: 1,
+                            encrypted_key: String::new(),
+                        };
+
+                        let save_result = storage
+                            .save_encrypted(snapshot, &repo_ctx, user_pub_key)
+                            .await;
+
+                        match save_result {
+                            Ok(_) => {
+                                info!("Scheduled search index save completed successfully");
+                            }
+                            Err(e) => {
+                                error!("Scheduled search index save failed: {}", e);
+                            }
+                        }
                     }
                     Err(e) => {
-                        error!("Scheduled search index save failed: {}", e);
+                        error!("Failed to extract data for scheduled save: {}", e);
                     }
                 }
             }

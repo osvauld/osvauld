@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::sync::Mutex;
 
+#[derive(Clone)]
 pub struct SearchIndexStorage {
     encrypted_index_path: PathBuf,
 }
@@ -39,7 +40,7 @@ impl SearchIndexStorage {
         let serialized_str = String::from_utf8(serialized)
             .map_err(|e| IndexError::EncryptionError(e.to_string()))?;
         let (encrypted_data, encrypted_key) =
-            crypto_utils::encrypt_with_public_key(&serialized_str, &user_pub_key)
+            crypto_utils::encrypt_data_for_user(&serialized_str, &user_pub_key)
                 .map_err(|e| IndexError::EncryptionError(e.to_string()))?;
 
         // Store the encrypted key in the repository

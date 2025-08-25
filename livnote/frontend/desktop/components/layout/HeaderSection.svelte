@@ -79,8 +79,6 @@
 		const noteIds = await sendMessage("searchResource", { query: searchQuery });
 		console.log(noteIds);
 		dataState.setSearchResults(noteIds);
-		// Your search logic here
-		// dataState.searchNotes(searchQuery);
 	};
 </script>
 

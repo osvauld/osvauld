@@ -329,30 +329,6 @@ pub fn get_cid_from_ucan_token(ucan_token: &str) -> Result<String, UcanError> {
     ucan_utils::get_ucan_cid(ucan_token)
 }
 
-pub fn encrypt_with_public_key(
-    data: &str,
-    public_key: &str,
-) -> Result<(String, String), CryptoError> {
-    // Generate AES key
-    let aes_key = crypto_core::generate_aes_key();
-
-    // Encrypt data with AES key
-    let encrypted_data =
-        crypto_core::encrypt_with_aes(&aes_key, data).map_err(|e| CryptoError::AesError(e))?;
-
-    // Get recipient from public key
-    let recipient = crypto_core::get_recipient(public_key).map_err(|e| CryptoError::PgpError(e))?;
-
-    // Encrypt AES key with the public key
-    let encrypted_key = crypto_core::encrypt_text_pgp(
-        &recipient,
-        &general_purpose::STANDARD.encode(aes_key.as_slice()),
-    )
-    .map_err(|e| CryptoError::Other(e.to_string()))?;
-
-    Ok((encrypted_data, encrypted_key))
-}
-
 // Stateful Certificate Operations
 // These operations require a loaded certificate
 pub struct CryptoUtils {
