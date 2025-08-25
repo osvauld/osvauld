@@ -58,6 +58,7 @@ pub enum CryptoResponse {
     ExportedCertificate(String),
     Folders(Vec<FolderResponse>),
     Resources(Vec<ResourceResponse>),
+    SearchedResourceIds(Vec<String>),
     FolderCreated(Folder),
     Success,
     UpdateResources,

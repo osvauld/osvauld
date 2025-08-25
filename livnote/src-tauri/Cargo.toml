@@ -56,5 +56,6 @@ tauri-plugin-dialog = "2.0.0-rc"
 clap = { version = "4.5.40", features = ["derive"] }
 regex = "1.11.1"
 quick-xml = "0.38.1"
+tantivy = "0.25.0"
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2.0.0-rc"

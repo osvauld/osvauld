@@ -328,6 +328,7 @@ where
 pub fn get_cid_from_ucan_token(ucan_token: &str) -> Result<String, UcanError> {
     ucan_utils::get_ucan_cid(ucan_token)
 }
+
 // Stateful Certificate Operations
 // These operations require a loaded certificate
 pub struct CryptoUtils {

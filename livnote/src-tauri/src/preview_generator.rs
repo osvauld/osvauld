@@ -1,12 +1,11 @@
-use log::info;
 use osvauld_core::models::document::{YjsDocExt, create_doc};
-use quick_xml::events::{BytesStart, BytesText, Event};
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use regex::Regex;
 use std::collections::HashMap;
 use std::io::Cursor;
-use yrs::{Any, Doc, GetString, Map, Out, ReadTxn, Transact, types::ToJson};
+use yrs::{Any, GetString, Map, Out, ReadTxn, Transact, types::ToJson};
 
 pub struct PreviewGenerator {
     image_url_regex: Regex,

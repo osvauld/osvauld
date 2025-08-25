@@ -5,6 +5,7 @@ pub mod current_note_state;
 pub mod handlers;
 pub mod listners;
 pub mod preview_generator;
+pub mod search_index;
 mod types;
 pub mod user_state;
 use crate::handlers::auth_handler::{
@@ -17,14 +18,15 @@ use crate::handlers::folder_handler::{
 };
 use crate::handlers::resource_handler::{
     emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
-    handle_get_resources_for_folder, handle_share_resource, handle_toggle_fav,
-    handle_update_last_accessed, handle_update_resource, soft_delete_resource,
+    handle_get_resources_for_folder, handle_search_resources, handle_share_resource,
+    handle_toggle_fav, handle_update_last_accessed, handle_update_resource, soft_delete_resource,
 };
 use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
 use crate::user_state::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
 use network::P2PService;
+use search_index::SearchIndexManager;
 
 use listners::EventManager;
 use std::fs;
@@ -80,7 +82,8 @@ pub fn run() {
                     panic!("Cannot continue without app data directory");
                 }
             }
-
+            let search_manager = Arc::new(Mutex::new(SearchIndexManager::new(&app_dir)?));
+            app.manage(search_manager);
             let db_path = app_dir
                 .join(format!("{}.db", args.db_name))
                 .to_str()
@@ -174,6 +177,7 @@ pub fn run() {
             emit_all_resources,
             get_one_time_ucan_token,
             handle_logout,
+            handle_search_resources,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
