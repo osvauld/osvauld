@@ -249,7 +249,6 @@
 					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto cursor-pointer"
 					title="Toggle zen mode"
 					aria-label="Toggle zen mode"
-					aria-controls="zen-mode"
 					onclick={() => uiState.toggleZenMode()}
 				>
 					<Zen />
