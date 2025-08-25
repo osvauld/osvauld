@@ -5,6 +5,7 @@
 		Star as EmptyStar,
 		FavStar as Star,
 		MenuToggle,
+		Zen,
 	} from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
@@ -277,8 +278,17 @@
 			{/if}
 			{#if !uiState.showNoteRightPanel}
 				<button
+					class="mx-2 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto cursor-pointer"
+					title="Toggle zen mode"
+					aria-label="Toggle zen mode"
+					aria-controls="zen-mode"
+					onclick={() => uiState.toggleZenMode()}
+				>
+					<Zen />
+				</button>
+				<button
 					aria-label="Open note right panel"
-					class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
+					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
 					title="Open note right panel"
 					onclick={toggleNoteRightPanel}
 				>
