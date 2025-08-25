@@ -415,56 +415,64 @@
 	}
 </style>
 
-<div class="editor-container">
-	<div class="editor-content-wrapper">
-		<div class="editor-main scrollbar-thin">
-			<!-- Always show the editor element, but overlay different states -->
-			<div
-				bind:this={element}
-				class="h-full max-h-full overflow-y-scroll scrollbar-thin"
-				class:opacity-0={showSkeleton}
-				class:opacity-100={showContent}
-			></div>
+<div
+	class="h-full"
+	onclick={(e) => {
+		e.stopPropagation();
+	}}
+	role="presentation"
+>
+	<div class="editor-container">
+		<div class="editor-content-wrapper">
+			<div class="editor-main scrollbar-thin">
+				<!-- Always show the editor element, but overlay different states -->
+				<div
+					bind:this={element}
+					class="h-full max-h-full overflow-y-scroll scrollbar-thin"
+					class:opacity-0={showSkeleton}
+					class:opacity-100={showContent}
+				></div>
 
-			<!-- Skeleton overlay -->
-			{#if showSkeleton}
-				<div class="absolute inset-0 p-6 space-y-4 bg-[#16171f]">
-					<div class="animate-pulse space-y-6">
-						<div class="text-white text-sm mb-4 p-2 rounded">
-							{#if uiState.isNoteFetching}
-								decrypting note ...
-							{:else if uiState.isEditorLoading}
-								Setting up editor...
-							{:else}
-								Loading...
-							{/if}
+				<!-- Skeleton overlay -->
+				{#if showSkeleton}
+					<div class="absolute inset-0 p-6 space-y-4 bg-[#16171f]">
+						<div class="animate-pulse space-y-6">
+							<div class="text-white text-sm mb-4 p-2 rounded">
+								{#if uiState.isNoteFetching}
+									decrypting note ...
+								{:else if uiState.isEditorLoading}
+									Setting up editor...
+								{:else}
+									Loading...
+								{/if}
+							</div>
+
+							<!-- Title skeleton -->
+							<div class="h-8 bg-gray-600 rounded-lg w-3/4"></div>
+
+							<div class="h-4 bg-gray-600 rounded w-5/6"></div>
+							<div class="h-4 bg-gray-600 rounded w-4/5"></div>
+
+							<div class="h-4 bg-gray-600 rounded w-5/6"></div>
+							<div class="h-4 bg-gray-600 rounded w-4/5"></div>
+
+							<div class="h-24 bg-gray-600 rounded w-5/6"></div>
+							<div class="h-4 bg-gray-600 rounded w-4/5"></div>
+							<div class="h-4 bg-gray-600 rounded w-full"></div>
 						</div>
-
-						<!-- Title skeleton -->
-						<div class="h-8 bg-gray-600 rounded-lg w-3/4"></div>
-
-						<div class="h-4 bg-gray-600 rounded w-5/6"></div>
-						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
-
-						<div class="h-4 bg-gray-600 rounded w-5/6"></div>
-						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
-
-						<div class="h-24 bg-gray-600 rounded w-5/6"></div>
-						<div class="h-4 bg-gray-600 rounded w-4/5"></div>
-						<div class="h-4 bg-gray-600 rounded w-full"></div>
 					</div>
-				</div>
-			{/if}
+				{/if}
 
-			<!-- Error overlay -->
-			{#if showError}
-				<div class="absolute inset-0 flex justify-center items-center">
-					<div class="text-red-400 text-center">
-						<div class="text-lg font-medium mb-2">Failed to load note</div>
-						<div class="text-sm text-osvauld-fieldText">{error}</div>
+				<!-- Error overlay -->
+				{#if showError}
+					<div class="absolute inset-0 flex justify-center items-center">
+						<div class="text-red-400 text-center">
+							<div class="text-lg font-medium mb-2">Failed to load note</div>
+							<div class="text-sm text-osvauld-fieldText">{error}</div>
+						</div>
 					</div>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>

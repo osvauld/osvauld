@@ -146,6 +146,12 @@
 		uiState.toggleNoteRightPanel();
 	};
 
+	const checkforEscKey = (e: KeyboardEvent) => {
+		if (e.key === "Escape") {
+			uiState.toggleZenMode();
+		}
+	};
+
 	onMount(() => {
 		document.documentElement.style.setProperty(
 			"--min-editor-width",
@@ -299,7 +305,26 @@
 
 		<!-- Editor Component -->
 		<div class="flex-1 min-h-0 relative p-4">
-			<RichTextEditor />
+			{#if uiState.isZenMode}
+				<div
+					class="fixed inset-0 flex items-center justify-center z-50 py-10 bg-bgPrimary"
+					role="presentation"
+					onclick={() => uiState.toggleZenMode()}
+					onkeydown={checkforEscKey}
+				>
+					<RichTextEditor />
+					<div
+						class="text-osvauld-fieldText text-sm absolute left-6 bottom-2.5 z-60"
+					>
+						Exit Zen mode with <span
+							class="p-1 px-2 rounded-md bg-osvauld-fieldActive text-white"
+							>Esc</span
+						>
+					</div>
+				</div>
+			{:else}
+				<RichTextEditor />
+			{/if}
 		</div>
 	</div>
 
