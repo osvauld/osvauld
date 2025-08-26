@@ -5,6 +5,7 @@
 		Star as EmptyStar,
 		FavStar as Star,
 		MenuToggle,
+		Zen,
 	} from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import { dataState, uiState } from "../../state";
@@ -81,6 +82,7 @@
 			dataState.saveNote(noteId);
 			dataState.switchNote(null);
 		}
+		uiState.toggleNoteRightPanel(true);
 		uiState.toggleNoteViewLayout(false);
 	};
 
@@ -143,6 +145,12 @@
 
 	const toggleNoteRightPanel = () => {
 		uiState.toggleNoteRightPanel();
+	};
+
+	const checkforEscKey = (e: KeyboardEvent) => {
+		if (e.key === "Escape") {
+			uiState.toggleZenMode();
+		}
 	};
 
 	onMount(() => {
@@ -228,7 +236,7 @@
 					</span>
 				{/if}
 				<button
-					class=" rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
+					class="mr-5 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-pointer"
 					onclick={toggleFav}
 				>
 					{#if isFavourite()}
@@ -236,6 +244,14 @@
 					{:else}
 						<EmptyStar color="#85889C" />
 					{/if}
+				</button>
+				<button
+					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto cursor-pointer"
+					title="Toggle zen mode"
+					aria-label="Toggle zen mode"
+					onclick={() => uiState.toggleZenMode()}
+				>
+					<Zen />
 				</button>
 			</div>
 			{#if otherOnlineCollaborators.length > 0 && myUsername}
@@ -289,7 +305,26 @@
 
 		<!-- Editor Component -->
 		<div class="flex-1 min-h-0 relative p-4">
-			<RichTextEditor />
+			{#if uiState.isZenMode}
+				<div
+					class="fixed inset-0 flex items-center justify-center z-50 py-10 bg-bgPrimary"
+					role="presentation"
+					onclick={() => uiState.toggleZenMode()}
+					onkeydown={checkforEscKey}
+				>
+					<RichTextEditor />
+					<div
+						class="text-osvauld-fieldText text-sm absolute left-6 bottom-2.5 z-60"
+					>
+						Exit Zen mode with <span
+							class="py-0.5 px-2 rounded-sm bg-osvauld-fieldActive text-white"
+							>Esc</span
+						>
+					</div>
+				</div>
+			{:else}
+				<RichTextEditor />
+			{/if}
 		</div>
 	</div>
 

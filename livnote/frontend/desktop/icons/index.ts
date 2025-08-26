@@ -87,3 +87,4 @@ export { default as ToastError } from './toastError.svelte';
 export { default as MenuToggle } from './menuToggle.svelte';
 export { default as ConnectUser } from './connectUser.svelte';
 export { default as TwoPeople } from './twoPeople.svelte';
+export { default as Zen } from './zen.svelte';

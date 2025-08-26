@@ -34,7 +34,9 @@ class UIState {
   isNavigationPanelManuallyToggled = $state(false);
   isNoteFetching = $state<boolean>(false);
   isEditorLoading = $state<boolean>(false);
+  isZenMode = $state<boolean>(false);
   readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
+
 
   toastMessage = $state<Toast>({
     show: false, message: "", success: true
@@ -179,6 +181,10 @@ class UIState {
 
   setNoteSaved(saved: boolean) {
     this.noteSaved = saved;
+  }
+
+  toggleZenMode() {
+    this.isZenMode = !this.isZenMode;
   }
 
   clearAllLoadingStates() {
