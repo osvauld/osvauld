@@ -8,6 +8,7 @@
 		Zen,
 	} from "../../icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
+	import Timer from "../ui/Timer.svelte";
 	import { dataState, uiState } from "../../state";
 	import RichTextEditor from "../notes/RichTextEditor.svelte";
 	import NavigationPanel from "./NavigationPanel.svelte";
@@ -246,13 +247,14 @@
 					{/if}
 				</button>
 				<button
-					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto cursor-pointer"
+					class="mr-5 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto cursor-pointer"
 					title="Toggle zen mode"
 					aria-label="Toggle zen mode"
 					onclick={() => uiState.toggleZenMode()}
 				>
 					<Zen />
 				</button>
+				<Timer />
 			</div>
 			{#if otherOnlineCollaborators.length > 0 && myUsername}
 				<div class="ml-auto flex items-center">
