@@ -1,10 +1,11 @@
+use crate::error::{ServiceResult, SyncServiceError};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
     ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
     DeviceManifestRequestPayload, DeviceNetworkSyncPayload, ResourceComparisonResult,
     ResourceManifestData, ResourceSyncData, ResourceVectorClock, User, UserComparisonResult,
-    UserManifestComparisonResult, UserManifestDifferences, UserManifestPayload,
-    UserManifestRequestPayload, UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices, user,
+    UserManifestComparisonResult, UserManifestDifferences, UserManifestRequestPayload,
+    UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices,
 };
 use persistance::database::RepositoryContext;
 use std::{
@@ -12,45 +13,41 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::Mutex;
-use tracing::{Span, info, instrument};
+
 #[derive(Debug, Clone)]
 pub struct SetComparison {
     pub only_local: HashSet<String>,
     pub only_remote: HashSet<String>,
     pub common: HashSet<String>,
 }
+
 pub async fn get_device_manifest(
     repo_ctx: Arc<RepositoryContext>,
     current_user_id: &str,
-) -> Result<DeviceManifestRequestPayload, String> {
+) -> ServiceResult<DeviceManifestRequestPayload> {
     let resource_manfest = repo_ctx
         .resource_repo
         .get_resource_manifest_data(None)
-        .await
-        .map_err(|e| e.to_string())?;
-    let user_and_devices = repo_ctx
-        .user_repo
-        .get_other_users_with_device_ids()
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
+    let user_and_devices = repo_ctx.user_repo.get_other_users_with_device_ids().await?;
+
     let current_user_devices = repo_ctx
         .device_repo
         .get_device_ids_by_user_id(current_user_id)
-        .await
-        .map_err(|e| e.to_string())?;
-    let folders = repo_ctx
-        .folder_repo
-        .find_all()
-        .await
-        .map_err(|e| format!("Failed to get folders: {}", e))?;
+        .await?;
+
+    let folders = repo_ctx.folder_repo.find_all().await?;
 
     let folder_ids: Vec<String> = folders.into_iter().map(|folder| folder.id).collect();
+
     let message = DeviceManifestRequestPayload {
         resources: resource_manfest,
         other_users: user_and_devices,
         known_device_ids: current_user_devices,
         folder_ids,
     };
+
     Ok(message)
 }
 
@@ -58,35 +55,42 @@ pub async fn process_device_manifest_request(
     remote_manifest_payload: &DeviceManifestRequestPayload,
     repo_ctx: Arc<RepositoryContext>,
     current_user_id: &str,
-) -> Result<DeviceManifestComparisonResult, String> {
+) -> ServiceResult<DeviceManifestComparisonResult> {
     let local_manifest_payload = get_device_manifest(repo_ctx, current_user_id).await?;
+
     let (local_user_ids, local_device_ids, local_resource_ids, local_folder_ids) =
         create_comparison_sets(&local_manifest_payload);
     let (remote_user_ids, remote_device_ids, remote_resource_ids, remote_folder_ids) =
         create_comparison_sets(remote_manifest_payload);
+
     // Create HashSets for remote payload
     let user_comparison = compare_sets(&local_user_ids, &remote_user_ids);
     let device_comparison = compare_sets(&local_device_ids, &remote_device_ids);
     let resource_comparison = compare_sets(&local_resource_ids, &remote_resource_ids);
     let folder_comparison = compare_sets(&local_folder_ids, &remote_folder_ids);
+
     let common_user_ids = Vec::from_iter(user_comparison.common);
+
     let (devices_from_common_users_only_local_has, devices_from_common_users_only_remote_has) =
         compare_devices_for_common_users(
             &local_manifest_payload.other_users,
             &remote_manifest_payload.other_users,
             &common_user_ids,
         );
+
     let resources_requiring_sync = compare_resources_for_common_resources(
         &local_manifest_payload.resources,
         &remote_manifest_payload.resources,
         &resource_comparison.common,
     );
+
     let unknown_users_to_local: Vec<String> = user_comparison.only_remote.into_iter().collect();
     let unknown_users_to_remote: Vec<String> = user_comparison.only_local.into_iter().collect();
     let unknown_resources_to_local: Vec<String> =
         resource_comparison.only_remote.into_iter().collect();
     let unknown_resources_to_remote: Vec<String> =
         resource_comparison.only_local.into_iter().collect();
+
     let result = DeviceManifestComparisonResult {
         local_missing: DeviceManifestDifferences {
             unknown_users: unknown_users_to_local,
@@ -104,6 +108,7 @@ pub async fn process_device_manifest_request(
         },
         resources_requiring_sync,
     };
+
     Ok(result)
 }
 
@@ -136,6 +141,7 @@ fn create_comparison_sets(
         .iter()
         .map(|resource| resource.resource_id.clone())
         .collect();
+
     let folder_ids: HashSet<String> = payload.folder_ids.iter().cloned().collect();
 
     (user_ids, device_ids, resource_ids, folder_ids)
@@ -295,40 +301,36 @@ fn compare_resources_for_common_resources(
 pub async fn create_device_network_sync_payload(
     manifest_diff: &DeviceManifestDifferences,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<DeviceNetworkSyncPayload, String> {
-    // 1. Get unknown users with their devices
+) -> ServiceResult<DeviceNetworkSyncPayload> {
     let unknown_users_with_devices = repo_ctx
         .user_repo
         .get_users_with_devices_by_user_ids(&manifest_diff.unknown_users)
-        .await
-        .map_err(|e| format!("Failed to get unknown users with devices: {}", e))?;
+        .await?;
 
-    // 2. Get unknown devices from common users
+    // Get unknown devices from common users
     let common_user_device_ids: Vec<String> = manifest_diff
         .unknown_devices_from_common_users
         .iter()
         .flat_map(|user_with_devices| &user_with_devices.device_ids)
         .cloned()
         .collect();
+
     let unknown_devices_from_common_users = repo_ctx
         .device_repo
         .get_devices_by_ids(&common_user_device_ids)
-        .await
-        .map_err(|e| format!("Failed to get unknown devices from common users: {}", e))?;
+        .await?;
 
-    // 3. Get unknown devices from current user
+    // Get unknown devices from current user
     let unknown_devices_from_current_user = repo_ctx
         .device_repo
         .get_devices_by_ids(&manifest_diff.unknown_devices_from_current_user)
-        .await
-        .map_err(|e| format!("Failed to get unknown devices from current user: {}", e))?;
+        .await?;
 
-    // 4. Get unknown folders
+    // Get unknown folders
     let unknown_folders = repo_ctx
         .folder_repo
         .get_folders_by_ids(&manifest_diff.unknown_folders)
-        .await
-        .map_err(|e| format!("Failed to get unknown folders: {}", e))?;
+        .await?;
 
     let payload = DeviceNetworkSyncPayload {
         unknown_folders,
@@ -343,31 +345,30 @@ pub async fn create_device_network_sync_payload(
 pub async fn process_device_network_sync(
     payload: &mut DeviceNetworkSyncPayload,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), String> {
+) -> ServiceResult<()> {
     for user_with_device in &mut payload.unknown_users_with_devices {
         user_with_device.user.owner = false;
     }
+
     repo_ctx
         .user_repo
         .add_users_with_devices_bulk(&payload.unknown_users_with_devices)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     repo_ctx
         .folder_repo
         .add_folders_bulk(&payload.unknown_folders)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     repo_ctx
         .device_repo
         .save_many(&payload.unknown_devices_from_common_users)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     repo_ctx
         .device_repo
         .save_many(&payload.unknown_devices_from_current_user)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
 
     Ok(())
 }
@@ -376,86 +377,96 @@ pub async fn get_resource_for_remote_addition(
     resource_id: &str,
     device: &Device,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<ResourceSyncData, String> {
+) -> ServiceResult<ResourceSyncData> {
     let new_vector_clock =
         ResourceVectorClock::create_entry_for_new_device(resource_id, &device.id);
+
     repo_ctx
         .vector_clock_repo
         .save_vector_clock(&new_vector_clock)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     let resource_payload = repo_ctx
         .resource_repo
         .get_resource_sync_data(resource_id)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     Ok(resource_payload)
 }
+
 pub async fn add_resource_sync(
     payload: &mut ResourceSyncData,
     repo_ctx: Arc<RepositoryContext>,
     connection_type: &ConnectionType,
-) -> Result<(), String> {
+) -> ServiceResult<()> {
     match connection_type {
         ConnectionType::User => {
             let default_folder = repo_ctx
                 .folder_repo
                 .get_default_folder()
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|_| SyncServiceError::DefaultFolderNotFound)?;
+
             payload.resource.folder_id = default_folder.id.clone();
         }
         ConnectionType::Device => {}
     }
+
     repo_ctx
         .resource_repo
         .save_resource_sync_data(&payload)
-        .await
-        .map_err(|e| e.to_string())
+        .await?;
+
+    Ok(())
 }
 
 pub async fn process_first_user_connection_request(
     user_with_devices: UserWithDevices,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), String> {
+) -> ServiceResult<()> {
     repo_ctx
         .user_repo
         .add_users_with_devices_bulk(&[user_with_devices])
-        .await
-        .map_err(|e| e.to_string())
+        .await?;
+
+    Ok(())
 }
 
 pub async fn get_user_manifest(
     repo_ctx: Arc<RepositoryContext>,
     peer_user_id: &str,
     current_user_id: &str,
-) -> Result<UserManifestRequestPayload, String> {
+) -> ServiceResult<UserManifestRequestPayload> {
     let share_records = repo_ctx
         .share_repo
         .get_user_share_records(peer_user_id)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     let mut unique_resource_ids = HashSet::new();
     let mut unique_user_ids = HashSet::new();
+
     for record in share_records {
         unique_user_ids.insert(record.recipient_user_id);
         unique_resource_ids.insert(record.resource_id);
     }
-    //Inserting current and peer users, because they know each other
+
+    // Inserting current and peer users, because they know each other
     unique_user_ids.insert(current_user_id.to_string());
     unique_user_ids.insert(peer_user_id.to_string());
+
     let unique_user_ids_vec: Vec<String> = unique_user_ids.into_iter().collect();
     let unique_resource_ids_vec: Vec<String> = unique_resource_ids.into_iter().collect();
+
     let user_manifest = repo_ctx
         .user_repo
         .get_users_with_device_ids_by_user_ids(&unique_user_ids_vec)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     let resource_manifest = repo_ctx
         .resource_repo
         .get_resource_manifest_data(Some(&unique_resource_ids_vec))
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     let payload = UserManifestRequestPayload {
         users: user_manifest,
         resources: resource_manifest,
@@ -463,25 +474,28 @@ pub async fn get_user_manifest(
 
     Ok(payload)
 }
+
 pub async fn process_user_manifest_request(
     remote_payload: &UserManifestRequestPayload,
     repo_ctx: Arc<RepositoryContext>,
     peer_user_id: &str,
     current_user_id: &str,
-) -> Result<UserManifestComparisonResult, String> {
+) -> ServiceResult<UserManifestComparisonResult> {
     let local_payload = get_user_manifest(repo_ctx, peer_user_id, current_user_id).await?;
+
     let user_gaps = process_user_gaps(&local_payload, remote_payload);
     let resource_gaps = process_resource_gaps(&local_payload, remote_payload);
+
     Ok(UserManifestComparisonResult {
         local_missing: UserManifestDifferences {
-            unknown_users: user_gaps.users_only_remote_has.clone(), // What remote has that local doesn't
+            unknown_users: user_gaps.users_only_remote_has.clone(),
             unknown_devices_from_common_users: user_gaps
                 .devices_from_common_users_only_remote_has
                 .clone(),
             unknown_resources: resource_gaps.resources_only_remote_has.clone(),
         },
         remote_missing: UserManifestDifferences {
-            unknown_users: user_gaps.users_only_local_has.clone(), // What local has that remote doesn't
+            unknown_users: user_gaps.users_only_local_has.clone(),
             unknown_devices_from_common_users: user_gaps
                 .devices_from_common_users_only_local_has
                 .clone(),
@@ -490,6 +504,7 @@ pub async fn process_user_manifest_request(
         resources_requiring_sync: resource_gaps.resources_requiring_sync.clone(),
     })
 }
+
 pub fn process_user_gaps(
     local_payload: &UserManifestRequestPayload,
     remote_payload: &UserManifestRequestPayload,
@@ -533,6 +548,7 @@ pub fn process_user_gaps(
         devices_from_common_users_only_remote_has,
     }
 }
+
 pub fn process_resource_gaps(
     local_payload: &UserManifestRequestPayload,
     remote_payload: &UserManifestRequestPayload,
@@ -586,22 +602,20 @@ pub async fn create_user_network_sync_payload(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
     domain: &str,
-) -> Result<UserNetworkSyncPayload, String> {
-    // 1. Get unknown users with their devices
+) -> ServiceResult<UserNetworkSyncPayload> {
+    // Get unknown users with their devices
     let mut unknown_users_with_devices = repo_ctx
         .user_repo
         .get_users_with_devices_by_user_ids(&manifest_diff.unknown_users)
-        .await
-        .map_err(|e| format!("Failed to get unknown users with devices: {}", e))?;
-    let encrypted_ucan_pvt_key = repo_ctx
-        .store_repo
-        .get_ucan_key()
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
+    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
+
     for user_with_devices in &mut unknown_users_with_devices {
         // Generate delegated token for peer to connect to this user
         let delegated_token = {
             let crypto = crypto_utils.lock().await;
+            //  CryptoError propagates automatically
             crypto
                 .issue_delegated_user_connect_token(
                     &encrypted_ucan_pvt_key,
@@ -610,25 +624,26 @@ pub async fn create_user_network_sync_payload(
                     &peer_user.ucan_pub_key,
                     &user_with_devices.user.ucan_token,
                 )
-                .await
-                .map_err(|e| e.to_string())?
+                .await?
         };
 
         // Store the delegated token in the user object for transmission
         user_with_devices.user.ucan_token = delegated_token;
     }
-    // 2. Get unknown devices from common users
+
+    // Get unknown devices from common users
     let common_user_device_ids: Vec<String> = manifest_diff
         .unknown_devices_from_common_users
         .iter()
         .flat_map(|user_with_devices| &user_with_devices.device_ids)
         .cloned()
         .collect();
+
     let unknown_devices_from_common_users = repo_ctx
         .device_repo
         .get_devices_by_ids(&common_user_device_ids)
-        .await
-        .map_err(|e| format!("Failed to get unknown devices from common users: {}", e))?;
+        .await?;
+
     Ok(UserNetworkSyncPayload {
         users: unknown_users_with_devices,
         devices: unknown_devices_from_common_users,
@@ -638,7 +653,7 @@ pub async fn create_user_network_sync_payload(
 pub async fn process_user_network_sync_payload(
     payload: &mut UserNetworkSyncPayload,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), String> {
+) -> ServiceResult<()> {
     for user_with_device in &mut payload.users {
         user_with_device.user.owner = false;
         user_with_device.user.first_sync = false;
@@ -647,12 +662,9 @@ pub async fn process_user_network_sync_payload(
     repo_ctx
         .user_repo
         .add_users_with_devices_bulk(&payload.users)
-        .await
-        .map_err(|e| e.to_string())?;
-    repo_ctx
-        .device_repo
-        .save_many(&payload.devices)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
+    repo_ctx.device_repo.save_many(&payload.devices).await?;
+
     Ok(())
 }

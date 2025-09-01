@@ -1,26 +1,15 @@
+use crate::error::{ResourceServiceError, ServiceResult};
 use crypto_utils::{CryptoUtils, encrypt_data_for_user, errors::UcanError};
 use log::info;
 use osvauld_core::models::{
     DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
     ResourceWithKey, ShareOperation, ShareRecord, User,
 };
-use osvauld_core::repositories::RepositoryError;
 use persistance::database::RepositoryContext;
 use serde_json::Value;
 use std::collections::HashSet;
-use std::pin::Pin;
 use std::sync::Arc;
-use thiserror::Error;
 use tokio::sync::Mutex;
-#[derive(Error, Debug)]
-pub enum ResourceServiceError {
-    #[error("Repository error: {0}")]
-    RepositoryError(#[from] RepositoryError),
-    #[error("Crypto error: {0}")]
-    CryptoError(String),
-    #[error("Parse error: {0}")]
-    ParseError(String),
-}
 
 /// Create a new resource with all its dependencies
 pub async fn create_resource(
@@ -32,13 +21,10 @@ pub async fn create_resource(
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<DecryptedResource, ResourceServiceError> {
-    // Encrypt the resource using the provided function
+) -> ServiceResult<DecryptedResource> {
     let (encrypted_data, encrypted_key) =
-        encrypt_data_for_user(&resource_payload, &user.public_key)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+        encrypt_data_for_user(&resource_payload, &user.public_key)?;
 
-    //TODO: add created by to verify.
     // Create the resource
     let mut resource = Resource::new(
         resource_type,
@@ -47,29 +33,25 @@ pub async fn create_resource(
         "signature".to_string(),
         user.id.clone(),
     );
+
     let signature = {
         let crypto = crypto_utils.lock().await;
-        crypto
-            .sign_and_hash_message(&resource.id)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        crypto.sign_and_hash_message(&resource.id)?
     };
     resource.signature = signature.to_owned();
 
     // Create the resource key for the user
     let resource_key = ResourceKey::new(resource.id.clone(), user.id.clone(), encrypted_key, true);
 
-    let encrypted_ucan_pvt_key = repo_ctx
-        .store_repo
-        .get_ucan_key()
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
+
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
         crypto
             .generate_resource_owner_ucan(&encrypted_ucan_pvt_key, &resource.id, domain)
-            .await
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+            .await?
     };
+
     // Create the share record (user sharing with themselves as owner)
     let share_record = ShareRecord::prepare_share_record(
         resource.id.clone(),
@@ -97,6 +79,7 @@ pub async fn create_resource(
         .resource_repo
         .save_resource_with_dependencies(&resource, &resource_key, &share_record, &vector_clocks)
         .await?;
+
     let decrypted_resource =
         get_resource_by_id_direct(&resource.id, &user.id, repo_ctx, crypto_utils).await?;
 
@@ -109,7 +92,7 @@ pub async fn get_resource_by_id_direct(
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<DecryptedResource, ResourceServiceError> {
+) -> ServiceResult<DecryptedResource> {
     // Get the resource with its key from the repository
     let resource_with_key = repo_ctx
         .resource_repo
@@ -126,16 +109,14 @@ pub async fn get_resource_by_id_direct(
 async fn decrypt_single_resource(
     resource_with_key: ResourceWithKey,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<DecryptedResource, ResourceServiceError> {
+) -> ServiceResult<DecryptedResource> {
     // Lock crypto_utils and decrypt the resource data
     let decrypted_data = {
         let crypto = crypto_utils.lock().await;
-        crypto
-            .decrypt_resource(
-                &resource_with_key.resource.data,
-                &resource_with_key.encrypted_key,
-            )
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        crypto.decrypt_resource(
+            &resource_with_key.resource.data,
+            &resource_with_key.encrypted_key,
+        )?
     };
 
     // Parse the JSON data
@@ -158,28 +139,28 @@ async fn decrypt_single_resource(
 pub async fn delete_resource(
     resource_id: String,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), RepositoryError> {
-    repo_ctx
+) -> ServiceResult<()> {
+    Ok(repo_ctx
         .resource_repo
         .soft_delete_resource(&resource_id)
-        .await
+        .await?)
 }
 
 pub async fn toggle_fav(
     resource_id: String,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), RepositoryError> {
-    repo_ctx.resource_repo.toggle_fav(&resource_id).await
+) -> ServiceResult<()> {
+    Ok(repo_ctx.resource_repo.toggle_fav(&resource_id).await?)
 }
 
 pub async fn update_last_accessed(
     resource_id: String,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), RepositoryError> {
-    repo_ctx
+) -> ServiceResult<()> {
+    Ok(repo_ctx
         .resource_repo
         .update_last_accessed(&resource_id)
-        .await
+        .await?)
 }
 
 pub async fn update_resource(
@@ -189,29 +170,30 @@ pub async fn update_resource(
     current_device_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<DecryptedResource, ResourceServiceError> {
+) -> ServiceResult<DecryptedResource> {
     let old_resource = repo_ctx
         .resource_repo
         .find_by_id(resource_id, user_id)
-        .await
-        .map_err(ResourceServiceError::RepositoryError)?;
+        .await?;
 
     let encrypted_data = {
         let crypto = crypto_utils.lock().await;
-        crypto
-            .update_resource(&data, &old_resource.encrypted_key)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+        crypto.update_resource(&data, &old_resource.encrypted_key)?
     };
+
     repo_ctx
         .resource_repo
         .update_resource(&encrypted_data, resource_id)
         .await?;
+
     repo_ctx
         .vector_clock_repo
         .increment_vector_clock(resource_id, current_device_id)
         .await?;
+
     let decrypted_resource =
         get_resource_by_id_direct(resource_id, user_id, repo_ctx, crypto_utils).await?;
+
     Ok(decrypted_resource)
 }
 
@@ -220,15 +202,15 @@ pub async fn get_resource(
     repo_ctx: Arc<RepositoryContext>,
     user_id: &str,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<(DecryptedResource, String), ResourceServiceError> {
+) -> ServiceResult<(DecryptedResource, String)> {
     // Get encrypted resource from repository
     let resource_with_key = repo_ctx
         .resource_repo
         .find_by_id(resource_id, user_id)
-        .await
-        .map_err(ResourceServiceError::RepositoryError)?;
+        .await?;
+
     let encrypted_key = resource_with_key.encrypted_key.clone();
-    // Use the helper function with a single-element vector
+    // Use the helper function
     let decrypted_resources = decrypt_single_resource(resource_with_key, crypto_utils).await?;
 
     Ok((decrypted_resources, encrypted_key))
@@ -239,12 +221,11 @@ pub async fn get_resources_for_folder(
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+) -> ServiceResult<Vec<DecryptedResource>> {
     let resources_with_keys = repo_ctx
         .resource_repo
         .find_by_folder(folder_id, &user_id)
-        .await
-        .map_err(ResourceServiceError::RepositoryError)?;
+        .await?;
 
     // Decrypt and return the resources
     decrypt_resources(resources_with_keys, crypto_utils).await
@@ -254,13 +235,9 @@ pub async fn get_all_resources(
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
     user_id: &str,
-) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+) -> ServiceResult<Vec<DecryptedResource>> {
     // Get resources with their keys
-    let resources_with_keys = repo_ctx
-        .resource_repo
-        .get_all_resources(&user_id)
-        .await
-        .map_err(ResourceServiceError::RepositoryError)?;
+    let resources_with_keys = repo_ctx.resource_repo.get_all_resources(&user_id).await?;
 
     // Decrypt and return the resources
     decrypt_resources(resources_with_keys, crypto_utils).await
@@ -269,7 +246,7 @@ pub async fn get_all_resources(
 async fn decrypt_resources(
     resources_with_keys: Vec<ResourceWithKey>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<Vec<DecryptedResource>, ResourceServiceError> {
+) -> ServiceResult<Vec<DecryptedResource>> {
     // Initialize vector to store decrypted resources
     let mut decrypted_resources = Vec::with_capacity(resources_with_keys.len());
 
@@ -278,10 +255,8 @@ async fn decrypt_resources(
 
     // Process each resource
     for rk in resources_with_keys {
-        // Decrypt the resource data using the single-resource function
-        let decrypted_data = crypto
-            .decrypt_resource(&rk.resource.data, &rk.encrypted_key)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+        // Decrypt the resource data
+        let decrypted_data = crypto.decrypt_resource(&rk.resource.data, &rk.encrypted_key)?;
 
         // Parse the JSON data
         let parsed_data: Value = serde_json::from_str(&decrypted_data)
@@ -302,6 +277,7 @@ async fn decrypt_resources(
 
     Ok(decrypted_resources)
 }
+
 pub async fn share_resource(
     recipient_user_id: &str,
     resource_id: &str,
@@ -309,12 +285,13 @@ pub async fn share_resource(
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<(), ResourceServiceError> {
-    // 1. Get the resource key for the current user (resource owner)
+) -> ServiceResult<()> {
+    // 1. Get the resource key for the current user
     let resource_key = repo_ctx
         .resource_key_repo
         .find_by_resource_and_user(resource_id, &current_user.id)
         .await?;
+
     let delegator_share_record = repo_ctx
         .share_repo
         .find_by_resource_and_operation_and_user(
@@ -322,14 +299,12 @@ pub async fn share_resource(
             &ShareOperation::Share.to_string(),
             &current_user.id,
         )
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+        .await?;
 
     let resource_owner = repo_ctx
         .resource_repo
         .find_owner_by_resource_id(resource_id)
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+        .await?;
 
     // 2. Get the recipient user to access their public key
     let recipient_user = repo_ctx
@@ -341,8 +316,7 @@ pub async fn share_resource(
     let new_encryption_key = {
         let crypto = crypto_utils.lock().await;
         crypto
-            .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_user.public_key)
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+            .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_user.public_key)?
     };
 
     // 4. Create the new resource key for the recipient
@@ -353,17 +327,14 @@ pub async fn share_resource(
         false,
     );
 
-    let encrypted_ucan_pvt_key = repo_ctx
-        .store_repo
-        .get_ucan_key()
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
+
     // 5. Create the signature for the share record
     let repo_ctx_clone = repo_ctx.clone();
     let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
+
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.lock().await;
-
         crypto
             .issue_delegated_resource_ucan(
                 &encrypted_ucan_pvt_key,
@@ -374,8 +345,7 @@ pub async fn share_resource(
                 permissions,
                 &proof_resolver,
             )
-            .await
-            .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?
+            .await?
     };
 
     // 6. Create the share record
@@ -415,17 +385,15 @@ pub async fn get_resource_state_vector(
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<String, RepositoryError> {
+) -> ServiceResult<String> {
     // 1. Get the decrypted resource
     let (decrypted_resource, _) =
-        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
-            Ok(resource) => resource,
-            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-        };
+        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
+
     let state_vectors = decrypted_resource
         .get_state_vectors()
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     Ok(state_vectors)
 }
@@ -434,7 +402,7 @@ pub async fn get_resource_ucan_key(
     resource_id: &str,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<String, ResourceServiceError> {
+) -> ServiceResult<String> {
     let delegator_share_record = repo_ctx
         .share_repo
         .find_by_resource_and_operation_and_user(
@@ -442,8 +410,8 @@ pub async fn get_resource_ucan_key(
             &ShareOperation::Share.to_string(),
             user_id,
         )
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+        .await?;
+
     Ok(delegator_share_record.ucan_token)
 }
 
@@ -454,59 +422,46 @@ pub async fn generate_updates_for_peer(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
     peer_state_vectors: &String,
-) -> Result<String, RepositoryError> {
+) -> ServiceResult<String> {
     // 1. Get the decrypted resource
-    let decrypted_resource = match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await
-    {
-        Ok((resource, _)) => resource,
-        Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-    };
-    let mut decrypted_resource = decrypted_resource;
+    let (mut decrypted_resource, _) =
+        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
+
     let updates = decrypted_resource
         .sync_updates(peer_state_vectors)
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     Ok(updates)
 }
+
 /// Apply updates from a peer and generate any updates they might need in return
-///
-/// # Arguments
-/// * `resource_id` - The ID of the resource being updated
-/// * `updates` - The updates  and state_vectors received from the peer
-///
-/// # Returns
-/// * `Result<String, RepositoryError>` - (Updates for peer, Current state vector)
 pub async fn apply_updates_and_get_peer_updates(
     resource_id: &str,
     user_id: &str,
     updates: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<String, RepositoryError> {
+) -> ServiceResult<String> {
     // 1. Get the current resource with its YJS state
-    let (decrypted_resource, encrypted_key) =
-        match get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await {
-            Ok((resource, encrypted_key)) => (resource, encrypted_key),
-            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-        };
-    let mut decrypted_resource = decrypted_resource;
+    let (mut decrypted_resource, encrypted_key) =
+        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
+
     let remote_updates = decrypted_resource
         .sync_updates(updates)
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     let encrypted_data = {
         let crypto = crypto_utils.lock().await;
-        crypto
-            .update_resource(&decrypted_resource.data.to_string(), &encrypted_key)
-            .map_err(|e| RepositoryError::CustomError(e.to_string()))?
+        crypto.update_resource(&decrypted_resource.data.to_string(), &encrypted_key)?
     };
 
     repo_ctx
         .resource_repo
         .update_resource(&encrypted_data, resource_id)
         .await?;
+
     Ok(remote_updates)
 }
 
@@ -517,22 +472,20 @@ pub async fn apply_buffer_updates_and_get_remote_updates(
     peer_state_vectors: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<String, RepositoryError> {
+) -> ServiceResult<String> {
     // 1. Get the current resource with its YJS state
-    let (decrypted_resource, _encrypted_key) =
-        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
-            Ok((resource, encrypted_key)) => (resource, encrypted_key),
-            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-        };
-    let mut decrypted_resource = decrypted_resource;
+    let (mut decrypted_resource, _encrypted_key) =
+        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
+
     let _ = decrypted_resource
         .sync_updates(updates)
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
+
     let remote_updates = decrypted_resource
         .sync_updates(peer_state_vectors)
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     Ok(remote_updates)
 }
@@ -544,23 +497,20 @@ pub async fn apply_buffer_and_peer_updates_and_get_remote_updates(
     local_updates: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<String, RepositoryError> {
+) -> ServiceResult<String> {
     // 1. Get the current resource with its YJS state
-    let (decrypted_resource, _encrypted_key) =
-        match get_resource(resource_id, repo_ctx, user_id, crypto_utils).await {
-            Ok((resource, encrypted_key)) => (resource, encrypted_key),
-            Err(e) => return Err(RepositoryError::CustomError(e.to_string())),
-        };
-    let mut decrypted_resource = decrypted_resource;
+    let (mut decrypted_resource, _encrypted_key) =
+        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
+
     let _remote_updates = decrypted_resource
         .sync_updates(local_updates)
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     let remote_updates = decrypted_resource
         .sync_updates(remote_updates)
         .await
-        .map_err(|e| RepositoryError::CustomError(e))?;
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     Ok(remote_updates)
 }
@@ -571,42 +521,43 @@ pub async fn apply_updates(
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> Result<(), String> {
-    let (decrypted_resource, encrypted_key) =
-        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils)
-            .await
-            .map_err(|e| e.to_string())?;
-    let mut decrypted_resource = decrypted_resource;
-    decrypted_resource.sync_updates(updates).await?;
+) -> ServiceResult<()> {
+    let (mut decrypted_resource, encrypted_key) =
+        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
+
+    decrypted_resource
+        .sync_updates(updates)
+        .await
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
+
     let encrypted_data = {
         let crypto = crypto_utils.lock().await;
-        crypto
-            .update_resource(&decrypted_resource.data.to_string(), &encrypted_key)
-            .map_err(|e| e.to_string())?
+        crypto.update_resource(&decrypted_resource.data.to_string(), &encrypted_key)?
     };
 
     repo_ctx
         .resource_repo
         .update_resource(&encrypted_data, resource_id)
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
+
     Ok(())
 }
 
 pub async fn get_share_records_for_resource(
     resource_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<Vec<ShareRecord>, RepositoryError> {
-    repo_ctx.share_repo.find_by_resource(resource_id).await
+) -> ServiceResult<Vec<ShareRecord>> {
+    Ok(repo_ctx.share_repo.find_by_resource(resource_id).await?)
 }
+
 pub async fn get_vector_clocks_for_resource(
     resource_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<Vec<ResourceVectorClock>, RepositoryError> {
-    repo_ctx
+) -> ServiceResult<Vec<ResourceVectorClock>> {
+    Ok(repo_ctx
         .vector_clock_repo
         .get_vector_clocks_for_resource(resource_id)
-        .await
+        .await?)
 }
 
 pub fn find_missing_resource_keys(
@@ -631,19 +582,18 @@ pub fn find_missing_resource_keys(
 pub async fn get_resource_keys_for_resource(
     resource_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<Vec<ResourceKey>, String> {
-    repo_ctx
+) -> ServiceResult<Vec<ResourceKey>> {
+    Ok(repo_ctx
         .resource_key_repo
         .find_by_resource_id(resource_id)
-        .await
-        .map_err(|e| e.to_string())
+        .await?)
 }
 
 pub async fn merge_vector_clocks(
     resource_id: &str,
     vector_clocks: &Vec<ResourceVectorClock>,
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(Vec<ResourceVectorClock>, Vec<ResourceVectorClock>), RepositoryError> {
+) -> ServiceResult<(Vec<ResourceVectorClock>, Vec<ResourceVectorClock>)> {
     info!("Merging vector clocks for resource {}", resource_id);
 
     // Get our local vector clocks for this resource
@@ -656,12 +606,12 @@ pub async fn merge_vector_clocks(
 
     // If local clocks need updating, update our database
     if merge_result.local_needs_update {
-        // Update existing vector clocks
         repo_ctx
             .vector_clock_repo
             .update_vector_clocks(&merge_result.update_local, &merge_result.add_local)
             .await?;
     }
+
     Ok((merge_result.add_remote, merge_result.update_remote))
 }
 
@@ -669,8 +619,9 @@ pub async fn merge_share_records(
     resource_id: &str,
     remote_share_records: &[ShareRecord],
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<Vec<ShareRecord>, RepositoryError> {
+) -> ServiceResult<Vec<ShareRecord>> {
     let local_share_records = repo_ctx.share_repo.find_by_resource(resource_id).await?;
+
     let local_set: HashSet<String> = local_share_records
         .iter()
         .map(|record| record.id.clone())
@@ -689,12 +640,14 @@ pub async fn merge_share_records(
         .collect();
 
     repo_ctx.share_repo.save_many(&remote_only_records).await?;
+
     // Find share records that exist in local but not in remote
     let local_only_records: Vec<ShareRecord> = local_share_records
         .iter()
         .filter(|record| !remote_set.contains(&record.id))
         .cloned()
         .collect();
+
     Ok(local_only_records)
 }
 
@@ -702,18 +655,18 @@ pub async fn update_vector_clocks(
     add_clock: &[ResourceVectorClock],
     update_clock: &[ResourceVectorClock],
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), RepositoryError> {
-    repo_ctx
+) -> ServiceResult<()> {
+    Ok(repo_ctx
         .vector_clock_repo
         .update_vector_clocks(&update_clock, &add_clock)
-        .await
+        .await?)
 }
 
 pub async fn add_share_records(
     share_records: &[ShareRecord],
     repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), RepositoryError> {
-    repo_ctx.share_repo.save_many(share_records).await
+) -> ServiceResult<()> {
+    Ok(repo_ctx.share_repo.save_many(share_records).await?)
 }
 
 pub async fn validate_authority_for_update(
@@ -722,19 +675,17 @@ pub async fn validate_authority_for_update(
     peer_user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     domain: &str,
-) -> Result<bool, ResourceServiceError> {
-    let peer_user = repo_ctx
-        .user_repo
-        .get_user_by_id(peer_user_id)
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+) -> ServiceResult<bool> {
+    let peer_user = repo_ctx.user_repo.get_user_by_id(peer_user_id).await?;
+
     let resource_owner = repo_ctx
         .resource_repo
         .find_owner_by_resource_id(resource_id)
-        .await
-        .map_err(|e| ResourceServiceError::RepositoryError(e))?;
+        .await?;
+
     let repo_ctx_clone = repo_ctx.clone();
     let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
+
     let token = crypto_utils::validate_authority_for_update(
         token,
         &peer_user.ucan_pub_key,
@@ -743,10 +694,11 @@ pub async fn validate_authority_for_update(
         domain,
         &proof_resolver,
     )
-    .await
-    .map_err(|e| ResourceServiceError::CryptoError(e.to_string()))?;
+    .await?;
+
     Ok(token)
 }
+
 async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
     repo_ctx
         .share_repo

@@ -63,6 +63,6 @@ where
 }
 
 /// Get CID from UCAN token
-pub fn get_cid_from_ucan_token(ucan_token: &str) -> Result<String, UcanError> {
-    ucan_utils::get_ucan_cid(ucan_token)
+pub fn get_cid_from_ucan_token(ucan_token: &str) -> Result<String, CryptoError> {
+    Ok(ucan_utils::get_ucan_cid(ucan_token)?)
 }
