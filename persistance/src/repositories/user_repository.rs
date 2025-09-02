@@ -26,7 +26,13 @@ impl UserRepository for SqliteUserRepository {
         diesel::insert_into(users::table)
             .values(user_model)
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to add known user '{}': {}",
+                    user.id, e
+                ))
+            })?;
+
         Ok(())
     }
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError> {
@@ -35,7 +41,9 @@ impl UserRepository for SqliteUserRepository {
         let user_models = users::table
             .filter(users::owner.eq(false))
             .load::<UserModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to get known users: {}", e))
+            })?;
 
         Ok(UserModel::to_domain_users(user_models))
     }
@@ -47,7 +55,13 @@ impl UserRepository for SqliteUserRepository {
             .filter(users::owner.eq(false))
             .filter(users::id.eq_any(user_ids))
             .load::<UserModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get {} users by IDs: {}",
+                    user_ids.len(),
+                    e
+                ))
+            })?;
 
         Ok(UserModel::to_domain_users(user_models))
     }
@@ -59,7 +73,10 @@ impl UserRepository for SqliteUserRepository {
             .first::<UserModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get user '{}': {}",
+                    user_id, e
+                )),
             })?;
         let user: User = user_model.into();
         Ok(user)
@@ -74,7 +91,10 @@ impl UserRepository for SqliteUserRepository {
             .execute(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to complete user addition for '{}': {}",
+                    user_id, e
+                )),
             })?;
         Ok(())
     }
@@ -97,7 +117,13 @@ impl UserRepository for SqliteUserRepository {
             }
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to bulk add {} users: {}",
+                users.len(),
+                e
+            ))
+        })
     }
     async fn commit_signup_transaction(
         &self,
@@ -183,8 +209,12 @@ impl UserRepository for SqliteUserRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to commit signup transaction for user '{}' device '{}': {}",
+                user.id, device.id, e
+            ))
+        })?;
         Ok(())
     }
     async fn get_other_users_with_device_ids(
@@ -198,8 +228,12 @@ impl UserRepository for SqliteUserRepository {
             .filter(users::owner.eq(false))
             .select((devices::user_id, devices::id))
             .load::<(String, String)>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get other users with device IDs: {}",
+                    e
+                ))
+            })?;
         // Group device IDs by user ID
         let mut user_device_map: HashMap<String, Vec<String>> = HashMap::new();
         for (user_id, device_id) in user_devices {
@@ -233,12 +267,22 @@ impl UserRepository for SqliteUserRepository {
         let user_models = users::table
             .filter(users::id.eq_any(user_ids))
             .load::<UserModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get {} users for device lookup: {}",
+                    user_ids.len(),
+                    e
+                ))
+            })?;
         let device_models = DeviceModel::belonging_to(&user_models)
             .load::<DeviceModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get devices for {} users: {}",
+                    user_ids.len(),
+                    e
+                ))
+            })?;
         let grouped_devices = device_models.grouped_by(&user_models);
 
         let result: Vec<UserWithDevices> = user_models
@@ -291,7 +335,13 @@ impl UserRepository for SqliteUserRepository {
             }
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to bulk add {} users with devices: {}",
+                users_with_devices.len(),
+                e
+            ))
+        })
     }
     async fn get_user_device_mapping(
         &self,
@@ -302,8 +352,9 @@ impl UserRepository for SqliteUserRepository {
             .inner_join(users::table.on(devices::user_id.eq(users::id)))
             .select((devices::user_id, devices::id))
             .load::<(String, String)>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to get user device mapping: {}", e))
+            })?;
         // Group device IDs by user ID
         let mut user_device_map: HashMap<String, Vec<String>> = HashMap::new();
         for (user_id, device_id) in user_devices {
@@ -332,7 +383,13 @@ impl UserRepository for SqliteUserRepository {
             .filter(users::id.eq_any(user_ids))
             .select((devices::user_id, devices::id))
             .load::<(String, String)>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get device IDs for {} users: {}",
+                    user_ids.len(),
+                    e
+                ))
+            })?;
 
         // Group device IDs by user ID
         let mut user_device_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -365,7 +422,10 @@ impl UserRepository for SqliteUserRepository {
             .first::<UserModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get user by device ID '{}': {}",
+                    device_id, e
+                )),
             })?;
 
         let user: User = user_model.into();
@@ -378,7 +438,10 @@ impl UserRepository for SqliteUserRepository {
             .first::<UserModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get UCAN token by CID '{}': {}",
+                    cid, e
+                )),
             })?;
         Ok(user_record_model.ucan_token)
     }

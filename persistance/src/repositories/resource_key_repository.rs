@@ -24,7 +24,12 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         diesel::insert_into(resource_keys::table)
             .values(key_model)
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to save resource key for resource '{}' and user '{}': {}",
+                    key.resource_id, key.user_id, e
+                ))
+            })?;
         Ok(())
     }
 
@@ -45,8 +50,13 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
             }
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to bulk add {} resource keys: {}",
+                keys.len(),
+                e
+            ))
+        })?;
         Ok(())
     }
     async fn find_by_resource_id(
@@ -57,8 +67,12 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         let key_models = resource_keys::table
             .filter(resource_keys::resource_id.eq(resource_id))
             .load::<ResourceKeyModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to find resource keys for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         Ok(ResourceKeyModel::to_domain_resource(key_models))
     }
 
@@ -74,7 +88,10 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
             .first::<ResourceKeyModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find resource key for resource '{}' and user '{}': {}",
+                    resource_id, user_id, e
+                )),
             })?;
 
         Ok(key_model.into())
@@ -85,7 +102,12 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         diesel::delete(resource_keys::table)
             .filter(resource_keys::resource_id.eq(resource_id))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to delete resource keys for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         Ok(())
     }
 
@@ -99,7 +121,12 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
             .filter(resource_keys::resource_id.eq(resource_id))
             .filter(resource_keys::user_id.eq(user_id))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to delete resource key for resource '{}' and user '{}': {}",
+                    resource_id, user_id, e
+                ))
+            })?;
         Ok(())
     }
 }

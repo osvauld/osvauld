@@ -38,7 +38,6 @@ impl PeerConnection {
         debug!("Successfully retrieved user for peer");
         // Service error automatically propagates
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
-        debug!("Successfully signed the UCAN public key, {:?}", peer_user);
         if !peer_user.first_sync {
             info!("Peer is a first-time connection, preparing FirstConnectRequest");
             // Service error automatically propagates

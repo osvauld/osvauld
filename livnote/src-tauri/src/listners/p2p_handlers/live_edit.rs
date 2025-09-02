@@ -44,7 +44,8 @@ impl EventManager {
     /// Handle document mismatch
     pub(crate) async fn handle_document_missmatch(&self, connection_id: String) {
         self.current_note_state
-            .add_inactive_connection(&connection_id);
+            .add_inactive_connection(&connection_id)
+            .await;
     }
 
     /// Handle document check
@@ -159,7 +160,8 @@ impl EventManager {
             }
         };
         self.current_note_state
-            .add_active_connection(connection_id.clone());
+            .add_active_connection(connection_id.clone())
+            .await;
 
         // Apply the remote updates
         self.handle_update_event(resource_id.clone(), remote_updates.clone(), client_id)
@@ -198,7 +200,8 @@ impl EventManager {
 
         // Add this connection to active sessions
         self.current_note_state
-            .add_active_connection(connection_id.clone());
+            .add_active_connection(connection_id.clone())
+            .await;
         info!(
             "Added connection {} to active sessions for resource {}",
             connection_id, resource_id
@@ -249,9 +252,11 @@ impl EventManager {
 
         // Move connection from active to inactive
         self.current_note_state
-            .remove_active_connection(&connection_id);
+            .remove_active_connection(&connection_id)
+            .await;
         self.current_note_state
-            .add_inactive_connection(&connection_id);
+            .add_inactive_connection(&connection_id)
+            .await;
 
         info!(
             "Moved connection {} from active to inactive for resource {}",

@@ -278,8 +278,6 @@ impl PeerConnection {
                     .into());
                 }
 
-                info!("State vectors {:?}", state_vectors);
-
                 // Service error automatically propagates
                 let updates = generate_updates_for_peer(
                     resource_id,

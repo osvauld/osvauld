@@ -25,7 +25,12 @@ impl ShareRepository for SqliteShareRepository {
         diesel::insert_into(share_records::table)
             .values(&share_record_model)
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to save share record for resource '{}' to user '{}': {}",
+                    share_record.resource_id, share_record.recipient_user_id, e
+                ))
+            })?;
 
         Ok(())
     }
@@ -49,7 +54,13 @@ impl ShareRepository for SqliteShareRepository {
             }
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to bulk save {} share records: {}",
+                share_records.len(),
+                e
+            ))
+        })?;
 
         Ok(())
     }
@@ -64,8 +75,12 @@ impl ShareRepository for SqliteShareRepository {
             .filter(share_records::resource_id.eq(resource_id))
             .filter(share_records::operation_type.eq(operation_type))
             .load::<ShareRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to find share records for resource '{}' with operation '{}': {}",
+                    resource_id, operation_type, e
+                ))
+            })?;
         // Convert database models to domain models
         let share_records = share_record_models
             .into_iter()
@@ -88,7 +103,10 @@ impl ShareRepository for SqliteShareRepository {
             .first::<ShareRecordModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get UCAN token for resource '{}' and user '{}': {}",
+                    resource_id, user_id, e
+                )),
             })?;
         Ok(share_record_model.ucan_token)
     }
@@ -102,8 +120,12 @@ impl ShareRepository for SqliteShareRepository {
         let share_record_models = share_records::table
             .filter(share_records::resource_id.eq(resource_id))
             .load::<ShareRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to find share records for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         // Convert database models to domain models
         let share_records = share_record_models
             .into_iter()
@@ -120,7 +142,10 @@ impl ShareRepository for SqliteShareRepository {
             .first::<ShareRecordModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find share record with id '{}': {}",
+                    id, e
+                )),
             })?;
 
         // Convert database model to domain model
@@ -136,7 +161,12 @@ impl ShareRepository for SqliteShareRepository {
         let user_share_records = share_records::table
             .filter(share_records::recipient_user_id.eq(user_id))
             .load::<ShareRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get share records for user '{}': {}",
+                    user_id, e
+                ))
+            })?;
 
         // Step 2: Extract all resource_ids from those share records
         let resource_ids: Vec<String> = user_share_records
@@ -175,7 +205,10 @@ impl ShareRepository for SqliteShareRepository {
             .first::<ShareRecordModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find share record for resource '{}', operation '{}', user '{}': {}",
+                    resource_id, operation_type, user_id, e
+                )),
             })?;
 
         Ok(share_record_model.to_domain())
@@ -187,7 +220,10 @@ impl ShareRepository for SqliteShareRepository {
             .first::<ShareRecordModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get UCAN token by CID '{}': {}",
+                    cid, e
+                )),
             })?;
         Ok(share_record_model.ucan_token)
     }

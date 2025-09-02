@@ -198,7 +198,7 @@ impl EventManager {
 
     fn setup_resource_update_complete_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-        //TODO: depretiate this func
+        //TODO: deprecate this func
         self.app_handle
             .listen("resource-update-complete", move |event| {
                 let _note_state = current_note_state.clone();
