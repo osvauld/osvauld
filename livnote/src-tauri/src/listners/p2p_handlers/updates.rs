@@ -1,5 +1,6 @@
 use crate::EventManager;
 use log::{error, info};
+use serde_json::json;
 
 /// Real-time document update and resource handlers
 impl EventManager {
@@ -131,7 +132,7 @@ impl EventManager {
     }
 
     /// Handle resource added event
-    pub(crate) async fn handle_resource_added(&self, resource_id: String) {
+    pub(crate) async fn handle_resource_added(&self, resource_id: String, username: String) {
         info!("Handling resource added event for: {}", resource_id);
 
         if let Err(e) = self
@@ -139,6 +140,13 @@ impl EventManager {
             .await
         {
             error!("Failed to emit resource added preview: {}", e);
+        }
+
+        if let Err(e) = self.emit_json(
+            "resource-added-notification",
+            json!({ "username": username, "resource_id": resource_id }),
+        ) {
+            error!("Failed to emit added notification: {}", e);
         }
     }
 }

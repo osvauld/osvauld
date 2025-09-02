@@ -101,9 +101,10 @@ impl EventManager {
                     self.handle_update_event(resource_id, updates, client_id)
                         .await
                 }
-                P2PEvent::ResourceAdded { resource_id } => {
-                    self.handle_resource_added(resource_id).await
-                }
+                P2PEvent::ResourceAdded {
+                    resource_id,
+                    username,
+                } => self.handle_resource_added(resource_id, username).await,
             }
         }
 
