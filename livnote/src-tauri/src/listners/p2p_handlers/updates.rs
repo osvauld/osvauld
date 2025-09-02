@@ -19,7 +19,7 @@ impl EventManager {
         );
 
         // Check if this is for the current document
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
+        if !EventManager::is_current_note(&self.current_note_state, &resource_id).await {
             info!(
                 "Received editing event for non-active document: {}",
                 resource_id
@@ -63,7 +63,7 @@ impl EventManager {
         );
 
         // Check if this is for the current document
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
+        if !EventManager::is_current_note(&self.current_note_state, &resource_id).await {
             info!(
                 "Received awareness event for non-active document: {}",
                 resource_id
@@ -103,7 +103,7 @@ impl EventManager {
         );
 
         // Check if we have a current note
-        if let Some(current_resource_id) = self.current_note_state.get_current_note() {
+        if let Some(current_resource_id) = self.current_note_state.get_current_note().await {
             // Emit document updates for the current note
             let payload = serde_json::json!({
                 "resource_id": current_resource_id,

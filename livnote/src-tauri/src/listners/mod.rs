@@ -72,11 +72,11 @@ impl EventManager {
     }
 
     /// Start listening for all events
-    pub fn start_listening(mut self) {
+    pub async fn start_listening(mut self) {
         // Set up Tauri event listeners
         self.setup_tauri_listeners();
 
-        self.start_reconciliation_timer();
+        self.start_reconciliation_timer().await;
         // Start P2P event listener in background
         tokio::spawn(async move {
             self.listen_for_p2p_events().await;

@@ -43,34 +43,36 @@ impl EventManager {
                 None => return,
             };
 
-            // Check if update is for current note
-            if !Self::is_current_note(&current_note_state, &payload.resource_id) {
-                info!(
-                    "Ignoring {} for non-active note: {}",
-                    description, payload.resource_id
-                );
-                return;
-            }
+            tokio::spawn(async move {
+                if !Self::is_current_note(&current_note_state, &payload.resource_id).await {
+                    info!(
+                        "Ignoring {} for non-active note: {}",
+                        description, payload.resource_id
+                    );
+                    return;
+                }
 
-            // Handle sync update buffer management if needed
-            if matches!(update_type, UpdateType::SyncUpdate) {
-                Self::apply_sync_update_to_buffer(
-                    current_note_state.clone(),
-                    payload.update_bytes.clone(),
-                    payload.doc_type.clone(),
-                    payload.resource_id.clone(),
-                    description.to_string(),
-                );
-            }
+                // Handle sync update buffer management if needed
+                if matches!(update_type, UpdateType::SyncUpdate) {
+                    Self::apply_sync_update_to_buffer(
+                        current_note_state.clone(),
+                        payload.update_bytes.clone(),
+                        payload.doc_type.clone(),
+                        payload.resource_id.clone(),
+                        description.to_string(),
+                    );
+                }
 
-            // Broadcast to active connections
-            Self::broadcast_update(
-                &p2p_sender,
-                &current_note_state,
-                &update_type,
-                payload,
-                description,
-            );
+                // Broadcast to active connections
+                Self::broadcast_update(
+                    &p2p_sender,
+                    &current_note_state,
+                    &update_type,
+                    payload,
+                    description,
+                )
+                .await;
+            });
         });
     }
 
@@ -116,8 +118,8 @@ impl EventManager {
     }
 
     /// Check if the given resource_id matches the current note
-    pub fn is_current_note(current_note_state: &CurrentNoteState, resource_id: &str) -> bool {
-        match current_note_state.get_current_note() {
+    pub async fn is_current_note(current_note_state: &CurrentNoteState, resource_id: &str) -> bool {
+        match current_note_state.get_current_note().await {
             Some(current_id) => current_id == resource_id,
             None => {
                 info!("No active note set for resource: {}", resource_id);
@@ -146,14 +148,14 @@ impl EventManager {
     }
 
     /// Broadcast updates to active P2P connections
-    fn broadcast_update(
+    async fn broadcast_update(
         p2p_sender: &P2PSender,
         current_note_state: &CurrentNoteState,
         update_type: &UpdateType,
         payload: UpdatePayload,
         description: &str,
     ) {
-        let active_connections = current_note_state.get_active_connections();
+        let active_connections = current_note_state.get_active_connections().await;
         if active_connections.is_empty() {
             info!("No active connections to broadcast {} to", description);
             return;
@@ -203,7 +205,6 @@ impl EventManager {
                 let _payload = event.payload();
             });
     }
-
     fn setup_note_change_listener(&self) {
         let current_note_state = self.current_note_state.clone();
         let app_handle = self.app_handle.clone();
@@ -222,36 +223,28 @@ impl EventManager {
             let new_note_id = Self::parse_note_id(event.payload());
             info!("Received note-change event with note_id: {:?}", new_note_id);
 
-            let previous_note_id = note_state.get_current_note();
+            // Single spawn for the entire operation to maintain proper order
+            tokio::spawn(async move {
+                let previous_note_id = note_state.get_current_note().await;
 
-            // Handle closing/switching away from the previous note
-            if let Some(prev_id) = previous_note_id {
-                Self::handle_leaving_note(&note_state, &p2p_sender, &prev_id, &new_note_id);
-            }
-
-            // Handle opening a new note
-            match new_note_id {
-                None => {
-                    // No new note, just reset state
-                    tokio::spawn(async move {
-                        note_state.set_current_note(None, None, None).await;
-                    });
+                // Handle closing/switching away from the previous note
+                if let Some(prev_id) = previous_note_id {
+                    Self::handle_leaving_note(&note_state, &p2p_sender, &prev_id, &new_note_id)
+                        .await;
                 }
-                Some(note_id) => {
-                    // Clear previous shared users
-                    note_state.clear_shared_users();
 
-                    // Clone for the async block
-                    let note_id_clone = note_id.clone();
-                    let note_state_clone = note_state.clone();
-                    let app_handle_clone = app_handle.clone();
-                    let repo_ctx_clone = repo_ctx.clone();
-                    let p2p_sender_clone = p2p_sender.clone();
+                // Handle opening a new note
+                match new_note_id {
+                    None => {
+                        // No new note, just reset state
+                        note_state.set_current_note(None, None, None).await;
+                    }
+                    Some(note_id) => {
+                        // Clear previous shared users
+                        note_state.clear_shared_users().await;
 
-                    // Load the note and set up its state
-                    tokio::spawn(async move {
                         // Get current user to load the resource
-                        let user_state = app_handle_clone.state::<UserState>();
+                        let user_state = app_handle.state::<UserState>();
                         let current_user = match user_state.get_user().await {
                             Ok(user) => user,
                             Err(e) => {
@@ -262,9 +255,9 @@ impl EventManager {
 
                         // Load the decrypted resource
                         match get_resource_by_id_direct(
-                            &note_id_clone,
+                            &note_id,
                             &current_user.id,
-                            repo_ctx_clone.clone(),
+                            repo_ctx.clone(),
                             &crypto_utils,
                         )
                         .await
@@ -277,37 +270,33 @@ impl EventManager {
                                     decrypted_resource.get_document_state("image_state");
 
                                 // Set the current note with its document states
-                                note_state_clone
+                                note_state
                                     .set_current_note(
-                                        Some(note_id_clone.clone()),
+                                        Some(note_id.clone()),
                                         main_doc_state,
                                         image_state,
                                     )
                                     .await;
 
-                                info!("Loaded document states for note: {}", note_id_clone);
+                                info!("Loaded document states for note: {}", note_id);
                             }
                             Err(e) => {
-                                error!("Failed to load resource {}: {}", note_id_clone, e);
+                                error!("Failed to load resource {}: {}", note_id, e);
                                 // Still set the note ID even if loading failed
-                                note_state_clone
-                                    .set_current_note(Some(note_id_clone.clone()), None, None)
+                                note_state
+                                    .set_current_note(Some(note_id.clone()), None, None)
                                     .await;
                             }
                         }
 
                         // Set up shared users after loading the note
                         Self::setup_shared_users_for_note(
-                            note_state_clone,
-                            note_id_clone,
-                            app_handle_clone,
-                            repo_ctx_clone,
-                            p2p_sender_clone,
+                            note_state, note_id, app_handle, repo_ctx, p2p_sender,
                         )
                         .await;
-                    });
+                    }
                 }
-            }
+            });
         });
     }
     /// Parse note ID from event payload
@@ -323,14 +312,14 @@ impl EventManager {
     }
 
     /// Handle leaving the current note (closing or switching)
-    fn handle_leaving_note(
+    async fn handle_leaving_note(
         note_state: &crate::current_note_state::CurrentNoteState,
         p2p_sender: &network::p2p::incoming::P2PSender,
         previous_note_id: &str,
         new_note_id: &Option<String>,
     ) {
         // Notify inactive connections about state vectors
-        Self::notify_inactive_connections(note_state, p2p_sender, previous_note_id);
+        Self::notify_inactive_connections(note_state, p2p_sender, previous_note_id).await;
 
         // Check if we're actually switching to a different note
         let is_switching = match new_note_id {
@@ -348,11 +337,12 @@ impl EventManager {
         );
 
         // Notify active connections about document change
-        Self::notify_active_connections_document_changed(note_state, p2p_sender, previous_note_id);
+        Self::notify_active_connections_document_changed(note_state, p2p_sender, previous_note_id)
+            .await;
 
         // Clear all connections
-        note_state.clear_active_connections();
-        note_state.clear_inactive_connections();
+        note_state.clear_active_connections().await;
+        note_state.clear_inactive_connections().await;
         info!(
             "Cleared all connections for previous note: {}",
             previous_note_id
@@ -360,12 +350,12 @@ impl EventManager {
     }
 
     /// Notify inactive connections about state vectors
-    fn notify_inactive_connections(
+    async fn notify_inactive_connections(
         note_state: &CurrentNoteState,
         p2p_sender: &P2PSender,
         note_id: &str,
     ) {
-        let inactive_connections = note_state.get_inactive_connections();
+        let inactive_connections = note_state.get_inactive_connections().await;
         if inactive_connections.is_empty() {
             return;
         }
@@ -387,12 +377,12 @@ impl EventManager {
     }
 
     /// Notify active connections that the document has changed
-    fn notify_active_connections_document_changed(
+    async fn notify_active_connections_document_changed(
         note_state: &CurrentNoteState,
         p2p_sender: &P2PSender,
         previous_note_id: &str,
     ) {
-        let active_connections = note_state.get_active_connections();
+        let active_connections = note_state.get_active_connections().await;
         if active_connections.is_empty() {
             return;
         }
@@ -469,7 +459,7 @@ impl EventManager {
                 let _ = app_handle.emit("shared-users-update", shared_users);
 
                 // Update the note state with shared devices
-                note_state.set_shared_users(shared_devices);
+                note_state.set_shared_users(shared_devices).await;
             }
             Err(e) => {
                 error!("Failed to get shared users for note {}: {}", note_id, e);
