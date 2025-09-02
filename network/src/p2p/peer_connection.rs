@@ -1,4 +1,7 @@
-use crate::p2p::emitter::{P2PEvent, P2PEventEmitter};
+use crate::p2p::{
+    emitter::{P2PEvent, P2PEventEmitter},
+    errors::{MessageError, P2PError, P2PResult, SyncError},
+};
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
@@ -63,10 +66,8 @@ impl PeerConnection {
     ) -> Self {
         info!("Creating new peer connection");
 
-        // Create a placeholder task handle that will be replaced
         let task_handle = tokio::spawn(async {});
 
-        // Create the PeerConnection instance with all optional fields
         let mut peer_connection = Self {
             connection,
             connection_type: Arc::new(RwLock::new(connection_type)),
@@ -100,6 +101,7 @@ impl PeerConnection {
     pub fn get_id(&self) -> String {
         self.node_id.clone()
     }
+
     pub async fn set_device_manifest_comparison_result(
         &self,
         result: DeviceManifestComparisonResult,
@@ -107,35 +109,40 @@ impl PeerConnection {
         let mut manifest_guard = self.device_manifest_result.lock().await;
         *manifest_guard = Some(result);
     }
+
     pub async fn set_user_manifest_comparison_result(&self, result: UserManifestComparisonResult) {
         let mut manifest_guard = self.user_manifest_result.lock().await;
         *manifest_guard = Some(result);
     }
+
     #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
-    pub async fn get_device_manifest_result(
-        &self,
-    ) -> Result<DeviceManifestComparisonResult, String> {
+    pub async fn get_device_manifest_result(&self) -> P2PResult<DeviceManifestComparisonResult> {
         let manifest_guard = self.device_manifest_result.lock().await;
-        match manifest_guard.clone() {
-            Some(manifest) => Ok(manifest),
-            None => Err("Device manifest is empty".to_string()),
-        }
+        manifest_guard.clone().ok_or_else(|| {
+            P2PError::Sync(SyncError::ManifestNotFound {
+                entity_type: "device".to_string(),
+            })
+        })
     }
 
     #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
-    pub async fn get_user_manifest_result(&self) -> Result<UserManifestComparisonResult, String> {
+    pub async fn get_user_manifest_result(&self) -> P2PResult<UserManifestComparisonResult> {
         let manifest_guard = self.user_manifest_result.lock().await;
-        match manifest_guard.clone() {
-            Some(manifest) => Ok(manifest),
-            None => Err("user manifest is empty".to_string()),
-        }
+        manifest_guard.clone().ok_or_else(|| {
+            P2PError::Sync(SyncError::ManifestNotFound {
+                entity_type: "user".to_string(),
+            })
+        })
     }
+
     pub async fn get_peer_device(&self) -> Device {
         self.device.read().await.clone()
     }
+
     pub async fn get_peer_user(&self) -> User {
         self.user.read().await.clone()
     }
+
     pub async fn set_peer_user_and_device(&self, new_user: User, new_device: Device) {
         let mut user_guard = self.user.write().await;
         let mut device_guard = self.device.write().await;
@@ -150,11 +157,9 @@ impl PeerConnection {
 
     pub async fn get_connection_type(&self) -> ConnectionType {
         let conn_type = self.connection_type.read().await.clone();
-        match conn_type {
-            Some(conn) => conn,
-            None => ConnectionType::User,
-        }
+        conn_type.unwrap_or(ConnectionType::User)
     }
+
     /// Removes a resource from local_missing.unknown_resources in device manifest
     #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
     pub async fn remove_device_local_missing_resource(&self, resource_id: &str) -> bool {
@@ -208,16 +213,13 @@ impl PeerConnection {
         }
     }
 
-    // Add method to close the connection
     #[instrument(skip(self), level = "info")]
-    pub async fn close_connection(&self) -> Result<(), String> {
+    pub async fn close_connection(&self) -> P2PResult<()> {
         info!("Closing connection: {}", self.get_id());
 
-        // Close the Iroh connection
         self.connection
             .close(VarInt::from_u32(0), b"Connection closed normally");
 
-        // Call the closure callback if set
         let connection_id = self.get_id();
         let on_close_guard = self.on_close.lock().await;
         if let Some(callback) = &*on_close_guard {
@@ -234,7 +236,6 @@ impl PeerConnection {
 
     /// Starts the message handler task
     fn start_message_handler(&self) -> tokio::task::JoinHandle<()> {
-        let _connection = self.connection.clone();
         let self_clone = self.clone();
         let conn_id = self.get_id();
         tokio::spawn(async move {
@@ -255,18 +256,15 @@ impl PeerConnection {
                 Ok((_send, mut recv)) => {
                     debug!("Accepted new bi-directional stream");
 
-                    // Use a dynamic buffer that can grow as needed
                     let mut buffer = Vec::new();
-                    let mut temp_buffer = vec![0u8; 8192]; // Larger temp buffer for reading chunks
+                    let mut temp_buffer = vec![0u8; 8192];
 
-                    // Read the entire message
                     loop {
                         match recv.read(&mut temp_buffer).await {
                             Ok(Some(n)) if n > 0 => {
                                 trace!("Read {} bytes from stream", n);
                                 buffer.extend_from_slice(&temp_buffer[..n]);
 
-                                // Try to parse what we have so far
                                 if let Ok(message_str) = String::from_utf8(buffer.clone()) {
                                     match serde_json::from_str::<Message>(&message_str) {
                                         Ok(mut message) => {
@@ -275,11 +273,9 @@ impl PeerConnection {
                                                 message
                                             );
 
-                                            // Process the message in a separate span
                                             let process_span = info_span!("process_message", 
                                                 message_type = ?std::mem::discriminant(&message));
 
-                                            // Process the message
                                             if let Err(e) = self
                                                 .process_message(&mut message)
                                                 .instrument(process_span)
@@ -287,7 +283,6 @@ impl PeerConnection {
                                             {
                                                 error!("Error processing message: {}", e);
 
-                                                // Emit error event
                                                 self.event_emitter.emit(P2PEvent::Error {
                                                     message: format!(
                                                         "Error processing message: {}",
@@ -300,35 +295,29 @@ impl PeerConnection {
                                             break;
                                         }
                                         Err(e) if e.is_eof() => {
-                                            // Need more data, continue reading
                                             trace!("Message incomplete, need more data");
                                             continue;
                                         }
                                         Err(e) => {
                                             error!("Failed to deserialize message: {}", e);
+                                            buffer.clear();
                                             break;
                                         }
                                     }
                                 }
                             }
-                            Ok(Some(_)) => continue, // Got some data, but need more
+                            Ok(Some(_)) => continue,
                             Ok(None) => {
                                 info!("Connection closed by peer");
-
-                                // Emit disconnection event
                                 self.event_emitter.emit(P2PEvent::Disconnected);
-
                                 return;
                             }
                             Err(e) => {
                                 error!("Error reading from connection: {}", e);
-
-                                // Emit error event
                                 self.event_emitter.emit(P2PEvent::Error {
                                     message: format!("Error reading from connection: {}", e),
                                     source: "message_handler".to_string(),
                                 });
-
                                 return;
                             }
                         }
@@ -336,13 +325,10 @@ impl PeerConnection {
                 }
                 Err(e) => {
                     error!("Failed to accept bi-directional stream: {}", e);
-
-                    // Emit error event
                     self.event_emitter.emit(P2PEvent::Error {
                         message: format!("Failed to accept bi-directional stream: {}", e),
                         source: "message_handler".to_string(),
                     });
-
                     break;
                 }
             }
@@ -353,7 +339,7 @@ impl PeerConnection {
 
     /// Process a received message by delegating to the appropriate handler
     #[instrument(skip_all, level = "info")]
-    async fn process_message(&self, message: &mut Message) -> Result<(), String> {
+    async fn process_message(&self, message: &mut Message) -> P2PResult<()> {
         match message {
             Message::Ping => {
                 debug!("Received ping");
@@ -396,32 +382,24 @@ impl PeerConnection {
 
     /// Sends a message to the peer
     #[instrument(skip(self, message), fields(message_type = ?std::mem::discriminant(&message)), level = "debug")]
-    pub async fn send_message(&self, message: Message) -> Result<(), String> {
+    pub async fn send_message(&self, message: Message) -> P2PResult<()> {
         debug!("sending message {:?}", message);
 
-        let serialized_message = match serde_json::to_string(&message) {
-            Ok(msg) => {
-                trace!("Serialized message to {} bytes", msg.len());
-                msg
-            }
-            Err(e) => {
-                error!("Failed to serialize message: {}", e);
-                return Err(format!("Failed to serialize message: {}", e));
-            }
-        };
+        let serialized_message = serde_json::to_string(&message)
+            .map_err(|e| P2PError::Message(MessageError::SerializationFailed(e)))?;
 
-        let (mut send, _) = match self.connection.open_bi().await {
-            Ok(stream) => stream,
-            Err(e) => {
-                error!("Failed to open bi-directional stream: {}", e);
-                return Err(format!("Failed to open bi-directional stream: {}", e));
-            }
-        };
+        trace!("Serialized message to {} bytes", serialized_message.len());
+
+        let (mut send, _) = self
+            .connection
+            .open_bi()
+            .await
+            .map_err(|e| P2PError::Message(MessageError::StreamError(e.to_string())))?;
 
         // Write the message in chunks to handle large payloads
         const CHUNK_SIZE: usize = 8192;
         let bytes = serialized_message.as_bytes();
-        let total_chunks = (bytes.len() + CHUNK_SIZE - 1) / CHUNK_SIZE; // Ceiling division
+        let total_chunks = (bytes.len() + CHUNK_SIZE - 1) / CHUNK_SIZE;
 
         debug!("Sending message in {} chunks", total_chunks);
         for (i, chunk) in bytes.chunks(CHUNK_SIZE).enumerate() {
@@ -431,16 +409,18 @@ impl PeerConnection {
                 total_chunks,
                 chunk.len()
             );
-            if let Err(e) = send.write_all(chunk).await {
-                error!("Failed to write chunk {}: {}", i + 1, e);
-                return Err(format!("Failed to write chunk: {}", e));
-            }
+            send.write_all(chunk).await.map_err(|e| {
+                P2PError::Message(MessageError::SendFailed {
+                    reason: format!("Failed to write chunk {}: {}", i + 1, e),
+                })
+            })?;
         }
 
-        if let Err(e) = send.finish() {
-            error!("Failed to finish sending: {}", e);
-            return Err(format!("Failed to finish sending: {}", e));
-        }
+        send.finish().map_err(|e| {
+            P2PError::Message(MessageError::SendFailed {
+                reason: format!("Failed to finish sending: {}", e),
+            })
+        })?;
 
         info!("Message sent successfully");
         Ok(())
@@ -471,12 +451,12 @@ impl PeerConnection {
             domain: self.domain.clone(),
         }
     }
-    pub async fn get_local_user(&self) -> Result<User, String> {
+
+    pub async fn get_local_user(&self) -> P2PResult<User> {
         let user_guard = self.context.current_user.read().await;
-        match user_guard.clone() {
-            Some(user) => Ok(user),
-            None => Err("No user is currently logged in".to_string()),
-        }
+        user_guard
+            .clone()
+            .ok_or_else(|| P2PError::InvalidState("No user is currently logged in".to_string()))
     }
 
     pub async fn get_local_device(&self) -> Option<Device> {

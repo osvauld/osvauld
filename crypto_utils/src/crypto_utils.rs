@@ -1,5 +1,5 @@
 use crate::crypto_core;
-use crate::errors::{CryptoError, CryptoUtilsError, PgpError, UcanError};
+use crate::errors::{CryptoError, CryptoUtilsError, UcanError};
 use crate::key_management::{encrypt_string_with_public_key, get_key_id};
 use crate::signature_utils;
 use crate::types::EncryptedResource;
@@ -54,7 +54,7 @@ impl CryptoUtils {
     }
 
     /// Sign a message using the loaded certificate
-    pub fn sign_message(&self, message: &str) -> Result<String, CryptoUtilsError> {
+    pub fn sign_message(&self, message: &str) -> Result<String, CryptoError> {
         let cert = self.get_cert()?;
 
         let keypair = crypto_core::get_signing_keypair(cert)
@@ -73,9 +73,7 @@ impl CryptoUtils {
 
         let hash_base64 = general_purpose::STANDARD.encode(&hash_text);
 
-        let signature = self
-            .sign_message(&hash_base64)
-            .map_err(|e| CryptoError::CryptoUtilsError(e))?;
+        let signature = self.sign_message(&hash_base64)?;
 
         Ok(signature)
     }

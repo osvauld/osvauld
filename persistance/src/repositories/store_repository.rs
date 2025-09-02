@@ -61,8 +61,12 @@ impl StoreRepository for SqliteStoreRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to store certificate with keys '{}' and '{}': {}",
+                certificate_key, salt_key, e
+            ))
+        })?;
         Ok(())
     }
 
@@ -80,7 +84,10 @@ impl StoreRepository for SqliteStoreRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get certificate private key '{}': {}",
+                    certificate_key, e
+                )),
             })?;
 
         // Get the salt
@@ -90,7 +97,10 @@ impl StoreRepository for SqliteStoreRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get certificate salt '{}': {}",
+                    salt_key, e
+                )),
             })?;
 
         Ok(Certificate {
@@ -108,8 +118,9 @@ impl StoreRepository for SqliteStoreRepository {
             .filter(store_items::key.eq("primary_key"))
             .count()
             .get_result(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to check signup status: {}", e))
+            })?;
         Ok(count > 0)
     }
 
@@ -130,8 +141,9 @@ impl StoreRepository for SqliteStoreRepository {
                 store_items::updated_at.eq(now),
             ))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to store device key: {}", e))
+            })?;
         Ok(())
     }
     async fn add_index_key(&self, index_key: &str) -> Result<(), RepositoryError> {
@@ -151,8 +163,9 @@ impl StoreRepository for SqliteStoreRepository {
                 store_items::updated_at.eq(now),
             ))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to store index key: {}", e))
+            })?;
         Ok(())
     }
 
@@ -165,7 +178,7 @@ impl StoreRepository for SqliteStoreRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!("Failed to get index key: {}", e)),
             })?;
 
         Ok(index_key)
@@ -180,7 +193,7 @@ impl StoreRepository for SqliteStoreRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!("Failed to get device key: {}", e)),
             })?;
 
         Ok(device_key)
@@ -195,7 +208,7 @@ impl StoreRepository for SqliteStoreRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!("Failed to get node key: {}", e)),
             })?;
 
         Ok(device_key)
@@ -210,7 +223,7 @@ impl StoreRepository for SqliteStoreRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!("Failed to get UCAN key: {}", e)),
             })?;
 
         Ok(ucan_key)

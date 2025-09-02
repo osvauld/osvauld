@@ -126,7 +126,7 @@ pub fn run() {
                         crypto_utils.clone(),
                     );
                     rt.spawn(async move {
-                        event_manager.start_listening();
+                        event_manager.start_listening().await;
                     });
                     app.manage(user_state);
                     app.manage(crypto_utils);

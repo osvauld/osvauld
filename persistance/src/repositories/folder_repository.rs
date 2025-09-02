@@ -26,7 +26,12 @@ impl FolderRepository for SqliteFolderRepository {
         diesel::insert_into(folders::table)
             .values(&folder_model)
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to save folder '{}' with id '{}': {}",
+                    folder.name, folder.id, e
+                ))
+            })?;
 
         Ok(())
     }
@@ -37,8 +42,9 @@ impl FolderRepository for SqliteFolderRepository {
         let folder_models = folders::table
             .filter(folders::deleted.eq(false))
             .load::<FolderModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to retrieve all folders: {}", e))
+            })?;
         Ok(folder_models.into_iter().map(Into::into).collect())
     }
 
@@ -50,7 +56,10 @@ impl FolderRepository for SqliteFolderRepository {
             .first::<FolderModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find folder with id '{}': {}",
+                    id, e
+                )),
             })?;
 
         Ok(folder_model.into())
@@ -84,8 +93,12 @@ impl FolderRepository for SqliteFolderRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to soft delete resources in folder '{}': {}",
+                folder_id, e
+            ))
+        })?;
         Ok(())
     }
     async fn get_default_folder(&self) -> Result<Folder, RepositoryError> {
@@ -97,7 +110,7 @@ impl FolderRepository for SqliteFolderRepository {
             .first::<FolderModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!("Failed to get default folder: {}", e)),
             })?;
 
         Ok(folder_model.into())
@@ -116,8 +129,13 @@ impl FolderRepository for SqliteFolderRepository {
             .filter(folders::id.eq_any(folder_ids))
             .filter(folders::deleted.eq(false))
             .load::<FolderModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get {} folders by IDs: {}",
+                    folder_ids.len(),
+                    e
+                ))
+            })?;
         Ok(folder_models.into_iter().map(Into::into).collect())
     }
     async fn add_folders_bulk(&self, folders: &[Folder]) -> Result<(), RepositoryError> {
@@ -138,6 +156,12 @@ impl FolderRepository for SqliteFolderRepository {
             }
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to bulk add {} folders: {}",
+                folders.len(),
+                e
+            ))
+        })
     }
 }

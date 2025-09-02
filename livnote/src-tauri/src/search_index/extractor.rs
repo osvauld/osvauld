@@ -1,7 +1,7 @@
 // search_index/extractor.rs
 
 use super::search_types::{IndexError, IndexResult};
-use log::{debug, warn};
+use log::debug;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use serde_json::Value;
@@ -82,7 +82,7 @@ impl ContentExtractor {
         let txn = ydoc.transact();
 
         // Iterate through comments
-        for (key, value) in comments_map.iter(&txn) {
+        for (_key, value) in comments_map.iter(&txn) {
             // Try to extract text from comment value
             if let yrs::Out::Any(any) = value {
                 if let Ok(comment_str) = serde_json::to_string(&any) {

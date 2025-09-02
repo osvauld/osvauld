@@ -1,7 +1,8 @@
 use log::{error, info};
-use osvauld_core::models::document::{YjsDocExt, create_doc};
+use osvauld_core::models::document::YjsDocExt;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use yrs::Doc;
 
 #[derive(Debug, Clone)]
@@ -72,7 +73,7 @@ impl CurrentNoteState {
         }
 
         // Update buffers with new documents
-        let mut buffers = self.0.lock().unwrap();
+        let mut buffers = self.0.lock().await;
         buffers.note_id = note_id.clone();
         buffers.main_doc = new_main_doc;
         buffers.image_doc = new_image_doc;
@@ -80,14 +81,14 @@ impl CurrentNoteState {
         info!("Current note set to: {:?}", note_id);
     }
 
-    pub fn reset_to_default(&self) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn reset_to_default(&self) {
+        let mut buffers = self.0.lock().await;
         *buffers = Buffers::default();
         info!("Reset note state to default - cleared all data");
     }
 
-    pub fn get_current_note(&self) -> Option<String> {
-        let buffers = self.0.lock().unwrap();
+    pub async fn get_current_note(&self) -> Option<String> {
+        let buffers = self.0.lock().await;
         buffers.note_id.clone()
     }
 
@@ -106,7 +107,7 @@ impl CurrentNoteState {
 
         // Clone and apply updates outside the lock
         let mut temp_doc = {
-            let buffers = self.0.lock().unwrap();
+            let buffers = self.0.lock().await;
             if is_image_doc {
                 buffers.image_doc.clone()
             } else {
@@ -122,7 +123,7 @@ impl CurrentNoteState {
 
         // Quick swap with minimal lock time
         {
-            let mut buffers = self.0.lock().unwrap();
+            let mut buffers = self.0.lock().await;
             if is_image_doc {
                 buffers.image_doc = temp_doc;
             } else {
@@ -148,7 +149,7 @@ impl CurrentNoteState {
     // Simplified get_state_vectors
     pub async fn get_state_vectors(&self) -> Result<String, String> {
         let (main_doc, image_doc) = {
-            let buffers = self.0.lock().unwrap();
+            let buffers = self.0.lock().await;
             (buffers.main_doc.clone(), buffers.image_doc.clone())
         };
 
@@ -238,7 +239,7 @@ impl CurrentNoteState {
                 .map_err(|e| format!("Failed to parse peer state vectors: {}", e))?;
 
         let (main_doc, image_doc) = {
-            let buffers = self.0.lock().unwrap();
+            let buffers = self.0.lock().await;
             (buffers.main_doc.clone(), buffers.image_doc.clone())
         };
 
@@ -320,7 +321,7 @@ impl CurrentNoteState {
 
         // Process main_doc
         let main_doc = {
-            let buffers = self.0.lock().unwrap();
+            let buffers = self.0.lock().await;
             buffers.main_doc.clone()
         };
 
@@ -332,13 +333,13 @@ impl CurrentNoteState {
         )
         .await?
         {
-            let mut buffers = self.0.lock().unwrap();
+            let mut buffers = self.0.lock().await;
             buffers.main_doc = updated_doc;
         }
 
         // Process image_doc
         let image_doc = {
-            let buffers = self.0.lock().unwrap();
+            let buffers = self.0.lock().await;
             buffers.image_doc.clone()
         };
 
@@ -350,7 +351,7 @@ impl CurrentNoteState {
         )
         .await?
         {
-            let mut buffers = self.0.lock().unwrap();
+            let mut buffers = self.0.lock().await;
             buffers.image_doc = updated_doc;
         }
 
@@ -369,7 +370,7 @@ impl CurrentNoteState {
 
             if !peer_updates.is_empty() {
                 let mut main_doc = {
-                    let buffers = self.0.lock().unwrap();
+                    let buffers = self.0.lock().await;
                     buffers.main_doc.clone()
                 };
 
@@ -379,7 +380,7 @@ impl CurrentNoteState {
                     .map_err(|e| format!("Failed to apply main_doc updates: {}", e))?;
 
                 // Update the stored doc
-                let mut buffers = self.0.lock().unwrap();
+                let mut buffers = self.0.lock().await;
                 buffers.main_doc = main_doc;
             }
         }
@@ -390,7 +391,7 @@ impl CurrentNoteState {
 
             if !peer_updates.is_empty() {
                 let mut image_doc = {
-                    let buffers = self.0.lock().unwrap();
+                    let buffers = self.0.lock().await;
                     buffers.image_doc.clone()
                 };
 
@@ -400,7 +401,7 @@ impl CurrentNoteState {
                     .map_err(|e| format!("Failed to apply image_state updates: {}", e))?;
 
                 // Update the stored doc
-                let mut buffers = self.0.lock().unwrap();
+                let mut buffers = self.0.lock().await;
                 buffers.image_doc = image_doc;
             }
         }
@@ -408,67 +409,67 @@ impl CurrentNoteState {
         Ok(())
     }
     // Connection management methods remain the same
-    pub fn set_shared_users(&self, users: Vec<String>) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn set_shared_users(&self, users: Vec<String>) {
+        let mut buffers = self.0.lock().await;
         buffers.shared_users = users.clone();
         info!("Set shared users: {:?}", users);
     }
 
-    pub fn get_shared_users(&self) -> Vec<String> {
-        let buffers = self.0.lock().unwrap();
+    pub async fn get_shared_users(&self) -> Vec<String> {
+        let buffers = self.0.lock().await;
         buffers.shared_users.clone()
     }
 
-    pub fn clear_shared_users(&self) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn clear_shared_users(&self) {
+        let mut buffers = self.0.lock().await;
         buffers.shared_users.clear();
         info!("Cleared shared users for note");
     }
 
-    pub fn add_active_connection(&self, connection_id: String) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn add_active_connection(&self, connection_id: String) {
+        let mut buffers = self.0.lock().await;
         buffers.active_connections.insert(connection_id.clone());
         info!("Added active connection: {}", connection_id);
     }
 
-    pub fn get_active_connections(&self) -> Vec<String> {
-        let buffers = self.0.lock().unwrap();
+    pub async fn get_active_connections(&self) -> Vec<String> {
+        let buffers = self.0.lock().await;
         buffers.active_connections.iter().cloned().collect()
     }
 
-    pub fn get_inactive_connections(&self) -> Vec<String> {
-        let buffers = self.0.lock().unwrap();
+    pub async fn get_inactive_connections(&self) -> Vec<String> {
+        let buffers = self.0.lock().await;
         buffers.inactive_connections.iter().cloned().collect()
     }
 
-    pub fn is_connection_active(&self, connection_id: &str) -> bool {
-        let buffers = self.0.lock().unwrap();
+    pub async fn is_connection_active(&self, connection_id: &str) -> bool {
+        let buffers = self.0.lock().await;
         buffers.active_connections.contains(connection_id)
     }
 
-    pub fn remove_active_connection(&self, connection_id: &str) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn remove_active_connection(&self, connection_id: &str) {
+        let mut buffers = self.0.lock().await;
         if buffers.active_connections.remove(connection_id) {
             info!("Removed active connection: {}", connection_id);
         }
     }
 
-    pub fn add_inactive_connection(&self, connection_id: &str) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn add_inactive_connection(&self, connection_id: &str) {
+        let mut buffers = self.0.lock().await;
         buffers
             .inactive_connections
             .insert(connection_id.to_string());
         info!("Added inactive connection: {}", connection_id);
     }
 
-    pub fn clear_active_connections(&self) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn clear_active_connections(&self) {
+        let mut buffers = self.0.lock().await;
         buffers.active_connections.clear();
         info!("Cleared all active connections");
     }
 
-    pub fn clear_inactive_connections(&self) {
-        let mut buffers = self.0.lock().unwrap();
+    pub async fn clear_inactive_connections(&self) {
+        let mut buffers = self.0.lock().await;
         buffers.inactive_connections.clear();
         info!("Cleared all inactive connections");
     }

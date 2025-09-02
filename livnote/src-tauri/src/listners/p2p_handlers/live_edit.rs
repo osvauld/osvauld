@@ -11,7 +11,7 @@ impl EventManager {
         info!("Live edit connection established with: {}", connection_id);
 
         let current_note_state = self.current_note_state.clone();
-        let resource_id = match current_note_state.get_current_note() {
+        let resource_id = match current_note_state.get_current_note().await {
             Some(id) => id,
             None => {
                 warn!("Cannot initiate live editing - no current note selected");
@@ -44,7 +44,8 @@ impl EventManager {
     /// Handle document mismatch
     pub(crate) async fn handle_document_missmatch(&self, connection_id: String) {
         self.current_note_state
-            .add_inactive_connection(&connection_id);
+            .add_inactive_connection(&connection_id)
+            .await;
     }
 
     /// Handle document check
@@ -52,7 +53,7 @@ impl EventManager {
         info!("Received document check for resource: {}", resource_id);
 
         // Check if we're currently editing this resource
-        let is_match = EventManager::is_current_note(&self.current_note_state, &resource_id);
+        let is_match = EventManager::is_current_note(&self.current_note_state, &resource_id).await;
         let mut state_vectors = String::new();
         if is_match {
             state_vectors = match self.current_note_state.get_state_vectors().await {
@@ -101,7 +102,7 @@ impl EventManager {
         info!("Received update request for resource: {}", resource_id);
 
         // Verify this is the document we're currently editing
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
+        if !EventManager::is_current_note(&self.current_note_state, &resource_id).await {
             error!(
                 "Resource ID mismatch in update request: got {}",
                 resource_id
@@ -143,7 +144,7 @@ impl EventManager {
     ) {
         info!("Processing document update for resource: {}", resource_id);
 
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
+        if !EventManager::is_current_note(&self.current_note_state, &resource_id).await {
             return;
         }
 
@@ -159,7 +160,8 @@ impl EventManager {
             }
         };
         self.current_note_state
-            .add_active_connection(connection_id.clone());
+            .add_active_connection(connection_id.clone())
+            .await;
 
         // Apply the remote updates
         self.handle_update_event(resource_id.clone(), remote_updates.clone(), client_id)
@@ -187,7 +189,7 @@ impl EventManager {
         );
 
         // Verify this is the document we're currently editing
-        if !EventManager::is_current_note(&self.current_note_state, &resource_id) {
+        if !EventManager::is_current_note(&self.current_note_state, &resource_id).await {
             warn!(
                 "Received update response for non-active document: {}",
                 resource_id
@@ -198,7 +200,8 @@ impl EventManager {
 
         // Add this connection to active sessions
         self.current_note_state
-            .add_active_connection(connection_id.clone());
+            .add_active_connection(connection_id.clone())
+            .await;
         info!(
             "Added connection {} to active sessions for resource {}",
             connection_id, resource_id
@@ -233,7 +236,7 @@ impl EventManager {
         );
 
         // Verify resource ID consistency
-        if let Some(current_resource_id) = self.current_note_state.get_current_note() {
+        if let Some(current_resource_id) = self.current_note_state.get_current_note().await {
             if current_resource_id != resource_id {
                 warn!(
                     "Resource ID mismatch in document changed event: expected {}, got {}",
@@ -249,9 +252,11 @@ impl EventManager {
 
         // Move connection from active to inactive
         self.current_note_state
-            .remove_active_connection(&connection_id);
+            .remove_active_connection(&connection_id)
+            .await;
         self.current_note_state
-            .add_inactive_connection(&connection_id);
+            .add_inactive_connection(&connection_id)
+            .await;
 
         info!(
             "Moved connection {} from active to inactive for resource {}",
@@ -268,7 +273,7 @@ impl EventManager {
         );
     }
 
-    pub fn start_reconciliation_timer(&self) {
+    pub async fn start_reconciliation_timer(&self) {
         let current_note_state = self.current_note_state.clone();
         let p2p_sender = self.p2p_sender.clone();
 
@@ -289,8 +294,8 @@ impl EventManager {
                 interval_timer.tick().await;
 
                 // Only reconcile if we have an active note
-                if let Some(resource_id) = current_note_state.get_current_note() {
-                    let active_connections = current_note_state.get_active_connections();
+                if let Some(resource_id) = current_note_state.get_current_note().await {
+                    let active_connections = current_note_state.get_active_connections().await;
 
                     if !active_connections.is_empty() {
                         info!(

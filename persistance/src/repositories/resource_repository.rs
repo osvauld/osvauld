@@ -62,8 +62,14 @@ impl SqliteResourceRepository {
             .select((ResourceModel::as_select(), resource_keys::encrypted_key))
             .order_by(resources::last_accessed.desc())
             .load::<(ResourceModel, String)>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to query resources with keys for user '{}' folder '{}': {}",
+                    user_id,
+                    folder_id.unwrap_or("all"),
+                    e
+                ))
+            })?;
         // Convert to domain objects
         let resources_with_keys = results
             .into_iter()
@@ -85,7 +91,12 @@ impl ResourceRepository for SqliteResourceRepository {
         diesel::insert_into(resources::table)
             .values(resource_model)
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to save resource '{}' in folder '{}': {}",
+                    resource.id, resource.folder_id, e
+                ))
+            })?;
         Ok(())
     }
 
@@ -94,7 +105,9 @@ impl ResourceRepository for SqliteResourceRepository {
         diesel::delete(resources::table)
             .filter(resources::id.eq(id))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to delete resource '{}': {}", id, e))
+            })?;
         Ok(())
     }
 
@@ -112,8 +125,12 @@ impl ResourceRepository for SqliteResourceRepository {
                 resources::updated_at.eq(now),
             ))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to soft delete resource '{}': {}",
+                    id, e
+                ))
+            })?;
         Ok(())
     }
 
@@ -128,9 +145,11 @@ impl ResourceRepository for SqliteResourceRepository {
             .first(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get favorite status for resource '{}': {}",
+                    resource_id, e
+                )),
             })?;
-
         // Toggle favorite status
         diesel::update(resources::table)
             .filter(resources::id.eq(resource_id))
@@ -139,8 +158,12 @@ impl ResourceRepository for SqliteResourceRepository {
                 resources::updated_at.eq(now),
             ))
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to toggle favorite for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         Ok(())
     }
 
@@ -154,7 +177,10 @@ impl ResourceRepository for SqliteResourceRepository {
             .execute(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to update last_accessed for resource '{}': {}",
+                    resource_id, e
+                )),
             })?;
 
         Ok(())
@@ -170,7 +196,10 @@ impl ResourceRepository for SqliteResourceRepository {
             .execute(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to update data for resource '{}': {}",
+                    resource_id, e
+                )),
             })?;
 
         Ok(())
@@ -213,7 +242,10 @@ impl ResourceRepository for SqliteResourceRepository {
             .first::<(ResourceModel, String)>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find resource '{}' for user '{}': {}",
+                    id, user_id, e
+                )),
             })?;
 
         // Convert to domain object
@@ -248,7 +280,10 @@ impl ResourceRepository for SqliteResourceRepository {
             .first::<ResourceModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find resource '{}': {}",
+                    resource_id, e
+                )),
             })?;
 
         // Get the key (use first() to get a single result)
@@ -258,7 +293,10 @@ impl ResourceRepository for SqliteResourceRepository {
             .first::<ResourceKeyModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find key for resource '{}' user '{}': {}",
+                    resource_id, user_id, e
+                )),
             })?;
 
         // Convert models to domain objects
@@ -293,7 +331,12 @@ impl ResourceRepository for SqliteResourceRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to save resource '{}' with key for user '{}': {}",
+                resource.id, key.user_id, e
+            ))
+        })?;
 
         Ok(())
     }
@@ -306,7 +349,10 @@ impl ResourceRepository for SqliteResourceRepository {
             .first::<ResourceModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find raw resource '{}': {}",
+                    id, e
+                )),
             })?;
 
         Ok(resource_model.into())
@@ -351,8 +397,14 @@ impl ResourceRepository for SqliteResourceRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to save resource '{}' with dependencies ({} vector clocks): {}",
+                resource.id,
+                vector_clocks.len(),
+                e
+            ))
+        })?;
         Ok(())
     }
 
@@ -389,8 +441,15 @@ impl ResourceRepository for SqliteResourceRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to share resource '{}' to user '{}' ({} vector clocks): {}",
+                resource_key.resource_id,
+                resource_key.user_id,
+                recipient_vector_clocks.len(),
+                e
+            ))
+        })?;
         Ok(())
     }
     async fn add_device_with_vector_clocks(
@@ -419,7 +478,15 @@ impl ResourceRepository for SqliteResourceRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to add device '{}' for user '{}' with {} vector clocks: {}",
+                device.id,
+                device.user_id,
+                vector_clocks.len(),
+                e
+            ))
+        })?;
 
         Ok(())
     }
@@ -443,7 +510,12 @@ impl ResourceRepository for SqliteResourceRepository {
                     .filter(resources::deleted.eq(false))
                     .select(resources::id)
                     .load::<String>(&mut *conn)
-                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?
+                    .map_err(|e| {
+                        RepositoryError::DatabaseError(format!(
+                            "Failed to get all resource IDs for manifest: {}",
+                            e
+                        ))
+                    })?
             }
         };
 
@@ -456,14 +528,25 @@ impl ResourceRepository for SqliteResourceRepository {
             .filter(share_records::resource_id.eq_any(&target_resource_ids))
             .select((share_records::resource_id, share_records::id))
             .load::<(String, String)>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get share records for {} resources: {}",
+                    target_resource_ids.len(),
+                    e
+                ))
+            })?;
         // Get all vector clocks for these resources in one query
         let vector_clock_models: Vec<ResourceVectorClockModel> = resource_vector_clocks::table
             .filter(resource_vector_clocks::resource_id.eq_any(&target_resource_ids))
             .select(ResourceVectorClockModel::as_select())
             .load::<ResourceVectorClockModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get vector clocks for {} resources: {}",
+                    target_resource_ids.len(),
+                    e
+                ))
+            })?;
 
         // Group share records by resource_id
         let mut share_records_map: HashMap<String, Vec<String>> = HashMap::new();
@@ -513,24 +596,40 @@ impl ResourceRepository for SqliteResourceRepository {
             .first::<ResourceModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get resource '{}' for sync: {}",
+                    resource_id, e
+                )),
             })?;
 
         // 2. Get resource keys belonging to this resource
         let resource_key_models = ResourceKeyModel::belonging_to(&resource_model)
             .load::<ResourceKeyModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get resource keys for '{}': {}",
+                    resource_id, e
+                ))
+            })?;
 
         // 3. Get share records belonging to this resource
         let share_record_models = ShareRecordModel::belonging_to(&resource_model)
             .load::<ShareRecordModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get share records for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         // 4. Get vector clocks belonging to this resource
         let vector_clock_models = ResourceVectorClockModel::belonging_to(&resource_model)
             .load::<ResourceVectorClockModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get vector clocks for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         // 5. Convert to domain objects
         let resource: Resource = resource_model.into();
         let resource_keys: Vec<ResourceKey> =
@@ -719,10 +818,13 @@ impl ResourceRepository for SqliteResourceRepository {
         info!("All resource sync data inserted successfully - resource_id: {}", resource_id);
         Ok(())
     })
-    .map_err(|e| {
-        error!("Transaction failed during resource sync data save - resource_id: {}, error: {}", resource_id, e);
-        RepositoryError::DatabaseError(e.to_string())
-    })?;
+  .map_err(|e| {
+    RepositoryError::DatabaseError(
+        format!("Failed to save sync data for resource '{}' (keys: {}, shares: {}, clocks: {}): {}", 
+                resource_id, sync_data.resource_keys.len(), 
+                sync_data.share_records.len(), sync_data.vector_clocks.len(), e)
+    )
+})?;
 
         Ok(())
     }
@@ -735,7 +837,9 @@ impl ResourceRepository for SqliteResourceRepository {
             .select(resources::id)
             .order_by(resources::last_accessed.desc())
             .load::<String>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))
+            .map_err(|e| RepositoryError::DatabaseError(
+    format!("Failed to get all resource IDs: {}", e)
+))
     }
     async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError> {
         let mut conn = self.connection.lock().await;
@@ -746,9 +850,11 @@ impl ResourceRepository for SqliteResourceRepository {
             .select(UserModel::as_select())
             .first::<UserModel>(&mut *conn)
             .map_err(|e| match e {
-                diesel::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
-            })?;
+    diesel::NotFound => RepositoryError::NotFound,
+    _ => RepositoryError::DatabaseError(
+        format!("Failed to find owner for resource '{}': {}", resource_id, e)
+    ),
+})?;
 
         Ok(user_model.into())
     }

@@ -34,8 +34,13 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         diesel::insert_into(resource_vector_clocks::table)
             .values(&vector_clock_models)
             .execute(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to save {} vector clocks: {}",
+                    vector_clocks.len(),
+                    e
+                ))
+            })?;
         Ok(())
     }
 
@@ -52,8 +57,12 @@ impl VectorClockRepository for SqliteVectorClockRepository {
             .filter(resource_vector_clocks::resource_id.eq(&vector_clock.resource_id))
             .first::<ResourceVectorClockModel>(&mut *conn)
             .optional()
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to save vector clock for resource '{}' device '{}': {}",
+                    vector_clock.resource_id, vector_clock.device_id, e
+                ))
+            })?;
         match existing_record {
             Some(_) => {
                 // Record already exists, do nothing
@@ -64,7 +73,12 @@ impl VectorClockRepository for SqliteVectorClockRepository {
                 diesel::insert_into(resource_vector_clocks::table)
                     .values(&vector_clock_model)
                     .execute(&mut *conn)
-                    .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+                    .map_err(|e| {
+                        RepositoryError::DatabaseError(format!(
+                            "Failed to save vector clock for resource '{}' device '{}': {}",
+                            vector_clock.resource_id, vector_clock.device_id, e
+                        ))
+                    })?;
 
                 Ok(())
             }
@@ -119,7 +133,10 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         })
         .map_err(|e| match e {
             diesel::result::Error::NotFound => RepositoryError::NotFound,
-            _ => RepositoryError::DatabaseError(e.to_string()),
+            _ => RepositoryError::DatabaseError(format!(
+                "Failed to increment vector clock for resource '{}' device '{}': {}",
+                resource_id, device_id, e
+            )),
         })
         .map(ResourceVectorClockModel::into)
     }
@@ -134,8 +151,12 @@ impl VectorClockRepository for SqliteVectorClockRepository {
             .filter(resource_vector_clocks::resource_id.eq(resource_id))
             .select(ResourceVectorClockModel::as_select())
             .load::<ResourceVectorClockModel>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get vector clocks for resource '{}': {}",
+                    resource_id, e
+                ))
+            })?;
         Ok(ResourceVectorClockModel::to_domain_vector_clocks(models))
     }
 
@@ -153,7 +174,10 @@ impl VectorClockRepository for SqliteVectorClockRepository {
             .first::<ResourceVectorClockModel>(&mut *conn)
             .map_err(|e| match e {
                 diesel::result::Error::NotFound => RepositoryError::NotFound,
-                _ => RepositoryError::DatabaseError(e.to_string()),
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to get vector clock for resource '{}' device '{}': {}",
+                    resource_id, device_id, e
+                )),
             })?;
 
         Ok(model.into())
@@ -174,8 +198,15 @@ impl VectorClockRepository for SqliteVectorClockRepository {
             .filter(resource_vector_clocks::device_id.ne(device_id))
             .count()
             .get_result(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to check updates for device '{}' with {} resources since {}: {}",
+                    device_id,
+                    resource_ids.len(),
+                    last_synced_at,
+                    e
+                ))
+            })?;
         Ok(count > 0)
     }
 
@@ -195,8 +226,15 @@ impl VectorClockRepository for SqliteVectorClockRepository {
             .select(resource_vector_clocks::resource_id)
             .distinct()
             .load::<String>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
-
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get resource updates for device '{}' from {} resources since {}: {}",
+                    device_id,
+                    resource_ids.len(),
+                    last_synced_at,
+                    e
+                ))
+            })?;
         Ok(updated_resources)
     }
 
@@ -233,7 +271,14 @@ impl VectorClockRepository for SqliteVectorClockRepository {
 
             Ok(())
         })
-        .map_err(|e| RepositoryError::DatabaseError(e.to_string()))?;
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to update {} and add {} vector clocks: {}",
+                update_vector_clocks.len(),
+                add_vector_clocks.len(),
+                e
+            ))
+        })?;
 
         Ok(())
     }
