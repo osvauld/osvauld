@@ -131,33 +131,40 @@
 		: ''} {thread.resolved ? 'opacity-70' : ''} {isHighlighted
 		? 'animate-pulse'
 		: ''}"
-	>
+>
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class="p-3 cursor-pointer flex items-start gap-2 relative"
-		onclick={handleThreadClick}>
+		onclick={handleThreadClick}
+	>
 		<div class="flex-1 min-w-0">
 			<div class="flex justify-start items-center gap-2">
 				<span
 					class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder"
-					>{mainComment.author.name.charAt(0).toUpperCase()}</span>
+					>{mainComment.author.name.charAt(0).toUpperCase()}</span
+				>
 				<div class="flex flex-col items-start">
 					<span class="capitalize text-white text-sm font-medium tracking-wider"
-						>{mainComment.author.name}</span>
+						>{mainComment.author.name}</span
+					>
 					<span class="text-xs text-statusColor"
-						>{formatTimestamp(mainComment.timestamp)}</span>
+						>{formatTimestamp(mainComment.timestamp)}</span
+					>
 				</div>
 			</div>
 			<div
-				class="text-[11px] my-2.5 italic border-l-2 border-livnotePink pl-1.5 flex items-center justify-start text-statusColor">
+				class="text-[11px] my-2.5 italic border-l-2 border-livnotePink pl-1.5 flex items-center justify-start text-statusColor"
+			>
 				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
-					>"{previewText}"</span>
+					>"{previewText}"</span
+				>
 			</div>
 			<div
 				class="text-[13px] text-white leading-relaxed max-w-full overflow-hidden text-ellipsis whitespace-nowrap {isExpanded
 					? 'whitespace-normal overflow-visible text-ellipsis-clip break-words'
-					: ''}">
+					: ''}"
+			>
 				<span>{mainComment.content}</span>
 			</div>
 			{#if commentCount > 1}
@@ -167,7 +174,8 @@
 			{/if}
 		</div>
 		<div
-			class="absolute top-3 right-2 flex items-start gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+			class="absolute top-3 right-2 flex items-start gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+		>
 			{#if thread.resolved}
 				<button
 					class="p-1 border-none bg-transparent text-commentUnresolve cursor-pointer rounded-sm flex items-center justify-center transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive"
@@ -175,7 +183,8 @@
 					onclick={(e) => {
 						e.stopPropagation();
 						onResolve(false);
-					}}>
+					}}
+				>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
 						<path
 							d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm4.59-12.42L10 14.17l-2.59-2.58L6 13l4 4 8-8z"
@@ -189,7 +198,8 @@
 					onclick={(e) => {
 						e.stopPropagation();
 						onResolve(true);
-					}}>
+					}}
+				>
 					<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
 						<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"></path>
 					</svg>
@@ -202,7 +212,8 @@
 				onclick={(e) => {
 					e.stopPropagation();
 					onDelete();
-				}}>
+				}}
+			>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
 					<path
 						d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
@@ -221,17 +232,21 @@
 							<div class="flex justify-start items-center gap-2">
 								<span
 									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder"
-									>{mainComment.author.name.charAt(0).toUpperCase()}</span>
+									>{mainComment.author.name.charAt(0).toUpperCase()}</span
+								>
 								<div class="flex flex-col items-start">
 									<span
 										class="capitalize text-white text-sm font-medium tracking-wider"
-										>{mainComment.author.name}</span>
+										>{reply.author.name}</span
+									>
 									<span class="text-xs text-statusColor"
-										>{formatTimestamp(mainComment.timestamp)}</span>
+										>{formatTimestamp(reply.timestamp)}</span
+									>
 								</div>
 							</div>
 							<div
-								class="text-[13px] text-white leading-relaxed my-2 break-words">
+								class="text-[13px] text-white leading-relaxed my-2 break-words"
+							>
 								{reply.content}
 							</div>
 						</div>
@@ -254,7 +269,8 @@
 								e.preventDefault();
 								handleAddReply();
 							}
-						}}></textarea>
+						}}
+					></textarea>
 					<div class="flex gap-2 justify-between items-center">
 						<span class="text-xs text-statusColor">{replyText.length}/150</span>
 						<div class="flex items-center gap-2">
@@ -263,13 +279,15 @@
 								onclick={() => {
 									isAddingReply = false;
 									replyText = "";
-								}}>
+								}}
+							>
 								Cancel
 							</button>
 							<button
 								class="px-3 py-1.5 border-none rounded bg-livnotePink text-primarydark text-xs cursor-pointer transition-all duration-200 hover:bg-livnotePink"
 								onclick={handleAddReply}
-								disabled={!replyText.trim()}>
+								disabled={!replyText.trim()}
+							>
 								Submit
 							</button>
 						</div>
@@ -279,7 +297,8 @@
 				<div class="flex justify-end">
 					<button
 						class="flex items-center gap-2 bg-livnotePink text-primarydark px-2 py-1 rounded-sm text-xs transition cursor-pointer"
-						onclick={() => (isAddingReply = true)}>
+						onclick={() => (isAddingReply = true)}
+					>
 						<ReplyIcon />
 						Reply
 					</button>
