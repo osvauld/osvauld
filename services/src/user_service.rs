@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::error::ServiceResult;
+use crate::errors::ServiceResult;
 use crypto_utils::{CryptoUtils, get_key_id};
 use log::{error, info};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};

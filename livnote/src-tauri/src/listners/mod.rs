@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use crate::{current_note_state::CurrentNoteState, user_state::UserState};
+use crate::current_note_state::CurrentNoteState;
 use crypto_utils::CryptoUtils;
-use log::info;
 use network::p2p::{P2PEvent, incoming::P2PSender};
 use persistance::database::RepositoryContext;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tokio::sync::{Mutex, mpsc};
 
 mod p2p_handlers;

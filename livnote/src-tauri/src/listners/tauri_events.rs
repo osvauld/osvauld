@@ -2,7 +2,7 @@ use super::{EventManager, UpdateType};
 use crate::current_note_state::CurrentNoteState;
 use crate::user_state::UserState;
 use log::{error, info};
-use network::p2p::{P2PEvent, incoming::P2PSender};
+use network::p2p::incoming::P2PSender;
 use persistance::database::RepositoryContext;
 use serde_json::Value;
 use services::{get_resource_by_id_direct, get_shared_user_devices_for_note};
@@ -35,7 +35,7 @@ impl EventManager {
             let update_type = update_type.clone();
             let p2p_sender = p2p_sender.clone();
             let current_note_state = current_note_state.clone();
-            let description = description.clone();
+            let description = description;
 
             // Parse and validate payload
             let payload = match Self::parse_update_payload(payload_str, &description) {
@@ -196,11 +196,11 @@ impl EventManager {
 
     fn setup_resource_update_complete_listener(&self) {
         let current_note_state = self.current_note_state.clone();
-
+        //TODO: depretiate this func
         self.app_handle
             .listen("resource-update-complete", move |event| {
-                let note_state = current_note_state.clone();
-                let payload = event.payload();
+                let _note_state = current_note_state.clone();
+                let _payload = event.payload();
             });
     }
 

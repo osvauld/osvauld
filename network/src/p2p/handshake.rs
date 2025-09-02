@@ -1,5 +1,9 @@
-use super::P2PEvent;
-use crate::p2p::peer_connection::PeerConnection;
+use crate::p2p::{
+    errors::{HandshakeError, P2PError, P2PResult},
+    peer_connection::PeerConnection,
+    P2PEvent,
+};
+
 use base64::{engine::general_purpose, Engine as _};
 use osvauld_core::models::{
     ConnectionAction, ConnectionType, Device, FirstConnectRequest, FirstConnectResponse,
@@ -21,44 +25,32 @@ impl PeerConnection {
         action: ConnectionAction,
         current_user: User,
         current_device: Device,
-    ) -> Result<(), String> {
+    ) -> P2PResult<()> {
         info!("Initiating handshake");
-        let peer_id = self.connection.remote_node_id().map_err(|e| {
-            error!("Failed to get remote node id: {}", e);
-            e.to_string()
-        })?;
+        let peer_id = self.connection.remote_node_id().map_err(|e| P2PError::Custom(e.to_string()))?;
         debug!("Successfully retrieved peer id: {}", peer_id);
         let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
-        let peer_user = self
-            .repo_ctx
+        // Repository error automatically propagates
+        let peer_user = self.repo_ctx
             .user_repo
             .get_user_by_device_id(&device_id_b64)
-            .await
-            .map_err(|e| {
-                error!("Failed to get user by device id {}: {}", peer_id, e);
-                e.to_string()
-            })?;
+            .await?;
         debug!("Successfully retrieved user for peer");
-
+        // Service error automatically propagates
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
         debug!("Successfully signed the UCAN public key, {:?}", peer_user);
         if !peer_user.first_sync {
             info!("Peer is a first-time connection, preparing FirstConnectRequest");
-            let user_devices = get_my_user_devices(&current_user.id, self.repo_ctx.clone())
-                .await
-                .map_err(|e| {
-                    error!("Failed to get devices for user {}: {}", current_user.id, e);
-                    e.to_string()
-                })?;
+            // Service error automatically propagates
+            let user_devices = get_my_user_devices(&current_user.id, self.repo_ctx.clone()).await?;
             debug!("Retrieved {} devices for the user", user_devices.len());
-
+            // Service error automatically propagates
             let new_ucan_token = issue_connect_ucan_token(
                 self.repo_ctx.clone(),
                 &self.crypto_utils,
                 &self.domain,
                 &peer_user.ucan_pub_key,
-            )
-            .await?;
+            ).await?;
             debug!("Successfully issued new UCAN token for peer");
 
             self.send_message(Message::Handshake(
@@ -71,11 +63,12 @@ impl PeerConnection {
                     peer_user: current_user,
                     connection_type,
                 }),
-            ))
-            .await?;
+            )).await?;
+            
             info!("Sent HandshakeFirstConnectRequest to peer");
         } else {
             info!("Peer is an existing user, preparing HandshakeExchange");
+            
             let exchange_message = UcanAndUserExchange {
                 ucan_token: peer_user.ucan_token,
                 peer_user: current_user,
@@ -83,28 +76,29 @@ impl PeerConnection {
                 connection_type,
                 signed_ucan_pub,
             };
+            
             self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
                 exchange_message,
-            )))
-            .await?;
+            ))).await?;
+            
             self.set_connection_type(ConnectionType::User).await;
-
             info!("Sent HandshakeExchange to peer");
         }
+        
         info!("Handshake initiation process completed successfully");
         Ok(())
     }
+
     pub async fn handle_handshake_message(
         &self,
         payload: &mut HandshakeMessage,
-    ) -> Result<(), String> {
+    ) -> P2PResult<()> {
         match payload {
             HandshakeMessage::HandshakeFirstConnectRequest(payload) => {
                 self.process_first_user_connection_request(payload).await
             }
             HandshakeMessage::HandshakeFirstConnectResponse(payload) => {
-                self.process_first_user_connection_handshake_response(payload)
-                    .await
+                self.process_first_user_connection_handshake_response(payload).await
             }
             HandshakeMessage::HandshakeExchange(payload) => {
                 self.process_exchange_message(payload).await
@@ -112,49 +106,46 @@ impl PeerConnection {
         }
     }
 
-    #[instrument(skip(self, payload), fields(connection_id = %self.get_id(), is_initiator = self.is_initiator), level = "info")]
+    #[instrument(skip(self, payload), fields(
+        connection_id = %self.get_id(), 
+        is_initiator = self.is_initiator
+    ), level = "info")]
     pub async fn process_exchange_message(
         &self,
         payload: &UcanAndUserExchange,
-    ) -> Result<(), String> {
+    ) -> P2PResult<()> {
         info!("Processing handshake exchange message");
+        
+        // Crypto error automatically propagates
         let peer_ucan_pub = crypto_utils::verify_clear_text_message(
             &payload.peer_user.public_key,
             &payload.signed_ucan_pub,
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to verify peer's signed UCAN pub key: {}", e);
-            e.to_string()
-        })?;
+        ).await?;
         debug!("Successfully verified peer's signed UCAN public key");
 
         let current_user = self.get_local_user().await?;
-        let current_device = self
-            .get_local_device()
-            .await
-            .ok_or("No current device available")?;
-        debug!("(Responder) Retrieved local user and device");
+        let current_device = self.get_local_device().await
+            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
+        debug!("Retrieved local user and device");
+        
+        // Crypto error automatically propagates
         let token_validation = crypto_utils::validate_connect_token(
             &payload.ucan_token,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
             &current_user.id,
             &self.domain,
-        )
-        .await
-        .map_err(|e| {
-            error!("Peer's connect token validation failed: {}", e);
-            e.to_string()
-        })?;
+        ).await?;
 
         if !token_validation {
             error!("Peer's connect token is invalid");
-            return Err("invalid token".to_string());
+            return Err(HandshakeError::InvalidCredentials {
+                user_id: payload.peer_user.id.clone(),
+            }.into());
         }
+        
         debug!("Peer's connect token is valid");
-        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
-            .await;
+        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
 
         if self.is_initiator {
             info!("This peer is the initiator. Completing handshake.");
@@ -164,28 +155,19 @@ impl PeerConnection {
             info!("Handshake marked as complete for initiator.");
         } else {
             info!("This peer is the responder. Preparing and sending exchange response.");
-            let signed_ucan_pub =
-                sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
+            
+            // Service error automatically propagates
+            let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
             debug!("(Responder) Successfully signed the UCAN public key");
 
-            let peer_id = self.connection.remote_node_id().map_err(|e| {
-                error!("(Responder) Failed to get remote node id: {}", e);
-                e.to_string()
-            })?;
+            let peer_id = self.connection.remote_node_id().map_err(|e| P2PError::Custom(e.to_string()))?;
             let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
 
-            let peer_user = self
-                .repo_ctx
+            // Repository error automatically propagates
+            let peer_user = self.repo_ctx
                 .user_repo
                 .get_user_by_device_id(&device_id_b64)
-                .await
-                .map_err(|e| {
-                    error!(
-                        "(Responder) Failed to get user by device id {}: {}",
-                        peer_id, e
-                    );
-                    e.to_string()
-                })?;
+                .await?;
             debug!("(Responder) Retrieved peer user from repository");
 
             let exchange_message = UcanAndUserExchange {
@@ -198,14 +180,15 @@ impl PeerConnection {
 
             let mut handshake_complete = self.handshake_complete.lock().await;
             *handshake_complete = true;
+            
             self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
                 exchange_message,
-            )))
-            .await?;
+            ))).await?;
+            
             self.set_connection_type(ConnectionType::User).await;
-
             info!("(Responder) Sent handshake exchange response and marked handshake as complete.");
         }
+        
         Ok(())
     }
 
@@ -213,79 +196,73 @@ impl PeerConnection {
     pub async fn process_first_user_connection_request(
         &self,
         payload: &FirstConnectRequest,
-    ) -> Result<(), String> {
+    ) -> P2PResult<()> {
         info!("Processing first user connection request");
+        
         let current_user = self.get_local_user().await?;
-        let current_device = self
-            .get_local_device()
-            .await
-            .ok_or("No current device available")?;
+        let current_device = self.get_local_device().await
+            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
         debug!("Retrieved local user and device information");
 
+        // Crypto error automatically propagates
         let peer_ucan_pub = crypto_utils::verify_clear_text_message(
             &payload.peer_user.public_key,
             &payload.signed_ucan_pub,
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to verify peer's signed UCAN pub key: {}", e);
-            e.to_string()
-        })?;
+        ).await?;
         debug!("Successfully verified peer's signed UCAN public key");
 
+        // Crypto error automatically propagates
         let one_time_token_validation = crypto_utils::validate_connect_token(
             &payload.one_time_ucan,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
             &current_user.id,
             &self.domain,
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+        ).await?;
+        
         debug!("Completed validation of one-time UCAN");
+        
         if !one_time_token_validation {
-            error!("Peer's one-time UCAN is invalid.");
-            return Err("validation failed".to_string());
+            error!("Peer's one-time UCAN is invalid");
+            return Err(HandshakeError::InvalidCredentials {
+                user_id: payload.peer_user.id.clone(),
+            }.into());
         }
+        
         info!("Peer's one-time UCAN is valid. Proceeding to issue persistent UCAN.");
 
-        let (peer_issued_ucan_token, signed_ucan_pub) = {
-            let signed_ucan_pub =
-                sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
-            let issued_token = issue_connect_ucan_token(
-                self.repo_ctx.clone(),
-                &self.crypto_utils,
-                &self.domain,
-                &peer_ucan_pub,
-            )
-            .await?;
-            debug!("Successfully issued new UCAN token for peer and signed local public key");
-            (issued_token, signed_ucan_pub)
-        };
+        // Service errors automatically propagate
+        let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
+        let peer_issued_ucan_token = issue_connect_ucan_token(
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+            &self.domain,
+            &peer_ucan_pub,
+        ).await?;
+        debug!("Successfully issued new UCAN token for peer and signed local public key");
 
         let mut user = payload.peer_user.clone();
         user.first_sync = true;
         user.owner = false;
         user.ucan_token = payload.issued_ucan.clone();
         user.ucan_pub_key = peer_ucan_pub;
+        
         self.set_connection_type(ConnectionType::User).await;
-        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
-            .await;
+        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
 
         let user_with_devices = UserWithDevices {
             user,
             devices: payload.devices.clone(),
         };
+        
+        // Repository error automatically propagates
         self.repo_ctx
             .user_repo
             .add_users_with_devices_bulk(&vec![user_with_devices])
-            .await
-            .map_err(|e| {
-                error!("Failed to add new user and devices to repository: {}", e);
-                e.to_string()
-            })?;
+            .await?;
         info!("Successfully added new user and their devices to the repository");
 
+        // Service error automatically propagates
         let my_devices = get_my_user_devices(&current_user.id, self.repo_ctx.clone()).await?;
         debug!("Retrieved local devices to send in response");
 
@@ -303,50 +280,46 @@ impl PeerConnection {
 
         self.send_message(Message::Handshake(
             HandshakeMessage::HandshakeFirstConnectResponse(handshake_response),
-        ))
-        .await?;
+        )).await?;
 
         info!("First connect handshake completed. Sent response message to peer.");
         Ok(())
     }
+
     #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
     pub async fn process_first_user_connection_handshake_response(
         &self,
         payload: &FirstConnectResponse,
-    ) -> Result<(), String> {
+    ) -> P2PResult<()> {
         info!("Processing first user connection handshake response");
         debug!("Updated local user's UCAN token with the one from the payload");
 
+        // Crypto error automatically propagates
         let peer_ucan_pub = crypto_utils::verify_clear_text_message(
             &payload.peer_user.public_key,
             &payload.signed_ucan_pub,
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to verify peer's signed UCAN pub key: {}", e);
-            e.to_string()
-        })?;
+        ).await?;
         debug!("Successfully verified peer's signed UCAN public key from response");
 
         let current_user = self.get_local_user().await?;
-        debug!("Retrieved local user and device information");
+        debug!("Retrieved local user information");
+        
+        // Crypto error automatically propagates
         let token_validation_result = crypto_utils::validate_connect_token(
             &payload.ucan_token,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
             &current_user.id,
             &self.domain,
-        )
-        .await
-        .map_err(|e| {
-            error!("Validation of UCAN issued by peer failed: {}", e);
-            e.to_string()
-        })?;
+        ).await?;
 
         if !token_validation_result {
             error!("The UCAN issued by the peer is invalid");
-            return Err("token invalid".to_string());
+            return Err(HandshakeError::InvalidCredentials {
+                user_id: payload.peer_user.id.clone(),
+            }.into());
         }
+        
         debug!("The UCAN issued by the peer is valid");
 
         let mut user = payload.peer_user.clone();
@@ -355,8 +328,7 @@ impl PeerConnection {
         user.owner = false;
         user.ucan_pub_key = peer_ucan_pub;
 
-        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone())
-            .await;
+        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
 
         let user_with_devices = UserWithDevices {
             user,
@@ -366,24 +338,20 @@ impl PeerConnection {
         let mut handshake_complete = self.handshake_complete.lock().await;
         *handshake_complete = true;
 
+        // Repository error automatically propagates
         self.repo_ctx
             .user_repo
             .add_users_with_devices_bulk(&vec![user_with_devices])
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to add peer user and their devices to repository: {}",
-                    e
-                );
-                e.to_string()
-            })?;
+            .await?;
+        
         info!("Successfully added peer user and devices to repository. Handshake complete.");
+        
         self.start_user_network_sync().await?;
         Ok(())
     }
 
     #[instrument(skip(self), level = "info")]
-    pub async fn execute_connection_action(&self) -> Result<(), String> {
+    pub async fn execute_connection_action(&self) -> P2PResult<()> {
         // Only execute if we have an action and we're the initiator
         if let Some(action) = &self.action {
             if !self.is_initiator {
@@ -404,10 +372,9 @@ impl PeerConnection {
                     self.start_add_device_process().await
                 }
                 ConnectionAction::LiveEdit => {
-                    info!("live edit triggered");
+                    info!("Live edit triggered");
                     let connection_id = self.get_id();
-                    self.event_emitter
-                        .emit(P2PEvent::LiveEditConnected { connection_id });
+                    self.event_emitter.emit(P2PEvent::LiveEditConnected { connection_id });
                     Ok(())
                 }
                 ConnectionAction::UserSync => self.start_user_network_sync().await,

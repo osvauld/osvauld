@@ -43,10 +43,6 @@ impl Ed25519KeyMaterial {
     pub fn new(signing_key: SigningKey, verifying_key: VerifyingKey) -> Self {
         Self(verifying_key, Some(signing_key))
     }
-
-    pub fn new_verify_only(verifying_key: VerifyingKey) -> Self {
-        Self(verifying_key, None)
-    }
 }
 
 #[cfg_attr(target_arch="wasm32", async_trait(?Send))]

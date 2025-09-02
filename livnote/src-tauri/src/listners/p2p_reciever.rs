@@ -33,7 +33,7 @@ impl EventManager {
                     resource_id,
                     connection_id,
                     state_vectors,
-                    current_user_id,
+                    current_user_id: _,
                 } => {
                     self.handle_document_update_request(resource_id, connection_id, state_vectors)
                         .await

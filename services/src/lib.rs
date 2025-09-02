@@ -1,13 +1,13 @@
 // lib.rs
 mod auth_service;
-mod error;
+mod errors;
 mod folder_service;
 mod resource_service;
 mod sync_service;
 mod user_service;
 
 pub use auth_service::*;
-pub use error::*;
+pub use errors::*;
 pub use folder_service::*;
 pub use resource_service::*;
 pub use sync_service::*;

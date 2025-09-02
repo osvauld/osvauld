@@ -1,5 +1,5 @@
 use log::{error, info};
-use osvauld_core::models::document::{YjsDocExt, create_doc};
+use osvauld_core::models::document::YjsDocExt;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use yrs::Doc;

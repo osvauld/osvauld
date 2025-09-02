@@ -4,11 +4,8 @@ use osvauld_core::models::{
     p2p::{LiveEditMessage, Message},
     ConnectionAction, ConnectionType, ResourceUpdateMsg,
 };
-use services::{
-    apply_buffer_and_peer_updates_and_get_remote_updates,
-    apply_buffer_updates_and_get_remote_updates, get_resource_state_vector,
-};
-use tokio::sync::{broadcast::error, mpsc};
+use services::get_resource_state_vector;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, instrument, warn};
 
 /// Implementation of P2PService methods for handling incoming events and event processing
@@ -123,7 +120,7 @@ impl P2PService {
                         connection_ids,
                         resource_id,
                     } => {
-                        service
+                        let _ = service
                             .broadcast_state_vector_request(connection_ids, resource_id)
                             .await;
                     }

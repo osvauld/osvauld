@@ -8,7 +8,7 @@ use super::search_types::{IndexError, IndexResult, IndexSnapshot, SearchResult};
 use super::storage::SearchIndexStorage;
 
 use crypto_utils::CryptoUtils;
-use log::{debug, error, info, warn};
+use log::{error, info};
 use persistance::database::RepositoryContext;
 use serde_json::Value;
 use std::path::Path;
@@ -17,7 +17,6 @@ use std::time::Duration;
 use tantivy::schema::*;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 use tokio::sync::{Mutex, RwLock};
-use tokio::time::interval;
 pub struct SearchIndexManager {
     index: Arc<RwLock<Option<Index>>>,
     writer: Arc<RwLock<Option<IndexWriter>>>,

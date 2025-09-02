@@ -1,7 +1,7 @@
 use crate::types::{CryptoResponse, UserDetails};
 use base64::{Engine as _, engine::general_purpose};
 use crypto_utils::CryptoUtils;
-use log::{error, info};
+use log::error;
 use network::P2PService;
 use osvauld_core::models::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
@@ -37,7 +37,7 @@ pub async fn handle_add_user(
     let one_time_token = details.ucan_token;
     let ucan_pub_key = details.ucan_pub_key;
 
-    let (user, device) = add_known_user(
+    let (_user, device) = add_known_user(
         username,
         user_public_key,
         device_public_key,
@@ -70,7 +70,9 @@ pub async fn handle_add_user(
 pub async fn handle_get_known_users(
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let known_users = get_known_users(repo_ctx.inner().clone()).await?;
+    let known_users = get_known_users(repo_ctx.inner().clone())
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::GetKnownUsers(known_users))
 }
 

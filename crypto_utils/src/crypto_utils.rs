@@ -1,5 +1,5 @@
 use crate::crypto_core;
-use crate::errors::{CryptoError, CryptoUtilsError, PgpError, UcanError};
+use crate::errors::{CryptoError, CryptoUtilsError, UcanError};
 use crate::key_management::{encrypt_string_with_public_key, get_key_id};
 use crate::signature_utils;
 use crate::types::EncryptedResource;

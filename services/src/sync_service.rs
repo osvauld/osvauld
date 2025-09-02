@@ -1,4 +1,4 @@
-use crate::error::{ServiceResult, SyncServiceError};
+use crate::errors::{ServiceResult, SyncServiceError};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
     ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,

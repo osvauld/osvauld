@@ -7,7 +7,7 @@ use super::sync::{
     DeviceManifestComparisonResult, DeviceManifestRequestPayload, DeviceNetworkSyncPayload,
     UserManifestPayload, UserNetworkSyncPayload,
 };
-use super::user::{User, UserWithDevices};
+use super::user::User;
 use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
 

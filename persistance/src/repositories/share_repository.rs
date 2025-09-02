@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::share_record::ShareRecord;
 use osvauld_core::repositories::{RepositoryError, ShareRepository};
-use std::collections::HashMap;
 
 pub struct SqliteShareRepository {
     connection: DbConnection,

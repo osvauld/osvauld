@@ -1,4 +1,4 @@
-use crate::error::{ResourceServiceError, ServiceResult};
+use crate::errors::{ResourceServiceError, ServiceResult};
 use crypto_utils::{CryptoUtils, encrypt_data_for_user, errors::UcanError};
 use log::info;
 use osvauld_core::models::{

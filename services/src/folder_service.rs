@@ -1,4 +1,4 @@
-use crate::error::{FolderServiceError, ServiceResult};
+use crate::errors::{FolderServiceError, ServiceResult};
 use osvauld_core::models::Folder;
 use persistance::database::RepositoryContext;
 use std::sync::Arc;

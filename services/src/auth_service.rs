@@ -1,4 +1,4 @@
-use crate::error::{AuthServiceError, ServiceResult};
+use crate::errors::{AuthServiceError, ServiceResult};
 use crypto_utils::{
     CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
     generate_and_encrypt_ed25519_key, generate_keys, get_key_id, import_certificate,

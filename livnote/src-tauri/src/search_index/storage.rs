@@ -1,8 +1,8 @@
 // search_index/storage.rs
 
-use super::search_types::{IndexError, IndexResult, IndexSnapshot, SerializedDocument};
+use super::search_types::{IndexError, IndexResult, IndexSnapshot};
 use crypto_utils::CryptoUtils;
-use log::{error, info};
+use log::info;
 use persistance::database::RepositoryContext;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -118,10 +118,5 @@ impl SearchIndexStorage {
             info!("Deleted encrypted index file");
         }
         Ok(())
-    }
-
-    /// Check if an encrypted index exists
-    pub fn exists(&self) -> bool {
-        self.encrypted_index_path.exists()
     }
 }

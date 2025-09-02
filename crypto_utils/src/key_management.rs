@@ -2,7 +2,7 @@ use crate::crypto_core;
 use crate::errors::CryptoError;
 use crate::types::GeneratedKeys;
 use base64::{engine::general_purpose, Engine as _};
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use ed25519_dalek::SigningKey;
 use log::info;
 use openpgp::{serialize::Marshal, Cert};
 use rand::{rngs::OsRng, RngCore};
@@ -162,21 +162,21 @@ pub fn get_key_id(public_key: &str) -> Result<String, CryptoError> {
 }
 
 /// Derive a node ID from a base64-encoded Ed25519 public key
-pub fn derive_node_id_from_public_key(public_key_b64: &str) -> Result<[u8; 32], String> {
+pub fn derive_node_id_from_public_key(public_key_b64: &str) -> Result<[u8; 32], CryptoError> {
     let public_key_bytes = general_purpose::STANDARD
         .decode(public_key_b64)
-        .map_err(|e| format!("Failed to decode public key: {}", e))?;
+        .map_err(|e| CryptoError::Other(format!("Failed to decode public key: {}", e)))?;
 
     if public_key_bytes.len() != 32 {
-        return Err(format!(
+        return Err(CryptoError::Other(format!(
             "Invalid public key length: expected 32 bytes, got {}",
-            public_key_bytes.len()
-        ));
+            public_key_bytes.len(),
+        )));
     }
 
     let key_array: [u8; 32] = public_key_bytes
         .try_into()
-        .map_err(|_| "Failed to convert to 32-byte array".to_string())?;
+        .map_err(|_| CryptoError::Other("Failed to convert to 32-byte array".to_string()))?;
 
     Ok(key_array)
 }
