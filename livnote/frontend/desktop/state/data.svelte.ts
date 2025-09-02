@@ -367,6 +367,12 @@ class DataState {
     this.sharedUsers = event.payload;
   }
 
+  async handleResourceAddedNotification(event: any) {
+    console.log(event.payload);
+    let message = `${event.payload.username} shared a resource`
+    uiState.showToast(message, true);
+  }
+
   async setupReactiveUpdates() {
     this._unlisteners = [];
 
@@ -377,6 +383,11 @@ class DataState {
     const liveUpdatesUnlisten = await listen("live-updates", this.handleLiveUpdates.bind(this));
     const sharedUsersUpdate = await listen("shared-users-update", this.handleSharedUsersUpdate.bind(this));
 
+    const resourceAddedNotification = await listen(
+      "resource-added-notification",
+      this.handleResourceAddedNotification.bind(this));
+
+
     this._unlisteners.push(
       resourceAddedUnlisten,
       resourceUpdateUnlisten,
@@ -384,6 +395,7 @@ class DataState {
       awarenessUpdatesUnlisten,
       liveUpdatesUnlisten,
       sharedUsersUpdate,
+      resourceAddedNotification,
     );
   }
 

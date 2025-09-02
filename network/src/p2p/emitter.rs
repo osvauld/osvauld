@@ -76,6 +76,7 @@ pub enum P2PEvent {
     },
     ResourceAdded {
         resource_id: String,
+        username: String,
     },
 }
 

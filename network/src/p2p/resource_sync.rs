@@ -121,17 +121,16 @@ impl PeerConnection {
         debug!("Adding resource to local repository");
 
         let connection_type = self.get_connection_type().await;
-
-        // Service error automatically propagates
         add_resource_sync(payload, self.repo_ctx.clone(), &connection_type).await?;
 
         info!(
             resource_id = %payload.resource.id,
             "Resource added successfully to local repository"
         );
-
+        let peer_user = self.get_peer_user().await;
         self.event_emitter.emit(P2PEvent::ResourceAdded {
             resource_id: payload.resource.id.clone(),
+            username: peer_user.username,
         });
 
         let is_empty = match connection_type {
