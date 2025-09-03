@@ -57,6 +57,8 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       getUserDetails: () => invoke('get_user_details'),
       getOneTimeUcanToken: () => invoke('get_one_time_ucan_token'),
       searchResource: () => invoke("handle_search_resources", { input: data }),
+      shareFolder: (data: any) => invoke("handle_share_folder", { input: data }),
+      getSharedFolderUsers: (data: any) => invoke("handle_get_shared_folder_users", { input: data }),
     };
     //@ts-ignore
     const handler = handlerMap[action];

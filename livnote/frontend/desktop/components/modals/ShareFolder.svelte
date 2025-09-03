@@ -3,7 +3,6 @@
 	import { sendMessage } from "../../utils/helper";
 	import { dataState, uiState } from "../../state/";
 
-	// Define interfaces
 	interface Collaborator {
 		username: string;
 		online: boolean;
@@ -11,14 +10,12 @@
 		publicKey?: string;
 	}
 
-	// Props
 	interface Props {
 		showShareList?: boolean;
 	}
 
 	let { showShareList = $bindable(false) }: Props = $props();
 
-	// Local state
 	let availableCollaborators = $state<Collaborator[]>([]);
 	let existingCollaborators = $state<Collaborator[]>([]);
 
@@ -26,47 +23,52 @@
 		try {
 			const users = await sendMessage("getKnownUsers");
 			availableCollaborators = users;
-
-			if (dataState.currentNoteId) {
-				existingCollaborators = dataState.sharedUsers;
-			}
+			existingCollaborators = dataState.sharedFolderUsers;
 		} catch (error) {
 			console.error("Error fetching users:", error);
 			uiState.showToast("Failed to load users", false);
 		}
 	}
 
-	const handleShareNote = async (
+	const handleShareFolder = async (
 		selectedUsers: { username: string; id: string }[],
 	) => {
 		if (selectedUsers.length === 0) return;
 
 		const user = selectedUsers[0];
 		try {
-			const abilities = ["crud/read", "crud/update", "ucan/share"];
-			const resourceURI = `livnote:resource:${dataState.currentNoteId}`;
-			const permissionsToGrant = abilities.map((ability) => [
-				resourceURI,
-				ability,
-			]);
-			await sendMessage("shareResource", {
-				resourceId: dataState.currentNoteId,
+			let permissions = generateFolderPermissions(dataState.currentVault.id);
+			await sendMessage("shareFolder", {
+				folderId: dataState.currentVault.id,
 				userId: user.id,
-				permissions: permissionsToGrant,
+				permissions,
 			});
 
-			// Show success toast
-			uiState.showToast("Note shared successfully", true);
-
-			// Close the share panel
+			uiState.showToast("Folder shared successfully", true);
 			showShareList = false;
+			// Refresh shared folder users
+			dataState.fetchSharedFolderUsers(dataState.currentVault.id);
 		} catch (error) {
-			console.error("Error sharing note:", error);
-			uiState.showToast("Failed to share note", false);
+			console.error("Error sharing folder:", error);
+			uiState.showToast("Failed to share folder", false);
 		}
 	};
+	const generateFolderPermissions = (
+		folderId: String,
+		capabilityPrefix = "livnote",
+	) => {
+		const abilities = [
+			"crud/read",
+			"crud/update",
+			"crud/delete",
+			"add_resources",
+			"share_folder",
+		];
+		const folderURI = `${capabilityPrefix}:folder:${folderId}`;
+		const permissionsToGrant = abilities.map((ability) => [folderURI, ability]);
 
-	// Initialize data when component is shown
+		return permissionsToGrant;
+	};
 	$effect(() => {
 		if (showShareList) {
 			fetchUsers();
@@ -86,12 +88,12 @@
 	></div>
 	<CollaboratorSelector
 		show={showShareList}
-		title="Invite to edit"
+		title="Share folder"
 		availableUsers={availableCollaborators}
 		existingUsers={existingCollaborators}
 		maxSelections={1}
-		buttonText="Add to collaborate"
-		onShare={handleShareNote}
+		buttonText="Share folder"
+		onShare={handleShareFolder}
 		onClose={() => (showShareList = false)}
 	/>
 {/if}

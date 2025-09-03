@@ -1,5 +1,6 @@
 mod device_repository;
 mod folder_repository;
+mod folder_share_repository;
 mod resource_key_repository;
 mod resource_repository;
 mod share_repository;
@@ -9,6 +10,7 @@ mod vector_clock_repository;
 
 pub use device_repository::SqliteDeviceRepository;
 pub use folder_repository::SqliteFolderRepository;
+pub use folder_share_repository::SqliteFolderShareRecordRepository;
 pub use resource_key_repository::SqliteResourceKeyRepository;
 pub use resource_repository::SqliteResourceRepository;
 pub use share_repository::SqliteShareRepository;

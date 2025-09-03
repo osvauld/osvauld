@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { uiState, dataState } from "../../state";
 	import FolderManager from "./FolderManager.svelte";
+	import ShareFolder from "../modals/ShareFolder.svelte";
 
 	import {
 		BinIcon as Bin,
@@ -9,11 +10,12 @@
 		RightArrow as Arrow,
 		MobileHome as Home,
 		Add,
+		TwoPeople,
 	} from "../../icons";
 
 	let deleteBtnHoved = $state(false);
 	let addCredentialHovered = $state(false);
-
+	let showShareFolderList = $state(false);
 	const handleDeleteBtn = (item: "folder" | "note") => {
 		uiState.showDeleteConfirmation(item);
 	};
@@ -30,10 +32,11 @@
 <div class="py-10 px-11 flex items-center justify-start shrink-0">
 	<div class="relative shrink-0">
 		<button
-			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6  rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
+			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
 			aria-label="Switch Vault"
 			aria-expanded={uiState.vaultManagerActive}
-			onclick={() => uiState.toggleVaultManager()}>
+			onclick={() => uiState.toggleVaultManager()}
+		>
 			<span class="flex-1 truncate text-left py-1"
 				>{dataState.currentVault.id === "all"
 					? "Home"
@@ -41,7 +44,8 @@
 			><span
 				class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
 					? '-rotate-90'
-					: 'rotate-90'}">
+					: 'rotate-90'}"
+			>
 				<Arrow color="#F2F2F0" size={24} />
 			</span>
 		</button>
@@ -50,7 +54,8 @@
 		{/if}
 	</div>
 	<div
-		class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base">
+		class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base"
+	>
 		<button
 			class="w-full flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
 				   transition-colors
@@ -58,19 +63,30 @@
 				? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 				: ''}"
 			onclick={() => dataState.toggleFavoriteView(!dataState.favoriteSelected)}
-			aria-current={dataState.favoriteSelected ? "page" : undefined}>
+			aria-current={dataState.favoriteSelected ? "page" : undefined}
+		>
 			{#if dataState.favoriteSelected}
-				<Star size={20}/>
+				<Star size={20} />
 			{:else}
-			<EmptyStar
-				size={20} />
+				<EmptyStar size={20} />
 			{/if}
-			<span >Favourites</span>
+			<span>Favourites</span>
 		</button>
 	</div>
 	<div
-		class="relative ml-auto shrink-0 gap-4 flex justify-end items-center text-base">
+		class="relative ml-auto shrink-0 gap-4 flex justify-end items-center text-base"
+	>
 		{#if dataState.currentVault.id !== "all"}
+			<button
+				class="rounded-lg p-2.5 flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				onclick={() => (showShareFolderList = true)}
+				aria-label="Share Folder"
+				aria-haspopup="dialog"
+				aria-expanded={showShareFolderList}
+			>
+				<span class="mr-2 pl-2 whitespace-nowrap">Share Folder</span>
+				<TwoPeople size={24} />
+			</button>
 			<button
 				class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
 				onclick={(e) => {
@@ -82,7 +98,9 @@
 				aria-label="Delete Folder"
 				><Bin
 					color={deleteBtnHoved ? "#FF6A6A" : "#85889C"}
-					size={24} /></button>
+					size={24}
+				/></button
+			>
 		{/if}
 		<button
 			class=" rounded-lg p-2.5 flex justify-center items-center cursor-pointer {addCredentialHovered
@@ -90,9 +108,23 @@
 				: 'bg-osvauld-fieldActive text-osvauld-fieldText'}"
 			onmouseenter={() => (addCredentialHovered = true)}
 			onmouseleave={() => (addCredentialHovered = false)}
-			onclick={handleAddNote}>
+			onclick={handleAddNote}
+		>
 			<span class="mr-2 pl-2">New Note</span>
 			<Add color={addCredentialHovered ? "#010109" : "#85889C"} size={24} />
 		</button>
 	</div>
+
+	{#if showShareFolderList}
+		<div
+			class="bg-transparent fixed inset-0"
+			role="presentation"
+			aria-hidden="true"
+			onclick={(e) => {
+				e.stopPropagation();
+				showShareFolderList = false;
+			}}
+		></div>
+		<ShareFolder bind:showShareList={showShareFolderList} />
+	{/if}
 </div>

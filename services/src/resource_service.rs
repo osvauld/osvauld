@@ -10,6 +10,12 @@ use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+#[derive(Debug)]
+pub struct ResourceSharingData {
+    pub resource_key: ResourceKey,
+    pub share_record: ShareRecord,
+    pub vector_clocks: Vec<ResourceVectorClock>,
+}
 
 /// Create a new resource with all its dependencies
 pub async fn create_resource(
@@ -277,16 +283,25 @@ async fn decrypt_resources(
 
     Ok(decrypted_resources)
 }
-
-pub async fn share_resource(
+pub async fn prepare_share_resource(
     recipient_user_id: &str,
     resource_id: &str,
     permissions: Vec<(String, String)>,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
-) -> ServiceResult<()> {
-    // 1. Get the resource key for the current user
+) -> ServiceResult<Option<ResourceSharingData>> {
+    // 1. Check if resource is already shared with recipient
+    if repo_ctx
+        .resource_key_repo
+        .find_by_resource_and_user(resource_id, recipient_user_id)
+        .await
+        .is_ok()
+    {
+        return Ok(None); // Already shared
+    }
+
+    // 2. Get the resource key for the current user
     let resource_key = repo_ctx
         .resource_key_repo
         .find_by_resource_and_user(resource_id, &current_user.id)
@@ -306,20 +321,17 @@ pub async fn share_resource(
         .find_owner_by_resource_id(resource_id)
         .await?;
 
-    // 2. Get the recipient user to access their public key
-    let recipient_user = repo_ctx
-        .user_repo
-        .get_user_by_id(&recipient_user_id)
-        .await?;
+    // 3. Get the recipient user to access their public key
+    let recipient_user = repo_ctx.user_repo.get_user_by_id(recipient_user_id).await?;
 
-    // 3. Encrypt the resource key for the recipient using their public key
+    // 4. Encrypt the resource key for the recipient using their public key
     let new_encryption_key = {
         let crypto = crypto_utils.lock().await;
         crypto
             .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_user.public_key)?
     };
 
-    // 4. Create the new resource key for the recipient
+    // 5. Create the new resource key for the recipient
     let new_resource_key = ResourceKey::new(
         resource_id.to_string(),
         recipient_user_id.to_string(),
@@ -329,7 +341,7 @@ pub async fn share_resource(
 
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
-    // 5. Create the signature for the share record
+    // 6. Create the signature for the share record
     let repo_ctx_clone = repo_ctx.clone();
     let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
 
@@ -348,7 +360,7 @@ pub async fn share_resource(
             .await?
     };
 
-    // 6. Create the share record
+    // 7. Create the share record
     let share_record = ShareRecord::prepare_share_record(
         resource_id.to_string(),
         current_user.id.to_string(),
@@ -358,25 +370,55 @@ pub async fn share_resource(
         ucan_cid,
     );
 
-    // 7. Get recipient's devices to create vector clocks
+    // 8. Get recipient's devices to create vector clocks
     let recipient_devices = repo_ctx
         .device_repo
-        .get_devices_by_user_id(&recipient_user_id)
+        .get_devices_by_user_id(recipient_user_id)
         .await?;
 
     let recipient_device_ids: Vec<String> =
         recipient_devices.iter().map(|d| d.id.clone()).collect();
 
-    // 8. Create vector clocks for recipient's devices
+    // 9. Create vector clocks for recipient's devices
     let recipient_vector_clocks =
-        ResourceVectorClock::create_entries_for_sharing(&resource_id, &recipient_device_ids);
+        ResourceVectorClock::create_entries_for_sharing(resource_id, &recipient_device_ids);
 
-    // 9. Save everything in a single transaction
-    repo_ctx
-        .resource_repo
-        .share_resource_transaction(&new_resource_key, &share_record, &recipient_vector_clocks)
-        .await?;
+    Ok(Some(ResourceSharingData {
+        resource_key: new_resource_key,
+        share_record,
+        vector_clocks: recipient_vector_clocks,
+    }))
+}
 
+pub async fn share_resource(
+    recipient_user_id: &str,
+    resource_id: &str,
+    permissions: Vec<(String, String)>,
+    current_user: &User,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+) -> ServiceResult<()> {
+    if let Some(sharing_data) = prepare_share_resource(
+        recipient_user_id,
+        resource_id,
+        permissions,
+        current_user,
+        repo_ctx.clone(),
+        crypto_utils,
+    )
+    .await?
+    {
+        // Save to repository if sharing is needed
+        repo_ctx
+            .resource_repo
+            .share_resource_transaction(
+                &sharing_data.resource_key,
+                &sharing_data.share_record,
+                &sharing_data.vector_clocks,
+            )
+            .await?;
+    }
+    // If None, resource was already shared - do nothing
     Ok(())
 }
 

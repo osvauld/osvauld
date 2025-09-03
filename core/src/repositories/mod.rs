@@ -1,7 +1,7 @@
 use crate::models::{
-    Certificate, Device, Folder, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData,
-    ResourceSyncData, ResourceVectorClock, ResourceWithKey, ShareRecord, User, UserWithDeviceIds,
-    UserWithDevices,
+    Certificate, Device, Folder, FolderShareRecord, Resource, ResourceKey, ResourceKeyPair,
+    ResourceManifestData, ResourceSyncData, ResourceVectorClock, ResourceWithKey, ShareRecord,
+    User, UserWithDeviceIds, UserWithDevices,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -19,7 +19,12 @@ pub enum RepositoryError {
 
 #[async_trait]
 pub trait FolderRepository: Send + Sync {
-    async fn save(&self, folder: &Folder) -> Result<(), RepositoryError>;
+    async fn save_folder_with_share_record(
+        &self,
+        folder: &Folder,
+        folder_share_record: &FolderShareRecord,
+    ) -> Result<(), RepositoryError>;
+
     async fn find_all(&self) -> Result<Vec<Folder>, RepositoryError>;
     async fn find_by_id(&self, id: &str) -> Result<Folder, RepositoryError>;
     async fn soft_delete(&self, id: &str) -> Result<(), RepositoryError>;
@@ -308,4 +313,38 @@ pub trait ShareRepository: Send + Sync {
         resource_id: &str,
         user_id: &str,
     ) -> Result<String, RepositoryError>;
+}
+#[async_trait]
+pub trait FolderShareRecordRepository: Send + Sync {
+    /// Save a single folder share record
+    async fn save(&self, folder_share_record: &FolderShareRecord) -> Result<(), RepositoryError>;
+
+    /// Get all share records for a specific folder (who has access to this folder)
+    async fn get_records_by_folder_id(
+        &self,
+        folder_id: &str,
+    ) -> Result<Vec<FolderShareRecord>, RepositoryError>;
+
+    /// Get all folders shared with a specific user
+    async fn get_records_by_recipient_user_id(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<FolderShareRecord>, RepositoryError>;
+
+    /// Bulk save folder share records with conflict ignore (for sync operations)
+    async fn save_bulk_with_conflict_ignore(
+        &self,
+        folder_share_records: &[FolderShareRecord],
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
+    async fn share_folder_transaction(
+        &self,
+        folder_share_record: &FolderShareRecord,
+        resource_keys: &[ResourceKey],
+        resource_share_records: &[ShareRecord],
+        resource_vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
+
+    async fn get_shared_users(&self, folder_id: &str) -> Result<Vec<User>, RepositoryError>;
 }

@@ -1,10 +1,11 @@
 use crate::DbConnection;
-use crate::database::schema::{folders, resources};
-use crate::models::FolderModel;
+use crate::database::schema::{folder_share_records, folders, resources};
+use crate::models::{FolderModel, FolderShareRecordModel};
 use async_trait::async_trait;
 use chrono::Local;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
+use osvauld_core::models::FolderShareRecord;
 use osvauld_core::models::folder::Folder;
 use osvauld_core::repositories::{FolderRepository, RepositoryError};
 pub struct SqliteFolderRepository {
@@ -19,19 +20,34 @@ impl SqliteFolderRepository {
 
 #[async_trait]
 impl FolderRepository for SqliteFolderRepository {
-    async fn save(&self, folder: &Folder) -> Result<(), RepositoryError> {
+    async fn save_folder_with_share_record(
+        &self,
+        folder: &Folder,
+        folder_share_record: &FolderShareRecord,
+    ) -> Result<(), RepositoryError> {
         let mut conn = self.connection.lock().await;
         let folder_model = FolderModel::from(folder);
+        let folder_share_model = FolderShareRecordModel::from(folder_share_record);
 
-        diesel::insert_into(folders::table)
-            .values(&folder_model)
-            .execute(&mut *conn)
-            .map_err(|e| {
-                RepositoryError::DatabaseError(format!(
-                    "Failed to save folder '{}' with id '{}': {}",
-                    folder.name, folder.id, e
-                ))
-            })?;
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // Save the folder first
+            diesel::insert_into(folders::table)
+                .values(&folder_model)
+                .execute(conn)?;
+
+            // Save the folder share record
+            diesel::insert_into(folder_share_records::table)
+                .values(&folder_share_model)
+                .execute(conn)?;
+
+            Ok(())
+        })
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to save folder '{}' with share record in transaction: {}",
+                folder.name, e
+            ))
+        })?;
 
         Ok(())
     }
@@ -106,6 +122,7 @@ impl FolderRepository for SqliteFolderRepository {
 
         let folder_model = folders::table
             .filter(folders::deleted.eq(false))
+            .filter(folders::default_folder.eq(true))
             .order_by(folders::created_at.asc())
             .first::<FolderModel>(&mut *conn)
             .map_err(|e| match e {

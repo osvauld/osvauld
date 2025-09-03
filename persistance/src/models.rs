@@ -1,8 +1,10 @@
+use crate::database::schema::folder_share_records;
 use crate::database::schema::{
     devices, folders, resource_keys, resource_vector_clocks, resources, share_records, users,
 };
 use diesel::associations::Associations;
 use diesel::prelude::*;
+use osvauld_core::models::folder_share_record::FolderShareRecord as DomainFolderShareRecord;
 use osvauld_core::models::{
     ResourceType,
     device::Device as DomainDevice,
@@ -13,7 +15,6 @@ use osvauld_core::models::{
     user::User as DomainUser,
     vector_clock::ResourceVectorClock as DomainResourceVectorClock,
 };
-
 #[derive(Queryable, Insertable)]
 #[diesel(table_name = folders)]
 pub struct FolderModel {
@@ -388,6 +389,60 @@ impl From<&DomainShareRecord> for ShareRecordModel {
         Self {
             id: record.id.clone(),
             resource_id: record.resource_id.clone(),
+            shared_by_user_id: record.shared_by_user_id.clone(),
+            recipient_user_id: record.recipient_user_id.clone(),
+            permission_level: record.permission_level.to_string(),
+            ucan_token: record.ucan_token.clone(),
+            ucan_cid: record.ucan_cid.clone(),
+            operation_type: record.operation_type.to_string(),
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Identifiable, Associations)]
+#[diesel(belongs_to(FolderModel, foreign_key = folder_id))]
+#[diesel(table_name = folder_share_records)]
+pub struct FolderShareRecordModel {
+    pub id: String,
+    pub folder_id: String,
+    pub shared_by_user_id: String,
+    pub recipient_user_id: String,
+    pub permission_level: String,
+    pub ucan_token: String,
+    pub ucan_cid: String,
+    pub operation_type: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl FolderShareRecordModel {
+    pub fn to_domain(&self) -> DomainFolderShareRecord {
+        DomainFolderShareRecord {
+            id: self.id.clone(),
+            folder_id: self.folder_id.clone(),
+            shared_by_user_id: self.shared_by_user_id.clone(),
+            recipient_user_id: self.recipient_user_id.clone(),
+            ucan_token: self.ucan_token.clone(),
+            ucan_cid: self.ucan_cid.clone(),
+            permission_level: PermissionLevel::from(self.permission_level.clone()),
+            operation_type: ShareOperation::from(self.operation_type.clone()),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+
+    pub fn to_domain_records(models: Vec<FolderShareRecordModel>) -> Vec<DomainFolderShareRecord> {
+        models.into_iter().map(|m| m.to_domain()).collect()
+    }
+}
+
+impl From<&DomainFolderShareRecord> for FolderShareRecordModel {
+    fn from(record: &DomainFolderShareRecord) -> Self {
+        Self {
+            id: record.id.clone(),
+            folder_id: record.folder_id.clone(),
             shared_by_user_id: record.shared_by_user_id.clone(),
             recipient_user_id: record.recipient_user_id.clone(),
             permission_level: record.permission_level.to_string(),

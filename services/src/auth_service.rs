@@ -3,18 +3,16 @@ use crypto_utils::{
     CryptoUtils, change_certificate_password, export_certificate as crypto_export_certificate,
     generate_and_encrypt_ed25519_key, generate_keys, get_key_id, import_certificate,
 };
-use osvauld_core::models::Certificate;
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
+use osvauld_core::models::{Certificate, Folder, FolderShareRecord, PermissionLevel};
 use persistance::database::RepositoryContext;
 use rand::{RngCore, rngs::OsRng};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 async fn create_certificate(username: &str, passphrase: &str) -> ServiceResult<Certificate> {
-    // Direct use of ? operator - CryptoError automatically converts to AuthServiceError
     let primary_key = generate_keys(passphrase, username)?;
-
     let certificate = Certificate {
         private_key: primary_key.private_key.clone(),
         public_key: primary_key.public_key.clone(),
@@ -29,7 +27,6 @@ async fn create_device(
     user_public_key: &str,
     user_id: &str,
 ) -> ServiceResult<(Device, Certificate)> {
-    // Direct use of ? operator
     let (encrypted_key, public_key) = generate_and_encrypt_ed25519_key(user_public_key)?;
 
     let device_certificate = Certificate {
@@ -47,8 +44,8 @@ pub async fn handle_signup(
     username: &str,
     passphrase: &str,
     repo_context: Arc<RepositoryContext>,
+    domain: &str,
 ) -> ServiceResult<()> {
-    // Direct use of ? for repository errors
     let is_already_signed_up = repo_context.store_repo.is_signed_up().await?;
 
     if is_already_signed_up {
@@ -68,11 +65,21 @@ pub async fn handle_signup(
         )
         .map_err(|_| AuthServiceError::InvalidPassphrase)?;
 
-    let ucan_certificate = generate_ucan_key(&crypto).await?;
-    crypto.clear_cert();
-
-    // Direct use of ? operator
     let user_id = get_key_id(&primary_certificate.public_key)?;
+    let ucan_certificate = generate_ucan_key(&crypto).await?;
+    let default_folder = Folder::new("default".to_string(), None, true);
+    let (folder_ucan, ucan_cid) = crypto
+        .generate_folder_owner_ucan(&ucan_certificate.private_key, &default_folder.id, domain)
+        .await?;
+    let folder_share_record = FolderShareRecord::prepare_folder_share_record(
+        default_folder.id.clone(),
+        user_id.clone(),
+        user_id.clone(),
+        PermissionLevel::Admin,
+        folder_ucan,
+        ucan_cid,
+    );
+    crypto.clear_cert();
 
     let user = User::new(
         username.to_string(),
@@ -89,7 +96,6 @@ pub async fn handle_signup(
     // Create device and device certificate
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
 
-    // Direct use of ? operator
     repo_context
         .user_repo
         .commit_signup_transaction(
@@ -101,13 +107,16 @@ pub async fn handle_signup(
             &ucan_certificate,
         )
         .await?;
+    repo_context
+        .folder_repo
+        .save_folder_with_share_record(&default_folder, &folder_share_record)
+        .await?;
 
     Ok(())
 }
 
 /// Check if user is already signed up
 pub async fn is_signed_up(repo_ctx: Arc<RepositoryContext>) -> ServiceResult<bool> {
-    // Direct use of ? operator
     Ok(repo_ctx.store_repo.is_signed_up().await?)
 }
 
@@ -135,11 +144,9 @@ pub async fn load_certificate(
 
     let public_key = {
         let crypto = crypto_utils.lock().await;
-        // Direct use of ? operator
         crypto.get_public_key()?
     };
 
-    // Direct use of ? operator
     let user_id = get_key_id(&public_key)?;
 
     // Map specific errors where needed
@@ -180,7 +187,6 @@ pub async fn export_certificate(
         .await
         .map_err(|_| AuthServiceError::CertificateNotFound)?;
 
-    // Direct use of ? operator - CryptoError propagates automatically
     Ok(crypto_export_certificate(
         &passphrase,
         &certificate.private_key,
@@ -199,7 +205,6 @@ pub async fn change_passphrase(
         .await
         .map_err(|_| AuthServiceError::CertificateNotFound)?;
 
-    // Direct use of ? operator
     let new_private_key = change_certificate_password(
         &certificate.private_key,
         &certificate.salt,
@@ -213,7 +218,6 @@ pub async fn change_passphrase(
         salt: certificate.salt,
     };
 
-    // Direct use of ? operator
     repo_ctx
         .store_repo
         .store_certificate(
@@ -233,7 +237,6 @@ pub async fn import_user(
     peer_device_id: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(User, Certificate)> {
-    // Direct use of ? operator
     let result = import_certificate(certificate, passphrase)?;
     let user_id = get_key_id(&result.public_key)?;
 
@@ -275,7 +278,6 @@ pub async fn import_user(
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
     crypto.clear_cert();
 
-    // Direct use of ? operator
     repo_ctx
         .user_repo
         .commit_signup_transaction(
@@ -304,7 +306,6 @@ pub fn generate_challenge() -> String {
 }
 
 async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> ServiceResult<Certificate> {
-    // Direct use of ? operator
     let (encrypted_ucan_private_key, ucan_public_key) =
         crypto_utils.generate_and_encrypt_ucan_key()?;
 
@@ -322,12 +323,10 @@ pub async fn generate_one_time_ucan_token(
     crypto_utils: &Arc<Mutex<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(String, String)> {
-    // Direct use of ? operator
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
     let (ucan_token, ucan_public_key) = {
         let crypto = crypto_utils.lock().await;
-        // Direct use of ? operator
         crypto
             .generate_one_time_user_connect_token(&encrypted_ucan_pvt_key, capability_str)
             .await?

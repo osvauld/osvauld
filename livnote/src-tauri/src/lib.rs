@@ -14,7 +14,8 @@ use crate::handlers::auth_handler::{
     handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{
-    handle_add_folder, handle_get_folders, handle_soft_delete_folder,
+    handle_add_folder, handle_get_folders, handle_get_shared_folder_users, handle_share_folder,
+    handle_soft_delete_folder,
 };
 use crate::handlers::resource_handler::{
     emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
@@ -178,6 +179,8 @@ pub fn run() {
             get_one_time_ucan_token,
             handle_logout,
             handle_search_resources,
+            handle_share_folder,
+            handle_get_shared_folder_users,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

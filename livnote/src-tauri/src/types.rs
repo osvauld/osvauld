@@ -71,6 +71,7 @@ pub enum CryptoResponse {
     GetKnownUsers(Vec<User>),
     UserDetailsForShare(String),
     OneTimeUcanToken(UcanOneTimeTokenOut),
+    Users(Vec<User>),
 }
 
 #[derive(Deserialize)]
@@ -156,6 +157,19 @@ pub struct AddFolderInput {
 #[serde(rename_all = "camelCase")]
 pub struct SoftDeleteFolder {
     pub folder_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FolderShareUsersInput {
+    pub folder_id: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareFolder {
+    pub folder_id: String,
+    pub user_id: String,
+    pub permissions: Vec<(String, String)>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
