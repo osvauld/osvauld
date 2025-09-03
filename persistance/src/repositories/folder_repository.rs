@@ -5,8 +5,8 @@ use async_trait::async_trait;
 use chrono::Local;
 use diesel::prelude::*;
 use diesel::result::Error as DieselError;
-use osvauld_core::models::FolderShareRecord;
 use osvauld_core::models::folder::Folder;
+use osvauld_core::models::{FolderManifestData, FolderShareRecord};
 use osvauld_core::repositories::{FolderRepository, RepositoryError};
 pub struct SqliteFolderRepository {
     connection: DbConnection,
@@ -180,5 +180,53 @@ impl FolderRepository for SqliteFolderRepository {
                 e
             ))
         })
+    }
+    async fn get_folder_manifest_for_user(
+        &self,
+        peer_user_id: &str,
+    ) -> Result<Vec<FolderManifestData>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        // First, get all folder IDs where peer_user is a recipient
+        let folder_ids: Vec<String> = folder_share_records::table
+            .filter(folder_share_records::recipient_user_id.eq(peer_user_id))
+            .select(folder_share_records::folder_id)
+            .distinct()
+            .load::<String>(&mut *conn)
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get folders for peer user '{}': {}",
+                    peer_user_id, e
+                ))
+            })?;
+
+        if folder_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // For each folder, get ALL recipient user IDs
+        let mut folder_manifest_data = Vec::new();
+
+        for folder_id in folder_ids {
+            // Get all recipients for this folder
+            let recipient_ids: Vec<String> = folder_share_records::table
+                .filter(folder_share_records::folder_id.eq(&folder_id))
+                .select(folder_share_records::recipient_user_id)
+                .distinct()
+                .load::<String>(&mut *conn)
+                .map_err(|e| {
+                    RepositoryError::DatabaseError(format!(
+                        "Failed to get recipients for folder '{}': {}",
+                        folder_id, e
+                    ))
+                })?;
+
+            folder_manifest_data.push(FolderManifestData {
+                folder_id,
+                recipient_user_ids: recipient_ids,
+            });
+        }
+
+        Ok(folder_manifest_data)
     }
 }

@@ -3,6 +3,7 @@ pub mod constants;
 pub mod device_sync;
 pub mod emitter;
 pub mod errors;
+pub mod folder_sync;
 pub mod handshake;
 pub mod incoming;
 pub mod incoming_handler;

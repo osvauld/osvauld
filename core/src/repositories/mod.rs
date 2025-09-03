@@ -1,7 +1,7 @@
 use crate::models::{
-    Certificate, Device, Folder, FolderShareRecord, Resource, ResourceKey, ResourceKeyPair,
-    ResourceManifestData, ResourceSyncData, ResourceVectorClock, ResourceWithKey, ShareRecord,
-    User, UserWithDeviceIds, UserWithDevices,
+    Certificate, Device, Folder, FolderManifestData, FolderShareRecord, Resource, ResourceKey,
+    ResourceKeyPair, ResourceManifestData, ResourceSyncData, ResourceVectorClock, ResourceWithKey,
+    ShareRecord, User, UserWithDeviceIds, UserWithDevices,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -34,6 +34,10 @@ pub trait FolderRepository: Send + Sync {
         folder_ids: &[String],
     ) -> Result<Vec<Folder>, RepositoryError>;
     async fn add_folders_bulk(&self, folders: &[Folder]) -> Result<(), RepositoryError>;
+    async fn get_folder_manifest_for_user(
+        &self,
+        peer_user_id: &str,
+    ) -> Result<Vec<FolderManifestData>, RepositoryError>;
 }
 
 #[async_trait]

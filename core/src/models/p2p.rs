@@ -2,6 +2,8 @@ use crate::models::ResourceKey;
 
 use super::ResourceSyncData;
 use super::device::Device;
+use super::folder::Folder;
+use super::folder_share_record::FolderShareRecord;
 use super::share_record::ShareRecord;
 use super::sync::{
     DeviceManifestComparisonResult, DeviceManifestRequestPayload, DeviceNetworkSyncPayload,
@@ -29,6 +31,7 @@ pub enum Message {
     UserManifestPayload(UserManifestPayload),
     UserNetworkSync(UserNetworkSyncPayload),
     UserNetworkSyncAck,
+    FolderSync(FolderSyncMessage),
     RetryRequest,
     Handshake(HandshakeMessage),
 }
@@ -156,4 +159,34 @@ pub enum LiveEditMessage {
         client_id: u32,
         awareness_data: Vec<u8>,
     },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FolderSyncMessage {
+    // Initial exchange of unknown folders
+    UnknownFoldersPayload(UnknownFoldersPayload),
+    UnknownFoldersAck,
+
+    // Sync recipient differences for common folders
+    FolderRecipientSyncPayload(FolderRecipientSyncPayload),
+    FolderRecipientSyncAck,
+
+    // Completion
+    FolderSyncComplete,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UnknownFoldersPayload {
+    pub folders: Vec<Folder>,
+    pub folder_share_records: Vec<FolderShareRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderRecipientSyncPayload {
+    pub folder_recipient_updates: Vec<FolderRecipientUpdate>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderRecipientUpdate {
+    pub folder_id: String,
+    pub new_share_records: Vec<FolderShareRecord>,
 }
