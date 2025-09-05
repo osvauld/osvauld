@@ -1,5 +1,6 @@
 use crate::EventManager;
 use log::{error, info};
+use osvauld_core::models::Folder;
 use serde_json::json;
 
 /// Real-time document update and resource handlers
@@ -145,6 +146,14 @@ impl EventManager {
         if let Err(e) = self.emit_json(
             "resource-added-notification",
             json!({ "username": username, "resource_id": resource_id }),
+        ) {
+            error!("Failed to emit added notification: {}", e);
+        }
+    }
+    pub(crate) async fn handle_folders_added(&self, folders: Vec<Folder>) {
+        if let Err(e) = self.emit_json(
+            "folders-added-notification",
+            json!({ "folders": folders.clone()}),
         ) {
             error!("Failed to emit added notification: {}", e);
         }

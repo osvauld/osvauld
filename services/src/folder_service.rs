@@ -3,7 +3,10 @@ use crate::{
     prepare_share_resource,
 };
 use crypto_utils::{CryptoUtils, errors::UcanError};
-use osvauld_core::models::{Folder, FolderShareRecord, PermissionLevel, User};
+use osvauld_core::models::{
+    Folder, FolderRecipientDiff, FolderRecipientUpdate, FolderShareRecord, FolderWithShareRecords,
+    PermissionLevel, UnknownFoldersPayload, User,
+};
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -150,16 +153,14 @@ pub async fn share_folder(
     );
 
     // 4. Get all resources in folder and prepare sharing data
-    let folder_resources = repo_ctx
+    let resource_ids = repo_ctx
         .resource_repo
-        .find_all_by_folder(folder_id, &current_user.id)
+        .get_resource_ids_by_folder_id(folder_id)
         .await?;
 
     let mut all_resource_sharing_data = Vec::new();
 
-    for resource_with_key in folder_resources {
-        let resource_id = &resource_with_key.resource.id;
-
+    for resource_id in resource_ids {
         // Create full resource permissions for each resource
         let resource_permissions = vec![
             (
@@ -179,7 +180,7 @@ pub async fn share_folder(
         // Prepare sharing data - this will return None if already shared
         if let Some(sharing_data) = prepare_share_resource(
             recipient_user_id,
-            resource_id,
+            &resource_id,
             resource_permissions,
             current_user,
             repo_ctx.clone(),
@@ -235,4 +236,152 @@ pub async fn get_folder_shared_users(
         .folder_share_repo
         .get_shared_users(folder_id)
         .await?)
+}
+
+pub async fn create_unknown_folders_payload(
+    folder_ids: &[String],
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<UnknownFoldersPayload> {
+    if folder_ids.is_empty() {
+        return Ok(UnknownFoldersPayload {
+            folder_data: Vec::new(),
+        });
+    }
+
+    // Fetch folders by IDs
+    let folders = repo_ctx.folder_repo.get_folders_by_ids(folder_ids).await?;
+
+    // Build folder data with their respective share records
+    let mut folder_data = Vec::new();
+
+    for folder in folders {
+        let share_records = repo_ctx
+            .folder_share_repo
+            .get_records_by_folder_id(&folder.id)
+            .await?;
+        folder_data.push(FolderWithShareRecords {
+            folder,
+            share_records,
+        });
+    }
+
+    Ok(UnknownFoldersPayload { folder_data })
+}
+
+pub async fn process_unknown_folders_payload(
+    payload: &UnknownFoldersPayload,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<()> {
+    if payload.folder_data.is_empty() {
+        return Ok(());
+    }
+
+    for folder_pair in payload.folder_data.iter() {
+        repo_ctx
+            .folder_repo
+            .save_folder_with_share_records(&folder_pair.folder, &folder_pair.share_records)
+            .await?;
+    }
+
+    Ok(())
+}
+
+pub async fn get_missing_remote_folder_share_records(
+    missing_recipient_folder: Vec<FolderRecipientDiff>,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Vec<FolderRecipientUpdate>> {
+    let mut folder_recipient_updates = Vec::new();
+    for missing_folder_recipients in missing_recipient_folder.iter() {
+        let mut missing_remote_fsr = Vec::new();
+        let share_records = repo_ctx
+            .folder_repo
+            .get_share_records_for_folder_and_recipients(
+                &missing_folder_recipients.folder_id,
+                &missing_folder_recipients.recipients_only_local_knows,
+            )
+            .await?;
+        missing_remote_fsr.extend(share_records);
+        let update_data = FolderRecipientUpdate {
+            folder_id: missing_folder_recipients.folder_id.clone(),
+            new_share_records: missing_remote_fsr,
+        };
+        folder_recipient_updates.push(update_data);
+    }
+    Ok(folder_recipient_updates)
+}
+
+pub async fn add_missing_recipients(
+    payload: &[FolderRecipientUpdate],
+    missing_remote_resources: &[String],
+    repo_ctx: Arc<RepositoryContext>,
+    recipient_user_id: &str,
+    current_user: &User,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    domain: &str,
+) -> ServiceResult<()> {
+    let folder_resource_pair = repo_ctx
+        .resource_repo
+        .get_folder_ids_for_resources(missing_remote_resources)
+        .await?;
+    let mut missing_share_data = Vec::new();
+
+    for recipient_map in payload.iter() {
+        let value = folder_resource_pair.get(&recipient_map.folder_id);
+        if let Some(resource_ids) = value {
+            for resource_id in resource_ids.iter() {
+                let resource_permissions = vec![
+                    (
+                        format!("{}:resource:{}", domain, resource_id),
+                        "crud/read".to_string(),
+                    ),
+                    (
+                        format!("{}:resource:{}", domain, resource_id),
+                        "crud/update".to_string(),
+                    ),
+                    (
+                        format!("{}:resource:{}", domain, resource_id),
+                        "ucan/share".to_string(),
+                    ),
+                ];
+                let share_data = prepare_share_resource(
+                    recipient_user_id,
+                    resource_id,
+                    resource_permissions,
+                    &current_user,
+                    repo_ctx.clone(),
+                    crypto_utils,
+                )
+                .await?;
+                if let Some(share_data) = share_data {
+                    missing_share_data.push(share_data);
+                }
+            }
+        }
+    }
+    let resource_keys: Vec<_> = missing_share_data
+        .iter()
+        .map(|d| d.resource_key.clone())
+        .collect();
+    let resource_share_records: Vec<_> = missing_share_data
+        .iter()
+        .map(|d| d.share_record.clone())
+        .collect();
+    let all_vector_clocks: Vec<_> = missing_share_data
+        .iter()
+        .flat_map(|d| d.vector_clocks.clone())
+        .collect();
+    let folder_share_records: Vec<_> = payload
+        .iter()
+        .flat_map(|element| element.new_share_records.clone())
+        .collect();
+    repo_ctx
+        .resource_repo
+        .save_resource_and_folder_sharing_data(
+            &resource_keys,
+            &resource_share_records,
+            &all_vector_clocks,
+            &folder_share_records,
+        )
+        .await?;
+    Ok(())
 }

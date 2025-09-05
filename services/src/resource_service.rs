@@ -1,6 +1,6 @@
 use crate::errors::{ResourceServiceError, ServiceResult};
 use crypto_utils::{CryptoUtils, encrypt_data_for_user, errors::UcanError};
-use log::info;
+use log::{error, info};
 use osvauld_core::models::{
     DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
     ResourceWithKey, ShareOperation, ShareRecord, User,
@@ -35,7 +35,7 @@ pub async fn create_resource(
     let mut resource = Resource::new(
         resource_type,
         encrypted_data,
-        folder_id,
+        folder_id.clone(),
         "signature".to_string(),
         user.id.clone(),
     );
@@ -87,7 +87,31 @@ pub async fn create_resource(
         .await?;
 
     let decrypted_resource =
-        get_resource_by_id_direct(&resource.id, &user.id, repo_ctx, crypto_utils).await?;
+        get_resource_by_id_direct(&resource.id, &user.id, repo_ctx.clone(), crypto_utils).await?;
+    let repo_ctx_clone = repo_ctx.clone();
+    let crypto_utils_clone = crypto_utils.clone();
+    let user_clone = user.clone();
+    let folder_id_clone = folder_id.clone();
+    let domain_clone = domain.to_string();
+    let resource_id = resource.id.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = auto_share_resource_with_folder_users(
+            &resource_id,
+            &folder_id_clone,
+            &user_clone,
+            repo_ctx_clone,
+            &crypto_utils_clone,
+            &domain_clone,
+        )
+        .await
+        {
+            error!(
+                "Failed to auto-share resource {} in folder {} with folder users: {}",
+                resource_id, folder_id_clone, e
+            );
+        }
+    });
 
     Ok(decrypted_resource)
 }
@@ -316,11 +340,6 @@ pub async fn prepare_share_resource(
         )
         .await?;
 
-    let resource_owner = repo_ctx
-        .resource_repo
-        .find_owner_by_resource_id(resource_id)
-        .await?;
-
     // 3. Get the recipient user to access their public key
     let recipient_user = repo_ctx.user_repo.get_user_by_id(recipient_user_id).await?;
 
@@ -351,7 +370,7 @@ pub async fn prepare_share_resource(
             .issue_delegated_resource_ucan(
                 &encrypted_ucan_pvt_key,
                 &delegator_share_record.ucan_token,
-                &resource_owner.ucan_pub_key,
+                &current_user.ucan_pub_key,
                 resource_id,
                 &recipient_user.ucan_pub_key,
                 permissions,
@@ -747,4 +766,150 @@ async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<
         .get_ucan_by_cid(&cid)
         .await
         .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
+}
+
+/// Auto-share a resource with all users who have access to the folder
+/// This runs in background to avoid blocking the frontend response
+async fn auto_share_resource_with_folder_users(
+    resource_id: &str,
+    folder_id: &str,
+    current_user: &User,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    domain: &str,
+) -> ServiceResult<()> {
+    info!(
+        "Starting auto-share for resource {} in folder {}",
+        resource_id, folder_id
+    );
+
+    // 1. Get users who have access to this folder
+    let shared_users = match repo_ctx.folder_share_repo.get_shared_users(folder_id).await {
+        Ok(users) => users,
+        Err(e) => {
+            error!("Failed to get shared users for folder {}: {}", folder_id, e);
+            return Err(e.into());
+        }
+    };
+
+    // 2. Filter out current user (already has access)
+    let recipient_users: Vec<_> = shared_users
+        .iter()
+        .filter(|user| user.id != current_user.id)
+        .collect();
+
+    if recipient_users.is_empty() {
+        info!(
+            "No other users to share resource {} with in folder {}",
+            resource_id, folder_id
+        );
+        return Ok(());
+    }
+
+    info!(
+        "Found {} users to auto-share resource {} with",
+        recipient_users.len(),
+        resource_id
+    );
+
+    // 3. Prepare sharing data for each recipient
+    let mut all_sharing_data = Vec::new();
+
+    for recipient_user in recipient_users {
+        // Create resource permissions (same as folder sharing)
+        let resource_permissions = vec![
+            (
+                format!("{}:resource:{}", domain, resource_id),
+                "crud/read".to_string(),
+            ),
+            (
+                format!("{}:resource:{}", domain, resource_id),
+                "crud/update".to_string(),
+            ),
+            (
+                format!("{}:resource:{}", domain, resource_id),
+                "ucan/share".to_string(),
+            ),
+        ];
+
+        // Prepare sharing data
+        match prepare_share_resource(
+            &recipient_user.id,
+            resource_id,
+            resource_permissions,
+            current_user,
+            repo_ctx.clone(),
+            crypto_utils,
+        )
+        .await
+        {
+            Ok(Some(sharing_data)) => {
+                info!(
+                    "Prepared sharing data for user {} on resource {}",
+                    recipient_user.id, resource_id
+                );
+                all_sharing_data.push(sharing_data);
+            }
+            Ok(None) => {
+                info!(
+                    "Resource {} already shared with user {}, skipping",
+                    resource_id, recipient_user.id
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to prepare sharing data for user {} on resource {}: {}",
+                    recipient_user.id, resource_id, e
+                );
+                // Continue with other users instead of failing completely
+                continue;
+            }
+        }
+    }
+
+    // 4. Batch save all sharing data if we have any
+    if !all_sharing_data.is_empty() {
+        let resource_keys: Vec<_> = all_sharing_data
+            .iter()
+            .map(|d| d.resource_key.clone())
+            .collect();
+        let share_records: Vec<_> = all_sharing_data
+            .iter()
+            .map(|d| d.share_record.clone())
+            .collect();
+        let vector_clocks: Vec<_> = all_sharing_data
+            .iter()
+            .flat_map(|d| d.vector_clocks.clone())
+            .collect();
+
+        // Save all in a transaction
+        match repo_ctx
+            .resource_repo
+            .save_bulk_sharing_data(&resource_keys, &share_records, &vector_clocks)
+            .await
+        {
+            Ok(()) => {
+                info!(
+                    "Successfully auto-shared resource {} with {} users in folder {}",
+                    resource_id,
+                    all_sharing_data.len(),
+                    folder_id
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to save bulk sharing data for resource {} in folder {}: {}",
+                    resource_id, folder_id, e
+                );
+                return Err(e.into());
+            }
+        }
+    } else {
+        info!(
+            "No new sharing data to save for resource {} in folder {}",
+            resource_id, folder_id
+        );
+    }
+
+    Ok(())
 }

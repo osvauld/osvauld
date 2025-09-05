@@ -1,4 +1,5 @@
 use log::{error, info};
+use osvauld_core::models::Folder;
 use tokio::sync::mpsc;
 
 /// Enum representing various P2P events that can be emitted
@@ -77,6 +78,9 @@ pub enum P2PEvent {
     ResourceAdded {
         resource_id: String,
         username: String,
+    },
+    FoldersAdded {
+        folders: Vec<Folder>,
     },
 }
 

@@ -38,6 +38,22 @@ pub trait FolderRepository: Send + Sync {
         &self,
         peer_user_id: &str,
     ) -> Result<Vec<FolderManifestData>, RepositoryError>;
+
+    async fn save_folder_with_share_records(
+        &self,
+        folder: &Folder,
+        share_records: &[FolderShareRecord],
+    ) -> Result<(), RepositoryError>;
+    async fn get_share_records_for_folder_and_recipients(
+        &self,
+        folder_id: &str,
+        recipient_ids: &[String],
+    ) -> Result<Vec<FolderShareRecord>, RepositoryError>;
+
+    async fn add_folder_share_records_bulk(
+        &self,
+        share_records: &[FolderShareRecord],
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]
@@ -132,6 +148,27 @@ pub trait ResourceRepository: Send + Sync {
     ) -> Result<(), RepositoryError>;
     async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError>;
     async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError>;
+    async fn get_folder_ids_for_resources(
+        &self,
+        resource_ids: &[String],
+    ) -> Result<HashMap<String, Vec<String>>, RepositoryError>;
+    async fn get_resource_ids_by_folder_id(
+        &self,
+        folder_id: &str,
+    ) -> Result<Vec<String>, RepositoryError>;
+    async fn save_resource_and_folder_sharing_data(
+        &self,
+        resource_keys: &[ResourceKey],
+        resource_share_records: &[ShareRecord],
+        vector_clocks: &[ResourceVectorClock],
+        folder_share_records: &[FolderShareRecord],
+    ) -> Result<(), RepositoryError>;
+    async fn save_bulk_sharing_data(
+        &self,
+        resource_keys: &[ResourceKey],
+        share_records: &[ShareRecord],
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

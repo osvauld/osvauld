@@ -389,6 +389,11 @@ class DataState {
     uiState.showToast(message, true);
   }
 
+  async handleFoldersAddedUpdate(event: any) {
+    console.log(event.payload);
+    this.vaults = [...this.vaults, ...event.payload.folders];
+  }
+
   async setupReactiveUpdates() {
     this._unlisteners = [];
 
@@ -398,6 +403,8 @@ class DataState {
     const awarenessUpdatesUnlisten = await listen("awareness-updates", this.handleAwarenessUpdates.bind(this));
     const liveUpdatesUnlisten = await listen("live-updates", this.handleLiveUpdates.bind(this));
     const sharedUsersUpdate = await listen("shared-users-update", this.handleSharedUsersUpdate.bind(this));
+    const foldersAddedUnlisten = await listen(
+      "folders-added-notification", this.handleFoldersAddedUpdate.bind(this))
 
     const resourceAddedNotification = await listen(
       "resource-added-notification",
@@ -412,6 +419,7 @@ class DataState {
       liveUpdatesUnlisten,
       sharedUsersUpdate,
       resourceAddedNotification,
+      foldersAddedUnlisten,
     );
   }
 

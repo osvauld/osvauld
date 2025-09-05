@@ -1,12 +1,15 @@
 use crate::errors::{ServiceResult, SyncServiceError};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{
-    ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
-    DeviceManifestRequestPayload, DeviceNetworkSyncPayload, FolderComparisonResult,
-    FolderManifestData, FolderRecipientDiff, ResourceComparisonResult, ResourceManifestData,
-    ResourceSyncData, ResourceVectorClock, User, UserComparisonResult,
-    UserManifestComparisonResult, UserManifestDifferences, UserManifestRequestPayload,
-    UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices,
+use osvauld_core::{
+    models::{
+        ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
+        DeviceManifestRequestPayload, DeviceNetworkSyncPayload, FolderComparisonResult,
+        FolderManifestData, FolderRecipientDiff, ResourceComparisonResult, ResourceManifestData,
+        ResourceSyncData, ResourceVectorClock, User, UserComparisonResult,
+        UserManifestComparisonResult, UserManifestDifferences, UserManifestRequestPayload,
+        UserNetworkSyncPayload, UserWithDeviceIds, UserWithDevices,
+    },
+    repositories::RepositoryError,
 };
 use persistance::database::RepositoryContext;
 use std::{
@@ -402,13 +405,18 @@ pub async fn add_resource_sync(
 ) -> ServiceResult<()> {
     match connection_type {
         ConnectionType::User => {
-            let default_folder = repo_ctx
+            if let Err(RepositoryError::NotFound) = repo_ctx
                 .folder_repo
-                .get_default_folder()
+                .find_by_id(&payload.resource.folder_id)
                 .await
-                .map_err(|_| SyncServiceError::DefaultFolderNotFound)?;
-
-            payload.resource.folder_id = default_folder.id.clone();
+            {
+                let default_folder = repo_ctx
+                    .folder_repo
+                    .get_default_folder()
+                    .await
+                    .map_err(|_| SyncServiceError::DefaultFolderNotFound)?;
+                payload.resource.folder_id = default_folder.id.clone();
+            }
         }
         ConnectionType::Device => {}
     }

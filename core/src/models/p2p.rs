@@ -162,27 +162,19 @@ pub enum LiveEditMessage {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FolderSyncMessage {
-    // Initial exchange of unknown folders
     UnknownFoldersPayload(UnknownFoldersPayload),
-    UnknownFoldersAck,
+    FolderRecipientSyncPayload(Vec<FolderRecipientUpdate>),
+}
 
-    // Sync recipient differences for common folders
-    FolderRecipientSyncPayload(FolderRecipientSyncPayload),
-    FolderRecipientSyncAck,
-
-    // Completion
-    FolderSyncComplete,
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderWithShareRecords {
+    pub folder: Folder,
+    pub share_records: Vec<FolderShareRecord>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct UnknownFoldersPayload {
-    pub folders: Vec<Folder>,
-    pub folder_share_records: Vec<FolderShareRecord>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FolderRecipientSyncPayload {
-    pub folder_recipient_updates: Vec<FolderRecipientUpdate>,
+    pub folder_data: Vec<FolderWithShareRecords>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

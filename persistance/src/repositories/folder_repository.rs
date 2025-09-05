@@ -229,4 +229,113 @@ impl FolderRepository for SqliteFolderRepository {
 
         Ok(folder_manifest_data)
     }
+
+    async fn save_folder_with_share_records(
+        &self,
+        folder: &Folder,
+        share_records: &[FolderShareRecord],
+    ) -> Result<(), RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            let folder_model = FolderModel::from(folder);
+
+            // Insert or update folder (using on_conflict to handle existing folders)
+            diesel::insert_into(folders::table)
+                .values(&folder_model)
+                .on_conflict(folders::id)
+                .do_update()
+                .set((
+                    folders::name.eq(&folder_model.name),
+                    folders::description.eq(&folder_model.description),
+                    folders::updated_at.eq(&folder_model.updated_at),
+                ))
+                .execute(conn)?;
+            for share_record in share_records {
+                // Insert share records for this folder
+                let share_record_model = FolderShareRecordModel::from(share_record);
+
+                diesel::insert_into(folder_share_records::table)
+                    .values(&share_record_model)
+                    .on_conflict(folder_share_records::id)
+                    .do_nothing() // Skip if share record already exists
+                    .execute(conn)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to save {} folder with share records in transaction: {}",
+                folder.name, e
+            ))
+        })?;
+
+        Ok(())
+    }
+
+    /// Get share records for a specific folder and specific recipients
+    async fn get_share_records_for_folder_and_recipients(
+        &self,
+        folder_id: &str,
+        recipient_ids: &[String],
+    ) -> Result<Vec<FolderShareRecord>, RepositoryError> {
+        if recipient_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        let share_record_models = folder_share_records::table
+            .filter(folder_share_records::folder_id.eq(folder_id))
+            .filter(folder_share_records::recipient_user_id.eq_any(recipient_ids))
+            .load::<FolderShareRecordModel>(&mut *conn)
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get share records for folder '{}' and {} recipients: {}",
+                    folder_id,
+                    recipient_ids.len(),
+                    e
+                ))
+            })?;
+
+        Ok(FolderShareRecordModel::to_domain_records(
+            share_record_models,
+        ))
+    }
+
+    /// Add multiple folder share records (used during sync)
+    async fn add_folder_share_records_bulk(
+        &self,
+        share_records: &[FolderShareRecord],
+    ) -> Result<(), RepositoryError> {
+        if share_records.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.connection.lock().await;
+        let share_record_models: Vec<FolderShareRecordModel> = share_records
+            .iter()
+            .map(FolderShareRecordModel::from)
+            .collect();
+
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            for share_record_model in &share_record_models {
+                diesel::insert_into(folder_share_records::table)
+                    .values(share_record_model)
+                    .on_conflict(folder_share_records::id)
+                    .do_nothing() // Skip if already exists
+                    .execute(conn)?;
+            }
+            Ok(())
+        })
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to bulk add {} folder share records: {}",
+                share_records.len(),
+                e
+            ))
+        })?;
+
+        Ok(())
+    }
 }
