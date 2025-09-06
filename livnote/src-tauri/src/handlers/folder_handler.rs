@@ -8,6 +8,7 @@ use crate::{
     user_state::UserState,
 };
 use crypto_utils::CryptoUtils;
+use network::P2PService;
 use persistance::database::RepositoryContext;
 use services::{
     create_folder, get_all_folders, get_folder_shared_users, share_folder, soft_delete_folder,
@@ -84,6 +85,7 @@ pub async fn handle_share_folder(
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     share_folder(
@@ -97,5 +99,9 @@ pub async fn handle_share_folder(
     )
     .await
     .map_err(|e| e.to_string())?;
+    p2p_service
+        .sync_folders(&input.folder_id)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }

@@ -12,7 +12,9 @@ use std::str::FromStr;
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh::{Endpoint, NodeAddr, NodeId, RelayMode};
-use osvauld_core::models::{ConnectionAction, ConnectionType, Device, Message, User};
+use osvauld_core::models::{
+    ConnectionAction, ConnectionType, Device, Message, ShareOperation, User,
+};
 use persistance::database::RepositoryContext;
 use services::generate_challenge;
 use std::collections::HashSet;
@@ -279,6 +281,71 @@ impl P2PService {
                 }
             });
         }
+
+        Ok(())
+    }
+
+    pub async fn sync_folders(&self, folder_id: &str) -> P2PResult<()> {
+        let share_records = self
+            .repo_ctx
+            .folder_share_repo
+            .get_records_by_folder_id(folder_id)
+            .await?;
+        let user_ids: Vec<String> = share_records
+            .into_iter()
+            .map(|record| record.recipient_user_id)
+            .collect();
+        self.connect_with_users(&user_ids).await?;
+        Ok(())
+    }
+
+    async fn connect_with_users(&self, user_ids: &[String]) -> P2PResult<()> {
+        let current_user = self.get_current_user().await?;
+        let user_ids: Vec<String> = user_ids
+            .iter()
+            .filter(|user_id| **user_id != current_user.id)
+            .cloned()
+            .collect();
+        let user_devices = self
+            .repo_ctx
+            .device_repo
+            .get_devices_by_user_ids(&user_ids)
+            .await?;
+
+        for device in user_devices {
+            let self_clone = self.clone();
+            tokio::spawn(async move {
+                match self_clone
+                    .connect_with_ticket(
+                        &device.id,
+                        ConnectionType::User,
+                        Some(ConnectionAction::UserSync),
+                    )
+                    .await
+                {
+                    Ok(_) => {
+                        info!("Successfully connected to other user: {}", &device.id);
+                    }
+                    Err(e) => {
+                        error!("Failed to connect to other user {}: {}", &device.id, e);
+                    }
+                }
+            });
+        }
+        Ok(())
+    }
+
+    pub async fn sync_resource(&self, resource_id: &str) -> P2PResult<()> {
+        let resource_share_records = self
+            .repo_ctx
+            .share_repo
+            .find_by_resource_and_operation(resource_id, &ShareOperation::Share.to_string())
+            .await?;
+        let user_ids: Vec<String> = resource_share_records
+            .into_iter()
+            .map(|record| record.recipient_user_id)
+            .collect();
+        self.connect_with_users(&user_ids).await?;
 
         Ok(())
     }

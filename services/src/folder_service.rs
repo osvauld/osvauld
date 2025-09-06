@@ -276,7 +276,8 @@ pub async fn process_unknown_folders_payload(
         return Ok(());
     }
 
-    for folder_pair in payload.folder_data.iter() {
+    for mut folder_pair in payload.folder_data.clone().into_iter() {
+        folder_pair.folder.default_folder = false;
         repo_ctx
             .folder_repo
             .save_folder_with_share_records(&folder_pair.folder, &folder_pair.share_records)

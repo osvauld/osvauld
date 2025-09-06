@@ -405,17 +405,30 @@ pub async fn add_resource_sync(
 ) -> ServiceResult<()> {
     match connection_type {
         ConnectionType::User => {
+            // First try the current folder_id
             if let Err(RepositoryError::NotFound) = repo_ctx
                 .folder_repo
                 .find_by_id(&payload.resource.folder_id)
                 .await
             {
-                let default_folder = repo_ctx
+                // Current folder doesn't exist, try created_folder_id
+                if let Ok(_) = repo_ctx
                     .folder_repo
-                    .get_default_folder()
+                    .find_by_id(&payload.resource.created_folder_id)
                     .await
-                    .map_err(|_| SyncServiceError::DefaultFolderNotFound)?;
-                payload.resource.folder_id = default_folder.id.clone();
+                {
+                    // Created folder exists, move resource there
+                    payload.resource.folder_id = payload.resource.created_folder_id.clone();
+                } else {
+                    // Neither folder exists, move to default
+                    let default_folder = repo_ctx
+                        .folder_repo
+                        .get_default_folder()
+                        .await
+                        .map_err(|_| SyncServiceError::DefaultFolderNotFound)?;
+                    payload.resource.folder_id = default_folder.id.clone();
+                    // created_folder_id stays unchanged for future restoration
+                }
             }
         }
         ConnectionType::Device => {}

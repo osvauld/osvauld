@@ -7,6 +7,7 @@ pub struct Folder {
     pub id: String,
     pub name: String,
     pub default_folder: bool,
+    pub parent_folder_id: Option<String>,
     pub description: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
@@ -29,6 +30,7 @@ impl Folder {
             created_at: now,
             updated_at: now,
             default_folder,
+            parent_folder_id: None,
             deleted: false,
             deleted_at: None,
         }
