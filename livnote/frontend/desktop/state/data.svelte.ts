@@ -35,6 +35,7 @@ class DataState {
   currentNoteId = $state<string | null>(null);
   private _unlisteners: Array<() => void> = [];
   sharedUsers = $state([]);
+  sharedFolderUsers = $state([]);
   collaborators = $state<Collaborator[]>([]);
   clientId: number = 0;
   currentNoteTitle = $state<string>("");
@@ -126,8 +127,6 @@ class DataState {
       if (response) {
         this.setCurrentNoteData(response);
       }
-      // The notes array will be populated by the event listeners (resource-added, resource-update)
-      // that are set up in setupReactiveUpdates()
     } catch (error) {
       console.error("Error fetching notes:", error);
       this.notes = [];
@@ -142,8 +141,24 @@ class DataState {
     uiState.toggleNoteViewLayout(false);
     // Reset favorite selection when switching vaults
     this.favoriteSelected = false;
+    this.fetchSharedFolderUsers(vault.id);
   }
+  async fetchSharedFolderUsers(folderId: string) {
+    try {
+      // Don't fetch shared users for "all" vault
+      if (folderId === "all") {
+        this.sharedFolderUsers = [];
+        return;
+      }
 
+      const sharedUsers = await sendMessage("getSharedFolderUsers", { folderId });
+      console.log(sharedUsers);
+      this.sharedFolderUsers = sharedUsers || [];
+    } catch (error) {
+      console.error("Error fetching shared folder users:", error);
+      this.sharedFolderUsers = [];
+    }
+  }
   async addNote() {
     uiState.setNoteFetching(true);
     uiState.setEditorLoading(false);
@@ -277,6 +292,7 @@ class DataState {
     this.favoriteSelected = false;
     this.currentView = "all";
     this.sharedUsers = [];
+    this.sharedFolderUsers = [];
     this.collaborators = [];
 
     // Clean up event listeners
@@ -373,6 +389,11 @@ class DataState {
     uiState.showToast(message, true);
   }
 
+  async handleFoldersAddedUpdate(event: any) {
+    console.log(event.payload);
+    this.vaults = [...this.vaults, ...event.payload.folders];
+  }
+
   async setupReactiveUpdates() {
     this._unlisteners = [];
 
@@ -382,6 +403,8 @@ class DataState {
     const awarenessUpdatesUnlisten = await listen("awareness-updates", this.handleAwarenessUpdates.bind(this));
     const liveUpdatesUnlisten = await listen("live-updates", this.handleLiveUpdates.bind(this));
     const sharedUsersUpdate = await listen("shared-users-update", this.handleSharedUsersUpdate.bind(this));
+    const foldersAddedUnlisten = await listen(
+      "folders-added-notification", this.handleFoldersAddedUpdate.bind(this))
 
     const resourceAddedNotification = await listen(
       "resource-added-notification",
@@ -396,6 +419,7 @@ class DataState {
       liveUpdatesUnlisten,
       sharedUsersUpdate,
       resourceAddedNotification,
+      foldersAddedUnlisten,
     );
   }
 

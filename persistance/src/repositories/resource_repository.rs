@@ -1,10 +1,11 @@
 use crate::DbConnection;
 use crate::database::schema::{
-    devices, resource_keys, resource_vector_clocks, resources, share_records, users,
+    devices, folder_share_records, resource_keys, resource_vector_clocks, resources, share_records,
+    users,
 };
 use crate::models::{
     DeviceModel, ResourceKeyModel, ResourceModel, ResourceVectorClockModel, ShareRecordModel,
-    UserModel,
+    UserModel,FolderShareRecordModel
 };
 use async_trait::async_trait;
 use chrono::Local;
@@ -12,8 +13,8 @@ use diesel::QueryDsl;
 use diesel::prelude::*;
 use log::{debug, error, info};
 use osvauld_core::models::{
-    Device, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData, ResourceSyncData,
-    ResourceVectorClock, ResourceWithKey, ShareRecord, User,
+    Device, FolderShareRecord, Resource, ResourceKey, ResourceKeyPair, ResourceManifestData,
+    ResourceSyncData, ResourceVectorClock, ResourceWithKey, ShareRecord, User,
 };
 use osvauld_core::repositories::{RepositoryError, ResourceRepository};
 use std::collections::HashMap;
@@ -817,15 +818,13 @@ impl ResourceRepository for SqliteResourceRepository {
 
         info!("All resource sync data inserted successfully - resource_id: {}", resource_id);
         Ok(())
-    })
-  .map_err(|e| {
-    RepositoryError::DatabaseError(
-        format!("Failed to save sync data for resource '{}' (keys: {}, shares: {}, clocks: {}): {}", 
-                resource_id, sync_data.resource_keys.len(), 
+        }).map_err(|e| {
+        RepositoryError::DatabaseError(
+            format!("Failed to save sync data for resource '{}' (keys: {}, shares: {}, clocks: {}): {}", 
+                resource_id, sync_data.resource_keys.len(),
                 sync_data.share_records.len(), sync_data.vector_clocks.len(), e)
-    )
-})?;
-
+            )
+        })?;
         Ok(())
     }
 
@@ -837,9 +836,9 @@ impl ResourceRepository for SqliteResourceRepository {
             .select(resources::id)
             .order_by(resources::last_accessed.desc())
             .load::<String>(&mut *conn)
-            .map_err(|e| RepositoryError::DatabaseError(
-    format!("Failed to get all resource IDs: {}", e)
-))
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!("Failed to get all resource IDs: {}", e))
+            })
     }
     async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError> {
         let mut conn = self.connection.lock().await;
@@ -850,12 +849,202 @@ impl ResourceRepository for SqliteResourceRepository {
             .select(UserModel::as_select())
             .first::<UserModel>(&mut *conn)
             .map_err(|e| match e {
-    diesel::NotFound => RepositoryError::NotFound,
-    _ => RepositoryError::DatabaseError(
-        format!("Failed to find owner for resource '{}': {}", resource_id, e)
-    ),
-})?;
+                diesel::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to find owner for resource '{}': {}",
+                    resource_id, e
+                )),
+            })?;
 
         Ok(user_model.into())
+    }
+
+    async fn get_folder_ids_for_resources(
+        &self,
+        resource_ids: &[String],
+    ) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
+        if resource_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Fetch resource_id and folder_id pairs
+        let results: Vec<(String, String)> = resources::table
+            .filter(resources::id.eq_any(resource_ids))
+            .filter(resources::deleted.eq(false))
+            .select((resources::id, resources::folder_id))
+            .load::<(String, String)>(&mut *conn)
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get folder IDs for {} resources: {}",
+                    resource_ids.len(),
+                    e
+                ))
+            })?;
+
+        // Build the map of folder_id -> [resource_ids]
+        let mut folder_to_resources: HashMap<String, Vec<String>> = HashMap::new();
+
+        for (resource_id, folder_id) in results {
+            folder_to_resources
+                .entry(folder_id)
+                .or_insert_with(Vec::new)
+                .push(resource_id);
+        }
+
+        Ok(folder_to_resources)
+    }
+
+    async fn get_resource_ids_by_folder_id(
+        &self,
+        folder_id: &str,
+    ) -> Result<Vec<String>, RepositoryError> {
+        let mut conn = self.connection.lock().await;
+
+        resources::table
+            .filter(resources::folder_id.eq(folder_id))
+            .filter(resources::deleted.eq(false))
+            .select(resources::id)
+            .load::<String>(&mut *conn)
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to get resource IDs for folder '{}': {}",
+                    folder_id, e
+                ))
+            })
+    }
+    async fn save_resource_and_folder_sharing_data(
+    &self,
+    resource_keys: &[ResourceKey],
+    resource_share_records: &[ShareRecord],
+    vector_clocks: &[ResourceVectorClock],
+    folder_share_records: &[FolderShareRecord],
+) -> Result<(), RepositoryError> {
+    if resource_keys.is_empty() && resource_share_records.is_empty() && 
+       vector_clocks.is_empty() && folder_share_records.is_empty() {
+        return Ok(());
+    }
+
+    let mut conn = self.connection.lock().await;
+
+    conn.transaction::<_, diesel::result::Error, _>(|conn| {
+        // Save resource keys
+        for resource_key in resource_keys {
+            let key_model = ResourceKeyModel::from(resource_key);
+            diesel::insert_into(resource_keys::table)
+                .values(&key_model)
+                .on_conflict(resource_keys::id)
+                .do_nothing() // Skip if already exists
+                .execute(conn)?;
+        }
+
+        // Save resource share records
+        for share_record in resource_share_records {
+            let share_model = ShareRecordModel::from(share_record);
+            diesel::insert_into(share_records::table)
+                .values(&share_model)
+                .on_conflict(share_records::id)
+                .do_nothing() // Skip if already exists
+                .execute(conn)?;
+        }
+
+        // Save vector clocks
+        for vector_clock in vector_clocks {
+            let clock_model = ResourceVectorClockModel::from(vector_clock);
+            diesel::insert_into(resource_vector_clocks::table)
+                .values(&clock_model)
+                .on_conflict((resource_vector_clocks::resource_id, resource_vector_clocks::device_id))
+                .do_update()
+                .set(resource_vector_clocks::clock_value.eq(&clock_model.clock_value))
+                .execute(conn)?;
+        }
+
+        // Save folder share records
+        for folder_share_record in folder_share_records {
+            let folder_share_model = FolderShareRecordModel::from(folder_share_record);
+            
+            diesel::insert_into(folder_share_records::table)
+                .values(&folder_share_model)
+                .on_conflict(folder_share_records::id)
+                .do_nothing() // Skip if already exists
+                .execute(conn)?;
+        }
+
+        Ok(())
+    })
+    .map_err(|e| {
+        RepositoryError::DatabaseError(format!(
+            "Failed to save sharing data in transaction - {} resource keys, {} share records, {} vector clocks, {} folder share records: {}",
+            resource_keys.len(),
+            resource_share_records.len(),
+            vector_clocks.len(),
+            folder_share_records.len(),
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+/// Save bulk sharing data for auto-sharing resources with folder users
+    /// This is used when a resource is created and needs to be shared with all folder recipients
+    async fn save_bulk_sharing_data(
+        &self,
+        resource_keys: &[ResourceKey],
+        share_records: &[ShareRecord], 
+        vector_clocks: &[ResourceVectorClock],
+    ) -> Result<(), RepositoryError> {
+        if resource_keys.is_empty() && share_records.is_empty() && vector_clocks.is_empty() {
+            return Ok(());
+        }
+
+        let mut conn = self.connection.lock().await;
+
+        // Use a transaction to ensure all operations succeed or fail together
+        conn.transaction::<_, diesel::result::Error, _>(|conn| {
+            // 1. Insert all resource keys
+            for resource_key in resource_keys {
+                let resource_key_model = ResourceKeyModel::from(resource_key);
+                diesel::insert_into(resource_keys::table)
+                    .values(&resource_key_model)
+                    .on_conflict(resource_keys::id)
+                    .do_nothing() // Skip if already exists (shouldn't happen in auto-share but safety first)
+                    .execute(conn)?;
+            }
+
+            // 2. Insert all share records
+            for share_record in share_records {
+                let share_record_model = ShareRecordModel::from(share_record);
+                diesel::insert_into(share_records::table)
+                    .values(&share_record_model)
+                    .on_conflict(share_records::id)
+                    .do_nothing() // Skip if already exists
+                    .execute(conn)?;
+            }
+
+            // 3. Insert all vector clocks
+            for vector_clock in vector_clocks {
+                let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
+                diesel::insert_into(resource_vector_clocks::table)
+                    .values(&vector_clock_model)
+                    .on_conflict((resource_vector_clocks::resource_id, resource_vector_clocks::device_id))
+                    .do_update()
+                    .set(resource_vector_clocks::clock_value.eq(&vector_clock_model.clock_value))
+                    .execute(conn)?;
+            }
+
+            Ok(())
+        })
+        .map_err(|e| {
+            RepositoryError::DatabaseError(format!(
+                "Failed to save bulk sharing data - {} resource keys, {} share records, {} vector clocks: {}",
+                resource_keys.len(),
+                share_records.len(),
+                vector_clocks.len(),
+                e
+            ))
+        })?;
+
+        Ok(())
     }
 }

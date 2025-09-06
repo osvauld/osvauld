@@ -1,3 +1,5 @@
+use crate::models::FolderManifestData;
+
 use super::device::Device;
 use super::folder::Folder;
 use super::resource::ResourceManifestData;
@@ -14,6 +16,7 @@ pub struct DeviceManifestRequestPayload {
 pub struct UserManifestRequestPayload {
     pub users: Vec<UserWithDeviceIds>,
     pub resources: Vec<ResourceManifestData>,
+    pub folders: Vec<FolderManifestData>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum UserManifestPayload {
@@ -26,12 +29,26 @@ pub struct UserNetworkSyncPayload {
     pub users: Vec<UserWithDevices>,
     pub devices: Vec<Device>,
 }
+#[derive(Debug, Clone)]
+pub struct FolderComparisonResult {
+    pub folders_only_local_has: Vec<String>,
+    pub folders_only_remote_has: Vec<String>,
+    pub folders_with_recipient_differences: Vec<FolderRecipientDiff>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderRecipientDiff {
+    pub folder_id: String,
+    pub recipients_only_local_knows: Vec<String>,
+    pub recipients_only_remote_knows: Vec<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserManifestDifferences {
     pub unknown_users: Vec<String>,
     pub unknown_devices_from_common_users: Vec<UserWithDeviceIds>,
     pub unknown_resources: Vec<String>,
+    pub unknown_folders: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,6 +56,7 @@ pub struct UserManifestComparisonResult {
     pub local_missing: UserManifestDifferences,
     pub remote_missing: UserManifestDifferences,
     pub resources_requiring_sync: Vec<String>,
+    pub folders_requiring_recipient_sync: Vec<FolderRecipientDiff>,
 }
 
 impl UserManifestComparisonResult {
@@ -49,6 +67,16 @@ impl UserManifestComparisonResult {
             local_missing: self.remote_missing.clone(),
             remote_missing: self.local_missing.clone(),
             resources_requiring_sync: self.resources_requiring_sync.clone(),
+            folders_requiring_recipient_sync: self
+                .folders_requiring_recipient_sync
+                .iter()
+                .map(|diff| FolderRecipientDiff {
+                    folder_id: diff.folder_id.clone(),
+                    // Swap local and remote perspectives
+                    recipients_only_local_knows: diff.recipients_only_remote_knows.clone(),
+                    recipients_only_remote_knows: diff.recipients_only_local_knows.clone(),
+                })
+                .collect(),
         }
     }
 }

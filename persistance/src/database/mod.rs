@@ -1,15 +1,15 @@
 use crate::repositories::{
-    SqliteDeviceRepository, SqliteFolderRepository, SqliteResourceKeyRepository,
-    SqliteResourceRepository, SqliteShareRepository, SqliteStoreRepository, SqliteUserRepository,
-    SqliteVectorClockRepository,
+    SqliteDeviceRepository, SqliteFolderRepository, SqliteFolderShareRecordRepository,
+    SqliteResourceKeyRepository, SqliteResourceRepository, SqliteShareRepository,
+    SqliteStoreRepository, SqliteUserRepository, SqliteVectorClockRepository,
 };
 use diesel::Connection;
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::info;
 use osvauld_core::repositories::{
-    DeviceRepository, FolderRepository, ResourceKeyRepository, ResourceRepository, ShareRepository,
-    StoreRepository, UserRepository, VectorClockRepository,
+    DeviceRepository, FolderRepository, FolderShareRecordRepository, ResourceKeyRepository,
+    ResourceRepository, ShareRepository, StoreRepository, UserRepository, VectorClockRepository,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -29,6 +29,7 @@ pub struct RepositoryContext {
     pub store_repo: Arc<dyn StoreRepository>,
     pub user_repo: Arc<dyn UserRepository>,
     pub vector_clock_repo: Arc<dyn VectorClockRepository>,
+    pub folder_share_repo: Arc<dyn FolderShareRecordRepository>,
 }
 pub async fn connect_database(db_path: &str) -> Result<DbConnection, diesel::result::Error> {
     let path = Path::new(db_path);
@@ -44,6 +45,7 @@ pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
     let store_repo = Arc::new(SqliteStoreRepository::new(connection.clone()));
     let user_repo = Arc::new(SqliteUserRepository::new(connection.clone()));
     let vector_clock_repo = Arc::new(SqliteVectorClockRepository::new(connection.clone()));
+    let folder_share_repo = Arc::new(SqliteFolderShareRecordRepository::new(connection.clone()));
 
     RepositoryContext {
         folder_repo,
@@ -54,6 +56,7 @@ pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
         store_repo,
         user_repo,
         vector_clock_repo,
+        folder_share_repo,
     }
 }
 

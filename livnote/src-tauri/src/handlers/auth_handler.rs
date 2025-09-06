@@ -9,8 +9,8 @@ use log::{error, info};
 use network::P2PService;
 use persistance::database::RepositoryContext;
 use services::{
-    change_passphrase, create_default_folder, export_certificate, generate_one_time_ucan_token,
-    handle_signup, import_user, is_signed_up, load_certificate,
+    change_passphrase, export_certificate, generate_one_time_ucan_token, handle_signup,
+    import_user, is_signed_up, load_certificate,
 };
 use std::sync::Arc;
 use tauri::State;
@@ -44,12 +44,14 @@ pub async fn handle_sign_up(
     input: SavePassphraseInput,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let _result = handle_signup(&input.username, &input.passphrase, repo_ctx.inner().clone())
-        .await
-        .map_err(|e| e.to_string())?;
-    let _ = create_default_folder(repo_ctx.inner().clone())
-        .await
-        .map_err(|e| e.to_string())?;
+    let _result = handle_signup(
+        &input.username,
+        &input.passphrase,
+        repo_ctx.inner().clone(),
+        "livnote",
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }
 

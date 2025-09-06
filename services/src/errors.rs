@@ -142,6 +142,8 @@ pub enum FolderServiceError {
     #[error("Folder contains resources and cannot be deleted")]
     FolderNotEmpty,
 
+    #[error("PermissionDenied")]
+    InsufficientPermissions,
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }

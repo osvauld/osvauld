@@ -19,6 +19,7 @@ CREATE TABLE folders (
     name TEXT NOT NULL,
     description TEXT,
     default_folder BOOLEAN NOT NULL DEFAULT FALSE,
+    parent_folder_id TEXT,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,
@@ -41,6 +42,7 @@ CREATE TABLE resources (
     resource_type TEXT NOT NULL,
     data TEXT NOT NULL,
     folder_id TEXT NOT NULL,
+    created_folder_id TEXT NOT NULL,
     signature TEXT NOT NULL,
     favourite BOOLEAN NOT NULL DEFAULT FALSE,
     created_by TEXT NOT NULL,
@@ -102,4 +104,19 @@ CREATE TABLE store_items (
     key TEXT PRIMARY KEY NOT NULL,
     value TEXT NOT NULL,
     updated_at BIGINT NOT NULL
+);
+CREATE TABLE folder_share_records (
+    id TEXT PRIMARY KEY NOT NULL,
+    folder_id TEXT NOT NULL,
+    shared_by_user_id TEXT NOT NULL,
+    recipient_user_id TEXT NOT NULL,
+    permission_level TEXT NOT NULL,
+    ucan_token TEXT NOT NULL,
+    ucan_cid TEXT NOT NULL,
+    operation_type TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    FOREIGN KEY (folder_id) REFERENCES folders (id),
+    FOREIGN KEY (shared_by_user_id) REFERENCES users (id),
+    FOREIGN KEY (recipient_user_id) REFERENCES users (id)
 );

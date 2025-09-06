@@ -379,6 +379,68 @@ impl CryptoUtils {
         .await?;
         Ok((token, cid))
     }
+    pub async fn generate_folder_owner_ucan(
+        &self,
+        encrypted_ucan_private_key: &str,
+        folder_id: &str,
+        capability_prefix: &str,
+    ) -> Result<(String, String), CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+        let (token, cid) = ucan_utils::generate_folder_owner_ucan(
+            &signing_key,
+            &verifying_key,
+            folder_id,
+            capability_prefix,
+        )
+        .await?;
+        Ok((token, cid))
+    }
+    /// Issue a delegated folder UCAN after validating permissions
+    pub async fn issue_delegated_folder_ucan<F, Fut>(
+        &self,
+        encrypted_delegator_private_key: &str,
+        proof_folder_ucan_string: &str,
+        verifier_ucan_pub_b64: &str,
+        folder_id: &str,
+        recipient_ucan_pub_key: &str,
+        permissions_to_grant: Vec<(String, String)>,
+        capability_prefix: &str,
+        proof_resolver: &F,
+    ) -> Result<(String, String), CryptoError>
+    where
+        F: Fn(&str) -> Fut + Send + Sync,
+        Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
+    {
+        // 1. Validate the proof folder UCAN structure
+        let folder_ucan_to_prove = ucan_utils::validate_structure(proof_folder_ucan_string).await?;
+
+        // 2. Validate the user has permission to share this folder
+        let folder_resource = format!("{}:folder:{}", capability_prefix, folder_id);
+        ucan_utils::validate_ucan_permission(
+            &folder_ucan_to_prove,
+            verifier_ucan_pub_b64,
+            proof_resolver,
+            &folder_resource,
+            &"share_folder".to_string(),
+        )
+        .await?;
+
+        // 3. Decrypt the delegator's UCAN keys
+        let (delegator_signing_key, delegator_verifying_key) =
+            self.decrypt_ucan_key(encrypted_delegator_private_key)?;
+
+        // 4. Generate the delegated UCAN using existing function
+        let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
+            &delegator_signing_key,
+            &delegator_verifying_key,
+            recipient_ucan_pub_key,
+            permissions_to_grant,
+            proof_folder_ucan_string,
+        )
+        .await?;
+
+        Ok((new_token, new_cid))
+    }
 
     /// Issue a delegated resource UCAN after validating permissions
     pub async fn issue_delegated_resource_ucan<F, Fut>(

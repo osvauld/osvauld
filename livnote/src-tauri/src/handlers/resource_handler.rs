@@ -329,27 +329,10 @@ pub async fn handle_share_resource(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let devices = repo_ctx
-        .device_repo
-        .get_devices_by_user_id(&input.user_id)
+    p2p_service
+        .sync_resource(&input.resource_id)
         .await
         .map_err(|e| e.to_string())?;
-    for device in devices {
-        let p2p_service_clone = p2p_service.inner().clone();
-        tokio::spawn(async move {
-            if let Err(e) = p2p_service_clone
-                .connect_with_ticket(
-                    &device.id,
-                    ConnectionType::User,
-                    Some(ConnectionAction::UserSync),
-                )
-                .await
-            {
-                // Log the error or handle it appropriately
-                eprintln!("Failed to connect to device {}: {}", &device.id, e);
-            }
-        });
-    }
     Ok(CryptoResponse::Success)
 }
 

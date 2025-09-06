@@ -374,9 +374,10 @@ impl PeerConnection {
                 self.process_user_manifest_payload(payload).await
             }
             Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
-            Message::UserNetworkSyncAck => self.send_resources().await,
+            Message::UserNetworkSyncAck => self.start_folder_sync().await,
             Message::RetryRequest => self.start_user_network_sync().await,
             Message::Handshake(payload) => self.handle_handshake_message(payload).await,
+            Message::FolderSync(payload) => self.process_folder_sync_message(payload).await,
         }
     }
 

@@ -120,10 +120,9 @@ async fn handle_init(
     info!("Initializing new user: {}", username);
 
     // Create user and certificates
-    handle_signup(username, passphrase, repo_ctx.clone()).await?;
+    handle_signup(username, passphrase, repo_ctx.clone(), "livnote").await?;
 
     // Create default folder
-    services::create_default_folder(repo_ctx.clone()).await?;
 
     info!("✔ User '{}' created successfully", username);
     info!("✔ Default folder created");
@@ -244,7 +243,10 @@ async fn handle_start(
                         P2PEvent::LiveEditConnected { connection_id } => {
                             info!("✏️  ✅ Live edit connected: {}", connection_id);
                         }
-                        P2PEvent::ResourceAdded { resource_id } => {
+                        P2PEvent::ResourceAdded {
+                            resource_id,
+                            username: _,
+                        } => {
                             info!("📄 ✅ Resource added: {}", resource_id);
                         }
                         _ => {

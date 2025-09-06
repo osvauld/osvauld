@@ -105,6 +105,7 @@ impl EventManager {
                     resource_id,
                     username,
                 } => self.handle_resource_added(resource_id, username).await,
+                P2PEvent::FoldersAdded { folders } => self.handle_folders_added(folders).await,
             }
         }
 

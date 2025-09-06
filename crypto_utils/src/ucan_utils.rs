@@ -452,6 +452,70 @@ pub async fn generate_resource_owner_ucan(
     Ok((token_str, token_cid.to_string()))
 }
 
+/// Generates a "root" UCAN for a new folder, issued by the owner to themselves.
+///
+/// This token grants full folder permissions and serves as the root of authority for
+/// any future folder delegations.
+pub async fn generate_folder_owner_ucan(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    folder_id: &str,
+    capability_prefix: &str,
+) -> Result<(String, String), UcanError> {
+    // 1. Create KeyMaterial for the owner
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+
+    // 2. The issuer and audience are the same for the owner's root token
+    let owner_did = key_material
+        .get_did()
+        .await
+        .map_err(|e| UcanError::DidError(e.to_string()))?;
+
+    // 3. A root token should have a very long lifetime
+    let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
+
+    // 4. Define the full set of capabilities for the folder owner
+    let folder_uri = format!("{}:folder:{}", capability_prefix, folder_id);
+    let capabilities = vec![
+        Capability::from((folder_uri.as_str(), "crud/read", &json!({}))),
+        Capability::from((folder_uri.as_str(), "crud/update", &json!({}))),
+        Capability::from((folder_uri.as_str(), "crud/delete", &json!({}))),
+        Capability::from((folder_uri.as_str(), "add_resources", &json!({}))),
+        Capability::from((folder_uri.as_str(), "share_folder", &json!({}))),
+    ];
+
+    // 5. Build the UCAN using the builder
+    let mut builder = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(&owner_did)
+        .with_lifetime(long_lifetime);
+
+    // Add each capability to the builder
+    for cap in capabilities {
+        builder = builder.claiming_capability(cap);
+    }
+
+    // Finalize the builder, sign it, and encode it as a string
+    let ucan = builder
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    let token_cid = ucan
+        .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
+        .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?;
+
+    // Return the encoded token string and CID
+    let token_str = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    Ok((token_str, token_cid.to_string()))
+}
+
 pub async fn validate_ucan_permission<F, Fut>(
     ucan: &Ucan,
     verifier_ucan_pub_b64: &str,
