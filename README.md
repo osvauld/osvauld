@@ -4,7 +4,7 @@
   <img src="https://www.osvauld.com/assets/logo.png" alt="Osvauld Logo" width="300" height="300" >
 </a>
 </p>
-<h1 align="center"><b>Own Your Data, Leave No Footprint</b></h1>
+<h1 align="center"><b>Connect without compromise</b></h1>
 
 **Osvauld** is a framework for building peer-to-peer applications that prioritize privacy, security, and user control. Built entirely in Rust, Osvauld provides everything you need to create modern, privacy-respecting applications that work without centralized servers or data collection.
 
