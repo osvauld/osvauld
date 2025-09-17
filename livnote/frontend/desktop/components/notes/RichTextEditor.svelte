@@ -8,7 +8,10 @@
 	import "./rich-text-editor.css";
 	import "./schema/editorCustomStyles.css"; // Import the new CSS file
 	import "./setup/tableStyles.css";
-
+	import "./prosemirror-search.css";
+	import type { SearchManager } from "./SearchManager";
+	import SearchBox from "./SearchBox.svelte";
+	let searchManager: SearchManager | null = $state(null);
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
 	let view = $state<EditorView | null>(null);
@@ -42,6 +45,7 @@
 		!uiState.isNoteLoading &&
 			(loadingPhase === "content-loaded" || loadingPhase === "ready"),
 	);
+	let showSearchBox = $state(false);
 	const copyContentListener = (event: Event): void => {
 		if (!view) return;
 
@@ -70,6 +74,34 @@
 			console.error("Error during copy:", error);
 		}
 	};
+	function handleKeydown(event: KeyboardEvent) {
+		// Ctrl+F or Cmd+F to show search
+		if ((event.ctrlKey || event.metaKey) && event.key === "f") {
+			event.preventDefault();
+			showSearchBox = true;
+		}
+
+		// ESC to hide search (fallback)
+		if (event.key === "Escape" && showSearchBox) {
+			showSearchBox = false;
+		}
+	}
+	function handleShowSearch(event: Event) {
+		showSearchBox = true;
+	}
+
+	function handleFindNext(event: Event) {
+		if (view && searchManager) {
+			searchManager.findNext(view);
+		}
+	}
+
+	function handleFindPrevious(event: Event) {
+		if (view && searchManager) {
+			searchManager.findPrevious(view);
+		}
+	}
+
 	async function loadNote(): Promise<void> {
 		const coordinator = dataState.getNotesCoordinator();
 		if (!coordinator) {
@@ -98,9 +130,10 @@
 	function handleEditorViewReady(event: CustomEvent) {
 		loadingPhase = "content-loaded";
 
-		const getEditorManager = event.detail.getEditorManager;
+		const { getEditorManager, getSearchManager } = event.detail;
 		if (element && getEditorManager) {
 			const editorManager = getEditorManager();
+			searchManager = getSearchManager();
 			view = editorManager.createView(element);
 			loadingPhase = "ready";
 			uiState.setEditorLoading(false);
@@ -212,6 +245,7 @@
 		);
 		window.addEventListener("resize", checkWindowSize);
 		checkWindowSize();
+		document.addEventListener("keydown", handleKeydown);
 	});
 
 	onDestroy(() => {
@@ -239,6 +273,7 @@
 			"editor-view-ready",
 			handleEditorViewReady as EventListener,
 		);
+		document.removeEventListener("keydown", handleKeydown);
 	});
 
 	function handleOpenCommentModal(event: CustomEvent) {
@@ -483,3 +518,10 @@
 	onSave={handleSaveComment}
 	onCancel={handleCancelComment}
 />
+{#if searchManager && showSearchBox}
+	<SearchBox
+		{searchManager}
+		editorView={view}
+		onHide={() => (showSearchBox = false)}
+	/>
+{/if}
