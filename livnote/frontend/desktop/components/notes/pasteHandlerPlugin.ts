@@ -374,6 +374,24 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
  */
 function handleTextContent(view: EditorView, text: string): void {
   try {
+    // Only try to parse as markdown if it looks intentionally formatted
+    if (detectMarkdown(text)) {
+      try {
+        const nodes = parseMarkdown(text, view.state.schema);
+        if (nodes.length > 0) {
+          const fragment = Fragment.from(nodes);
+          const slice = new Slice(fragment, 0, 0);
+          const tr = view.state.tr.replaceSelection(slice);
+          view.dispatch(tr);
+          return;
+        }
+      } catch (error) {
+        console.warn("Failed to parse as markdown, falling back to plain text:", error);
+        // Fall through to plain text insertion
+      }
+    }
+
+    // Insert as plain text if not markdown or if parsing failed
     const tr = view.state.tr.insertText(text);
     view.dispatch(tr);
   } catch (error) {
@@ -382,7 +400,457 @@ function handleTextContent(view: EditorView, text: string): void {
 }
 
 
+/**
+ * Parse unordered list with better nesting support
+ */
+function parseUnorderedList(
+  lines: string[],
+  startIndex: number,
+  schema: any
+): { list: PMNode | null, nextIndex: number } {
+  const items: PMNode[] = [];
+  let i = startIndex;
 
+  while (i < lines.length) {
+    const line = lines[i];
+    const match = line.match(/^(\s*)[-*+]\s+(.*)$/);
+
+    if (!match) {
+      // Check if it's a continuation line (indented content)
+      if (i > startIndex && line.trim() !== '' && (line.startsWith('  ') || line.startsWith('\t'))) {
+        // This is a continuation of the previous item
+        if (items.length > 0) {
+          const lastItem = items[items.length - 1];
+          const existingContent = lastItem.content;
+          const additionalText = schema.text(' ' + line.trim());
+          const paragraph = schema.nodes.paragraph.create({},
+            existingContent.child(0).content.append(Fragment.from(additionalText))
+          );
+          items[items.length - 1] = schema.nodes.list_item.create({}, paragraph);
+        }
+        i++;
+        continue;
+      }
+      break;
+    }
+
+    const indent = match[1].length;
+    const content = match[2];
+
+    // Handle nested lists by checking indentation
+    if (indent > 0 && items.length > 0) {
+      // This could be a nested list - for now, treat as regular item
+      // Full nesting support would require recursive parsing
+    }
+
+    const itemContent = parseInlineMarkdown(content, schema);
+    if (itemContent.size > 0) {
+      const paragraph = schema.nodes.paragraph.create({}, itemContent);
+      items.push(schema.nodes.list_item.create({}, paragraph));
+    }
+    i++;
+  }
+
+  if (items.length > 0) {
+    return { list: schema.nodes.bullet_list.create({}, items), nextIndex: i };
+  }
+
+  return { list: null, nextIndex: i };
+}
+
+/**
+ * Parse ordered list
+ */
+function parseOrderedList(
+  lines: string[],
+  startIndex: number,
+  schema: any
+): { list: PMNode | null, nextIndex: number } {
+  const items: PMNode[] = [];
+  let i = startIndex;
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const match = line.match(/^(\s*)\d+\.\s+(.*)$/);
+
+    if (!match) {
+      // Check for continuation lines
+      if (i > startIndex && line.trim() !== '' && (line.startsWith('  ') || line.startsWith('\t'))) {
+        if (items.length > 0) {
+          const lastItem = items[items.length - 1];
+          const existingContent = lastItem.content;
+          const additionalText = schema.text(' ' + line.trim());
+          const paragraph = schema.nodes.paragraph.create({},
+            existingContent.child(0).content.append(Fragment.from(additionalText))
+          );
+          items[items.length - 1] = schema.nodes.list_item.create({}, paragraph);
+        }
+        i++;
+        continue;
+      }
+      break;
+    }
+
+    const content = match[2];
+    const itemContent = parseInlineMarkdown(content, schema);
+
+    if (itemContent.size > 0) {
+      const paragraph = schema.nodes.paragraph.create({}, itemContent);
+      items.push(schema.nodes.list_item.create({}, paragraph));
+    }
+    i++;
+  }
+
+  if (items.length > 0) {
+    return { list: schema.nodes.ordered_list.create({}, items), nextIndex: i };
+  }
+
+  return { list: null, nextIndex: i };
+}
+
+/**
+ * Parse markdown text and convert to ProseMirror nodes (IMPROVED VERSION)
+ */
+function parseMarkdown(text: string, schema: any): PMNode[] {
+  const nodes: PMNode[] = [];
+  const lines = text.split('\n');
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Code block - handle properly
+    if (line.trim().startsWith('```')) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      // Create code block even if empty
+      const codeContent = codeLines.join('\n');
+      nodes.push(schema.nodes.code_block.create({},
+        codeContent ? schema.text(codeContent) : schema.text('')
+      ));
+      i++; // Skip closing ```
+      continue;
+    }
+
+    // Headers
+    const headerMatch = line.match(/^(#{1,6})\s+(.+)$/);
+    if (headerMatch) {
+      const level = headerMatch[1].length;
+      const content = parseInlineMarkdown(headerMatch[2], schema);
+      nodes.push(schema.nodes.heading.create({ level }, content));
+      i++;
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^[-*_]{3,}\s*$/.test(line.trim())) {
+      nodes.push(schema.nodes.horizontal_rule.create());
+      i++;
+      continue;
+    }
+
+    // Blockquote - parse each line separately to maintain structure
+    if (line.startsWith('>')) {
+      const quoteNodes: PMNode[] = [];
+      while (i < lines.length && lines[i].startsWith('>')) {
+        const quoteLine = lines[i].replace(/^>\s?/, '');
+        if (quoteLine.trim()) {
+          const content = parseInlineMarkdown(quoteLine, schema);
+          quoteNodes.push(schema.nodes.paragraph.create({}, content));
+        }
+        i++;
+      }
+      if (quoteNodes.length > 0) {
+        nodes.push(schema.nodes.blockquote.create({}, quoteNodes));
+      }
+      continue;
+    }
+
+    // Lists
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const listResult = parseUnorderedList(lines, i, schema);
+      if (listResult.list) {
+        nodes.push(listResult.list);
+        i = listResult.nextIndex;
+        continue;
+      }
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const listResult = parseOrderedList(lines, i, schema);
+      if (listResult.list) {
+        nodes.push(listResult.list);
+        i = listResult.nextIndex;
+        continue;
+      }
+    }
+
+    // Empty line
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    // Regular paragraph
+    const content = parseInlineMarkdown(line, schema);
+    if (content.size > 0) {
+      nodes.push(schema.nodes.paragraph.create({}, content));
+    }
+    i++;
+  }
+
+  return nodes;
+}
+
+/**
+ * Parse inline markdown with proper escape handling (FIXED VERSION)
+ */
+function parseInlineMarkdown(text: string, schema: any): Fragment {
+  if (!text) return Fragment.empty;
+
+  const nodes: PMNode[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    let matched = false;
+
+    // Handle escaped characters - remove backslash and keep the character
+    if (remaining.startsWith('\\') && remaining.length > 1) {
+      const char = remaining[1];
+      const escapableChars = ['*', '_', '`', '~', '[', ']', '(', ')', '#', '-', '+', '!', '\\', '|', '{', '}'];
+      if (escapableChars.includes(char)) {
+        appendTextNode(nodes, char, schema);
+        remaining = remaining.slice(2);
+        matched = true;
+        continue;
+      }
+    }
+
+    if (!matched) {
+      // Patterns array with improved handlers
+      const patterns = [
+        // Links first (highest priority)
+        {
+          pattern: /^\[([^\]]+)\]\(([^)]+)\)/,
+          handler: (match: RegExpMatchArray) => {
+            const linkText = match[1];
+            const href = match[2];
+            const linkMark = schema.marks.link.create({ href, title: linkText });
+
+            // Check if link text has formatting
+            if (/[*_`~]/.test(linkText)) {
+              // Parse the link text for inline formatting
+              const linkContent = parseInlineMarkdown(linkText, schema);
+              const result: PMNode[] = [];
+
+              linkContent.forEach((node: PMNode) => {
+                if (node.isText) {
+                  // Add link mark to existing marks
+                  const marks = [...node.marks, linkMark];
+                  result.push(schema.text(node.text, marks));
+                }
+              });
+
+              return result;
+            } else {
+              // Plain text link
+              return [schema.text(linkText, [linkMark])];
+            }
+          }
+        },
+        // Inline code (high priority to avoid conflicts)
+        {
+          pattern: /^`([^`]+)`/,
+          handler: (match: RegExpMatchArray) => {
+            const mark = schema.marks.code.create();
+            return [schema.text(match[1], [mark])];
+          }
+        },
+        // Bold ** (must come before single *)
+        {
+          pattern: /^\*\*([^*]+)\*\*/,
+          handler: (match: RegExpMatchArray) => {
+            const innerText = match[1];
+            // Check for nested emphasis
+            if (innerText.includes('*') || innerText.includes('_')) {
+              const innerContent = parseInlineMarkdown(innerText, schema);
+              const strongMark = schema.marks.strong.create();
+              const result: PMNode[] = [];
+              innerContent.forEach((node: PMNode) => {
+                if (node.isText) {
+                  const marks = [...node.marks, strongMark];
+                  result.push(schema.text(node.text, marks));
+                }
+              });
+              return result;
+            }
+            const mark = schema.marks.strong.create();
+            return [schema.text(innerText, [mark])];
+          }
+        },
+        // Bold __
+        {
+          pattern: /^__([^_]+)__/,
+          handler: (match: RegExpMatchArray) => {
+            const mark = schema.marks.strong.create();
+            return [schema.text(match[1], [mark])];
+          }
+        },
+        // Strikethrough
+        {
+          pattern: /^~~([^~]+)~~/,
+          handler: (match: RegExpMatchArray) => {
+            const mark = schema.marks.strikethrough.create();
+            return [schema.text(match[1], [mark])];
+          }
+        },
+        // Italic * (check it's not part of **)
+        {
+          pattern: /^\*([^*]+)\*/,
+          handler: (match: RegExpMatchArray) => {
+            const mark = schema.marks.em.create();
+            return [schema.text(match[1], [mark])];
+          }
+        },
+        // Italic _
+        {
+          pattern: /^_([^_]+)_/,
+          handler: (match: RegExpMatchArray) => {
+            const mark = schema.marks.em.create();
+            return [schema.text(match[1], [mark])];
+          }
+        }
+      ];
+
+      for (const { pattern, handler } of patterns) {
+        const match = remaining.match(pattern);
+        if (match) {
+          const result = handler(match);
+          if (result) {
+            nodes.push(...result);
+            remaining = remaining.slice(match[0].length);
+            matched = true;
+            break;
+          }
+        }
+      }
+    }
+
+    // No pattern matched - take one character as plain text
+    if (!matched) {
+      const char = remaining[0];
+      appendTextNode(nodes, char, schema);
+      remaining = remaining.slice(1);
+    }
+  }
+
+  return Fragment.from(nodes);
+}
+/**
+ * Helper to append text to nodes array, merging with previous text node if possible
+ */
+function appendTextNode(nodes: PMNode[], text: string, schema: any): void {
+  if (nodes.length > 0 && nodes[nodes.length - 1].isText &&
+    nodes[nodes.length - 1].marks.length === 0) {
+    // Append to previous plain text node
+    const lastNode = nodes[nodes.length - 1];
+    nodes[nodes.length - 1] = schema.text(lastNode.text + text);
+  } else {
+    nodes.push(schema.text(text));
+  }
+}
+/**
+ * Detect if text contains intentional markdown syntax
+ * Uses a scoring system to avoid false positives
+ */
+function detectMarkdown(text: string): boolean {
+  let markdownScore = 0;
+  let threshold = 2; // Require at least 2 points to trigger markdown parsing
+
+  // Strong indicators (more likely to be intentional markdown)
+  const strongIndicators = [
+    { pattern: /^#{1,6}\s+\S/m, score: 2 },              // Headers with content
+    { pattern: /^```[^`]*```/ms, score: 3 },             // Code blocks (multiline flag)
+    { pattern: /^\s*```\w*\s*$/m, score: 3 },            // Opening code fence
+    { pattern: /^\s*[-*+]\s+\S.*(\n\s*[-*+]\s+|$)/m, score: 2 }, // Multiple list items or single with content
+    { pattern: /^\s*\d+\.\s+\S.*(\n\s*\d+\.\s+|$)/m, score: 2 }, // Multiple ordered items or single with content
+    { pattern: /^\s*>\s+\S/m, score: 2 },                // Blockquotes with content
+    { pattern: /\[([^\]]+)\]\(([^)]+)\)/g, score: 2 },   // Links (very specific syntax)
+    { pattern: /^[-*_]{3,}\s*$/m, score: 2 },            // Horizontal rules
+  ];
+
+  // Medium indicators (could be markdown, need other context)
+  const mediumIndicators = [
+    { pattern: /`[^`\n]+`/, score: 1 },                  // Inline code
+    { pattern: /\*\*\S[^*]+\S\*\*/, score: 1 },          // Bold with **
+    { pattern: /__\S[^_]+\S__/, score: 1 },              // Bold with __
+    { pattern: /~~\S[^~]+\S~~/, score: 1 },              // Strikethrough
+  ];
+
+  // Weak indicators (often coincidental)
+  const weakIndicators = [
+    { pattern: /(?:^|\s)\*\S[^*\n]+\S\*(?:\s|$)/, score: 0.5 }, // Italic with *
+    { pattern: /(?:^|\s)_\S[^_\n]+\S_(?:\s|$)/, score: 0.5 },   // Italic with _
+  ];
+
+  // Check strong indicators first
+  for (const { pattern, score } of strongIndicators) {
+    const matches = text.match(pattern);
+    if (matches) {
+      markdownScore += score;
+      // If we find code blocks or multiple structural elements, boost confidence
+      if (pattern.source.includes('```') && text.includes('\n')) {
+        markdownScore += 0.5; // Extra boost for multiline code blocks
+      }
+    }
+  }
+
+  // Check medium indicators
+  let mediumMatches = 0;
+  for (const { pattern, score } of mediumIndicators) {
+    if (pattern.test(text)) {
+      mediumMatches++;
+      markdownScore += score;
+    }
+  }
+
+  // If we have multiple medium indicators, it's likely markdown
+  if (mediumMatches >= 2) {
+    markdownScore += 0.5;
+  }
+
+  // Only check weak indicators if we already have some confidence
+  if (markdownScore > 0) {
+    let weakMatches = 0;
+    for (const { pattern, score } of weakIndicators) {
+      if (pattern.test(text)) {
+        weakMatches++;
+        markdownScore += score;
+      }
+    }
+
+    // Multiple weak indicators together suggest intentional markdown
+    if (weakMatches >= 2) {
+      markdownScore += 0.5;
+    }
+  }
+
+  // Special case: if text has inline code and code blocks, very likely markdown
+  if (/`[^`]+`/.test(text) && /```/.test(text)) {
+    markdownScore += 1;
+  }
+
+  // Special case: if text has both lists and formatting, likely markdown
+  if (/^\s*[-*+\d]\.\?\s+/m.test(text) && /[*_`~]/.test(text)) {
+    markdownScore += 0.5;
+  }
+
+  return markdownScore >= threshold;
+}
 /**
  * Check if a blob is likely an image based on magic numbers/signatures
  */
