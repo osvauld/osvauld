@@ -14,125 +14,74 @@ export function pasteHandlerPlugin(imageStorage: ImageStorageService) {
         const clipboardData = event.clipboardData;
         if (!clipboardData) return false;
 
-        // Check if we should handle this paste
-        const hasFiles = clipboardData.files.length > 0;
-        const hasHTML = clipboardData.getData('text/html');
-        const hasText = clipboardData.getData('text/plain');
+        // Snapshot all clipboard data synchronously before async processing
+        const snapshotData = {
+          files: Array.from(clipboardData.files),
+          html: clipboardData.getData('text/html'),
+          text: clipboardData.getData('text/plain'),
+          types: Array.from(clipboardData.types)
+        };
 
-        if (hasFiles || hasHTML || (hasText && detectMarkdown(hasText))) {
-          // We will handle this - prevent ProseMirror's default
+        // Quick synchronous check for handling decision
+        const hasFiles = snapshotData.files.length > 0;
+        const hasHTML = snapshotData.html;
+        const shouldParseMarkdown = snapshotData.text && detectMarkdown(snapshotData.text);
+
+        if (hasFiles || hasHTML || shouldParseMarkdown) {
+          // Prevent default immediately
           event.preventDefault();
 
-          // Process asynchronously
+          // Process with snapshot data (no longer touching event.clipboardData)
           (async () => {
             try {
-              if (hasFiles || hasHTML) {
-                await processClipboardEvent(view, event, imageStorage);
-              } else if (hasText) {
-                handleTextContent(view, hasText);
-              }
+              await processSnapshotData(view, snapshotData, imageStorage);
             } catch (error) {
               console.error("Error in paste handler:", error);
             }
           })();
 
-          return true; // Tell ProseMirror we handled it
+          return true; // We handled it
         }
 
-        return false; // Let ProseMirror handle plain text
+        return false; // Let ProseMirror handle
       }
     }
   });
 }
+
 /**
- * Tries to process clipboard content using the navigator.clipboard API
- * Returns true if successful, false otherwise
+ * Process the snapshotted clipboard data
  */
-async function tryNavigatorClipboardApi(
+async function processSnapshotData(
   view: EditorView,
-  event: ClipboardEvent,
+  data: {
+    files: File[];
+    html: string;
+    text: string;
+    types: string[];
+  },
   imageStorage: ImageStorageService
-): Promise<boolean> {
-  if (!navigator.clipboard?.read) {
-    return false;
-  }
-
-  try {
-    const clipboardItems = await navigator.clipboard.read();
-
-    const typePreference = [
-      'text/html',
-      'text/plain',
-      'image/png',
-      'image/jpeg',
-      'image/gif',
-      'image/webp',
-      'image/bmp',
-      'image/svg+xml',
-      'application/octet-stream',
-      'image/*'
-    ];
-
-    for (const preferredType of typePreference) {
-      for (const item of clipboardItems) {
-        if (preferredType === 'image/*') {
-          const imageTypes = item.types.filter(type => type.startsWith('image/'));
-          if (imageTypes.length > 0) {
-            try {
-              const imageType = imageTypes[0];
-              const blob = await item.getType(imageType);
-              const base64Data = await blobToBase64(blob);
-              await insertImageWithAssetStorage(view, base64Data, imageType, imageStorage);
-              event.preventDefault();
-              return true;
-            } catch (error) {
-              continue;
-            }
-          }
-          continue;
-        }
-
-        if (item.types.includes(preferredType)) {
-          try {
-            const blob = await item.getType(preferredType);
-
-            if (preferredType === 'text/html') {
-              const html = await blob.text();
-              await handleHtmlContent(view, html, imageStorage);
-              event.preventDefault();
-              return true;
-            } else if (preferredType === 'text/plain') {
-              const text = await blob.text();
-              handleTextContent(view, text);
-              event.preventDefault();
-              return true;
-            } else if (preferredType.startsWith('image/')) {
-              const base64Data = await blobToBase64(blob);
-              await insertImageWithAssetStorage(view, base64Data, preferredType, imageStorage);
-              event.preventDefault();
-              return true;
-            } else if (preferredType === 'application/octet-stream') {
-              if (isLikelyImage(blob)) {
-                const headerBytes = await readBlobHeader(blob, 12);
-                if (isProbablyImageHeader(headerBytes)) {
-                  const base64Data = await blobToBase64(blob);
-                  const mimeType = detectMimeTypeFromHeader(headerBytes);
-                  await insertImageWithAssetStorage(view, base64Data, mimeType, imageStorage);
-                  event.preventDefault();
-                  return true;
-                }
-              }
-            }
-          } catch (error) {
-            continue;
-          }
-        }
+): Promise<void> {
+  // Process files first
+  if (data.files.length > 0) {
+    for (const file of data.files) {
+      if (file.type.startsWith('image/')) {
+        const base64Data = await blobToBase64(file);
+        await insertImageWithAssetStorage(view, base64Data, file.type, imageStorage, file.name);
+        return;
       }
     }
+  }
 
-    return false;
-  } catch (error) {
-    return false;
+  // Process HTML content
+  if (data.html) {
+    await handleHtmlContent(view, data.html, imageStorage);
+    return;
+  }
+
+  // Process text content (markdown)
+  if (data.text) {
+    handleTextContent(view, data.text);
   }
 }
 
@@ -243,7 +192,33 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
   try {
     const domElement = document.createElement('div');
     domElement.innerHTML = html;
+    const styledElements = domElement.querySelectorAll('*[style]');
+    styledElements.forEach(el => {
+      if (el instanceof HTMLElement) {
+        const style = el.style;
 
+        // Only remove if it's explicitly black (which conflicts with dark theme)
+        if (style.color === 'rgb(0, 0, 0)' || style.color === '#000000' || style.color === 'black') {
+          style.removeProperty('color');
+        }
+
+        // Also remove caret-color if it's black (not really needed for content)
+        if (style.caretColor === 'rgb(0, 0, 0)') {
+          style.removeProperty('caret-color');
+        }
+
+        // Clean up empty style attribute
+        if (!style.cssText.trim()) {
+          el.removeAttribute('style');
+        }
+      }
+    });
+    const textContent = domElement.textContent || '';
+    if (textContent && detectMarkdown(textContent)) {
+      // Parse as markdown instead of HTML
+      handleTextContent(view, textContent);
+      return;
+    }
     const spansToProcess = domElement.querySelectorAll('span[style*="text-decoration"]');
     spansToProcess.forEach(span => {
       if (span instanceof HTMLElement && span.style.textDecoration.includes('underline')) {
@@ -850,7 +825,6 @@ function detectMarkdown(text: string): boolean {
   if (/^\s*[-*+\d]\s+/m.test(text) && /[*_`~]/.test(text)) {
     markdownScore += 0.5;
   }
-  console.log(markdownScore, "markdownScore");
 
   return markdownScore >= threshold;
 }
