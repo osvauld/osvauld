@@ -7,36 +7,39 @@ import { ImageStorageService } from "./imageStorage";
  * Creates a ProseMirror plugin that handles clipboard content
  * using the navigator.clipboard API with optimized asset storage
  */
-
 export function pasteHandlerPlugin(imageStorage: ImageStorageService) {
   return new Plugin({
     props: {
-      handlePaste: async (view: EditorView, event: ClipboardEvent) => {
+      handlePaste: (view: EditorView, event: ClipboardEvent) => {
         const clipboardData = event.clipboardData;
+        if (!clipboardData) return false;
 
-        try {
-          // Try synchronous clipboardData first
-          if (clipboardData) {
-            const handled = await processClipboardEvent(view, event, imageStorage);
-            if (handled) {
-              event.preventDefault();
-              return true;
+        // Check if we should handle this paste
+        const hasFiles = clipboardData.files.length > 0;
+        const hasHTML = clipboardData.getData('text/html');
+        const hasText = clipboardData.getData('text/plain');
+
+        if (hasFiles || hasHTML || (hasText && detectMarkdown(hasText))) {
+          // We will handle this - prevent ProseMirror's default
+          event.preventDefault();
+
+          // Process asynchronously
+          (async () => {
+            try {
+              if (hasFiles || hasHTML) {
+                await processClipboardEvent(view, event, imageStorage);
+              } else if (hasText) {
+                handleTextContent(view, hasText);
+              }
+            } catch (error) {
+              console.error("Error in paste handler:", error);
             }
-          }
+          })();
 
-          // Fallback to async navigator.clipboard API
-          const apiHandled = await tryNavigatorClipboardApi(view, event, imageStorage);
-          if (apiHandled) {
-            event.preventDefault();
-            return true;
-          }
-
-          // Let ProseMirror handle default paste
-          return false;
-        } catch (error) {
-          console.error("Error in paste handler:", error);
-          return false; // Let ProseMirror handle on error
+          return true; // Tell ProseMirror we handled it
         }
+
+        return false; // Let ProseMirror handle plain text
       }
     }
   });
@@ -621,7 +624,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
   while (remaining.length > 0) {
     let matched = false;
 
-    // Handle escaped characters - remove backslash and keep the character
+    // Handle escaped characters first
     if (remaining.startsWith('\\') && remaining.length > 1) {
       const char = remaining[1];
       const escapableChars = ['*', '_', '`', '~', '[', ']', '(', ')', '#', '-', '+', '!', '\\', '|', '{', '}'];
@@ -634,7 +637,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
     }
 
     if (!matched) {
-      // Patterns array with improved handlers
+      // Patterns array with correct order - INLINE CODE FIRST
       const patterns = [
         // Links first (highest priority)
         {
@@ -646,26 +649,22 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
 
             // Check if link text has formatting
             if (/[*_`~]/.test(linkText)) {
-              // Parse the link text for inline formatting
               const linkContent = parseInlineMarkdown(linkText, schema);
               const result: PMNode[] = [];
-
               linkContent.forEach((node: PMNode) => {
                 if (node.isText) {
-                  // Add link mark to existing marks
                   const marks = [...node.marks, linkMark];
                   result.push(schema.text(node.text, marks));
                 }
               });
-
               return result;
             } else {
-              // Plain text link
               return [schema.text(linkText, [linkMark])];
             }
           }
         },
-        // Inline code (high priority to avoid conflicts)
+
+        // Inline code (high priority - must come before bold/italic)
         {
           pattern: /^`([^`]+)`/,
           handler: (match: RegExpMatchArray) => {
@@ -673,6 +672,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], [mark])];
           }
         },
+
         // Bold ** (must come before single *)
         {
           pattern: /^\*\*([^*]+)\*\*/,
@@ -695,6 +695,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(innerText, [mark])];
           }
         },
+
         // Bold __
         {
           pattern: /^__([^_]+)__/,
@@ -703,7 +704,8 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], [mark])];
           }
         },
-        // Strikethrough
+
+        // Strikethrough (must come before single ~)
         {
           pattern: /^~~([^~]+)~~/,
           handler: (match: RegExpMatchArray) => {
@@ -711,6 +713,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], [mark])];
           }
         },
+
         // Italic * (check it's not part of **)
         {
           pattern: /^\*([^*]+)\*/,
@@ -719,6 +722,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], [mark])];
           }
         },
+
         // Italic _
         {
           pattern: /^_([^_]+)_/,
@@ -753,6 +757,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
 
   return Fragment.from(nodes);
 }
+
 /**
  * Helper to append text to nodes array, merging with previous text node if possible
  */
@@ -772,42 +777,39 @@ function appendTextNode(nodes: PMNode[], text: string, schema: any): void {
  */
 function detectMarkdown(text: string): boolean {
   let markdownScore = 0;
-  let threshold = 2; // Require at least 2 points to trigger markdown parsing
+  let threshold = 1.5;
 
-  // Strong indicators (more likely to be intentional markdown)
   const strongIndicators = [
-    { pattern: /^#{1,6}\s+\S/m, score: 2 },              // Headers with content
-    { pattern: /^```[^`]*```/ms, score: 3 },             // Code blocks (multiline flag)
-    { pattern: /^\s*```\w*\s*$/m, score: 3 },            // Opening code fence
-    { pattern: /^\s*[-*+]\s+\S.*(\n\s*[-*+]\s+|$)/m, score: 2 }, // Multiple list items or single with content
-    { pattern: /^\s*\d+\.\s+\S.*(\n\s*\d+\.\s+|$)/m, score: 2 }, // Multiple ordered items or single with content
-    { pattern: /^\s*>\s+\S/m, score: 2 },                // Blockquotes with content
-    { pattern: /\[([^\]]+)\]\(([^)]+)\)/g, score: 2 },   // Links (very specific syntax)
-    { pattern: /^[-*_]{3,}\s*$/m, score: 2 },            // Horizontal rules
+    { pattern: /^#{1,6}\s+\S/m, score: 2 },
+    { pattern: /^```[^`]*```/ms, score: 3 },
+    { pattern: /^\s*```\w*\s*$/m, score: 3 },
+    // FIXED: Correct regex for unordered lists
+    { pattern: /^\s*[-*+]\s+\S.*(\n\s*[-*+]\s+|$)/m, score: 2 },
+    // FIXED: Correct regex for ordered lists  
+    { pattern: /^\s*\d+\.\s+\S.*(\n\s*\d+\.\s+|$)/m, score: 2 },
+    { pattern: /^\s*>\s+\S/m, score: 2 },
+    { pattern: /\[([^\]]+)\]\(([^)]+)\)/g, score: 2 },
+    { pattern: /^[-*_]{3,}\s*$/m, score: 2 },
   ];
 
-  // Medium indicators (could be markdown, need other context)
   const mediumIndicators = [
-    { pattern: /`[^`\n]+`/, score: 1 },                  // Inline code
-    { pattern: /\*\*\S[^*]+\S\*\*/, score: 1 },          // Bold with **
-    { pattern: /__\S[^_]+\S__/, score: 1 },              // Bold with __
-    { pattern: /~~\S[^~]+\S~~/, score: 1 },              // Strikethrough
+    { pattern: /`[^`\n]+`/, score: 2 },
+    { pattern: /\*\*\S[^*]+\S\*\*/, score: 2 },
+    { pattern: /__\S[^_]+\S__/, score: 2 },
+    { pattern: /~~\S[^~]+\S~~/, score: 2 },
   ];
 
-  // Weak indicators (often coincidental)
   const weakIndicators = [
-    { pattern: /(?:^|\s)\*\S[^*\n]+\S\*(?:\s|$)/, score: 0.5 }, // Italic with *
-    { pattern: /(?:^|\s)_\S[^_\n]+\S_(?:\s|$)/, score: 0.5 },   // Italic with _
+    { pattern: /(?:^|\s)\*\S[^*\n]+\S\*(?:\s|$)/, score: 0.5 },
+    { pattern: /(?:^|\s)_\S[^_\n]+\S_(?:\s|$)/, score: 0.5 },
   ];
 
   // Check strong indicators first
   for (const { pattern, score } of strongIndicators) {
-    const matches = text.match(pattern);
-    if (matches) {
+    if (pattern.test(text)) {
       markdownScore += score;
-      // If we find code blocks or multiple structural elements, boost confidence
       if (pattern.source.includes('```') && text.includes('\n')) {
-        markdownScore += 0.5; // Extra boost for multiline code blocks
+        markdownScore += 0.5;
       }
     }
   }
@@ -821,7 +823,6 @@ function detectMarkdown(text: string): boolean {
     }
   }
 
-  // If we have multiple medium indicators, it's likely markdown
   if (mediumMatches >= 2) {
     markdownScore += 0.5;
   }
@@ -836,21 +837,20 @@ function detectMarkdown(text: string): boolean {
       }
     }
 
-    // Multiple weak indicators together suggest intentional markdown
     if (weakMatches >= 2) {
       markdownScore += 0.5;
     }
   }
 
-  // Special case: if text has inline code and code blocks, very likely markdown
+  // Special cases for higher confidence
   if (/`[^`]+`/.test(text) && /```/.test(text)) {
     markdownScore += 1;
   }
 
-  // Special case: if text has both lists and formatting, likely markdown
-  if (/^\s*[-*+\d]\.\?\s+/m.test(text) && /[*_`~]/.test(text)) {
+  if (/^\s*[-*+\d]\s+/m.test(text) && /[*_`~]/.test(text)) {
     markdownScore += 0.5;
   }
+  console.log(markdownScore, "markdownScore");
 
   return markdownScore >= threshold;
 }
