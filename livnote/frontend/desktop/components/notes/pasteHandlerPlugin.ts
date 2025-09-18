@@ -588,7 +588,14 @@ function parseMarkdown(text: string, schema: any): PMNode[] {
 }
 
 /**
- * Parse inline markdown with proper escape handling (FIXED VERSION)
+ * Helper function to safely get a mark type from schema
+ */
+function getMark(schema: any, markName: string) {
+  return schema.marks[markName] || null;
+}
+
+/**
+ * Parse inline markdown with proper escape handling and schema guards
  */
 function parseInlineMarkdown(text: string, schema: any): Fragment {
   if (!text) return Fragment.empty;
@@ -612,7 +619,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
     }
 
     if (!matched) {
-      // Patterns array with correct order - INLINE CODE FIRST
+      // Patterns array with correct order and schema guards
       const patterns = [
         // Links first (highest priority)
         {
@@ -620,7 +627,14 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
           handler: (match: RegExpMatchArray) => {
             const linkText = match[1];
             const href = match[2];
-            const linkMark = schema.marks.link.create({ href, title: linkText });
+            const linkType = getMark(schema, 'link');
+
+            if (!linkType) {
+              // Fallback to plain text if link mark not available
+              return [schema.text(`[${linkText}](${href})`)];
+            }
+
+            const linkMark = linkType.create({ href, title: linkText });
 
             // Check if link text has formatting
             if (/[*_`~]/.test(linkText)) {
@@ -643,8 +657,8 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
         {
           pattern: /^`([^`]+)`/,
           handler: (match: RegExpMatchArray) => {
-            const mark = schema.marks.code.create();
-            return [schema.text(match[1], [mark])];
+            const codeType = getMark(schema, 'code');
+            return [schema.text(match[1], codeType ? [codeType.create()] : [])];
           }
         },
 
@@ -653,21 +667,23 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
           pattern: /^\*\*([^*]+)\*\*/,
           handler: (match: RegExpMatchArray) => {
             const innerText = match[1];
+            const strongType = getMark(schema, 'strong');
+
             // Check for nested emphasis
             if (innerText.includes('*') || innerText.includes('_')) {
               const innerContent = parseInlineMarkdown(innerText, schema);
-              const strongMark = schema.marks.strong.create();
+              const strongMark = strongType ? strongType.create() : undefined;
               const result: PMNode[] = [];
               innerContent.forEach((node: PMNode) => {
                 if (node.isText) {
-                  const marks = [...node.marks, strongMark];
+                  const marks = strongMark ? [...node.marks, strongMark] : node.marks;
                   result.push(schema.text(node.text, marks));
                 }
               });
               return result;
             }
-            const mark = schema.marks.strong.create();
-            return [schema.text(innerText, [mark])];
+
+            return [schema.text(innerText, strongType ? [strongType.create()] : [])];
           }
         },
 
@@ -675,8 +691,8 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
         {
           pattern: /^__([^_]+)__/,
           handler: (match: RegExpMatchArray) => {
-            const mark = schema.marks.strong.create();
-            return [schema.text(match[1], [mark])];
+            const strongType = getMark(schema, 'strong');
+            return [schema.text(match[1], strongType ? [strongType.create()] : [])];
           }
         },
 
@@ -684,8 +700,8 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
         {
           pattern: /^~~([^~]+)~~/,
           handler: (match: RegExpMatchArray) => {
-            const mark = schema.marks.strikethrough.create();
-            return [schema.text(match[1], [mark])];
+            const strikeType = getMark(schema, 'strikethrough');
+            return [schema.text(match[1], strikeType ? [strikeType.create()] : [])];
           }
         },
 
@@ -693,8 +709,8 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
         {
           pattern: /^\*([^*]+)\*/,
           handler: (match: RegExpMatchArray) => {
-            const mark = schema.marks.em.create();
-            return [schema.text(match[1], [mark])];
+            const emType = getMark(schema, 'em');
+            return [schema.text(match[1], emType ? [emType.create()] : [])];
           }
         },
 
@@ -702,8 +718,8 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
         {
           pattern: /^_([^_]+)_/,
           handler: (match: RegExpMatchArray) => {
-            const mark = schema.marks.em.create();
-            return [schema.text(match[1], [mark])];
+            const emType = getMark(schema, 'em');
+            return [schema.text(match[1], emType ? [emType.create()] : [])];
           }
         }
       ];
