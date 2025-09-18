@@ -14,7 +14,8 @@ import {
   toggleHeaderCell,
   setCellAttr
 } from "prosemirror-tables";
-
+import { Selection } from "prosemirror-state";
+import { createNearSelection } from "../utils/prosemirror-helpers";
 const tableContextMenuKey = new PluginKey("table-context-menu");
 
 interface MenuItem {
@@ -154,21 +155,17 @@ class TableContextMenu {
       }
     }
 
-    // Only prevent default and show menu if we're in a table
     if (inTable) {
       event.preventDefault();
       event.stopPropagation();
 
-      // Store the click position
       this.clickPos = pos;
 
-      // Set selection to clicked cell
-      const tr = this.view.state.tr.setSelection(
-        this.view.state.selection.constructor.near(this.view.state.doc.resolve(pos.pos))
-      );
+      // Use helper for safe selection
+      const selection = createNearSelection(this.view.state, pos.pos);
+      const tr = this.view.state.tr.setSelection(selection);
       this.view.dispatch(tr);
 
-      // Show context menu
       this.showMenu(event.clientX, event.clientY);
     }
     // If not in table, let default context menu behavior happen

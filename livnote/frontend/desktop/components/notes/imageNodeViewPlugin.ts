@@ -3,6 +3,8 @@ import { Node as PMNode } from "prosemirror-model";
 import { EditorView } from "prosemirror-view";
 import { ImageStorageService } from "./imageStorage";
 import { Plugin, PluginKey } from "prosemirror-state";
+import { Selection } from "prosemirror-state";
+import { createNodeSelection } from "./utils/prosemirror-helpers";
 
 class LazyImageNodeView implements NodeView {
   dom: HTMLElement;
@@ -137,19 +139,13 @@ class LazyImageNodeView implements NodeView {
     if (this.isDestroyed || this.isResizing) return;
 
     const pos = this.getPos();
-    const { tr } = this.view.state;
+    const selection = createNodeSelection(this.view.state, pos);
 
-    // Set selection to the image node
-    const resolvedPos = this.view.state.doc.resolve(pos);
-    const selection = this.view.state.selection.constructor.create(
-      this.view.state.doc,
-      resolvedPos.pos,
-      resolvedPos.pos + 1
-    );
-
-    tr.setSelection(selection);
-    this.view.dispatch(tr);
-    this.view.focus();
+    if (selection) {
+      const tr = this.view.state.tr.setSelection(selection);
+      this.view.dispatch(tr);
+      this.view.focus();
+    }
   }
 
   /**

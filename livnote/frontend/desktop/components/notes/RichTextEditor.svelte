@@ -2,6 +2,7 @@
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
 	import { emit, type UnlistenFn } from "@tauri-apps/api/event";
+	import { Selection } from "prosemirror-state";
 	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
 	import CommentModal from "./CommentModal.svelte";
@@ -11,6 +12,7 @@
 	import "./prosemirror-search.css";
 	import type { SearchManager } from "./SearchManager";
 	import SearchBox from "./SearchBox.svelte";
+	import { placeCursorAtEnd } from "./utils/prosemirror-helpers";
 	let searchManager: SearchManager | null = $state(null);
 	// Local state using $state
 	let element = $state<HTMLElement | null>(null);
@@ -152,13 +154,7 @@
 			setTimeout(() => {
 				if (view) {
 					view.focus();
-					const tr = view.state.tr;
-					const endPosition = tr.doc.content.size;
-					const selection = view.state.selection.constructor as any;
-					tr.setSelection(
-						selection.near(tr.doc.resolve(Math.max(0, endPosition))),
-					);
-					view.dispatch(tr.setMeta("cursorPlacement", true));
+					placeCursorAtEnd(view);
 				}
 			}, 100);
 		}

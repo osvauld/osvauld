@@ -7,37 +7,40 @@ import { ImageStorageService } from "./imageStorage";
  * Creates a ProseMirror plugin that handles clipboard content
  * using the navigator.clipboard API with optimized asset storage
  */
+
 export function pasteHandlerPlugin(imageStorage: ImageStorageService) {
   return new Plugin({
     props: {
-      handlePaste: (view: EditorView, event: ClipboardEvent) => {
-        (async () => {
-          const clipboardData = event.clipboardData;
+      handlePaste: async (view: EditorView, event: ClipboardEvent) => {
+        const clipboardData = event.clipboardData;
 
-          try {
-            const apiHandled = await tryNavigatorClipboardApi(view, event, imageStorage);
-
-            if (apiHandled) {
-              return;
+        try {
+          // Try synchronous clipboardData first
+          if (clipboardData) {
+            const handled = await processClipboardEvent(view, event, imageStorage);
+            if (handled) {
+              event.preventDefault();
+              return true;
             }
-
-            if (clipboardData) {
-              const handled = await processClipboardEvent(view, event, imageStorage);
-              if (handled) {
-                return;
-              }
-            }
-          } catch (error) {
-            console.error("Error in paste handler:", error);
           }
-        })();
 
-        return true;
+          // Fallback to async navigator.clipboard API
+          const apiHandled = await tryNavigatorClipboardApi(view, event, imageStorage);
+          if (apiHandled) {
+            event.preventDefault();
+            return true;
+          }
+
+          // Let ProseMirror handle default paste
+          return false;
+        } catch (error) {
+          console.error("Error in paste handler:", error);
+          return false; // Let ProseMirror handle on error
+        }
       }
     }
   });
 }
-
 /**
  * Tries to process clipboard content using the navigator.clipboard API
  * Returns true if successful, false otherwise

@@ -1,12 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy, tick } from "svelte";
 	import type { EditorView } from "prosemirror-view";
+	import { Selection } from "prosemirror-state";
 	import {
 		SearchManager,
 		type SearchState,
 		type SearchOptions,
 	} from "./SearchManager";
-
+	import { moveToStart, moveToEnd } from "./utils/prosemirror-helpers";
 	let {
 		searchManager,
 		editorView,
@@ -112,12 +113,7 @@
 		const found = searchManager.findNext(editorView);
 		if (!found && searchState.totalMatches > 0) {
 			// Wrap to beginning
-			const { Selection } = editorView.state.selection.constructor as any;
-			editorView.dispatch(
-				editorView.state.tr.setSelection(
-					Selection.atStart(editorView.state.doc),
-				),
-			);
+			moveToStart(editorView);
 			searchManager.findNext(editorView);
 		}
 	}
@@ -127,10 +123,7 @@
 		const found = searchManager.findPrevious(editorView);
 		if (!found && searchState.totalMatches > 0) {
 			// Wrap to end
-			const { Selection } = editorView.state.selection.constructor as any;
-			editorView.dispatch(
-				editorView.state.tr.setSelection(Selection.atEnd(editorView.state.doc)),
-			);
+			moveToEnd(editorView);
 			searchManager.findPrevious(editorView);
 		}
 	}
