@@ -18,7 +18,7 @@ import { pasteHandlerPlugin } from "./pasteHandlerPlugin";
 import { markdownShortcutsPlugin } from "./markdownShortcutsPlugin";
 import { imageNodeViewPlugin } from "./imageNodeViewPlugin";
 import { dataState } from "../../state";
-
+import { SearchManager } from "./SearchManager";
 import type {
   NoteContent,
   UserInfo,
@@ -43,9 +43,11 @@ export class NotesCoordinator {
   private imageStorage: ImageStorageService | null = null;
   private schema = createEditorSchema();
   private userInfo: UserInfo;
+  private searchManager: SearchManager;
   private _imageStoreHandler: ((event: CustomEvent) => void) | null = null;
   constructor(private config: NotesCoordinatorConfig) {
     this.userInfo = config.userInfo;
+    this.searchManager = new SearchManager();
     this.yjsManager = new YjsManager({
       clientId: this.userInfo.id,
       onUpdate: (update, origin, docType) => {
@@ -97,7 +99,11 @@ export class NotesCoordinator {
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
     this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
     document.dispatchEvent(new CustomEvent('editor-view-ready', {
-      detail: { getEditorManager: () => this.editorManager }
+      detail: {
+        getEditorManager: () => this.editorManager,
+        getSearchManager: () => this.searchManager
+      }
+
     }));
     document.dispatchEvent(new CustomEvent('comments-store-ready', {
       detail: { commentsStore: this.commentsStore }
@@ -176,6 +182,7 @@ export class NotesCoordinator {
         cursorBuilder: this.createCustomCursor.bind(this),
       }),
       yUndoPlugin(),
+      this.searchManager.getPlugin(),
       listKeymap,
       codeBlockKeymap,
       hardBreakKeymap,
@@ -188,7 +195,9 @@ export class NotesCoordinator {
       ...getTablePlugins(this.schema),
     ];
   }
-
+  getSearchManager(): SearchManager {
+    return this.searchManager;
+  }
   private setupImageStoreListener(): void {
     const handleStoreImageRequest = async (event: CustomEvent) => {
       const { dataUrl, mimeType, filename, callback } = event.detail;

@@ -1,7 +1,7 @@
-import { EditorState, Transaction, Selection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { Schema } from "prosemirror-model";
-
+import { createNearSelection } from "../utils/prosemirror-helpers";
+import { EditorState, Transaction, Selection, NodeSelection } from "prosemirror-state";
 /**
  * Creates a 3x3 table with header row
  */
@@ -73,11 +73,9 @@ export function insertTable() {
             const firstCell = firstRow.child(0); // First cell
             if (firstCell) {
               cellPos += 2; // Position inside first cell
-              const cellSelection = view.state.tr.setSelection(
-                view.state.selection.constructor.near(view.state.doc.resolve(cellPos))
-              );
-              view.dispatch(cellSelection);
-              view.focus();
+              const cellSelection = createNearSelection(view.state, cellPos);
+              const tr = view.state.tr.setSelection(cellSelection);
+              view.dispatch(tr);
             }
           }
         } catch (error) {
@@ -119,7 +117,7 @@ export function getTableInfo(state: EditorState) {
       try {
         const tablePos = $from.before(depth);
         const cellPos = $from.before(depth - 1);
-        
+
         // Validate positions are within bounds
         if (tablePos >= 0 && cellPos >= 0) {
           return {
@@ -232,23 +230,25 @@ export function deleteBackwardEnhanced(state: EditorState, dispatch?: (tr: Trans
  */
 export function selectTable(state: EditorState, dispatch?: (tr: Transaction) => void): boolean {
   const tableInfo = getTableInfo(state);
-
   if (!tableInfo) return false;
 
   if (dispatch) {
     const { tablePos, table } = tableInfo;
     const tr = state.tr;
 
-    // Create a node selection for the entire table
-    const resolvedPos = state.doc.resolve(tablePos);
-    const selection = state.selection.constructor.create(
-      state.doc,
-      tablePos,
-      tablePos + table.nodeSize
-    );
-
-    tr.setSelection(selection);
-    dispatch(tr);
+    // Create proper table selection using NodeSelection
+    try {
+      const resolvedPos = state.doc.resolve(tablePos);
+      const selection = NodeSelection.create(state.doc, tablePos);
+      tr.setSelection(selection);
+      dispatch(tr);
+    } catch (error) {
+      console.warn("Failed to select table, falling back to text selection:", error);
+      // Fallback to positioning cursor before the table
+      const fallbackSelection = createNearSelection(state, tablePos);
+      tr.setSelection(fallbackSelection);
+      dispatch(tr);
+    }
   }
 
   return true;
