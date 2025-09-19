@@ -180,323 +180,179 @@
 	// export { hide };
 </script>
 
-<style>
-	.search-container {
-		position: fixed;
-		top: 60px;
-		right: 20px;
-		z-index: 1000;
-		background: #2a2b35;
-		border: 1px solid #3a3b44;
-		border-radius: 8px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-		min-width: 320px;
-		max-width: 400px;
-	}
+<!-- VS Code-style search widget -->
+<div
+	class="bg-[#16171f] border border-[#2a2b2f] text-sm min-w-[320px] max-w-[400px] shadow-lg"
+>
+	<!-- Search row -->
+	<div class="flex items-center bg-[#1e1f2a] border-b border-[#2a2b2f]">
+		<!-- Replace toggle (first) -->
+		<div class="flex items-center">
+			<button
+				class="w-4 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2b2f]"
+				class:text-[#007acc]={isReplaceMode}
+				onclick={toggleReplaceMode}
+				title="Toggle Replace"
+				aria-label="Toggle Replace"
+			>
+				<svg
+					width="16"
+					height="16"
+					viewBox="0 0 16 16"
+					fill="currentColor"
+					class:rotate-90={isReplaceMode}
+				>
+					<path d="M6 4l4 4-4 4V4z"></path>
+				</svg>
+			</button>
+		</div>
 
-	.search-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 12px 16px 8px 16px;
-		border-bottom: 1px solid #3a3b44;
-	}
-
-	.search-title {
-		font-size: 14px;
-		font-weight: 500;
-		color: #f0f0f0;
-	}
-
-	.close-button {
-		background: none;
-		border: none;
-		color: #85889c;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
-		transition: all 0.2s;
-	}
-
-	.close-button:hover {
-		background: #3a3b44;
-		color: #f0f0f0;
-	}
-
-	.search-content {
-		padding: 16px;
-	}
-
-	.search-row {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 12px;
-		align-items: center;
-	}
-
-	.search-input-container {
-		position: relative;
-		flex: 1;
-	}
-
-	.search-input {
-		width: 100%;
-		padding: 8px 12px;
-		background: #16171f;
-		border: 1px solid #3a3b44;
-		border-radius: 4px;
-		color: #f0f0f0;
-		font-size: 14px;
-		transition: border-color 0.2s;
-	}
-
-	.search-input:focus {
-		outline: none;
-		border-color: #4094ef;
-	}
-
-	.search-input::placeholder {
-		color: #85889c;
-	}
-
-	.match-count {
-		position: absolute;
-		right: 8px;
-		top: 50%;
-		transform: translateY(-50%);
-		font-size: 12px;
-		color: #85889c;
-		pointer-events: none;
-	}
-
-	.button-group {
-		display: flex;
-		gap: 4px;
-	}
-
-	.icon-button {
-		background: none;
-		border: 1px solid #3a3b44;
-		color: #85889c;
-		cursor: pointer;
-		padding: 8px;
-		border-radius: 4px;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.icon-button:hover {
-		background: #3a3b44;
-		border-color: #4a4b54;
-		color: #f0f0f0;
-	}
-
-	.icon-button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.icon-button.active {
-		background: #4094ef;
-		border-color: #4094ef;
-		color: white;
-	}
-
-	.replace-row {
-		margin-top: 8px;
-	}
-
-	.options-row {
-		display: flex;
-		gap: 12px;
-		margin-top: 12px;
-		padding-top: 12px;
-		border-top: 1px solid #3a3b44;
-	}
-
-	.option-button {
-		background: none;
-		border: 1px solid #3a3b44;
-		color: #85889c;
-		cursor: pointer;
-		padding: 6px 12px;
-		border-radius: 4px;
-		font-size: 12px;
-		transition: all 0.2s;
-	}
-
-	.option-button:hover {
-		background: #3a3b44;
-		color: #f0f0f0;
-	}
-
-	.option-button.active {
-		background: #4094ef;
-		border-color: #4094ef;
-		color: white;
-	}
-
-	.replace-buttons {
-		display: flex;
-		gap: 8px;
-		margin-top: 8px;
-	}
-
-	.replace-button {
-		background: #4094ef;
-		border: 1px solid #4094ef;
-		color: white;
-		cursor: pointer;
-		padding: 6px 12px;
-		border-radius: 4px;
-		font-size: 12px;
-		transition: all 0.2s;
-	}
-
-	.replace-button:hover {
-		background: #3280d1;
-	}
-
-	.replace-button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.replace-button.secondary {
-		background: none;
-		border-color: #4094ef;
-		color: #4094ef;
-	}
-
-	.replace-button.secondary:hover {
-		background: rgba(64, 148, 239, 0.1);
-	}
-</style>
-
-<div class="search-container">
-	<div class="search-header">
-		<div class="search-title">Find {isReplaceMode ? "and Replace" : ""}</div>
-		<button class="close-button" onclick={hide} title="Close (Esc)"> ✕ </button>
-	</div>
-
-	<div class="search-content">
-		<!-- Search Input -->
-		<div class="search-row">
-			<div class="search-input-container">
+		<!-- Search input with integrated controls -->
+		<div class="flex items-center flex-1">
+			<div class="relative flex-1">
 				<input
 					bind:this={searchInput}
 					bind:value={searchValue}
-					class="search-input"
+					class="w-full h-8 px-2 pr-16 bg-transparent text-[#cccccc] text-sm border-none outline-none placeholder:text-[#6a737d]"
 					type="text"
-					placeholder="Search..."
+					autocorrect="off"
+					autocomplete="off"
+					placeholder="Find"
 					onkeydown={handleSearchKeydown}
 				/>
+				<!-- Match count -->
 				{#if searchState.totalMatches > 0}
-					<div class="match-count">
-						{searchState.currentMatch}/{searchState.totalMatches}
+					<div
+						class="absolute right-0 top-1/2 -translate-y-1/2 text-xs text-[#858585] pointer-events-none"
+					>
+						{searchState.currentMatch} of {searchState.totalMatches}
 					</div>
 				{/if}
 			</div>
 
-			<div class="button-group">
+			<!-- Navigation buttons -->
+			<div class="flex">
 				<button
-					class="icon-button"
+					class="w-8 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e] disabled:text-[#6a737d] disabled:cursor-not-allowed"
 					onclick={findPrevious}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
 					title="Previous match (Shift+Enter)"
+					aria-label="Previous match"
 				>
-					↑
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+						<path d="M8 12L3 7l5-5 1.41 1.41L5.83 7l3.58 3.59L8 12z"></path>
+					</svg>
 				</button>
 				<button
-					class="icon-button"
+					class="w-8 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e] disabled:text-[#6a737d] disabled:cursor-not-allowed"
 					onclick={findNext}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
 					title="Next match (Enter)"
+					aria-label="Next match"
 				>
-					↓
-				</button>
-				<button
-					class="icon-button"
-					class:active={isReplaceMode}
-					onclick={toggleReplaceMode}
-					title="Toggle replace mode"
-				>
-					↔
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+						<path d="M8 4l5 5-5 5-1.41-1.41L10.17 9 6.59 5.41 8 4z"></path>
+					</svg>
 				</button>
 			</div>
 		</div>
 
-		<!-- Replace Input -->
-		{#if isReplaceMode}
-			<div class="search-row replace-row">
-				<div class="search-input-container">
+		<!-- Options and controls -->
+		<div class="flex items-center px-1">
+			<!-- Toggle options -->
+			<button
+				class="w-8 h-8 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
+				class:text-[#007acc]={caseSensitive}
+				class:text-[#cccccc]={!caseSensitive}
+				onclick={() => (caseSensitive = !caseSensitive)}
+				title="Match Case"
+			>
+				Aa
+			</button>
+			<button
+				class="w-8 h-8 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
+				class:text-[#007acc]={wholeWord}
+				class:text-[#cccccc]={!wholeWord}
+				onclick={() => (wholeWord = !wholeWord)}
+				title="Match Whole Word"
+			>
+				Ab
+			</button>
+			<button
+				class="w-8 h-8 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
+				class:text-[#007acc]={useRegex}
+				class:text-[#cccccc]={!useRegex}
+				onclick={() => (useRegex = !useRegex)}
+				title="Use Regular Expression"
+			>
+				.*
+			</button>
+
+			<!-- Close button -->
+			<button
+				class="w-8 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e]"
+				onclick={hide}
+				title="Close (Escape)"
+				aria-label="Close"
+			>
+				<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+					<path
+						d="M8 6.293l5.293-5.293.707.707L8.707 7 14 12.293l-.707.707L8 7.707l-5.293 5.293-.707-.707L7.293 7 2 1.707l.707-.707L8 6.293z"
+					></path>
+				</svg>
+			</button>
+		</div>
+	</div>
+
+	<!-- Replace row (when active) -->
+	{#if isReplaceMode}
+		<div class="flex items-center bg-[#1e1f2a]">
+			<!-- Replace input -->
+			<div class="flex items-center flex-1">
+				<div class="relative flex-1">
 					<input
 						bind:this={replaceInput}
 						bind:value={replaceValue}
-						class="search-input"
+						class="w-full h-8 px-2 pr-16 bg-transparent text-[#cccccc] text-sm border-none outline-none placeholder:text-[#6a737d]"
 						type="text"
-						placeholder="Replace with..."
+						placeholder="Replace"
 						onkeydown={handleReplaceKeydown}
 					/>
 				</div>
 			</div>
 
-			<div class="replace-buttons">
+			<!-- Replace controls -->
+			<div class="flex items-center px-1">
 				<button
-					class="replace-button secondary"
+					class="w-8 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e] disabled:text-[#6a737d] disabled:cursor-not-allowed"
 					onclick={replaceCurrent}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
-					title="Replace current match"
+					title="Replace"
+					aria-label="Replace"
 				>
-					Replace
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+						<path
+							d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z"
+						></path>
+					</svg>
 				</button>
 				<button
-					class="replace-button secondary"
-					onclick={replaceNext}
-					disabled={!searchState.isActive || searchState.totalMatches === 0}
-					title="Replace and find next"
-				>
-					Replace + Next
-				</button>
-				<button
-					class="replace-button"
+					class="w-8 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e] disabled:text-[#6a737d] disabled:cursor-not-allowed"
 					onclick={replaceAll}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
-					title="Replace all matches"
+					title="Replace All"
+					aria-label="Replace All"
 				>
-					Replace All
+					<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+						<path
+							d="M1.5 3.5A1.5 1.5 0 013 2h10a1.5 1.5 0 011.5 1.5v9A1.5 1.5 0 0113 14H3a1.5 1.5 0 01-1.5-1.5v-9zM3 3.5v9a.5.5 0 00.5.5h9a.5.5 0 00.5-.5v-9a.5.5 0 00-.5-.5h-9a.5.5 0 00-.5.5z"
+						></path>
+						<path
+							d="M5.5 7a.5.5 0 01.5-.5h4a.5.5 0 010 1H6a.5.5 0 01-.5-.5zM5.5 9a.5.5 0 01.5-.5h4a.5.5 0 010 1H6a.5.5 0 01-.5-.5z"
+						></path>
+					</svg>
 				</button>
 			</div>
-		{/if}
-
-		<!-- Search Options -->
-		<div class="options-row">
-			<button
-				class="option-button"
-				class:active={caseSensitive}
-				onclick={() => (caseSensitive = !caseSensitive)}
-				title="Case sensitive"
-			>
-				Aa
-			</button>
-			<button
-				class="option-button"
-				class:active={wholeWord}
-				onclick={() => (wholeWord = !wholeWord)}
-				title="Whole word"
-			>
-				Ab|
-			</button>
-			<button
-				class="option-button"
-				class:active={useRegex}
-				onclick={() => (useRegex = !useRegex)}
-				title="Regular expression"
-			>
-				.*
-			</button>
 		</div>
-	</div>
+	{/if}
 </div>

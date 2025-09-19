@@ -389,6 +389,13 @@
 		overflow: hidden; /* Prevent container from growing */
 	}
 
+	.search-box-container {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		z-index: 1000;
+	}
+
 	@media print, (export-mode: true) {
 		.editor-container {
 			width: 180mm !important;
@@ -485,7 +492,18 @@
 					class="h-full max-h-full overflow-y-scroll scrollbar-thin"
 					class:opacity-0={showSkeleton}
 					class:opacity-100={showContent}
-				></div>
+				>
+					<!-- SearchBox positioned inside editor bounds -->
+					{#if searchManager && showSearchBox}
+						<div class="search-box-container">
+							<SearchBox
+								{searchManager}
+								editorView={view}
+								onHide={() => (showSearchBox = false)}
+							/>
+						</div>
+					{/if}
+				</div>
 
 				<!-- Skeleton overlay -->
 				{#if showSkeleton}
@@ -537,10 +555,3 @@
 	onSave={handleSaveComment}
 	onCancel={handleCancelComment}
 />
-{#if searchManager && showSearchBox}
-	<SearchBox
-		{searchManager}
-		editorView={view}
-		onHide={() => (showSearchBox = false)}
-	/>
-{/if}
