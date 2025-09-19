@@ -4,7 +4,7 @@
   <img src="https://raw.githubusercontent.com/osvauld/osvauld/dev/.github/assets/logo.png" alt="Osvauld Logo" >
 </a>
 </p>
-<p align="center">Open-source, Fully encrypted, peer to peer applications for the soverign individuals</p>
+<p align="center">Open-source, Fully encrypted, peer to peer applications for the sovereign individual</p>
 
 ---
 
