@@ -14,6 +14,9 @@
 		ClosePanel,
 		Replace,
 		ReplaceAll,
+		Regex,
+		WholeWord,
+		CaseSensitive,
 	} from "../../icons";
 	let {
 		searchManager,
@@ -237,7 +240,7 @@
 						onclick={() => (caseSensitive = !caseSensitive)}
 						title="Match Case"
 					>
-						Aa
+						<CaseSensitive size={16} />
 					</button>
 					<button
 						class="p-1 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
@@ -246,7 +249,7 @@
 						onclick={() => (wholeWord = !wholeWord)}
 						title="Match Whole Word"
 					>
-						Ab
+						<WholeWord size={16} />
 					</button>
 					<button
 						class="p-1 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
@@ -255,7 +258,7 @@
 						onclick={() => (useRegex = !useRegex)}
 						title="Use Regular Expression"
 					>
-						.*
+						<Regex size={16} />
 					</button>
 				</div>
 			</div>
