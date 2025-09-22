@@ -88,3 +88,5 @@ export { default as MenuToggle } from './menuToggle.svelte';
 export { default as ConnectUser } from './connectUser.svelte';
 export { default as TwoPeople } from './twoPeople.svelte';
 export { default as Zen } from './zen.svelte';
+export { default as Replace } from './replace.svelte';
+export { default as ReplaceAll } from './replaceAll.svelte';
