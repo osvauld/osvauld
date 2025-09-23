@@ -20,7 +20,7 @@
 
 	const handleAddNote = async () => {
 		if (!dataState.currentVault || dataState.currentVault.id === "all") {
-			uiState.showToast("Please add/select vault", false);
+			uiState.showToast("Please select a folder", false);
 			return;
 		}
 		await dataState.addNote();
