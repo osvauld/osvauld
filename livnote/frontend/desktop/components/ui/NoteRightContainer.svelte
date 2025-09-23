@@ -48,6 +48,11 @@
 		uiState.toggleNoteRightPanel();
 	};
 
+	const closeNoteRightPanel = () => {
+		uiState.toggleNoteRightPanel(false);
+		uiState.resetNoteRightPanelManualToggle();
+	};
+
 	// Handle copying note content
 	const handleCopyNote = async () => {
 		if (!dataState.currentNoteId) {
@@ -196,7 +201,7 @@
 			<button
 				class="rounded-lg flex justify-center items-center cursor-e-resize"
 				title="Close note right panel"
-				onclick={handleToggleNoteRightPanel}
+				onclick={closeNoteRightPanel}
 			>
 				<MenuToggle />
 			</button>

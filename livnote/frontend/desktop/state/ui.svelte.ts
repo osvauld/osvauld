@@ -32,10 +32,13 @@ class UIState {
   showNavigationPanel = $state(true);
   showNoteRightPanel = $state(true);
   isNavigationPanelManuallyToggled = $state(false);
+  isNoteRightPanelManuallyToggled = $state(false);
   isNoteFetching = $state<boolean>(false);
   isEditorLoading = $state<boolean>(false);
   isZenMode = $state<boolean>(false);
   readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
+  readonly NOTE_RIGHT_PANEL_WIDTH = 360; // Note right panel width in pixels
+  readonly NAV_PANEL_WIDTH = 360; // Navigation panel width in pixels
 
 
   toastMessage = $state<Toast>({
@@ -162,10 +165,36 @@ class UIState {
     } else {
       this.showNoteRightPanel = !this.showNoteRightPanel;
     }
+    this.isNoteRightPanelManuallyToggled = true;
   }
 
   resetNavigationPanelManualToggle() {
     this.isNavigationPanelManuallyToggled = false;
+  }
+
+  resetNoteRightPanelManualToggle() {
+    this.isNoteRightPanelManuallyToggled = false;
+  }
+
+  /**
+   * Calculate the minimum viewport width needed to show both panels and editor
+   */
+  get minViewportWidthForBothPanels(): number {
+    return this.NAV_PANEL_WIDTH + this.MIN_EDITOR_WIDTH + this.NOTE_RIGHT_PANEL_WIDTH;
+  }
+
+  /**
+   * Calculate the minimum viewport width needed to show nav panel and editor
+   */
+  get minViewportWidthForNavPanel(): number {
+    return this.NAV_PANEL_WIDTH + this.MIN_EDITOR_WIDTH;
+  }
+
+  /**
+   * Calculate the minimum viewport width needed to show editor and right panel
+   */
+  get minViewportWidthForRightPanel(): number {
+    return this.MIN_EDITOR_WIDTH + this.NOTE_RIGHT_PANEL_WIDTH;
   }
   get isNoteLoading(): boolean {
     return this.isNoteFetching || this.isEditorLoading;
