@@ -185,7 +185,7 @@
 
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<!-- Header section with back button and title -->
-		<div class="py-10 px-11 flex items-center justify-start shrink-0">
+		<div class="py-4 px-11 flex items-center justify-start shrink-0">
 			<div class="flex justify-between items-center max-w-[44rem]">
 				<!-- Burger menu toggle - only show when navigation panel is hidden -->
 				{#if !uiState.showNavigationPanel}

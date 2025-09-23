@@ -355,7 +355,7 @@
 	.editor-container {
 		width: min(90vw, 900px);
 		max-width: 900px;
-		margin: 0 auto;
+		margin: 0 auto 0 0;
 		height: 100%;
 		background: #16171f;
 		color: white;

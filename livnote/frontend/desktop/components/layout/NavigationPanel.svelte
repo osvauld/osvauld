@@ -47,24 +47,22 @@
 
 {#if uiState.showNavigationPanel}
 	<nav
-		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
+		class="w-[22.5rem] shrink-0 h-full max-h-full pb-10 pt-4 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
 		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation"
 	>
-	
-			<button
-				aria-label="Collapse navigation panel"
-				class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
-				title="Collapse panel"
-				onclick={closeNavigationPanel}
-			>
-				<MenuToggle />
-			</button>
-		
+		<button
+			aria-label="Collapse navigation panel"
+			class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
+			title="Collapse panel"
+			onclick={closeNavigationPanel}
+		>
+			<MenuToggle />
+		</button>
 
 		<div class="relative">
 			<button
-				class="w-full text-[26px] text-osvauld-fieldText font-light leading-6  rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
+				class="w-full text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
 				aria-label="Switch Folder"
 				aria-controls="Folder selector"
 				aria-expanded={uiState.vaultManagerActive}

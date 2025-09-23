@@ -24,7 +24,9 @@
 	};
 </script>
 
-<div class="grow max-h-full overflow-hidden px-11 py-4 relative flex flex-col">
+<div
+	class="grow max-h-full overflow-hidden px-11 py-0.5 relative flex flex-col"
+>
 	<NoteListPanel />
 	<div class="grow pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
 		{#if dataState.isDataLoading}
