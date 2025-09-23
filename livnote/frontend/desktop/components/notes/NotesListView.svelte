@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount, onDestroy } from "svelte";
 	import { getLastModifiedDate } from "../../utils/helper";
 	import { sendMessage } from "../../utils/helper";
 	import NotePreview from "./NotePreview.svelte";
@@ -12,9 +11,6 @@
 	} from "../../icons";
 
 	import { dataState, uiState } from "../../state/";
-
-	let resizeTimer = $state<number | null>(null);
-	let columnCount = $state<number>(1);
 
 	const toggleFavorite = async (noteId: string, currentStatus: boolean) => {
 		try {
@@ -31,43 +27,6 @@
 	const selectNote = (note: any) => {
 		dataState.switchNote(note.id);
 	};
-
-	const getColumnCount = (): number => {
-		if (typeof window === "undefined") return 1;
-		if (window.innerWidth >= 1440) return 3;
-		if (window.innerWidth >= 1024) return 2;
-		return 1;
-	};
-
-	const getColumnItems = (items: any[], colIndex: number) => {
-		return items.filter((_, index) => index % columnCount === colIndex);
-	};
-
-	function handleResize() {
-		if (resizeTimer !== null) {
-			clearTimeout(resizeTimer);
-		}
-
-		resizeTimer = setTimeout(() => {
-			const newColumnCount = getColumnCount();
-			if (newColumnCount !== columnCount) {
-				columnCount = newColumnCount;
-				dataState.notes = [...dataState.notes];
-			}
-		}, 250) as unknown as number;
-	}
-
-	onMount(() => {
-		columnCount = getColumnCount();
-		window.addEventListener("resize", handleResize);
-	});
-
-	onDestroy(() => {
-		window.removeEventListener("resize", handleResize);
-		if (resizeTimer !== null) {
-			clearTimeout(resizeTimer);
-		}
-	});
 </script>
 
 <div class="flex grow max-h-full max-w-full">
@@ -139,7 +98,7 @@
 									</div>
 								{/each}
 							</div>
-						{/each}
+						</div>
 					</div>
 				{/if}
 			</div>
