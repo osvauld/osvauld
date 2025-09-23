@@ -18,7 +18,7 @@
 
 {#if uiState.showNavigationPanel}
 	<nav
-		class="w-[22.5rem] shrink-0 h-full max-h-full py-10 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
+		class="w-[22.5rem] shrink-0 h-full max-h-full pb-10 pt-4 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
 		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation"
 	>

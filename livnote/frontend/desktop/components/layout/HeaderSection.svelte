@@ -84,12 +84,12 @@
 	};
 </script>
 
-<div class="h-32 w-full border-b border-osvauld-borderColor flex">
+<div class="h-auto w-full border-b border-osvauld-borderColor flex">
 	<span
 		role="button"
 		tabindex="0"
 		aria-label="Go to home view"
-		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
+		class="basis-[360px] shrink-0 h-full flex items-center justify-start pl-4 text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
 		onclick={() => uiState.toggleProfileViewLayout(false)}
 		onkeydown={(e) => {
 			if (e.key === "Enter" || e.key === " ") {
@@ -100,7 +100,7 @@
 	>
 		Livnote
 	</span>
-	<div class="grow py-10 px-16 flex items-center justify-end gap-6">
+	<div class="grow py-4 pl-16 pr-4 flex items-center justify-end gap-6">
 		<div
 			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto"
 		>
