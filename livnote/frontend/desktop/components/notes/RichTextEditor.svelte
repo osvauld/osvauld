@@ -184,13 +184,36 @@
 		resizeTimeoutId = window.setTimeout(() => {
 			elementWidth = element?.getBoundingClientRect().width;
 			const currentWindowWidth = window.innerWidth;
-			const NAV_PANEL_APPROX_WIDTH = 360;
 
+			// Handle navigation panel responsive behavior
 			if (!uiState.isNavigationPanelManuallyToggled) {
-				const thresholdToShowNav =
-					NAV_PANEL_APPROX_WIDTH + uiState.MIN_EDITOR_WIDTH;
-				uiState.showNavigationPanel = currentWindowWidth >= thresholdToShowNav;
+				uiState.showNavigationPanel =
+					currentWindowWidth >= uiState.minViewportWidthForNavPanel;
 			}
+
+			// Handle note right panel responsive behavior
+			if (!uiState.isNoteRightPanelManuallyToggled) {
+				// Priority logic: if both panels would fit, show both
+				if (currentWindowWidth >= uiState.minViewportWidthForBothPanels) {
+					uiState.showNoteRightPanel = true;
+				}
+				// If only nav panel + editor fits, hide right panel
+				else if (
+					currentWindowWidth >= uiState.minViewportWidthForNavPanel &&
+					uiState.showNavigationPanel
+				) {
+					uiState.showNoteRightPanel = false;
+				}
+				// If only right panel + editor fits, show right panel
+				else if (currentWindowWidth >= uiState.minViewportWidthForRightPanel) {
+					uiState.showNoteRightPanel = true;
+				}
+				// If viewport is too small for any panel combination, hide right panel
+				else {
+					uiState.showNoteRightPanel = false;
+				}
+			}
+
 			resizeTimeoutId = null;
 		}, 50);
 	}
