@@ -63,7 +63,7 @@
 	onclick={() => uiState.toggleVaultManager()}
 >
 	<div
-		class={`absolute w-[20rem] h-[18rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${position === "noteList" ? "top-60 left-22" : "top-56 left-4"}`}
+		class={`absolute w-[20rem] h-[18rem] overflow-hidden scrollbar-thin border border-osvauld-iconblack bg-osvauld-ninjablack rounded-2xl px-2 pt-2 pb-3 flex flex-col gap-2 text-lg ${position === "noteList" ? "top-40 left-4" : "top-40 left-4"}`}
 		style="width: calc(360px - 2rem);"
 		id="vaultSelector"
 		in:fly

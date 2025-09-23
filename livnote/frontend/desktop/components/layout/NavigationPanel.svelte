@@ -83,7 +83,7 @@
 			{/if}
 		</div>
 		<div
-			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-6 py-1 gap-1"
+			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-2 py-1 gap-1"
 		>
 			<!-- <ul class="space-y-1 font-light text-base text-" role="list">
 				<li>
