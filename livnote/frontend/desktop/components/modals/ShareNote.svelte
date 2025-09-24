@@ -91,6 +91,7 @@
 		existingUsers={existingCollaborators}
 		maxSelections={1}
 		buttonText="Add to collaborate"
+		variant="note"
 		onShare={handleShareNote}
 		onClose={() => (showShareList = false)}
 	/>

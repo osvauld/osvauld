@@ -93,6 +93,7 @@
 		existingUsers={existingCollaborators}
 		maxSelections={1}
 		buttonText="Share folder"
+		variant="folder"
 		onShare={handleShareFolder}
 		onClose={() => (showShareList = false)}
 	/>
