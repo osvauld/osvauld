@@ -69,7 +69,7 @@
 </style>
 
 <main
-	class="bg-bgPrimary w-screen h-screen text-macchiato-text text-lg !font-sans"
+	class="bg-bgPrimary w-screen h-screen text-macchiato-text text-lg !font-sans select-none"
 >
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">

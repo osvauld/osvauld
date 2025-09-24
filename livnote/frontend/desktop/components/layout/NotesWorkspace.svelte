@@ -148,6 +148,11 @@
 		uiState.toggleNoteRightPanel();
 	};
 
+	const openNoteRightPanel = () => {
+		uiState.toggleNoteRightPanel(true);
+		uiState.resetNoteRightPanelManualToggle();
+	};
+
 	const checkforEscKey = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			uiState.toggleZenMode();
@@ -304,7 +309,7 @@
 					aria-label="Open note right panel"
 					class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
 					title="Open note right panel"
-					onclick={toggleNoteRightPanel}
+					onclick={openNoteRightPanel}
 				>
 					<MenuToggle />
 				</button>
