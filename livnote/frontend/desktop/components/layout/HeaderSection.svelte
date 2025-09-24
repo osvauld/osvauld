@@ -82,6 +82,18 @@
 		//	console.log(noteIds);
 		dataState.setSearchResults(noteIds);
 	};
+
+	// Home button handler - saves and returns to list view
+	const handleHomeButton = () => {
+		const noteId = dataState.currentNoteId;
+		if (noteId) {
+			dataState.saveNote(noteId);
+			dataState.switchNote(null);
+		}
+		uiState.toggleNoteRightPanel(true);
+		uiState.toggleNoteViewLayout(false);
+		uiState.toggleProfileViewLayout(false);
+	};
 </script>
 
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
@@ -89,12 +101,12 @@
 		role="button"
 		tabindex="0"
 		aria-label="Go to home view"
-		class=" shrink-0 h-full flex items-center justify-start pl-4 text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
-		onclick={() => uiState.toggleProfileViewLayout(false)}
+		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
+		onclick={handleHomeButton}
 		onkeydown={(e) => {
 			if (e.key === "Enter" || e.key === " ") {
 				e.preventDefault();
-				uiState.toggleProfileViewLayout(false);
+				handleHomeButton();
 			}
 		}}
 	>
