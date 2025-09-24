@@ -1,5 +1,4 @@
 <script lang="ts">
-	// ⚠️  TEMPORARY CHANGES FOR UI TESTING - Contains placeholder data ⚠️
 	import CollaboratorSelector from "./CollaboratorSelector.svelte";
 	import { sendMessage } from "../../utils/helper";
 	import { dataState, uiState } from "../../state/";
@@ -19,117 +18,9 @@
 
 	let { showShareList = $bindable(false) }: Props = $props();
 
-	// Local state - TEMPORARY: Using placeholder data for UI testing
-	// let availableCollaborators = $state<Collaborator[]>([
-	// 	// Online users with various states
-	// 	{
-	// 		username: "sarah.chen",
-	// 		online: true,
-	// 		id: "user-001",
-	// 		publicKey: "pk-001",
-	// 	},
-	// 	{
-	// 		username: "alex.rodriguez",
-	// 		online: true,
-	// 		id: "user-002",
-	// 		publicKey: "pk-002",
-	// 	},
-	// 	{
-	// 		username: "emma.wilson",
-	// 		online: true,
-	// 		id: "user-003",
-	// 		publicKey: "pk-003",
-	// 	},
-	// 	{
-	// 		username: "michael.brown",
-	// 		online: true,
-	// 		id: "user-004",
-	// 		publicKey: "pk-004",
-	// 	},
-
-	// 	// Offline users
-	// 	{
-	// 		username: "david.kim",
-	// 		online: false,
-	// 		id: "user-005",
-	// 		publicKey: "pk-005",
-	// 	},
-	// 	{
-	// 		username: "lisa.thompson",
-	// 		online: false,
-	// 		id: "user-006",
-	// 		publicKey: "pk-006",
-	// 	},
-	// 	{
-	// 		username: "james.garcia",
-	// 		online: false,
-	// 		id: "user-007",
-	// 		publicKey: "pk-007",
-	// 	},
-	// 	{
-	// 		username: "rachel.martinez",
-	// 		online: false,
-	// 		id: "user-008",
-	// 		publicKey: "pk-008",
-	// 	},
-
-	// 	// More users for testing search functionality
-	// 	{
-	// 		username: "tom.anderson",
-	// 		online: true,
-	// 		id: "user-009",
-	// 		publicKey: "pk-009",
-	// 	},
-	// 	{
-	// 		username: "sophie.clark",
-	// 		online: false,
-	// 		id: "user-010",
-	// 		publicKey: "pk-010",
-	// 	},
-	// 	{
-	// 		username: "ryan.taylor",
-	// 		online: true,
-	// 		id: "user-011",
-	// 		publicKey: "pk-011",
-	// 	},
-	// 	{
-	// 		username: "maria.gonzalez",
-	// 		online: false,
-	// 		id: "user-012",
-	// 		publicKey: "pk-012",
-	// 	},
-	// 	{
-	// 		username: "kevin.lee",
-	// 		online: true,
-	// 		id: "user-013",
-	// 		publicKey: "pk-013",
-	// 	},
-	// 	{
-	// 		username: "anna.johnson",
-	// 		online: false,
-	// 		id: "user-014",
-	// 		publicKey: "pk-014",
-	// 	},
-	// 	{
-	// 		username: "chris.davis",
-	// 		online: true,
-	// 		id: "user-015",
-	// 		publicKey: "pk-015",
-	// 	},
-	// ]);
-
-	let availableCollaborators = $state<Collaborator[]>([
-		// Current collaborators with mixed online/offline status
-		{
-			username: "sarah.chen",
-			online: true,
-			id: "user-001",
-			publicKey: "pk-001",
-		},
-	]);
-	let existingCollaborators = $state<Collaborator[]>([
-		// Current collaborators with mixed online/offline status
-	]);
+	// Local state
+	let availableCollaborators = $state<Collaborator[]>([]);
+	let existingCollaborators = $state<Collaborator[]>([]);
 
 	async function fetchUsers() {
 		try {
@@ -178,8 +69,7 @@
 	// Initialize data when component is shown
 	$effect(() => {
 		if (showShareList) {
-			// TEMPORARY: Commented out for UI testing with placeholder data
-			// fetchUsers();
+			fetchUsers();
 		}
 	});
 </script>
