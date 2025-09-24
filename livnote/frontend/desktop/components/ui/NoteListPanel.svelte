@@ -29,8 +29,8 @@
 	};
 </script>
 
-<div class="py-10 px-11 flex items-center justify-start shrink-0">
-	<div class="relative shrink-0">
+<div class="py-4 flex items-center justify-start shrink-0">
+	<!-- <div class="relative shrink-0">
 		<button
 			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
 			aria-label="Switch Vault"
@@ -52,9 +52,9 @@
 		{#if uiState.vaultManagerActive}
 			<FolderManager position="noteList" />
 		{/if}
-	</div>
+	</div> -->
 	<div
-		class="mx-6 px-6 border-x border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base"
+		class="mr-auto border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base"
 	>
 		<button
 			class="w-full flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
@@ -65,12 +65,12 @@
 			onclick={() => dataState.toggleFavoriteView(!dataState.favoriteSelected)}
 			aria-current={dataState.favoriteSelected ? "page" : undefined}
 		>
+			<span>Favourites</span>
 			{#if dataState.favoriteSelected}
 				<Star size={20} />
 			{:else}
 				<EmptyStar size={20} />
 			{/if}
-			<span>Favourites</span>
 		</button>
 	</div>
 	<div
