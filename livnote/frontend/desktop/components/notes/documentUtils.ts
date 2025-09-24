@@ -13,7 +13,7 @@ const editorSchema = new Schema({
 
 
 
-export function createEmptyNoteContent(clientId: number, username?: string): NoteContent {
+export function createEmptyNoteContent(clientId: number, username?: string, title?: string): NoteContent {
   // Create temporary YJS documents
   const tempYDoc = new Y.Doc();
   const tempType = tempYDoc.getXmlFragment('prosemirror');
@@ -30,7 +30,7 @@ export function createEmptyNoteContent(clientId: number, username?: string): Not
     image_state: Array.from(Y.encodeStateAsUpdateV2(tempImageDoc)), // Separate image doc
     client_id: clientId.toString(),
     last_modified: Date.now(),
-    title: "Untitled Note",
+    title: title || "Untitled Note",
   };
 
   // Clean up temporary docs

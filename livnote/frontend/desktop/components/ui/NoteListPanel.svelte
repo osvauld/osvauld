@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { uiState, dataState } from "../../state";
-	import FolderManager from "./FolderManager.svelte";
 	import ShareFolder from "../modals/ShareFolder.svelte";
 
 	import {
@@ -14,7 +13,6 @@
 	} from "../../icons";
 
 	let deleteBtnHoved = $state(false);
-	let addCredentialHovered = $state(false);
 	let showShareFolderList = $state(false);
 	const handleDeleteBtn = (item: "folder" | "note") => {
 		uiState.showDeleteConfirmation(item);
@@ -53,15 +51,26 @@
 			<FolderManager position="noteList" />
 		{/if}
 	</div> -->
-	<div
-		class="mr-auto border-osvauld-borderColor text-osvauld-fieldText flex gap-6 text-base"
-	>
+	<div class="mr-auto flex items-center gap-6 text-base">
+		<!-- Current folder title -->
+		<div
+			class="text-[26px] text-osvauld-sideListTextActive font-light leading-6 capitalize truncate"
+			aria-label="Current folder: {dataState.currentVault.id === 'all'
+				? 'Home'
+				: dataState.currentVault.name}"
+		>
+			{dataState.currentVault.id === "all"
+				? "Home"
+				: dataState.currentVault.name}
+		</div>
+
+		<!-- Favourites button -->
 		<button
-			class="w-full flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
-				   transition-colors
+			class="flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
+				   transition-colors text-osvauld-fieldText
 				   {dataState.favoriteSelected
 				? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-				: ''}"
+				: 'hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
 			onclick={() => dataState.toggleFavoriteView(!dataState.favoriteSelected)}
 			aria-current={dataState.favoriteSelected ? "page" : undefined}
 		>
@@ -103,15 +112,15 @@
 			>
 		{/if}
 		<button
-			class=" rounded-lg p-2.5 flex justify-center items-center cursor-pointer {addCredentialHovered
-				? 'bg-livnotelavender text-primarydark'
-				: 'bg-osvauld-fieldActive text-osvauld-fieldText'}"
-			onmouseenter={() => (addCredentialHovered = true)}
-			onmouseleave={() => (addCredentialHovered = false)}
+			class="rounded-lg p-2.5 flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-osvauld-fieldText hover:bg-livnotelavender hover:text-primarydark group"
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>
-			<Add color={addCredentialHovered ? "#010109" : "#85889C"} size={24} />
+			<span
+				class="group-hover:[&>svg]:fill-primarydark [&>svg]:fill-osvauld-fieldText [&>svg]:transition-colors [&>svg]:duration-150"
+			>
+				<Add color="currentColor" size={24} />
+			</span>
 		</button>
 	</div>
 
