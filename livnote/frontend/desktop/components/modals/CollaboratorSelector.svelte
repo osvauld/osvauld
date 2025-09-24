@@ -1,8 +1,4 @@
 <script lang="ts">
-	// ⚠️  TEMPORARY CHANGES FOR UI TESTING - REVERT USING .backup FILE AT END OF SESSION ⚠️
-	// Original file backed up as: CollaboratorSelector.svelte.backup
-	// These changes include placeholder data and enhanced functionality for testing purposes
-
 	import { Lens, ClosePanel } from "../../icons";
 
 	// Define interfaces
@@ -30,18 +26,10 @@
 		title = "Invite to collaborate",
 		availableUsers = [],
 		existingUsers = [],
-		maxSelections = 5, // Increased to showcase multiple selections
+		maxSelections = 1,
 		buttonText = "Add to collaborate",
-		onShare = (selectedUsers) => {
-			console.log("Sharing with users:", selectedUsers);
-			// Mock implementation - in real app this would call API
-			alert(
-				`Added ${selectedUsers.length} collaborator(s): ${selectedUsers.map((u) => u.username).join(", ")}`,
-			);
-		},
-		onClose = () => {
-			console.log("Modal closed");
-		},
+		onShare = () => {},
+		onClose = () => {},
 	}: Props = $props();
 
 	// Local state
@@ -155,29 +143,13 @@
 		if (selectedUsers.length === 0) return;
 
 		// Get full user objects for selected users
-		const selectedUserFullObjects = selectedUsers
+		const selectedUserObjects = selectedUsers
 			.map((username) => availableUsers.find((u) => u.username === username))
-			.filter((user): user is Collaborator => user !== undefined && !!user.id);
+			.filter((user): user is Collaborator => user !== undefined && !!user.id)
+			.map((user) => ({ username: user.username, id: user.id! }));
 
-		// TEMP: Move selected users from available -> existing locally for UI testing
-		if (selectedUserFullObjects.length > 0) {
-			existingUsers = sortOnlineCollaborators([
-				...existingUsers,
-				...selectedUserFullObjects,
-			]);
-			const selectedSet = new Set(selectedUsers);
-			availableUsers = availableUsers.filter(
-				(user) => !selectedSet.has(user.username),
-			);
-		}
-
-		if (selectedUserFullObjects.length > 0) {
-			onShare(
-				selectedUserFullObjects.map((user) => ({
-					username: user.username,
-					id: user.id!,
-				})),
-			);
+		if (selectedUserObjects.length > 0) {
+			onShare(selectedUserObjects);
 			// Reset state after sharing
 			selectedUsers = [];
 			query = "";
@@ -346,7 +318,7 @@
 					aria-label="Available collaborators"
 				>
 					{#if availableUsersFiltered.length === 0}
-						<div class="p-3 text-base font-light">No users found!</div>
+						<div class="p-3 text-sm font-light">No users found!</div>
 					{:else}
 						<div
 							id="collaborators-listbox"
