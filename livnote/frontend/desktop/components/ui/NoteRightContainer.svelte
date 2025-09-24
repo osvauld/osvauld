@@ -125,6 +125,7 @@
 			</button>
 			<button
 				class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+				aria-label="Copy note content"
 				onclick={handleCopyNote}
 			>
 				{#if noteCopied}
