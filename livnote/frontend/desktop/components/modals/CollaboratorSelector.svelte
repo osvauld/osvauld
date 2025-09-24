@@ -270,7 +270,7 @@
 		<div class="relative p-0">
 			{#if !isFocused}
 				<div class="text-osvauld-quarzowhite text-sm font-light py-1.5">
-					Exisiting collaborators
+					Existing collaborators
 				</div>
 			{/if}
 			<div
@@ -317,7 +317,7 @@
 			<!-- Available collaborators dropdown -->
 			{#if isFocused}
 				<div
-					class="mt-2 w-full rounded-lg p-1 border border-osvauld-activeBorder bg-osvauld-frameblack"
+					class="mt-2 min-h-[6rem] w-full rounded-lg p-1 border border-osvauld-activeBorder bg-osvauld-frameblack"
 					role="dialog"
 					aria-label="Available collaborators"
 				>
