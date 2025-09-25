@@ -20,6 +20,23 @@
 		};
 	});
 
+	// Auto-expand the folder that contains the currently opened note
+	$effect(() => {
+		const currentNoteId = dataState.currentNoteId;
+		if (!currentNoteId) return;
+
+		const note = dataState.getNoteById(currentNoteId);
+		const folderId = note?.folderId;
+		if (!folderId || folderId === "all") return;
+
+		if (!expandedFolders.has(folderId)) {
+			// Accordion behavior: expand the note's folder and collapse others
+			expandedFolders.clear();
+			expandedFolders.add(folderId);
+			expandedFolders = new Set(expandedFolders);
+		}
+	});
+
 	function toggleFolder(folderId: string) {
 		// Don't allow All Notes folder to be toggled
 		if (folderId === "all") {
