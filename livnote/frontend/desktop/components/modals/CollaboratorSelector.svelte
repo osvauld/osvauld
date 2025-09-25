@@ -17,6 +17,7 @@
 		existingUsers?: Collaborator[];
 		maxSelections?: number;
 		buttonText?: string;
+		variant?: "note" | "folder";
 		onShare?: (selectedUsers: { username: string; id: string }[]) => void;
 		onClose?: () => void;
 	}
@@ -28,6 +29,7 @@
 		existingUsers = [],
 		maxSelections = 1,
 		buttonText = "Add to collaborate",
+		variant = "note",
 		onShare = () => {},
 		onClose = () => {},
 	}: Props = $props();
@@ -191,14 +193,14 @@
 
 {#if show}
 	<div
-		class="absolute top-12 right-0 mt-2 w-[35rem] {isFocused
-			? 'h-[26.125rem] '
-			: 'h-auto'} rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
+		class="absolute {variant === 'folder'
+			? 'top-26 right-72'
+			: 'top-12 right-0'} mt-2 w-[25rem] h-auto max-h-[27.125rem] rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
 		role="dialog"
 		aria-labelledby="dialog-title"
 	>
 		<div class="flex justify-between items-center">
-			<span id="dialog-title" class="text-3xl text-osvauld-quarzowhite"
+			<span id="dialog-title" class="text-xl text-osvauld-quarzowhite"
 				>{title}</span
 			>
 			<button
@@ -232,7 +234,7 @@
 			{#if selectedUsers.length !== 0}
 				{#each selectedUsers as user}
 					<span
-						class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-lg px-3 py-1 text-base"
+						class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-sm px-3 py-1 text-sm"
 						>{user}</span
 					>
 				{/each}
@@ -265,23 +267,26 @@
 		</button>
 
 		<!-- Collaborators display area -->
-		<div class="relative p-4">
+		<div class="relative p-0">
+			{#if !isFocused}
+				<div class="text-osvauld-quarzowhite text-sm font-light py-1.5">
+					Existing collaborators
+				</div>
+			{/if}
 			<div
 				class="{isFocused
-					? 'h-[16.25rem]'
-					: 'h-auto'} max-h-[16.25rem] overflow-y-auto scrollbar-thin select-none cursor-default"
+					? 'min-h-0 h-auto'
+					: 'h-auto'} max-h-[12rem] pr-1 overflow-y-auto scrollbar-thin select-none cursor-default"
 				role="region"
 				aria-label="Current collaborators"
 			>
-				{#if existingUsers.length === 0}
-					<div class="p-3">No existing collaborators found!</div>
-				{:else if isFocused}
-					<div class="p-3">Select collaborator</div>
-				{:else}
+				{#if existingUsers.length === 0 && !isFocused}
+					<div class="py-3 text-sm font-light">
+						None found. Search to invite.
+					</div>
+				{:else if !isFocused}
 					{#each sortOnlineCollaborators(existingUsers) as collaborator}
-						<div
-							class="flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3"
-						>
+						<div class="flex justify-start items-center gap-2 py-2 pr-0.5">
 							<span
 								class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
 								aria-hidden="true"
@@ -292,7 +297,7 @@
 							>
 							{#if collaborator.online}
 								<span
-									class="border border-osvauld-sideListHighlight rounded-lg flex justify-start items-center gap-1 px-2 py-0.5 text-sm text-liveGreen"
+									class="border border-liveGreen rounded-sm flex justify-start items-center gap-1 px-2 py-0.5 text-xs text-liveGreen"
 								>
 									Online
 								</span>
@@ -312,28 +317,26 @@
 			<!-- Available collaborators dropdown -->
 			{#if isFocused}
 				<div
-					class="absolute top-0 left-0 w-full {selectedUsers.length !== 0
-						? 'h-[72%]'
-						: 'h-[95%]'}  rounded-2xl p-3 border border-osvauld-activeBorder bg-osvauld-frameblack"
+					class="mt-2 min-h-[6rem] w-full rounded-lg p-1 border border-osvauld-activeBorder bg-osvauld-frameblack"
 					role="dialog"
 					aria-label="Available collaborators"
 				>
 					{#if availableUsersFiltered.length === 0}
-						<div class="p-3">No users found!</div>
+						<div class="p-3 text-sm font-light">No users found!</div>
 					{:else}
 						<div
 							id="collaborators-listbox"
-							class="max-h-full overflow-y-auto scrollbar-thin p-1 pr-4 select-none"
+							class="max-h-[12rem] pr-1 overflow-y-auto scrollbar-thin select-none"
 							role="listbox"
 							aria-label="Available collaborators"
 						>
 							{#each availableUsersFiltered as collaborator, index}
 								<button
 									type="button"
-									class="w-full text-left group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 mb-3 cursor-pointer {focusedIndex ===
+									class="w-full text-left group flex justify-start items-center gap-2 py-2 pl-2 pr-3.5 cursor-pointer {focusedIndex ===
 									index
-										? 'bg-osvauld-fieldActive shadow-[0_0_0_1px_#292A36] rounded-lg'
-										: 'hover:shadow-[0_0_0_1px_#292A36] hover:rounded-lg hover:bg-osvauld-fieldActive'} transition-colors ease-in duration-150 collaborator-list"
+										? 'bg-osvauld-fieldActive rounded-lg'
+										: 'hover:rounded-lg hover:bg-osvauld-fieldActive'} transition-colors ease-in duration-150 collaborator-list"
 									role="option"
 									id="collaborator-option-{index}"
 									aria-selected={focusedIndex === index}
@@ -346,7 +349,7 @@
 									}}
 								>
 									<span
-										class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
+										class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive transition-colors ease-in duration-150 group-hover:bg-osvauld-activeBorder/40"
 										aria-hidden="true"
 									>
 										{extractIconLetter(collaborator.username)}
@@ -356,7 +359,7 @@
 									</span>
 									{#if collaborator.online}
 										<span
-											class="border border-osvauld-sideListHighlight rounded-lg flex justify-start items-center gap-1 px-2 py-0.5 text-sm text-liveGreen"
+											class="border border-liveGreen rounded-sm flex justify-start items-center gap-1 px-2 py-0.5 text-xs text-liveGreen"
 										>
 											Online
 										</span>
@@ -368,14 +371,15 @@
 						</div>
 					{/if}
 				</div>
-				{#if selectedUsers.length !== 0}
-					<button
-						class="absolute bottom-5 left-0 mt-2 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
-						onmousedown={handleCollaboratorSelection}
-					>
-						{buttonText}
-					</button>
-				{/if}
+			{/if}
+
+			{#if selectedUsers.length !== 0 && isFocused}
+				<button
+					class="mt-3 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
+					onmousedown={handleCollaboratorSelection}
+				>
+					{buttonText}
+				</button>
 			{/if}
 		</div>
 	</div>
