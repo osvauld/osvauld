@@ -12,7 +12,7 @@
 		color = "#2F303E",
 		size = 20,
 		className = "",
-		bgColor = "black",
+		bgColor = "transparent",
 		width = 44,
 		height = 59,
 	}: Props = $props();

@@ -351,11 +351,11 @@ class DataState {
 
   async restoreSavedSelections() {
     try {
-      // Always start with Home folder focused, regardless of saved state
+      // Always start with All Notes folder focused, regardless of saved state
       const homeVault = this.vaults.find(v => v.id === "all");
       if (homeVault) {
         this.currentVault = homeVault;
-        // Update saved state to reflect Home selection
+        // Update saved state to reflect All Notes selection
         StoreService.setCurrentVault(homeVault);
       }
     } catch (error) {

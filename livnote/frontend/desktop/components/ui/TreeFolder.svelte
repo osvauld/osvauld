@@ -22,7 +22,7 @@
 	// Get actual count of notes for this folder (for badge display)
 	const folderNoteCount = $derived(() => {
 		if (folder.id === "all") {
-			// For Home folder, count all notes across all folders
+			// For All Notes folder, count all notes across all folders
 			return dataState.notes.length;
 		}
 		// For specific folders, count notes that belong to this folder
@@ -98,21 +98,28 @@
 			class="flex-1 flex items-center gap-3 rounded-lg transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-livnotelavender focus:ring-offset-2 focus:ring-offset-osvauld-ninjablack
 				"
 			onclick={() => {
-				onToggle();
-				onSelect();
+				// All Notes folder only selects, doesn't toggle expansion
+				if (folder.id === "all") {
+					onSelect();
+				} else {
+					onToggle();
+					onSelect();
+				}
 			}}
 			onkeydown={handleKeyDown}
 			aria-label="Select {folder.name} folder"
 		>
-			<!-- Expand/collapse chevron -->
-			<span
-				class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-75 {isExpanded
-					? '-rotate-90'
-					: 'rotate-180'}"
-				aria-hidden="true"
-			>
-				<GoBack color={isSelected ? "#F2F2F0" : "#85889C"} />
-			</span>
+			<!-- Expand/collapse chevron - Hide for All Notes folder -->
+			{#if folder.id !== "all"}
+				<span
+					class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-75 {isExpanded
+						? '-rotate-90'
+						: 'rotate-180'}"
+					aria-hidden="true"
+				>
+					<GoBack color={isSelected ? "#F2F2F0" : "#85889C"} />
+				</span>
+			{/if}
 
 			<!-- Folder icon -->
 			<span class="shrink-0">
@@ -125,7 +132,7 @@
 
 			<!-- Folder name -->
 			<span class="flex-1 truncate text-left font-light">
-				{folder.id === "all" ? "Home" : folder.name}
+				{folder.id === "all" ? "All Notes" : folder.name}
 			</span>
 
 			<!-- Note count badge -->
@@ -139,7 +146,7 @@
 			{/if}
 		</button>
 
-		<!-- Folder actions (visible when selected or hovered) - Only show for actual folders, not Home -->
+		<!-- Folder actions (visible when selected or hovered) - Only show for actual folders, not All Notes -->
 		{#if folder.id !== "all"}
 			<div
 				class="transition-opacity duration-150 ml-1 {isSelected
@@ -169,8 +176,8 @@
 		{/if}
 	</div>
 
-	<!-- Folder contents (notes) -->
-	{#if isExpanded}
+	<!-- Folder contents (notes) - Only show for regular folders, not All Notes -->
+	{#if isExpanded && folder.id !== "all"}
 		<div
 			class="ml-6 border-l border-osvauld-borderColor"
 			role="group"

@@ -4,8 +4,8 @@
 	import InlineCreateFolder from "./InlineCreateFolder.svelte";
 	import { MobileHome } from "../../icons";
 
-	// Track expanded folders in component state
-	let expandedFolders = $state<Set<string>>(new Set(["all"]));
+	// Track expanded folders in component state - All Notes folder should not be expandable
+	let expandedFolders = $state<Set<string>>(new Set());
 	let showCreateFolder = $state(false);
 
 	// Derived state for organizing folders
@@ -21,6 +21,11 @@
 	});
 
 	function toggleFolder(folderId: string) {
+		// Don't allow All Notes folder to be toggled
+		if (folderId === "all") {
+			return;
+		}
+
 		if (expandedFolders.has(folderId)) {
 			// Collapse the folder if it's already expanded
 			expandedFolders.delete(folderId);
@@ -56,15 +61,15 @@
 </script>
 
 <div
-	class="flex flex-col gap-1 max-h-full overflow-y-auto scrollbar-thin"
+	class="flex flex-col gap-1 h-full max-h-full overflow-y-auto scrollbar-thin"
 	role="tree"
 	aria-label="Folder and notes navigation"
 >
-	<!-- Home/All folder -->
+	<!-- All Notes folder -->
 	{#if organizedFolders().allFolder}
 		<TreeFolder
 			folder={organizedFolders().allFolder}
-			isExpanded={expandedFolders.has("all")}
+			isExpanded={false}
 			onToggle={() => toggleFolder("all")}
 			onSelect={() => handleFolderSelect(organizedFolders().allFolder)}
 			isSelected={dataState.currentVault.id === "all"}
@@ -85,7 +90,7 @@
 	{/each}
 
 	<!-- Create new folder section -->
-	<div class="mt-2 pt-2 border-t border-osvauld-borderColor">
+	<div class="mt-auto pt-2 border-t border-osvauld-borderColor">
 		{#if showCreateFolder}
 			<InlineCreateFolder
 				onCancel={handleCreateFolderCancel}

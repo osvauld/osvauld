@@ -35,10 +35,10 @@
 			aria-expanded={uiState.vaultManagerActive}
 			onclick={() => uiState.toggleVaultManager()}
 		>
-			<span class="flex-1 truncate text-left py-1"
-				>{dataState.currentVault.id === "all"
-					? "Home"
-					: dataState.currentVault.name}</span
+		<span class="flex-1 truncate text-left py-1"
+			>{dataState.currentVault.id === "all"
+				? "All Notes"
+				: dataState.currentVault.name}</span
 			><span
 				class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
 					? '-rotate-90'
@@ -56,11 +56,11 @@
 		<div
 			class="text-[26px] text-osvauld-sideListTextActive font-light leading-6 capitalize truncate"
 			aria-label="Current folder: {dataState.currentVault.id === 'all'
-				? 'Home'
+				? 'All Notes'
 				: dataState.currentVault.name}"
 		>
 			{dataState.currentVault.id === "all"
-				? "Home"
+				? "All Notes"
 				: dataState.currentVault.name}
 		</div>
 

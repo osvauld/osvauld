@@ -89,7 +89,7 @@
 							{/if}
 						</span>
 						<span class="grow text-left pl-2 capitalize max-w-full truncate"
-							>{vault.id === "all" ? "Home" : vault.name}</span
+							>{vault.id === "all" ? "All Notes" : vault.name}</span
 						>
 					</button>
 				{/each}
