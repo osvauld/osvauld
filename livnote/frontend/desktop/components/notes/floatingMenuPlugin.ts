@@ -3,6 +3,7 @@ import { EditorView } from "prosemirror-view";
 import { Schema, Mark } from "prosemirror-model";
 import { toggleMark } from "prosemirror-commands";
 import { Decoration, DecorationSet } from "prosemirror-view";
+import { getSearchState } from "prosemirror-search";
 
 export const floatingMenuKey = new PluginKey("floating-menu");
 
@@ -475,6 +476,13 @@ export function floatingMenuPlugin(schema: Schema) {
     const { from, to } = selection;
 
     if (selection.empty) {
+      hideMenu();
+      return;
+    }
+
+    // Don't show menu during search navigation
+    const searchQuery = getSearchState(state);
+    if (searchQuery && searchQuery.query && searchQuery.query.search) {
       hideMenu();
       return;
     }

@@ -8,6 +8,16 @@
 		type SearchOptions,
 	} from "./SearchManager";
 	import { moveToStart, moveToEnd } from "./utils/prosemirror-helpers";
+	import {
+		GoBack,
+		BackArrow,
+		ClosePanel,
+		Replace,
+		ReplaceAll,
+		Regex,
+		WholeWord,
+		CaseSensitive,
+	} from "../../icons";
 	let {
 		searchManager,
 		editorView,
@@ -180,323 +190,168 @@
 	// export { hide };
 </script>
 
-<style>
-	.search-container {
-		position: fixed;
-		top: 60px;
-		right: 20px;
-		z-index: 1000;
-		background: #2a2b35;
-		border: 1px solid #3a3b44;
-		border-radius: 8px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-		min-width: 320px;
-		max-width: 400px;
-	}
+<!-- VS Code-style search widget -->
+<div
+	class="bg-[#16171f] border border-[#2a2b2f] text-sm min-w-[320px] max-w-[400px] shadow-lg"
+>
+	<!-- Search row -->
+	<div class="flex items-center bg-[#1e1f2a] border-b border-[#2a2b2f]">
+		<!-- Replace toggle (first) -->
+		<div class="flex items-center mx-0.5">
+			<button
+				class="px-1 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2b2f]"
+				class:text-[#007acc]={isReplaceMode}
+				onclick={toggleReplaceMode}
+				title="Toggle Replace"
+				aria-label="Toggle Replace"
+			>
+				<GoBack
+					width={12}
+					height={12}
+					color="#cccccc"
+					className={isReplaceMode ? "-rotate-90" : "rotate-180"}
+					bgColor="transparent"
+				/>
+			</button>
+		</div>
 
-	.search-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 12px 16px 8px 16px;
-		border-bottom: 1px solid #3a3b44;
-	}
-
-	.search-title {
-		font-size: 14px;
-		font-weight: 500;
-		color: #f0f0f0;
-	}
-
-	.close-button {
-		background: none;
-		border: none;
-		color: #85889c;
-		cursor: pointer;
-		padding: 4px;
-		border-radius: 4px;
-		transition: all 0.2s;
-	}
-
-	.close-button:hover {
-		background: #3a3b44;
-		color: #f0f0f0;
-	}
-
-	.search-content {
-		padding: 16px;
-	}
-
-	.search-row {
-		display: flex;
-		gap: 8px;
-		margin-bottom: 12px;
-		align-items: center;
-	}
-
-	.search-input-container {
-		position: relative;
-		flex: 1;
-	}
-
-	.search-input {
-		width: 100%;
-		padding: 8px 12px;
-		background: #16171f;
-		border: 1px solid #3a3b44;
-		border-radius: 4px;
-		color: #f0f0f0;
-		font-size: 14px;
-		transition: border-color 0.2s;
-	}
-
-	.search-input:focus {
-		outline: none;
-		border-color: #4094ef;
-	}
-
-	.search-input::placeholder {
-		color: #85889c;
-	}
-
-	.match-count {
-		position: absolute;
-		right: 8px;
-		top: 50%;
-		transform: translateY(-50%);
-		font-size: 12px;
-		color: #85889c;
-		pointer-events: none;
-	}
-
-	.button-group {
-		display: flex;
-		gap: 4px;
-	}
-
-	.icon-button {
-		background: none;
-		border: 1px solid #3a3b44;
-		color: #85889c;
-		cursor: pointer;
-		padding: 8px;
-		border-radius: 4px;
-		transition: all 0.2s;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.icon-button:hover {
-		background: #3a3b44;
-		border-color: #4a4b54;
-		color: #f0f0f0;
-	}
-
-	.icon-button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.icon-button.active {
-		background: #4094ef;
-		border-color: #4094ef;
-		color: white;
-	}
-
-	.replace-row {
-		margin-top: 8px;
-	}
-
-	.options-row {
-		display: flex;
-		gap: 12px;
-		margin-top: 12px;
-		padding-top: 12px;
-		border-top: 1px solid #3a3b44;
-	}
-
-	.option-button {
-		background: none;
-		border: 1px solid #3a3b44;
-		color: #85889c;
-		cursor: pointer;
-		padding: 6px 12px;
-		border-radius: 4px;
-		font-size: 12px;
-		transition: all 0.2s;
-	}
-
-	.option-button:hover {
-		background: #3a3b44;
-		color: #f0f0f0;
-	}
-
-	.option-button.active {
-		background: #4094ef;
-		border-color: #4094ef;
-		color: white;
-	}
-
-	.replace-buttons {
-		display: flex;
-		gap: 8px;
-		margin-top: 8px;
-	}
-
-	.replace-button {
-		background: #4094ef;
-		border: 1px solid #4094ef;
-		color: white;
-		cursor: pointer;
-		padding: 6px 12px;
-		border-radius: 4px;
-		font-size: 12px;
-		transition: all 0.2s;
-	}
-
-	.replace-button:hover {
-		background: #3280d1;
-	}
-
-	.replace-button:disabled {
-		opacity: 0.5;
-		cursor: not-allowed;
-	}
-
-	.replace-button.secondary {
-		background: none;
-		border-color: #4094ef;
-		color: #4094ef;
-	}
-
-	.replace-button.secondary:hover {
-		background: rgba(64, 148, 239, 0.1);
-	}
-</style>
-
-<div class="search-container">
-	<div class="search-header">
-		<div class="search-title">Find {isReplaceMode ? "and Replace" : ""}</div>
-		<button class="close-button" onclick={hide} title="Close (Esc)"> ✕ </button>
-	</div>
-
-	<div class="search-content">
-		<!-- Search Input -->
-		<div class="search-row">
-			<div class="search-input-container">
+		<!-- Search input with integrated controls -->
+		<div class="flex items-center flex-1 py-0.5">
+			<div
+				class="flex items-center relative flex-1 border border-[#2a2b2f] mr-0.5"
+			>
 				<input
 					bind:this={searchInput}
 					bind:value={searchValue}
-					class="search-input"
+					class="w-full h-7 px-2 pr-16 bg-transparent text-[#cccccc] text-sm border-none outline-none placeholder:text-[#6a737d]"
 					type="text"
-					placeholder="Search..."
+					autocorrect="off"
+					autocomplete="off"
+					placeholder="Find"
 					onkeydown={handleSearchKeydown}
 				/>
-				{#if searchState.totalMatches > 0}
-					<div class="match-count">
-						{searchState.currentMatch}/{searchState.totalMatches}
-					</div>
-				{/if}
+
+				<div class="flex items-center px-0.5">
+					<!-- Toggle options -->
+					<button
+						class="p-1 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
+						class:text-livnotePink={caseSensitive}
+						class:text-[#6a737d]={!caseSensitive}
+						onclick={() => (caseSensitive = !caseSensitive)}
+						title="Match Case"
+					>
+						<CaseSensitive size={16} />
+					</button>
+					<button
+						class="p-1 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
+						class:text-livnotePink={wholeWord}
+						class:text-[#6a737d]={!wholeWord}
+						onclick={() => (wholeWord = !wholeWord)}
+						title="Match Whole Word"
+					>
+						<WholeWord size={16} />
+					</button>
+					<button
+						class="p-1 flex items-center justify-center text-xs font-mono hover:bg-[#2a2d2e]"
+						class:text-livnotePink={useRegex}
+						class:text-[#6a737d]={!useRegex}
+						onclick={() => (useRegex = !useRegex)}
+						title="Use Regular Expression"
+					>
+						<Regex size={16} />
+					</button>
+				</div>
 			</div>
 
-			<div class="button-group">
+			<!-- Navigation buttons -->
+			<div class="flex mx-0.5">
+				<div
+					class="w-14 text-xs text-[#6a737d] flex justify-start items-center pointer-events-none whitespace-nowrap"
+				>
+					{#if searchState.totalMatches > 0}
+						<span class="pl-1"
+							>{searchState.currentMatch} of {searchState.totalMatches}</span
+						>
+					{:else}
+						No results
+					{/if}
+				</div>
 				<button
-					class="icon-button"
+					class="w-6 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e] disabled:text-[#6a737d]"
 					onclick={findPrevious}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
 					title="Previous match (Shift+Enter)"
+					aria-label="Previous match"
 				>
-					↑
+					<BackArrow className="rotate-90" size={16} />
 				</button>
 				<button
-					class="icon-button"
+					class="w-6 h-8 flex items-center justify-center text-[#cccccc] hover:bg-[#2a2d2e] disabled:text-[#6a737d]"
 					onclick={findNext}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
 					title="Next match (Enter)"
+					aria-label="Next match"
 				>
-					↓
-				</button>
-				<button
-					class="icon-button"
-					class:active={isReplaceMode}
-					onclick={toggleReplaceMode}
-					title="Toggle replace mode"
-				>
-					↔
+					<BackArrow className="-rotate-90" size={16} />
 				</button>
 			</div>
 		</div>
 
-		<!-- Replace Input -->
-		{#if isReplaceMode}
-			<div class="search-row replace-row">
-				<div class="search-input-container">
+		<!-- Options and controls -->
+		<div class="flex items-center px-0.5">
+			<!-- Close button -->
+			<button
+				class="w-6 h-8 flex items-center justify-center text-[#6a737d] hover:bg-[#2a2d2e]"
+				onclick={hide}
+				title="Close (Escape)"
+				aria-label="Close"
+			>
+				<ClosePanel size={16} />
+			</button>
+		</div>
+	</div>
+
+	<!-- Replace row (when active) -->
+	{#if isReplaceMode}
+		<div class="flex items-center bg-[#1e1f2a]">
+			<!-- Replace input -->
+			<div class="flex items-center flex-1">
+				<div class="relative flex-1">
 					<input
 						bind:this={replaceInput}
 						bind:value={replaceValue}
-						class="search-input"
+						class="w-full h-8 px-2 pr-16 bg-transparent text-[#cccccc] text-sm border-none outline-none placeholder:text-[#6a737d]"
 						type="text"
-						placeholder="Replace with..."
+						autocorrect="off"
+						autocomplete="off"
+						autocapitalize="off"
+						placeholder="Replace"
 						onkeydown={handleReplaceKeydown}
 					/>
 				</div>
 			</div>
 
-			<div class="replace-buttons">
+			<!-- Replace controls -->
+			<div class="flex items-center px-1">
 				<button
-					class="replace-button secondary"
+					class="w-8 h-7 my-0.5 flex items-center justify-center hover:bg-[#2a2d2e] text-[#6a737d]"
 					onclick={replaceCurrent}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
-					title="Replace current match"
+					title="Replace"
+					aria-label="Replace"
 				>
-					Replace
+					<Replace size={16} />
 				</button>
 				<button
-					class="replace-button secondary"
-					onclick={replaceNext}
-					disabled={!searchState.isActive || searchState.totalMatches === 0}
-					title="Replace and find next"
-				>
-					Replace + Next
-				</button>
-				<button
-					class="replace-button"
+					class="w-8 h-7 my-0.5 flex items-center justify-center hover:bg-[#2a2d2e] text-[#6a737d]"
 					onclick={replaceAll}
 					disabled={!searchState.isActive || searchState.totalMatches === 0}
-					title="Replace all matches"
+					title="Replace All"
+					aria-label="Replace All"
 				>
-					Replace All
+					<ReplaceAll size={16} />
 				</button>
 			</div>
-		{/if}
-
-		<!-- Search Options -->
-		<div class="options-row">
-			<button
-				class="option-button"
-				class:active={caseSensitive}
-				onclick={() => (caseSensitive = !caseSensitive)}
-				title="Case sensitive"
-			>
-				Aa
-			</button>
-			<button
-				class="option-button"
-				class:active={wholeWord}
-				onclick={() => (wholeWord = !wholeWord)}
-				title="Whole word"
-			>
-				Ab|
-			</button>
-			<button
-				class="option-button"
-				class:active={useRegex}
-				onclick={() => (useRegex = !useRegex)}
-				title="Regular expression"
-			>
-				.*
-			</button>
 		</div>
-	</div>
+	{/if}
 </div>

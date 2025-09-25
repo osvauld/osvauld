@@ -88,3 +88,8 @@ export { default as MenuToggle } from './menuToggle.svelte';
 export { default as ConnectUser } from './connectUser.svelte';
 export { default as TwoPeople } from './twoPeople.svelte';
 export { default as Zen } from './zen.svelte';
+export { default as Replace } from './replace.svelte';
+export { default as ReplaceAll } from './replaceAll.svelte';
+export { default as Regex } from './regex.svelte';
+export { default as WholeWord } from './wholeWord.svelte';
+export { default as CaseSensitive } from './caseSensitive.svelte';
