@@ -148,6 +148,11 @@
 		uiState.toggleNoteRightPanel();
 	};
 
+	const openNoteRightPanel = () => {
+		uiState.toggleNoteRightPanel(true);
+		uiState.resetNoteRightPanelManualToggle();
+	};
+
 	const checkforEscKey = (e: KeyboardEvent) => {
 		if (e.key === "Escape") {
 			uiState.toggleZenMode();
@@ -175,17 +180,23 @@
 	:global(.manual-toggle) {
 		--min-editor-width: 0px;
 	}
+
+	/* Add styles to handle the case when note right panel is manually toggled */
+	:global(.right-panel-manual-toggle) {
+		--min-editor-width: 0px;
+	}
 </style>
 
 <div
 	class="flex grow max-h-full max-w-full"
 	class:manual-toggle={uiState.isNavigationPanelManuallyToggled}
+	class:right-panel-manual-toggle={uiState.isNoteRightPanelManuallyToggled}
 >
 	<NavigationPanel />
 
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<!-- Header section with back button and title -->
-		<div class="py-10 px-11 flex items-center justify-start shrink-0">
+		<div class="p-4 flex items-center justify-start shrink-0">
 			<div class="flex justify-between items-center max-w-[44rem]">
 				<!-- Burger menu toggle - only show when navigation panel is hidden -->
 				{#if !uiState.showNavigationPanel}
@@ -298,7 +309,7 @@
 					aria-label="Open note right panel"
 					class="ml-auto rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive shrink-0 cursor-w-resize"
 					title="Open note right panel"
-					onclick={toggleNoteRightPanel}
+					onclick={openNoteRightPanel}
 				>
 					<MenuToggle />
 				</button>
