@@ -22,31 +22,115 @@ export function pasteHandlerPlugin(imageStorage: ImageStorageService) {
           types: Array.from(clipboardData.types)
         };
 
-        // Quick synchronous check for handling decision
-        const hasFiles = snapshotData.files.length > 0;
-        const hasHTML = snapshotData.html;
-        const shouldParseMarkdown = snapshotData.text && detectMarkdown(snapshotData.text);
+        // Always prevent default and handle asynchronously
+        event.preventDefault();
 
-        if (hasFiles || hasHTML || shouldParseMarkdown) {
-          // Prevent default immediately
-          event.preventDefault();
-
-          // Process with snapshot data (no longer touching event.clipboardData)
-          (async () => {
-            try {
-              await processSnapshotData(view, snapshotData, imageStorage);
-            } catch (error) {
-              console.error("Error in paste handler:", error);
+        // Process with both methods - try navigator.clipboard API first, then snapshot
+        (async () => {
+          try {
+            // First try the navigator clipboard API for better image handling
+            const apiHandled = await tryNavigatorClipboardApi(view, imageStorage);
+            if (apiHandled) {
+              return;
             }
-          })();
 
-          return true; // We handled it
-        }
+            // Fall back to snapshot data
+            await processSnapshotData(view, snapshotData, imageStorage);
+          } catch (error) {
+            console.error("Error in paste handler:", error);
+          }
+        })();
 
-        return false; // Let ProseMirror handle
+        return true; // Always return true to prevent default
       }
     }
   });
+}
+
+/**
+ * Tries to process clipboard content using the navigator.clipboard API
+ * Returns true if successful, false otherwise
+ */
+async function tryNavigatorClipboardApi(
+  view: EditorView,
+  imageStorage: ImageStorageService
+): Promise<boolean> {
+  if (!navigator.clipboard?.read) {
+    return false;
+  }
+
+  try {
+    const clipboardItems = await navigator.clipboard.read();
+
+    const typePreference = [
+      'text/html',
+      'text/plain',
+      'image/png',
+      'image/jpeg',
+      'image/gif',
+      'image/webp',
+      'image/bmp',
+      'image/svg+xml',
+      'application/octet-stream',
+      'image/*'
+    ];
+
+    for (const preferredType of typePreference) {
+      for (const item of clipboardItems) {
+        if (preferredType === 'image/*') {
+          const imageTypes = item.types.filter(type => type.startsWith('image/'));
+          if (imageTypes.length > 0) {
+            try {
+              const imageType = imageTypes[0];
+              const blob = await item.getType(imageType);
+              const base64Data = await blobToBase64(blob);
+              await insertImageWithAssetStorage(view, base64Data, imageType, imageStorage);
+              return true;
+            } catch (error) {
+              continue;
+            }
+          }
+          continue;
+        }
+
+        if (item.types.includes(preferredType)) {
+          try {
+            const blob = await item.getType(preferredType);
+
+            if (preferredType === 'text/html') {
+              const html = await blob.text();
+              await handleHtmlContent(view, html, imageStorage);
+              return true;
+            } else if (preferredType === 'text/plain') {
+              const text = await blob.text();
+              handleTextContent(view, text);
+              return true;
+            } else if (preferredType.startsWith('image/')) {
+              const base64Data = await blobToBase64(blob);
+              await insertImageWithAssetStorage(view, base64Data, preferredType, imageStorage);
+              return true;
+            } else if (preferredType === 'application/octet-stream') {
+              if (isLikelyImage(blob)) {
+                const headerBytes = await readBlobHeader(blob, 12);
+                if (isProbablyImageHeader(headerBytes)) {
+                  const base64Data = await blobToBase64(blob);
+                  const mimeType = detectMimeTypeFromHeader(headerBytes);
+                  await insertImageWithAssetStorage(view, base64Data, mimeType, imageStorage);
+                  return true;
+                }
+              }
+            }
+          } catch (error) {
+            continue;
+          }
+        }
+      }
+    }
+
+    return false;
+  } catch (error) {
+    return false;
+  }
 }
 
 /**
@@ -62,13 +146,33 @@ async function processSnapshotData(
   },
   imageStorage: ImageStorageService
 ): Promise<void> {
-  // Process files first
+  // Process files first (handles images)
   if (data.files.length > 0) {
     for (const file of data.files) {
       if (file.type.startsWith('image/')) {
         const base64Data = await blobToBase64(file);
         await insertImageWithAssetStorage(view, base64Data, file.type, imageStorage, file.name);
         return;
+      }
+
+      // Handle files with unknown mime types
+      if (file.type === 'application/octet-stream' || file.type === '') {
+        if (file.name && /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(file.name)) {
+          const base64Data = await blobToBase64(file);
+          const mimeType = getMimeTypeFromFilename(file.name);
+          await insertImageWithAssetStorage(view, base64Data, mimeType, imageStorage, file.name);
+          return;
+        }
+
+        if (isLikelyImage(file)) {
+          const headerBytes = await readBlobHeader(file, 12);
+          if (isProbablyImageHeader(headerBytes)) {
+            const base64Data = await blobToBase64(file);
+            const mimeType = detectMimeTypeFromHeader(headerBytes);
+            await insertImageWithAssetStorage(view, base64Data, mimeType, imageStorage, file.name);
+            return;
+          }
+        }
       }
     }
   }
@@ -86,73 +190,7 @@ async function processSnapshotData(
 }
 
 /**
- * Process clipboard content from ClipboardEvent
- */
-async function processClipboardEvent(
-  view: EditorView,
-  event: ClipboardEvent,
-  imageStorage: ImageStorageService
-): Promise<boolean> {
-  if (!event.clipboardData) return false;
-
-  try {
-    if (event.clipboardData.files.length > 0) {
-      for (let i = 0; i < event.clipboardData.files.length; i++) {
-        const file = event.clipboardData.files[i];
-
-        if (file.type.startsWith('image/')) {
-          const base64Data = await blobToBase64(file);
-          await insertImageWithAssetStorage(view, base64Data, file.type, imageStorage, file.name);
-          event.preventDefault();
-          return true;
-        }
-
-        if (file.type === 'application/octet-stream' || file.type === '') {
-          if (file.name && /\.(jpg|jpeg|png|gif|bmp|webp|svg)$/i.test(file.name)) {
-            const base64Data = await blobToBase64(file);
-            const mimeType = getMimeTypeFromFilename(file.name);
-            await insertImageWithAssetStorage(view, base64Data, mimeType, imageStorage, file.name);
-            event.preventDefault();
-            return true;
-          }
-
-          if (isLikelyImage(file)) {
-            const headerBytes = await readBlobHeader(file, 12);
-            if (isProbablyImageHeader(headerBytes)) {
-              const base64Data = await blobToBase64(file);
-              const mimeType = detectMimeTypeFromHeader(headerBytes);
-              await insertImageWithAssetStorage(view, base64Data, mimeType, imageStorage, file.name);
-              event.preventDefault();
-              return true;
-            }
-          }
-        }
-      }
-    }
-
-    const html = event.clipboardData.getData('text/html');
-    if (html) {
-      await handleHtmlContent(view, html, imageStorage);
-      event.preventDefault();
-      return true;
-    }
-
-    const text = event.clipboardData.getData('text/plain');
-    if (text) {
-      handleTextContent(view, text);
-      event.preventDefault();
-      return true;
-    }
-
-    return false;
-  } catch (error) {
-    return false;
-  }
-}
-
-/**
  * Insert image using the new asset storage system
- * This replaces the old insertImageWithStorage function
  */
 async function insertImageWithAssetStorage(
   view: EditorView,
@@ -162,14 +200,12 @@ async function insertImageWithAssetStorage(
   filename?: string
 ): Promise<void> {
   try {
-
     const imageId = await imageStorage.storeImage(base64Data, mimeType, filename);
-
     const imageMetadata = imageStorage.getImageMetadata(imageId);
 
     const { schema } = view.state;
     const imageNode = schema.nodes.image.create({
-      src: `yjs-image:${imageId}`, // Use the same protocol for consistency
+      src: `yjs-image:${imageId}`,
       alt: filename || 'Pasted image',
       title: filename || 'Pasted image',
       width: imageMetadata?.width,
@@ -178,7 +214,6 @@ async function insertImageWithAssetStorage(
 
     const tr = view.state.tr.replaceSelectionWith(imageNode);
     view.dispatch(tr);
-
   } catch (error) {
     console.error("Error inserting image with asset storage:", error);
   }
@@ -186,39 +221,37 @@ async function insertImageWithAssetStorage(
 
 /**
  * Handle HTML content from clipboard, including embedded images
- * Updated to use the new asset storage system
  */
 async function handleHtmlContent(view: EditorView, html: string, imageStorage: ImageStorageService): Promise<void> {
   try {
     const domElement = document.createElement('div');
     domElement.innerHTML = html;
+
+    // Remove problematic black text colors for dark theme
     const styledElements = domElement.querySelectorAll('*[style]');
     styledElements.forEach(el => {
       if (el instanceof HTMLElement) {
         const style = el.style;
-
-        // Only remove if it's explicitly black (which conflicts with dark theme)
         if (style.color === 'rgb(0, 0, 0)' || style.color === '#000000' || style.color === 'black') {
           style.removeProperty('color');
         }
-
-        // Also remove caret-color if it's black (not really needed for content)
         if (style.caretColor === 'rgb(0, 0, 0)') {
           style.removeProperty('caret-color');
         }
-
-        // Clean up empty style attribute
         if (!style.cssText.trim()) {
           el.removeAttribute('style');
         }
       }
     });
+
+    // Check if content should be parsed as markdown
     const textContent = domElement.textContent || '';
     if (textContent && detectMarkdown(textContent)) {
-      // Parse as markdown instead of HTML
       handleTextContent(view, textContent);
       return;
     }
+
+    // Process link formatting
     const spansToProcess = domElement.querySelectorAll('span[style*="text-decoration"]');
     spansToProcess.forEach(span => {
       if (span instanceof HTMLElement && span.style.textDecoration.includes('underline')) {
@@ -241,7 +274,6 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
 
         if (childLinkElement && !hasOtherSignificantContent) {
           const newLink = childLinkElement.cloneNode(true) as HTMLAnchorElement;
-
           let existingLinkStyle = newLink.getAttribute('style') || '';
           if (existingLinkStyle && !existingLinkStyle.trim().endsWith(';')) {
             existingLinkStyle += '; ';
@@ -249,7 +281,6 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
           if (!newLink.style.textDecoration.includes('underline')) {
             newLink.setAttribute('style', `${existingLinkStyle}text-decoration: underline;`);
           }
-
           if (span.parentNode) {
             span.parentNode.replaceChild(newLink, span);
           }
@@ -257,6 +288,7 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
       }
     });
 
+    // Clean up anchor text decoration
     const allAnchors = domElement.querySelectorAll('a');
     allAnchors.forEach(anchor => {
       if (anchor.style.textDecoration.includes('underline')) {
@@ -271,10 +303,9 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
       }
     });
 
+    // Process images in HTML content
     const images = domElement.querySelectorAll('img');
-
     if (images.length > 0) {
-
       for (let i = 0; i < images.length; i++) {
         const img = images[i];
         const src = img.getAttribute('src');
@@ -284,14 +315,12 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
             try {
               const mimeMatch = src.match(/^data:([^;]+);/);
               const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
-
               const imageId = await imageStorage.storeImage(src, mimeType);
               img.setAttribute('src', `yjs-image:${imageId}`);
 
               const imageMetadata = imageStorage.getImageMetadata(imageId);
               if (imageMetadata?.width) img.setAttribute('width', imageMetadata.width.toString());
               if (imageMetadata?.height) img.setAttribute('height', imageMetadata.height.toString());
-
             } catch (error) {
               console.error('Error processing data: image:', error);
               img.remove();
@@ -301,25 +330,24 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
               const response = await fetch(src);
               const blob = await response.blob();
               const dataUrl = await blobToBase64(blob);
-
               const imageId = await imageStorage.storeImage(dataUrl, blob.type);
               img.setAttribute('src', `yjs-image:${imageId}`);
 
               const imageMetadata = imageStorage.getImageMetadata(imageId);
               if (imageMetadata?.width) img.setAttribute('width', imageMetadata.width.toString());
               if (imageMetadata?.height) img.setAttribute('height', imageMetadata.height.toString());
-
             } catch (error) {
               console.error('Error processing blob: image:', error);
-              img.remove(); // Remove if blob fetch fails
+              img.remove();
             }
           }
         } else {
-          img.remove(); // Remove if no src
+          img.remove();
         }
       }
     }
 
+    // Parse and insert content
     const { schema } = view.state;
     const parser = DOMParser.fromSchema(schema);
     const slice = parser.parseSlice(domElement);
@@ -336,15 +364,13 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
     });
 
     if (filteredNodes.length === 0 && slice.content.size > 0) {
-      return; // Nothing to insert
+      return;
     }
 
     const newFragment = Fragment.fromArray(filteredNodes);
     const newSlice = new Slice(newFragment, slice.openStart, slice.openEnd);
-
     const tr = view.state.tr.replaceSelection(newSlice);
     view.dispatch(tr);
-
   } catch (error) {
     console.error("Error handling HTML content:", error);
   }
@@ -355,7 +381,6 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
  */
 function handleTextContent(view: EditorView, text: string): void {
   try {
-    // Only try to parse as markdown if it looks intentionally formatted
     if (detectMarkdown(text)) {
       try {
         const nodes = parseMarkdown(text, view.state.schema);
@@ -368,18 +393,15 @@ function handleTextContent(view: EditorView, text: string): void {
         }
       } catch (error) {
         console.warn("Failed to parse as markdown, falling back to plain text:", error);
-        // Fall through to plain text insertion
       }
     }
 
-    // Insert as plain text if not markdown or if parsing failed
     const tr = view.state.tr.insertText(text);
     view.dispatch(tr);
   } catch (error) {
     console.error("Error handling text content:", error);
   }
 }
-
 
 /**
  * Parse unordered list with better nesting support
@@ -397,9 +419,7 @@ function parseUnorderedList(
     const match = line.match(/^(\s*)[-*+]\s+(.*)$/);
 
     if (!match) {
-      // Check if it's a continuation line (indented content)
       if (i > startIndex && line.trim() !== '' && (line.startsWith('  ') || line.startsWith('\t'))) {
-        // This is a continuation of the previous item
         if (items.length > 0) {
           const lastItem = items[items.length - 1];
           const existingContent = lastItem.content;
@@ -417,12 +437,6 @@ function parseUnorderedList(
 
     const indent = match[1].length;
     const content = match[2];
-
-    // Handle nested lists by checking indentation
-    if (indent > 0 && items.length > 0) {
-      // This could be a nested list - for now, treat as regular item
-      // Full nesting support would require recursive parsing
-    }
 
     const itemContent = parseInlineMarkdown(content, schema);
     if (itemContent.size > 0) {
@@ -455,7 +469,6 @@ function parseOrderedList(
     const match = line.match(/^(\s*)\d+\.\s+(.*)$/);
 
     if (!match) {
-      // Check for continuation lines
       if (i > startIndex && line.trim() !== '' && (line.startsWith('  ') || line.startsWith('\t'))) {
         if (items.length > 0) {
           const lastItem = items[items.length - 1];
@@ -490,7 +503,7 @@ function parseOrderedList(
 }
 
 /**
- * Parse markdown text and convert to ProseMirror nodes (IMPROVED VERSION)
+ * Parse markdown text and convert to ProseMirror nodes
  */
 function parseMarkdown(text: string, schema: any): PMNode[] {
   const nodes: PMNode[] = [];
@@ -500,7 +513,7 @@ function parseMarkdown(text: string, schema: any): PMNode[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    // Code block - handle properly
+    // Code blocks
     if (line.trim().startsWith('```')) {
       const codeLines: string[] = [];
       i++;
@@ -508,12 +521,11 @@ function parseMarkdown(text: string, schema: any): PMNode[] {
         codeLines.push(lines[i]);
         i++;
       }
-      // Create code block even if empty
       const codeContent = codeLines.join('\n');
       nodes.push(schema.nodes.code_block.create({},
         codeContent ? schema.text(codeContent) : schema.text('')
       ));
-      i++; // Skip closing ```
+      i++;
       continue;
     }
 
@@ -534,7 +546,7 @@ function parseMarkdown(text: string, schema: any): PMNode[] {
       continue;
     }
 
-    // Blockquote - parse each line separately to maintain structure
+    // Blockquote
     if (line.startsWith('>')) {
       const quoteNodes: PMNode[] = [];
       while (i < lines.length && lines[i].startsWith('>')) {
@@ -619,7 +631,6 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
     }
 
     if (!matched) {
-      // Patterns array with correct order and schema guards
       const patterns = [
         // Links first (highest priority)
         {
@@ -630,13 +641,11 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             const linkType = getMark(schema, 'link');
 
             if (!linkType) {
-              // Fallback to plain text if link mark not available
               return [schema.text(`[${linkText}](${href})`)];
             }
 
             const linkMark = linkType.create({ href, title: linkText });
 
-            // Check if link text has formatting
             if (/[*_`~]/.test(linkText)) {
               const linkContent = parseInlineMarkdown(linkText, schema);
               const result: PMNode[] = [];
@@ -652,8 +661,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             }
           }
         },
-
-        // Inline code (high priority - must come before bold/italic)
+        // Inline code
         {
           pattern: /^`([^`]+)`/,
           handler: (match: RegExpMatchArray) => {
@@ -661,15 +669,13 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], codeType ? [codeType.create()] : [])];
           }
         },
-
-        // Bold ** (must come before single *)
+        // Bold **
         {
           pattern: /^\*\*([^*]+)\*\*/,
           handler: (match: RegExpMatchArray) => {
             const innerText = match[1];
             const strongType = getMark(schema, 'strong');
 
-            // Check for nested emphasis
             if (innerText.includes('*') || innerText.includes('_')) {
               const innerContent = parseInlineMarkdown(innerText, schema);
               const strongMark = strongType ? strongType.create() : undefined;
@@ -686,7 +692,6 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(innerText, strongType ? [strongType.create()] : [])];
           }
         },
-
         // Bold __
         {
           pattern: /^__([^_]+)__/,
@@ -695,8 +700,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], strongType ? [strongType.create()] : [])];
           }
         },
-
-        // Strikethrough (must come before single ~)
+        // Strikethrough
         {
           pattern: /^~~([^~]+)~~/,
           handler: (match: RegExpMatchArray) => {
@@ -704,8 +708,7 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], strikeType ? [strikeType.create()] : [])];
           }
         },
-
-        // Italic * (check it's not part of **)
+        // Italic *
         {
           pattern: /^\*([^*]+)\*/,
           handler: (match: RegExpMatchArray) => {
@@ -713,7 +716,6 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
             return [schema.text(match[1], emType ? [emType.create()] : [])];
           }
         },
-
         // Italic _
         {
           pattern: /^_([^_]+)_/,
@@ -755,28 +757,25 @@ function parseInlineMarkdown(text: string, schema: any): Fragment {
 function appendTextNode(nodes: PMNode[], text: string, schema: any): void {
   if (nodes.length > 0 && nodes[nodes.length - 1].isText &&
     nodes[nodes.length - 1].marks.length === 0) {
-    // Append to previous plain text node
     const lastNode = nodes[nodes.length - 1];
     nodes[nodes.length - 1] = schema.text(lastNode.text + text);
   } else {
     nodes.push(schema.text(text));
   }
 }
+
 /**
  * Detect if text contains intentional markdown syntax
- * Uses a scoring system to avoid false positives
  */
 function detectMarkdown(text: string): boolean {
   let markdownScore = 0;
-  let threshold = 1.5;
+  const threshold = 1.5;
 
   const strongIndicators = [
     { pattern: /^#{1,6}\s+\S/m, score: 2 },
     { pattern: /^```[^`]*```/ms, score: 3 },
     { pattern: /^\s*```\w*\s*$/m, score: 3 },
-    // FIXED: Correct regex for unordered lists
     { pattern: /^\s*[-*+]\s+\S.*(\n\s*[-*+]\s+|$)/m, score: 2 },
-    // FIXED: Correct regex for ordered lists  
     { pattern: /^\s*\d+\.\s+\S.*(\n\s*\d+\.\s+|$)/m, score: 2 },
     { pattern: /^\s*>\s+\S/m, score: 2 },
     { pattern: /\[([^\]]+)\]\(([^)]+)\)/g, score: 2 },
@@ -844,8 +843,9 @@ function detectMarkdown(text: string): boolean {
 
   return markdownScore >= threshold;
 }
+
 /**
- * Check if a blob is likely an image based on magic numbers/signatures
+ * Check if a blob is likely an image based on size
  */
 function isLikelyImage(blob: Blob): boolean {
   return blob.size > 10 && blob.size < 20 * 1024 * 1024;
@@ -900,7 +900,7 @@ function isProbablyImageHeader(bytes: Uint8Array): boolean {
 }
 
 /**
- * Convert blob to base64 string using a FileReader with proper async/await pattern
+ * Convert blob to base64 string
  */
 async function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -928,6 +928,9 @@ async function readBlobHeader(blob: Blob, bytesToRead: number): Promise<Uint8Arr
   });
 }
 
+/**
+ * Detect MIME type from file header bytes
+ */
 function detectMimeTypeFromHeader(bytes: Uint8Array): string {
   if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) {
     return 'image/jpeg';
@@ -949,6 +952,9 @@ function detectMimeTypeFromHeader(bytes: Uint8Array): string {
   return 'image/png'; // Default
 }
 
+/**
+ * Get MIME type from filename extension
+ */
 function getMimeTypeFromFilename(filename: string): string {
   const ext = filename.toLowerCase().split('.').pop();
   const mimeMap: { [key: string]: string } = {
