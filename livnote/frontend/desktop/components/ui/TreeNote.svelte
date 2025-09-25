@@ -31,7 +31,7 @@
 	const isActiveState = $derived(isSelected || isHovered);
 </script>
 
-<div class="pl-3" role="treeitem" aria-selected={isSelected} tabindex="0">
+<div class="pl-3 my-1" role="treeitem" aria-selected={isSelected} tabindex="0">
 	<button
 		class="w-full flex items-center gap-3 p-2.5 rounded-lg transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-livnotelavender focus:ring-offset-2 focus:ring-offset-osvauld-ninjablack
 			{isActiveState
