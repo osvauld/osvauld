@@ -135,9 +135,8 @@ impl PeerConnection {
             .await?;
             let message = FolderSyncMessage::FolderRecipientSyncPayload(missing_remote_fsr);
             self.send_message(Message::FolderSync(message)).await?;
-        } else {
-            self.send_resources().await?;
         }
+        self.send_resources().await?;
         Ok(())
     }
 }
