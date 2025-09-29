@@ -1,7 +1,4 @@
-// search_index/extractor.rs
-
 use super::search_types::{IndexError, IndexResult};
-use log::debug;
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use serde_json::Value;
@@ -108,16 +105,15 @@ impl ContentExtractor {
             }
         }
 
-        debug!("Extracted {} comments from document", comments.len());
         Ok(comments)
     }
 
     /// Extract text from ProseMirror XML structure
     fn extract_text_from_prosemirror_xml(&self, xml: &str) -> IndexResult<(String, String)> {
         let mut reader = Reader::from_str(xml);
-        // Note: trim_text might not be available in all versions
-        // reader.trim_text(true);
-
+        reader.config_mut().check_end_names = false;
+        reader.config_mut().check_comments = false;
+        reader.config_mut().allow_dangling_amp = true;
         let mut content = Vec::new();
         let mut title = String::new();
         let mut is_first_paragraph = true;

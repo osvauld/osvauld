@@ -1,5 +1,6 @@
+use log::info;
 use osvauld_core::models::document::{YjsDocExt, create_doc};
-use quick_xml::events::{BytesStart, Event};
+use quick_xml::events::{BytesStart, BytesText, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use regex::Regex;
@@ -51,8 +52,9 @@ impl PreviewGenerator {
         max_nodes: usize,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut reader = Reader::from_str(xml_content);
-        // Remove the trim_text call - handle whitespace differently if needed
-
+        reader.config_mut().check_end_names = false;
+        reader.config_mut().check_comments = false;
+        reader.config_mut().allow_dangling_amp = true;
         let mut writer = Writer::new(Cursor::new(Vec::new()));
         let mut buf = Vec::new();
         let mut block_count = 0;
@@ -288,7 +290,10 @@ impl PreviewGenerator {
                 }
                 Ok(Event::Text(ref e)) => {
                     if skip_depth.is_none() {
-                        writer.write_event(Event::Text(e.clone()))?;
+                        let text_str = std::str::from_utf8(e.as_ref())?;
+                        writer.write_event(Event::Text(quick_xml::events::BytesText::new(
+                            text_str,
+                        )))?;
                     }
                 }
                 Ok(Event::Empty(ref e)) => {
