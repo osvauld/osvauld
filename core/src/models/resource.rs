@@ -256,6 +256,7 @@ pub struct ResourceSyncData {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ResourceType {
     Notes,
+    Chat,
     Default,
 }
 
@@ -264,6 +265,7 @@ impl ResourceType {
     pub fn has_crdt(&self) -> bool {
         match self {
             ResourceType::Notes => true,
+            ResourceType::Chat => true,
             ResourceType::Default => true,
         }
     }
@@ -272,6 +274,7 @@ impl ResourceType {
     pub fn document_state_keys(&self) -> Vec<&'static str> {
         match self {
             ResourceType::Notes => vec!["main_doc", "image_state"],
+            ResourceType::Chat => vec!["chat", "image_state"],
             ResourceType::Default => vec!["yjs_state"],
         }
     }
@@ -280,6 +283,7 @@ impl ResourceType {
     pub fn primary_state_key(&self) -> Option<&'static str> {
         match self {
             ResourceType::Notes => Some("main_doc"),
+            ResourceType::Chat => Some("chat"),
             ResourceType::Default => Some("yjs_state"),
         }
     }
@@ -288,6 +292,7 @@ impl ResourceType {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "notes" => ResourceType::Notes,
+            "chat" => ResourceType::Chat,
             _ => ResourceType::Default, // All unknown types default to Default
         }
     }
@@ -296,6 +301,7 @@ impl ResourceType {
     pub fn to_string(&self) -> String {
         match self {
             ResourceType::Notes => "notes".to_string(),
+            ResourceType::Chat => "chat".to_string(),
             ResourceType::Default => "default".to_string(),
         }
     }

@@ -14,12 +14,25 @@ pub fn create_doc() -> Doc {
 impl YjsDocExt for Doc {
     async fn apply_update_v2(&mut self, update: &[u8]) -> Result<(), String> {
         if update.is_empty() {
+            log::debug!("Skipping empty update");
             return Ok(());
         }
 
+        log::debug!("Applying v2 update, size: {} bytes, first bytes: {:?}", 
+            update.len(), 
+            &update[..update.len().min(10)]
+        );
+
         // Decode v2 update
-        let update_obj = Update::decode_v2(update)
-            .map_err(|e| format!("Failed to decode v2 update: {:?}", e))?;
+        let update_obj = Update::decode_v2(update).map_err(|e| {
+            log::error!(
+                "Failed to decode v2 update: {:?}, update size: {}, update bytes: {:?}",
+                e,
+                update.len(),
+                update
+            );
+            format!("Failed to decode v2 update: {:?}", e)
+        })?;
 
         // Apply the update to the document
         let mut txn = self.transact_mut().await;
@@ -40,13 +53,29 @@ impl YjsDocExt for Doc {
     }
 
     async fn get_diff_update_v2(&self, state_vector: &[u8]) -> Result<Vec<u8>, String> {
+        log::debug!("Getting diff update v2, state vector size: {} bytes", state_vector.len());
+        
+        if state_vector.is_empty() {
+            log::warn!("Empty state vector provided, returning full state");
+            return Ok(self.get_state_as_update_v2().await);
+        }
+
         // Decode the state vector
-        let sv = StateVector::decode_v2(state_vector)
-            .map_err(|e| format!("Failed to decode v2 state vector: {:?}", e))?;
+        let sv = StateVector::decode_v2(state_vector).map_err(|e| {
+            log::error!(
+                "Failed to decode v2 state vector: {:?}, size: {}, bytes: {:?}",
+                e,
+                state_vector.len(),
+                state_vector
+            );
+            format!("Failed to decode v2 state vector: {:?}", e)
+        })?;
 
         // Generate diff update
         let txn = self.transact().await;
-        Ok(txn.encode_diff_v2(&sv))
+        let diff = txn.encode_diff_v2(&sv);
+        log::debug!("Generated diff update, size: {} bytes", diff.len());
+        Ok(diff)
     }
 }
 pub trait YjsDocExt {

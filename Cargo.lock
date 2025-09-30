@@ -944,6 +944,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "chat"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "cc",
+ "chrono",
+ "clap",
+ "crypto_utils",
+ "futures-lite",
+ "log",
+ "network",
+ "once_cell",
+ "osvauld_core",
+ "persistance",
+ "quick-xml 0.38.1",
+ "rand 0.8.5",
+ "rcgen 0.14.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "services",
+ "sys-locale",
+ "tantivy",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-barcode-scanner",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-log",
+ "tauri-plugin-shell",
+ "tauri-plugin-store",
+ "thiserror 2.0.12",
+ "tokio",
+ "url",
+ "uuid",
+ "yrs",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"

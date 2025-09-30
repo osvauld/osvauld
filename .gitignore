@@ -11,4 +11,6 @@ password-manager/node_modules
 packages/password-manager/mobile/dist
 livnote/frontend/desktop/node_modules
 livnote/frontend/desktop/dist/
+chat/frontend/desktop/node_modules
+chat/frontend/desktop/dist/
 .cursorignore

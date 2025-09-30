@@ -1,0 +1,168 @@
+<script lang="ts">
+	import { slide } from "svelte/transition";
+
+	import { sendMessage, writeToClipboard } from "../../utils/helper";
+
+	import {
+		CopyIcon,
+		RightArrow,
+		Logout,
+		Profile,
+		Settings,
+		ConnectUser,
+		Lens,
+		ClosePanel,
+	} from "../../icons";
+
+	// Import the centralized state
+	import { dataState, uiState } from "../../state";
+
+	// Local UI state
+	let showDropdown = $state(false);
+	let hoveredItem = $state("");
+	let searchQuery = $state("");
+	let searchInput: HTMLInputElement;
+	// Menu items definition with const assertion for better type safety
+	const MENUITEMS = [
+		{ id: "settings", label: "Settings", icon: Settings },
+		{ id: "userid", label: "Copy User Address", icon: CopyIcon },
+		{ id: "logout", label: "Logout", icon: Logout },
+	] as const;
+
+	// Extract the union type from MENUITEMS for type safety
+	type MenuItemId = (typeof MENUITEMS)[number]["id"];
+
+	// Handle dropdown menu item clicks
+	const handleDropDownClick = async (id: MenuItemId) => {
+		switch (id) {
+			case "logout":
+				await sendMessage("logout");
+				dataState.clearAllState();
+				uiState.setWelcomeScreen(true);
+				break;
+			case "userid":
+				try {
+					const { ucan_token, ucan_pub_key } = await sendMessage(
+						"getOneTimeUcanToken",
+					);
+					const userDetails = {
+						user_public_key: dataState.userDetails?.publicKey,
+						device_public_key: dataState.userDetails?.deviceKey,
+						username: dataState.userDetails?.username,
+						ucan_token,
+						ucan_pub_key,
+					};
+					await writeToClipboard(btoa(JSON.stringify(userDetails)));
+					uiState.showToast(
+						"User Address copied to clipboard, valid for 24 hours",
+						true,
+					);
+				} catch (error) {
+					console.error("Error copying user Address:", error);
+					uiState.showToast("Failed to copy User Address", false);
+				}
+				break;
+			case "settings":
+				uiState.toggleProfileViewLayout();
+				break;
+		}
+		showDropdown = false;
+	};
+
+	// Close dropdown when clicking outside
+	const handleOutsideClick = async (e: MouseEvent) => {
+		showDropdown = false;
+	};
+	const handleSearch = async (event: Event) => {
+		const target = event.target as HTMLInputElement;
+		searchQuery = target.value; // Update the bound variable
+
+		//console.log("Search query:", searchQuery);
+		const noteIds = await sendMessage("searchResource", { query: searchQuery });
+		//	console.log(noteIds);
+		dataState.setSearchResults(noteIds);
+	};
+
+	// Home button handler - saves and returns to list view
+	const handleHomeButton = () => {
+		const noteId = dataState.currentNoteId;
+		if (noteId) {
+			dataState.saveNote(noteId);
+			dataState.switchNote(null);
+		}
+		uiState.toggleNoteRightPanel(true);
+		uiState.toggleNoteViewLayout(false);
+		uiState.toggleProfileViewLayout(false);
+	};
+</script>
+
+<div class="h-auto w-full border-b border-osvauld-borderColor flex">
+	<div class="grow py-4 px-6 flex items-center justify-end gap-6">
+		<button
+			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+			aria-label="Open Connect user modal"
+			aria-haspopup="dialog"
+			aria-controls="connect-user-modal"
+			aria-expanded={uiState.connectUserModal.show}
+			onclick={() => uiState.showConnectUserModal()}
+			onkeydown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					uiState.showConnectUserModal();
+				}
+			}}
+		>
+			<span class="font-normal text-base whitespace-nowrap">Connect a User</span
+			>
+			<ConnectUser size={24} />
+		</button>
+		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
+			<button
+				aria-label="Open Profile View"
+				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
+				onclick={() => (showDropdown = !showDropdown)}
+			>
+				<Profile color="#6E7681" />
+				<span class="ml-2 capitalize">{dataState.userDetails?.username}</span>
+				<span
+					class="ml-auto transition-transform ease-linear"
+					class:rotate-90={showDropdown}
+				>
+					<RightArrow />
+				</span>
+			</button>
+			{#if showDropdown}
+				<div
+					class="bg-transparent fixed inset-0 z-40"
+					role="presentation"
+					aria-hidden="true"
+					onclick={handleOutsideClick}
+				></div>
+				<ul
+					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
+					in:slide
+					out:slide
+				>
+					{#each MENUITEMS as { id, label, icon: Icon }}
+						<button
+							onmouseenter={() => (hoveredItem = id)}
+							onmouseleave={() => (hoveredItem = "")}
+							onclick={(e) => {
+								e.stopPropagation();
+								handleDropDownClick(id);
+							}}
+						>
+							<li class="profileBtn cursor-pointer">
+								<Icon
+									color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
+									size={24}
+								/>
+								{label}
+							</li>
+						</button>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+	</div>
+</div>
