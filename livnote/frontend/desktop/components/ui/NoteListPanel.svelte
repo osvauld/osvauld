@@ -83,21 +83,21 @@
 		</button>
 	</div>
 	<div
-		class="relative ml-auto shrink-0 gap-4 flex justify-end items-center text-base"
+		class="relative ml-auto shrink-0 gap-2 flex justify-end items-center text-base"
 	>
 		{#if dataState.currentVault.id !== "all"}
 			<button
-				class="rounded-lg p-2.5 flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="rounded-lg p-2 text-sm flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				onclick={() => (showShareFolderList = true)}
 				aria-label="Share Folder"
 				aria-haspopup="dialog"
 				aria-expanded={showShareFolderList}
 			>
 				<span class="mr-2 pl-2 whitespace-nowrap">Share Folder</span>
-				<TwoPeople size={24} />
+				<TwoPeople size={20} />
 			</button>
 			<button
-				class="cursor-pointer rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive"
+				class="cursor-pointer rounded-lg p-2 flex justify-center items-center bg-osvauld-fieldActive"
 				onclick={(e) => {
 					e.stopPropagation();
 					handleDeleteBtn("folder");
@@ -107,19 +107,19 @@
 				aria-label="Delete Folder"
 				><Bin
 					color={deleteBtnHoved ? "#FF6A6A" : "#85889C"}
-					size={24}
+					size={20}
 				/></button
 			>
 		{/if}
 		<button
-			class="rounded-lg p-2.5 flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-osvauld-fieldText hover:bg-livnotelavender hover:text-primarydark group"
+			class="rounded-lg p-2 text-sm flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-osvauld-fieldText hover:bg-livnotelavender hover:text-primarydark group"
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>
 			<span
 				class="group-hover:[&>svg]:fill-primarydark [&>svg]:fill-osvauld-fieldText [&>svg]:transition-colors [&>svg]:duration-150"
 			>
-				<Add color="currentColor" size={24} />
+				<Add color="currentColor" size={20} />
 			</span>
 		</button>
 	</div>

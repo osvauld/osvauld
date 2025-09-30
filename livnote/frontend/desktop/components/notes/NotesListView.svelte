@@ -78,9 +78,9 @@
 										}}
 									>
 										{#if note.favourite}
-											<Star />
+											<Star size={20} />
 										{:else}
-											<EmptyStar color="#85889C" />
+											<EmptyStar color="#85889C" size={20} />
 										{/if}
 									</button>
 								</div>

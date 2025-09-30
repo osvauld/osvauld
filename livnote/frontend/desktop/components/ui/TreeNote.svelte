@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MobileNote } from "../../icons";
+	import { MobileNote, FavStar } from "../../icons";
 
 	interface Props {
 		note: any;
@@ -69,7 +69,7 @@
 				aria-label="Favorited note"
 				title="Favorited"
 			>
-				⭐
+				<FavStar size={16} />
 			</span>
 		{/if}
 	</button>

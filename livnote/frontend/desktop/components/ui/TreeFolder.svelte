@@ -103,7 +103,7 @@
 	<div
 		class="flex items-center group {isSelected
 			? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-3"
+			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-2"
 	>
 		<div
 			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 focus:outline-none

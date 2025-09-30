@@ -317,7 +317,7 @@
 		</div>
 
 		<!-- Editor Component -->
-		<div class="flex-1 min-h-0 relative p-4">
+		<div class="flex-1 min-h-0 relative p-4 pt-0">
 			{#if uiState.isZenMode}
 				<div
 					class="fixed inset-0 flex items-center justify-center z-50 py-10 bg-bgPrimary"
