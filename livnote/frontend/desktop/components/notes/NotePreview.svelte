@@ -9,8 +9,8 @@
 
 	let {
 		previewHTML = "",
-		maxHeight = "180px",
-		minHeight = "180px",
+		maxHeight = "130px",
+		minHeight = "130px",
 	}: Props = $props();
 </script>
 
@@ -24,17 +24,6 @@
 		color: white;
 		word-break: break-word;
 		white-space: pre-wrap;
-	}
-
-	.preview-container::after {
-		content: "";
-		position: absolute;
-		bottom: 0;
-		left: 0;
-		right: 0;
-		height: 40px;
-		background: linear-gradient(transparent, rgba(22, 23, 31, 0.9));
-		pointer-events: none;
 	}
 
 	/* Style the HTML content to match ProseMirror styles */

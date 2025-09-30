@@ -78,7 +78,7 @@
 </script>
 
 <div
-	class="flex flex-col gap-1 h-full max-h-full overflow-y-auto scrollbar-thin"
+	class="flex flex-col gap-1 h-full px-1 max-h-full overflow-y-auto scrollbar-thin"
 	role="tree"
 	aria-label="Folder and notes navigation"
 >

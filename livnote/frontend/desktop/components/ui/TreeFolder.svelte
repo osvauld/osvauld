@@ -106,7 +106,7 @@
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-3"
 	>
 		<div
-			class="flex-1 flex items-center gap-3 rounded-lg transition-colors duration-150 focus:outline-none
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 focus:outline-none
 				"
 			role="button"
 			tabindex="0"
@@ -125,12 +125,16 @@
 			<!-- Expand/collapse chevron - Hide for All Notes folder -->
 			{#if folder.id !== "all"}
 				<span
-					class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-75 {isExpanded
+					class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-25 {isExpanded
 						? '-rotate-90'
 						: 'rotate-180'}"
 					aria-hidden="true"
 				>
-					<GoBack color={isSelected ? "#F2F2F0" : "#85889C"} />
+					<GoBack
+						color={isSelected ? "#F2F2F0" : "#85889C"}
+						width={16}
+						height={16}
+					/>
 				</span>
 			{/if}
 
@@ -144,7 +148,9 @@
 			</span>
 
 			<!-- Folder name -->
-			<span class="flex-1 truncate text-left font-light">
+			<span
+				class="flex-1 truncate text-left text-sm font-light select-none cursor-default"
+			>
 				{folder.id === "all" ? "All Notes" : folder.name}
 			</span>
 

@@ -82,36 +82,9 @@
 		//	console.log(noteIds);
 		dataState.setSearchResults(noteIds);
 	};
-
-	// Home button handler - saves and returns to list view
-	const handleHomeButton = () => {
-		const noteId = dataState.currentNoteId;
-		if (noteId) {
-			dataState.saveNote(noteId);
-			dataState.switchNote(null);
-		}
-		uiState.toggleNoteRightPanel(true);
-		uiState.toggleNoteViewLayout(false);
-		uiState.toggleProfileViewLayout(false);
-	};
 </script>
 
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
-	<span
-		role="button"
-		tabindex="0"
-		aria-label="Go to home view"
-		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
-		onclick={handleHomeButton}
-		onkeydown={(e) => {
-			if (e.key === "Enter" || e.key === " ") {
-				e.preventDefault();
-				handleHomeButton();
-			}
-		}}
-	>
-		Livnote
-	</span>
 	<div class="grow py-4 px-4 flex items-center justify-end gap-6">
 		<div
 			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto"
