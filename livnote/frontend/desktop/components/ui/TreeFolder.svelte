@@ -40,13 +40,25 @@
 	});
 
 	function handleKeyDown(event: KeyboardEvent) {
+		// Stop event propagation to prevent interference with nested interactive elements
+		event.stopPropagation();
+
 		if (event.key === "Enter" || event.key === " ") {
 			event.preventDefault();
-			onToggle();
-		} else if (event.key === "ArrowRight" && !isExpanded) {
+			if (folder.id === "all") {
+				onSelect();
+			} else {
+				onToggle();
+				onSelect();
+			}
+		} else if (
+			event.key === "ArrowRight" &&
+			!isExpanded &&
+			folder.id !== "all"
+		) {
 			event.preventDefault();
 			onToggle();
-		} else if (event.key === "ArrowLeft" && isExpanded) {
+		} else if (event.key === "ArrowLeft" && isExpanded && folder.id !== "all") {
 			event.preventDefault();
 			onToggle();
 		}
@@ -85,7 +97,6 @@
 	role="treeitem"
 	aria-expanded={isExpanded}
 	aria-selected={isSelected}
-	tabindex="0"
 	style={indentStyle}
 >
 	<!-- Folder header -->
@@ -94,9 +105,11 @@
 			? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-3"
 	>
-		<button
-			class="flex-1 flex items-center gap-3 rounded-lg transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-livnotelavender focus:ring-offset-2 focus:ring-offset-osvauld-ninjablack
+		<div
+			class="flex-1 flex items-center gap-3 rounded-lg transition-colors duration-150 focus:outline-none
 				"
+			role="button"
+			tabindex="0"
 			onclick={() => {
 				// All Notes folder only selects, doesn't toggle expansion
 				if (folder.id === "all") {
@@ -135,6 +148,37 @@
 				{folder.id === "all" ? "All Notes" : folder.name}
 			</span>
 
+			<!-- Folder actions (visible when selected or hovered) - Only show for actual folders, not All Notes -->
+			{#if folder.id !== "all"}
+				<div
+					class="transition-opacity duration-150 ml-1 {isSelected
+						? 'opacity-100'
+						: 'opacity-0 group-hover:opacity-100'}"
+				>
+					<button
+						class="p-1.5 rounded-md transition-colors duration-150 focus:outline-none cursor-pointer {isSelected
+							? 'text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive'
+							: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
+						onclick={(e) => {
+							e.stopPropagation();
+							handleCreateNoteClick();
+						}}
+						aria-label="Create new note in {folder.name}"
+						title="Create new note"
+					>
+						<svg
+							class="w-3 h-3"
+							fill="currentColor"
+							viewBox="0 0 12 12"
+							aria-hidden="true"
+						>
+							<path
+								d="M6 1a1 1 0 011 1v3h3a1 1 0 110 2H7v3a1 1 0 11-2 0V7H2a1 1 0 110-2h3V2a1 1 0 011-1z"
+							></path>
+						</svg>
+					</button>
+				</div>
+			{/if}
 			<!-- Note count badge -->
 			{#if folderNoteCount() > 0}
 				<span
@@ -144,36 +188,7 @@
 					{folderNoteCount()}
 				</span>
 			{/if}
-		</button>
-
-		<!-- Folder actions (visible when selected or hovered) - Only show for actual folders, not All Notes -->
-		{#if folder.id !== "all"}
-			<div
-				class="transition-opacity duration-150 ml-1 {isSelected
-					? 'opacity-100'
-					: 'opacity-0 group-hover:opacity-100'}"
-			>
-				<button
-					class="p-1.5 rounded-md transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-livnotelavender focus:ring-offset-2 focus:ring-offset-osvauld-ninjablack {isSelected
-						? 'text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive'
-						: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
-					onclick={handleCreateNoteClick}
-					aria-label="Create new note in {folder.name}"
-					title="Create new note"
-				>
-					<svg
-						class="w-3 h-3"
-						fill="currentColor"
-						viewBox="0 0 12 12"
-						aria-hidden="true"
-					>
-						<path
-							d="M6 1a1 1 0 011 1v3h3a1 1 0 110 2H7v3a1 1 0 11-2 0V7H2a1 1 0 110-2h3V2a1 1 0 011-1z"
-						></path>
-					</svg>
-				</button>
-			</div>
-		{/if}
+		</div>
 	</div>
 
 	<!-- Folder contents (notes) - Only show for regular folders, not All Notes -->

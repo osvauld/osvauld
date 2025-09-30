@@ -72,7 +72,7 @@
 </script>
 
 <form
-	class="bg-osvauld-modalFieldActive border border-osvauld-defaultBorder rounded-lg p-3 my-1"
+	class="bg-bgSecondary border border-osvauld-defaultBorder rounded-lg p-3 my-1"
 	onsubmit={handleSubmit}
 	aria-label="Create new note"
 >
@@ -86,7 +86,7 @@
 				bind:value={noteTitle}
 				onkeydown={handleKeyDown}
 				type="text"
-				class="w-full bg-osvauld-frameblack text-osvauld-sideListTextActive placeholder-osvauld-fieldText border border-osvauld-borderColor rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-livnotelavender focus:border-livnotelavender transition-colors duration-150"
+				class="w-full bg-osvauld-frameblack text-osvauld-sideListTextActive placeholder-osvauld-fieldText border border-osvauld-borderColor rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-0.5 focus:ring-livnotelavender focus:border-livnotelavender transition-colors duration-150"
 				placeholder="Enter note title"
 				autocomplete="off"
 				autocorrect="off"
