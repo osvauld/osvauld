@@ -20,8 +20,7 @@
 		if (!folderId || folderId === "all") return;
 
 		if (!expandedFolders.has(folderId)) {
-			// Accordion behavior: expand the note's folder and collapse others
-			expandedFolders.clear();
+			// Expand the note's folder without collapsing others
 			expandedFolders.add(folderId);
 			expandedFolders = new Set(expandedFolders);
 		}
@@ -37,8 +36,7 @@
 			// Collapse the folder if it's already expanded
 			expandedFolders.delete(folderId);
 		} else {
-			// Accordion behavior: collapse all other folders and expand this one
-			expandedFolders.clear();
+			// Expand the folder without affecting others
 			expandedFolders.add(folderId);
 		}
 		// Trigger reactivity

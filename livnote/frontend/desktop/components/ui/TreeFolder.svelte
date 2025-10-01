@@ -29,14 +29,13 @@
 		return dataState.notes.filter((note) => note.folderId === folder.id).length;
 	});
 
-	// Get notes to display when folder is expanded (respects current filtering)
+	// Get notes to display when folder is expanded (shows all notes for this specific folder)
 	const folderNotes = $derived(() => {
 		if (folder.id === "all") {
 			return dataState.filteredNotes;
 		}
-		return dataState.filteredNotes.filter(
-			(note) => note.folderId === folder.id,
-		);
+		// For individual folders, filter from all notes, not just the current vault's filtered notes
+		return dataState.notes.filter((note) => note.folderId === folder.id);
 	});
 
 	function handleKeyDown(event: KeyboardEvent) {
