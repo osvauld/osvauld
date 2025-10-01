@@ -130,7 +130,10 @@
 						: ''}"
 					aria-hidden="true"
 				>
-					<RightArrow color={isSelected ? "#F2F2F0" : "#85889C"} size={16} />
+					<RightArrow
+						color={isSelected ? "#F2F2F0" : "currentColor"}
+						size={16}
+					/>
 				</span>
 			{/if}
 
