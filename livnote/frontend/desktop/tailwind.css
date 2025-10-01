@@ -169,7 +169,7 @@
 }
 
 .profileBtn {
-	@apply p-3 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
+	@apply px-3 py-2.5 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
 }
 
 

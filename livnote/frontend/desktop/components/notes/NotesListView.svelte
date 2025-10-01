@@ -30,7 +30,9 @@
 
 <div class="flex flex-1 h-full overflow-hidden">
 	<div class="flex-1 flex flex-col h-full overflow-hidden">
-		<div class="flex-1 overflow-hidden pl-4 pr-1 relative flex flex-col">
+		<div
+			class="flex-1 overflow-hidden pl-4 pr-1 pb-2 pt-0 relative flex flex-col"
+		>
 			<NoteListPanel />
 			<div class="flex-1 pr-1 scrollbar-thin pb-4 overflow-y-auto">
 				{#if dataState.isDataLoading}

@@ -133,7 +133,7 @@
 			}}
 		>
 			<span class="font-normal text-sm whitespace-nowrap">Connect a User</span>
-			<ConnectUser size={24} />
+			<ConnectUser size={20} />
 		</button>
 		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
 			<button
@@ -141,7 +141,7 @@
 				class="px-4 p-2 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}
 			>
-				<Profile color="#6E7681" />
+				<Profile color="#6E7681" size={22} />
 				<span class="ml-2 text-sm capitalize"
 					>{dataState.userDetails?.username}</span
 				>
@@ -160,7 +160,7 @@
 					onclick={handleOutsideClick}
 				></div>
 				<ul
-					class="absolute top-[120%] right-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-3"
+					class="absolute top-[120%] right-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-1.5"
 					in:slide
 					out:slide
 				>
@@ -176,7 +176,7 @@
 							<li class="profileBtn cursor-pointer">
 								<Icon
 									color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
-									size={24}
+									size={20}
 								/>
 								{label}
 							</li>

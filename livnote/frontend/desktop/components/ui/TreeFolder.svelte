@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MobileHome, FolderIcon, MobileNote, GoBack } from "../../icons";
+	import { MobileHome, FolderIcon, RightArrow, Add } from "../../icons";
 	import { dataState } from "../../state";
 	import TreeNote from "./TreeNote.svelte";
 	import InlineCreateNote from "./InlineCreateNote.svelte";
@@ -126,15 +126,11 @@
 			{#if folder.id !== "all"}
 				<span
 					class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-25 {isExpanded
-						? '-rotate-90'
-						: 'rotate-180'}"
+						? 'rotate-90'
+						: ''}"
 					aria-hidden="true"
 				>
-					<GoBack
-						color={isSelected ? "#F2F2F0" : "#85889C"}
-						width={16}
-						height={16}
-					/>
+					<RightArrow color={isSelected ? "#F2F2F0" : "#85889C"} size={16} />
 				</span>
 			{/if}
 
@@ -172,16 +168,7 @@
 						aria-label="Create new note in {folder.name}"
 						title="Create new note"
 					>
-						<svg
-							class="w-3 h-3"
-							fill="currentColor"
-							viewBox="0 0 12 12"
-							aria-hidden="true"
-						>
-							<path
-								d="M6 1a1 1 0 011 1v3h3a1 1 0 110 2H7v3a1 1 0 11-2 0V7H2a1 1 0 110-2h3V2a1 1 0 011-1z"
-							></path>
-						</svg>
+						<Add color="currentColor" size={16} />
 					</button>
 				</div>
 			{/if}
