@@ -3,7 +3,7 @@
 	import { sendMessage } from "../../utils/helper";
 	import NotePreview from "./NotePreview.svelte";
 	import NoteListPanel from "../ui/NoteListPanel.svelte";
-	import { FavStar as Star, Star as EmptyStar } from "../../icons";
+	import { FavStar as Star, Star as EmptyStar } from "@osvauld/icons";
 
 	import { dataState, uiState } from "../../state/";
 

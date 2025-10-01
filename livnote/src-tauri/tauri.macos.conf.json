@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
-  "productName": "osvauld",
+  "productName": "livnote",
   "version": "0.1.0",
-  "identifier": "com.osvauld.app",
+  "identifier": "com.livnote.app",
   "build": {
     "beforeDevCommand": "cd ./frontend/desktop && pnpm dev",
     "beforeBuildCommand": "cd ./frontend/desktop && pnpm build",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "osvauld",
+        "title": "livnote",
         "width": 1920,
         "height": 1080,
         "transparent": false,

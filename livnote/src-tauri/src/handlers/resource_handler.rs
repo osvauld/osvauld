@@ -1,5 +1,5 @@
 use crate::preview_generator::generate_preview_html;
-use crate::search_index::SearchIndexManager;
+use search_indexer::SearchIndexManager;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
     ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,

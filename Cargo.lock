@@ -4071,6 +4071,46 @@ dependencies = [
 ]
 
 [[package]]
+name = "libremot"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "cc",
+ "chrono",
+ "clap",
+ "crypto_utils",
+ "futures-lite",
+ "log",
+ "network",
+ "once_cell",
+ "osvauld_core",
+ "persistance",
+ "rand 0.8.5",
+ "rcgen 0.14.2",
+ "regex",
+ "search_indexer",
+ "serde",
+ "serde_json",
+ "services",
+ "sys-locale",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-log",
+ "tauri-plugin-shell",
+ "tauri-plugin-store",
+ "thiserror 2.0.12",
+ "tokio",
+ "url",
+ "uuid",
+ "yrs",
+]
+
+[[package]]
 name = "libsqlite3-sys"
 version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4126,11 +4166,11 @@ dependencies = [
  "rand 0.8.5",
  "rcgen 0.14.2",
  "regex",
+ "search_indexer",
  "serde",
  "serde_json",
  "services",
  "sys-locale",
- "tantivy",
  "tauri",
  "tauri-build",
  "tauri-plugin-barcode-scanner",
@@ -6833,6 +6873,22 @@ name = "seahash"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c107b6f4780854c8b126e228ea8869f4d7b71260f962fefb57b996b8959ba6b"
+
+[[package]]
+name = "search_indexer"
+version = "0.1.0"
+dependencies = [
+ "crypto_utils",
+ "log",
+ "persistance",
+ "quick-xml 0.38.1",
+ "serde",
+ "serde_json",
+ "tantivy",
+ "thiserror 2.0.12",
+ "tokio",
+ "yrs",
+]
 
 [[package]]
 name = "sec1"

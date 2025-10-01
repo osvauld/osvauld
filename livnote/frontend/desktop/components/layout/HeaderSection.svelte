@@ -12,7 +12,7 @@
 		ConnectUser,
 		Lens,
 		ClosePanel,
-	} from "../../icons";
+	} from "@osvauld/icons";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";

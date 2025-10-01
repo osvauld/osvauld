@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
-	import { CommentIcon } from "../../icons";
+	import { CommentIcon } from "@osvauld/icons";
 
 	import type { CommentThread } from "../../types/notes.types";
 	import CommentThreadComponent from "./CommentThread.svelte";
