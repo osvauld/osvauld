@@ -294,7 +294,7 @@
 	}
 
 	.empty-state-text {
-		font-size: 14px;
+		font-size: 12px;
 		color: var(--color-statusColor);
 		line-height: 1.4;
 		font-weight: 200;
@@ -347,7 +347,8 @@
 			<button
 				class="filter-tab relative"
 				class:active={!showResolved}
-				onclick={() => (showResolved = false)}>
+				onclick={() => (showResolved = false)}
+			>
 				Open
 				{#if hasUnreadComments}
 					<span
@@ -358,7 +359,8 @@
 			<button
 				class="filter-tab"
 				class:active={showResolved}
-				onclick={() => (showResolved = true)}>
+				onclick={() => (showResolved = true)}
+			>
 				Resolved
 			</button>
 		</div>
@@ -369,8 +371,9 @@
 			<div class="empty-state">
 				{#if threads.length === 0}
 					<span><CommentIcon size={24} /></span>
-					<div class="empty-state-text mt-4">
-						Give feedback, ask a question, or just leave a note of appreciation. <br />
+					<div class="empty-state-text mt-4 text-xs">
+						Give feedback, ask a question, or just leave a note of appreciation. <br
+						/>
 						Select anywhere in the note to leave a comment.
 					</div>
 				{:else if showResolved}
@@ -395,7 +398,8 @@
 						onSelect={() => handleThreadSelect(thread.id)}
 						onResolve={(resolved: boolean) =>
 							handleResolveThread(thread.id, resolved)}
-						onDelete={() => handleDeleteThread(thread.id)} />
+						onDelete={() => handleDeleteThread(thread.id)}
+					/>
 				{/each}
 			</div>
 		{/if}
