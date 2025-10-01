@@ -7,7 +7,6 @@ module.exports = {
   parser: "@typescript-eslint/parser",
   plugins: ["@typescript-eslint"],
   parserOptions: {
-    project: "./tsconfig.app.json",
     ecmaVersion: "latest",
     sourceType: "module",
     extraFileExtensions: [".svelte"],
@@ -18,7 +17,6 @@ module.exports = {
       parser: "svelte-eslint-parser",
       parserOptions: {
         parser: "@typescript-eslint/parser",
-        project: "./tsconfig.app.json",
       },
       rules: {
         "indent": ["error", "tab", { "SwitchCase": 1 }],
@@ -26,10 +24,7 @@ module.exports = {
       }
     },
     {
-      files: ["src/**/*.ts"],
-      parserOptions: {
-        project: "./tsconfig.app.json",
-      },
+      files: ["**/*.ts", "**/*.js"],
       rules: {
         "indent": ["error", "tab", { "SwitchCase": 1 }],
         "no-tabs": "off"

@@ -10,7 +10,9 @@
 		if (searchQuery.trim()) {
 			isSearching = true;
 			try {
-				const results = await sendMessage("searchResources", { query: searchQuery });
+				const results = await sendMessage("searchResources", {
+					query: searchQuery,
+				});
 				dataState.setSearchResults(results);
 			} catch (error) {
 				console.error("Search error:", error);
@@ -35,7 +37,9 @@
 	};
 </script>
 
-<div class="flex flex-col p-3 border-b border-osvauld-borderColor bg-osvauld-frameblack">
+<div
+	class="flex flex-col p-3 border-b border-osvauld-borderColor bg-osvauld-frameblack"
+>
 	<div class="flex items-center justify-between mb-3">
 		<h1 class="text-osvauld-fieldText font-semibold text-xl">Chats</h1>
 		<button
