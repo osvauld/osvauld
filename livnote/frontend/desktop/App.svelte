@@ -87,7 +87,6 @@
 			class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden"
 		>
 			<AppModals />
-
 			<div class="grow flex overflow-hidden">
 				{#if uiState.profileViewLayout}
 					<ProfileView />
@@ -95,9 +94,9 @@
 					<!-- Note editing mode: Show NotesWorkspace with its own Navigation panel -->
 					<NotesWorkspace />
 				{:else}
-					<div class="flex w-full max-h-screen">
+					<div class="flex w-full h-full">
 						<NavigationPanel />
-						<div class="flex-1 flex flex-col overflow-hidden">
+						<div class="flex-1 flex flex-col overflow-hidden h-full">
 							<HeaderSection />
 							<NotesListView />
 						</div>

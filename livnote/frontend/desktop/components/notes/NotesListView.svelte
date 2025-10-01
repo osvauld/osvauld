@@ -28,14 +28,11 @@
 	};
 </script>
 
-<div class="flex flex-1 max-h-full max-w-full">
-	<div class="flex-1 flex flex-col overflow-hidden">
-		<div
-			class="grow max-h-[85%] overflow-hidden px-4 pr-2 relative flex flex-col"
-		>
+<div class="flex flex-1 h-full overflow-hidden">
+	<div class="flex-1 flex flex-col h-full overflow-hidden">
+		<div class="flex-1 overflow-hidden pl-4 pr-1 relative flex flex-col">
 			<NoteListPanel />
-
-			<div class="flex-1 pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
+			<div class="flex-1 pr-1 scrollbar-thin pb-4 overflow-y-auto">
 				{#if dataState.isDataLoading}
 					<div class="flex justify-center items-center h-full">
 						<div class="text-osvauld-fieldText">Loading notes...</div>

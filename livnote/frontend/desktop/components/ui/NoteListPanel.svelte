@@ -27,7 +27,7 @@
 	};
 </script>
 
-<div class="py-4 flex items-center justify-start shrink-0">
+<div class="py-3 pr-4 flex items-center justify-start shrink-0">
 	<!-- <div class="relative shrink-0">
 		<button
 			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
