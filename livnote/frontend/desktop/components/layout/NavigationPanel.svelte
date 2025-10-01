@@ -39,14 +39,16 @@
 		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation"
 	>
-		<button
-			aria-label="Collapse navigation panel"
-			class="absolute bottom-1 right-1 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
-			title="Collapse panel"
-			onclick={closeNavigationPanel}
-		>
-			<MenuToggle />
-		</button>
+		{#if uiState.noteViewLayout}
+			<button
+				aria-label="Collapse navigation panel"
+				class="absolute bottom-1 right-1 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
+				title="Collapse panel"
+				onclick={closeNavigationPanel}
+			>
+				<MenuToggle />
+			</button>
+		{/if}
 
 		<!-- All Notes Folder -->
 		<div class="px-1 mb-2 shrink-0">

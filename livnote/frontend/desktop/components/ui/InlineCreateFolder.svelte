@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { sendMessage } from "../../utils/helper";
-	import { dataState } from "../../state";
+	import { dataState, uiState } from "../../state";
 
 	interface Props {
 		onCancel: () => void;
@@ -67,7 +67,9 @@
 </script>
 
 <form
-	class="bg-bgSecondary border border-osvauld-defaultBorder rounded-lg p-3 mb-10"
+	class="bg-bgSecondary border border-osvauld-defaultBorder rounded-lg p-3 {uiState.noteViewLayout
+		? 'mb-10'
+		: ''}"
 	onsubmit={handleSubmit}
 	aria-label="Create new folder"
 >
