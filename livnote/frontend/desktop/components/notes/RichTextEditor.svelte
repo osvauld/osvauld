@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { EditorView } from "prosemirror-view";
-	import { emit, type UnlistenFn } from "@tauri-apps/api/event";
-	import { Selection } from "prosemirror-state";
+	import { type UnlistenFn } from "@tauri-apps/api/event";
 	import { dataState, uiState } from "../../state";
 	import { DOMSerializer } from "prosemirror-model";
 	import CommentModal from "./CommentModal.svelte";
