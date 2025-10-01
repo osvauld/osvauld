@@ -86,7 +86,9 @@
 										maxHeight="120px"
 										minHeight="120px"
 									/>
-									<div class="text-osvauld-fieldText opacity-60 text-xs mt-4">
+									<div
+										class="text-osvauld-fieldText opacity-60 text-[0.65rem] mt-4"
+									>
 										Last modified: {getLastModifiedDate(note.lastModified)}
 									</div>
 								</div>

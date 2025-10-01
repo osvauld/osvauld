@@ -332,10 +332,10 @@
 	@keyframes commentFlash {
 		0%,
 		100% {
-			background: rgba(255, 215, 0, 0.1);
+			background: rgb(124 145 249 / 0.1);
 		}
 		50% {
-			background: rgba(255, 215, 0, 0.3);
+			background: rgb(124 145 249 / 0.3);
 		}
 	}
 </style>
