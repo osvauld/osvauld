@@ -3,7 +3,6 @@
 	import { sendMessage } from "../../utils/helper";
 	import NotePreview from "./NotePreview.svelte";
 	import NoteListPanel from "../ui/NoteListPanel.svelte";
-	import NavigationPanel from "../layout/NavigationPanel.svelte";
 	import {
 		FavStar as Star,
 		Star as EmptyStar,
@@ -29,16 +28,14 @@
 	};
 </script>
 
-<div class="flex grow max-h-full max-w-full">
-	<NavigationPanel />
-
+<div class="flex flex-1 max-h-full max-w-full">
 	<div class="flex-1 flex flex-col overflow-hidden">
 		<div
-			class="grow max-h-full overflow-hidden px-4 pr-2 relative flex flex-col"
+			class="grow max-h-[85%] overflow-hidden px-4 pr-2 relative flex flex-col"
 		>
 			<NoteListPanel />
 
-			<div class="grow pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
+			<div class="flex-1 pr-1 scrollbar-thin min-w-[37.5rem] overflow-y-auto">
 				{#if dataState.isDataLoading}
 					<div class="flex justify-center items-center h-full">
 						<div class="text-osvauld-fieldText">Loading notes...</div>

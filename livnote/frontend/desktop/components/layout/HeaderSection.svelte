@@ -138,7 +138,7 @@
 		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
 			<button
 				aria-label="Open Profile View"
-				class="w-[16.5rem] p-2 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
+				class="px-4 p-2 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}
 			>
 				<Profile color="#6E7681" />
@@ -160,7 +160,7 @@
 					onclick={handleOutsideClick}
 				></div>
 				<ul
-					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-3"
+					class="absolute top-[120%] right-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-3"
 					in:slide
 					out:slide
 				>
