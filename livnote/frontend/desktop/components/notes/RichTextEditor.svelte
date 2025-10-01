@@ -185,34 +185,8 @@
 			elementWidth = element?.getBoundingClientRect().width;
 			const currentWindowWidth = window.innerWidth;
 
-			// Handle navigation panel responsive behavior
-			if (!uiState.isNavigationPanelManuallyToggled) {
-				uiState.showNavigationPanel =
-					currentWindowWidth >= uiState.minViewportWidthForNavPanel;
-			}
-
-			// Handle note right panel responsive behavior
-			if (!uiState.isNoteRightPanelManuallyToggled) {
-				// Priority logic: if both panels would fit, show both
-				if (currentWindowWidth >= uiState.minViewportWidthForBothPanels) {
-					uiState.showNoteRightPanel = true;
-				}
-				// If only nav panel + editor fits, hide right panel
-				else if (
-					currentWindowWidth >= uiState.minViewportWidthForNavPanel &&
-					uiState.showNavigationPanel
-				) {
-					uiState.showNoteRightPanel = false;
-				}
-				// If only right panel + editor fits, show right panel
-				else if (currentWindowWidth >= uiState.minViewportWidthForRightPanel) {
-					uiState.showNoteRightPanel = true;
-				}
-				// If viewport is too small for any panel combination, hide right panel
-				else {
-					uiState.showNoteRightPanel = false;
-				}
-			}
+			// Removed: automatic right panel responsive behavior. Right panel visibility
+			// is now controlled only by explicit user actions and app state.
 
 			resizeTimeoutId = null;
 		}, 50);
@@ -376,8 +350,6 @@
 
 <style>
 	.editor-container {
-		width: min(90vw, 900px);
-		max-width: 900px;
 		margin: 0 auto;
 		height: 100%;
 		background: #16171f;

@@ -126,7 +126,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="group rounded-md overflow-hidden transition-all duration-200 hover:bg-osvauld-frameblack hover:border-osvauld-defaultBorder {isSelected
+	class="group rounded-md overflow-hidden transition-all duration-75 hover:bg-osvauld-frameblack hover:border-osvauld-defaultBorder {isSelected
 		? 'bg-osvauld-frameblack border-osvauld-defaultBorder'
 		: ''} {thread.resolved ? 'opacity-70' : ''} {isHighlighted
 		? 'animate-pulse'
@@ -141,7 +141,7 @@
 		<div class="flex-1 min-w-0">
 			<div class="flex justify-start items-center gap-2">
 				<span
-					class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder"
+					class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder group-hover:border-osvauld-sideListTextActive group-hover:text-osvauld-sideListTextActive transition-all duration-75"
 					>{mainComment.author.name.charAt(0).toUpperCase()}</span
 				>
 				<div class="flex flex-col items-start">
