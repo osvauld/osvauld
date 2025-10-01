@@ -224,14 +224,14 @@
 	</div>
 
 	{#if isExpanded}
-		<div class="p-2 border-t border-osvauld-defaultBorder">
+		<div class="p-2 border-t border-osvauld-defaultBorder text-xs">
 			{#if replies.length > 0}
 				<div class="mt-3 ml-2 pl-1 border-l border-osvauld-defaultBorder">
 					{#each replies as reply (reply.id)}
 						<div class="mb-3 pl-2 border-b border-osvauld-defaultBorder">
 							<div class="flex justify-start items-center gap-2">
 								<span
-									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border-2 border-collaboratorBorder"
+									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder"
 									>{mainComment.author.name.charAt(0).toUpperCase()}</span
 								>
 								<div class="flex flex-col items-start">
