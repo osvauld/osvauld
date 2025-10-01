@@ -101,7 +101,7 @@
 
 {#if uiState.showNoteRightPanel}
 	<div
-		class="w-[22.5rem] h-full min-h-0 max-h-full py-4 px-4 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor"
+		class="w-[20rem] h-full min-h-0 max-h-full py-4 px-4 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor"
 		in:fly={{ x: 200, duration: 400 }}
 	>
 		<div class="mr-auto">
