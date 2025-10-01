@@ -1,0 +1,15 @@
+packages:
+  # Frontend apps
+  - 'livnote/frontend/desktop'
+  - 'libremot/frontend/desktop'
+  
+  # Shared packages
+  - 'icons'
+  
+  # Core packages
+  - 'core'
+  - 'crypto_utils'
+  - 'network'
+  - 'services'
+  - 'persistance'
+  - 'search_indexer'

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { slide, fly } from "svelte/transition";
-	import { Add, MobileHome, FolderIcon } from "../../icons";
+	import { Add, MobileHome, FolderIcon } from "@osvauld/icons";
 	import { sendMessage } from "../../utils/helper";
 	import { dataState, uiState } from "../../state";
 	// import { LL } from "../../icons/i18n/i18n-svelte";

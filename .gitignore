@@ -2,6 +2,8 @@
 *.map
 /target
 wasm/pkg
+node_modules
+pnpm-lock.yaml
 password-manager/common/node_modules
 password-manager/desktop/node_modules
 password-manager/mobile/node_modules

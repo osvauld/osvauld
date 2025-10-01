@@ -8,7 +8,7 @@
 		TwoPeople,
 		Tick,
 		MenuToggle,
-	} from "../../icons";
+	} from "@osvauld/icons";
 	import Loader from "../../common/Loader.svelte";
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";

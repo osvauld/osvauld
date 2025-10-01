@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Lens, ClosePanel } from "../../icons";
+	import { Lens, ClosePanel } from "@osvauld/icons";
 
 	// Define interfaces
 	interface Collaborator {

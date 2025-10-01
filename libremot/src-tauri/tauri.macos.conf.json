@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
-  "productName": "livnote",
+  "productName": "libremot",
   "version": "0.1.0",
-  "identifier": "com.livnote.app",
+  "identifier": "com.libremot.app",
   "build": {
     "beforeDevCommand": "cd ./frontend/desktop && pnpm dev",
     "beforeBuildCommand": "cd ./frontend/desktop && pnpm build",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "livnote",
+        "title": "libremot",
         "width": 1920,
         "height": 1080,
         "transparent": false,
