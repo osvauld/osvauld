@@ -65,3 +65,4 @@ pub enum IndexError {
 }
 
 pub type IndexResult<T> = Result<T, IndexError>;
+

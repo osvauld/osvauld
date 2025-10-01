@@ -120,3 +120,4 @@ impl SearchIndexStorage {
         Ok(())
     }
 }
+

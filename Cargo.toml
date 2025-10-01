@@ -7,5 +7,7 @@ members = [
   "core",
   "persistance",
   "services",
-  "network", "kunki",
+  "network",
+  "kunki",
+  "search_indexer",
 ]

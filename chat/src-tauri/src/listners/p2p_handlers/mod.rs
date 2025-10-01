@@ -1,7 +1,8 @@
 use crate::{
-    EventManager, chat_preview_generator::generate_chat_preview, search_index::SearchIndexManager,
+    EventManager, chat_preview_generator::generate_chat_preview,
     types::ResourcePreview, user_state::UserState,
 };
+use search_indexer::SearchIndexManager;
 use log::{error, info};
 use services::get_resource_by_id_direct;
 use std::sync::Arc;

@@ -232,3 +232,4 @@ impl SearchIndexOperations {
         Ok(documents)
     }
 }
+

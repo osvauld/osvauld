@@ -6,6 +6,7 @@ import type {
   UserInfo,
   Collaborator
 } from "../../types/notes.types";
+import { dataState } from "../../state";
 export interface YjsDocuments {
   mainDoc: Y.Doc;
   imageDoc: Y.Doc;
@@ -227,12 +228,9 @@ export class YjsManager {
     if (this.cachedDataState) {
       this.cachedDataState.updateCollaborators(collaborators);
     } else {
-      import("../../state").then(({ dataState }) => {
-        this.cachedDataState = dataState;
-        this.cachedDataState.updateCollaborators(collaborators);
-      }).catch(error => {
-        console.error("Error updating collaborators:", error);
-      });
+      this.cachedDataState = dataState;
+      this.cachedDataState.updateCollaborators(collaborators);
+
     }
   }
 

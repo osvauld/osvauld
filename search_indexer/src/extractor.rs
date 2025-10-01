@@ -4,11 +4,15 @@ use quick_xml::events::Event;
 use serde_json::Value;
 use yrs::{Doc as YDoc, GetString, Map, Transact, updates::decoder::Decode};
 
-pub struct ContentExtractor;
+pub struct ContentExtractor {
+    yjs_field_name: String,
+}
 
 impl ContentExtractor {
-    pub fn new() -> Self {
-        Self
+    /// Create a new content extractor with the specified YJS field name
+    /// For livnote, use "main_doc". For chat, use "chat"
+    pub fn new(yjs_field_name: String) -> Self {
+        Self { yjs_field_name }
     }
 
     /// Extract text and comments from note content JSON
@@ -18,10 +22,13 @@ impl ContentExtractor {
     ) -> IndexResult<(String, String, Vec<String>)> {
         // Extract main_doc bytes from JSON
         let main_doc_array = note_content
-            .get("main_doc")
+            .get(&self.yjs_field_name)
             .and_then(|v| v.as_array())
             .ok_or_else(|| {
-                IndexError::ParsingError("main_doc field not found or not an array".to_string())
+                IndexError::ParsingError(format!(
+                    "{} field not found or not an array",
+                    self.yjs_field_name
+                ))
             })?;
 
         // Convert JSON array to bytes
@@ -181,3 +188,4 @@ impl ContentExtractor {
         Ok((content.join(" "), title))
     }
 }
+

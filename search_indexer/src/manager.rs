@@ -1,6 +1,6 @@
 // search_index/manager.rs
 
-use crate::search_index::search_types::SerializedDocument;
+use crate::search_types::SerializedDocument;
 
 use super::extractor::ContentExtractor;
 use super::operations::SearchIndexOperations;
@@ -17,6 +17,7 @@ use std::time::Duration;
 use tantivy::schema::*;
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 use tokio::sync::{Mutex, RwLock};
+
 pub struct SearchIndexManager {
     index: Arc<RwLock<Option<Index>>>,
     writer: Arc<RwLock<Option<IndexWriter>>>,
@@ -30,7 +31,11 @@ pub struct SearchIndexManager {
 
 impl SearchIndexManager {
     /// Create a new search index manager
-    pub fn new(app_data_dir: &Path) -> IndexResult<Self> {
+    /// 
+    /// # Arguments
+    /// * `app_data_dir` - Directory to store the encrypted search index
+    /// * `yjs_field_name` - Name of the YJS field in the JSON (e.g., "main_doc" for livnote, "chat" for chat)
+    pub fn new(app_data_dir: &Path, yjs_field_name: String) -> IndexResult<Self> {
         // Define schema
         let mut schema_builder = Schema::builder();
 
@@ -51,7 +56,7 @@ impl SearchIndexManager {
             folder_id_field,
             comments_field,
         );
-        let extractor = ContentExtractor::new();
+        let extractor = ContentExtractor::new(yjs_field_name);
 
         Ok(Self {
             index: Arc::new(RwLock::new(None)),
@@ -207,6 +212,7 @@ impl SearchIndexManager {
             .await?;
         Ok(())
     }
+    
     pub fn start_scheduled_save(
         search_manager: Arc<Mutex<SearchIndexManager>>,
         repo_ctx: Arc<RepositoryContext>,
@@ -381,6 +387,7 @@ impl SearchIndexManager {
 }
 
 /// Helper function to create a search index manager
-pub fn create_search_index(app_data_dir: &Path) -> IndexResult<SearchIndexManager> {
-    SearchIndexManager::new(app_data_dir)
+pub fn create_search_index(app_data_dir: &Path, yjs_field_name: String) -> IndexResult<SearchIndexManager> {
+    SearchIndexManager::new(app_data_dir, yjs_field_name)
 }
+

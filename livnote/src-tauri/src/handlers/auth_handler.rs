@@ -1,4 +1,4 @@
-use crate::search_index::SearchIndexManager;
+use search_indexer::SearchIndexManager;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, LoadPvtKeyInput, PasswordChangeInput,
     SavePassphraseInput, UcanOneTimeTokenOut,
