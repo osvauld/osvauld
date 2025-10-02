@@ -17,13 +17,16 @@ import type { Plugin } from "prosemirror-state";
  * 
  * Returns an array of plugins:
  * 1. The main math plugin from prosemirror-math (handles rendering and editing)
- * 2. Input rules plugin (handles $...$ and $...$ auto-conversion)
+ * 2. Input rules plugin (handles $...$ and $$...$$ auto-conversion)
  * 3. Our custom numbering plugin (handles equation numbering)
- * 
- * @param schema - The editor schema
  */
 export function createMathPlugins(schema: Schema): Plugin[] {
-  // Create input rules for auto-conversion
+  if (!schema.nodes.math_inline || !schema.nodes.math_display) {
+    console.error("Math nodes not found in schema!");
+    return [];
+  }
+
+  // Create input rules
   const inlineMathInputRule = makeInlineMathInputRule(
     REGEX_INLINE_MATH_DOLLARS,
     schema.nodes.math_inline
@@ -35,10 +38,10 @@ export function createMathPlugins(schema: Schema): Plugin[] {
   );
 
   return [
-    // Main math plugin - handles rendering and node views
+    // Main math plugin - this includes NodeViews internally
     mathPlugin,
 
-    // Input rules for $...$ and $...$
+    // Input rules for $...$ and $$...$$
     inputRules({
       rules: [inlineMathInputRule, blockMathInputRule]
     }),
@@ -48,18 +51,8 @@ export function createMathPlugins(schema: Schema): Plugin[] {
   ];
 }
 
-/**
- * Commands for inserting math
- * Re-exported from prosemirror-math for convenience
- */
 export { mathBackspaceCmd };
 
-/**
- * Insert inline math at cursor
- */
 export const insertInlineMath = (schema: Schema) => insertMathCmd(schema.nodes.math_inline);
 
-/**
- * Insert display math at cursor
- */
 export const insertDisplayMath = (schema: Schema) => insertMathCmd(schema.nodes.math_display);

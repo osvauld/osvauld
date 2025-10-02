@@ -2,36 +2,14 @@
 @import "katex/dist/katex.min.css";
 @import "@benrbray/prosemirror-math/dist/prosemirror-math.css";
 
-/* 
- * Note: prosemirror-math styles are embedded below
- * The package doesn't export CSS via package.json, so we include the necessary styles directly
- */
+/* ===== Theme Overrides for Dark Mode ===== */
 
-/* Base styles from prosemirror-math */
-.math-node {
-  display: inline-block;
-  font-size: inherit;
-  white-space: nowrap;
-}
-
-.math-node .math-src {
-  display: none;
-}
-
-.math-node.ProseMirror-selectednode {
-  outline: 2px solid #8cf;
-}
-
-/* Math editing container */
+/* Math editing container - dark theme */
 .math-editor {
   background: #1a1b23;
   border: 1px solid #2a2b35;
   border-radius: 0.5rem;
   padding: 1rem;
-  margin: 0.5rem 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
 }
 
 .math-editor textarea {
@@ -42,26 +20,23 @@
   font-size: 0.875rem;
   border-radius: 0.375rem;
   padding: 0.5rem;
-  resize: vertical;
-  min-height: 3rem;
-  width: 100%;
+  caret-color: white !important;
+  /* Explicitly set cursor color */
 }
 
 .math-editor textarea:focus {
   outline: none;
   border-color: #4a9eff;
+  caret-color: white !important;
+  /* Ensure cursor stays visible on focus */
 }
 
-/* Math preview in editor */
-.math-preview {
+/* Math preview in edit mode */
+.math-editor .math-preview {
   padding: 0.75rem;
   background: rgba(255, 255, 255, 0.02);
   border-radius: 0.375rem;
   border: 1px solid #2a2b35;
-  min-height: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 /* Math rendering container */
@@ -76,9 +51,49 @@
   background-color: rgba(255, 255, 255, 0.03);
 }
 
-/* Custom styles for equation numbering and our editor theme */
+/* Selected math node - custom color */
+.ProseMirror-selectednode.math-node {
+  outline: 2px solid #4a9eff;
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
 
-/* Equation wrapper with number */
+/* Math node hover effect */
+.math-node:hover {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+/* Spacing adjustments */
+.math-display {
+  margin: 1.5rem 0;
+  padding: 1rem;
+}
+
+.math-inline {
+  margin: 0 0.125rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+}
+
+/* KaTeX dark theme colors */
+.katex {
+  color: white;
+}
+
+.katex .mathnormal {
+  color: #e0e0e0;
+}
+
+/* Error styling */
+.math-render .katex-error {
+  color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+}
+
+/* ===== Custom Equation Numbering ===== */
+
 .equation-wrapper {
   display: flex;
   align-items: center;
@@ -88,7 +103,6 @@
   width: 100%;
 }
 
-/* Equation number styling */
 .equation-number {
   position: absolute;
   right: 0;
@@ -133,83 +147,4 @@
 
 .equation-label-input::placeholder {
   color: #505162;
-}
-
-/* Math node general styling */
-.math-node {
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.math-node:hover {
-  background-color: rgba(255, 255, 255, 0.03);
-}
-
-/* Selected math node */
-.ProseMirror-selectednode.math-node {
-  outline: 2px solid #4a9eff;
-  outline-offset: 2px;
-  border-radius: 0.25rem;
-}
-
-/* Display math spacing */
-.math-display {
-  margin: 1.5rem 0;
-  padding: 1rem;
-}
-
-/* Inline math spacing */
-.math-inline {
-  margin: 0 0.125rem;
-  padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
-}
-
-/* Override prosemirror-math editor styles to match our theme */
-.math-editor {
-  background: #1a1b23 !important;
-  border: 1px solid #2a2b35 !important;
-  border-radius: 0.5rem !important;
-  padding: 1rem !important;
-}
-
-.math-editor textarea {
-  background: #16171f !important;
-  border: 1px solid #2a2b35 !important;
-  color: white !important;
-  font-family: "JetBrains Mono", monospace !important;
-  font-size: 0.875rem !important;
-  border-radius: 0.375rem !important;
-  padding: 0.5rem !important;
-}
-
-.math-editor textarea:focus {
-  outline: none !important;
-  border-color: #4a9eff !important;
-}
-
-/* Math preview in edit mode */
-.math-editor .math-preview {
-  margin-top: 1rem;
-  padding: 1rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 0.375rem;
-  border: 1px solid #2a2b35;
-}
-
-/* KaTeX color overrides for dark theme */
-.katex {
-  color: white !important;
-}
-
-.katex .mathnormal {
-  color: #e0e0e0 !important;
-}
-
-/* Error styling */
-.math-render .katex-error {
-  color: #ff6b6b !important;
-  background: rgba(255, 107, 107, 0.1) !important;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
 }

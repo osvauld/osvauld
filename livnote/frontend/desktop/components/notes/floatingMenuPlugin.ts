@@ -4,7 +4,7 @@ import { Schema, Mark } from "prosemirror-model";
 import { toggleMark } from "prosemirror-commands";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { getSearchState } from "prosemirror-search";
-
+import { NodeSelection } from "prosemirror-state";
 export const floatingMenuKey = new PluginKey("floating-menu");
 
 type MenuMode = "buttons" | "linkInput";
@@ -170,31 +170,31 @@ export function floatingMenuPlugin(schema: Schema) {
       const codeButton = createButton("Code", `<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0l4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z" fill="#85889C"/>
       </svg>`, "code", () => {
-         if (view) {
-           toggleMark(schema.marks.code)(view.state, view.dispatch);
-           view.focus();
-         }
+        if (view) {
+          toggleMark(schema.marks.code)(view.state, view.dispatch);
+          view.focus();
+        }
       });
       buttonsContainer.appendChild(codeButton);
     }
     // Add Link Button to the regular buttons
     if (schema.marks.link) {
-      linkButton = createButton("Link", 
-        `<svg width="16" height="16" viewBox="0 0 24 24" focusable="false" fill="currentColor"><path d="M6.2 12.3a1 1 0 0 1 1.4 1.4l-2 2a2 2 0 1 0 2.6 2.8l4.8-4.8a1 1 0 0 0 0-1.4 1 1 0 1 1 1.4-1.3 2.9 2.9 0 0 1 0 4L9.6 20a3.9 3.9 0 0 1-5.5-5.5l2-2Zm11.6-.6a1 1 0 0 1-1.4-1.4l2-2a2 2 0 1 0-2.6-2.8L11 10.3a1 1 0 0 0 0 1.4A1 1 0 1 1 9.6 13a2.9 2.9 0 0 1 0-4L14.4 4a3.9 3.9 0 0 1 5.5 5.5l-2 2Z" fill-rule="nonzero"></path></svg>`, 
-        "link", 
+      linkButton = createButton("Link",
+        `<svg width="16" height="16" viewBox="0 0 24 24" focusable="false" fill="currentColor"><path d="M6.2 12.3a1 1 0 0 1 1.4 1.4l-2 2a2 2 0 1 0 2.6 2.8l4.8-4.8a1 1 0 0 0 0-1.4 1 1 0 1 1 1.4-1.3 2.9 2.9 0 0 1 0 4L9.6 20a3.9 3.9 0 0 1-5.5-5.5l2-2Zm11.6-.6a1 1 0 0 1-1.4-1.4l2-2a2 2 0 1 0-2.6-2.8L11 10.3a1 1 0 0 0 0 1.4A1 1 0 1 1 9.6 13a2.9 2.9 0 0 1 0-4L14.4 4a3.9 3.9 0 0 1 5.5 5.5l-2 2Z" fill-rule="nonzero"></path></svg>`,
+        "link",
         handleLinkButtonClick // Special handler
       );
       buttonsContainer.appendChild(linkButton);
     }
-    
+
     // Add Comment Button
     if (schema.marks.comment) {
-      const commentButton = createButton("Add Comment", 
+      const commentButton = createButton("Add Comment",
         `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
 <path fill-rule="evenodd" clip-rule="evenodd" d="M6.77 21.7C6.925 21.765 7.09 21.795 7.25 21.795L7.255 21.79C7.575 21.79 7.895 21.665 8.135 21.425L11.56 18H19.25C20.765 18 22 16.765 22 15.25V5.75C22 4.235 20.765 3 19.25 3H4.75C3.235 3 2 4.235 2 5.75V15.25C2 16.765 3.235 18 4.75 18H6V20.545C6 21.055 6.3 21.505 6.77 21.7ZM3.5 5.75C3.5 5.06 4.06 4.5 4.75 4.5H19.25C19.94 4.5 20.5 5.06 20.5 5.75V15.25C20.5 15.94 19.94 16.5 19.25 16.5H10.94L7.5 19.94V16.5H4.75C4.06 16.5 3.5 15.94 3.5 15.25V5.75ZM17.5 8H6.5V9.5H17.5V8ZM13.5 11.5H6.5V13H13.5V11.5Z"/>
 </svg>
-`, 
-        "comment", 
+`,
+        "comment",
         handleCommentButtonClick
       );
       buttonsContainer.appendChild(commentButton);
@@ -210,15 +210,15 @@ export function floatingMenuPlugin(schema: Schema) {
     linkInput.placeholder = "Enter Link";
     linkInput.className = "floating-menu-input";
     linkInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            e.preventDefault();
-            handleLinkDoneClick();
-        }
-        if (e.key === "Escape") {
-            e.preventDefault();
-            switchToButtonsMode(); // Revert without applying
-            hideMenu();
-        }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        handleLinkDoneClick();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        switchToButtonsMode(); // Revert without applying
+        hideMenu();
+      }
     });
     linkInputContainer.appendChild(linkInput);
 
@@ -239,11 +239,11 @@ export function floatingMenuPlugin(schema: Schema) {
   // --- Mode Switching Functions ---
   function switchToLinkInputMode() {
     if (!buttonsContainer || !linkInputContainer || !linkInput || !linkDoneButton || !view) return;
-    
+
     const { state, dispatch } = view;
     const { selection } = state;
     const { $from, from, to } = selection;
-    
+
     // Create and store pseudo-selection decoration
     pseudoSelectionDecoration = Decoration.inline(from, to, { class: 'pseudo-selection' });
     // Trigger a view update to render the decoration
@@ -251,7 +251,7 @@ export function floatingMenuPlugin(schema: Schema) {
 
     // Pre-fill input with existing link if present
     let existingMark: Mark | null = null;
-    
+
     if (!selection.empty) {
       // For non-empty selections, check if the entire range has the link mark
       state.doc.nodesBetween(from, to, (node, pos) => {
@@ -267,7 +267,7 @@ export function floatingMenuPlugin(schema: Schema) {
       // For cursor position, check stored marks or marks at the position
       existingMark = schema.marks.link.isInSet($from.marks()) || null;
     }
-    
+
     const hasExistingLink = !!existingMark;
     linkInput.value = existingMark?.attrs.href || "";
 
@@ -295,23 +295,23 @@ export function floatingMenuPlugin(schema: Schema) {
 
   function switchToButtonsMode() {
     if (!buttonsContainer || !linkInputContainer || !linkInput || !linkDoneButton) return;
-    
+
     // Reset link input to default editable state
     linkInput.readOnly = false;
     linkInput.placeholder = "Enter Link";
     linkDoneButton.style.display = "block";
-    
+
     buttonsContainer.style.display = "flex";
     linkInputContainer.style.display = "none";
     currentMode = "buttons";
-    
+
     // Clear pseudo-selection decoration
     if (pseudoSelectionDecoration && view) {
-        pseudoSelectionDecoration = null;
-        const { state, dispatch } = view;
-        dispatch(state.tr); // Update view to remove decoration
+      pseudoSelectionDecoration = null;
+      const { state, dispatch } = view;
+      dispatch(state.tr); // Update view to remove decoration
     }
-    
+
     if (view) {
       updateButtonStates(view); // Update button active states when switching back
       view.focus(); // Return focus to editor
@@ -328,10 +328,10 @@ export function floatingMenuPlugin(schema: Schema) {
     const href = linkInput.value.trim();
 
     const { state, dispatch } = view;
-    
+
     // Apply or remove the mark
     toggleMark(schema.marks.link, href ? { href } : null)(state, dispatch);
-    
+
     switchToButtonsMode();
     hideMenu(); // Hide menu after action is done
   }
@@ -339,10 +339,10 @@ export function floatingMenuPlugin(schema: Schema) {
   // --- Event Handlers for Comment UI ---
   function handleCommentButtonClick() {
     if (!view) return;
-    
+
     const { state } = view;
     const { selection } = state;
-    
+
     if (selection.empty) {
       console.warn("No text selected for commenting");
       return;
@@ -385,13 +385,13 @@ export function floatingMenuPlugin(schema: Schema) {
       e.stopPropagation();
       if (view && currentMode === "buttons") {
         // Execute the command (either toggleMark or custom handler)
-        command(); 
+        command();
       }
     });
 
     return button;
   }
-  
+
   // Update button active states based on current selection
   function updateButtonStates(editorView: EditorView) {
     if (!menu || currentMode !== "buttons") return; // Only update in button mode
@@ -409,11 +409,11 @@ export function floatingMenuPlugin(schema: Schema) {
 
       let isActive = false;
       if (!selection.empty) {
-          // Check if mark is present across the entire selection range
-          isActive = state.doc.rangeHasMark($from.pos, $to.pos, mark);
+        // Check if mark is present across the entire selection range
+        isActive = state.doc.rangeHasMark($from.pos, $to.pos, mark);
       } else {
-          // For cursor position, check marks at the cursor
-          isActive = !!mark.isInSet($from.marks());
+        // For cursor position, check marks at the cursor
+        isActive = !!mark.isInSet($from.marks());
       }
 
       button.classList.toggle('active', isActive);
@@ -423,21 +423,21 @@ export function floatingMenuPlugin(schema: Schema) {
   function hideMenu() {
     if (!menu || !isMenuVisible) return;
     menu.classList.remove("visible");
-    
+
     // Clear pseudo-selection decoration immediately when starting to hide
     if (pseudoSelectionDecoration && view) {
-        const { state, dispatch } = view;
-        pseudoSelectionDecoration = null;
-        dispatch(state.tr); 
+      const { state, dispatch } = view;
+      pseudoSelectionDecoration = null;
+      dispatch(state.tr);
     }
 
     setTimeout(() => {
       if (menu) menu.style.display = "none";
       // Reset to button mode state (decoration is already cleared)
       if (currentMode === "linkInput") {
-         currentMode = "buttons"; // Reset mode state, UI handled by display none
-         if (buttonsContainer) buttonsContainer.style.display = "flex";
-         if (linkInputContainer) linkInputContainer.style.display = "none";
+        currentMode = "buttons"; // Reset mode state, UI handled by display none
+        if (buttonsContainer) buttonsContainer.style.display = "flex";
+        if (linkInputContainer) linkInputContainer.style.display = "none";
       }
     }, 150);
     isMenuVisible = false;
@@ -448,11 +448,11 @@ export function floatingMenuPlugin(schema: Schema) {
     menu.style.display = "flex";
     // Ensure correct UI is visible based on mode *before* showing
     if (currentMode === 'buttons') {
-        if (buttonsContainer) buttonsContainer.style.display = "flex";
-        if (linkInputContainer) linkInputContainer.style.display = "none";
+      if (buttonsContainer) buttonsContainer.style.display = "flex";
+      if (linkInputContainer) linkInputContainer.style.display = "none";
     } else {
-        if (buttonsContainer) buttonsContainer.style.display = "none";
-        if (linkInputContainer) linkInputContainer.style.display = "flex";
+      if (buttonsContainer) buttonsContainer.style.display = "none";
+      if (linkInputContainer) linkInputContainer.style.display = "flex";
     }
     // Force a reflow
     menu.getBoundingClientRect();
@@ -493,7 +493,10 @@ export function floatingMenuPlugin(schema: Schema) {
       hideMenu();
       return;
     }
-
+    if (selection instanceof NodeSelection) {
+      hideMenu();
+      return;
+    }
     if (currentMode === "buttons") {
       updateButtonStates(editorView);
     }
@@ -501,9 +504,9 @@ export function floatingMenuPlugin(schema: Schema) {
     // Determine the scroll container: prioritize '.scrollbar-thin' parent, fallback to '.editor-main'
     let scrollContainer = editorView.dom.parentElement;
     if (!scrollContainer || !scrollContainer.classList.contains('scrollbar-thin')) {
-        scrollContainer = editorView.dom.closest<HTMLElement>('.editor-main');
+      scrollContainer = editorView.dom.closest<HTMLElement>('.editor-main');
     }
-    
+
     if (!scrollContainer) {
       console.warn("Floating menu: Could not find scroll container.");
       hideMenu();
@@ -513,28 +516,28 @@ export function floatingMenuPlugin(schema: Schema) {
     // Since we're using position: fixed, we don't need offset parent calculations
     const startCoords = editorView.coordsAtPos(from);
     const endCoords = editorView.coordsAtPos(to);
-    
+
     const scrollContainerRect = scrollContainer.getBoundingClientRect();
 
     // Temporarily display menu to get accurate dimensions if it's currently hidden
     const wasMenuHidden = menu.style.display === 'none';
     if (wasMenuHidden) {
-        menu.style.visibility = 'hidden'; // Avoid flicker
-        menu.style.display = 'flex';
+      menu.style.visibility = 'hidden'; // Avoid flicker
+      menu.style.display = 'flex';
     }
     const menuRect = menu.getBoundingClientRect();
     if (wasMenuHidden) {
-        menu.style.display = 'none';
-        menu.style.visibility = 'visible';
+      menu.style.display = 'none';
+      menu.style.visibility = 'visible';
     }
-    
+
     const menuHeight = menuRect.height || 36; // Fallback height
     const menuWidth = menuRect.width || 150;  // Fallback width
 
     // If selection is completely outside the scroll container's visible area, hide menu
     if (endCoords.bottom < scrollContainerRect.top || startCoords.top > scrollContainerRect.bottom) {
-        hideMenu();
-        return;
+      hideMenu();
+      return;
     }
 
     const M_MARGIN = 10; // Desired gap (8-12px)
@@ -549,11 +552,11 @@ export function floatingMenuPlugin(schema: Schema) {
     // Primary: Place above selection if enough space within container above selection
     if (spaceAboveSelection >= menuHeight + M_MARGIN) {
       targetTopWindow = startCoords.top - menuHeight - M_MARGIN;
-    } 
+    }
     // Fallback: Place below selection if enough space within container below selection
     else if (spaceBelowSelection >= menuHeight + M_MARGIN) {
       targetTopWindow = endCoords.bottom + M_MARGIN;
-    } 
+    }
     // Constrained: Not enough ideal space above or below.
     // Decide based on more available relative space, or if one side can fit at least half.
     else {
@@ -585,7 +588,7 @@ export function floatingMenuPlugin(schema: Schema) {
     // Adjust vertical position to stay within scroll container (final clamping)
     targetTopWindow = Math.max(targetTopWindow, scrollContainerRect.top + M_MARGIN);
     targetTopWindow = Math.min(targetTopWindow, scrollContainerRect.bottom - menuHeight - M_MARGIN);
-    
+
     // Additional viewport constraints to ensure menu stays on screen
     targetTopWindow = Math.max(targetTopWindow, M_MARGIN);
     targetTopWindow = Math.min(targetTopWindow, window.innerHeight - menuHeight - M_MARGIN);
@@ -605,17 +608,17 @@ export function floatingMenuPlugin(schema: Schema) {
   // Handle clicks outside the menu
   function handleClickOutside(event: MouseEvent) {
     if (!menu || !isMenuVisible || !view) return; // Check view as well
-    
+
     const target = event.target as Node;
 
     // Find the main editor menu element (assuming it has a class like 'editor-fixed-menu')
     // Adjust selector based on your actual DOM structure for the fixed menu container
-    const fixedMenu = view.dom.closest('.editor-container')?.querySelector('.editor-fixed-menu'); 
+    const fixedMenu = view.dom.closest('.editor-container')?.querySelector('.editor-fixed-menu');
 
     // Check if the click target is inside the floating menu OR inside a button within the fixed menu
     const isClickInsideFloatingMenu = menu.contains(target);
     // Check if the target is inside the fixed menu *and* is a button or inside a button
-    const isClickInsideFixedMenuButton = fixedMenu?.contains(target) && !!(target as HTMLElement).closest('button'); 
+    const isClickInsideFixedMenuButton = fixedMenu?.contains(target) && !!(target as HTMLElement).closest('button');
 
     // Check if the click is inside the editor content area itself (excluding the floating menu)
     const isClickInsideEditor = view.dom.contains(target) && !isClickInsideFloatingMenu;
@@ -633,34 +636,34 @@ export function floatingMenuPlugin(schema: Schema) {
     view(editorView) {
       view = editorView;
       menu = createMenu();
-      
+
       // Find the best container for the menu - prefer editor containers over body
       let menuContainer = document.body; // fallback
-      
+
       // Try to find a better container in this order of preference:
-      const editorContainer = editorView.dom.closest('.editor-container') || 
-                             editorView.dom.closest('.editor-main') || 
-                             editorView.dom.closest('[data-editor]');
-      
+      const editorContainer = editorView.dom.closest('.editor-container') ||
+        editorView.dom.closest('.editor-main') ||
+        editorView.dom.closest('[data-editor]');
+
       if (editorContainer) {
         menuContainer = editorContainer as HTMLElement;
       } else if (editorView.dom.parentNode) {
         menuContainer = editorView.dom.parentNode as HTMLElement;
       }
-      
+
       menuContainer.appendChild(menu);
 
       // Add event listeners
       document.addEventListener("mousedown", handleClickOutside, true); // Use capture phase
       editorView.dom.addEventListener("scroll", handleScroll);
-      
+
       // Find the actual scrolling container - look for the element with scrollbar-thin class
       // which is the direct parent of the ProseMirror editor
       const actualScrollContainer = editorView.dom.parentElement;
       if (actualScrollContainer && actualScrollContainer.classList.contains('scrollbar-thin')) {
         actualScrollContainer.addEventListener("scroll", handleScroll);
       }
-      
+
       // Also add to .editor-main as fallback
       const editorMainContainer = editorView.dom.closest(".editor-main");
       if (editorMainContainer) {
@@ -675,14 +678,14 @@ export function floatingMenuPlugin(schema: Schema) {
 
           // Don't update if selection hasn't changed or menu isn't visible and selection is empty
           if (selection.eq(prevSelection || selection) && (isMenuVisible || selection.empty)) {
-              // If selection hasn't changed but it's not empty, 
-              // maybe still update button states (e.g., if marks changed programmatically)
-              if (!selection.empty && currentMode === 'buttons') {
-                  updateButtonStates(view);
-              }
-              return;
+            // If selection hasn't changed but it's not empty, 
+            // maybe still update button states (e.g., if marks changed programmatically)
+            if (!selection.empty && currentMode === 'buttons') {
+              updateButtonStates(view);
+            }
+            return;
           }
-          
+
           if (!selection.empty) {
             positionMenu(view);
           } else if (isMenuVisible) {
@@ -692,19 +695,19 @@ export function floatingMenuPlugin(schema: Schema) {
         destroy() {
           document.removeEventListener("mousedown", handleClickOutside, true);
           editorView.dom.removeEventListener("scroll", handleScroll);
-          
+
           // Remove from actual scroll container
           const actualScrollContainer = editorView.dom.parentElement;
           if (actualScrollContainer && actualScrollContainer.classList.contains('scrollbar-thin')) {
             actualScrollContainer.removeEventListener("scroll", handleScroll);
           }
-          
+
           // Remove from .editor-main
           const editorMainContainer = editorView.dom.closest(".editor-main");
           if (editorMainContainer) {
             editorMainContainer.removeEventListener("scroll", handleScroll);
           }
-          
+
           if (menu && menu.parentNode) {
             menu.parentNode.removeChild(menu);
           }
@@ -727,31 +730,31 @@ export function floatingMenuPlugin(schema: Schema) {
           return DecorationSet.create(state.doc, [pseudoSelectionDecoration]);
         } else {
           // Otherwise, return an empty set or null
-          return null; 
+          return null;
         }
       },
       // Handle clicks inside the pseudo-selection slightly differently
       // This might prevent accidentally clearing the input mode if clicking within the highlighted area
       handleClickOn(view, pos, node, nodePos, event) {
-         if (currentMode === 'linkInput') {
-             // If in link input mode, prevent the click from propagating 
-             // and potentially causing the menu to hide via handleClickOutside
-             event.stopPropagation();
-             return true; // Indicate we handled the click
-         }
-         return false; // Default behavior
+        if (currentMode === 'linkInput') {
+          // If in link input mode, prevent the click from propagating 
+          // and potentially causing the menu to hide via handleClickOutside
+          event.stopPropagation();
+          return true; // Indicate we handled the click
+        }
+        return false; // Default behavior
       },
       // Prevent editor from losing selection visually when clicking the menu
       handleDOMEvents: {
-          mousedown: (view, event) => {
-              // If the click is inside the floating menu, prevent ProseMirror's default
-              // mousedown handling which might interfere with our selection preservation.
-              if (menu?.contains(event.target as Node)) {
-                  event.preventDefault(); 
-                  return true; // We handled it
-              }
-              return false; // Let ProseMirror handle other clicks
+        mousedown: (view, event) => {
+          // If the click is inside the floating menu, prevent ProseMirror's default
+          // mousedown handling which might interfere with our selection preservation.
+          if (menu?.contains(event.target as Node)) {
+            event.preventDefault();
+            return true; // We handled it
           }
+          return false; // Let ProseMirror handle other clicks
+        }
       }
     }
   });
