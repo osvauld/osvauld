@@ -246,7 +246,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
     className: "size-adjust-button", title: "Decrease font size",
     innerHTML: `<svg width="16" height="16" viewBox="0 0 24 24" focusable="false"><path d="M19 13H5v-2h14v2z" fill="currentColor"/></svg>`,
     onClick: () => {
-      const currentSize = parseInt(fontSizeInput.value) || 18;
+      const currentSize = parseInt(fontSizeInput.value) || 16;
       if (currentSize > 8) {
         const newSize = `${currentSize - 1}px`;
         fontSizeInput.value = newSize;
@@ -259,7 +259,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
     className: "size-adjust-button", title: "Increase font size",
     innerHTML: `<svg width="16" height="16" viewBox="0 0 24 24" focusable="false"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" fill="currentColor"/></svg>`,
     onClick: () => {
-      const currentSize = parseInt(fontSizeInput.value) || 18;
+      const currentSize = parseInt(fontSizeInput.value) || 16;
       if (currentSize < 72) {
         const newSize = `${currentSize + 1}px`;
         fontSizeInput.value = newSize;
@@ -270,7 +270,7 @@ export function addTextSizeControls(container: HTMLElement, schema: Schema, view
 
   fontSizeInput.addEventListener("change", () => {
     let size = parseInt(fontSizeInput.value);
-    if (isNaN(size)) size = 18;
+    if (isNaN(size)) size = 16;
     size = Math.min(72, Math.max(8, size));
     const newSize = `${size}px`;
     fontSizeInput.value = newSize;
@@ -303,12 +303,12 @@ export function updateFontSizeDisplay(elements: { fontSizeInput: HTMLInputElemen
   const node = $from.parent;
   if (node.type === schema.nodes.heading) {
     const level = node.attrs.level as number;
-    const headingSizes: Record<number, string> = { 1: "36px", 2: "27px", 3: "21px", 4: "20px", 5: "19px", 6: "18px" };
+    const headingSizes: Record<number, string> = { 1: "36px", 2: "27px", 3: "21px", 4: "20px", 5: "19px", 6: "16px" };
     elements.fontSizeInput.value = headingSizes[level] || "18px";
     return;
   }
 
-  elements.fontSizeInput.value = "18px";
+  elements.fontSizeInput.value = "16px";
 }
 
 // --- Secondary Formatting (Underline, Strikethrough, Image) ---

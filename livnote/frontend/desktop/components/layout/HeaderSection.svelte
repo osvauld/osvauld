@@ -97,31 +97,16 @@
 </script>
 
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
-	<span
-		role="button"
-		tabindex="0"
-		aria-label="Go to home view"
-		class="basis-[360px] shrink-0 h-full flex items-center justify-center text-5xl font-semibold text-[#8A86E5] leading-none tracking-tight cursor-pointer"
-		onclick={handleHomeButton}
-		onkeydown={(e) => {
-			if (e.key === "Enter" || e.key === " ") {
-				e.preventDefault();
-				handleHomeButton();
-			}
-		}}
-	>
-		Livnote
-	</span>
 	<div class="grow py-4 px-4 flex items-center justify-end gap-6">
 		<div
-			class="flex h-12 w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2.5 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto"
+			class="flex w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
 		>
 			<span class="sr-only">Search</span>
 			<Lens color="#4D4F60" />
 			<input
 				type="text"
 				name="search"
-				class="mx-2 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-white placeholder:text-osvauld-activeBorder font-light text-base leading-6"
+				class="mx-2 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-white placeholder:text-osvauld-activeBorder font-light text-sm leading-6"
 				autocorrect="off"
 				autocapitalize="off"
 				autocomplete="off"
@@ -146,7 +131,7 @@
 			{/if}
 		</div>
 		<button
-			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2.5 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
 			aria-label="Open Connect user modal"
 			aria-haspopup="dialog"
 			aria-controls="connect-user-modal"
@@ -159,18 +144,19 @@
 				}
 			}}
 		>
-			<span class="font-normal text-base whitespace-nowrap">Connect a User</span
-			>
-			<ConnectUser size={24} />
+			<span class="font-normal text-sm whitespace-nowrap">Connect a User</span>
+			<ConnectUser size={20} />
 		</button>
 		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
 			<button
 				aria-label="Open Profile View"
-				class="w-[16.5rem] p-3 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
+				class="px-4 p-2 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}
 			>
-				<Profile color="#6E7681" />
-				<span class="ml-2 capitalize">{dataState.userDetails?.username}</span>
+				<Profile color="#6E7681" size={22} />
+				<span class="ml-2 text-sm capitalize"
+					>{dataState.userDetails?.username}</span
+				>
 				<span
 					class="ml-auto transition-transform ease-linear"
 					class:rotate-90={showDropdown}
@@ -186,7 +172,7 @@
 					onclick={handleOutsideClick}
 				></div>
 				<ul
-					class="absolute top-[120%] left-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-3 flex flex-col gap-3"
+					class="absolute top-[120%] right-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-1.5"
 					in:slide
 					out:slide
 				>
@@ -202,7 +188,7 @@
 							<li class="profileBtn cursor-pointer">
 								<Icon
 									color={hoveredItem === id ? "#F2F2F0" : "#85889C"}
-									size={24}
+									size={20}
 								/>
 								{label}
 							</li>

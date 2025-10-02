@@ -105,8 +105,8 @@
 }
 
 .livnote-comment-highlight.active {
-  border-bottom: 2px solid #ffd700;
-  background: rgba(255, 215, 0, 0.1);
+  border-bottom: 2px solid rgb(124 145 249 / 1);
+  background: rgb(124 145 249 / 0.1);
 }
 
 .livnote-comment-highlight.resolved {
@@ -123,11 +123,11 @@
 
   0%,
   100% {
-    background: rgba(255, 215, 0, 0.1);
+    background: rgb(124 145 249 / 0.1);
   }
 
   50% {
-    background: rgba(255, 215, 0, 0.3);
+    background: rgb(124 145 249 / 0.3);
   }
 }
 
@@ -144,7 +144,7 @@
   }
 
   50% {
-    background: rgba(255, 215, 0, 0.3);
+    background: rgb(124 145 249 / 0.05);
   }
 }
 

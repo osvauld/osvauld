@@ -244,6 +244,39 @@ async function handleHtmlContent(view: EditorView, html: string, imageStorage: I
       }
     });
 
+    // Enforce minimum font size (16px) for pasted content
+    const MIN_FONT_PX = 16;
+    const toPx = (value: string): number | null => {
+      const v = value.trim().toLowerCase();
+      if (v.endsWith('px')) return parseFloat(v);
+      if (v.endsWith('pt')) return parseFloat(v) * (96 / 72); // pt -> px
+      return null; // skip other units to avoid clobbering larger styles
+    };
+
+    // Adjust elements with inline font-size and legacy <font size=""> tags
+    const allElements = domElement.querySelectorAll('*');
+    allElements.forEach(node => {
+      if (!(node instanceof HTMLElement)) return;
+
+      // Inline style font-size
+      const fs = node.style.fontSize;
+      if (fs) {
+        const px = toPx(fs);
+        if (px !== null && px < MIN_FONT_PX) {
+          node.style.fontSize = `${MIN_FONT_PX}px`;
+        }
+      }
+
+      // Legacy <font size> handling
+      if (node.tagName.toLowerCase() === 'font') {
+        const fontNode = node as HTMLFontElement;
+        if (fontNode.getAttribute('size') !== null) {
+          node.style.fontSize = `${MIN_FONT_PX}px`;
+          fontNode.removeAttribute('size');
+        }
+      }
+    });
+
     // Check if content should be parsed as markdown
     const textContent = domElement.textContent || '';
     if (textContent && detectMarkdown(textContent)) {

@@ -9,6 +9,7 @@
 	import ProfileView from "./components/layout/ProfileView.svelte";
 	import { onMount, onDestroy } from "svelte";
 	import AppModals from "./components/modals/Modals.svelte";
+	import NavigationPanel from "./components/layout/NavigationPanel.svelte";
 	import { dataState, uiState } from "./state/";
 
 	let signedUp = $state(false);
@@ -85,10 +86,7 @@
 		<div
 			class="w-full h-full bg-osvauld-ninjablack flex flex-col overflow-hidden"
 		>
-			<HeaderSection />
-			<!-- App modals right after the header section -->
 			<AppModals />
-
 			<div class="grow flex overflow-hidden">
 				{#if uiState.profileViewLayout}
 					<ProfileView />
@@ -96,7 +94,13 @@
 					<!-- Note editing mode: Show NotesWorkspace with its own Navigation panel -->
 					<NotesWorkspace />
 				{:else}
-					<NotesListView />
+					<div class="flex w-full h-full">
+						<NavigationPanel />
+						<div class="flex-1 flex flex-col overflow-hidden h-full">
+							<HeaderSection />
+							<NotesListView />
+						</div>
+					</div>
 				{/if}
 			</div>
 		</div>

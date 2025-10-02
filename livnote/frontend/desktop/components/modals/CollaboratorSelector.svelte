@@ -194,8 +194,8 @@
 {#if show}
 	<div
 		class="absolute {variant === 'folder'
-			? 'top-26 right-72'
-			: 'top-12 right-0'} mt-2 w-[25rem] h-auto max-h-[27.125rem] rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
+			? 'top-14 right-48'
+			: 'top-30 right-10'} mt-2 w-[25rem] h-auto max-h-[27.125rem] rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
 		role="dialog"
 		aria-labelledby="dialog-title"
 	>
@@ -269,7 +269,7 @@
 		<!-- Collaborators display area -->
 		<div class="relative p-0">
 			{#if !isFocused}
-				<div class="text-osvauld-quarzowhite text-sm font-light py-1.5">
+				<div class="text-osvauld-quarzowhite/50 text-sm font-light py-1.5">
 					Existing collaborators
 				</div>
 			{/if}

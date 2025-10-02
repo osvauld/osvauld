@@ -67,9 +67,15 @@ class DataState {
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
       : this.notes;
-    return this.currentVault.id === "all"
+    
+    const result = this.currentVault.id === "all"
       ? favFilter
       : favFilter.filter(note => note.folderId === this.currentVault.id);
+    
+    // Debug: Uncomment for troubleshooting folder filtering
+    // console.log(`Filtering notes for vault: ${this.currentVault.id}, total notes: ${this.notes.length}, filtered: ${result.length}`);
+    
+    return result;
   });
 
   // Now filteredNotes applies search on top of base filtering
@@ -135,13 +141,19 @@ class DataState {
     }
   }
 
-  switchVault(vault: Vault) {
+  async switchVault(vault: Vault) {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
     // Reset favorite selection when switching vaults
     this.favoriteSelected = false;
     this.fetchSharedFolderUsers(vault.id);
+    
+    // Ensure notes are available when switching vaults
+    // Only refetch if we have no notes or if we're not currently loading
+    if (this.notes.length === 0 && !this.isDataLoading) {
+      await this.fetchAllNotes();
+    }
   }
   async fetchSharedFolderUsers(folderId: string) {
     try {
@@ -339,14 +351,12 @@ class DataState {
 
   async restoreSavedSelections() {
     try {
-      const savedVault = await StoreService.getCurrentVault();
-
-      if (savedVault) {
-        const vaultExists = this.vaults.some(v => v.id === savedVault.id);
-
-        if (vaultExists) {
-          this.currentVault = savedVault;
-        }
+      // Always start with All Notes folder focused, regardless of saved state
+      const homeVault = this.vaults.find(v => v.id === "all");
+      if (homeVault) {
+        this.currentVault = homeVault;
+        // Update saved state to reflect All Notes selection
+        StoreService.setCurrentVault(homeVault);
       }
     } catch (error) {
       console.error("Error restoring saved selections:", error);

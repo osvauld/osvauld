@@ -20,7 +20,7 @@
 			await dataState.fetchVaults();
 			await dataState.fetchAllNotes();
 			// Reset to All Vaults
-			dataState.switchVault({ id: "all", name: "Home" });
+			dataState.switchVault({ id: "all", name: "All Notes" });
 		} else if (item === "note") {
 			const currentNoteId = dataState.getCurrentNoteId();
 			if (!currentNoteId) return;
@@ -60,11 +60,13 @@
 <div
 	class="fixed inset-0 flex items-center justify-center z-50 bg-osvauld-backgroundBlur/80 backdrop-filter backdrop-blur-[2px]"
 	onclick={handleModalBackdropClick}
-	role="presentation">
+	role="presentation"
+>
 	<form
 		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[14rem] flex flex-col items-start justify-center gap-3"
 		in:fly
-		onsubmit={deleteConfirmation}>
+		onsubmit={deleteConfirmation}
+	>
 		<div class="flex justify-between items-center w-full">
 			<span class="text-[21px] font-medium text-osvauld-quarzowhite capitalize"
 				>Delete
@@ -76,15 +78,17 @@
 			<button
 				class="cursor-pointer p-2"
 				onclick={handleCancelClick}
-				type="button">
+				type="button"
+			>
 				<ClosePanel />
 			</button>
 		</div>
 		<div
-			class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4">
-		</div>
+			class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4"
+		></div>
 		<div
-			class="w-full font-normal text-base flex justify-start items-center bg-osvauld-fieldActive rounded-lg gap-3 p-2">
+			class="w-full font-normal text-base flex justify-start items-center bg-osvauld-fieldActive rounded-lg gap-3 p-2"
+		>
 			<div class="justify-center items-center flex">
 				<Warning />
 			</div>
@@ -93,18 +97,20 @@
 			</div>
 		</div>
 		<div
-			class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4">
-		</div>
+			class="border-b border-osvauld-iconblack w-[calc(100%+2rem)] -translate-x-4"
+		></div>
 		<div class="flex justify-end items-center gap-4 w-full">
 			<button
 				class="font-medium text-base rounded-md py-[5px] px-[15px] text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
 				type="button"
-				onclick={handleCancelClick}>
+				onclick={handleCancelClick}
+			>
 				Cancel
 			</button>
 			<button
 				class="border border-osvauld-dangerRed py-[5px] px-[15px] text-base font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all"
-				type="submit">
+				type="submit"
+			>
 				Delete {uiState.deleteConfirmationModal.item}
 			</button>
 		</div>

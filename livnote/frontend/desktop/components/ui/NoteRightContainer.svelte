@@ -21,7 +21,6 @@
 	// Local UI state
 	let showShareList = $state(false);
 	let noteCopied = $state(false);
-	let showDownloadTooltip = $state(false);
 	let isPdfGenerating = $state(false);
 	let saved = $state(false);
 	let lastModifiedDate = $state("");
@@ -102,80 +101,70 @@
 
 {#if uiState.showNoteRightPanel}
 	<div
-		class="w-[22.5rem] h-full min-h-0 max-h-full py-4 px-4 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor"
+		class="w-[20rem] h-full min-h-0 max-h-full py-4 px-4 flex flex-col gap-2 items-start shrink-0 border-l border-osvauld-borderColor"
 		in:fly={{ x: 200, duration: 400 }}
 	>
-		<div
-			class="shrink-0 w-full gap-4 flex justify-between items-center text-base"
-		>
-			<button
-				onclick={saveNoteManual}
-				class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]"
+		<div class="mr-auto">
+			<div
+				class="shrink-0 w-full gap-2 flex justify-end items-center text-base"
 			>
-				{#if saved}
-					<span
-						class="whitespace-nowrap flex items-center justify-center gap-1 text-toastGreen"
-					>
-						<span>Saved..</span>
-						<Tick color="#9DD062" size={20} />
-					</span>
-				{:else}
-					<span>Save</span>
-				{/if}
-			</button>
-			<button
-				class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-				aria-label="Copy note content"
-				onclick={handleCopyNote}
-			>
-				{#if noteCopied}
-					<Tick color="#a6e3a1" />
-				{:else}
-					<CopyIcon color="#85889C" />
-				{/if}
-			</button>
-			<button
-				class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-				onclick={(e) => handleDeleteBtn("note")}
-			>
-				<Bin size={24} />
-			</button>
-
-			<div class="relative flex justify-center items-center">
 				<button
-					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
-					onmouseenter={() => (showDownloadTooltip = true)}
-					onmouseleave={() => (showDownloadTooltip = false)}
-					onclick={handleDownloadPdf}
-					aria-label="Download as PDF"
+					onclick={saveNoteManual}
+					class="rounded-lg p-2.5 flex justify-center items-center text-osvauld-fieldText bg-osvauld-fieldActive cursor-pointer min-w-[7rem]"
 				>
-					{#if isPdfGenerating}
-						<Loader color="#85889C" />
+					{#if saved}
+						<span
+							class="whitespace-nowrap flex items-center justify-center gap-1 text-toastGreen"
+						>
+							<Tick color="#9DD062" size={24} />
+						</span>
 					{:else}
-						<DownloadIcon />
+						<span>Save</span>
 					{/if}
 				</button>
+				<button
+					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+					aria-label="Copy note content"
+					onclick={handleCopyNote}
+				>
+					{#if noteCopied}
+						<Tick color="#a6e3a1" />
+					{:else}
+						<CopyIcon color="#85889C" />
+					{/if}
+				</button>
+				<button
+					class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+					onclick={(e) => handleDeleteBtn("note")}
+				>
+					<Bin size={24} />
+				</button>
 
-				{#if showDownloadTooltip}
-					<div
-						class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-osvauld-defaultBorder text-toolTipText text-xs px-2 py-1 rounded shadow-lg whitespace-nowrap"
+				<div class="relative flex justify-center items-center">
+					<button
+						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+						onclick={handleDownloadPdf}
+						aria-label="Download as PDF"
+						title="Download as PDF"
 					>
-						Download as PDF
-					</div>
-				{/if}
+						{#if isPdfGenerating}
+							<Loader color="#85889C" />
+						{:else}
+							<DownloadIcon />
+						{/if}
+					</button>
+				</div>
 			</div>
-		</div>
 
-		<div class="flex-1 flex flex-col w-full min-h-0 relative">
 			<button
 				onclick={() => (showShareList = true)}
-				class="font-medium flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="mt-4 w-full font-normal text-base flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				aria-label="Invite Collaborators to edit"
 				aria-haspopup="dialog"
 				aria-expanded={showShareList}
 			>
 				<span class="mr-2 pl-2 whitespace-nowrap">Invite to edit</span>
-				<TwoPeople size={24} />
+				<TwoPeople size={20} />
 			</button>
 
 			{#if showShareList}
@@ -190,11 +179,14 @@
 				></div>
 				<ShareNote bind:showShareList />
 			{/if}
+		</div>
 
+		<div class="flex-1 flex flex-col w-full min-h-0 relative">
 			<div class="flex-1 min-h-0">
 				<CommentSidebar />
 			</div>
 		</div>
+
 
 		<div
 			class=" border-osvauld-defaultBorder py-3 pb-0 w-full text-left text-sm flex justify-between items-center"
@@ -206,7 +198,7 @@
 			>
 				<MenuToggle />
 			</button>
-			<p class="text-statusColor">Last modified: {lastModifiedDate}</p>
+			<p class="text-statusColor text-xs">Last modified: {lastModifiedDate}</p>
 		</div>
 	</div>
 {/if}

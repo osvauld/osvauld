@@ -1,41 +1,17 @@
 <script lang="ts">
-	import {
-		RightArrow as Arrow,
-		MobileHome as Home,
-		MobileNote,
-		MenuToggle,
-	} from "@osvauld/icons";
+	import { MenuToggle } from "@osvauld/icons";
 	import { fly } from "svelte/transition";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
 
-	// Import VaultManager
-	import FolderManager from "../ui/FolderManager.svelte";
+	// Import TreeNavigation, AllNotesFolder, and InlineCreateFolder
+	import TreeNavigation from "../ui/TreeNavigation.svelte";
+	import AllNotesFolder from "../ui/AllNotesFolder.svelte";
+	import InlineCreateFolder from "../ui/InlineCreateFolder.svelte";
 
-	// Define an enum for section selection
-	enum Section {
-		HOME = "home",
-		FAVOURITES = "favourites",
-	}
-
-	// Local UI state using $state
-	let selectedSection = $state<Section>(Section.HOME);
-	let hoveredCredential = $state<string | null>(null);
-
-	// Handle section changes
-	function handleSectionChange(section: Section) {
-		selectedSection = section;
-
-		// Use the centralized state for favorites
-		dataState.toggleFavoriteView(section === Section.FAVOURITES);
-	}
-
-	// Function to handle note selection
-	function selectNote(note: any) {
-		//TODO: save old note
-		dataState.switchNote(note.id);
-	}
+	// Create folder state
+	let showCreateFolder = $state(false);
 
 	// Toggle navigation panel (close)
 	function closeNavigationPanel() {
@@ -43,121 +19,75 @@
 		uiState.resetNavigationPanelManualToggle();
 		document.documentElement.style.setProperty("--min-editor-width", "0px");
 	}
+
+	function handleCreateFolderClick() {
+		showCreateFolder = true;
+	}
+
+	function handleCreateFolderCancel() {
+		showCreateFolder = false;
+	}
+
+	function handleCreateFolderComplete() {
+		showCreateFolder = false;
+	}
 </script>
 
 {#if uiState.showNavigationPanel}
 	<nav
-		class="w-[22.5rem] shrink-0 h-full max-h-full pb-10 pt-4 px-4 whitespace-nowrap relative border-r border-osvauld-borderColor"
+		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 whitespace-nowrap relative border-r border-osvauld-borderColor flex flex-col"
 		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation"
 	>
-		<button
-			aria-label="Collapse navigation panel"
-			class="absolute bottom-1.5 right-3 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
-			title="Collapse panel"
-			onclick={closeNavigationPanel}
-		>
-			<MenuToggle />
-		</button>
-
-		<div class="relative">
+		{#if uiState.noteViewLayout}
 			<button
-				class="w-full text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate"
-				aria-label="Switch Folder"
-				aria-controls="Folder selector"
-				aria-expanded={uiState.vaultManagerActive}
-				onclick={() => uiState.toggleVaultManager()}
+				aria-label="Collapse navigation panel"
+				class="absolute bottom-1 right-1 p-1.5 mb-2 rounded-md transition-colors cursor-w-resize"
+				title="Collapse panel"
+				onclick={closeNavigationPanel}
 			>
-				<span class="flex-1 truncate text-left py-1"
-					>{dataState.currentVault.id === "all"
-						? "Home"
-						: dataState.currentVault.name}</span
-				><span
-					class="shrink-0 transition-transform duration-300 {uiState.vaultManagerActive
-						? '-rotate-90'
-						: 'rotate-90'}"><Arrow color="#F2F2F0" size={24} /></span
-				></button
-			>
-			{#if uiState.vaultManagerActive}
-				<FolderManager position="navigationPanel" />
+				<MenuToggle />
+			</button>
+		{/if}
+
+		<!-- All Notes Folder -->
+		<div class="px-1 mb-2 shrink-0">
+			<AllNotesFolder />
+		</div>
+
+		<!-- Tree Navigation - This should take remaining space and scroll -->
+		<div class="flex-1 overflow-y-auto py-1 scrollbar-thin min-h-0">
+			<TreeNavigation />
+		</div>
+
+		<!-- Create new folder section -->
+		<div class="shrink-0 py-2 border-t border-osvauld-borderColor">
+			{#if showCreateFolder}
+				<InlineCreateFolder
+					onCancel={handleCreateFolderCancel}
+					onComplete={handleCreateFolderComplete}
+				/>
+			{:else}
+				<button
+					class="w-5/6 flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-livnotelavender focus:ring-offset-2 focus:ring-offset-osvauld-ninjablack"
+					onclick={handleCreateFolderClick}
+					aria-label="Create new folder"
+				>
+					<span class="shrink-0 w-4 h-4 flex items-center justify-center">
+						<svg
+							class="w-3 h-3"
+							fill="currentColor"
+							viewBox="0 0 12 12"
+							aria-hidden="true"
+						>
+							<path
+								d="M6 1a1 1 0 011 1v3h3a1 1 0 110 2H7v3a1 1 0 11-2 0V7H2a1 1 0 110-2h3V2a1 1 0 011-1z"
+							></path>
+						</svg>
+					</span>
+					<span class="text-sm font-light">Create new folder</span>
+				</button>
 			{/if}
 		</div>
-		<div
-			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-2 py-1 gap-1"
-		>
-			<!-- <ul class="space-y-1 font-light text-base text-" role="list">
-				<li>
-					<button
-						class="w-full flex items-center gap-3 p-3 rounded-lg
-												transition-colors
-												{!dataState.currentNote && selectedSection === Section.HOME
-							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-							: ''}"
-						on:click={() => handleSectionChange(Section.HOME)}
-						aria-current={selectedSection === Section.HOME ? 'page' : undefined}>
-						<Home
-							color={!dataState.currentNote && selectedSection === Section.HOME
-								? '#F2F2F0'
-								: '#85889C'} />
-						<span>Home</span>
-					</button>
-				</li>
-				<li>
-					<button
-						class="w-full flex items-center gap-3 p-3 rounded-lg
-												{!dataState.currentNote && selectedSection === Section.FAVOURITES
-							? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-							: ''}"
-						on:click={() => handleSectionChange(Section.FAVOURITES)}
-						aria-current={selectedSection === Section.FAVOURITES
-							? 'page'
-							: undefined}>
-						<Star
-							color={!dataState.currentNote && selectedSection === Section.FAVOURITES
-								? '#F2F2F0'
-								: '#85889C'} />
-						<span>Favourites</span>
-					</button>
-				</li>
-			</ul> -->
-		</div>
-
-		{#if dataState.isDataLoading}
-			<div class="text-osvauld-fieldText text-center p-4">Loading...</div>
-		{:else}
-			<ul
-				class="font-light text-base space-y-1 text-osvauld-fieldText max-h-full overflow-y-scroll px-1 scrollbar-thin"
-				role="list"
-			>
-				{#each dataState.filteredNotes as note (note.id)}
-					{@const hoveredOrSelected =
-						hoveredCredential === note.id ||
-						(dataState.currentNote && dataState.currentNote.id === note.id)}
-					<li>
-						<button
-							class="w-full flex items-center justify-between gap-3 p-3 rounded-lg
-								transition-colors
-								{hoveredOrSelected
-								? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-								: ''}"
-							onmouseenter={() => (hoveredCredential = note.id)}
-							onmouseleave={() => (hoveredCredential = null)}
-							onclick={() => selectNote(note)}
-						>
-							<div class="flex items-center gap-3 truncate">
-								<span class="shrink-0">
-									<MobileNote
-										color={hoveredOrSelected ? "#F2F2F0" : "#85889C"}
-									/>
-								</span>
-								<span class="truncate">
-									{note?.title}
-								</span>
-							</div>
-						</button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
 	</nav>
 {/if}

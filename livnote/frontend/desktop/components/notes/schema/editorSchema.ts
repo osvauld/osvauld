@@ -252,7 +252,7 @@ const customMarks: { [key: string]: MarkSpec } = {
         class: `livnote-comment-highlight ${resolved ? 'resolved' : 'active'}`,
         style: resolved
           ? "border-bottom: 2px solid #888; background: rgba(136, 136, 136, 0.1);"
-          : "border-bottom: 2px solid #ffd700; background: rgba(255, 215, 0, 0.1);"
+          : "border-bottom: 2px solid rgb(124 145 249 / 1); background: rgb(124 145 249 / 0.1);"
       }, 0];
     }
   }

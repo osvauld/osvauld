@@ -88,6 +88,7 @@
 	--color-toastGreen: #9DD062;
 	--color-textActive: #a3a4b5;
 	--color-borderActive: #2F303E;
+	--color-bgSecondary: #0C0C10;
 	/* Mobile Colors */
 	--color-mobile-bgSeconary: #0d0e13;
 	--color-mobile-bgHighlight: #2f303e;
@@ -168,7 +169,7 @@
 }
 
 .profileBtn {
-	@apply p-3 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
+	@apply px-3 py-2.5 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
 }
 
 
