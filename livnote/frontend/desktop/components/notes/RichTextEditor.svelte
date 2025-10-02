@@ -10,6 +10,7 @@
 	import "./schema/editorCustomStyles.css"; // Import the new CSS file
 	import "./setup/tableStyles.css";
 	import "./prosemirror-search.css";
+  import "./mathStyles.css";
 	import type { SearchManager } from "./SearchManager";
 	import SearchBox from "./SearchBox.svelte";
 	import { placeCursorAtEnd } from "./utils/prosemirror-helpers";

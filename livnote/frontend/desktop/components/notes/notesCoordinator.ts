@@ -10,6 +10,8 @@ import { createEditorSchema } from "./schema/editorSchema";
 import { CommentsStore } from "./commentsStore";
 import { ImageStorageService } from "./imageStorage";
 import { getTablePlugins } from "./setup/tablePlugin";
+import { createMathPlugins, mathBackspaceCmd } from "./mathPlugin";
+import { chainCommands, deleteSelection, joinBackward, selectNodeBackward } from "prosemirror-commands";
 // Import existing plugins
 import { slashCommandPlugin } from "./slashCommandPlugin";
 import { fixedMenuPlugin } from "./fixedMenuPlugin";
@@ -171,6 +173,14 @@ export class NotesCoordinator {
         return true;
       }
     });
+    const mathKeymap = keymap({
+      "Backspace": chainCommands(
+        deleteSelection,
+        mathBackspaceCmd,
+        joinBackward,
+        selectNodeBackward
+      )
+    });
 
     return [
       ySyncPlugin(docs.type),
@@ -186,6 +196,8 @@ export class NotesCoordinator {
       listKeymap,
       codeBlockKeymap,
       hardBreakKeymap,
+      mathKeymap,
+      ...createMathPlugins(this.schema),
       pasteHandlerPlugin(this.imageStorage!),
       slashCommandPlugin(this.schema),
       fixedMenuPlugin(this.schema),

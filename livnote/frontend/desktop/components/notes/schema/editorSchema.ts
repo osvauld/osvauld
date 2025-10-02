@@ -2,6 +2,7 @@ import { Schema, type NodeSpec, type MarkSpec } from "prosemirror-model";
 import { schema as basicSchema } from "prosemirror-schema-basic";
 import { addListNodes } from "prosemirror-schema-list";
 import { tableNodes } from "prosemirror-tables";
+import { mathInlineSpec, mathDisplaySpec } from "../mathnode";
 /**
  * Custom node specifications
  */
@@ -315,7 +316,9 @@ export function createEditorSchema(): Schema {
 
   // Add list nodes and image node
   const nodesWithListsAndImage = addListNodes(modifiedNodes, "paragraph block*", "block")
-    .addToEnd("image", imageSpec);
+    .addToEnd("image", imageSpec)
+    .addToEnd("math_inline", mathInlineSpec)
+    .addToEnd("math_display", mathDisplaySpec);
 
   // Add table nodes - this is the new part!
   const tableNodeSpecs = tableNodes({
