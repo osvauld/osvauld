@@ -172,24 +172,15 @@ class DataState {
     }
   }
   async addNote() {
-    uiState.setNoteFetching(true);
-    uiState.setEditorLoading(false);
-
     const noteContent = createEmptyNoteContent(this.clientId, this.userDetails?.username);
     const note = await sendMessage("addCredential", {
       resourcePayload: JSON.stringify(noteContent),
       folderId: this.currentVault.id,
       resourceType: "notes"
     });
-    this.setCurrentNoteData(note);
-    this.setCurrentNoteId(note.id);
-    uiState.setNoteFetching(false);
-    uiState.toggleNoteViewLayout(true);
-    StoreService.setCurrentNoteId(note.id);
-    emit("note-change", note.id
-    ).catch(error => {
-      console.error("Error updating current note:", error);
-    });
+    
+    // Use switchNote to ensure consistent state management including folder highlighting
+    await this.switchNote(note.id);
   }
 
   getNoteTitle(): string {
@@ -211,6 +202,16 @@ class DataState {
       this.setCurrentNoteId(noteId);
       uiState.setNoteFetching(false);
       StoreService.setCurrentNoteId(noteId);
+      
+      // Update currentVault to match the note's folder for correct folder highlighting
+      const notePreview = this.getNoteById(noteId);
+      if (notePreview?.folderId) {
+        const folder = this.vaults.find(v => v.id === notePreview.folderId);
+        if (folder) {
+          this.currentVault = folder;
+          StoreService.setCurrentVault(folder);
+        }
+      }
     } else {
       dataState.clearCurrentNote();
     }

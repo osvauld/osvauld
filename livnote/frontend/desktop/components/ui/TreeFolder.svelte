@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from "svelte";
 	import { MobileHome, FolderIcon, RightArrow, Add } from "@osvauld/icons";
 	import { dataState, uiState } from "../../state";
 	import { createEmptyNoteContent } from "../notes/documentUtils";
@@ -19,6 +20,7 @@
 
 	let hoveredNote = $state<string | null>(null);
 	let isCreatingNote = $state(false);
+	let clickTimer: number | null = null;
 
 	// Get actual count of notes for this folder (for badge display)
 	const folderNoteCount = $derived(() => {
@@ -48,6 +50,7 @@
 			if (folder.id === "all") {
 				onSelect();
 			} else {
+				// Keyboard navigation always switches folder (like double click)
 				onToggle();
 				onSelect();
 			}
@@ -66,6 +69,51 @@
 
 	function handleNoteSelect(note: any) {
 		dataState.switchNote(note.id);
+	}
+
+	function handleFolderClick() {
+		// All Notes folder always selects immediately
+		if (folder.id === "all") {
+			onSelect();
+			return;
+		}
+
+		// When viewing note list (noteViewLayout is false), single click switches folder immediately
+		if (!uiState.noteViewLayout) {
+			onToggle();
+			onSelect();
+			return;
+		}
+
+		// When editing a note (noteViewLayout is true), delay single click to allow double click detection
+		// Clear any existing timer
+		if (clickTimer) {
+			clearTimeout(clickTimer);
+		}
+
+		clickTimer = window.setTimeout(() => {
+			// Single click: only toggle expand/collapse
+			onToggle();
+			clickTimer = null;
+		}, 50); // 250ms delay to detect double click
+	}
+
+	function handleFolderDoubleClick() {
+		// Clear the single click timer
+		if (clickTimer) {
+			clearTimeout(clickTimer);
+			clickTimer = null;
+		}
+
+		// All Notes folder - just select
+		if (folder.id === "all") {
+			onSelect();
+			return;
+		}
+
+		// Double click: toggle and switch folder
+		onToggle();
+		onSelect();
 	}
 
 	async function handleCreateNoteClick() {
@@ -96,10 +144,8 @@
 				resourceType: "notes",
 			});
 
-			// Switch to the new note
-			dataState.setCurrentNoteData(note);
-			dataState.setCurrentNoteId(note.id);
-			uiState.toggleNoteViewLayout(true);
+			// Switch to the new note using switchNote to ensure folder highlighting is correct
+			await dataState.switchNote(note.id);
 		} catch (error) {
 			console.error("Failed to create note:", error);
 			// Could show error toast here
@@ -110,6 +156,13 @@
 
 	// Calculate indentation based on level
 	const indentStyle = $derived(`padding-left: ${level * 1.5}rem`);
+
+	// Cleanup timer on component unmount
+	onDestroy(() => {
+		if (clickTimer) {
+			clearTimeout(clickTimer);
+		}
+	});
 </script>
 
 <div
@@ -130,15 +183,8 @@
 				"
 			role="button"
 			tabindex="0"
-			onclick={() => {
-				// All Notes folder only selects, doesn't toggle expansion
-				if (folder.id === "all") {
-					onSelect();
-				} else {
-					onToggle();
-					onSelect();
-				}
-			}}
+			onclick={handleFolderClick}
+			ondblclick={handleFolderDoubleClick}
 			onkeydown={handleKeyDown}
 			aria-label="Select {folder.name} folder"
 		>
@@ -229,7 +275,7 @@
 						{note}
 						isSelected={dataState.currentNoteId === note.id}
 						onSelect={() => handleNoteSelect(note)}
-						onHover={(noteId) => (hoveredNote = noteId)}
+						onHover={(noteId: string) => (hoveredNote = noteId)}
 						onHoverLeave={() => (hoveredNote = null)}
 						isHovered={hoveredNote === note.id}
 					/>

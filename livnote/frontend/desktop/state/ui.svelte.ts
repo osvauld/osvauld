@@ -39,6 +39,9 @@ class UIState {
   readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
   readonly NOTE_RIGHT_PANEL_WIDTH = 360; // Note right panel width in pixels
   readonly NAV_PANEL_WIDTH = 360; // Navigation panel width in pixels
+  
+  // Track expanded folders in navigation tree
+  expandedFolders = $state<Set<string>>(new Set());
 
 
   toastMessage = $state<Toast>({
@@ -225,6 +228,32 @@ class UIState {
     if (this.isNoteFetching) return 'fetching';
     if (this.isEditorLoading) return 'editor';
     return 'ready';
+  }
+
+  // Folder expansion management
+  toggleFolderExpansion(folderId: string) {
+    if (folderId === "all") return; // Don't allow All Notes folder to be toggled
+    
+    if (this.expandedFolders.has(folderId)) {
+      this.expandedFolders.delete(folderId);
+    } else {
+      this.expandedFolders.add(folderId);
+    }
+    // Trigger reactivity
+    this.expandedFolders = new Set(this.expandedFolders);
+  }
+
+  expandFolder(folderId: string) {
+    if (folderId === "all") return;
+    
+    if (!this.expandedFolders.has(folderId)) {
+      this.expandedFolders.add(folderId);
+      this.expandedFolders = new Set(this.expandedFolders);
+    }
+  }
+
+  isFolderExpanded(folderId: string): boolean {
+    return this.expandedFolders.has(folderId);
   }
 
 }
