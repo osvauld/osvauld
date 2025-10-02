@@ -10,7 +10,7 @@
 		MobileHome as Home,
 		Add,
 		TwoPeople,
-	} from "../../icons";
+	} from "@osvauld/icons";
 
 	let deleteBtnHoved = $state(false);
 	let showShareFolderList = $state(false);

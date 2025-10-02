@@ -6,7 +6,7 @@
 		FavStar as Star,
 		MenuToggle,
 		Zen,
-	} from "../../icons";
+	} from "@osvauld/icons";
 	import NoteRightContainer from "../ui/NoteRightContainer.svelte";
 	import Timer from "../ui/Timer.svelte";
 	import { dataState, uiState } from "../../state";

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MenuToggle } from "../../icons";
+	import { MenuToggle } from "@osvauld/icons";
 	import { fly } from "svelte/transition";
 
 	// Import the centralized state

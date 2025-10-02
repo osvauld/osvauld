@@ -8,7 +8,7 @@
 		TwoPeople,
 		Tick,
 		MenuToggle,
-	} from "../../icons";
+	} from "@osvauld/icons";
 	import Loader from "../../common/Loader.svelte";
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
@@ -186,6 +186,7 @@
 				<CommentSidebar />
 			</div>
 		</div>
+
 
 		<div
 			class=" border-osvauld-defaultBorder py-3 pb-0 w-full text-left text-sm flex justify-between items-center"

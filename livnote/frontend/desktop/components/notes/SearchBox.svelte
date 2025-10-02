@@ -17,7 +17,7 @@
 		Regex,
 		WholeWord,
 		CaseSensitive,
-	} from "../../icons";
+	} from "@osvauld/icons";
 	let {
 		searchManager,
 		editorView,

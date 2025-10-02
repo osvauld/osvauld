@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MobileNote, FavStar } from "../../icons";
+	import { MobileNote, FavStar } from "@osvauld/icons";
 
 	interface Props {
 		note: any;

@@ -12,7 +12,7 @@
 		ConnectUser,
 		Lens,
 		ClosePanel,
-	} from "../../icons";
+	} from "@osvauld/icons";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
@@ -81,6 +81,18 @@
 		const noteIds = await sendMessage("searchResource", { query: searchQuery });
 		//	console.log(noteIds);
 		dataState.setSearchResults(noteIds);
+	};
+
+	// Home button handler - saves and returns to list view
+	const handleHomeButton = () => {
+		const noteId = dataState.currentNoteId;
+		if (noteId) {
+			dataState.saveNote(noteId);
+			dataState.switchNote(null);
+		}
+		uiState.toggleNoteRightPanel(true);
+		uiState.toggleNoteViewLayout(false);
+		uiState.toggleProfileViewLayout(false);
 	};
 </script>
 

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { CommentThread, Comment } from "../../types/notes.types";
-	import { ReplyIcon } from "../../icons";
+	import { ReplyIcon } from "@osvauld/icons";
 	import { dataState } from "../../state";
 	// Props
 	interface Props {

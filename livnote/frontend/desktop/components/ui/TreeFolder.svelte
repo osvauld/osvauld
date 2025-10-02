@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MobileHome, FolderIcon, RightArrow, Add } from "../../icons";
+	import { MobileHome, FolderIcon, RightArrow, Add } from "@osvauld/icons";
 	import { dataState } from "../../state";
 	import TreeNote from "./TreeNote.svelte";
 	import InlineCreateNote from "./InlineCreateNote.svelte";

@@ -40,13 +40,18 @@ impl YjsDocExt for Doc {
     }
 
     async fn get_diff_update_v2(&self, state_vector: &[u8]) -> Result<Vec<u8>, String> {
+        if state_vector.is_empty() {
+            return Ok(self.get_state_as_update_v2().await);
+        }
+
         // Decode the state vector
         let sv = StateVector::decode_v2(state_vector)
             .map_err(|e| format!("Failed to decode v2 state vector: {:?}", e))?;
 
         // Generate diff update
         let txn = self.transact().await;
-        Ok(txn.encode_diff_v2(&sv))
+        let diff = txn.encode_diff_v2(&sv);
+        Ok(diff)
     }
 }
 pub trait YjsDocExt {

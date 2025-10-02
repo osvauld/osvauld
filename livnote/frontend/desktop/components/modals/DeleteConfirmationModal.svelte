@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fly } from "svelte/transition";
-	import { Warning, ClosePanel } from "../../icons";
+	import { Warning, ClosePanel } from "@osvauld/icons";
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
 	import { sendMessage } from "../../utils/helper";

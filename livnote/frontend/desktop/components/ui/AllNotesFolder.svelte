@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { MobileHome } from "../../icons";
+	import { MobileHome } from "@osvauld/icons";
 	import { dataState } from "../../state";
 
 	// Get actual count of notes for All Notes folder
