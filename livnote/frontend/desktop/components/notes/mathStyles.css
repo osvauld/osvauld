@@ -4,39 +4,86 @@
 
 /* ===== Theme Overrides for Dark Mode ===== */
 
-/* Math editing container - dark theme */
-.math-editor {
-  background: #1a1b23;
-  border: 1px solid #2a2b35;
-  border-radius: 0.5rem;
-  padding: 1rem;
-}
+/* Math editing container - removed, using transparent backgrounds */
 
-.math-editor textarea {
-  background: #16171f;
-  border: 1px solid #2a2b35;
-  color: white;
-  font-family: "JetBrains Mono", "Courier New", monospace;
-  font-size: 0.875rem;
-  border-radius: 0.375rem;
+/* Target the actual contenteditable ProseMirror div inside math nodes */
+.math-node .math-src .ProseMirror,
+.math-node.ProseMirror-selectednode .math-src .ProseMirror,
+math-inline .math-src .ProseMirror,
+math-display .math-src .ProseMirror {
+  background: transparent !important;
+  color: white !important;
+  caret-color: white !important;
+  font-family: "JetBrains Mono", "Courier New", monospace !important;
+  font-size: 0.875rem !important;
+  border-radius: 0.25rem;
   padding: 0.5rem;
-  caret-color: white !important;
-  /* Explicitly set cursor color */
+  min-height: 2em;
 }
 
-.math-editor textarea:focus {
-  outline: none;
-  border-color: #4a9eff;
-  caret-color: white !important;
-  /* Ensure cursor stays visible on focus */
+/* INLINE MATH SPECIFIC - Fix caret visibility */
+math-inline .math-src .ProseMirror {
+  display: inline-block !important;
+  min-width: 3em !important;
+  min-height: 1.5em !important;
+  line-height: 1.5 !important;
+  vertical-align: middle !important;
+  padding: 0.25rem 0.5rem !important;
+  border-left: 1px solid transparent !important;
+  border-right: 1px solid transparent !important;
+  background: rgba(255, 255, 255, 0.02) !important;
 }
 
-/* Math preview in edit mode */
+/* DISPLAY MATH SPECIFIC */
+math-display .math-src .ProseMirror {
+  display: block !important;
+  width: 100% !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid #2a2b35 !important;
+  padding: 0.75rem !important;
+}
+
+/* Focus states - subtle, no harsh outlines */
+.math-node .math-src .ProseMirror:focus,
+.math-node.ProseMirror-selectednode .math-src .ProseMirror:focus {
+  outline: none !important;
+  caret-color: white !important;
+}
+
+math-inline .math-src .ProseMirror:focus,
+math-inline.ProseMirror-selectednode .math-src .ProseMirror {
+  background: rgba(255, 255, 255, 0.04) !important;
+  caret-color: white !important;
+}
+
+math-display .math-src .ProseMirror:focus,
+math-display.ProseMirror-selectednode .math-src .ProseMirror {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+  caret-color: white !important;
+}
+
+/* Ensure the math-src container is visible when editing */
+.math-node.ProseMirror-selectednode .math-src {
+  color: white !important;
+}
+
+/* Make dollar sign delimiters subtle */
+.math-node .math-src::before,
+.math-node .math-src::after,
+math-inline .math-src::before,
+math-inline .math-src::after,
+math-display .math-src::before,
+math-display .math-src::after {
+  color: rgba(255, 255, 255, 0.3) !important;
+  font-size: 0.9em;
+}
+
+/* Math preview in edit mode - minimal styling */
 .math-editor .math-preview {
   padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.02);
-  border-radius: 0.375rem;
-  border: 1px solid #2a2b35;
+  background: transparent;
+  border-radius: 0.25rem;
 }
 
 /* Math rendering container */
@@ -51,28 +98,29 @@
   background-color: rgba(255, 255, 255, 0.03);
 }
 
-/* Selected math node - custom color */
+/* Selected math node - subtle highlight only */
 .ProseMirror-selectednode.math-node {
-  outline: 2px solid #4a9eff;
-  outline-offset: 2px;
+  outline: none;
+  background-color: rgba(255, 255, 255, 0.03);
   border-radius: 0.25rem;
 }
 
 /* Math node hover effect */
 .math-node:hover {
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: rgba(255, 255, 255, 0.02);
 }
 
 /* Spacing adjustments */
 .math-display {
-  margin: 1.5rem 0;
-  padding: 1rem;
+  margin: 1rem 0;
+  padding: 0.5rem 0;
 }
 
 .math-inline {
   margin: 0 0.125rem;
   padding: 0.125rem 0.25rem;
   border-radius: 0.25rem;
+  transition: background-color 0.15s ease;
 }
 
 /* KaTeX dark theme colors */
@@ -106,9 +154,9 @@
 .equation-number {
   position: absolute;
   right: 0;
-  color: #85889c;
-  font-size: 0.9em;
-  font-family: "Inter", sans-serif;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.875rem;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
   user-select: none;
 }
 
@@ -117,34 +165,36 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
   padding: 0.5rem;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 0.375rem;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 0.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .equation-label-label {
   font-size: 0.875rem;
-  color: #85889c;
+  color: rgba(255, 255, 255, 0.5);
   white-space: nowrap;
 }
 
 .equation-label-input {
   flex: 1;
-  background: #1a1b23;
-  border: 1px solid #2a2b35;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.25rem;
   padding: 0.375rem 0.5rem;
   color: white;
   font-size: 0.875rem;
   font-family: "JetBrains Mono", monospace;
+  transition: border-color 0.15s ease;
 }
 
 .equation-label-input:focus {
   outline: none;
-  border-color: #4a9eff;
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .equation-label-input::placeholder {
-  color: #505162;
+  color: rgba(255, 255, 255, 0.3);
 }
