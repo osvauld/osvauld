@@ -41,7 +41,7 @@
 		onkeydown={handleKeyDown}
 		onmouseenter={handleMouseEnter}
 		onmouseleave={handleMouseLeave}
-		aria-label="Select note: {note.title || 'Untitled Note'}"
+		aria-label="Select note: {note.title || 'Untitled'}"
 	>
 		<!-- Note icon -->
 		<span class="shrink-0">
@@ -54,7 +54,7 @@
 
 		<!-- Note title -->
 		<span class="flex-1 truncate text-left text-sm font-light">
-			{note.title || "Untitled Note"}
+			{note.title || "Untitled"}
 		</span>
 
 		<!-- Note metadata (optional - could show last modified, etc.) -->

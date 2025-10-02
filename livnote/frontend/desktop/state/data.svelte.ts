@@ -225,6 +225,13 @@ class DataState {
     }
   }
 
+  updateNoteTitle(noteId: string, newTitle: string) {
+    const noteIndex = this.notes.findIndex(n => n.id === noteId);
+    if (noteIndex !== -1) {
+      this.notes[noteIndex].title = newTitle;
+    }
+  }
+
   clearCurrentNote() {
     this.setCurrentNoteId(null);
     this.setCurrentNoteData(null);

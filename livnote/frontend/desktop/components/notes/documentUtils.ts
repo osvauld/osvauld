@@ -30,7 +30,7 @@ export function createEmptyNoteContent(clientId: number, username?: string, titl
     image_state: Array.from(Y.encodeStateAsUpdateV2(tempImageDoc)), // Separate image doc
     client_id: clientId.toString(),
     last_modified: Date.now(),
-    title: title || "Untitled Note",
+    title: title || "Untitled",
   };
 
   // Clean up temporary docs

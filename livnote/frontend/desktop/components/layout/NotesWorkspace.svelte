@@ -38,6 +38,7 @@
 
 	// Title editing functions
 	const startEditingTitle = () => {
+		newNoteTitle = dataState.currentNoteTitle;
 		isEditingTitle = true;
 
 		// Focus the input after the DOM updates
@@ -58,9 +59,13 @@
 			isEditingTitle = false;
 			return;
 		}
+		const noteId = dataState.currentNoteId;
+		if (!noteId) return;
+
 		let coordinator = dataState.getNotesCoordinator();
 		coordinator?.saveNote(newNoteTitle);
 		dataState.currentNoteTitle = newNoteTitle;
+		dataState.updateNoteTitle(noteId, newNoteTitle);
 		isEditingTitle = false;
 	};
 
