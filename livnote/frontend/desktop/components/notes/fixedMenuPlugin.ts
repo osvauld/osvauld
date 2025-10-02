@@ -30,6 +30,7 @@ import {
   updateTextColorButton,
   updateFontFamilyButton,
 } from "./setup/menuItems";
+import { addMathItems } from "./setup/mathMenuItems";
 
 // Helper function to manage style injection and removal
 function manageStyles(action: "create" | "destroy") {
@@ -118,7 +119,7 @@ export function fixedMenuPlugin(schema: Schema) {
       addFormattingItems(menuNode, schema, editorView);
       addListItems(menuNode, schema, editorView);
       addAlignmentButtons(menuNode, schema, editorView);
-
+      addMathItems(menuNode, schema, editorView);
       // Add secondary menu items
       const indentButtons = addIndentButtons(secondaryMenuNode, schema, editorView);
       const secondaryFormatButtons = addSecondaryFormattingItems(secondaryMenuNode, schema, editorView);

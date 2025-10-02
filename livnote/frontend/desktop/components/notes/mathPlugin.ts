@@ -1,7 +1,6 @@
 import {
   mathPlugin,
   mathBackspaceCmd,
-  insertMathCmd,
   makeBlockMathInputRule,
   makeInlineMathInputRule,
   REGEX_INLINE_MATH_DOLLARS,
@@ -10,15 +9,10 @@ import {
 import { Schema } from "prosemirror-model";
 import { mathNumberingPlugin } from "./mathNumbering";
 import { inputRules } from "prosemirror-inputrules";
-import type { Plugin } from "prosemirror-state";
+import type { Plugin, EditorState, Transaction } from "prosemirror-state";
 
 /**
  * Create math plugins for the editor
- * 
- * Returns an array of plugins:
- * 1. The main math plugin from prosemirror-math (handles rendering and editing)
- * 2. Input rules plugin (handles $...$ and $$...$$ auto-conversion)
- * 3. Our custom numbering plugin (handles equation numbering)
  */
 export function createMathPlugins(schema: Schema): Plugin[] {
   if (!schema.nodes.math_inline || !schema.nodes.math_display) {
@@ -26,7 +20,6 @@ export function createMathPlugins(schema: Schema): Plugin[] {
     return [];
   }
 
-  // Create input rules
   const inlineMathInputRule = makeInlineMathInputRule(
     REGEX_INLINE_MATH_DOLLARS,
     schema.nodes.math_inline
@@ -38,21 +31,55 @@ export function createMathPlugins(schema: Schema): Plugin[] {
   );
 
   return [
-    // Main math plugin - this includes NodeViews internally
     mathPlugin,
-
-    // Input rules for $...$ and $$...$$
     inputRules({
       rules: [inlineMathInputRule, blockMathInputRule]
     }),
-
-    // Equation numbering plugin
     mathNumberingPlugin()
   ];
 }
 
 export { mathBackspaceCmd };
 
-export const insertInlineMath = (schema: Schema) => insertMathCmd(schema.nodes.math_inline);
+/**
+ * Insert inline math with placeholder text
+ * User needs to click it to start editing
+ */
+export const insertInlineMath = (schema: Schema) => {
+  return (state: EditorState, dispatch?: (tr: Transaction) => void) => {
+    const mathNode = schema.nodes.math_inline.create(null, schema.text("x"));
 
-export const insertDisplayMath = (schema: Schema) => insertMathCmd(schema.nodes.math_display);
+    if (dispatch) {
+      const tr = state.tr.replaceSelectionWith(mathNode);
+      dispatch(tr);
+    }
+
+    return true;
+  };
+};
+
+/**
+ * Insert display math block with placeholder text
+ * User needs to click it to start editing
+ */
+export const insertDisplayMath = (schema: Schema) => {
+  return (state: EditorState, dispatch?: (tr: Transaction) => void) => {
+    const { $from } = state.selection;
+
+    if ($from.depth < 1) {
+      return false;
+    }
+
+    if (dispatch) {
+      const mathNode = schema.nodes.math_display.create(null, schema.text("x^2 + y^2 = r^2"));
+
+      const blockStart = $from.before($from.depth);
+      const blockEnd = $from.after($from.depth);
+      const tr = state.tr.replaceRangeWith(blockStart, blockEnd, mathNode);
+
+      dispatch(tr);
+    }
+
+    return true;
+  };
+};
