@@ -116,9 +116,7 @@
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>
-			<span
-				class="group-hover:[&>svg]:fill-primarydark [&>svg]:fill-osvauld-fieldText [&>svg]:transition-colors [&>svg]:duration-150"
-			>
+			<span class="">
 				<Add color="currentColor" size={20} />
 			</span>
 		</button>

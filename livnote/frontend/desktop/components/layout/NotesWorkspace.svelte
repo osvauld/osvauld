@@ -38,6 +38,7 @@
 
 	// Title editing functions
 	const startEditingTitle = () => {
+		newNoteTitle = dataState.currentNoteTitle;
 		isEditingTitle = true;
 
 		// Focus the input after the DOM updates
@@ -53,14 +54,25 @@
 		isNavigatingBack = true;
 	};
 
-	const saveTitle = () => {
+	const saveTitle = async () => {
 		if (isNavigatingBack || newNoteTitle.trim().length === 0) {
 			isEditingTitle = false;
 			return;
 		}
+		const noteId = dataState.currentNoteId;
+		if (!noteId) return;
+
+		// Set the title in the coordinator
 		let coordinator = dataState.getNotesCoordinator();
 		coordinator?.saveNote(newNoteTitle);
+
+		// Update local UI state
 		dataState.currentNoteTitle = newNoteTitle;
+		dataState.updateNoteTitle(noteId, newNoteTitle);
+
+		// Persist to backend immediately (this will also update lastModified)
+		await dataState.saveNote(noteId);
+
 		isEditingTitle = false;
 	};
 

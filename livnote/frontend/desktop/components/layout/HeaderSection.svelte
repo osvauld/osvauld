@@ -77,6 +77,14 @@
 		const target = event.target as HTMLInputElement;
 		searchQuery = target.value; // Update the bound variable
 
+		// If user types something (trimmed value has characters), switch to All Notes
+		if (searchQuery.trim().length > 0) {
+			const allNotesFolder = dataState.vaults.find((v) => v.id === "all");
+			if (allNotesFolder && dataState.currentVault.id !== "all") {
+				await dataState.switchVault(allNotesFolder);
+			}
+		}
+
 		//console.log("Search query:", searchQuery);
 		const noteIds = await sendMessage("searchResource", { query: searchQuery });
 		//	console.log(noteIds);

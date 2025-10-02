@@ -92,7 +92,7 @@ export class NotesCoordinator {
 
   private handleMainDocReady(docs: any, noteContent: NoteContent): void {
     this.yjsManager.setUserInfo(this.userInfo);
-    const title = this.yjsManager.getMetadata("title") || "Untitled Note";
+    const title = this.yjsManager.getMetadata("title") || "Untitled";
     dataState.currentNoteTitle = title;
     const plugins = this.createEditorPlugins(docs);
     console.log(noteContent);
@@ -290,7 +290,7 @@ export class NotesCoordinator {
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
       client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
-      title: this.yjsManager.getMetadata("title") || "Untitled Note",
+      title: this.yjsManager.getMetadata("title") || "Untitled",
     };
   }
 
@@ -320,7 +320,7 @@ export class NotesCoordinator {
    * Get current title
    */
   getCurrentTitle(): string {
-    return this.yjsManager.getMetadata("title") || "Untitled Note";
+    return this.yjsManager.getMetadata("title") || "Untitled";
   }
 
 

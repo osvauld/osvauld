@@ -2,45 +2,39 @@
 	import { dataState, uiState } from "../../state";
 	import TreeFolder from "./TreeFolder.svelte";
 
-	// Track expanded folders in component state
-	let expandedFolders = $state<Set<string>>(new Set());
+	// Track the last note ID we auto-expanded for
+	let lastAutoExpandedNoteId = $state<string | null>(null);
 
 	// Get regular folders (excluding "all" folder)
-	const regularFolders = $derived(() => {
-		return dataState.vaults.filter((v) => v.id !== "all");
-	});
+	const regularFolders = $derived(
+		dataState.vaults.filter((v) => v.id !== "all"),
+	);
 
 	// Auto-expand the folder that contains the currently opened note
+	// Only expand when switching to a different note, not continuously
 	$effect(() => {
 		const currentNoteId = dataState.currentNoteId;
-		if (!currentNoteId) return;
+
+		// Reset tracking when note is closed
+		if (!currentNoteId) {
+			lastAutoExpandedNoteId = null;
+			return;
+		}
+
+		// Only auto-expand when the note ID actually changes to a different note
+		if (currentNoteId === lastAutoExpandedNoteId) return;
 
 		const note = dataState.getNoteById(currentNoteId);
 		const folderId = note?.folderId;
 		if (!folderId || folderId === "all") return;
 
-		if (!expandedFolders.has(folderId)) {
-			// Expand the note's folder without collapsing others
-			expandedFolders.add(folderId);
-			expandedFolders = new Set(expandedFolders);
-		}
+		// Expand the note's folder using global state
+		uiState.expandFolder(folderId);
+		lastAutoExpandedNoteId = currentNoteId;
 	});
 
 	function toggleFolder(folderId: string) {
-		// Don't allow All Notes folder to be toggled
-		if (folderId === "all") {
-			return;
-		}
-
-		if (expandedFolders.has(folderId)) {
-			// Collapse the folder if it's already expanded
-			expandedFolders.delete(folderId);
-		} else {
-			// Expand the folder without affecting others
-			expandedFolders.add(folderId);
-		}
-		// Trigger reactivity
-		expandedFolders = new Set(expandedFolders);
+		uiState.toggleFolderExpansion(folderId);
 	}
 
 	async function handleFolderSelect(folder: any) {
@@ -59,10 +53,10 @@
 	aria-label="Folders navigation"
 >
 	<!-- Regular folders -->
-	{#each regularFolders() as folder (folder.id)}
+	{#each regularFolders as folder (folder.id)}
 		<TreeFolder
 			{folder}
-			isExpanded={expandedFolders.has(folder.id)}
+			isExpanded={uiState.isFolderExpanded(folder.id)}
 			onToggle={() => toggleFolder(folder.id)}
 			onSelect={() => handleFolderSelect(folder)}
 			isSelected={dataState.currentVault.id === folder.id}

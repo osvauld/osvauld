@@ -78,14 +78,22 @@ class DataState {
     return result;
   });
 
-  // Now filteredNotes applies search on top of base filtering
+  // Now filteredNotes applies search on top of base filtering and sorts by lastModified
   filteredNotes = $derived.by(() => {
+    let result;
     if (!this.isSearchActive || this.searchResults.length === 0) {
-      return this.baseFilteredNotes;
+      result = this.baseFilteredNotes;
+    } else {
+      // Apply search filter to base filtered notes
+      result = this.baseFilteredNotes.filter(note => this.searchResults.includes(note.id));
     }
 
-    // Apply search filter to base filtered notes
-    return this.baseFilteredNotes.filter(note => this.searchResults.includes(note.id));
+    // Sort by lastModified in descending order (most recent first)
+    return result.slice().sort((a, b) => {
+      const aTime = a.lastModified || 0;
+      const bTime = b.lastModified || 0;
+      return bTime - aTime; // Descending order
+    });
   });
   setSearchResults(noteIds: string[]) {
     this.searchResults = noteIds;
@@ -172,24 +180,15 @@ class DataState {
     }
   }
   async addNote() {
-    uiState.setNoteFetching(true);
-    uiState.setEditorLoading(false);
-
     const noteContent = createEmptyNoteContent(this.clientId, this.userDetails?.username);
     const note = await sendMessage("addCredential", {
       resourcePayload: JSON.stringify(noteContent),
       folderId: this.currentVault.id,
       resourceType: "notes"
     });
-    this.setCurrentNoteData(note);
-    this.setCurrentNoteId(note.id);
-    uiState.setNoteFetching(false);
-    uiState.toggleNoteViewLayout(true);
-    StoreService.setCurrentNoteId(note.id);
-    emit("note-change", note.id
-    ).catch(error => {
-      console.error("Error updating current note:", error);
-    });
+    
+    // Use switchNote to ensure consistent state management including folder highlighting
+    await this.switchNote(note.id);
   }
 
   getNoteTitle(): string {
@@ -211,6 +210,16 @@ class DataState {
       this.setCurrentNoteId(noteId);
       uiState.setNoteFetching(false);
       StoreService.setCurrentNoteId(noteId);
+      
+      // Update currentVault to match the note's folder for correct folder highlighting
+      const notePreview = this.getNoteById(noteId);
+      if (notePreview?.folderId) {
+        const folder = this.vaults.find(v => v.id === notePreview.folderId);
+        if (folder) {
+          this.currentVault = folder;
+          StoreService.setCurrentVault(folder);
+        }
+      }
     } else {
       dataState.clearCurrentNote();
     }
@@ -221,6 +230,20 @@ class DataState {
     const noteIndex = this.notes.findIndex(n => n.id === noteId);
     if (noteIndex !== -1) {
       this.notes[noteIndex].favourite = !this.notes[noteIndex].favourite;
+    }
+  }
+
+  updateNoteTitle(noteId: string, newTitle: string) {
+    const noteIndex = this.notes.findIndex(n => n.id === noteId);
+    if (noteIndex !== -1) {
+      this.notes[noteIndex].title = newTitle;
+    }
+  }
+
+  updateNoteLastModified(noteId: string, timestamp: number) {
+    const noteIndex = this.notes.findIndex(n => n.id === noteId);
+    if (noteIndex !== -1) {
+      this.notes[noteIndex].lastModified = timestamp;
     }
   }
 
@@ -456,6 +479,19 @@ class DataState {
     const resourceIndex = this.notes.findIndex(note => note.id === updatedResourcePreview.id);
 
     if (resourceIndex !== -1) {
+      const existingNote = this.notes[resourceIndex];
+      
+      // Preserve local lastModified if it's newer than the backend version
+      // This handles the case where we just saved locally but backend hasn't updated yet
+      if (existingNote.lastModified && updatedResourcePreview.lastModified) {
+        updatedResourcePreview.lastModified = Math.max(
+          existingNote.lastModified,
+          updatedResourcePreview.lastModified
+        );
+      } else if (existingNote.lastModified && !updatedResourcePreview.lastModified) {
+        updatedResourcePreview.lastModified = existingNote.lastModified;
+      }
+      
       this.notes = [
         ...this.notes.slice(0, resourceIndex),
         updatedResourcePreview,
@@ -477,6 +513,12 @@ class DataState {
     }
     const noteContent = coordinator.saveNote();
     let stateVectors = coordinator.getStateVectors();
+    
+    // Update lastModified timestamp in the notes array
+    if (noteContent.last_modified) {
+      this.updateNoteLastModified(noteId, noteContent.last_modified);
+    }
+    
     await sendMessage("updateCredential", {
       id: noteId,
       data: JSON.stringify(noteContent),
