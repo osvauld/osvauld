@@ -12,7 +12,7 @@ import { wrapInList } from "prosemirror-schema-list";
 import type { SlashCommandItem } from "../../types/editor.types";
 import { insertTable } from "./setup/tableCommands";
 import { isInTable } from "./setup/tableCommands";
-
+import { insertInlineMath, insertDisplayMath } from "./mathPlugin";
 export const slashCommandKey = new PluginKey("slash-command");
 
 const OPEN_REGEX = /(?:^|\s)\/$/;
@@ -162,7 +162,7 @@ export function slashCommandPlugin(schema: Schema) {
 
     // Check if we're inside a table
     const inTable = isInTable(view.state);
-    
+
     if (inTable) {
       // Show "Right click for options" message instead of commands
       const header = document.createElement("div");
@@ -197,7 +197,7 @@ export function slashCommandPlugin(schema: Schema) {
       menu.appendChild(header);
       menu.appendChild(content);
       menu.appendChild(footer);
-      
+
       return menu;
     }
 
@@ -664,7 +664,43 @@ function getCommands(schema: Schema): SlashCommandItem[] {
       },
     });
   }
+  if (schema.nodes.code_block) {
+    commands.push({
+      title: "Code Block",
+      description: "```",
+      icon: `<span class="menu-item-icon-span">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+     <path d="M12.6 3.172a.625.625 0 0 0-1.201-.344l-4 14a.625.625 0 0 0 1.202.344zM5.842 5.158a.625.625 0 0 1 0 .884L1.884 10l3.958 3.958a.625.625 0 0 1-.884.884l-4.4-4.4a.625.625 0 0 1 0-.884l4.4-4.4a.625.625 0 0 1 .884 0m8.316 0a.625.625 0 0 1 .884 0l4.4 4.4a.625.625 0 0 1 0 .884l-4.4 4.4a.625.625 0 0 1-.884-.884L18.116 10l-3.958-3.958a.625.625 0 0 1 0-.884"></path>
+      </svg>
+      </span>`,
+      command: (state, dispatch, view) => {
+        return setBlockType(schema.nodes.code_block)(state, dispatch, view);
+      },
+    });
+  }
 
+  // ADD THESE MATH COMMANDS HERE:
+  if (schema.nodes.math_inline) {
+    commands.push({
+      title: "Inline Math",
+      description: "$...$",
+      icon: `<span class="menu-item-icon-span" style="font-family: serif; font-style: italic;">π</span>`,
+      command: (state, dispatch, view) => {
+        return insertInlineMath(schema)(state, dispatch);
+      },
+    });
+  }
+
+  if (schema.nodes.math_display) {
+    commands.push({
+      title: "Display Math",
+      description: "$$...$$",
+      icon: `<span class="menu-item-icon-span" style="font-family: serif; font-weight: bold;">∑</span>`,
+      command: (state, dispatch, view) => {
+        return insertDisplayMath(schema)(state, dispatch);
+      },
+    });
+  }
   if (schema.marks.strong) {
     commands.push({
       title: "Bold",
