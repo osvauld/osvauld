@@ -1,8 +1,9 @@
 <script lang="ts">
 	import { MobileHome, FolderIcon, RightArrow, Add } from "@osvauld/icons";
-	import { dataState } from "../../state";
+	import { dataState, uiState } from "../../state";
+	import { createEmptyNoteContent } from "../notes/documentUtils";
+	import { sendMessage } from "../../utils/helper";
 	import TreeNote from "./TreeNote.svelte";
-	import InlineCreateNote from "./InlineCreateNote.svelte";
 
 	interface Props {
 		folder: any;
@@ -16,8 +17,8 @@
 	let { folder, isExpanded, onToggle, onSelect, isSelected, level }: Props =
 		$props();
 
-	let showCreateNote = $state(false);
 	let hoveredNote = $state<string | null>(null);
+	let isCreatingNote = $state(false);
 
 	// Get actual count of notes for this folder (for badge display)
 	const folderNoteCount = $derived(() => {
@@ -67,24 +68,44 @@
 		dataState.switchNote(note.id);
 	}
 
-	function handleCreateNoteClick() {
+	async function handleCreateNoteClick() {
+		if (isCreatingNote) return;
+
 		// Ensure folder is selected before creating note
 		if (!isSelected) {
 			onSelect();
 		}
-		// Auto-expand folder to show the create note input
+		// Auto-expand folder to show the new note once created
 		if (!isExpanded) {
 			onToggle();
 		}
-		showCreateNote = true;
-	}
 
-	function handleCreateNoteCancel() {
-		showCreateNote = false;
-	}
+		isCreatingNote = true;
 
-	function handleCreateNoteComplete() {
-		showCreateNote = false;
+		try {
+			// Create note with default "Untitled note" title
+			const noteContent = createEmptyNoteContent(
+				dataState.clientId,
+				dataState.userDetails?.username,
+				"Untitled note",
+			);
+
+			const note = await sendMessage("addCredential", {
+				resourcePayload: JSON.stringify(noteContent),
+				folderId: folder.id === "all" ? dataState.currentVault.id : folder.id,
+				resourceType: "notes",
+			});
+
+			// Switch to the new note
+			dataState.setCurrentNoteData(note);
+			dataState.setCurrentNoteId(note.id);
+			uiState.toggleNoteViewLayout(true);
+		} catch (error) {
+			console.error("Failed to create note:", error);
+			// Could show error toast here
+		} finally {
+			isCreatingNote = false;
+		}
 	}
 
 	// Calculate indentation based on level
@@ -160,13 +181,15 @@
 						: 'opacity-0 group-hover:opacity-100'}"
 				>
 					<button
-						class="p-1.5 rounded-md transition-colors duration-150 focus:outline-none cursor-pointer {isSelected
+						type="button"
+						class="p-1.5 rounded-md transition-colors duration-150 focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {isSelected
 							? 'text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive'
 							: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
 						onclick={(e) => {
 							e.stopPropagation();
 							handleCreateNoteClick();
 						}}
+						disabled={isCreatingNote}
 						aria-label="Create new note in {folder.name}"
 						title="Create new note"
 					>
@@ -193,21 +216,10 @@
 			role="group"
 			aria-label="{folder.name} contents"
 		>
-			<!-- Inline note creation - Show at top of list -->
-			{#if showCreateNote}
-				<div class="pl-3">
-					<InlineCreateNote
-						folderId={folder.id}
-						onCancel={handleCreateNoteCancel}
-						onComplete={handleCreateNoteComplete}
-					/>
-				</div>
-			{/if}
-
 			<!-- Notes list -->
 			{#if dataState.isDataLoading}
 				<div class="p-3 text-osvauld-fieldText text-sm">Loading notes...</div>
-			{:else if folderNotes().length === 0 && !showCreateNote}
+			{:else if folderNotes().length === 0}
 				<div class="p-3 text-osvauld-fieldText text-sm opacity-60">
 					No notes in this folder
 				</div>
