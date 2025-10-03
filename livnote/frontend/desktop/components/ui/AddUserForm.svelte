@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ClosePanel } from "@osvauld/icons";
 	import { sendMessage } from "../../utils/helper";
 	import { uiState, dataState } from "../../state";
 
@@ -65,7 +66,16 @@
 <div class="h-full flex flex-col text-base overflow-y-auto">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
-		<h1 class="text-2xl font-light text-white mb-2">Connect a User</h1>
+		<div class="flex items-start justify-between gap-4 mb-2">
+			<h1 class="text-2xl font-light text-white">Connect a User</h1>
+			<button
+				class="cursor-pointer p-1.5 text-osvauld-fieldText hover:text-osvauld-sideListTextActive transition-colors"
+				onclick={() => (uiState.profileViewLayout = false)}
+				aria-label="Close settings"
+			>
+				<ClosePanel size={20} />
+			</button>
+		</div>
 		<p class="text-osvauld-fieldText text-sm">
 			Establish a peer-to-peer connection with a user by entering their user
 			address below.
@@ -100,14 +110,14 @@
 				<button
 					type="button"
 					onclick={handleClear}
-					class="px-6 py-3 border border-osvauld-addfieldgrey text-osvauld-fieldText hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer"
+					class="px-6 border border-osvauld-addfieldgrey text-osvauld-fieldText text-sm hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer"
 				>
 					Clear
 				</button>
 				<button
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
-					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors"
+					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 text-sm px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors"
 				>
 					{isSubmitting ? "Connecting.." : "Connect"}
 				</button>

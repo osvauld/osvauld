@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from "svelte";
+	import { ClosePanel } from "@osvauld/icons";
 	import { sendMessage, writeToClipboard } from "../../utils/helper";
-	import { dataState } from "../../state/";
+	import { dataState, uiState } from "../../state/";
 
 	let copied = $state(false);
 	let isKeyRevealed = $state(false);
@@ -70,7 +71,16 @@
 <div class="h-full flex flex-col text-base overflow-y-auto pr-4">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
-		<h1 class="text-2xl font-semibold text-white mb-2">Add Device</h1>
+		<div class="flex items-start justify-between gap-4 mb-2">
+			<h1 class="text-2xl font-semibold text-white">Add Device</h1>
+			<button
+				class="cursor-pointer p-1.5 text-osvauld-fieldText hover:text-osvauld-sideListTextActive transition-colors"
+				onclick={() => (uiState.profileViewLayout = false)}
+				aria-label="Close settings"
+			>
+				<ClosePanel size={20} />
+			</button>
+		</div>
 		<p class="text-osvauld-fieldText text-sm">
 			Copy the identification key below and enter it on your new device to
 			connect it to your workspace.
@@ -209,7 +219,7 @@
 				type="button"
 				onclick={handleCopy}
 				disabled={!isKeyRevealed || copied}
-				class="w-full max-w-[20rem] bg-livnotePink text-osvauld-frameblack font-semibold mt-6 py-4 px-6 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors"
+				class="w-full max-w-[20rem] font-normal bg-livnotePink text-osvauld-frameblack mt-6 py-3 text-sm px-6 rounded-md cursor-pointer focus:outline-none focus:ring-2 focus:ring-osvauld-carolinablue focus:ring-opacity-50 transition-colors"
 				aria-label={copied ? "Copied to clipboard" : "Copy identification key"}
 			>
 				{#if copied}
