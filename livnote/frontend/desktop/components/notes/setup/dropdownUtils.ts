@@ -7,6 +7,7 @@ export const dropdownStyle = `
   .dropdown-container {
     position: relative;
     display: inline-block;
+    margin-right: 5px;
   }
   
   .format-dropdown-button {
@@ -134,6 +135,7 @@ export const dropdownStyle = `
     align-items: center;
     gap: 4px;
     padding: 4px 8px;
+    margin-right: 5px;
     background: transparent;
     border: 1px solid #3a3b44;
     border-radius: 4px;

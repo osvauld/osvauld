@@ -75,7 +75,6 @@ function manageStyles(action: "create" | "destroy") {
       
       .secondary-menu.visible {
         max-height: 100px;
-        padding: 10px 0px 0px 0px;
         visibility: visible;
       }
       
