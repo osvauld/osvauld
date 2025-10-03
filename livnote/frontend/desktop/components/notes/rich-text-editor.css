@@ -115,7 +115,7 @@
 /* ProseMirror specific styles */
 .ProseMirror {
     position: relative;
-    padding: 15px;
+    padding: 25px 15px 15px 15px;
     min-height: 100px;
     outline: none;
     line-height: 1.5;
