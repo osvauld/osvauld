@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { slide } from "svelte/transition";
-
 	import { sendMessage, writeToClipboard } from "../../utils/helper";
 
 	import {
@@ -181,8 +179,6 @@
 				></div>
 				<ul
 					class="absolute top-[120%] right-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-1.5"
-					in:slide
-					out:slide
 				>
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button

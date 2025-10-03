@@ -10,6 +10,9 @@ export function addMathItems(
   schema: Schema,
   editorView: EditorView
 ): void {
+  const group = document.createElement("div");
+  group.className = "editor-menu-group";
+
   // Inline Math button
   if (schema.nodes.math_inline) {
     const inlineMathButton = document.createElement("button");
@@ -28,7 +31,7 @@ export function addMathItems(
       editorView.focus();
     };
 
-    menu.appendChild(inlineMathButton);
+    group.appendChild(inlineMathButton);
   }
 
   // Display Math button
@@ -49,6 +52,8 @@ export function addMathItems(
       editorView.focus();
     };
 
-    menu.appendChild(displayMathButton);
+    group.appendChild(displayMathButton);
   }
+
+  menu.appendChild(group);
 }

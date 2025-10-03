@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { MenuToggle } from "@osvauld/icons";
-	import { fly } from "svelte/transition";
 
 	// Import the centralized state
 	import { dataState, uiState } from "../../state";
@@ -36,7 +35,6 @@
 {#if uiState.showNavigationPanel}
 	<nav
 		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 whitespace-nowrap relative border-r border-osvauld-borderColor flex flex-col"
-		in:fly={{ x: -200, duration: 400 }}
 		aria-label="Main Navigation"
 	>
 		{#if uiState.noteViewLayout}
@@ -51,7 +49,7 @@
 		{/if}
 
 		<!-- All Notes Folder -->
-		<div class="px-1 mb-2 shrink-0">
+		<div class="px-1 shrink-0">
 			<AllNotesFolder />
 		</div>
 

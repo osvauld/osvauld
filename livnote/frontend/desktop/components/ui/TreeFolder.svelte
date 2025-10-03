@@ -258,7 +258,7 @@
 	<!-- Folder contents (notes) - Only show for regular folders, not All Notes -->
 	{#if isExpanded && folder.id !== "all"}
 		<div
-			class="ml-6 border-l border-osvauld-borderColor"
+			class="ml-3.5 border-l border-osvauld-borderColor"
 			role="group"
 			aria-label="{folder.name} contents"
 		>

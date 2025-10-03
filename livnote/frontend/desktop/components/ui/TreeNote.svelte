@@ -31,7 +31,12 @@
 	const isActiveState = $derived(isSelected || isHovered);
 </script>
 
-<div class="pl-1 my-1" role="treeitem" aria-selected={isSelected} tabindex="0">
+<div
+	class="pl-1.5 my-1"
+	role="treeitem"
+	aria-selected={isSelected}
+	tabindex="0"
+>
 	<button
 		class="w-full flex items-center gap-3 p-2.5 rounded-lg transition-colors duration-150 focus:outline-none
 			{isActiveState
