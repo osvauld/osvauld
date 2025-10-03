@@ -158,10 +158,10 @@ export class EditorManager {
 				role: "textbox",
 				"aria-multiline": "true",
 		    	"aria-label": "Rich text editor",
-				spellcheck: "false",
-				autocorrect: "off",
+				spellcheck: "true",
+				autocorrect: "true",
 				autocapitalize: "off",
-				"data-gramm": "false",
+				"data-gramm": "true",
 			},
 		});
 
