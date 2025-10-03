@@ -159,7 +159,7 @@ export class EditorManager {
 				"aria-multiline": "true",
 		    	"aria-label": "Rich text editor",
 				spellcheck: "true",
-				autocorrect: "true",
+				autocorrect: "on",
 				autocapitalize: "off",
 				"data-gramm": "true",
 			},

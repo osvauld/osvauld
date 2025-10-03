@@ -6,6 +6,7 @@
 
 <div
 	class="fixed h-[6rem] left-2 bottom-12 flex items-center justify-center bg-transparent font-light text-xl"
+	aria-live="polite"
 	in:fly={{ x: -300 }}
 	out:fly={{ x: -300 }}
 >

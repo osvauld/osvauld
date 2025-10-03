@@ -123,6 +123,7 @@
 				onkeydown={(e) => {
 					if (e.key === "Escape") {
 						searchQuery = "";
+						dataState.setSearchResults([]);
 						searchInput?.blur();
 					}
 				}}
@@ -135,6 +136,7 @@
 					title="Clear search"
 					onclick={() => {
 						searchQuery = "";
+						dataState.setSearchResults([]);
 						searchInput?.focus();
 					}}
 				>

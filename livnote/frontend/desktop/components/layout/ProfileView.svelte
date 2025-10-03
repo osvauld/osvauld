@@ -71,6 +71,7 @@
 			</span>
 			<button
 				class="cursor-pointer p-1.5 hover:text-osvauld-sideListTextActive"
+				aria-label="Close settings"
 				onclick={() => (uiState.profileViewLayout = false)}
 				><ClosePanel size={20} /></button
 			>

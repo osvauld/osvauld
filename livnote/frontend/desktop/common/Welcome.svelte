@@ -85,7 +85,6 @@
 				class="flex justify-center items-center border border-transparent focus:border-osvauld-activeBorder outline-0 rounded-lg p-1 cursor-pointer"
 				onclick={handleToggleShowPassword}
 				aria-label={showPassword ? "Hide passphrase" : "Show passphrase"}
-				tabindex="-1"
 				onmousedown={(e) => e.preventDefault()}
 			>
 				{#if showPassword}
