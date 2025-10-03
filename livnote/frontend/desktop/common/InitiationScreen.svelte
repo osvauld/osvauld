@@ -29,7 +29,7 @@
 			</button>
 			<button
 				onclick={() => onFlowSelect(false)}
-				class="w-[13.75rem] py-3.5 px-5 bg-signupGray text-white rounded-md cursor-pointer transition-colors duration-300 hover:bg-livnotePink hover:text-black"
+				class="w-[13.75rem] py-3.5 px-5 text-white rounded-md cursor-pointer transition-colors duration-300 bg-livnotePinktext-black"
 			>
 				I am new here
 			</button>
