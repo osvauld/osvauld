@@ -29,8 +29,9 @@
 				resourceId: currentNoteId,
 			});
 
-			// Clear the current note and update UI
+			// Clear the current note and navigate back to list view
 			dataState.clearCurrentNote();
+			uiState.toggleNoteViewLayout(false);
 
 			// Refresh all notes
 			await dataState.fetchAllNotes();
@@ -63,12 +64,14 @@
 	role="presentation"
 >
 	<form
-		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[32rem] h-[14rem] flex flex-col items-start justify-center gap-3"
+		class="p-4 bg-osvauld-frameblack border border-osvauld-activeBorder rounded-3xl w-[24rem] flex flex-col items-start justify-center gap-3"
 		in:fly
 		onsubmit={deleteConfirmation}
 	>
-		<div class="flex justify-between items-center w-full">
-			<span class="text-[21px] font-medium text-osvauld-quarzowhite capitalize"
+		<div
+			class="flex justify-between items-center w-full text-osvauld-quarzowhite"
+		>
+			<span class="text-xl font-normal text-white capitalize"
 				>Delete
 				{uiState.deleteConfirmationModal.item === "note"
 					? "note"
@@ -92,7 +95,7 @@
 			<div class="justify-center items-center flex">
 				<Warning />
 			</div>
-			<div class="text-osvauld-textActive text-left">
+			<div class="text-osvauld-textActive text-sm text-left">
 				This action cannot be undone
 			</div>
 		</div>
@@ -101,14 +104,14 @@
 		></div>
 		<div class="flex justify-end items-center gap-4 w-full">
 			<button
-				class="font-medium text-base rounded-md py-[5px] px-[15px] text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all"
+				class="font-medium text-base rounded-md py-1 px-5 text-osvauld-fadedCancel hover:bg-osvauld-cancelBackground hover:text-osvauld-quarzowhite transition-all cursor-pointer"
 				type="button"
 				onclick={handleCancelClick}
 			>
 				Cancel
 			</button>
 			<button
-				class="border border-osvauld-dangerRed py-[5px] px-[15px] text-base font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all"
+				class="border border-osvauld-dangerRed py-1 px-5 text-base font-medium text-osvauld-dangerRed rounded-md hover:bg-osvauld-dangerRed hover:text-osvauld-frameblack transition-all cursor-pointer"
 				type="submit"
 			>
 				Delete {uiState.deleteConfirmationModal.item}
