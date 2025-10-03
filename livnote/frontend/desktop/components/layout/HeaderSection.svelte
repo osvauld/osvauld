@@ -105,7 +105,7 @@
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
 	<div class="grow py-4 px-4 flex items-center justify-end gap-6">
 		<div
-			class="flex w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
+			class="flex min-w-[400px] items-center bg-osvauld-frameblack py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
 		>
 			<span class="sr-only">Search</span>
 			<Lens color="#4D4F60" />
@@ -120,6 +120,12 @@
 				bind:this={searchInput}
 				bind:value={searchQuery}
 				oninput={handleSearch}
+				onkeydown={(e) => {
+					if (e.key === "Escape") {
+						searchQuery = "";
+						searchInput?.blur();
+					}
+				}}
 			/>
 			{#if searchQuery}
 				<button
