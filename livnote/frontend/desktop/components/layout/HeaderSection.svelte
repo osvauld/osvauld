@@ -105,14 +105,14 @@
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
 	<div class="grow py-4 px-4 flex items-center justify-end gap-6">
 		<div
-			class="flex min-w-[400px] items-center bg-osvauld-frameblack py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
+			class="flex min-w-[400px] items-center bg-osvauld-fieldActive py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
 		>
 			<span class="sr-only">Search</span>
 			<Lens color="#4D4F60" />
 			<input
 				type="text"
 				name="search"
-				class="mx-2 grow border-0 focus:ring-0 outline-0 bg-osvauld-frameblack text-white placeholder:text-osvauld-activeBorder font-light text-sm leading-6"
+				class="mx-2 grow border-0 focus:ring-0 outline-0 bg-fieldActive text-white placeholder:text-osvauld-activeBorder font-light text-sm leading-6"
 				autocorrect="off"
 				autocapitalize="off"
 				autocomplete="off"
@@ -161,13 +161,13 @@
 			<span class="font-normal text-sm whitespace-nowrap">Connect a User</span>
 			<ConnectUser size={20} />
 		</button>
-		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
+		<div class="relative text-textActive font-normal text-base z-40">
 			<button
 				aria-label="Open Profile View"
-				class="px-4 p-2 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
+				class="px-4 p-2 rounded-lg bg-osvauld-fieldActive flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}
 			>
-				<Profile color="#6E7681" size={22} />
+				<Profile color="#a3a4b5" size={20} />
 				<span class="ml-2 text-sm capitalize"
 					>{dataState.userDetails?.username}</span
 				>

@@ -9,6 +9,7 @@ export interface Vault {
   id: string;
   name: string;
   description?: string;
+  default?: boolean;
 }
 
 
@@ -121,7 +122,8 @@ class DataState {
       const folderVaults: Vault[] = resp.map((item: any) => ({
         id: item.id || "",
         name: item.name || "",
-        description: item.description
+        description: item.description,
+        default: item.default
       }));
       this.vaults = [{ id: "all", name: "All Vaults" }, ...folderVaults];
     } catch (error) {

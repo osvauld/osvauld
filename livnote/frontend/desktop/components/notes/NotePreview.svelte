@@ -24,6 +24,7 @@
 		color: white;
 		word-break: break-word;
 		white-space: pre-wrap;
+		padding: 5px;
 	}
 
 	/* Style the HTML content to match ProseMirror styles */
@@ -129,8 +130,8 @@
 	/* Handle empty content */
 	:global(.note-preview:empty::before) {
 		content: "No content available";
-		font-size: 12px;
-		color: #666;
+		font-size: 14px;
+		color: #a3a4b5;
 		font-style: italic;
 	}
 	:global(.note-preview table) {

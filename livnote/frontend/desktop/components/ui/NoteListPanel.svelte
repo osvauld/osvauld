@@ -27,7 +27,7 @@
 	};
 </script>
 
-<div class="py-3 pr-4 flex items-center justify-start shrink-0">
+<div class="py-6 pr-4 flex items-center justify-start shrink-0">
 	<!-- <div class="relative shrink-0">
 		<button
 			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
@@ -54,7 +54,7 @@
 	<div class="mr-auto flex items-center gap-6 text-base min-w-0 flex-1">
 		<!-- Current folder title -->
 		<div
-			class="text-[26px] text-osvauld-sideListTextActive font-light leading-6 capitalize min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+			class="text-4xl text-osvauld-sideListTextActive font-light capitalize min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
 			aria-label="Current folder: {dataState.currentVault.id === 'all'
 				? 'All Notes'
 				: dataState.currentVault.name}"
@@ -69,8 +69,8 @@
 
 		<!-- Favourites button -->
 		<button
-			class="flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
-				   transition-colors text-osvauld-fieldText
+			class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer
+				   transition-colors text-textActive
 				   {dataState.favoriteSelected
 				? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 				: 'hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
@@ -88,9 +88,9 @@
 	<div
 		class="relative ml-auto shrink-0 gap-2 flex justify-end items-center text-base"
 	>
-		{#if dataState.currentVault.id !== "all"}
+		{#if dataState.currentVault.id !== "all" && dataState.currentVault.default !== true}
 			<button
-				class="rounded-lg p-2 text-sm flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="rounded-lg p-2 text-sm font-semibold flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				onclick={() => (showShareFolderList = true)}
 				aria-label="Share Folder"
 				aria-haspopup="dialog"
@@ -109,13 +109,13 @@
 				onmouseleave={() => (deleteBtnHoved = false)}
 				aria-label="Delete Folder"
 				><Bin
-					color={deleteBtnHoved ? "#FF6A6A" : "#85889C"}
+					color={deleteBtnHoved ? "#FF6A6A" : "#a3a4b5"}
 					size={20}
 				/></button
 			>
 		{/if}
 		<button
-			class="rounded-lg p-2 text-sm flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-osvauld-fieldText hover:bg-livnotelavender hover:text-primarydark group"
+			class="rounded-lg p-2 text-sm flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-textActive hover:bg-livnotelavender hover:text-primarydark group"
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>

@@ -257,7 +257,7 @@
 		letter-spacing: 0.02em;
 		padding: 0;
 		cursor: pointer;
-		color: var(--color-statusColor);
+		color: #a3a4b5;
 		text-align: left;
 		transition: all 0.1s ease;
 		border-bottom: 2px solid transparent;
@@ -282,7 +282,7 @@
 	.empty-state {
 		padding: 16px 0px;
 		text-align: center;
-		color: #85889c;
+		color: #a3a4b5;
 	}
 
 	.empty-state-title {
@@ -290,12 +290,12 @@
 		font-weight: 300;
 		letter-spacing: 0.02em;
 		margin-bottom: 8px;
-		color: #fff;
+		color: #a3a4b5;
 	}
 
 	.empty-state-text {
-		font-size: 12px;
-		color: var(--color-statusColor);
+		font-size: 14px;
+		color: #a3a4b5;
 		line-height: 1.4;
 		font-weight: 200;
 		letter-spacing: 0.02em;
@@ -370,7 +370,7 @@
 		{#if filteredThreads.length === 0}
 			<div class="empty-state">
 				{#if threads.length === 0}
-					<span><CommentIcon size={24} /></span>
+					<span><CommentIcon size={24} color="#a3a4b5" /></span>
 					<div class="empty-state-text mt-4 text-xs">
 						Give feedback, ask a question, or just leave a note of appreciation. <br
 						/>

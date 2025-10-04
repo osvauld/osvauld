@@ -156,7 +156,7 @@
 
 			<button
 				onclick={() => (showShareList = true)}
-				class="mt-4 w-full font-normal text-base flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="mt-4 w-full font-semibold text-base flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				aria-label="Invite Collaborators to edit"
 				aria-haspopup="dialog"
 				aria-expanded={showShareList}
@@ -195,7 +195,7 @@
 			>
 				<MenuToggle />
 			</button>
-			<p class="text-statusColor text-xs">Last modified: {lastModifiedDate}</p>
+			<p class="text-textActive text-xs">Last modified: {lastModifiedDate}</p>
 		</div>
 	</div>
 {/if}

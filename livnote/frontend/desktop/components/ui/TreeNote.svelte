@@ -36,7 +36,7 @@
 		class="w-full flex items-center gap-3 p-2.5 rounded-lg transition-colors duration-150 min-w-0
 			{isActiveState
 			? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
+			: 'text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
 		role="treeitem"
 		aria-selected={isSelected}
 		onclick={onSelect}

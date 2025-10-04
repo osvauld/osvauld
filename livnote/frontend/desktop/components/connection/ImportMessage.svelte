@@ -8,7 +8,7 @@
 	}
 	.loader {
 		color: rgb(124, 124, 124);
-		font-family: "Poppins", sans-serif;
+		font-family: "Inter", sans-serif;
 		font-weight: 500;
 		font-size: 25px;
 		-webkit-box-sizing: content-box;

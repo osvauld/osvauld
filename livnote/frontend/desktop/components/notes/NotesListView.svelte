@@ -57,9 +57,7 @@
 								<div
 									class="px-4 py-2 border-b border-osvauld-borderColor flex justify-between items-center"
 								>
-									<h3
-										class="text-osvauld-fieldText font-medium text-lg truncate"
-									>
+									<h3 class="text-textActive font-light text-lg truncate">
 										{note?.title}
 									</h3>
 									<button
@@ -82,9 +80,7 @@
 										maxHeight="120px"
 										minHeight="120px"
 									/>
-									<div
-										class="text-osvauld-fieldText opacity-60 text-[0.65rem] mt-4"
-									>
+									<div class="text-osvauld-fieldText text-[0.65rem] mt-2">
 										Last modified: {getLastModifiedDate(note.lastModified)}
 									</div>
 								</div>
