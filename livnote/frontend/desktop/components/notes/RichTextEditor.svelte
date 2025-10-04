@@ -450,7 +450,7 @@
 </style>
 
 <div
-	class="h-full"
+	class="h-full w-full"
 	onclick={(e) => {
 		e.stopPropagation();
 	}}

@@ -160,12 +160,19 @@
 		uiState.toggleNoteRightPanel();
 	};
 
-	const toggleZenModeWithSave = async () => {
-		// Save before toggling zen mode
+	const toggleZenModeWithSave = () => {
+		// Early return if already toggling
+		if (uiState.isTogglingZenMode) {
+			return;
+		}
+
+		// Save before toggling zen mode (non-blocking)
 		const noteId = dataState.currentNoteId;
 		if (noteId) {
-			await dataState.saveNote(noteId);
+			dataState.saveNote(noteId);
 		}
+
+		// Toggle immediately without waiting for save
 		uiState.toggleZenMode();
 	};
 
@@ -174,11 +181,11 @@
 		uiState.resetNoteRightPanelManualToggle();
 	};
 
-	const checkforEscKey = async (e: KeyboardEvent) => {
-		if (!uiState.isZenMode || e.key !== "Escape") {
-			return;
+	const handleZenModeEscape = (e: KeyboardEvent) => {
+		// Only handle Escape in zen mode
+		if (uiState.isZenMode && e.key === "Escape") {
+			toggleZenModeWithSave();
 		}
-		await toggleZenModeWithSave();
 	};
 
 	onMount(() => {
@@ -190,9 +197,13 @@
 		// Set up collaborator syncing
 		setupCollaboratorSync();
 
+		// Add global escape key listener for zen mode
+		document.addEventListener("keydown", handleZenModeEscape);
+
 		// Clean up on unmount
 		return () => {
 			cleanupCollaboratorSync();
+			document.removeEventListener("keydown", handleZenModeEscape);
 		};
 	});
 </script>
@@ -287,9 +298,12 @@
 						{/if}
 					</button>
 					<button
-						class="mr-5 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto cursor-pointer"
+						class="mr-5 rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive text-osvauld-fieldText ml-auto transition-opacity duration-150"
+						class:cursor-pointer={!uiState.isTogglingZenMode}
+						class:opacity-50={uiState.isTogglingZenMode}
 						title="Toggle zen mode"
 						aria-label="Toggle zen mode"
+						disabled={uiState.isTogglingZenMode}
 						onclick={toggleZenModeWithSave}
 					>
 						<Zen />
@@ -348,10 +362,10 @@
 
 		<!-- Editor Component -->
 		<div
-			class="flex-1 min-h-0 pt-0 p-4 max-w-[900px] mx-auto"
+			class="flex-1 min-h-0 pt-0 p-4 mx-auto w-full"
+			class:max-w-[1100px]={uiState.isZenMode}
 			class:p-0={uiState.isZenMode}
 			role="presentation"
-			onkeydown={checkforEscKey}
 		>
 			<RichTextEditor />
 			{#if uiState.isZenMode}

@@ -36,6 +36,7 @@ class UIState {
   isNoteFetching = $state<boolean>(false);
   isEditorLoading = $state<boolean>(false);
   isZenMode = $state<boolean>(false);
+  isTogglingZenMode = $state<boolean>(false);
   readonly MIN_EDITOR_WIDTH = 900; // Minimum editor width in pixels
   readonly NOTE_RIGHT_PANEL_WIDTH = 360; // Note right panel width in pixels
   readonly NAV_PANEL_WIDTH = 360; // Navigation panel width in pixels
@@ -225,7 +226,16 @@ class UIState {
   }
 
   toggleZenMode() {
+    if (this.isTogglingZenMode) {
+      return;
+    }
+    this.isTogglingZenMode = true;
     this.isZenMode = !this.isZenMode;
+    
+    // Reset the flag after a short delay to prevent rapid toggles
+    setTimeout(() => {
+      this.isTogglingZenMode = false;
+    }, 300);
   }
 
   clearAllLoadingStates() {
