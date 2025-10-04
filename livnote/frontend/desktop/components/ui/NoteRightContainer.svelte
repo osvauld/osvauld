@@ -137,7 +137,7 @@
 				>
 					<Bin size={24} />
 				</button>
-
+				<!-- 
 				<div class="relative flex justify-center items-center">
 					<button
 						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
@@ -151,7 +151,7 @@
 							<DownloadIcon />
 						{/if}
 					</button>
-				</div>
+				</div> -->
 			</div>
 
 			<button
