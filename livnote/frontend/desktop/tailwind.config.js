@@ -27,7 +27,15 @@ export default {
           '"Segoe UI Symbol"',
           '"Noto Color Emoji"',
         ],
-        Jakarta: ['"Plus Jakarta Sans"', "sans-serif"],
+        jakarta: ['"Plus Jakarta Sans"', "sans-serif"],
+      },
+      fontWeight: {
+        extralight: "200",
+        light: "300",
+        normal: "400",
+        medium: "500",
+        semibold: "600",
+        bold: "700",
       },
       fontSize: {
         base: "16px",

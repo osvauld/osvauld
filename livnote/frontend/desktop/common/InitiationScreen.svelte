@@ -7,7 +7,7 @@
 <div class="grow flex flex-col items-center select-none">
 	<div class="h-full flex justify-center items-center">
 		<h1
-			class="font-extralight mb-4 font-Jakarta text-7xl text-center text-white"
+			class="font-extralight mb-4 font-jakarta text-7xl text-center text-white"
 		>
 			Create and edit notes together<br />
 			<span class="text-mobile-textActive text-[76px]">

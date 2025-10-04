@@ -1,6 +1,40 @@
 @import "tailwindcss";
 @layer base, components, utilities;
 
+@layer base {
+	/* Apply Inter font globally to all elements */
+	* {
+		font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+	
+	/* Ensure body and html use Inter */
+	html,
+	body {
+		font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		font-weight: 400;
+		font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+	}
+	
+	/* Default font weights for common elements */
+	h1, h2, h3 {
+		font-weight: 600;
+	}
+	
+	h4, h5, h6 {
+		font-weight: 500;
+	}
+	
+	button {
+		font-weight: 500;
+	}
+	
+	strong, b {
+		font-weight: 600;
+	}
+}
+
 @theme {
 	--breakpoint-sm: 640px;
 	--breakpoint-md: 768px;
