@@ -54,6 +54,7 @@
 		let sorted = [...threads].sort(
 			(a, b) => b.threadInfo.createdAt - a.threadInfo.createdAt,
 		);
+		console.log(sorted);
 
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {

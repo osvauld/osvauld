@@ -265,6 +265,7 @@ export class CommentsStore {
       return {
         id: replyMap.get("id"),
         author: replyMap.get("author"),
+        authorName: replyMap.get("authorName"),
         createdAt: replyMap.get("createdAt"),
         readBy: readByArray.toArray()
       };
