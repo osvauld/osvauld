@@ -201,7 +201,7 @@
 			<!-- Note count badge -->
 			{#if folderNoteCount() > 0}
 				<span
-					class="shrink-0 text-xs text-osvauld-fieldText"
+					class="shrink-0 text-xs text-textActive"
 					aria-label="{folderNoteCount()} notes"
 				>
 					{folderNoteCount()}

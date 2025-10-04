@@ -24,6 +24,8 @@
 		color: white;
 		word-break: break-word;
 		white-space: pre-wrap;
+		background-color: #16171f;
+		padding: 5px;
 	}
 
 	/* Style the HTML content to match ProseMirror styles */

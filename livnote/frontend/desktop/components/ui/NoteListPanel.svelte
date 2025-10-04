@@ -27,7 +27,7 @@
 	};
 </script>
 
-<div class="py-3 pr-4 flex items-center justify-start shrink-0">
+<div class="py-6 pr-4 flex items-center justify-start shrink-0">
 	<!-- <div class="relative shrink-0">
 		<button
 			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
@@ -87,7 +87,7 @@
 	>
 		{#if dataState.currentVault.id !== "all"}
 			<button
-				class="rounded-lg p-2 text-sm flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="rounded-lg p-2 text-sm font-semibold flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				onclick={() => (showShareFolderList = true)}
 				aria-label="Share Folder"
 				aria-haspopup="dialog"
