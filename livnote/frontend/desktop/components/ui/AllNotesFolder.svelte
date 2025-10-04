@@ -34,7 +34,7 @@
 	<div
 		class="flex items-center group {isSelected
 			? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg px-2 py-3"
+			: 'text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg px-2 py-3"
 	>
 		<div
 			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
@@ -47,7 +47,7 @@
 		>
 			<!-- All Notes icon -->
 			<span class="shrink-0">
-				<MobileHome color={isSelected ? "#F2F2F0" : "#85889C"} size={20} />
+				<MobileHome size={20} />
 			</span>
 
 			<!-- All Notes name -->
@@ -60,7 +60,7 @@
 			<!-- Note count badge -->
 			{#if allNotesCount() > 0}
 				<span
-					class="shrink-0 text-xs text-osvauld-fieldText"
+					class="shrink-0 text-xs text-textActive"
 					aria-label="{allNotesCount()} notes"
 				>
 					{allNotesCount()}

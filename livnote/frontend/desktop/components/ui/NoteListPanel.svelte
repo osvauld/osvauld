@@ -54,7 +54,7 @@
 	<div class="mr-auto flex items-center gap-6 text-base">
 		<!-- Current folder title -->
 		<div
-			class="text-[26px] text-osvauld-sideListTextActive font-light leading-6 capitalize truncate"
+			class="text-4xl text-osvauld-sideListTextActive font-light capitalize truncate"
 			aria-label="Current folder: {dataState.currentVault.id === 'all'
 				? 'All Notes'
 				: dataState.currentVault.name}"
@@ -66,8 +66,8 @@
 
 		<!-- Favourites button -->
 		<button
-			class="flex items-center gap-2 px-3 py-3 rounded-lg cursor-pointer
-				   transition-colors text-osvauld-fieldText
+			class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer
+				   transition-colors text-textActive
 				   {dataState.favoriteSelected
 				? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 				: 'hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
@@ -106,13 +106,13 @@
 				onmouseleave={() => (deleteBtnHoved = false)}
 				aria-label="Delete Folder"
 				><Bin
-					color={deleteBtnHoved ? "#FF6A6A" : "#85889C"}
+					color={deleteBtnHoved ? "#FF6A6A" : "#a3a4b5"}
 					size={20}
 				/></button
 			>
 		{/if}
 		<button
-			class="rounded-lg p-2 text-sm flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-osvauld-fieldText hover:bg-livnotelavender hover:text-primarydark group"
+			class="rounded-lg p-2 text-sm flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-textActive hover:bg-livnotelavender hover:text-primarydark group"
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>

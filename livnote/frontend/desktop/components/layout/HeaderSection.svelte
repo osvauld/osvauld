@@ -161,13 +161,13 @@
 			<span class="font-normal text-sm whitespace-nowrap">Connect a User</span>
 			<ConnectUser size={20} />
 		</button>
-		<div class="relative text-osvauld-fieldText font-normal text-base z-40">
+		<div class="relative text-textActive font-normal text-base z-40">
 			<button
 				aria-label="Open Profile View"
 				class="px-4 p-2 rounded-lg bg-osvauld-frameblack flex justify-start items-center"
 				onclick={() => (showDropdown = !showDropdown)}
 			>
-				<Profile color="#6E7681" size={22} />
+				<Profile color="#a3a4b5" size={20} />
 				<span class="ml-2 text-sm capitalize"
 					>{dataState.userDetails?.username}</span
 				>

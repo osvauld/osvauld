@@ -129,8 +129,8 @@
 	/* Handle empty content */
 	:global(.note-preview:empty::before) {
 		content: "No content available";
-		font-size: 12px;
-		color: #666;
+		font-size: 14px;
+		color: #a3a4b5;
 		font-style: italic;
 	}
 	:global(.note-preview table) {

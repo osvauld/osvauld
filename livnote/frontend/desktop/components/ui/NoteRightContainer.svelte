@@ -195,7 +195,7 @@
 			>
 				<MenuToggle />
 			</button>
-			<p class="text-statusColor text-xs">Last modified: {lastModifiedDate}</p>
+			<p class="text-textActive text-xs">Last modified: {lastModifiedDate}</p>
 		</div>
 	</div>
 {/if}

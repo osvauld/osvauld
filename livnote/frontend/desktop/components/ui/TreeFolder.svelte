@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from "svelte";
-	import { MobileHome, FolderIcon, RightArrow, Add } from "@osvauld/icons";
+	import { FolderIcon, RightArrow, Add } from "@osvauld/icons";
 	import { dataState, uiState } from "../../state";
 	import { createEmptyNoteContent } from "../notes/documentUtils";
 	import { sendMessage } from "../../utils/helper";
@@ -24,20 +24,11 @@
 
 	// Get actual count of notes for this folder (for badge display)
 	const folderNoteCount = $derived(() => {
-		if (folder.id === "all") {
-			// For All Notes folder, count all notes across all folders
-			return dataState.notes.length;
-		}
-		// For specific folders, count notes that belong to this folder
 		return dataState.notes.filter((note) => note.folderId === folder.id).length;
 	});
 
 	// Get notes to display when folder is expanded (shows all notes for this specific folder)
 	const folderNotes = $derived(() => {
-		if (folder.id === "all") {
-			return dataState.filteredNotes;
-		}
-		// For individual folders, filter from all notes, not just the current vault's filtered notes
 		return dataState.notes.filter((note) => note.folderId === folder.id);
 	});
 
@@ -47,21 +38,13 @@
 
 		if (event.key === "Enter" || event.key === " ") {
 			event.preventDefault();
-			if (folder.id === "all") {
-				onSelect();
-			} else {
-				// Keyboard navigation always switches folder (like double click)
-				onToggle();
-				onSelect();
-			}
-		} else if (
-			event.key === "ArrowRight" &&
-			!isExpanded &&
-			folder.id !== "all"
-		) {
+			// Keyboard navigation always switches folder (like double click)
+			onToggle();
+			onSelect();
+		} else if (event.key === "ArrowRight" && !isExpanded) {
 			event.preventDefault();
 			onToggle();
-		} else if (event.key === "ArrowLeft" && isExpanded && folder.id !== "all") {
+		} else if (event.key === "ArrowLeft" && isExpanded) {
 			event.preventDefault();
 			onToggle();
 		}
@@ -72,12 +55,6 @@
 	}
 
 	function handleFolderClick() {
-		// All Notes folder always selects immediately
-		if (folder.id === "all") {
-			onSelect();
-			return;
-		}
-
 		// When viewing note list (noteViewLayout is false), single click switches folder immediately
 		if (!uiState.noteViewLayout) {
 			onToggle();
@@ -103,12 +80,6 @@
 		if (clickTimer) {
 			clearTimeout(clickTimer);
 			clickTimer = null;
-		}
-
-		// All Notes folder - just select
-		if (folder.id === "all") {
-			onSelect();
-			return;
 		}
 
 		// Double click: toggle and switch folder
@@ -140,7 +111,7 @@
 
 			const note = await sendMessage("addCredential", {
 				resourcePayload: JSON.stringify(noteContent),
-				folderId: folder.id === "all" ? dataState.currentVault.id : folder.id,
+				folderId: folder.id,
 				resourceType: "notes",
 			});
 
@@ -170,12 +141,12 @@
 	<div
 		class="flex items-center group {isSelected
 			? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
-			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-2"
+			: 'text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-2"
 	>
 		<div
 			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
 			role="treeitem"
-			aria-expanded={folder.id !== "all" ? isExpanded : undefined}
+			aria-expanded={isExpanded}
 			aria-selected={isSelected}
 			tabindex="0"
 			onclick={handleFolderClick}
@@ -183,61 +154,50 @@
 			onkeydown={handleKeyDown}
 			aria-label="Select {folder.name} folder"
 		>
-			<!-- Expand/collapse chevron - Hide for All Notes folder -->
-			{#if folder.id !== "all"}
-				<span
-					class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-25 {isExpanded
-						? 'rotate-90'
-						: ''}"
-					aria-hidden="true"
-				>
-					<RightArrow
-						color={isSelected ? "#F2F2F0" : "currentColor"}
-						size={16}
-					/>
-				</span>
-			{/if}
+			<!-- Expand/collapse chevron -->
+			<span
+				class="shrink-0 w-4 h-4 flex items-center justify-center transition-transform duration-25 {isExpanded
+					? 'rotate-90'
+					: ''}"
+				aria-hidden="true"
+			>
+				<RightArrow color={isSelected ? "#F2F2F0" : "currentColor"} size={16} />
+			</span>
 
 			<!-- Folder icon -->
 			<span class="shrink-0">
-				{#if folder.id === "all"}
-					<MobileHome color={isSelected ? "#F2F2F0" : "#85889C"} />
-				{:else}
-					<FolderIcon color={isSelected ? "#F2F2F0" : "#85889C"} />
-				{/if}
+				<FolderIcon color={isSelected ? "#F2F2F0" : "#85889C"} />
 			</span>
 
 			<!-- Folder name -->
 			<span
 				class="flex-1 truncate text-left text-sm font-light select-none cursor-default"
 			>
-				{folder.id === "all" ? "All Notes" : folder.name}
+				{folder.name}
 			</span>
 
-			<!-- Folder actions (visible when selected or hovered) - Only show for actual folders, not All Notes -->
-			{#if folder.id !== "all"}
-				<div
-					class="transition-opacity duration-150 ml-1 {isSelected
-						? 'opacity-100'
-						: 'opacity-0 group-hover:opacity-100'}"
+			<!-- Folder actions (visible when selected or hovered) -->
+			<div
+				class="transition-opacity duration-150 ml-1 {isSelected
+					? 'opacity-100'
+					: 'opacity-0 group-hover:opacity-100'}"
+			>
+				<button
+					type="button"
+					class="p-1.5 rounded-md transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {isSelected
+						? 'text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive'
+						: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
+					onclick={(e) => {
+						e.stopPropagation();
+						handleCreateNoteClick();
+					}}
+					disabled={isCreatingNote}
+					aria-label="Create new note in {folder.name}"
+					title="Create new note"
 				>
-					<button
-						type="button"
-						class="p-1.5 rounded-md transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {isSelected
-							? 'text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive'
-							: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
-						onclick={(e) => {
-							e.stopPropagation();
-							handleCreateNoteClick();
-						}}
-						disabled={isCreatingNote}
-						aria-label="Create new note in {folder.name}"
-						title="Create new note"
-					>
-						<Add color="currentColor" size={16} />
-					</button>
-				</div>
-			{/if}
+					<Add color="currentColor" size={16} />
+				</button>
+			</div>
 			<!-- Note count badge -->
 			{#if folderNoteCount() > 0}
 				<span
@@ -250,8 +210,8 @@
 		</div>
 	</div>
 
-	<!-- Folder contents (notes) - Only show for regular folders, not All Notes -->
-	{#if isExpanded && folder.id !== "all"}
+	<!-- Folder contents (notes) -->
+	{#if isExpanded}
 		<div
 			class="ml-3.5 border-l border-osvauld-borderColor"
 			role="group"
