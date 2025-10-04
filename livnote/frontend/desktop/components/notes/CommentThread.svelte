@@ -174,11 +174,11 @@
 			<div class="flex justify-start items-center gap-2">
 				<span
 					class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder group-hover:border-osvauld-sideListTextActive group-hover:text-osvauld-sideListTextActive transition-all duration-75"
-					>{getAuthorName(mainReply.author).charAt(0).toUpperCase()}</span
+					>{mainReply.authorName.charAt(0).toUpperCase()}</span
 				>
 				<div class="flex flex-col items-start">
 					<span class="capitalize text-white text-sm font-medium tracking-wider"
-						>{getAuthorName(mainReply.author)}</span
+						>{mainReply.authorName}</span
 					>
 					<span class="text-xs text-statusColor"
 						>{formatTimestamp(mainReply.createdAt)}</span
@@ -270,7 +270,7 @@
 								<div class="flex flex-col items-start">
 									<span
 										class="capitalize text-white text-sm font-medium tracking-wider"
-										>{getAuthorName(reply.author)}</span
+										>{reply.authorName}</span
 									>
 									<span class="text-xs text-statusColor"
 										>{formatTimestamp(reply.createdAt)}</span
