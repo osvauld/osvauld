@@ -42,17 +42,19 @@
 
 		// Subscribe to updates
 		commentsUnsubscribe = commentsStore.subscribe(() => {
-			const newComments = commentsStore.getComments();
-			threads = newComments;
+			threads = commentsStore.getAllThreads();
 		});
 
 		// Get initial threads
-		threads = commentsStore.getComments();
+		threads = commentsStore.getAllThreads();
 	}
 
 	// Derived values
 	const sortedThreads = $derived.by(() => {
-		let sorted = [...threads].sort((a, b) => b.created_at - a.created_at);
+		let sorted = [...threads].sort(
+			(a, b) => b.threadInfo.createdAt - a.threadInfo.createdAt,
+		);
+		console.log(sorted);
 
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {
@@ -70,19 +72,22 @@
 
 	const filteredThreads = $derived.by(() => {
 		return sortedThreads.filter((thread: CommentThread) =>
-			showResolved ? thread.resolved : !thread.resolved,
+			showResolved ? thread.threadInfo.resolved : !thread.threadInfo.resolved,
 		);
 	});
 
-	// Check for unread comments using CommentsStore
+	// Check for unread comments
 	const hasUnreadComments = $derived.by(() => {
 		if (!commentsStore || !currentUserId) return false;
 
-		return threads.some(
-			(thread: CommentThread) =>
-				!thread.resolved &&
-				!commentsStore.isThreadReadByUser(thread.id, currentUserId),
-		);
+		return threads.some((thread: CommentThread) => {
+			if (thread.threadInfo.resolved) return false;
+
+			// Check if any reply is unread
+			return thread.replies.some(
+				(reply) => !reply.readBy.includes(currentUserId!),
+			);
+		});
 	});
 
 	function handleThreadSelect(threadId: string) {
@@ -96,8 +101,8 @@
 	}
 
 	function markThreadAsRead(threadId: string) {
-		if (commentsStore && currentUserId) {
-			commentsStore.markThreadAsRead(threadId, currentUserId);
+		if (commentsStore) {
+			commentsStore.markThreadAsRead(threadId);
 		}
 	}
 
@@ -123,11 +128,14 @@
 
 	function handleResolveThread(threadId: string, resolved: boolean) {
 		try {
-			// Access coordinator through dataState to resolve thread
 			const coordinator = dataState.getNotesCoordinator();
 			const commentsService = coordinator?.getCommentsStore();
 			if (commentsService) {
-				commentsService.resolveThread(threadId, resolved);
+				if (resolved) {
+					commentsService.resolveThread(threadId);
+				} else {
+					commentsService.unresolveThread(threadId);
+				}
 			}
 		} catch (error) {
 			console.error("Error resolving thread:", error);
@@ -136,7 +144,6 @@
 
 	function handleDeleteThread(threadId: string) {
 		try {
-			// Access coordinator through dataState to delete thread
 			const coordinator = dataState.getNotesCoordinator();
 			const commentsService = coordinator?.getCommentsStore();
 			if (commentsService) {
@@ -157,11 +164,11 @@
 		const thread = threads.find((t) => t.id === threadId);
 		if (thread) {
 			// If the thread is resolved, switch to resolved tab
-			if (thread.resolved && !showResolved) {
+			if (thread.threadInfo.resolved && !showResolved) {
 				showResolved = true;
 			}
 			// If the thread is active, switch to active tab
-			else if (!thread.resolved && showResolved) {
+			else if (!thread.threadInfo.resolved && showResolved) {
 				showResolved = false;
 			}
 		}
@@ -218,6 +225,7 @@
 	});
 </script>
 
+<!--Styles remain the same -->
 <style>
 	.comment-sidebar {
 		width: 100%;

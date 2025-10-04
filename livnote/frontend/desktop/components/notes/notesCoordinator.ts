@@ -30,7 +30,7 @@ import type {
 
 export interface NotesCoordinatorConfig {
   userInfo: UserInfo
-  onCollaborationUpdate?: (update: Uint8Array, docType: 'main' | 'images') => void;
+  onCollaborationUpdate?: (update: Uint8Array, docType: 'main' | 'images' | 'comments') => void;
   onAwarenessUpdate?: (changes: any) => void;
 }
 
@@ -83,7 +83,7 @@ export class NotesCoordinator {
   async loadNote(noteContent: NoteContent): Promise<void> {
 
     const docs = this.yjsManager.initialize();
-    this.commentsStore.setCommentsMap(docs.commentsMap);
+    this.commentsStore.setCommentsMap(docs.threads, docs.replies, docs.replyContents);
     this.imageStorage?.setImageMap(docs.imagesMap);
     docs.mainDoc.once('afterAllTransactions', () => {
       this.handleMainDocReady(docs, noteContent);
@@ -121,7 +121,14 @@ export class NotesCoordinator {
       this.yjsManager.applyUpdate(noteContent.image_state, 'images', 'loading');
     }
     this.imageStorage?.initializeCacheFromYjs();
+    this.deferCommentLoading(noteContent);
     document.dispatchEvent(new CustomEvent('assets-loaded'));
+  }
+
+  private async deferCommentLoading(noteContent: NoteContent): Promise<void> {
+    if (noteContent.comment_state && noteContent.comment_state.length > 0) {
+      this.yjsManager.applyUpdate(noteContent.comment_state, 'comments', 'loading');
+    }
   }
   /**
    * Create editor view in container
@@ -300,6 +307,7 @@ export class NotesCoordinator {
     return {
       main_doc: Array.from(this.yjsManager.getStateAsUpdate('main')),
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
+      comment_state: Array.from(this.yjsManager.getStateAsUpdate("comments")),
       client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
       title: this.yjsManager.getMetadata("title") || "Untitled",
@@ -398,6 +406,7 @@ export class NotesCoordinator {
     const result: Record<string, { updates: number[]; state_vector: number[] }> = {};
     const mainStateVector = this.yjsManager.getStateVector('main');
     const imageStateVector = this.yjsManager.getStateVector('images');
+    const commentStateVector = this.yjsManager.getStateVector('comments');
     result['main_doc'] = {
       updates: [],
       state_vector: Array.from(mainStateVector)
@@ -405,6 +414,10 @@ export class NotesCoordinator {
     result['image_state'] = {
       updates: [],
       state_vector: Array.from(imageStateVector)
+    };
+    result['comment_state'] = {
+      updates: [],
+      state_vector: Array.from(commentStateVector)
     };
     return result;
   }

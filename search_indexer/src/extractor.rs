@@ -1,8 +1,8 @@
 use super::search_types::{IndexError, IndexResult};
-use quick_xml::Reader;
 use quick_xml::events::Event;
+use quick_xml::Reader;
 use serde_json::Value;
-use yrs::{Doc as YDoc, GetString, Map, Transact, updates::decoder::Decode};
+use yrs::{updates::decoder::Decode, Doc as YDoc, GetString, Map, Transact};
 
 pub struct ContentExtractor {
     yjs_field_name: String,
@@ -65,8 +65,7 @@ impl ContentExtractor {
         let (content, extracted_title) = self.extract_text_from_prosemirror_xml(&xml_string)?;
 
         // Extract comments from YJS document
-        let comments = self.extract_comments_from_ydoc(&ydoc)?;
-
+        let comments = self.extract_comments_from_comment_state(note_content)?;
         // Use JSON title if available, otherwise use extracted title
         let final_title = if json_title != "Untitled Note" {
             json_title
@@ -77,44 +76,62 @@ impl ContentExtractor {
         Ok((content, final_title, comments))
     }
 
-    /// Extract comments from YDoc
-    fn extract_comments_from_ydoc(&self, ydoc: &YDoc) -> IndexResult<Vec<String>> {
+    /// Extract comments from the separate comment_state document
+    fn extract_comments_from_comment_state(
+        &self,
+        note_content: &Value,
+    ) -> IndexResult<Vec<String>> {
         let mut comments = Vec::new();
 
-        // Get comments map
-        let comments_map = ydoc.get_or_insert_map("comments");
-        let txn = ydoc.transact();
+        // Get comment_state bytes
+        let comment_state_array = match note_content.get("comment_state").and_then(|v| v.as_array())
+        {
+            Some(arr) => arr,
+            None => return Ok(comments), // No comments
+        };
 
-        // Iterate through comments
-        for (_key, value) in comments_map.iter(&txn) {
-            // Try to extract text from comment value
-            if let yrs::Out::Any(any) = value {
-                if let Ok(comment_str) = serde_json::to_string(&any) {
-                    // Parse the comment JSON to extract text
-                    if let Ok(comment_json) = serde_json::from_str::<Value>(&comment_str) {
-                        // Extract text based on comment structure
-                        if let Some(text) = comment_json.get("text").and_then(|v| v.as_str()) {
-                            comments.push(text.to_string());
-                        }
-                        // Also check for replies if they exist
-                        if let Some(replies) =
-                            comment_json.get("replies").and_then(|v| v.as_array())
-                        {
-                            for reply in replies {
-                                if let Some(reply_text) = reply.get("text").and_then(|v| v.as_str())
-                                {
-                                    comments.push(reply_text.to_string());
-                                }
-                            }
-                        }
-                    }
+        if comment_state_array.is_empty() {
+            return Ok(comments);
+        }
+
+        let comment_bytes: Vec<u8> = comment_state_array
+            .iter()
+            .filter_map(|v| v.as_u64().map(|n| n as u8))
+            .collect();
+
+        // Create separate YDoc for comments
+        let comment_doc = YDoc::new();
+        comment_doc
+            .transact_mut()
+            .apply_update(
+                yrs::Update::decode_v2(&comment_bytes)
+                    .map_err(|e| IndexError::ParsingError(e.to_string()))?,
+            )
+            .map_err(|e| {
+                IndexError::ParsingError(format!("Failed to apply comment update: {}", e))
+            })?;
+
+        // Get the replyContents map
+        let reply_contents = comment_doc.get_or_insert_map("replyContents");
+        let txn = comment_doc.transact();
+
+        // Extract text from each reply's XML content
+        for (_reply_id, content_value) in reply_contents.iter(&txn) {
+            if let yrs::Out::YXmlFragment(fragment) = content_value {
+                // Get XML string from fragment
+                let xml_string = fragment.get_string(&txn);
+
+                // Reuse existing XML parser - just extract content, ignore title
+                let (comment_text, _) = self.extract_text_from_prosemirror_xml(&xml_string)?;
+
+                if !comment_text.is_empty() {
+                    comments.push(comment_text);
                 }
             }
         }
 
         Ok(comments)
     }
-
     /// Extract text from ProseMirror XML structure
     fn extract_text_from_prosemirror_xml(&self, xml: &str) -> IndexResult<(String, String)> {
         let mut reader = Reader::from_str(xml);
@@ -188,4 +205,3 @@ impl ContentExtractor {
         Ok((content.join(" "), title))
     }
 }
-

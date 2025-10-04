@@ -1,355 +1,446 @@
 import * as Y from "yjs";
-import type {
-  Comment,
-  CommentThread,
-  CommentPosition,
-  UpdateCommentParams,
-  UserInfo
-} from "../../types/notes.types";
+import type { UserInfo, ThreadInfo, Reply, CommentThread } from "../../types/notes.types";
 
+/**
+ * Manages comments using YJS for collaborative editing
+ * Uses separate document with nested YJS types for threads and replies
+ */
 export class CommentsStore {
-  private currentCommentsMap: Y.Map<CommentThread> | null = null;
-  private subscribers: Set<() => void> = new Set();
+  private threads: Y.Map<Y.Map<any>> | null = null;
+  private replies: Y.Map<Y.Array<Y.Map<any>>> | null = null;
+  private replyContents: Y.Map<Y.XmlFragment> | null = null;
   private currentUser: UserInfo | null = null;
-  private mapObserver: ((event: any) => void) | null = null;
+  private observers: Set<() => void> = new Set();
 
   /**
-   * Set the comments map for the current note
+   * Set the YJS maps for comments (threads, replies, and content)
    */
-  setCommentsMap(map: Y.Map<CommentThread>): void {
-    if (this.currentCommentsMap && this.mapObserver) {
-      this.currentCommentsMap.unobserve(this.mapObserver);
+  setCommentsMap(
+    threads: Y.Map<Y.Map<any>>,
+    replies: Y.Map<Y.Array<Y.Map<any>>>,
+    replyContents: Y.Map<Y.XmlFragment>
+  ): void {
+    // Clean up old observers if any
+    if (this.threads) {
+      this.threads.unobserveDeep(this.handleCommentsChange);
+    }
+    if (this.replies) {
+      this.replies.unobserveDeep(this.handleCommentsChange);
+    }
+    if (this.replyContents) {
+      this.replyContents.unobserveDeep(this.handleCommentsChange);
     }
 
-    this.currentCommentsMap = map;
+    this.threads = threads;
+    this.replies = replies;
+    this.replyContents = replyContents;
 
-    this.mapObserver = () => {
-      this.notifySubscribers();
-    };
-    map.observe(this.mapObserver);
-    this.notifySubscribers();
+    // Set up observers
+    this.threads.observeDeep(this.handleCommentsChange);
+    this.replies.observeDeep(this.handleCommentsChange);
+    this.replyContents.observeDeep(this.handleCommentsChange);
   }
 
   /**
-   * Get current comments as array
+   * Handle changes to comments
    */
-  getComments(): CommentThread[] {
-    if (!this.currentCommentsMap) return [];
-
-    const threads: CommentThread[] = [];
-    this.currentCommentsMap.forEach((thread, key) => {
-      threads.push(thread);
-    });
-
-    return threads;
-  }
+  private handleCommentsChange = (): void => {
+    this.notifyObservers();
+  };
 
   /**
-   * Subscribe to comment updates
-   */
-  subscribe(callback: () => void): () => void {
-    this.subscribers.add(callback);
-    return () => this.subscribers.delete(callback);
-  }
-
-  /**
-   * Set current user for operations
+   * Set current user
    */
   setCurrentUser(user: UserInfo): void {
     this.currentUser = user;
   }
 
   /**
-   * Create a new comment thread
+   * Create a new comment thread with initial reply
    */
-  createThread(position: CommentPosition, content: string): string {
-    if (!this.currentUser) {
-      throw new Error("Current user must be set before creating comments");
-    }
-
-    if (!this.currentCommentsMap) {
-      throw new Error("Comments map not initialized");
+  createThread(position: { from: number; to: number }, initialContent: string): string {
+    if (!this.threads || !this.replies || !this.replyContents || !this.currentUser) {
+      throw new Error("CommentsStore not properly initialized");
     }
 
     const threadId = this.generateThreadId();
-    const commentId = this.generateCommentId();
-    const timestamp = Date.now();
+    const replyId = this.generateReplyId();
+    const now = Date.now();
 
-    const comment: Comment = {
-      id: commentId,
-      thread_id: threadId,
-      author: this.currentUser,
-      content,
-      timestamp,
-      resolved: false
-    };
+    // Create thread metadata as Y.Map
+    const threadMap = new Y.Map<any>();
+    threadMap.set("position", position);
+    threadMap.set("createdAt", now);
+    threadMap.set("resolved", false);
 
-    const thread: CommentThread = {
-      id: threadId,
-      comments: [comment],
-      resolved: false,
-      position,
-      created_at: timestamp,
-      updated_at: timestamp
-    };
+    // Create first reply as Y.Map
+    const replyMap = new Y.Map<any>();
+    replyMap.set("id", replyId);
+    replyMap.set("author", this.currentUser.userId);
+    replyMap.set("createdAt", now);
+    replyMap.set("authorName", this.currentUser.name);
+    const readByArray = new Y.Array<string>();
+    readByArray.push([this.currentUser.userId]);
+    replyMap.set("readBy", readByArray);
 
-    this.currentCommentsMap.set(threadId, thread);
+    // Create rich text content for reply
+    const contentFragment = new Y.XmlFragment();
+    const textElement = new Y.XmlText();
+    textElement.insert(0, initialContent);
+
+    const paragraph = new Y.XmlElement('paragraph');
+    paragraph.insert(0, [textElement]);
+    contentFragment.insert(0, [paragraph]);
+
+    // Store everything
+    this.threads.set(threadId, threadMap);
+
+    const repliesArray = new Y.Array<Y.Map<any>>();
+    repliesArray.push([replyMap]);
+    this.replies.set(threadId, repliesArray);
+
+    this.replyContents.set(replyId, contentFragment);
+
     return threadId;
   }
 
   /**
    * Add a reply to an existing thread
    */
-  addComment(threadId: string, content: string): string | null {
-    if (!this.currentUser) {
-      throw new Error("Current user must be set before creating comments");
+  addReply(threadId: string, content: string): string {
+    if (!this.threads || !this.replies || !this.replyContents || !this.currentUser) {
+      throw new Error("CommentsStore not properly initialized");
     }
 
-    if (!this.currentCommentsMap) {
-      throw new Error("Comments map not initialized");
+    const threadMap = this.threads.get(threadId);
+    const repliesArray = this.replies.get(threadId);
+
+    if (!threadMap || !repliesArray) {
+      throw new Error(`Thread ${threadId} not found`);
     }
 
-    const thread = this.currentCommentsMap.get(threadId);
-    if (!thread) {
-      console.error("Thread not found:", threadId);
-      return null;
-    }
+    const replyId = this.generateReplyId();
+    const now = Date.now();
 
-    const commentId = this.generateCommentId();
-    const timestamp = Date.now();
+    // Create reply as Y.Map
+    const replyMap = new Y.Map<any>();
+    replyMap.set("id", replyId);
+    replyMap.set("author", this.currentUser.userId);
+    replyMap.set("createdAt", now);
 
-    const newComment: Comment = {
-      id: commentId,
-      thread_id: threadId,
-      author: this.currentUser,
-      content,
-      timestamp,
-      resolved: false
-    };
+    const readByArray = new Y.Array<string>();
+    readByArray.push([this.currentUser.userId]);
+    replyMap.set("readBy", readByArray);
+    replyMap.set("authorName", this.currentUser.name);
 
-    const updatedThread: CommentThread = {
-      ...thread,
-      comments: [...thread.comments, newComment],
-      updated_at: timestamp
-    };
+    // Create rich text content
+    const contentFragment = new Y.XmlFragment();
+    const textElement = new Y.XmlText();
+    textElement.insert(0, content);
 
-    this.currentCommentsMap.set(threadId, updatedThread);
-    return commentId;
+    const paragraph = new Y.XmlElement('paragraph');
+    paragraph.insert(0, [textElement]);
+    contentFragment.insert(0, [paragraph]);
+
+    // Add to arrays
+    repliesArray.push([replyMap]);
+    this.replyContents.set(replyId, contentFragment);
+
+    return replyId;
   }
 
   /**
-   * Update an existing comment
+   * Mark a thread as read by current user (marks all replies as read)
    */
-  updateComment(threadId: string, commentId: string, updates: UpdateCommentParams): boolean {
-    if (!this.currentCommentsMap) return false;
-
-    const thread = this.currentCommentsMap.get(threadId);
-    if (!thread) {
-      console.error("Thread not found:", threadId);
-      return false;
+  markThreadAsRead(threadId: string): void {
+    if (!this.replies || !this.currentUser) {
+      throw new Error("CommentsStore not properly initialized");
     }
 
-    const commentIndex = thread.comments.findIndex(c => c.id === commentId);
-    if (commentIndex === -1) {
-      console.error("Comment not found:", commentId);
-      return false;
+    const repliesArray = this.replies.get(threadId);
+    if (!repliesArray) {
+      throw new Error(`Thread ${threadId} not found`);
     }
 
-    const updatedComments = [...thread.comments];
-    updatedComments[commentIndex] = {
-      ...updatedComments[commentIndex],
-      ...updates,
-      edited_at: Date.now()
-    };
+    // Mark each reply as read
+    repliesArray.forEach((replyMap) => {
+      const readByArray = replyMap.get("readBy") as Y.Array<string>;
+      const readBy = readByArray.toArray();
 
-    const updatedThread: CommentThread = {
-      ...thread,
-      comments: updatedComments,
-      updated_at: Date.now()
-    };
-
-    this.currentCommentsMap.set(threadId, updatedThread);
-    return true;
-  }
-
-  /**
-   * Resolve or unresolve a thread
-   */
-  resolveThread(threadId: string, resolved: boolean): boolean {
-    if (!this.currentCommentsMap) return false;
-
-    const thread = this.currentCommentsMap.get(threadId);
-    if (!thread) {
-      console.error("Thread not found:", threadId);
-      return false;
-    }
-
-    const updatedThread: CommentThread = {
-      ...thread,
-      resolved,
-      updated_at: Date.now()
-    };
-
-    this.currentCommentsMap.set(threadId, updatedThread);
-    return true;
-  }
-
-  /**
-   * Delete a comment thread
-   */
-  deleteThread(threadId: string): boolean {
-    if (!this.currentCommentsMap) return false;
-
-    const exists = this.currentCommentsMap.has(threadId);
-    if (exists) {
-      this.currentCommentsMap.delete(threadId);
-    }
-    return exists;
-  }
-
-  /**
-   * Get a specific thread
-   */
-  getThread(threadId: string): CommentThread | null {
-    if (!this.currentCommentsMap) return null;
-    return this.currentCommentsMap.get(threadId) || null;
-  }
-
-  /**
-   * Get threads by position range
-   */
-  getThreadsInRange(from: number, to: number): CommentThread[] {
-    return this.getComments().filter(thread => {
-      const pos = thread.position;
-      return pos.from >= from && pos.to <= to;
+      if (!readBy.includes(this.currentUser!.userId)) {
+        readByArray.push([this.currentUser!.userId]);
+      }
     });
   }
 
   /**
-   * Update thread position (for document changes)
+   * Mark a specific reply as read by current user
    */
-  updateThreadPosition(threadId: string, newPosition: CommentPosition): boolean {
-    if (!this.currentCommentsMap) return false;
-
-    const thread = this.currentCommentsMap.get(threadId);
-    if (!thread) {
-      return false;
+  markReplyAsRead(threadId: string, replyId: string): void {
+    if (!this.replies || !this.currentUser) {
+      throw new Error("CommentsStore not properly initialized");
     }
 
-    const updatedThread: CommentThread = {
-      ...thread,
-      position: newPosition,
-      updated_at: Date.now()
-    };
+    const repliesArray = this.replies.get(threadId);
+    if (!repliesArray) {
+      throw new Error(`Thread ${threadId} not found`);
+    }
 
-    this.currentCommentsMap.set(threadId, updatedThread);
-    return true;
+    const replyMap = repliesArray.toArray().find(r => r.get("id") === replyId);
+    if (!replyMap) {
+      throw new Error(`Reply ${replyId} not found in thread ${threadId}`);
+    }
+
+    const readByArray = replyMap.get("readBy") as Y.Array<string>;
+    const readBy = readByArray.toArray();
+
+    if (!readBy.includes(this.currentUser.userId)) {
+      readByArray.push([this.currentUser.userId]);
+    }
   }
 
   /**
-   * Get comment statistics
+   * Get all threads with unread replies for current user
    */
-  getStats(): {
-    totalThreads: number;
-    totalComments: number;
-    resolvedThreads: number;
-    activeThreads: number;
-  } {
-    const threads = this.getComments();
-    const totalThreads = threads.length;
-    const resolvedThreads = threads.filter(t => t.resolved).length;
-    const totalComments = threads.reduce((sum, t) => sum + t.comments.length, 0);
+  getUnreadThreads(): CommentThread[] {
+    if (!this.threads || !this.replies || !this.currentUser) {
+      return [];
+    }
+
+    const unread: CommentThread[] = [];
+
+    this.threads.forEach((threadMap, threadId) => {
+      const repliesArray = this.replies!.get(threadId);
+      if (!repliesArray) return;
+
+      const hasUnread = repliesArray.toArray().some(replyMap => {
+        const readByArray = replyMap.get("readBy") as Y.Array<string>;
+        const readBy = readByArray.toArray();
+        return !readBy.includes(this.currentUser!.userId);
+      });
+
+      if (hasUnread) {
+        const thread = this.buildCommentThread(threadId, threadMap, repliesArray);
+        if (thread) unread.push(thread);
+      }
+    });
+
+    return unread;
+  }
+
+  /**
+   * Get a specific comment thread with all its replies
+   */
+  getThread(threadId: string): CommentThread | null {
+    if (!this.threads || !this.replies) {
+      return null;
+    }
+
+    const threadMap = this.threads.get(threadId);
+    const repliesArray = this.replies.get(threadId);
+
+    if (!threadMap || !repliesArray) {
+      return null;
+    }
+
+    return this.buildCommentThread(threadId, threadMap, repliesArray);
+  }
+
+  /**
+   * Build a CommentThread object from YJS structures
+   */
+  private buildCommentThread(
+    threadId: string,
+    threadMap: Y.Map<any>,
+    repliesArray: Y.Array<Y.Map<any>>
+  ): CommentThread | null {
+    const threadInfo: ThreadInfo = {
+      position: threadMap.get("position"),
+      createdAt: threadMap.get("createdAt"),
+      resolved: threadMap.get("resolved")
+    };
+
+    const replies: Reply[] = repliesArray.toArray().map(replyMap => {
+      const readByArray = replyMap.get("readBy") as Y.Array<string>;
+      return {
+        id: replyMap.get("id"),
+        author: replyMap.get("author"),
+        authorName: replyMap.get("authorName"),
+        createdAt: replyMap.get("createdAt"),
+        readBy: readByArray.toArray()
+      };
+    });
 
     return {
-      totalThreads,
-      totalComments,
-      resolvedThreads,
-      activeThreads: totalThreads - resolvedThreads
+      id: threadId,
+      threadInfo,
+      replies
     };
   }
 
   /**
-   * Check if store is initialized
+   * Get all comment threads
    */
-  isInitialized(): boolean {
-    return this.currentCommentsMap !== null;
-  }
-
-  /**
-   * Clean up resources
-   */
-  destroy(): void {
-    if (this.currentCommentsMap && this.mapObserver) {
-      this.currentCommentsMap.unobserve(this.mapObserver);
+  getAllThreads(): CommentThread[] {
+    if (!this.threads || !this.replies) {
+      return [];
     }
-    this.subscribers.clear();
-    this.currentCommentsMap = null;
-    this.mapObserver = null;
+
+    const threads: CommentThread[] = [];
+
+    this.threads.forEach((threadMap, threadId) => {
+      const repliesArray = this.replies!.get(threadId);
+      if (repliesArray) {
+        const thread = this.buildCommentThread(threadId, threadMap, repliesArray);
+        if (thread) threads.push(thread);
+      }
+    });
+
+    return threads;
   }
 
   /**
-   * Notify all subscribers of changes
+   * Resolve a comment thread
    */
-  private notifySubscribers(): void {
-    this.subscribers.forEach(callback => callback());
+  resolveThread(threadId: string): void {
+    if (!this.threads) {
+      throw new Error("CommentsStore not properly initialized");
+    }
+
+    const threadMap = this.threads.get(threadId);
+    if (!threadMap) {
+      throw new Error(`Thread ${threadId} not found`);
+    }
+
+    threadMap.set("resolved", true);
+  }
+
+  /**
+   * Unresolve a comment thread
+   */
+  unresolveThread(threadId: string): void {
+    if (!this.threads) {
+      throw new Error("CommentsStore not properly initialized");
+    }
+
+    const threadMap = this.threads.get(threadId);
+    if (!threadMap) {
+      throw new Error(`Thread ${threadId} not found`);
+    }
+
+    threadMap.set("resolved", false);
+  }
+
+  /**
+   * Delete a comment thread and all its replies
+   */
+  deleteThread(threadId: string): void {
+    if (!this.threads || !this.replies || !this.replyContents) {
+      throw new Error("CommentsStore not properly initialized");
+    }
+
+    // Get all reply IDs to delete their content
+    const repliesArray = this.replies.get(threadId);
+    if (repliesArray) {
+      repliesArray.toArray().forEach(replyMap => {
+        const replyId = replyMap.get("id");
+        this.replyContents!.delete(replyId);
+      });
+    }
+
+    // Delete thread and replies
+    this.threads.delete(threadId);
+    this.replies.delete(threadId);
+  }
+
+  /**
+   * Get rich text content fragment for a reply
+   */
+  getReplyContent(replyId: string): Y.XmlFragment | null {
+    if (!this.replyContents) {
+      return null;
+    }
+    return this.replyContents.get(replyId) || null;
+  }
+
+  /**
+   * Extract plain text content from a reply
+   */
+  getReplyPlainText(replyId: string): string {
+    const contentFragment = this.getReplyContent(replyId);
+    if (!contentFragment) {
+      return "";
+    }
+
+    let text = "";
+
+    const extractText = (node: Y.XmlElement | Y.XmlText): void => {
+      if (node instanceof Y.XmlText) {
+        text += node.toString();
+      } else if (node instanceof Y.XmlElement) {
+        node.forEach((child) => {
+          extractText(child as Y.XmlElement | Y.XmlText);
+        });
+      }
+    };
+
+    contentFragment.forEach((node) => {
+      extractText(node as Y.XmlElement | Y.XmlText);
+      text += "\n";
+    });
+
+    return text.trim();
+  }
+
+  /**
+   * Subscribe to comment changes
+   */
+  subscribe(callback: () => void): () => void {
+    this.observers.add(callback);
+    return () => {
+      this.observers.delete(callback);
+    };
+  }
+
+  /**
+   * Notify all observers
+   */
+  private notifyObservers(): void {
+    this.observers.forEach((callback) => callback());
   }
 
   /**
    * Generate unique thread ID
    */
   private generateThreadId(): string {
-    return 'thread_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    return `thread-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
 
   /**
-   * Generate unique comment ID
+   * Generate unique reply ID
    */
-  private generateCommentId(): string {
-    return 'comment_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+  private generateReplyId(): string {
+    return `reply-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   }
-  /**
-     * Mark a thread as read for a specific user
-     */
-  markThreadAsRead(threadId: string, userId: string): boolean {
-    if (!this.currentCommentsMap) return false;
 
-    const thread = this.currentCommentsMap.get(threadId);
-    if (!thread) {
-      console.error("Thread not found:", threadId);
-      return false;
+  /**
+   * Clean up
+   */
+  destroy(): void {
+    if (this.threads) {
+      this.threads.unobserveDeep(this.handleCommentsChange);
+    }
+    if (this.replies) {
+      this.replies.unobserveDeep(this.handleCommentsChange);
+    }
+    if (this.replyContents) {
+      this.replyContents.unobserveDeep(this.handleCommentsChange);
     }
 
-    const updatedThread: CommentThread = {
-      ...thread,
-      readBy: {
-        ...thread.readBy,
-        [userId]: true
-      },
-      updated_at: Date.now()
-    };
-
-    this.currentCommentsMap.set(threadId, updatedThread);
-    return true;
-  }
-
-  /**
-   * Check if a thread has been read by a specific user
-   */
-  isThreadReadByUser(threadId: string, userId: string): boolean {
-    if (!this.currentCommentsMap) return false;
-
-    const thread = this.currentCommentsMap.get(threadId);
-    if (!thread) return false;
-
-    return thread.readBy?.[userId] === true;
-  }
-
-  /**
-   * Get unread threads for a specific user
-   */
-  getUnreadThreadsForUser(userId: string): CommentThread[] {
-    return this.getComments().filter(thread =>
-      !thread.resolved && !this.isThreadReadByUser(thread.id, userId)
-    );
+    this.observers.clear();
+    this.threads = null;
+    this.replies = null;
+    this.replyContents = null;
+    this.currentUser = null;
   }
 }

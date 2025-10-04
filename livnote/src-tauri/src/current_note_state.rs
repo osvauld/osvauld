@@ -10,6 +10,7 @@ struct Buffers {
     note_id: Option<String>,
     main_doc: Doc,
     image_doc: Doc,
+    comment_doc: Doc,
     shared_users: Vec<String>,
     active_connections: HashSet<String>,
     inactive_connections: HashSet<String>,
@@ -21,6 +22,7 @@ impl Default for Buffers {
             note_id: None,
             main_doc: Doc::new(),
             image_doc: Doc::new(),
+            comment_doc: Doc::new(),
             shared_users: Vec::new(),
             active_connections: HashSet::new(),
             inactive_connections: HashSet::new(),
@@ -49,11 +51,12 @@ impl CurrentNoteState {
         note_id: Option<String>,
         main_doc_state: Option<Vec<u8>>,
         image_state: Option<Vec<u8>>,
+        comment_state: Option<Vec<u8>>,
     ) {
         // Create new documents
         let mut new_main_doc = Doc::new();
         let mut new_image_doc = Doc::new();
-
+        let mut new_comment_doc = Doc::new();
         // Load main document state if provided
         if let Some(main_state) = main_doc_state {
             if !main_state.is_empty() {
@@ -71,13 +74,19 @@ impl CurrentNoteState {
                 }
             }
         }
-
+        if let Some(comment_state) = comment_state {
+            if !comment_state.is_empty() {
+                if let Err(e) = new_comment_doc.apply_update_v2(&comment_state).await {
+                    error!("Failed to load comment state: {}", e);
+                }
+            }
+        }
         // Update buffers with new documents
         let mut buffers = self.0.lock().await;
         buffers.note_id = note_id.clone();
         buffers.main_doc = new_main_doc;
         buffers.image_doc = new_image_doc;
-
+        buffers.comment_doc = new_comment_doc;
         info!("Current note set to: {:?}", note_id);
     }
 
@@ -100,34 +109,32 @@ impl CurrentNoteState {
         }
 
         // Determine which doc to update based on doc_type
-        let is_image_doc = match doc_type {
-            "images" | "image_state" => true,
-            "main" | "main_doc" | _ => false,
+        let doc_selection = match doc_type {
+            "images" | "image_state" => 1,
+            "comments" | "comment_state" => 2, // ADD THIS
+            "main" | "main_doc" | _ => 0,
         };
 
-        // Clone and apply updates outside the lock
         let mut temp_doc = {
             let buffers = self.0.lock().await;
-            if is_image_doc {
-                buffers.image_doc.clone()
-            } else {
-                buffers.main_doc.clone()
+            match doc_selection {
+                1 => buffers.image_doc.clone(),
+                2 => buffers.comment_doc.clone(), // ADD THIS
+                _ => buffers.main_doc.clone(),
             }
         };
 
-        // Apply updates to the temporary doc (no lock held here)
         if let Err(e) = temp_doc.apply_update_v2(&new_updates).await {
             error!("Failed to apply updates to {} document: {}", doc_type, e);
             return;
         }
 
-        // Quick swap with minimal lock time
         {
             let mut buffers = self.0.lock().await;
-            if is_image_doc {
-                buffers.image_doc = temp_doc;
-            } else {
-                buffers.main_doc = temp_doc;
+            match doc_selection {
+                1 => buffers.image_doc = temp_doc,
+                2 => buffers.comment_doc = temp_doc, // ADD THIS
+                _ => buffers.main_doc = temp_doc,
             }
         }
     }
@@ -148,15 +155,20 @@ impl CurrentNoteState {
 
     // Simplified get_state_vectors
     pub async fn get_state_vectors(&self) -> Result<String, String> {
-        let (main_doc, image_doc) = {
+        let (main_doc, image_doc, comment_doc) = {
             let buffers = self.0.lock().await;
-            (buffers.main_doc.clone(), buffers.image_doc.clone())
+            (
+                buffers.main_doc.clone(),
+                buffers.image_doc.clone(),
+                buffers.comment_doc.clone(),
+            ) // ADD comment_doc
         };
 
         let mut result = serde_json::Map::new();
 
         Self::get_doc_state_vector(&main_doc, "main_doc", &mut result).await?;
         Self::get_doc_state_vector(&image_doc, "image_state", &mut result).await?;
+        Self::get_doc_state_vector(&comment_doc, "comment_state", &mut result).await?; // ADD THIS
 
         serde_json::to_string(&result)
             .map_err(|e| format!("Failed to serialize state vectors: {}", e))

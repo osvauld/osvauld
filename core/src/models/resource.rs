@@ -273,7 +273,7 @@ impl ResourceType {
     /// Returns the document state keys that this resource type uses
     pub fn document_state_keys(&self) -> Vec<&'static str> {
         match self {
-            ResourceType::Notes => vec!["main_doc", "image_state"],
+            ResourceType::Notes => vec!["main_doc", "image_state", "comment_state"],
             ResourceType::Chat => vec!["chat", "image_state"],
             ResourceType::Default => vec!["yjs_state"],
         }
