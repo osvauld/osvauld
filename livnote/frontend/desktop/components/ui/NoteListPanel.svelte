@@ -85,7 +85,7 @@
 	<div
 		class="relative ml-auto shrink-0 gap-2 flex justify-end items-center text-base"
 	>
-		{#if dataState.currentVault.id !== "all"}
+		{#if dataState.currentVault.id !== "all" && dataState.currentVault.default !== true}
 			<button
 				class="rounded-lg p-2 text-sm font-semibold flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				onclick={() => (showShareFolderList = true)}
