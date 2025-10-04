@@ -9,7 +9,7 @@
 	import "./schema/editorCustomStyles.css"; // Import the new CSS file
 	import "./setup/tableStyles.css";
 	import "./prosemirror-search.css";
-  import "./mathStyles.css";
+	import "./mathStyles.css";
 	import type { SearchManager } from "./SearchManager";
 	import SearchBox from "./SearchBox.svelte";
 	import { placeCursorAtEnd } from "./utils/prosemirror-helpers";
@@ -421,6 +421,7 @@
 		font-size: 16px;
 		position: absolute;
 		top: 50%;
+		left: 0;
 		transform: translateY(-50%);
 	}
 
