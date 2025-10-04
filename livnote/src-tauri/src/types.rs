@@ -173,18 +173,12 @@ pub struct ShareFolder {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SavePassphraseResponse {
-    pub signature: String,
-    pub username: String,
-    pub public_key: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderResponse {
     pub id: String,
     pub name: String,
     pub description: String,
+    pub default: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
