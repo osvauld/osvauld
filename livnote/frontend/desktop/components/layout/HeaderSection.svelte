@@ -145,7 +145,7 @@
 			{/if}
 		</div>
 		<button
-			class="flex items-center gap-2 text-textActive border border-borderActive rounded-lg px-5 py-2 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+			class="flex items-center gap-2 rounded-lg px-5 py-2 border border-livnotePink text-livnotePink hover:bg-livnotePink hover:text-primarydark cursor-pointer"
 			aria-label="Open Connect user modal"
 			aria-haspopup="dialog"
 			aria-controls="connect-user-modal"
