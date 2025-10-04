@@ -81,15 +81,15 @@ export class NotesCoordinator {
    * Load existing note
    */
   async loadNote(noteContent: NoteContent): Promise<void> {
-
     const docs = this.yjsManager.initialize();
     this.commentsStore.setCommentsMap(docs.threads, docs.replies, docs.replyContents);
     this.imageStorage?.setImageMap(docs.imagesMap);
+    
     docs.mainDoc.once('afterAllTransactions', () => {
       this.handleMainDocReady(docs, noteContent);
     });
+    
     this.yjsManager.applyUpdate(noteContent.main_doc, 'main', 'loading');
-
   }
 
   private handleMainDocReady(docs: any, noteContent: NoteContent): void {
@@ -97,15 +97,14 @@ export class NotesCoordinator {
     const title = this.yjsManager.getMetadata("title") || "Untitled";
     dataState.currentNoteTitle = title;
     const plugins = this.createEditorPlugins(docs);
-    console.log(noteContent);
     const prosemirrorDoc = initProseMirrorDoc(docs.type, this.schema);
     this.editorManager.initializeState(prosemirrorDoc.doc, plugins);
+    
     document.dispatchEvent(new CustomEvent('editor-view-ready', {
       detail: {
         getEditorManager: () => this.editorManager,
         getSearchManager: () => this.searchManager
       }
-
     }));
     document.dispatchEvent(new CustomEvent('comments-store-ready', {
       detail: { commentsStore: this.commentsStore }
@@ -114,7 +113,10 @@ export class NotesCoordinator {
     // Sync collaborators after note is loaded
     this.yjsManager.syncCollaboratorsToDataState();
 
-    this.deferImageLoading(noteContent);
+    // Defer image loading to next event loop - makes editor appear instantly
+    setTimeout(() => {
+      this.deferImageLoading(noteContent);
+    }, 0);
   }
   private async deferImageLoading(noteContent: NoteContent): Promise<void> {
     if (noteContent.image_state && noteContent.image_state.length > 0) {
@@ -307,7 +309,7 @@ export class NotesCoordinator {
     return {
       main_doc: Array.from(this.yjsManager.getStateAsUpdate('main')),
       image_state: Array.from(this.yjsManager.getStateAsUpdate('images')),
-      comment_state: Array.from(this.yjsManager.getStateAsUpdate("comments")),
+      comment_state: Array.from(this.yjsManager.getStateAsUpdate('comments')),
       client_id: this.userInfo.id.toString(),
       last_modified: Date.now(),
       title: this.yjsManager.getMetadata("title") || "Untitled",

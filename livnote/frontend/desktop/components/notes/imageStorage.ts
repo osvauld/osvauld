@@ -39,6 +39,8 @@ export class ImageStorageService {
    * Initialize cache from YJS map (called after YJS state is applied)
    */
   initializeCacheFromYjs(): void {
+    if (!this.imagesMap) return;
+    
     this.imageCache.clear();
     this.imagesMap.forEach((asset, id) => {
       this.imageCache.set(id, asset.data);
@@ -49,6 +51,10 @@ export class ImageStorageService {
    * Store an image in YJS map
    */
   async storeImage(base64Data: string, mimeType: string, filename?: string): Promise<string> {
+    if (!this.imagesMap) {
+      throw new Error("Image map not initialized");
+    }
+    
     const imageId = this.generateImageId();
     const dimensions = await this.extractImageDimensions(base64Data);
 
@@ -74,6 +80,8 @@ export class ImageStorageService {
    * Get image metadata by ID
    */
   getImageMetadata(imageId: string): ImageMetadata | null {
+    if (!this.imagesMap) return null;
+    
     const asset = this.imagesMap.get(imageId);
     if (!asset) return null;
 
@@ -89,6 +97,8 @@ export class ImageStorageService {
       return this.imageCache.get(imageId)!;
     }
 
+    if (!this.imagesMap) return null;
+    
     const asset = this.imagesMap.get(imageId);
     if (asset && asset.data) {
       this.imageCache.set(imageId, asset.data);
@@ -102,6 +112,8 @@ export class ImageStorageService {
    * Delete an image
    */
   deleteImage(imageId: string): void {
+    if (!this.imagesMap) return;
+    
     this.imagesMap.delete(imageId);
     this.imageCache.delete(imageId);
   }
@@ -110,6 +122,8 @@ export class ImageStorageService {
    * Get all image IDs
    */
   getAllImageIds(): string[] {
+    if (!this.imagesMap) return [];
+    
     return Array.from(this.imagesMap.keys());
   }
 
@@ -118,9 +132,11 @@ export class ImageStorageService {
    * Handle updates to the images map
    */
   private handleImageMapUpdate(event: Y.YMapEvent<ImageAsset>) {
+    if (!this.imagesMap) return;
+    
     event.changes.keys.forEach((change, key) => {
       if (change.action === 'add' || change.action === 'update') {
-        const asset = this.imagesMap.get(key);
+        const asset = this.imagesMap!.get(key);
         if (asset) {
           this.imageCache.set(key, asset.data);
           document.dispatchEvent(new CustomEvent('image-data-available', {
