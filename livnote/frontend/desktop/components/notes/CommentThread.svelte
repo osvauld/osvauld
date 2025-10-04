@@ -43,23 +43,6 @@
 	const additionalReplies = $derived(thread.replies.slice(1));
 	const previewText = $derived(getPreviewText());
 
-	// Get author name from userId
-	function getAuthorName(userId: string): string {
-		// Check if it's current user
-		if (dataState.userDetails?.userId === userId) {
-			return dataState.userDetails.username;
-		}
-
-		// Check collaborators
-		const collaborator = dataState.collaborators.find((c) => c.id === userId);
-		if (collaborator) {
-			return collaborator.name;
-		}
-
-		// Fallback to userId or "Unknown"
-		return userId || "Unknown";
-	}
-
 	function getPreviewText(): string {
 		// Get the text that was commented on from the document position
 		try {
@@ -265,7 +248,7 @@
 							<div class="flex justify-start items-center gap-2">
 								<span
 									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder"
-									>{mainReply.authorName.charAt(0).toUpperCase()}</span
+									>{reply.authorName.charAt(0).toUpperCase()}</span
 								>
 								<div class="flex flex-col items-start">
 									<span
