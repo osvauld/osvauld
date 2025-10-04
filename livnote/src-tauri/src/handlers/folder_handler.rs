@@ -52,6 +52,7 @@ pub async fn handle_get_folders(
             id: folder.id,
             name: folder.name,
             description: folder.description.unwrap_or_default(),
+            default: folder.default_folder,
         })
         .collect();
 
