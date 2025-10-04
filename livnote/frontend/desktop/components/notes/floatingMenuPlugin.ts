@@ -1,6 +1,6 @@
-import { Plugin, PluginKey } from "prosemirror-state";
+import { Plugin, PluginKey, EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
-import { Schema, Mark } from "prosemirror-model";
+import { Schema, Mark, Node as ProseMirrorNode } from "prosemirror-model";
 import { toggleMark } from "prosemirror-commands";
 import { Decoration, DecorationSet } from "prosemirror-view";
 import { NodeSelection } from "prosemirror-state";
@@ -467,6 +467,33 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
     }
   }
 
+  // Check if selection spans multiple block nodes
+  function isMultiNodeSelection(state: EditorState, from: number, to: number): boolean {
+    let textblockCount = 0;
+    const seenPositions = new Set<number>();
+    
+    state.doc.nodesBetween(from, to, (node: ProseMirrorNode, pos: number) => {
+      // Only count textblock nodes (paragraphs, headings, list items, code blocks, etc.)
+      // These are the block-level nodes that actually contain text content
+      if (node.isTextblock) {
+        // Use position to track unique textblocks (avoid counting same node multiple times)
+        if (!seenPositions.has(pos)) {
+          seenPositions.add(pos);
+          textblockCount++;
+          
+          // If we've found more than one textblock, we can stop
+          if (textblockCount > 1) {
+            return false; // Stop iteration
+          }
+        }
+      }
+      // Continue traversing into container blocks
+      return true;
+    });
+    
+    return textblockCount > 1;
+  }
+
   // Position the menu near the selection
   function positionMenu(editorView: EditorView) {
     if (!menu) return;
@@ -493,6 +520,12 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
       return;
     }
     if (selection instanceof NodeSelection) {
+      hideMenu();
+      return;
+    }
+
+    // Block floating menu for multi-node selections
+    if (isMultiNodeSelection(state, from, to)) {
       hideMenu();
       return;
     }
