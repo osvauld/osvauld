@@ -1,0 +1,61 @@
+name: Report a bug
+description: Things not working as expected
+labels: []
+body:
+    - type: markdown
+      attributes:
+          value: |
+              **Checklist**
+              1. You've searched existing [issues](https://github.com/osvauld/osvauld/issues) and [discussions](https://github.com/orgs/osvauld/discussions)
+             
+    - type: textarea
+      attributes:
+          label: Description
+          description: Describe the bug you're experiencing. Include what you expected to happen and what actually happened.
+      validations:
+          required: true
+          
+    - type: input
+      attributes:
+          label: Version
+          description: The version can be seen at the bottom of settings.
+          placeholder: e.g. v0.0.1
+      validations:
+          required: true
+          
+    - type: dropdown
+      attributes:
+          label: What product are you using?
+          description: You can select multiple if needed.
+          multiple: true
+          options:
+              - Livnote
+              - Password manager
+              - Limot
+              - Other
+      validations:
+          required: true
+
+    - type: dropdown
+      attributes:
+          label: What platform are you using?
+          description: You can select multiple if needed.
+          multiple: true
+          options:
+              - Desktop - Linux
+              - Desktop - Windows
+              - Desktop - macOS
+      validations:
+          required: true
+          
+    - type: input
+      attributes:
+          label: OS Details
+          description: Specify your exact OS version
+          placeholder: e.g. Ubuntu 22.04 LTS
+      validations:
+          required: false
+          
+    - type: markdown
+      attributes:
+          value: Thank you! ❤️

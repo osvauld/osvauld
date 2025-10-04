@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or Discussion
+    url: https://github.com/osvauld/osvauld/discussions
+    about: Please use GitHub Discussions for questions, help, and general discussions
+  - name: Security Vulnerability
+    url: https://github.com/osvauld/osvauld/security/advisories/new
+    about: Please report security vulnerabilities privately through GitHub Security Advisories
+
