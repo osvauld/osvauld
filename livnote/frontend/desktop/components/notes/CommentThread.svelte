@@ -1,7 +1,8 @@
 <script lang="ts">
-	import type { CommentThread, Comment } from "../../types/notes.types";
+	import type { CommentThread, Reply } from "../../types/notes.types";
 	import { ReplyIcon } from "@osvauld/icons";
 	import { dataState } from "../../state";
+
 	// Props
 	interface Props {
 		thread: CommentThread;
@@ -26,12 +27,38 @@
 	let replyText = $state("");
 	let isAddingReply = $state(false);
 	let replyFormRef = $state<HTMLDivElement>();
+	let commentsStore: any = null;
+
+	// Get commentsStore reference
+	$effect(() => {
+		const coordinator = dataState.getNotesCoordinator();
+		commentsStore = coordinator?.getCommentsStore();
+	});
 
 	// Derived values
-	const commentCount = $derived(thread.comments.length - 1);
-	const mainComment = $derived(thread.comments[0]);
-	const replies = $derived(thread.comments.slice(1));
+	const replyCount = $derived(
+		thread.replies.length > 1 ? thread.replies.length - 1 : 0,
+	);
+	const mainReply = $derived(thread.replies[0]);
+	const additionalReplies = $derived(thread.replies.slice(1));
 	const previewText = $derived(getPreviewText());
+
+	// Get author name from userId
+	function getAuthorName(userId: string): string {
+		// Check if it's current user
+		if (dataState.userDetails?.userId === userId) {
+			return dataState.userDetails.username;
+		}
+
+		// Check collaborators
+		const collaborator = dataState.collaborators.find((c) => c.id === userId);
+		if (collaborator) {
+			return collaborator.name;
+		}
+
+		// Fallback to userId or "Unknown"
+		return userId || "Unknown";
+	}
 
 	function getPreviewText(): string {
 		// Get the text that was commented on from the document position
@@ -39,11 +66,11 @@
 			const coordinator = dataState.getNotesCoordinator();
 			const editorView = coordinator?.getEditorView();
 
-			if (editorView && thread.position) {
+			if (editorView && thread.threadInfo.position) {
 				const doc = editorView.state.doc;
 				const text = doc.textBetween(
-					thread.position.from,
-					thread.position.to,
+					thread.threadInfo.position.from,
+					thread.threadInfo.position.to,
 					" ",
 				);
 				return text.substring(0, 50) + (text.length > 50 ? "..." : "");
@@ -52,6 +79,11 @@
 			console.warn("Could not get preview text:", error);
 		}
 		return "Text excerpt";
+	}
+
+	function getReplyContent(replyId: string): string {
+		if (!commentsStore) return "";
+		return commentsStore.getReplyPlainText(replyId);
 	}
 
 	function sanitize(text: string): string {
@@ -70,7 +102,7 @@
 	function handleThreadClick() {
 		// Highlight corresponding text in editor
 		const highlightTextEvent = new CustomEvent("highlight-comment-text", {
-			detail: { threadId: thread.id, position: thread.position },
+			detail: { threadId: thread.id, position: thread.threadInfo.position },
 		});
 		document.dispatchEvent(highlightTextEvent);
 
@@ -83,11 +115,11 @@
 		if (!trimmedReply) return;
 
 		try {
-			let coordinator = dataState.getNotesCoordinator();
-			let commentService = coordinator?.getCommentsStore();
-			commentService?.addComment(thread.id, sanitize(trimmedReply));
-			replyText = "";
-			isAddingReply = false;
+			if (commentsStore) {
+				commentsStore.addReply(thread.id, sanitize(trimmedReply));
+				replyText = "";
+				isAddingReply = false;
+			}
 		} catch (error) {
 			console.error("Error adding reply:", error);
 		}
@@ -128,7 +160,7 @@
 <div
 	class="group rounded-md overflow-hidden transition-all duration-75 hover:bg-osvauld-frameblack hover:border-osvauld-defaultBorder {isSelected
 		? 'bg-osvauld-frameblack border-osvauld-defaultBorder'
-		: ''} {thread.resolved ? 'opacity-70' : ''} {isHighlighted
+		: ''} {thread.threadInfo.resolved ? 'opacity-70' : ''} {isHighlighted
 		? 'animate-pulse'
 		: ''}"
 >
@@ -142,14 +174,14 @@
 			<div class="flex justify-start items-center gap-2">
 				<span
 					class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder group-hover:border-osvauld-sideListTextActive group-hover:text-osvauld-sideListTextActive transition-all duration-75"
-					>{mainComment.author.name.charAt(0).toUpperCase()}</span
+					>{getAuthorName(mainReply.author).charAt(0).toUpperCase()}</span
 				>
 				<div class="flex flex-col items-start">
 					<span class="capitalize text-white text-sm font-medium tracking-wider"
-						>{mainComment.author.name}</span
+						>{getAuthorName(mainReply.author)}</span
 					>
 					<span class="text-xs text-statusColor"
-						>{formatTimestamp(mainComment.timestamp)}</span
+						>{formatTimestamp(mainReply.createdAt)}</span
 					>
 				</div>
 			</div>
@@ -165,18 +197,19 @@
 					? 'whitespace-normal overflow-visible text-ellipsis-clip break-words'
 					: ''}"
 			>
-				<span>{mainComment.content}</span>
+				<span>{getReplyContent(mainReply.id)}</span>
 			</div>
-			{#if commentCount > 1}
+			{#if replyCount > 0}
 				<div class="text-xs text-statusColor">
-					{commentCount} replies
+					{replyCount}
+					{replyCount === 1 ? "reply" : "replies"}
 				</div>
 			{/if}
 		</div>
 		<div
 			class="absolute top-3 right-2 flex items-start gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
 		>
-			{#if thread.resolved}
+			{#if thread.threadInfo.resolved}
 				<button
 					class="p-1 border-none bg-transparent text-commentUnresolve cursor-pointer rounded-sm flex items-center justify-center transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive"
 					title="Mark as unresolved"
@@ -225,29 +258,29 @@
 
 	{#if isExpanded}
 		<div class="p-2 border-t border-osvauld-defaultBorder text-xs">
-			{#if replies.length > 0}
+			{#if additionalReplies.length > 0}
 				<div class="mt-3 ml-2 pl-1 border-l border-osvauld-defaultBorder">
-					{#each replies as reply (reply.id)}
+					{#each additionalReplies as reply (reply.id)}
 						<div class="mb-3 pl-2 border-b border-osvauld-defaultBorder">
 							<div class="flex justify-start items-center gap-2">
 								<span
 									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder"
-									>{mainComment.author.name.charAt(0).toUpperCase()}</span
+									>{getAuthorName(reply.author).charAt(0).toUpperCase()}</span
 								>
 								<div class="flex flex-col items-start">
 									<span
 										class="capitalize text-white text-sm font-medium tracking-wider"
-										>{reply.author.name}</span
+										>{getAuthorName(reply.author)}</span
 									>
 									<span class="text-xs text-statusColor"
-										>{formatTimestamp(reply.timestamp)}</span
+										>{formatTimestamp(reply.createdAt)}</span
 									>
 								</div>
 							</div>
 							<div
 								class="text-[13px] text-white leading-relaxed my-2 break-words"
 							>
-								{reply.content}
+								{getReplyContent(reply.id)}
 							</div>
 						</div>
 					{/each}

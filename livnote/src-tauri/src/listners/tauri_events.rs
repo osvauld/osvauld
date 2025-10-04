@@ -237,7 +237,7 @@ impl EventManager {
                 match new_note_id {
                     None => {
                         // No new note, just reset state
-                        note_state.set_current_note(None, None, None).await;
+                        note_state.set_current_note(None, None, None, None).await;
                     }
                     Some(note_id) => {
                         // Clear previous shared users
@@ -269,12 +269,16 @@ impl EventManager {
                                 let image_state =
                                     decrypted_resource.get_document_state("image_state");
 
+                                let comment_state =
+                                    decrypted_resource.get_document_state("comment_state");
+
                                 // Set the current note with its document states
                                 note_state
                                     .set_current_note(
                                         Some(note_id.clone()),
                                         main_doc_state,
                                         image_state,
+                                        comment_state,
                                     )
                                     .await;
 
@@ -284,7 +288,7 @@ impl EventManager {
                                 error!("Failed to load resource {}: {}", note_id, e);
                                 // Still set the note ID even if loading failed
                                 note_state
-                                    .set_current_note(Some(note_id.clone()), None, None)
+                                    .set_current_note(Some(note_id.clone()), None, None, None)
                                     .await;
                             }
                         }

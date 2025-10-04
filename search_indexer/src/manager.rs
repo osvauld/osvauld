@@ -391,3 +391,4 @@ pub fn create_search_index(app_data_dir: &Path, yjs_field_name: String) -> Index
     SearchIndexManager::new(app_data_dir, yjs_field_name)
 }
 
+

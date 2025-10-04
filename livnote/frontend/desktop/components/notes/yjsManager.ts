@@ -10,19 +10,22 @@ import { dataState } from "../../state";
 export interface YjsDocuments {
   mainDoc: Y.Doc;
   imageDoc: Y.Doc;
+  commentDoc: Y.Doc;
   type: Y.XmlFragment;
-  commentsMap: Y.Map<CommentThread>;
+  threads: Y.Map<Y.Map<any>>;
+  replies: Y.Map<Y.Array<Y.Map<any>>>;
+  replyContents: Y.Map<Y.XmlFragment>;
   imagesMap: Y.Map<ImageAsset>;
   metadata: Y.Map<any>;
   awareness: Awareness;
 }
 
+
 export interface YjsManagerConfig {
   clientId: number;
-  onUpdate?: (update: Uint8Array, origin: any, docType: 'main' | 'images') => void;
+  onUpdate?: (update: Uint8Array, origin: any, docType: 'main' | 'images' | 'comments') => void;  // CHANGED
   onAwarenessChange?: (changes: any, origin: string) => void;
 }
-
 /**
  * Manages YJS document lifecycle and synchronization
  * Separated from ProseMirror concerns
@@ -49,9 +52,15 @@ export class YjsManager {
       gc: true,
       gcFilter: () => false
     });
+    const commentDoc = new Y.Doc({
+      gc: true,
+      gcFilter: () => false
+    });
 
     const type = mainDoc.getXmlFragment("prosemirror");
-    const commentsMap = mainDoc.getMap<CommentThread>("comments");
+    const threads = commentDoc.getMap<Y.Map<any>>("threads");
+    const replies = commentDoc.getMap<Y.Array<Y.Map<any>>>("replies");
+    const replyContents = commentDoc.getMap<Y.XmlFragment>("replyContents");
     const metadata = mainDoc.getMap("metadata");
     const imagesMap = imageDoc.getMap<ImageAsset>("images");
     const awareness = new Awareness(mainDoc);
@@ -68,6 +77,11 @@ export class YjsManager {
         }
       });
     }
+    commentDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+      if (origin !== "sync" && origin !== "loading") {
+        this.config.onUpdate!(update, origin, "comments");
+      }
+    });
 
     if (this.config.onAwarenessChange) {
       awareness.on('change', async (changes: { added: number[], updated: number[], removed: number[] }, origin: string) => {
@@ -91,17 +105,18 @@ export class YjsManager {
         this.syncCollaboratorsToDataState();
       });
     }
-
     this.documents = {
       mainDoc,
       imageDoc,
+      commentDoc,
       type,
-      commentsMap,
+      threads,
+      replies,
+      replyContents,
       imagesMap,
       metadata,
       awareness
     };
-
     return this.documents;
   }
 
@@ -132,17 +147,6 @@ export class YjsManager {
     });
   }
   /**
-   * Get state vector v2 for synchronization
-   * @param docType - Which document to get state vector from ('main' or 'images')
-   * @returns State vector as Uint8Array
-   */
-  getStateVector(docType: 'main' | 'images' = 'main'): Uint8Array {
-    if (!this.documents) return new Uint8Array();
-
-    const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
-    return Y.encodeStateVector(targetDoc);
-  }
-  /**
    * Get or set metadata
    */
   getMetadata(key: string): any {
@@ -153,25 +157,43 @@ export class YjsManager {
     this.documents?.metadata.set(key, value);
   }
 
-  /**
-   * Apply updates from remote
-   */
-  applyUpdate(update: Uint8Array | number[], docType: 'main' | 'images' = 'main', origin: any = 'sync'): void {
-    if (!this.documents) return;
+  getStateVector(docType: 'main' | 'images' | 'comments' = 'main'): Uint8Array {
+    const targetDoc = this.getTargetDoc(docType);
+    if (!targetDoc) return new Uint8Array();
+
+    return Y.encodeStateVector(targetDoc);
+  }
+
+  applyUpdate(update: Uint8Array | number[], docType: 'main' | 'images' | 'comments' = 'main', origin: any = 'sync'): void {
+    const targetDoc = this.getTargetDoc(docType);
+    if (!targetDoc) return;
+
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
-    const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
     Y.applyUpdateV2(targetDoc, updateArray, origin);
   }
-  /**
-   * Get state as update
-   */
-  getStateAsUpdate(docType: 'main' | 'images' = 'main'): Uint8Array {
-    if (!this.documents) return new Uint8Array();
 
-    const targetDoc = docType === 'images' ? this.documents.imageDoc : this.documents.mainDoc;
+  getStateAsUpdate(docType: 'main' | 'images' | 'comments' = 'main'): Uint8Array {
+    const targetDoc = this.getTargetDoc(docType);
+    if (!targetDoc) return new Uint8Array();
+
     return Y.encodeStateAsUpdateV2(targetDoc);
   }
+  /**
+   * Get target document based on type
+   */
+  private getTargetDoc(docType: 'main' | 'images' | 'comments'): Y.Doc | null {
+    if (!this.documents) return null;
 
+    switch (docType) {
+      case 'images':
+        return this.documents.imageDoc;
+      case 'comments':
+        return this.documents.commentDoc;
+      case 'main':
+      default:
+        return this.documents.mainDoc;
+    }
+  }
   /**
    * Apply awareness update from remote clients
    */

@@ -11,23 +11,21 @@ const editorSchema = new Schema({
   marks: schema.spec.marks,
 });
 
-
-
 export function createEmptyNoteContent(clientId: number, username?: string, title?: string): NoteContent {
   // Create temporary YJS documents
   const tempYDoc = new Y.Doc();
-  const tempType = tempYDoc.getXmlFragment('prosemirror');
 
   // Create separate image doc
   const tempImageDoc = new Y.Doc();
 
-  // Initialize empty ProseMirror document
-  const prosemirrorDoc = initProseMirrorDoc(tempType, editorSchema);
+  // Create separate comment doc
+  const tempCommentDoc = new Y.Doc();
 
   // Create note content
   const noteContent: NoteContent = {
     main_doc: Array.from(Y.encodeStateAsUpdateV2(tempYDoc)),
-    image_state: Array.from(Y.encodeStateAsUpdateV2(tempImageDoc)), // Separate image doc
+    image_state: Array.from(Y.encodeStateAsUpdateV2(tempImageDoc)),
+    comment_state: Array.from(Y.encodeStateAsUpdateV2(tempCommentDoc)),
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title: title || "Untitled",
@@ -36,7 +34,9 @@ export function createEmptyNoteContent(clientId: number, username?: string, titl
   // Clean up temporary docs
   tempYDoc.destroy();
   tempImageDoc.destroy();
+  tempCommentDoc.destroy();
 
   return noteContent;
 }
+
 
