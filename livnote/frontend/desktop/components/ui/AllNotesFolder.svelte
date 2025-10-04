@@ -29,16 +29,6 @@
 	const isSelected = $derived(dataState.currentVault.id === "all");
 </script>
 
-<style>
-	/* Ensure proper text truncation in flex containers */
-	.folder-name {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 100%;
-	}
-</style>
-
 <div class="select-none">
 	<!-- All Notes folder header -->
 	<div
@@ -62,7 +52,7 @@
 
 			<!-- All Notes name -->
 			<span
-				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 folder-name"
+				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
 				title="All Notes"
 			>
 				All Notes

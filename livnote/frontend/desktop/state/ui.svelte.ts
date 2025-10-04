@@ -146,7 +146,7 @@ class UIState {
       this.showNavigationPanel = true;
       this.isNavigationPanelManuallyToggled = false;
       // Reset the CSS custom property for editor width
-      document.documentElement.style.setProperty("--min-editor-width", "900px");
+      document.documentElement.style.setProperty("--min-editor-width", `${this.MIN_EDITOR_WIDTH}px`);
     }
   }
 

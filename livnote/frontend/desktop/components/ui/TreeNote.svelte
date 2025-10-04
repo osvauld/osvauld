@@ -31,16 +31,6 @@
 	const isActiveState = $derived(isSelected || isHovered);
 </script>
 
-<style>
-	/* Ensure proper text truncation in flex containers */
-	.note-title {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 100%;
-	}
-</style>
-
 <div class="pl-1.5 my-1">
 	<button
 		class="w-full flex items-center gap-3 p-2.5 rounded-lg transition-colors duration-150 min-w-0
@@ -65,9 +55,9 @@
 		</span>
 
 		<!-- Note title -->
-		<span 
-			class="flex-1 text-left text-sm font-light min-w-0 note-title"
-			title="{note.title || 'Untitled'}"
+		<span
+			class="flex-1 text-left text-sm font-light min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+			title={note.title || "Untitled"}
 		>
 			{note.title || "Untitled"}
 		</span>

@@ -27,16 +27,6 @@
 	};
 </script>
 
-<style>
-	/* Ensure proper text truncation for folder title */
-	.folder-title {
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		max-width: 100%;
-	}
-</style>
-
 <div class="py-3 pr-4 flex items-center justify-start shrink-0">
 	<!-- <div class="relative shrink-0">
 		<button
@@ -64,13 +54,13 @@
 	<div class="mr-auto flex items-center gap-6 text-base min-w-0 flex-1">
 		<!-- Current folder title -->
 		<div
-			class="text-[26px] text-osvauld-sideListTextActive font-light leading-6 capitalize min-w-0 max-w-full folder-title"
+			class="text-[26px] text-osvauld-sideListTextActive font-light leading-6 capitalize min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
 			aria-label="Current folder: {dataState.currentVault.id === 'all'
 				? 'All Notes'
 				: dataState.currentVault.name}"
-			title="{dataState.currentVault.id === 'all'
-				? 'All Notes'
-				: dataState.currentVault.name}"
+			title={dataState.currentVault.id === "all"
+				? "All Notes"
+				: dataState.currentVault.name}
 		>
 			{dataState.currentVault.id === "all"
 				? "All Notes"
