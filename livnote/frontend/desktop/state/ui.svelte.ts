@@ -139,6 +139,15 @@ class UIState {
     } else {
       this.noteViewLayout = !this.noteViewLayout;
     }
+    
+    // When switching back to folder view (noteViewLayout = false), 
+    // automatically show the navigation panel and reset manual toggle state
+    if (!this.noteViewLayout) {
+      this.showNavigationPanel = true;
+      this.isNavigationPanelManuallyToggled = false;
+      // Reset the CSS custom property for editor width
+      document.documentElement.style.setProperty("--min-editor-width", `${this.MIN_EDITOR_WIDTH}px`);
+    }
   }
 
   toggleProfileViewLayout(show?: boolean) {

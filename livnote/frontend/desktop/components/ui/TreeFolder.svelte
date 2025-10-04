@@ -144,7 +144,7 @@
 			: 'text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-2"
 	>
 		<div
-			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 min-w-0"
 			role="treeitem"
 			aria-expanded={isExpanded}
 			aria-selected={isSelected}
@@ -171,7 +171,8 @@
 
 			<!-- Folder name -->
 			<span
-				class="flex-1 truncate text-left text-sm font-light select-none cursor-default"
+				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+				title={folder.id === "all" ? "All Notes" : folder.name}
 			>
 				{folder.name}
 			</span>

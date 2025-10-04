@@ -37,7 +37,7 @@
 			: 'text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg px-2 py-3"
 	>
 		<div
-			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 min-w-0"
 			role="treeitem"
 			aria-selected={isSelected}
 			tabindex="0"
@@ -52,7 +52,8 @@
 
 			<!-- All Notes name -->
 			<span
-				class="flex-1 truncate text-left text-sm font-light select-none cursor-default"
+				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+				title="All Notes"
 			>
 				All Notes
 			</span>

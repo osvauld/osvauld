@@ -51,13 +51,16 @@
 			<FolderManager position="noteList" />
 		{/if}
 	</div> -->
-	<div class="mr-auto flex items-center gap-6 text-base">
+	<div class="mr-auto flex items-center gap-6 text-base min-w-0 flex-1">
 		<!-- Current folder title -->
 		<div
-			class="text-4xl text-osvauld-sideListTextActive font-light capitalize truncate"
+			class="text-4xl text-osvauld-sideListTextActive font-light capitalize min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
 			aria-label="Current folder: {dataState.currentVault.id === 'all'
 				? 'All Notes'
 				: dataState.currentVault.name}"
+			title={dataState.currentVault.id === "all"
+				? "All Notes"
+				: dataState.currentVault.name}
 		>
 			{dataState.currentVault.id === "all"
 				? "All Notes"

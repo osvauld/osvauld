@@ -34,7 +34,7 @@
 
 {#if uiState.showNavigationPanel}
 	<nav
-		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 whitespace-nowrap relative border-r border-osvauld-borderColor flex flex-col"
+		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 relative border-r border-osvauld-borderColor flex flex-col"
 		aria-label="Main Navigation"
 	>
 		{#if uiState.noteViewLayout}
