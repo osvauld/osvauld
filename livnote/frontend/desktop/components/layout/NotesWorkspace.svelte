@@ -160,17 +160,6 @@
 		uiState.toggleNoteRightPanel();
 	};
 
-	const openNoteRightPanel = () => {
-		uiState.toggleNoteRightPanel(true);
-		uiState.resetNoteRightPanelManualToggle();
-	};
-
-	const checkforEscKey = async (e: KeyboardEvent) => {
-		if (e.key === "Escape") {
-			await toggleZenModeWithSave();
-		}
-	};
-
 	const toggleZenModeWithSave = async () => {
 		// Save before toggling zen mode
 		const noteId = dataState.currentNoteId;
@@ -178,6 +167,18 @@
 			await dataState.saveNote(noteId);
 		}
 		uiState.toggleZenMode();
+	};
+
+	const openNoteRightPanel = () => {
+		uiState.toggleNoteRightPanel(true);
+		uiState.resetNoteRightPanelManualToggle();
+	};
+
+	const checkforEscKey = async (e: KeyboardEvent) => {
+		if (!uiState.isZenMode || e.key !== "Escape") {
+			return;
+		}
+		await toggleZenModeWithSave();
 	};
 
 	onMount(() => {
