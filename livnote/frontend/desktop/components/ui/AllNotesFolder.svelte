@@ -29,6 +29,16 @@
 	const isSelected = $derived(dataState.currentVault.id === "all");
 </script>
 
+<style>
+	/* Ensure proper text truncation in flex containers */
+	.folder-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
+	}
+</style>
+
 <div class="select-none">
 	<!-- All Notes folder header -->
 	<div
@@ -37,7 +47,7 @@
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg px-2 py-3"
 	>
 		<div
-			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 min-w-0"
 			role="treeitem"
 			aria-selected={isSelected}
 			tabindex="0"
@@ -52,7 +62,8 @@
 
 			<!-- All Notes name -->
 			<span
-				class="flex-1 truncate text-left text-sm font-light select-none cursor-default"
+				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 folder-name"
+				title="All Notes"
 			>
 				All Notes
 			</span>

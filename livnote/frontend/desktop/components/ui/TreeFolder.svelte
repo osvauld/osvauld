@@ -165,6 +165,16 @@
 	});
 </script>
 
+<style>
+	/* Ensure proper text truncation in flex containers */
+	.folder-name {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
+	}
+</style>
+
 <div class="select-none" style={indentStyle}>
 	<!-- Folder header -->
 	<div
@@ -173,7 +183,7 @@
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-2"
 	>
 		<div
-			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 min-w-0"
 			role="treeitem"
 			aria-expanded={folder.id !== "all" ? isExpanded : undefined}
 			aria-selected={isSelected}
@@ -209,7 +219,8 @@
 
 			<!-- Folder name -->
 			<span
-				class="flex-1 truncate text-left text-sm font-light select-none cursor-default"
+				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 folder-name"
+				title="{folder.id === 'all' ? 'All Notes' : folder.name}"
 			>
 				{folder.id === "all" ? "All Notes" : folder.name}
 			</span>

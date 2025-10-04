@@ -31,9 +31,19 @@
 	const isActiveState = $derived(isSelected || isHovered);
 </script>
 
+<style>
+	/* Ensure proper text truncation in flex containers */
+	.note-title {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
+	}
+</style>
+
 <div class="pl-1.5 my-1">
 	<button
-		class="w-full flex items-center gap-3 p-2.5 rounded-lg transition-colors duration-150
+		class="w-full flex items-center gap-3 p-2.5 rounded-lg transition-colors duration-150 min-w-0
 			{isActiveState
 			? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
@@ -55,7 +65,10 @@
 		</span>
 
 		<!-- Note title -->
-		<span class="flex-1 truncate text-left text-sm font-light">
+		<span 
+			class="flex-1 text-left text-sm font-light min-w-0 note-title"
+			title="{note.title || 'Untitled'}"
+		>
 			{note.title || "Untitled"}
 		</span>
 
