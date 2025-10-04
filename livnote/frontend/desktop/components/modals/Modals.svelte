@@ -14,7 +14,8 @@
 {#if uiState.passwordPromptModal.show}
 	<PasswordPromptModal
 		changePassword={uiState.passwordPromptModal.isChangePassword}
-		onClose={() => uiState.hidePasswordPrompt()} />
+		onClose={() => uiState.hidePasswordPrompt()}
+	/>
 {/if}
 
 {#if uiState.connectUserModal.show}

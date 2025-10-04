@@ -129,10 +129,10 @@
 	>
 		<div class="h-full p-1">
 			<div
-				class="flex flex-col h-full max-h-[90vh] p-5 overflow-y-auto overflow-x-hidden"
+				class="flex flex-col h-full max-h-[90vh] p-3 px-5 overflow-y-auto overflow-x-hidden"
 			>
 				<!-- Header -->
-				<header class="flex justify-between items-start mb-6">
+				<header class="flex justify-between items-start mb-3">
 					<h2 id="add-user-title" class="text-2xl font-extralight text-white">
 						Connect a User
 					</h2>
@@ -155,13 +155,13 @@
 					class="flex items-start gap-3 mb-6 p-4 bg-osvauld-fieldActive rounded-lg"
 				>
 					<div
-						class="text-osvauld-fieldText mt-0.5 flex-shrink-0 w-12 flex justify-center p-2.5"
+						class="text-livnotePink mt-0.5 flex-shrink-0 w-12 flex justify-center p-2.5"
 					>
 						<InfoIcon size={28} />
 					</div>
 					<p
 						id="add-user-description"
-						class="text-sm text-osvauld-fieldText text-start"
+						class="text-sm text-osvauld-fieldText font-light text-start"
 					>
 						Livnote creates a direct, peer-to-peer connection between users to
 						enable secure collaboration. This private handshake requires their
@@ -176,7 +176,7 @@
 					<div class="space-y-2">
 						<label
 							for="userDetails"
-							class="block text-sm font-medium text-white"
+							class="block text-sm font-light text-white"
 						>
 							User Address
 						</label>
@@ -186,7 +186,7 @@
 							placeholder="Paste user’s address here.."
 							rows="6"
 							required
-							class="w-full px-4 py-3 text-sm bg-osvauld-frameblack border border-livnotePink rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-livnotePink focus:border-transparent resize-none transition-colors"
+							class="w-full px-4 py-3 text-sm bg-osvauld-frameblack border border-livnotePink rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-1 focus:ring-livnotePink focus:border-transparent resize-none transition-colors"
 							autocomplete="off"
 							autocapitalize="off"
 							spellcheck="false"
@@ -203,18 +203,18 @@
 					<div
 						class="h-0.5 bg-borderActive w-[calc(120%)] mx-4 ml-[-24px] scale-y-50 origin-top-left"
 					></div>
-					<div class="flex justify-end gap-3 pt-4 font-light text-lg">
+					<div class="flex justify-end gap-3 font-light">
 						<button
 							type="button"
 							onclick={closeModal}
-							class="px-6 py-2.5 text-osvauld-fieldText hover:text-osvauld-sideListTextActive transition-colors cursor-pointer"
+							class="px-6 py-2.5 text-sm text-osvauld-fieldText hover:text-osvauld-sideListTextActive transition-colors cursor-pointer"
 						>
 							Cancel
 						</button>
 						<button
 							type="submit"
 							disabled={!userDetails.trim() || isSubmitting}
-							class="px-6 py-2.5 bg-osvauld-frameblack font-normal border border-livnotePink text-livnotePink rounded-lg cursor-pointer hover:bg-livnotePink hover:text-osvauld-frameblack transition-colors"
+							class="px-6 py-2.5 bg-osvauld-frameblack font-normal text-sm border border-livnotePink text-livnotePink rounded-lg cursor-pointer hover:bg-livnotePink hover:text-osvauld-frameblack transition-colors"
 						>
 							{isSubmitting ? "Connecting..." : "Connect"}
 						</button>

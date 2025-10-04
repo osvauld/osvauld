@@ -4,7 +4,7 @@
     width: 100%;
     height: 92px;
     border-bottom: 1px solid #2a2b2f;
-    padding: 20px 15px 10px 15px;
+    padding: 15px 15px 10px 15px;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -115,7 +115,7 @@
 /* ProseMirror specific styles */
 .ProseMirror {
     position: relative;
-    padding: 15px;
+    padding: 25px 15px 15px 15px;
     min-height: 100px;
     outline: none;
     line-height: 1.5;

@@ -48,33 +48,207 @@ function manageStyles(action: "create" | "destroy") {
       activeItemStyle +
       alignmentStyle +
       `
-      .editor-fixed-menu { height: auto; }
-      .secondary-menu { width: 100%; padding: 5px; box-sizing: border-box; display: flex; align-items: center; overflow: visible; visibility: hidden; max-height: 0; transition: max-height 0.2s ease-in; flex-wrap: wrap; }
-      @supports not (gap: 2px) { .secondary-menu { margin: -2px; } .secondary-menu > * { margin: 2px; } }
-      .secondary-menu.visible { max-height: 100px; padding: 10px 0px 0px 0px; visibility: visible; }
-      .secondary-menu.visible::before { content: ""; margin-bottom: 10px; display: block; width: 100%; border-top: 1px solid #2a2b2f; }
-      .menu-button { background: none; border: 1px solid transparent; padding: 4px; margin: 2px; cursor: pointer; border-radius: 3px; }
-      .menu-button:hover { background-color: rgb(58, 59, 68); }
-      .menu-button.active { }
-      .dropdown-menu.color-picker-dropdown { grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px; background: #16171f; border: 1px solid #2a2b2f; border-radius: 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); position: absolute; z-index: 100; width: 120px; min-width: auto; }
-      @supports not (gap: 8px) { .color-picker-dropdown { grid-gap: 8px; } .color-picker-dropdown > * { margin: 4px; } }
-      .color-swatch { width: 24px; height: 24px; border-radius: 4px; cursor: pointer; transition: transform 0.1s ease; }
-      .color-swatch:hover { transform: scale(1.1); }
-      .remove-color-button { grid-column: 1 / -1; margin-top: 8px; text-align: center; padding: 6px; background: #2a2b2f; border: none; border-radius: 4px; color: #bfc0cc; cursor: pointer; }
-      .remove-color-button:hover { background: #3a3b44; }
-      .text-color-button:disabled { opacity: 0.5; }
-      .ProseMirror pre { background-color: #2a2b2f; color: #f0f0f0; font-family: 'Courier New', Courier, monospace; padding: 10px; border-radius: 4px; margin: 1em 0; white-space: pre-wrap; word-wrap: break-word; }
-      .font-family-dropdown-button { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border: 1px solid #3a3b44; border-radius: 4px; color: #bfc0cc; cursor: pointer; font-size: 14px; min-width: 100px; transition: background-color 0.1s ease; }
-      @supports not (gap: 8px) { .font-family-dropdown-button > *:not(:last-child) { margin-right: 8px; } }
-      .font-family-dropdown-button:hover { background: #3a3b44; }
-      .font-family-dropdown-button:disabled { opacity: 0.5; cursor: not-allowed; }
-      .font-family-dropdown-button .font-name { flex: 1; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-      .font-family-dropdown { background: #16171f; border: 1px solid #2a2b2f; border-radius: 4px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); position: absolute; z-index: 100; width: 200px; max-height: 300px; overflow-y: auto; padding: 4px 0; }
-      .font-family-item { padding: 8px 16px; cursor: pointer; transition: background-color 0.1s ease; color: #bfc0cc; border-bottom: 1px solid #2a2b2f; }
-      .font-family-item:hover { background: #2a2b2f; }
-      .font-family-item:last-of-type { border-bottom: none; }
-      .remove-font-button { padding: 8px 16px; background: #2a2b2f; border: none; border-top: 1px solid #3a3b44; color: #bfc0cc; cursor: pointer; width: 100%; text-align: center; margin-top: 4px; }
-      .remove-font-button:hover { background: #3a3b44; }
+      .editor-fixed-menu {
+        height: auto;
+      }
+      
+      .secondary-menu {
+        width: 100%;
+        padding: 5px;
+        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        overflow: visible;
+        visibility: hidden;
+        max-height: 0;
+        flex-wrap: wrap;
+      }
+      
+      @supports not (gap: 2px) {
+        .secondary-menu {
+          margin: -2px;
+        }
+        .secondary-menu > * {
+          margin: 2px;
+        }
+      }
+      
+      .secondary-menu.visible {
+        max-height: 100px;
+        visibility: visible;
+      }
+      
+      .secondary-menu.visible::before {
+        content: "";
+        margin-bottom: 10px;
+        display: block;
+        width: 100%;
+        border-top: 1px solid #2a2b2f;
+      }
+      
+      .menu-button {
+        background: none;
+        border: 1px solid transparent;
+        padding: 4px;
+        margin: 2px;
+        cursor: pointer;
+        border-radius: 3px;
+      }
+      
+      .menu-button:hover {
+        background-color: rgb(58, 59, 68);
+      }
+      
+      .menu-button.active {
+      }
+      
+      .dropdown-menu.color-picker-dropdown {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        padding: 12px;
+        background: #16171f;
+        border: 1px solid #2a2b2f;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        position: absolute;
+        z-index: 100;
+        width: 120px;
+        min-width: auto;
+      }
+      
+      @supports not (gap: 8px) {
+        .color-picker-dropdown {
+          grid-gap: 8px;
+        }
+        .color-picker-dropdown > * {
+          margin: 4px;
+        }
+      }
+      
+      .color-swatch {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: transform 0.1s ease;
+      }
+      
+      .color-swatch:hover {
+        transform: scale(1.1);
+      }
+      
+      .remove-color-button {
+        grid-column: 1 / -1;
+        margin-top: 8px;
+        text-align: center;
+        padding: 6px;
+        background: #2a2b2f;
+        border: none;
+        border-radius: 4px;
+        color: #bfc0cc;
+        cursor: pointer;
+      }
+      
+      .remove-color-button:hover {
+        background: #3a3b44;
+      }
+      
+      .text-color-button:disabled {
+        opacity: 0.5;
+      }
+      
+      .ProseMirror pre {
+        background-color: #2a2b2f;
+        color: #f0f0f0;
+        font-family: 'Courier New', Courier, monospace;
+        padding: 10px;
+        border-radius: 4px;
+        margin: 1em 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      
+      .font-family-dropdown-button {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border: 1px solid #3a3b44;
+        border-radius: 4px;
+        color: #bfc0cc;
+        cursor: pointer;
+        font-size: 14px;
+        min-width: 100px;
+        transition: background-color 0.1s ease;
+      }
+      
+      @supports not (gap: 8px) {
+        .font-family-dropdown-button > *:not(:last-child) {
+          margin-right: 8px;
+        }
+      }
+      
+      .font-family-dropdown-button:hover {
+        background: #3a3b44;
+      }
+      
+      .font-family-dropdown-button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      
+      .font-family-dropdown-button .font-name {
+        flex: 1;
+        text-align: left;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      
+      .font-family-dropdown {
+        background: #16171f;
+        border: 1px solid #2a2b2f;
+        border-radius: 4px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        position: absolute;
+        z-index: 100;
+        width: 200px;
+        max-height: 300px;
+        overflow-y: auto;
+        padding: 4px 0;
+      }
+      
+      .font-family-item {
+        padding: 8px 16px;
+        cursor: pointer;
+        transition: background-color 0.1s ease;
+        color: #bfc0cc;
+        border-bottom: 1px solid #2a2b2f;
+      }
+      
+      .font-family-item:hover {
+        background: #2a2b2f;
+      }
+      
+      .font-family-item:last-of-type {
+        border-bottom: none;
+      }
+      
+      .remove-font-button {
+        padding: 8px 16px;
+        background: #2a2b2f;
+        border: none;
+        border-top: 1px solid #3a3b44;
+        color: #bfc0cc;
+        cursor: pointer;
+        width: 100%;
+        text-align: center;
+        margin-top: 4px;
+      }
+      
+      .remove-font-button:hover {
+        background: #3a3b44;
+      }
     `;
     document.head.appendChild(style);
   } else if (action === "destroy") {
@@ -119,12 +293,12 @@ export function fixedMenuPlugin(schema: Schema) {
       addFormattingItems(menuNode, schema, editorView);
       addListItems(menuNode, schema, editorView);
       addAlignmentButtons(menuNode, schema, editorView);
-      addMathItems(menuNode, schema, editorView);
       // Add secondary menu items
       const indentButtons = addIndentButtons(secondaryMenuNode, schema, editorView);
       const secondaryFormatButtons = addSecondaryFormattingItems(secondaryMenuNode, schema, editorView);
       addBlockStyleItems(secondaryMenuNode, schema, editorView);
       const textColorPicker = addTextColorPicker(secondaryMenuNode, schema, editorView);
+      addMathItems(secondaryMenuNode, schema, editorView);
       const fontFamilyDropdown = addFontFamilyDropdown(secondaryMenuNode, schema, editorView);
 
 

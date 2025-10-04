@@ -306,6 +306,7 @@ class LazyImageNodeView implements NodeView {
         /* Prevent cursor height issues */
         .ProseMirror {
           line-height: 1.5;
+          
         }
         
         /* Optional: Add a clear-fix utility class */

@@ -6,7 +6,7 @@
 		QrScanner,
 		Key,
 		Settings,
-		ClosePanel
+		ClosePanel,
 	} from "@osvauld/icons";
 	import { uiState } from "../../state/ui.svelte";
 	import AddUserForm from "../ui/AddUserForm.svelte";
@@ -23,7 +23,7 @@
 	type MenuItemId = (typeof MENUITEMS)[number]["id"];
 
 	let activeMenuItem = $state<MenuItemId | null>("addUser");
-	
+
 	let menuButtons = $state<Record<string, HTMLButtonElement>>({});
 
 	// Watch for password prompt modal state changes to handle focus
@@ -61,33 +61,45 @@
 
 <div class="grow max-h-full overflow-hidden flex text-4xl text-white">
 	<nav
-		class="w-[22.5rem] shrink-0 h-full max-h-full flex flex-col py-10 px-4 border-r border-osvauld-borderColor">
+		class="w-[17rem] shrink-0 h-full max-h-full flex flex-col py-4 px-2 border-r border-osvauld-borderColor"
+	>
 		<div
-			class="flex justify-between items-center gap-2 text-osvauld-fieldText text-xl pl-6 select-none cursor-default">
-		<span class="flex items-center gap-2"><Settings />Settings </span> <button  class="cursor-pointer p-2  hover:text-osvauld-sideListTextActive" onclick={() => uiState.profileViewLayout = false} ><ClosePanel /></button>
+			class="flex justify-between items-center gap-2 text-osvauld-fieldText text-sm pl-3 select-none cursor-default"
+		>
+			<span class="flex items-center gap-2"
+				><Settings size={20} />Settings
+			</span>
+			<button
+				class="cursor-pointer p-1.5 hover:text-osvauld-sideListTextActive"
+				aria-label="Close settings"
+				onclick={() => (uiState.profileViewLayout = false)}
+				><ClosePanel size={20} /></button
+			>
 		</div>
 		<div
-			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-4 py-1 gap-1">
-		</div>
+			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-3 py-1 gap-1"
+		></div>
 		<div
-			class="grow flex flex-col gap-3 pl-3 py-6 text-white text-base whitespace-nowrap">
+			class="grow flex flex-col gap-2 px-1 py-2 text-white text-sm font-light whitespace-nowrap"
+		>
 			{#each MENUITEMS as { id, label, icon: Icon }}
 				<button
 					bind:this={menuButtons[id]}
-					class="group w-full flex items-center gap-3 p-3 rounded-lg text-osvauld-fieldText transition-colors cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive"
+					class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText transition-colors duration-150 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive"
 					class:text-osvauld-sideListTextActive={id === activeMenuItem}
 					class:bg-osvauld-fieldActive={id === activeMenuItem}
 					aria-label={label}
-					onclick={() => handleSettingSelection(id)}>
+					onclick={() => handleSettingSelection(id)}
+				>
 					<span>
-						<Icon color="currentColor" size={24} />
+						<Icon color="currentColor" size={20} />
 					</span>
 					<span>{label}</span>
 				</button>
 			{/each}
 		</div>
 	</nav>
-	<div class="flex-1 min-w-[25rem] py-10 px-8 overflow-hidden">
+	<div class="flex-1 min-w-[25rem] py-4 px-6 overflow-hidden">
 		{#if activeMenuItem === "addUser"}
 			<AddUserForm />
 		{/if}

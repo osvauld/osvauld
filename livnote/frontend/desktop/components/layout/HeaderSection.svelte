@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { slide } from "svelte/transition";
-
 	import { sendMessage, writeToClipboard } from "../../utils/helper";
 
 	import {
@@ -107,7 +105,7 @@
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
 	<div class="grow py-4 px-4 flex items-center justify-end gap-6">
 		<div
-			class="flex w-full min-w-[400px] max-w-2xl items-center bg-osvauld-frameblack py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
+			class="flex min-w-[400px] items-center bg-osvauld-frameblack py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
 		>
 			<span class="sr-only">Search</span>
 			<Lens color="#4D4F60" />
@@ -122,6 +120,13 @@
 				bind:this={searchInput}
 				bind:value={searchQuery}
 				oninput={handleSearch}
+				onkeydown={(e) => {
+					if (e.key === "Escape") {
+						searchQuery = "";
+						dataState.setSearchResults([]);
+						searchInput?.blur();
+					}
+				}}
 			/>
 			{#if searchQuery}
 				<button
@@ -131,6 +136,7 @@
 					title="Clear search"
 					onclick={() => {
 						searchQuery = "";
+						dataState.setSearchResults([]);
 						searchInput?.focus();
 					}}
 				>
@@ -181,8 +187,6 @@
 				></div>
 				<ul
 					class="absolute top-[120%] right-0 z-50 w-[16.5rem] rounded-xl border border-osvauld-borderColor bg-osvauld-ninjablack p-2 text-sm flex flex-col gap-1.5"
-					in:slide
-					out:slide
 				>
 					{#each MENUITEMS as { id, label, icon: Icon }}
 						<button

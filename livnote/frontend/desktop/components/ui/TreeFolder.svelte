@@ -165,13 +165,7 @@
 	});
 </script>
 
-<div
-	class="select-none"
-	role="treeitem"
-	aria-expanded={isExpanded}
-	aria-selected={isSelected}
-	style={indentStyle}
->
+<div class="select-none" style={indentStyle}>
 	<!-- Folder header -->
 	<div
 		class="flex items-center group {isSelected
@@ -179,9 +173,10 @@
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg p-2"
 	>
 		<div
-			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 focus:outline-none
-				"
-			role="button"
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
+			role="treeitem"
+			aria-expanded={folder.id !== "all" ? isExpanded : undefined}
+			aria-selected={isSelected}
 			tabindex="0"
 			onclick={handleFolderClick}
 			ondblclick={handleFolderDoubleClick}
@@ -228,7 +223,7 @@
 				>
 					<button
 						type="button"
-						class="p-1.5 rounded-md transition-colors duration-150 focus:outline-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {isSelected
+						class="p-1.5 rounded-md transition-colors duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed {isSelected
 							? 'text-osvauld-sideListTextActive hover:bg-osvauld-modalFieldActive'
 							: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
 						onclick={(e) => {
@@ -258,7 +253,7 @@
 	<!-- Folder contents (notes) - Only show for regular folders, not All Notes -->
 	{#if isExpanded && folder.id !== "all"}
 		<div
-			class="ml-6 border-l border-osvauld-borderColor"
+			class="ml-3.5 border-l border-osvauld-borderColor"
 			role="group"
 			aria-label="{folder.name} contents"
 		>

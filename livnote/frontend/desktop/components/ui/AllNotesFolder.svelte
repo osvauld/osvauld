@@ -29,7 +29,7 @@
 	const isSelected = $derived(dataState.currentVault.id === "all");
 </script>
 
-<div class="select-none" role="treeitem" aria-selected={isSelected}>
+<div class="select-none">
 	<!-- All Notes folder header -->
 	<div
 		class="flex items-center group {isSelected
@@ -37,8 +37,9 @@
 			: 'text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'} rounded-lg px-2 py-3"
 	>
 		<div
-			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150 focus:outline-none"
-			role="button"
+			class="flex-1 flex items-center gap-1.5 rounded-lg transition-colors duration-150"
+			role="treeitem"
+			aria-selected={isSelected}
 			tabindex="0"
 			onclick={handleAllNotesSelect}
 			onkeydown={handleKeyDown}
