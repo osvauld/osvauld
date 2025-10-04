@@ -16,6 +16,7 @@ export interface ThreadInfo {
 export interface Reply {
   id: string;
   author: string;  // userId
+  authorName: string;
   createdAt: number;
   readBy: string[];  // array of userIds
 }

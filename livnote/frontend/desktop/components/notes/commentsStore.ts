@@ -78,7 +78,7 @@ export class CommentsStore {
     replyMap.set("id", replyId);
     replyMap.set("author", this.currentUser.userId);
     replyMap.set("createdAt", now);
-
+    replyMap.set("authorName", this.currentUser.name);
     const readByArray = new Y.Array<string>();
     readByArray.push([this.currentUser.userId]);
     replyMap.set("readBy", readByArray);
@@ -131,6 +131,7 @@ export class CommentsStore {
     const readByArray = new Y.Array<string>();
     readByArray.push([this.currentUser.userId]);
     replyMap.set("readBy", readByArray);
+    replyMap.set("authorName", this.currentUser.name);
 
     // Create rich text content
     const contentFragment = new Y.XmlFragment();

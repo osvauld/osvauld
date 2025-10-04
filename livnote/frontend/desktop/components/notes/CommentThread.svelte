@@ -265,7 +265,7 @@
 							<div class="flex justify-start items-center gap-2">
 								<span
 									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder"
-									>{getAuthorName(reply.author).charAt(0).toUpperCase()}</span
+									>{mainReply.authorName.charAt(0).toUpperCase()}</span
 								>
 								<div class="flex flex-col items-start">
 									<span
