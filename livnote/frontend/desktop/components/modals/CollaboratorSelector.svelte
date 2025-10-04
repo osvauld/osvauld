@@ -234,7 +234,7 @@
 			{#if selectedUsers.length !== 0}
 				{#each selectedUsers as user}
 					<span
-						class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-sm px-3 py-1 text-sm"
+						class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-sm px-3 py-1 text-xs truncate max-w-[8rem]"
 						>{user}</span
 					>
 				{/each}
@@ -375,7 +375,7 @@
 
 			{#if selectedUsers.length !== 0 && isFocused}
 				<button
-					class="mt-3 w-full py-2.5 rounded-lg font-normal bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
+					class="mt-3 w-full py-2.5 rounded-lg font-semibold bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
 					onmousedown={handleCollaboratorSelection}
 				>
 					{buttonText}
