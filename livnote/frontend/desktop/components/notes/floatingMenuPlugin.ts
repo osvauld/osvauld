@@ -3,8 +3,8 @@ import { EditorView } from "prosemirror-view";
 import { Schema, Mark } from "prosemirror-model";
 import { toggleMark } from "prosemirror-commands";
 import { Decoration, DecorationSet } from "prosemirror-view";
-import { getSearchState } from "prosemirror-search";
 import { NodeSelection } from "prosemirror-state";
+import type { SearchManager } from "./SearchManager";
 export const floatingMenuKey = new PluginKey("floating-menu");
 
 type MenuMode = "buttons" | "linkInput";
@@ -117,7 +117,7 @@ function injectStyles() {
   document.head.appendChild(styleElement);
 }
 
-export function floatingMenuPlugin(schema: Schema) {
+export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager) {
   let menu: HTMLElement | null = null;
   let view: EditorView | null = null;
   let isMenuVisible = false;
@@ -480,9 +480,8 @@ export function floatingMenuPlugin(schema: Schema) {
       return;
     }
 
-    // Don't show menu during search navigation
-    const searchQuery = getSearchState(state);
-    if (searchQuery && searchQuery.query && searchQuery.query.search) {
+    // Don't show menu when search UI is visible
+    if (searchManager.isSearchUIVisible()) {
       hideMenu();
       return;
     }

@@ -65,6 +65,9 @@
 	});
 
 	onMount(() => {
+		// Mark search UI as visible
+		searchManager.setUIVisible(true);
+
 		// Subscribe to search state changes
 		unsubscribe = searchManager.subscribe((state) => {
 			searchState = state;
@@ -81,8 +84,15 @@
 	});
 
 	onDestroy(() => {
+		// Mark search UI as hidden
+		searchManager.setUIVisible(false);
+
 		unsubscribe?.();
 		document.removeEventListener("keydown", handleGlobalKeydown);
+		// Clear search when component is destroyed
+		if (editorView) {
+			clearSearch();
+		}
 	});
 
 	function handleGlobalKeydown(event: KeyboardEvent) {
@@ -92,6 +102,13 @@
 	}
 
 	function hide() {
+		// Mark search UI as hidden
+		searchManager.setUIVisible(false);
+
+		// Clear local state first - this triggers the reactive effect to clear search
+		searchValue = "";
+		replaceValue = "";
+
 		if (editorView) {
 			clearSearch();
 			editorView.focus();

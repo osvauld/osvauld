@@ -2,7 +2,7 @@
 
 /* Default search match highlighting */
 .ProseMirror-search-match {
-  background: rgba(59, 130, 246, 0.35) !important;
+  background: rgba(59, 130, 246, 0.15) !important;
   border-radius: 0.25rem;
   padding: 2px 4px !important;
   margin: -2px -4px !important;
@@ -34,7 +34,7 @@
 
 /* Handle search matches in code blocks */
 .ProseMirror pre .ProseMirror-search-match {
-  background: rgba(59, 130, 246, 0.35) !important;
+  background: rgba(59, 130, 246, 0.15) !important;
   padding: 2px 4px !important;
   margin: -2px -4px !important;
 }
@@ -49,7 +49,7 @@
 
 /* Handle search matches in links */
 .ProseMirror a .ProseMirror-search-match {
-  background: rgba(59, 130, 246, 0.35) !important;
+  background: rgba(59, 130, 246, 0.15) !important;
   padding: 2px 4px !important;
   margin: -2px -4px !important;
 }
@@ -69,7 +69,7 @@
 .ProseMirror h4 .ProseMirror-search-match,
 .ProseMirror h5 .ProseMirror-search-match,
 .ProseMirror h6 .ProseMirror-search-match {
-  background: rgba(59, 130, 246, 0.35) !important;
+  background: rgba(59, 130, 246, 0.15) !important;
   padding: 2px 4px !important;
   margin: -2px -4px !important;
 }

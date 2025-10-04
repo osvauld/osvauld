@@ -201,7 +201,7 @@ export class NotesCoordinator {
       pasteHandlerPlugin(this.imageStorage!),
       slashCommandPlugin(this.schema),
       fixedMenuPlugin(this.schema),
-      floatingMenuPlugin(this.schema),
+      floatingMenuPlugin(this.schema, this.searchManager),
       markdownShortcutsPlugin(this.schema),
       imageNodeViewPlugin(this.imageStorage!),
       ...getTablePlugins(this.schema),
