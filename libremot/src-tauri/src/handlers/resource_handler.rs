@@ -20,13 +20,13 @@ use services::{
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 #[tauri::command]
 pub async fn handle_add_resource(
     input: AddResourceInput,
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
@@ -130,7 +130,7 @@ pub async fn handle_add_resource(
 #[tauri::command]
 pub async fn handle_get_resources_for_folder(
     input: GetResourceForFolderInput,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
@@ -193,7 +193,7 @@ pub async fn handle_update_last_accessed(
 
 #[tauri::command]
 pub async fn handle_get_all_resources(
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
@@ -220,7 +220,7 @@ pub async fn handle_update_resource(
     input: UpdateResources,
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
 ) -> Result<CryptoResponse, String> {
@@ -340,7 +340,7 @@ pub async fn handle_search_resources(
 #[tauri::command]
 pub async fn handle_get_resource(
     input: GetResource,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
@@ -366,7 +366,7 @@ pub async fn handle_get_resource(
 pub async fn handle_share_resource(
     input: ShareResource,
     user_state: State<'_, UserState>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
@@ -394,7 +394,7 @@ pub async fn emit_all_resources(
     selected_resource_id: Option<String>,
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let overall_start = Instant::now();
@@ -505,61 +505,90 @@ pub async fn emit_all_resources(
 
     tokio::spawn(async move {
         let background_start = Instant::now();
+        
+        // Concurrency limit - adjust based on your system
+        const MAX_CONCURRENT_TASKS: usize = 10;
+        
+        let mut tasks = tokio::task::JoinSet::new();
         let mut processed = 0;
-
-        for resource_id in all_resource_ids {
-            let resource_start = Instant::now();
-
-            let get_resource_start = Instant::now();
-            match get_resource_by_id_direct(
-                &resource_id,
-                &user_id,
-                repo_ctx_clone.clone(),
-                &crypto_utils_clone,
-            )
-            .await
-            {
-                Ok(decrypted_resource) => {
-                    let get_resource_time = get_resource_start.elapsed();
+        
+        let mut resource_iter = all_resource_ids.into_iter();
+        
+        // Initial batch of tasks
+        for _ in 0..MAX_CONCURRENT_TASKS {
+            if let Some(resource_id) = resource_iter.next() {
+                let user_id_clone = user_id.clone();
+                let repo_ctx_task = repo_ctx_clone.clone();
+                let crypto_utils_task = crypto_utils_clone.clone();
+                let app_handle_task = app_handle_clone.clone();
+                
+                tasks.spawn(async move {
+                    let resource_start = Instant::now();
+                    let get_resource_start = Instant::now();
                     
-                    // Generate chat preview
-                    let preview_data = match generate_chat_preview(&decrypted_resource.data, &user_id).await {
-                        Ok(data) => data,
-                        Err(e) => {
-                            eprintln!(
-                                "Failed to generate chat preview for resource {}: {}",
-                                decrypted_resource.id, e
-                            );
-                            Default::default()
+                    match get_resource_by_id_direct(
+                        &resource_id,
+                        &user_id_clone,
+                        repo_ctx_task,
+                        &crypto_utils_task,
+                    )
+                    .await
+                    {
+                        Ok(decrypted_resource) => {
+                            let get_resource_time = get_resource_start.elapsed();
+                            
+                            // Generate chat preview
+                            let preview_data = match generate_chat_preview(&decrypted_resource.data, &user_id_clone).await {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to generate chat preview for resource {}: {}",
+                                        decrypted_resource.id, e
+                                    );
+                                    Default::default()
+                                }
+                            };
+
+                            let emit_start = Instant::now();
+                            let response = ResourcePreview {
+                                id: decrypted_resource.id.clone(),
+                                title: String::new(),
+                                preview: String::new(),
+                                favourite: decrypted_resource.favourite,
+                                last_accessed: decrypted_resource.last_accessed,
+                                folder_id: decrypted_resource.folder_id,
+                                last_modified: decrypted_resource.last_accessed,
+                                // Chat-specific fields
+                                last_message: Some(preview_data.last_message),
+                                last_message_time: Some(preview_data.last_message_time),
+                                participant_name: Some(preview_data.participants.join(", ")),
+                                participant_id: preview_data.participant_ids.first().cloned(),
+                                unread_count: Some(preview_data.unread_count),
+                                is_online: Some(false),
+                            };
+
+                            if let Err(e) = app_handle_task.emit("resource-added", response) {
+                                eprintln!("Failed to emit resource-added for {}: {}", resource_id, e);
+                            }
+                            let emit_time = emit_start.elapsed();
+                            
+                            Ok((resource_id, resource_start.elapsed(), get_resource_time, emit_time))
                         }
-                    };
-
-                    let emit_start = Instant::now();
-                    let response = ResourcePreview {
-                        id: decrypted_resource.id,
-                        title: String::new(),
-                        preview: String::new(),
-                        favourite: decrypted_resource.favourite,
-                        last_accessed: decrypted_resource.last_accessed,
-                        folder_id: decrypted_resource.folder_id,
-                        last_modified: decrypted_resource.last_accessed,
-                        // Chat-specific fields
-                        last_message: Some(preview_data.last_message),
-                        last_message_time: Some(preview_data.last_message_time),
-                        participant_name: Some(preview_data.participants.join(", ")),
-                        participant_id: preview_data.participant_ids.first().cloned(),
-                        unread_count: Some(preview_data.unread_count),
-                        is_online: Some(false),
-                    };
-
-                    if let Err(e) = app_handle_clone.emit("resource-added", response) {
-                        eprintln!("Failed to emit resource-added for {}: {}", resource_id, e);
+                        Err(e) => {
+                            eprintln!("Failed to decrypt resource {}: {}", resource_id, e);
+                            Err(resource_id)
+                        }
                     }
-                    let emit_time = emit_start.elapsed();
-
+                });
+            }
+        }
+        
+        // Process tasks as they complete and spawn new ones
+        while let Some(result) = tasks.join_next().await {
+            match result {
+                Ok(Ok((_resource_id, resource_time, get_resource_time, emit_time))) => {
                     processed += 1;
-                    let resource_time = resource_start.elapsed();
-
+                    
                     // Log every 10th resource or if it takes longer than 100ms
                     if processed % 10 == 0 || resource_time.as_millis() > 100 {
                         info!(
@@ -568,10 +597,80 @@ pub async fn emit_all_resources(
                         );
                     }
                 }
-                Err(e) => {
-                    eprintln!("Failed to decrypt resource {}: {}", resource_id, e);
+                Ok(Err(_)) => {
                     processed += 1;
                 }
+                Err(e) => {
+                    eprintln!("Task panicked: {}", e);
+                    processed += 1;
+                }
+            }
+            
+            // Spawn a new task if there are more resources
+            if let Some(resource_id) = resource_iter.next() {
+                let user_id_clone = user_id.clone();
+                let repo_ctx_task = repo_ctx_clone.clone();
+                let crypto_utils_task = crypto_utils_clone.clone();
+                let app_handle_task = app_handle_clone.clone();
+                
+                tasks.spawn(async move {
+                    let resource_start = Instant::now();
+                    let get_resource_start = Instant::now();
+                    
+                    match get_resource_by_id_direct(
+                        &resource_id,
+                        &user_id_clone,
+                        repo_ctx_task,
+                        &crypto_utils_task,
+                    )
+                    .await
+                    {
+                        Ok(decrypted_resource) => {
+                            let get_resource_time = get_resource_start.elapsed();
+                            
+                            // Generate chat preview
+                            let preview_data = match generate_chat_preview(&decrypted_resource.data, &user_id_clone).await {
+                                Ok(data) => data,
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to generate chat preview for resource {}: {}",
+                                        decrypted_resource.id, e
+                                    );
+                                    Default::default()
+                                }
+                            };
+
+                            let emit_start = Instant::now();
+                            let response = ResourcePreview {
+                                id: decrypted_resource.id.clone(),
+                                title: String::new(),
+                                preview: String::new(),
+                                favourite: decrypted_resource.favourite,
+                                last_accessed: decrypted_resource.last_accessed,
+                                folder_id: decrypted_resource.folder_id,
+                                last_modified: decrypted_resource.last_accessed,
+                                // Chat-specific fields
+                                last_message: Some(preview_data.last_message),
+                                last_message_time: Some(preview_data.last_message_time),
+                                participant_name: Some(preview_data.participants.join(", ")),
+                                participant_id: preview_data.participant_ids.first().cloned(),
+                                unread_count: Some(preview_data.unread_count),
+                                is_online: Some(false),
+                            };
+
+                            if let Err(e) = app_handle_task.emit("resource-added", response) {
+                                eprintln!("Failed to emit resource-added for {}: {}", resource_id, e);
+                            }
+                            let emit_time = emit_start.elapsed();
+                            
+                            Ok((resource_id, resource_start.elapsed(), get_resource_time, emit_time))
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to decrypt resource {}: {}", resource_id, e);
+                            Err(resource_id)
+                        }
+                    }
+                });
             }
         }
 

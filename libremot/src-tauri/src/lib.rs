@@ -33,7 +33,7 @@ use listners::EventManager;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -105,7 +105,7 @@ pub fn run() {
                 Ok(connection) => {
                     app.manage(connection.clone());
                     let repo_ctx = Arc::new(initialize_repositories(connection.clone()));
-                    let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
+                    let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
                     let domain = Arc::new("livnote".to_string());
                     let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
                         P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain);

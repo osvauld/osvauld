@@ -24,7 +24,9 @@ impl StoreRepository for SqliteStoreRepository {
         certificate_key: String,
         salt_key: String,
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         // Use a transaction to ensure both operations succeed or fail together
@@ -75,7 +77,9 @@ impl StoreRepository for SqliteStoreRepository {
         certificate_key: String,
         salt_key: String,
     ) -> Result<Certificate, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Get the private key
         let private_key: String = store_items::table
@@ -111,7 +115,9 @@ impl StoreRepository for SqliteStoreRepository {
     }
 
     async fn is_signed_up(&self) -> Result<bool, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Check if the primary_key exists
         let count: i64 = store_items::table
@@ -125,7 +131,9 @@ impl StoreRepository for SqliteStoreRepository {
     }
 
     async fn store_device_key(&self, device_key: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         diesel::insert_into(store_items::table)
@@ -147,7 +155,9 @@ impl StoreRepository for SqliteStoreRepository {
         Ok(())
     }
     async fn add_index_key(&self, index_key: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         diesel::insert_into(store_items::table)
@@ -170,7 +180,9 @@ impl StoreRepository for SqliteStoreRepository {
     }
 
     async fn get_index_key(&self) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let index_key: String = store_items::table
             .filter(store_items::key.eq("index_key"))
@@ -185,7 +197,9 @@ impl StoreRepository for SqliteStoreRepository {
     }
 
     async fn get_device_key(&self) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_key: String = store_items::table
             .filter(store_items::key.eq("device_id"))
@@ -200,7 +214,9 @@ impl StoreRepository for SqliteStoreRepository {
     }
 
     async fn get_node_key(&self) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_key: String = store_items::table
             .filter(store_items::key.eq("device_key"))
@@ -215,7 +231,9 @@ impl StoreRepository for SqliteStoreRepository {
     }
 
     async fn get_ucan_key(&self) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let ucan_key: String = store_items::table
             .filter(store_items::key.eq("ucan_key"))

@@ -34,7 +34,9 @@ impl SqliteResourceRepository {
         favorites_only: bool,
         include_deleted: bool,
     ) -> Result<Vec<ResourceWithKey>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Build base query with join to resource_keys
         let mut query = resources::table
@@ -88,7 +90,9 @@ impl SqliteResourceRepository {
 impl ResourceRepository for SqliteResourceRepository {
     async fn save(&self, resource: &Resource) -> Result<(), RepositoryError> {
         let resource_model = ResourceModel::from(resource);
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::insert_into(resources::table)
             .values(resource_model)
             .execute(&mut *conn)
@@ -102,7 +106,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn delete_resource(&self, id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::delete(resources::table)
             .filter(resources::id.eq(id))
             .execute(&mut *conn)
@@ -113,7 +119,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn soft_delete_resource(&self, id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
         diesel::update(resources::table)
             .filter(resources::id.eq(id))
@@ -136,7 +144,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn toggle_fav(&self, resource_id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         // First get current favorite status
@@ -169,7 +179,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn update_last_accessed(&self, resource_id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         diesel::update(resources::table)
@@ -188,7 +200,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn update_resource(&self, data: &str, resource_id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         diesel::update(resources::table)
@@ -229,7 +243,9 @@ impl ResourceRepository for SqliteResourceRepository {
         id: &str,
         user_id: &str,
     ) -> Result<ResourceWithKey, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Query for the specific resource with join to user's key
         let result = resources::table
@@ -273,7 +289,9 @@ impl ResourceRepository for SqliteResourceRepository {
         resource_id: &str,
         user_id: &str,
     ) -> Result<ResourceKeyPair, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Get the resource (use first() to get a single result)
         let resource_model = resources::table
@@ -312,7 +330,9 @@ impl ResourceRepository for SqliteResourceRepository {
         resource: &Resource,
         key: &ResourceKey,
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Use a transaction to ensure both operations succeed or fail together
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -343,7 +363,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let resource_model = resources::table
             .filter(resources::id.eq(id))
@@ -365,7 +387,9 @@ impl ResourceRepository for SqliteResourceRepository {
         share_record: &ShareRecord,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Use a transaction to ensure all operations succeed or fail together
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -415,7 +439,9 @@ impl ResourceRepository for SqliteResourceRepository {
         share_record: &ShareRecord,
         recipient_vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Use a transaction to ensure all operations succeed or fail together
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -458,7 +484,9 @@ impl ResourceRepository for SqliteResourceRepository {
         device: &Device,
         vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Use a transaction to ensure all operations succeed or fail together
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -495,7 +523,9 @@ impl ResourceRepository for SqliteResourceRepository {
         &self,
         resource_ids: Option<&[String]>,
     ) -> Result<Vec<ResourceManifestData>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Get resource IDs based on parameter
         let target_resource_ids: Vec<String> = match resource_ids {
@@ -589,7 +619,9 @@ impl ResourceRepository for SqliteResourceRepository {
         &self,
         resource_id: &str,
     ) -> Result<ResourceSyncData, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // 1. Get the resource
         let resource_model = resources::table
@@ -664,7 +696,9 @@ impl ResourceRepository for SqliteResourceRepository {
             sync_data.vector_clocks.len()
         );
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // 1. Insert the resource
         debug!("Inserting resource: {}", resource_id);
@@ -829,7 +863,9 @@ impl ResourceRepository for SqliteResourceRepository {
     }
 
     async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         resources::table
             .filter(resources::deleted.eq(false))
@@ -841,7 +877,9 @@ impl ResourceRepository for SqliteResourceRepository {
             })
     }
     async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         // With the `created_by` field, we can now find the owner with a more direct query.
         let user_model = users::table
             .inner_join(resources::table.on(users::id.eq(resources::created_by)))
@@ -867,7 +905,9 @@ impl ResourceRepository for SqliteResourceRepository {
             return Ok(HashMap::new());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Fetch resource_id and folder_id pairs
         let results: Vec<(String, String)> = resources::table
@@ -900,7 +940,9 @@ impl ResourceRepository for SqliteResourceRepository {
         &self,
         folder_id: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         resources::table
             .filter(resources::folder_id.eq(folder_id))
@@ -926,7 +968,9 @@ impl ResourceRepository for SqliteResourceRepository {
         return Ok(());
     }
 
-    let mut conn = self.connection.lock().await;
+    let mut conn = self.connection.get().map_err(|e| {
+        RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+    })?;
 
     conn.transaction::<_, diesel::result::Error, _>(|conn| {
         // Save resource keys
@@ -998,7 +1042,9 @@ impl ResourceRepository for SqliteResourceRepository {
             return Ok(());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Use a transaction to ensure all operations succeed or fail together
         conn.transaction::<_, diesel::result::Error, _>(|conn| {

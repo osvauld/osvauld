@@ -16,7 +16,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::Arc,
 };
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct SetComparison {
@@ -700,7 +700,7 @@ pub async fn create_user_network_sync_payload(
     manifest_diff: &UserManifestDifferences,
     peer_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> ServiceResult<UserNetworkSyncPayload> {
     // Get unknown users with their devices
@@ -714,7 +714,7 @@ pub async fn create_user_network_sync_payload(
     for user_with_devices in &mut unknown_users_with_devices {
         // Generate delegated token for peer to connect to this user
         let delegated_token = {
-            let crypto = crypto_utils.lock().await;
+            let crypto = crypto_utils.read().await;
             //  CryptoError propagates automatically
             crypto
                 .issue_delegated_user_connect_token(

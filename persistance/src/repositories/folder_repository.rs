@@ -25,7 +25,9 @@ impl FolderRepository for SqliteFolderRepository {
         folder: &Folder,
         folder_share_record: &FolderShareRecord,
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let folder_model = FolderModel::from(folder);
         let folder_share_model = FolderShareRecordModel::from(folder_share_record);
 
@@ -53,7 +55,9 @@ impl FolderRepository for SqliteFolderRepository {
     }
 
     async fn find_all(&self) -> Result<Vec<Folder>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let folder_models = folders::table
             .filter(folders::deleted.eq(false))
@@ -65,7 +69,9 @@ impl FolderRepository for SqliteFolderRepository {
     }
 
     async fn find_by_id(&self, id: &str) -> Result<Folder, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let folder_model = folders::table
             .find(id)
@@ -82,7 +88,9 @@ impl FolderRepository for SqliteFolderRepository {
     }
 
     async fn soft_delete(&self, folder_id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         // Start a transaction
@@ -118,7 +126,9 @@ impl FolderRepository for SqliteFolderRepository {
         Ok(())
     }
     async fn get_default_folder(&self) -> Result<Folder, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let folder_model = folders::table
             .filter(folders::deleted.eq(false))
@@ -140,7 +150,9 @@ impl FolderRepository for SqliteFolderRepository {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let folder_models = folders::table
             .filter(folders::id.eq_any(folder_ids))
@@ -161,7 +173,9 @@ impl FolderRepository for SqliteFolderRepository {
         }
 
         let folder_models: Vec<FolderModel> = folders.iter().map(FolderModel::from).collect();
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             for folder_model in &folder_models {
@@ -185,7 +199,9 @@ impl FolderRepository for SqliteFolderRepository {
         &self,
         peer_user_id: &str,
     ) -> Result<Vec<FolderManifestData>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // First, get all folder IDs where peer_user is a recipient
         let folder_ids: Vec<String> = folder_share_records::table
@@ -235,7 +251,9 @@ impl FolderRepository for SqliteFolderRepository {
         folder: &Folder,
         share_records: &[FolderShareRecord],
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             let folder_model = FolderModel::from(folder);
@@ -283,7 +301,9 @@ impl FolderRepository for SqliteFolderRepository {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let share_record_models = folder_share_records::table
             .filter(folder_share_records::folder_id.eq(folder_id))
@@ -312,7 +332,9 @@ impl FolderRepository for SqliteFolderRepository {
             return Ok(());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let share_record_models: Vec<FolderShareRecordModel> = share_records
             .iter()
             .map(FolderShareRecordModel::from)

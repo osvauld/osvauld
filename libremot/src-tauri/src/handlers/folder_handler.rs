@@ -14,13 +14,14 @@ use services::{
     create_folder, get_all_folders, get_folder_shared_users, share_folder, soft_delete_folder,
 };
 use tauri::State;
+use tokio::sync::RwLock;
 use tokio::sync::Mutex;
 
 #[tauri::command]
 pub async fn handle_add_folder(
     input: AddFolderInput,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
@@ -76,7 +77,7 @@ pub async fn handle_share_folder(
     input: ShareFolder,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;

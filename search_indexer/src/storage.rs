@@ -7,7 +7,7 @@ use persistance::database::RepositoryContext;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 #[derive(Clone)]
 pub struct SearchIndexStorage {
@@ -67,7 +67,7 @@ impl SearchIndexStorage {
     /// Load and decrypt the index snapshot
     pub async fn load_encrypted(
         &self,
-        crypto_utils: &Arc<Mutex<CryptoUtils>>,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
         repo_ctx: &Arc<RepositoryContext>,
     ) -> IndexResult<Option<IndexSnapshot>> {
         // Check if encrypted index exists
@@ -91,7 +91,7 @@ impl SearchIndexStorage {
 
         // Decrypt the data
         let decrypted_data = {
-            let crypto = crypto_utils.lock().await;
+            let crypto = crypto_utils.read().await;
             crypto
                 .decrypt_resource(&encrypted_data, &encrypted_key)
                 .map_err(|e| IndexError::DecryptionError(e.to_string()))?

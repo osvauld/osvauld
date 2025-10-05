@@ -7,7 +7,7 @@ use network::p2p::{P2PEvent, incoming::P2PSender};
 use persistance::database::RepositoryContext;
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, RwLock};
 
 mod p2p_handlers;
 mod p2p_reciever;
@@ -23,7 +23,7 @@ pub struct EventManager {
     current_note_state: CurrentNoteState,
     chat_state: ChatState,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<Mutex<CryptoUtils>>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
 }
 
 #[derive(Debug, Clone)]
@@ -61,7 +61,7 @@ impl EventManager {
         p2p_receiver: mpsc::UnboundedReceiver<P2PEvent>,
         p2p_sender: P2PSender,
         repo_ctx: Arc<RepositoryContext>,
-        crypto_utils: Arc<Mutex<CryptoUtils>>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
     ) -> Self {
         Self {
             app_handle,

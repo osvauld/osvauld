@@ -22,7 +22,9 @@ impl SqliteUserRepository {
 impl UserRepository for SqliteUserRepository {
     async fn add_known_user(&self, user: &User) -> Result<(), RepositoryError> {
         let user_model = UserModel::from(user);
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::insert_into(users::table)
             .values(user_model)
             .execute(&mut *conn)
@@ -36,7 +38,9 @@ impl UserRepository for SqliteUserRepository {
         Ok(())
     }
     async fn get_known_users(&self) -> Result<Vec<User>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let user_models = users::table
             .filter(users::owner.eq(false))
@@ -49,7 +53,9 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let user_models = users::table
             .filter(users::owner.eq(false))
@@ -67,7 +73,9 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn get_user_by_id(&self, user_id: &str) -> Result<User, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let user_model = users::table
             .filter(users::id.eq(user_id))
             .first::<UserModel>(&mut *conn)
@@ -84,7 +92,9 @@ impl UserRepository for SqliteUserRepository {
 
     async fn complete_user_addition(&self, user_id: &str) -> Result<(), RepositoryError> {
         let now = Local::now().timestamp_millis();
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::update(users::table)
             .filter(users::id.eq(user_id))
             .set((users::first_sync.eq(true), users::updated_at.eq(now)))
@@ -105,7 +115,9 @@ impl UserRepository for SqliteUserRepository {
         }
 
         let user_models: Vec<UserModel> = users.iter().map(UserModel::from).collect();
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             for user_model in &user_models {
@@ -134,7 +146,9 @@ impl UserRepository for SqliteUserRepository {
         peer_device: Option<&Device>,
         ucan_certificate: &Certificate,
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let now = Local::now().timestamp_millis();
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -220,7 +234,9 @@ impl UserRepository for SqliteUserRepository {
     async fn get_other_users_with_device_ids(
         &self,
     ) -> Result<Vec<UserWithDeviceIds>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Get all devices for other users (non-owner users only)
         let user_devices: Vec<(String, String)> = devices::table
@@ -262,7 +278,9 @@ impl UserRepository for SqliteUserRepository {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let user_models = users::table
             .filter(users::id.eq_any(user_ids))
@@ -305,7 +323,9 @@ impl UserRepository for SqliteUserRepository {
             return Ok(());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             for user_with_devices in users_with_devices {
@@ -346,7 +366,9 @@ impl UserRepository for SqliteUserRepository {
     async fn get_user_device_mapping(
         &self,
     ) -> Result<HashMap<String, Vec<String>>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let user_devices: Vec<(String, String)> = devices::table
             .inner_join(users::table.on(devices::user_id.eq(users::id)))
@@ -375,7 +397,9 @@ impl UserRepository for SqliteUserRepository {
             return Ok(Vec::new());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Get all devices for the specified user IDs
         let user_devices: Vec<(String, String)> = devices::table
@@ -413,7 +437,9 @@ impl UserRepository for SqliteUserRepository {
     }
 
     async fn get_user_by_device_id(&self, device_id: &str) -> Result<User, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let user_model = devices::table
             .inner_join(users::table.on(devices::user_id.eq(users::id)))
@@ -432,7 +458,9 @@ impl UserRepository for SqliteUserRepository {
         Ok(user)
     }
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let user_record_model = users::table
             .filter(users::ucan_cid.eq(cid))
             .first::<UserModel>(&mut *conn)

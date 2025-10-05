@@ -29,7 +29,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
 
         let vector_clock_models =
             ResourceVectorClockModel::from_domain_vector_clocks(vector_clocks);
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         diesel::insert_into(resource_vector_clocks::table)
             .values(&vector_clock_models)
@@ -49,7 +51,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         vector_clock: &ResourceVectorClock,
     ) -> Result<(), RepositoryError> {
         let vector_clock_model = ResourceVectorClockModel::from(vector_clock);
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Check if a record with the same device_id and resource_id already exists
         let existing_record = resource_vector_clocks::table
@@ -91,7 +95,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         device_id: &str,
     ) -> Result<ResourceVectorClock, RepositoryError> {
         let now = Local::now().timestamp_millis();
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Start a transaction
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
@@ -145,7 +151,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         &self,
         resource_id: &str,
     ) -> Result<Vec<ResourceVectorClock>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let models = resource_vector_clocks::table
             .filter(resource_vector_clocks::resource_id.eq(resource_id))
@@ -165,7 +173,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         resource_id: &str,
         device_id: &str,
     ) -> Result<ResourceVectorClock, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let model = resource_vector_clocks::table
             .filter(resource_vector_clocks::resource_id.eq(resource_id))
@@ -188,7 +198,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         last_synced_at: i64,
         device_id: &str,
     ) -> Result<bool, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Check if there are any vector clocks for the given resources
         // that were updated after last_synced_at by devices other than the current one
@@ -216,7 +228,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         last_synced_at: i64,
         device_id: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Find resources that were updated after last_synced_at by devices other than current one
         let updated_resources: Vec<String> = resource_vector_clocks::table
@@ -243,7 +257,9 @@ impl VectorClockRepository for SqliteVectorClockRepository {
         update_vector_clocks: &[ResourceVectorClock],
         add_vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Start a transaction to ensure atomicity
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
