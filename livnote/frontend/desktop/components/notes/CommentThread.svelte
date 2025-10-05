@@ -219,7 +219,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="p-3 cursor-pointer flex items-start gap-2 relative"
+		class="p-2 cursor-pointer flex items-start gap-2 relative"
 		onclick={handleThreadClick}
 		onkeydown={(e) => {
 			if (e.key === 'Enter' || e.key === ' ') {
@@ -246,14 +246,14 @@
 				</div>
 			</div>
 			<div
-				class="text-[11px] my-1.5 italic border-l border-livnotePink pl-1.5 flex items-center justify-start text-statusColor"
+				class="text-[11px] my-2.5 italic border-l border-livnotePink pl-1.5 flex items-center justify-start text-textActive"
 			>
-				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap tracking-widest"
 					>"{previewText}"</span
 				>
 			</div>
 			<div
-				class="text-[13px] text-textActive leading-relaxed max-w-full overflow-hidden text-ellipsis whitespace-nowrap {isExpanded
+				class="text-[13px] text-white leading-relaxed max-w-full overflow-hidden text-ellipsis whitespace-nowrap {isExpanded
 					? 'whitespace-normal overflow-visible text-ellipsis-clip break-words'
 					: ''}"
 			>
@@ -261,11 +261,11 @@
 			</div>
 			<div class="flex items-center justify-between">
 				
-					<div class="text-xs text-statusColor flex items-center">
+					<div class="text-xs text-textActive flex items-center">
 						{replyCount}
 						{replyCount === 1 ? "reply" : "replies"}
 						{#if !isExpanded && unreadRepliesCount > 0}
-							<span class="ml-1 inline-flex items-center justify-center rounded bg-red-500 text-white text-[10px] leading-none px-[4px] min-w-[14px] h-[14px]">
+							<span class="ml-1 inline-flex items-center justify-center rounded bg-red-500  text-[10px] leading-none px-[4px] min-w-[14px] h-[14px]">
 								{unreadRepliesCount}
 							</span>
 						{/if}
