@@ -248,7 +248,7 @@
 			<div
 				class="text-[11px] my-2.5 italic border-l border-livnotePink pl-1.5 flex items-center justify-start text-textActive"
 			>
-				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap tracking-widest"
+				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap tracking-wider"
 					>"{previewText}"</span
 				>
 			</div>

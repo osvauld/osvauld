@@ -103,7 +103,7 @@
 </script>
 
 <div class="h-auto w-full border-b border-osvauld-borderColor flex">
-	<div class="grow py-4 px-4 flex items-center justify-end gap-6">
+	<div class="grow py-4 px-4 flex items-center justify-end gap-2">
 		<div
 			class="flex min-w-[400px] items-center bg-osvauld-fieldActive py-2 px-3 rounded-lg focus-within:ring-1 focus-within:ring-livnotePink mr-auto text-sm"
 		>

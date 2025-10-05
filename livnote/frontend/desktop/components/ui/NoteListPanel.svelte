@@ -6,10 +6,8 @@
 		BinIcon as Bin,
 		Star as EmptyStar,
 		FavStar as Star,
-		RightArrow as Arrow,
-		MobileHome as Home,
 		Add,
-		TwoPeople,
+		ShareIos,
 	} from "@osvauld/icons";
 
 	let deleteBtnHoved = $state(false);
@@ -104,7 +102,7 @@
 				aria-expanded={showShareFolderList}
 			>
 				<span class="mr-2 pl-2 whitespace-nowrap">Share Folder</span>
-				<TwoPeople size={20} />
+				<ShareIos size={20} />
 			</button>
 			<button
 				class="cursor-pointer rounded-lg p-2 flex justify-center items-center bg-osvauld-fieldActive"

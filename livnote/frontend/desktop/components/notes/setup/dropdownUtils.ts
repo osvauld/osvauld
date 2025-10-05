@@ -153,10 +153,10 @@ export const dropdownStyle = `
   }
 
   .font-size-input {
-    width: 40px;
     color: rgb(133, 136, 156);
     font-size: 14px;
     text-align: center;
+    width: 60px;
   }
 
   .font-size-input:focus {

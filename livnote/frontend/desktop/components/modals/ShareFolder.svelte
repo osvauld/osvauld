@@ -81,7 +81,8 @@
 		class="bg-transparent fixed inset-0"
 		role="presentation"
 		aria-hidden="true"
-		onclick={(e) => {
+		onmousedown={(e) => {
+			e.preventDefault();
 			e.stopPropagation();
 			showShareList = false;
 		}}
