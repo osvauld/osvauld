@@ -151,9 +151,22 @@ impl EventManager {
         }
     }
     pub(crate) async fn handle_folders_added(&self, folders: Vec<Folder>) {
+        // Map folders to the same format as handle_get_folders for frontend consistency
+        let folder_responses: Vec<serde_json::Value> = folders
+            .into_iter()
+            .map(|folder| {
+                json!({
+                    "id": folder.id,
+                    "name": folder.name,
+                    "description": folder.description.unwrap_or_default(),
+                    "default": folder.default_folder,
+                })
+            })
+            .collect();
+
         if let Err(e) = self.emit_json(
             "folders-added-notification",
-            json!({ "folders": folders.clone()}),
+            json!({ "folders": folder_responses }),
         ) {
             error!("Failed to emit added notification: {}", e);
         }

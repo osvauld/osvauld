@@ -443,7 +443,11 @@ class DataState {
 
   async handleFoldersAddedUpdate(event: any) {
     console.log(event.payload);
-    this.vaults = [...this.vaults, ...event.payload.folders];
+    // Filter out duplicates
+    const newFolders = event.payload.folders.filter(
+      (newFolder: Vault) => !this.vaults.some((existing) => existing.id === newFolder.id)
+    );
+    this.vaults = [...this.vaults, ...newFolders];
   }
 
   async setupReactiveUpdates() {
