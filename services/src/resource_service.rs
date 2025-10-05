@@ -88,30 +88,6 @@ pub async fn create_resource(
 
     let decrypted_resource =
         get_resource_by_id_direct(&resource.id, &user.id, repo_ctx.clone(), crypto_utils).await?;
-    let repo_ctx_clone = repo_ctx.clone();
-    let crypto_utils_clone = crypto_utils.clone();
-    let user_clone = user.clone();
-    let folder_id_clone = folder_id.clone();
-    let domain_clone = domain.to_string();
-    let resource_id = resource.id.clone();
-
-    tokio::spawn(async move {
-        if let Err(e) = auto_share_resource_with_folder_users(
-            &resource_id,
-            &folder_id_clone,
-            &user_clone,
-            repo_ctx_clone,
-            &crypto_utils_clone,
-            &domain_clone,
-        )
-        .await
-        {
-            error!(
-                "Failed to auto-share resource {} in folder {} with folder users: {}",
-                resource_id, folder_id_clone, e
-            );
-        }
-    });
 
     Ok(decrypted_resource)
 }
@@ -773,7 +749,7 @@ async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<
 
 /// Auto-share a resource with all users who have access to the folder
 /// This runs in background to avoid blocking the frontend response
-async fn auto_share_resource_with_folder_users(
+pub async fn auto_share_resource_with_folder_users(
     resource_id: &str,
     folder_id: &str,
     current_user: &User,
