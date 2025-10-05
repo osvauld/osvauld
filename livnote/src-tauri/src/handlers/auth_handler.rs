@@ -14,7 +14,7 @@ use services::{
 };
 use std::sync::Arc;
 use tauri::State;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 #[tauri::command]
 pub async fn check_signup_status(
@@ -57,9 +57,9 @@ pub async fn handle_sign_up(
 
 #[tauri::command]
 pub async fn check_private_key_loaded(
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
 ) -> Result<CryptoResponse, String> {
-    let crypto = crypto_utils.lock().await;
+    let crypto = crypto_utils.read().await;
     Ok(CryptoResponse::CheckPvtKeyLoaded(crypto.is_cert_loaded()))
 }
 
@@ -68,7 +68,7 @@ pub async fn login(
     input: LoadPvtKeyInput,
     user_state: State<'_, UserState>,
     p2p_service: State<'_, Arc<P2PService>>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
 ) -> Result<CryptoResponse, String> {
@@ -168,15 +168,15 @@ pub async fn handle_change_passphrase(
 
 #[tauri::command]
 pub async fn handle_logout(
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
 ) -> Result<CryptoResponse, String> {
-    let mut crypto = crypto_utils.lock().await;
+    let mut crypto = crypto_utils.write().await;
     crypto.clear_cert();
     Ok(CryptoResponse::Success)
 }
 #[tauri::command]
 pub async fn get_one_time_ucan_token(
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let (ucan_token, ucan_pub_key) =

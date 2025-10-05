@@ -19,8 +19,7 @@ use persistance::database::RepositoryContext;
 use services::generate_challenge;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use tokio::time::timeout;
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
@@ -33,7 +32,7 @@ pub struct P2PState {
 #[derive(Clone)]
 pub struct P2PService {
     pub state: Arc<Mutex<Option<P2PState>>>,
-    pub crypto_utils: Arc<Mutex<CryptoUtils>>,
+    pub crypto_utils: Arc<RwLock<CryptoUtils>>,
     pub repo_ctx: Arc<RepositoryContext>,
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
@@ -46,7 +45,7 @@ impl P2PService {
     #[instrument(skip_all, level = "info")]
     pub fn new(
         repo_ctx: Arc<RepositoryContext>,
-        crypto_utils: Arc<Mutex<CryptoUtils>>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
         domain: Arc<String>,
     ) -> (
         Self,
@@ -147,7 +146,7 @@ impl P2PService {
         info!("node_id {}", node_id);
 
         let secret_key_bytes = {
-            let crypto = self.crypto_utils.lock().await;
+            let crypto = self.crypto_utils.read().await;
             crypto.get_node_keypair(&key)?
         };
         let secret_key = iroh::SecretKey::from(secret_key_bytes);

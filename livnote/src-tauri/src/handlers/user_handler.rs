@@ -9,11 +9,11 @@ use services::{add_known_user, get_known_users};
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 #[tauri::command]
 pub async fn handle_add_user(
     input: String,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {

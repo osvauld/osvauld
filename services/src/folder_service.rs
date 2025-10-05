@@ -9,13 +9,13 @@ use osvauld_core::models::{
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 pub async fn create_folder(
     name: String,
     description: Option<String>,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
     user: &User,
 ) -> ServiceResult<Folder> {
@@ -26,7 +26,7 @@ pub async fn create_folder(
     let folder = Folder::new(name, description, false);
     let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
     let (folder_root_ucan_key, ucan_cid) = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto
             .generate_folder_owner_ucan(&encrypted_ucan_key, &folder.id, domain)
             .await?
@@ -79,7 +79,7 @@ pub async fn share_folder(
     folder_permissions: Vec<(String, String)>,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> ServiceResult<()> {
     // 1. Validate folder exists and user has access
@@ -123,7 +123,7 @@ pub async fn share_folder(
 
     // Generate delegated folder UCAN
     let (folder_ucan_token, folder_ucan_cid) = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto
             .issue_delegated_folder_ucan(
                 &encrypted_ucan_key,
@@ -317,7 +317,7 @@ pub async fn add_missing_recipients(
     repo_ctx: Arc<RepositoryContext>,
     recipient_user_id: &str,
     current_user: &User,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> ServiceResult<()> {
     let folder_resource_pair = repo_ctx

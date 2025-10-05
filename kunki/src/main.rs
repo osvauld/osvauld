@@ -8,7 +8,7 @@ use base64::{Engine as _, engine::general_purpose};
 use serde_json::json;
 use services::{generate_one_time_ucan_token, handle_signup, is_signed_up, load_certificate};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 #[derive(Parser)]
 #[command(author, version, about = "LivNote P2P CLI", long_about = None)]
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ))
             })?;
     let repo_ctx = Arc::new(initialize_repositories(db_connection.clone()));
-    let crypto_utils = Arc::new(Mutex::new(CryptoUtils::new()));
+    let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
     let domain = Arc::new(cli.domain);
 
     match cli.command {
@@ -135,7 +135,7 @@ async fn handle_start(
     passphrase: &str,
     print_token: bool,
     repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<Mutex<CryptoUtils>>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
     domain: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
@@ -303,7 +303,7 @@ async fn handle_start(
 async fn handle_token(
     passphrase: &str,
     repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<Mutex<CryptoUtils>>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists

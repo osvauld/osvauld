@@ -9,7 +9,7 @@ use persistance::database::RepositoryContext;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 #[derive(Debug)]
 pub struct ResourceSharingData {
     pub resource_key: ResourceKey,
@@ -26,7 +26,7 @@ pub async fn create_resource(
     current_device_id: &str,
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<DecryptedResource> {
     let (encrypted_data, encrypted_key) =
         encrypt_data_for_user(&resource_payload, &user.public_key)?;
@@ -41,7 +41,7 @@ pub async fn create_resource(
     );
 
     let signature = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.sign_and_hash_message(&resource.id)?
     };
     resource.signature = signature.to_owned();
@@ -52,7 +52,7 @@ pub async fn create_resource(
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
     let (ucan_token, ucan_cid) = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto
             .generate_resource_owner_ucan(&encrypted_ucan_pvt_key, &resource.id, domain)
             .await?
@@ -97,7 +97,7 @@ pub async fn get_resource_by_id_direct(
     resource_id: &str,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<DecryptedResource> {
     // Get the resource with its key from the repository
     let resource_with_key = repo_ctx
@@ -114,11 +114,11 @@ pub async fn get_resource_by_id_direct(
 /// Helper function to decrypt a single resource
 async fn decrypt_single_resource(
     resource_with_key: ResourceWithKey,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<DecryptedResource> {
     // Lock crypto_utils and decrypt the resource data
     let decrypted_data = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.decrypt_resource(
             &resource_with_key.resource.data,
             &resource_with_key.encrypted_key,
@@ -178,7 +178,7 @@ pub async fn update_resource(
     user_id: &str,
     current_device_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<DecryptedResource> {
     let old_resource = repo_ctx
         .resource_repo
@@ -186,7 +186,7 @@ pub async fn update_resource(
         .await?;
 
     let encrypted_data = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.update_resource(&data, &old_resource.encrypted_key)?
     };
 
@@ -210,7 +210,7 @@ pub async fn get_resource(
     resource_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     user_id: &str,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(DecryptedResource, String)> {
     // Get encrypted resource from repository
     let resource_with_key = repo_ctx
@@ -227,7 +227,7 @@ pub async fn get_resource(
 
 pub async fn get_resources_for_folder(
     folder_id: &str,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<Vec<DecryptedResource>> {
@@ -241,7 +241,7 @@ pub async fn get_resources_for_folder(
 }
 
 pub async fn get_all_resources(
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
     user_id: &str,
 ) -> ServiceResult<Vec<DecryptedResource>> {
@@ -254,13 +254,13 @@ pub async fn get_all_resources(
 
 async fn decrypt_resources(
     resources_with_keys: Vec<ResourceWithKey>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<Vec<DecryptedResource>> {
     // Initialize vector to store decrypted resources
     let mut decrypted_resources = Vec::with_capacity(resources_with_keys.len());
 
     // Lock crypto_utils once before the loop
-    let crypto = crypto_utils.lock().await;
+    let crypto = crypto_utils.read().await;
 
     // Process each resource
     for rk in resources_with_keys {
@@ -292,7 +292,7 @@ pub async fn prepare_share_resource(
     permissions: Vec<(String, String)>,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<Option<ResourceSharingData>> {
     // 1. Check if resource is already shared with recipient
     if repo_ctx
@@ -324,7 +324,7 @@ pub async fn prepare_share_resource(
 
     // 4. Encrypt the resource key for the recipient using their public key
     let new_encryption_key = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto
             .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_user.public_key)?
     };
@@ -344,7 +344,7 @@ pub async fn prepare_share_resource(
     let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
 
     let (ucan_token, ucan_cid) = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto
             .issue_delegated_resource_ucan(
                 &encrypted_ucan_pvt_key,
@@ -394,7 +394,7 @@ pub async fn share_resource(
     permissions: Vec<(String, String)>,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<()> {
     if let Some(sharing_data) = prepare_share_resource(
         recipient_user_id,
@@ -424,7 +424,7 @@ pub async fn get_resource_state_vector(
     resource_id: &str,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
     // 1. Get the decrypted resource
     let (decrypted_resource, _) =
@@ -460,7 +460,7 @@ pub async fn generate_updates_for_peer(
     resource_id: &str,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     peer_state_vectors: &String,
 ) -> ServiceResult<String> {
     // 1. Get the decrypted resource
@@ -481,7 +481,7 @@ pub async fn apply_updates_and_get_peer_updates(
     user_id: &str,
     updates: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
     // 1. Get the current resource with its YJS state
     let (mut decrypted_resource, encrypted_key) =
@@ -493,7 +493,7 @@ pub async fn apply_updates_and_get_peer_updates(
         .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     let encrypted_data = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.update_resource(&decrypted_resource.data.to_string(), &encrypted_key)?
     };
 
@@ -511,7 +511,7 @@ pub async fn apply_buffer_updates_and_get_remote_updates(
     updates: &str,
     peer_state_vectors: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
     // 1. Get the current resource with its YJS state
     let (mut decrypted_resource, _encrypted_key) =
@@ -536,7 +536,7 @@ pub async fn apply_buffer_and_peer_updates_and_get_remote_updates(
     remote_updates: &str,
     local_updates: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
     // 1. Get the current resource with its YJS state
     let (mut decrypted_resource, _encrypted_key) =
@@ -560,7 +560,7 @@ pub async fn apply_updates(
     updates: &str,
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<()> {
     let (mut decrypted_resource, encrypted_key) =
         get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
@@ -571,7 +571,7 @@ pub async fn apply_updates(
         .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     let encrypted_data = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.update_resource(&decrypted_resource.data.to_string(), &encrypted_key)?
     };
 
@@ -754,7 +754,7 @@ pub async fn auto_share_resource_with_folder_users(
     folder_id: &str,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> ServiceResult<()> {
     info!(

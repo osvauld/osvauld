@@ -5,7 +5,7 @@ use crypto_utils::{CryptoUtils, get_key_id};
 use log::{error, info};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};
 use persistance::database::RepositoryContext;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 pub async fn add_known_user(
     username: String,
@@ -14,12 +14,12 @@ pub async fn add_known_user(
     one_time_token: String,
     ucan_pub_key: String,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(User, Device)> {
     let user_id = get_key_id(&user_public_key)?;
 
     let signature = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.sign_message(&user_public_key)?
     };
 
@@ -119,16 +119,16 @@ pub async fn get_shared_user_devices_for_note(
 
 pub async fn get_ucan_pub_key(
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
-    let crypto = crypto_utils.lock().await;
+    let crypto = crypto_utils.read().await;
     Ok(crypto.get_public_ucan_key(&encrypted_ucan_pvt_key).await?)
 }
 
 pub async fn issue_connect_ucan_token(
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
     peer_ucan_pub_key: &str,
 ) -> ServiceResult<String> {
@@ -137,7 +137,7 @@ pub async fn issue_connect_ucan_token(
         e
     })?;
 
-    let crypto = crypto_utils.lock().await;
+    let crypto = crypto_utils.read().await;
     crypto
         .issue_connect_and_share_user_token(&encrypted_pvt_key, domain, peer_ucan_pub_key)
         .await
@@ -148,12 +148,12 @@ pub async fn issue_connect_ucan_token(
 }
 
 pub async fn sign_ucan_pub_key(
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<String> {
     let ucan_pub_key = get_ucan_pub_key(repo_ctx, crypto_utils).await?;
 
-    let crypto = crypto_utils.lock().await;
+    let crypto = crypto_utils.read().await;
     crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
         error!("Failed to sign local UCAN public key: {}", e);
         e.into()

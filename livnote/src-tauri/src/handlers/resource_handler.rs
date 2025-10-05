@@ -18,13 +18,13 @@ use services::{
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, State};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 #[tauri::command]
 pub async fn handle_add_resource(
     input: AddResourceInput,
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
@@ -120,7 +120,7 @@ pub async fn handle_add_resource(
 #[tauri::command]
 pub async fn handle_get_resources_for_folder(
     input: GetResourceForFolderInput,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
@@ -183,7 +183,7 @@ pub async fn handle_update_last_accessed(
 
 #[tauri::command]
 pub async fn handle_get_all_resources(
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
@@ -210,7 +210,7 @@ pub async fn handle_update_resource(
     input: UpdateResources,
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
 ) -> Result<CryptoResponse, String> {
@@ -322,7 +322,7 @@ pub async fn handle_search_resources(
 #[tauri::command]
 pub async fn handle_get_resource(
     input: GetResource,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
 ) -> Result<CryptoResponse, String> {
@@ -357,7 +357,7 @@ pub async fn handle_get_resource(
 pub async fn handle_share_resource(
     input: ShareResource,
     user_state: State<'_, UserState>,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
@@ -385,7 +385,7 @@ pub async fn emit_all_resources(
     selected_resource_id: Option<String>,
     user_state: State<'_, UserState>,
     app_handle: AppHandle,
-    crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
     let overall_start = Instant::now();

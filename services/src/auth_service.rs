@@ -9,7 +9,7 @@ use osvauld_core::models::{Certificate, Folder, FolderShareRecord, PermissionLev
 use persistance::database::RepositoryContext;
 use rand::{RngCore, rngs::OsRng};
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 async fn create_certificate(username: &str, passphrase: &str) -> ServiceResult<Certificate> {
     let primary_key = generate_keys(passphrase, username)?;
@@ -123,7 +123,7 @@ pub async fn is_signed_up(repo_ctx: Arc<RepositoryContext>) -> ServiceResult<boo
 pub async fn load_certificate(
     passphrase: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(User, Device)> {
     // Map specific errors where needed
     let certificate = repo_ctx
@@ -138,12 +138,12 @@ pub async fn load_certificate(
         .map_err(|_| AuthServiceError::InvalidPassphrase)?;
 
     {
-        let mut crypto_utils = crypto_utils.lock().await;
+        let mut crypto_utils = crypto_utils.write().await;
         *crypto_utils = crypto;
     }
 
     let public_key = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto.get_public_key()?
     };
 
@@ -320,13 +320,13 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> ServiceResult<Certific
 
 pub async fn generate_one_time_ucan_token(
     capability_str: &str,
-    crypto_utils: &Arc<Mutex<CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(String, String)> {
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
     let (ucan_token, ucan_public_key) = {
-        let crypto = crypto_utils.lock().await;
+        let crypto = crypto_utils.read().await;
         crypto
             .generate_one_time_user_connect_token(&encrypted_ucan_pvt_key, capability_str)
             .await?

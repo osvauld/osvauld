@@ -84,7 +84,7 @@ impl SearchIndexManager {
     /// Initialize the index (decrypt from disk if exists, otherwise create new)
     pub async fn initialize(
         &mut self,
-        crypto_utils: &Arc<Mutex<CryptoUtils>>,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
         repo_ctx: &Arc<RepositoryContext>,
         user_pub_key: String,
     ) -> IndexResult<()> {
