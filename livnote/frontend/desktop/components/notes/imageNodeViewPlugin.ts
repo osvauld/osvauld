@@ -335,12 +335,19 @@ class LazyImageNodeView implements NodeView {
     this.resizeContainer.style.pointerEvents = 'none';
     this.resizeContainer.style.zIndex = '15';
 
-    // Define handle positions
+    // Define handle positions - now including edge handles
     const positions = [
+      // Corner handles
       { name: 'nw', top: '-5px', left: '-5px', cursor: 'nw-resize' },
       { name: 'ne', top: '-5px', right: '-5px', cursor: 'ne-resize' },
       { name: 'sw', bottom: '-5px', left: '-5px', cursor: 'sw-resize' },
-      { name: 'se', bottom: '-5px', right: '-5px', cursor: 'se-resize' }
+      { name: 'se', bottom: '-5px', right: '-5px', cursor: 'se-resize' },
+
+      // Edge handles for independent width/height resizing
+      { name: 'n', top: '-5px', left: '50%', cursor: 'n-resize', isEdge: true },
+      { name: 's', bottom: '-5px', left: '50%', cursor: 's-resize', isEdge: true },
+      { name: 'e', top: '50%', right: '-5px', cursor: 'e-resize', isEdge: true },
+      { name: 'w', top: '50%', left: '-5px', cursor: 'w-resize', isEdge: true }
     ];
 
     // Create each handle
@@ -366,18 +373,31 @@ class LazyImageNodeView implements NodeView {
       if (pos.left) handle.style.left = pos.left;
       if (pos.right) handle.style.right = pos.right;
 
+      // Center edge handles
+      if (pos.isEdge) {
+        if (pos.name === 'n' || pos.name === 's') {
+          handle.style.transform = 'translateX(-50%)';
+        } else if (pos.name === 'e' || pos.name === 'w') {
+          handle.style.transform = 'translateY(-50%)';
+        }
+      }
+
       // Add hover effect
       handle.addEventListener('mouseenter', () => {
         handle.style.backgroundColor = '#0051D5';
-        handle.style.transform = 'scale(1.2)';
+        handle.style.transform = pos.isEdge
+          ? (pos.name === 'n' || pos.name === 's' ? 'translateX(-50%) scale(1.2)' : 'translateY(-50%) scale(1.2)')
+          : 'scale(1.2)';
       });
 
       handle.addEventListener('mouseleave', () => {
         handle.style.backgroundColor = '#007AFF';
-        handle.style.transform = 'scale(1)';
+        handle.style.transform = pos.isEdge
+          ? (pos.name === 'n' || pos.name === 's' ? 'translateX(-50%)' : 'translateY(-50%)')
+          : 'scale(1)';
       });
 
-      // Add mousedown handler for resize (Phase 3 - IMPLEMENTED)
+      // Add mousedown handler for resize
       handle.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -390,7 +410,6 @@ class LazyImageNodeView implements NodeView {
 
     this.dom.appendChild(this.resizeContainer);
   }
-
   /**
    * Start the resize operation
    */
@@ -442,6 +461,7 @@ class LazyImageNodeView implements NodeView {
 
     // Calculate new dimensions based on handle position
     switch (this.resizeStartData.handle) {
+      // Corner handles - resize both dimensions
       case 'se': // Southeast (bottom-right)
         newWidth = Math.max(50, this.resizeStartData.startWidth + deltaX);
         newHeight = Math.max(50, this.resizeStartData.startHeight + deltaY);
@@ -458,14 +478,29 @@ class LazyImageNodeView implements NodeView {
         newWidth = Math.max(50, this.resizeStartData.startWidth - deltaX);
         newHeight = Math.max(50, this.resizeStartData.startHeight - deltaY);
         break;
+
+      // Edge handles - resize only one dimension
+      case 'n': // North (top) - only height
+        newHeight = Math.max(50, this.resizeStartData.startHeight - deltaY);
+        break;
+      case 's': // South (bottom) - only height
+        newHeight = Math.max(50, this.resizeStartData.startHeight + deltaY);
+        break;
+      case 'e': // East (right) - only width
+        newWidth = Math.max(50, this.resizeStartData.startWidth + deltaX);
+        break;
+      case 'w': // West (left) - only width
+        newWidth = Math.max(50, this.resizeStartData.startWidth - deltaX);
+        break;
     }
 
-    // Maintain aspect ratio if shift key is held
-    if (e.shiftKey && this.resizeStartData.aspectRatio) {
-      const scaleFactor = Math.max(
-        newWidth / this.resizeStartData.startWidth,
-        newHeight / this.resizeStartData.startHeight
-      );
+    // Only maintain aspect ratio if shift key is held AND using corner handles
+    if (e.shiftKey && this.resizeStartData.aspectRatio &&
+      ['nw', 'ne', 'sw', 'se'].includes(this.resizeStartData.handle)) {
+      const scaleX = newWidth / this.resizeStartData.startWidth;
+      const scaleY = newHeight / this.resizeStartData.startHeight;
+      const scaleFactor = Math.max(scaleX, scaleY);
+
       newWidth = this.resizeStartData.startWidth * scaleFactor;
       newHeight = this.resizeStartData.startHeight * scaleFactor;
     }
@@ -484,7 +519,6 @@ class LazyImageNodeView implements NodeView {
     // Show size indicator
     this.showSizeIndicator(newWidth, newHeight, e.clientX, e.clientY);
   };
-
   /**
    * End the resize operation
    */
@@ -802,23 +836,47 @@ class LazyImageNodeView implements NodeView {
       this.placeholder = null;
     }
 
-    // Use stored dimensions or natural dimensions
-    const actualWidth = this.nodeAttrs.width || this.img.naturalWidth || 200;
-    const actualHeight = this.nodeAttrs.height || this.img.naturalHeight || 150;
+    // FIXED: Apply maximum initial dimensions for newly pasted images
+    let actualWidth = this.nodeAttrs.width || this.img.naturalWidth || 200;
+    let actualHeight = this.nodeAttrs.height || this.img.naturalHeight || 150;
+
+    // If no saved dimensions exist, constrain to reasonable defaults
+    if (!this.nodeAttrs.width && !this.nodeAttrs.height) {
+      const maxInitialWidth = 600;  // Maximum initial width
+      const maxInitialHeight = 450; // Maximum initial height
+
+      const aspectRatio = actualWidth / actualHeight;
+
+      if (actualWidth > maxInitialWidth) {
+        actualWidth = maxInitialWidth;
+        actualHeight = maxInitialWidth / aspectRatio;
+      }
+
+      if (actualHeight > maxInitialHeight) {
+        actualHeight = maxInitialHeight;
+        actualWidth = maxInitialHeight * aspectRatio;
+      }
+
+      // Round to integers
+      actualWidth = Math.round(actualWidth);
+      actualHeight = Math.round(actualHeight);
+
+      // Update node attributes to persist these dimensions
+      this.updateNodeDimensions(actualWidth, actualHeight);
+    }
 
     // Update container to match dimensions
     this.dom.style.width = `${actualWidth}px`;
     this.dom.style.height = `${actualHeight}px`;
 
-    // FIXED: Make image fill the container properly
+    // Make image fill the container properly
     this.img.style.position = 'absolute';
     this.img.style.top = '0';
     this.img.style.left = '0';
     this.img.style.width = '100%';
     this.img.style.height = '100%';
-    this.img.style.objectFit = 'contain'; // Maintains aspect ratio within container
+    this.img.style.objectFit = 'contain';
   }
-
   private createFullPlaceholder(): void {
     if (!this.placeholder) return;
 
