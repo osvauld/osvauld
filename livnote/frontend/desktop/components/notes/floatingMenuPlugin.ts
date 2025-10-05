@@ -1,10 +1,10 @@
-import { Plugin, PluginKey } from "prosemirror-state";
+import { Plugin, PluginKey, EditorState } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
-import { Schema, Mark } from "prosemirror-model";
+import { Schema, Mark, Node as ProseMirrorNode } from "prosemirror-model";
 import { toggleMark } from "prosemirror-commands";
 import { Decoration, DecorationSet } from "prosemirror-view";
-import { getSearchState } from "prosemirror-search";
 import { NodeSelection } from "prosemirror-state";
+import type { SearchManager } from "./SearchManager";
 export const floatingMenuKey = new PluginKey("floating-menu");
 
 type MenuMode = "buttons" | "linkInput";
@@ -117,7 +117,7 @@ function injectStyles() {
   document.head.appendChild(styleElement);
 }
 
-export function floatingMenuPlugin(schema: Schema) {
+export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager) {
   let menu: HTMLElement | null = null;
   let view: EditorView | null = null;
   let isMenuVisible = false;
@@ -467,6 +467,33 @@ export function floatingMenuPlugin(schema: Schema) {
     }
   }
 
+  // Check if selection spans multiple block nodes
+  function isMultiNodeSelection(state: EditorState, from: number, to: number): boolean {
+    let textblockCount = 0;
+    const seenPositions = new Set<number>();
+    
+    state.doc.nodesBetween(from, to, (node: ProseMirrorNode, pos: number) => {
+      // Only count textblock nodes (paragraphs, headings, list items, code blocks, etc.)
+      // These are the block-level nodes that actually contain text content
+      if (node.isTextblock) {
+        // Use position to track unique textblocks (avoid counting same node multiple times)
+        if (!seenPositions.has(pos)) {
+          seenPositions.add(pos);
+          textblockCount++;
+          
+          // If we've found more than one textblock, we can stop
+          if (textblockCount > 1) {
+            return false; // Stop iteration
+          }
+        }
+      }
+      // Continue traversing into container blocks
+      return true;
+    });
+    
+    return textblockCount > 1;
+  }
+
   // Position the menu near the selection
   function positionMenu(editorView: EditorView) {
     if (!menu) return;
@@ -480,9 +507,8 @@ export function floatingMenuPlugin(schema: Schema) {
       return;
     }
 
-    // Don't show menu during search navigation
-    const searchQuery = getSearchState(state);
-    if (searchQuery && searchQuery.query && searchQuery.query.search) {
+    // Don't show menu when search UI is visible
+    if (searchManager.isSearchUIVisible()) {
       hideMenu();
       return;
     }
@@ -494,6 +520,12 @@ export function floatingMenuPlugin(schema: Schema) {
       return;
     }
     if (selection instanceof NodeSelection) {
+      hideMenu();
+      return;
+    }
+
+    // Block floating menu for multi-node selections
+    if (isMultiNodeSelection(state, from, to)) {
       hideMenu();
       return;
     }

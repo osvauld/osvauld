@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Loader from "./Loader.svelte";
-	import { ClosedEye, Eye } from "@osvauld/icons";
+	import { ClosedEye, Eye, Locked } from "@osvauld/icons";
 	import { sendMessage } from "../utils/helper";
 
 	let { authenticated } = $props();
@@ -94,15 +94,20 @@
 				{/if}
 			</button>
 		</div>
-		<span
-			id="passphrase-error"
-			class="text-xs text-red-500 font-light mt-2 {errorMessage
-				? 'visible'
-				: 'invisible'}"
-			role="alert">Wrong Passphrase</span
-		>
+
+		{#if errorMessage}
+			<span
+				id="passphrase-error"
+				class="text-xs text-red-500 font-light mt-4"
+				role="alert">Wrong Passphrase</span
+			>
+		{:else}
+			<div class="text-xs text-textActive flex items-center gap-2 mt-4">
+				<Locked size={16} /> End-to-end encrypted
+			</div>
+		{/if}
 		<button
-			class="bg-livnotePink py-2 px-10 mt-8 rounded-lg text-primarydark font-medium w-[150px] flex justify-center items-center whitespace-nowrap"
+			class="bg-livnotePink py-2 px-10 mt-8 rounded-lg text-primarydark font-medium w-[150px] flex justify-center items-center whitespace-nowrap cursor-pointer"
 			type="submit"
 		>
 			{#if isLoaderActive}

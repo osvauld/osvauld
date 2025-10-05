@@ -1,4 +1,4 @@
-import { Plugin } from "prosemirror-state";
+import { Plugin, TextSelection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import {
   search,
@@ -41,6 +41,7 @@ export class SearchManager {
   };
 
   private listeners: Array<(state: SearchState) => void> = [];
+  private isUIVisible: boolean = false;
 
   constructor() {
     this.plugin = search({});
@@ -124,8 +125,18 @@ export class SearchManager {
    * Clear search
    */
   clearSearch(view: EditorView): void {
+    // Clear the search state by setting an invalid/empty query
+    // This will remove all search decorations
     const emptyQuery = new SearchQuery({ search: "" });
-    const tr = setSearchState(view.state.tr, emptyQuery);
+    let tr = setSearchState(view.state.tr, emptyQuery);
+    
+    // Collapse selection to cursor position to remove selection highlights
+    const { selection } = view.state;
+    if (!selection.empty) {
+      const cursorPos = selection.from;
+      tr = tr.setSelection(TextSelection.create(tr.doc, cursorPos));
+    }
+    
     view.dispatch(tr);
 
     this.currentQuery = null;
@@ -281,6 +292,20 @@ export class SearchManager {
   toggleReplaceMode(): void {
     this.state.isReplaceMode = !this.state.isReplaceMode;
     this.notifyListeners();
+  }
+
+  /**
+   * Set search UI visibility
+   */
+  setUIVisible(visible: boolean): void {
+    this.isUIVisible = visible;
+  }
+
+  /**
+   * Check if search UI is visible
+   */
+  isSearchUIVisible(): boolean {
+    return this.isUIVisible;
   }
 
   // Static command methods for use with keyboard shortcuts

@@ -137,7 +137,7 @@
 				>
 					<Bin size={24} />
 				</button>
-
+				<!-- 
 				<div class="relative flex justify-center items-center">
 					<button
 						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
@@ -151,12 +151,12 @@
 							<DownloadIcon />
 						{/if}
 					</button>
-				</div>
+				</div> -->
 			</div>
 
 			<button
 				onclick={() => (showShareList = true)}
-				class="mt-4 w-full font-semibold text-base flex justify-center items-center py-2.5 px-5 rounded-lg bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="mt-4 w-full font-semibold text-base flex justify-center items-center py-2.5 px-5 rounded-lg border border-livnotePink text-livnotePink hover:bg-livnotePink hover:text-primarydark cursor-pointer"
 				aria-label="Invite Collaborators to edit"
 				aria-haspopup="dialog"
 				aria-expanded={showShareList}

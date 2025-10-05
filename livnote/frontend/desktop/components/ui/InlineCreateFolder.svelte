@@ -83,6 +83,7 @@
 				bind:value={folderName}
 				onkeydown={handleKeyDown}
 				type="text"
+				maxlength="20"
 				class="w-full bg-osvauld-frameblack text-osvauld-sideListTextActive placeholder-osvauld-fieldText border border-osvauld-borderColor rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-0.5 focus:ring-livnotelavender focus:border-livnotelavender transition-colors duration-150"
 				placeholder="Enter folder name"
 				autocomplete="off"
