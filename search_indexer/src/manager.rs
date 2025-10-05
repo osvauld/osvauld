@@ -15,6 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tantivy::schema::*;
+use tantivy::tokenizer::{LowerCaser, SimpleTokenizer, Stemmer, TextAnalyzer};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy};
 use tokio::sync::{Mutex, RwLock};
 
@@ -31,19 +32,29 @@ pub struct SearchIndexManager {
 
 impl SearchIndexManager {
     /// Create a new search index manager
-    /// 
+    ///
     /// # Arguments
     /// * `app_data_dir` - Directory to store the encrypted search index
     /// * `yjs_field_name` - Name of the YJS field in the JSON (e.g., "main_doc" for livnote, "chat" for chat)
     pub fn new(app_data_dir: &Path, yjs_field_name: String) -> IndexResult<Self> {
-        // Define schema
+        // Define schema with stemming
         let mut schema_builder = Schema::builder();
 
         let resource_id_field = schema_builder.add_text_field("resource_id", STRING | STORED);
-        let title_field = schema_builder.add_text_field("title", TEXT | STORED);
-        let content_field = schema_builder.add_text_field("content", TEXT | STORED);
         let folder_id_field = schema_builder.add_text_field("folder_id", STRING | STORED);
-        let comments_field = schema_builder.add_text_field("comments", TEXT | STORED);
+
+        // Configure text fields with stemming support
+        let text_options = TextOptions::default()
+            .set_indexing_options(
+                TextFieldIndexing::default()
+                    .set_tokenizer("en_stem")
+                    .set_index_option(IndexRecordOption::WithFreqsAndPositions),
+            )
+            .set_stored();
+
+        let title_field = schema_builder.add_text_field("title", text_options.clone());
+        let content_field = schema_builder.add_text_field("content", text_options.clone());
+        let comments_field = schema_builder.add_text_field("comments", text_options);
 
         let schema = schema_builder.build();
 
@@ -79,6 +90,7 @@ impl SearchIndexManager {
     ) -> IndexResult<()> {
         info!("Initializing search index...");
         self.user_pub_key = Some(user_pub_key.clone());
+
         // Check if encrypted index exists and load it
         if let Some(snapshot) = self.storage.load_encrypted(crypto_utils, repo_ctx).await? {
             info!("Restoring index from encrypted snapshot");
@@ -95,10 +107,18 @@ impl SearchIndexManager {
     async fn create_new_index(&self) -> IndexResult<()> {
         let index = Index::create_in_ram(self.schema.clone());
 
+        // Register the English stemming tokenizer
+        let tokenizer = TextAnalyzer::builder(SimpleTokenizer::default())
+            .filter(LowerCaser)
+            .filter(Stemmer::default())
+            .build();
+
+        index.tokenizers().register("en_stem", tokenizer);
+
         // Create writer with 50MB heap
         let writer = index.writer(50_000_000)?;
 
-        // Create reader - using Manual reload policy instead of OnCommit
+        // Create reader - using Manual reload policy
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
@@ -212,7 +232,7 @@ impl SearchIndexManager {
             .await?;
         Ok(())
     }
-    
+
     pub fn start_scheduled_save(
         search_manager: Arc<Mutex<SearchIndexManager>>,
         repo_ctx: Arc<RepositoryContext>,
@@ -387,8 +407,9 @@ impl SearchIndexManager {
 }
 
 /// Helper function to create a search index manager
-pub fn create_search_index(app_data_dir: &Path, yjs_field_name: String) -> IndexResult<SearchIndexManager> {
+pub fn create_search_index(
+    app_data_dir: &Path,
+    yjs_field_name: String,
+) -> IndexResult<SearchIndexManager> {
     SearchIndexManager::new(app_data_dir, yjs_field_name)
 }
-
-

@@ -1,5 +1,3 @@
-// search_index/operations.rs
-
 use super::search_types::{
     IndexError, IndexResult, SearchResult, SearchResultType, SerializedDocument,
 };
@@ -7,7 +5,17 @@ use log::{debug, info};
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Field, Value};
-use tantivy::{Index, IndexReader, IndexWriter, TantivyDocument, Term, doc};
+use tantivy::{doc, Index, IndexReader, IndexWriter, TantivyDocument, Term};
+
+/// Safely truncate a string to a maximum number of characters
+fn truncate_string(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        s.chars().take(max_chars).collect::<String>() + "..."
+    }
+}
 
 pub struct SearchIndexOperations {
     resource_id_field: Field,
@@ -73,7 +81,7 @@ impl SearchIndexOperations {
         Ok(())
     }
 
-    /// Search for resources
+    /// Search for resources with fuzzy matching support
     pub fn search(
         &self,
         index: &Index,
@@ -84,12 +92,17 @@ impl SearchIndexOperations {
         let searcher = reader.searcher();
 
         // Create query parser for content, title, and comments fields
-        let query_parser = QueryParser::for_index(
+        let mut query_parser = QueryParser::for_index(
             index,
             vec![self.title_field, self.content_field, self.comments_field],
         );
 
-        // Parse query
+        // Enable fuzzy matching with edit distance 2 (allows up to 2 character differences)
+        query_parser.set_field_fuzzy(self.title_field, true, 2, true);
+        query_parser.set_field_fuzzy(self.content_field, true, 2, true);
+        query_parser.set_field_fuzzy(self.comments_field, true, 2, true);
+
+        // Parse query - the parser will automatically apply fuzzy matching
         let query = query_parser
             .parse_query(query_str)
             .map_err(|e| IndexError::SearchError(e.to_string()))?;
@@ -141,17 +154,9 @@ impl SearchIndexOperations {
 
             // Create snippet (first 200 chars of content or comment)
             let snippet = if result_type == SearchResultType::Comment && !comments.is_empty() {
-                if comments.len() > 200 {
-                    format!("{}...", &comments[..200])
-                } else {
-                    comments.to_string()
-                }
+                truncate_string(&comments, 200)
             } else {
-                if content.len() > 200 {
-                    format!("{}...", &content[..200])
-                } else {
-                    content.clone()
-                }
+                truncate_string(&content, 200)
             };
 
             results.push(SearchResult {
@@ -232,5 +237,3 @@ impl SearchIndexOperations {
         Ok(documents)
     }
 }
-
-
