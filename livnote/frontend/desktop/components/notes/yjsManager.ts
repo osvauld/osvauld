@@ -83,6 +83,23 @@ export class YjsManager {
       }
     });
 
+    // Observe metadata changes (e.g., title updates from other peers)
+    metadata.observe((event) => {
+      event.changes.keys.forEach((change, key) => {
+        if (key === "title") {
+          const newTitle = metadata.get("title");
+          if (newTitle !== undefined && newTitle !== null && typeof newTitle === "string") {
+            // Update dataState with the new title
+            const currentNoteId = dataState.getCurrentNoteId();
+            if (currentNoteId) {
+              dataState.setCurrentNoteTitle(newTitle);
+              dataState.updateNoteTitle(currentNoteId, newTitle);
+            }
+          }
+        }
+      });
+    });
+
     if (this.config.onAwarenessChange) {
       awareness.on('change', async (changes: { added: number[], updated: number[], removed: number[] }, origin: string) => {
 
