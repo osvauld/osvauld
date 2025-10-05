@@ -259,7 +259,7 @@
 			>
 				<span>{getReplyContentReactive(mainReply.id) || "Message unavailable"}</span>
 			</div>
-			<div class="mt-2 flex items-center justify-between">
+			<div class="flex items-center justify-between">
 				
 					<div class="text-xs text-statusColor flex items-center">
 						{replyCount}
@@ -349,11 +349,11 @@
 	</div>
 
 	{#if isExpanded}
-		<div class="p-2 border-t border-osvauld-defaultBorder text-xs">
+		<div class="p-2 pt-0 border-t border-osvauld-defaultBorder text-xs">
 			{#if additionalReplies.length > 0}
-				<div class="mt-2 ml-4 pl-1 border-l border-osvauld-defaultBorder">
+				<div class="mt-2 ml-2 pl-1 border-l border-osvauld-defaultBorder">
 					{#each additionalReplies as reply, i (reply.id)}
-						<div class="mb-3 pl-2 {i !== additionalReplies.length - 1 ? 'border-b border-osvauld-defaultBorder' : ''}">
+						<div class="mb-1 pl-1 {i !== additionalReplies.length - 1 ? 'border-b border-osvauld-defaultBorder' : ''}">
 							<div class="flex justify-start items-center gap-2">
 							
 								<div class="flex items-center gap-2 min-w-0">
@@ -420,7 +420,7 @@
 					</div>
 				</div>
 			{:else}
-				<div class="flex justify-end">
+				<div class="flex justify-end mt-1">
 				<button
 					class="flex items-center gap-1 text-[11px] text-white/80 hover:text-white transition-colors px-1 py-0.5 rounded cursor-pointer"
 					aria-label="Reply to thread"
