@@ -1,6 +1,5 @@
-use log::info;
 use osvauld_core::models::document::{YjsDocExt, create_doc};
-use quick_xml::events::{BytesStart, BytesText, Event};
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use quick_xml::writer::Writer;
 use regex::Regex;
