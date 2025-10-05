@@ -75,6 +75,15 @@
 		);
 	});
 
+	// Derived counts to avoid recomputing in template
+	const unresolvedCount = $derived.by(() => {
+		return sortedThreads.filter((t) => !t.threadInfo.resolved).length;
+	});
+
+	const resolvedCount = $derived.by(() => {
+		return sortedThreads.filter((t) => t.threadInfo.resolved).length;
+	});
+
 	// Check for unread comments
 	const hasUnreadComments = $derived.by(() => {
 		if (!commentsStore || !currentUserId) return false;
@@ -356,7 +365,7 @@
 				class:active={!showResolved}
 				onclick={() => (showResolved = false)}
 			>
-				Open<sup class="ml-0.5 text-[10px] text-textActive align-super">{sortedThreads.filter((t) => !t.threadInfo.resolved).length}</sup>
+			Open<sup class="ml-0.5 text-[10px] text-textActive align-super">{unresolvedCount}</sup>
 				{#if hasUnreadComments}
 					<span
 						class="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"
@@ -368,7 +377,7 @@
 				class:active={showResolved}
 				onclick={() => (showResolved = true)}
 			>
-				Resolved<sup class="ml-0.5 text-[10px] text-textActive align-super">{sortedThreads.filter((t) => t.threadInfo.resolved).length}</sup>
+			Resolved<sup class="ml-0.5 text-[10px] text-textActive align-super">{resolvedCount}</sup>
 			</button>
 		</div>
 	</div>

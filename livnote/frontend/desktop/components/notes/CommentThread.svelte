@@ -3,6 +3,7 @@
 	import type { CommentThread, Reply } from "../../types/notes.types";
 	import { ReplyIcon } from "@osvauld/icons";
 	import { dataState } from "../../state";
+    import type { CommentsStore } from "./commentsStore";
 
 	// Props
 	interface Props {
@@ -28,7 +29,7 @@
 	let replyText = $state("");
 	let isAddingReply = $state(false);
 	let replyFormRef = $state<HTMLDivElement>();
-	let commentsStore = $state<any>(null);
+	let commentsStore = $state<CommentsStore | null>(null);
 	let contentVersion = $state(0);
 	let unsubscribe: (() => void) | null = null;
 	let userCollapsed = $state(false);
@@ -227,6 +228,14 @@
 				handleThreadClick();
 			}
 			if (e.key.toLowerCase() === 'r') {
+				const target = e.target as HTMLElement | null;
+				if (target) {
+					const tag = target.tagName;
+					const isTextEntry = tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable || (typeof target.matches === 'function' && target.matches('[role="textbox"], [contenteditable="true"]'));
+					if (isTextEntry) {
+						return;
+					}
+				}
 				e.preventDefault();
 				isExpanded = true;
 				isAddingReply = true;
