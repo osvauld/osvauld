@@ -308,7 +308,9 @@
 					>
 						<Zen />
 					</button>
-					<Timer />
+					{#key dataState.currentNoteId}
+						<Timer />
+					{/key}
 				</div>
 				{#if otherOnlineCollaborators.length > 0 && myUsername}
 					<div class="ml-auto flex items-center">
