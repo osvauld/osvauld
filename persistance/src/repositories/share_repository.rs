@@ -19,7 +19,9 @@ impl SqliteShareRepository {
 #[async_trait]
 impl ShareRepository for SqliteShareRepository {
     async fn save(&self, share_record: &ShareRecord) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let share_record_model = ShareRecordModel::from(share_record);
 
         diesel::insert_into(share_records::table)
@@ -39,7 +41,9 @@ impl ShareRepository for SqliteShareRepository {
         if share_records.is_empty() {
             return Ok(());
         }
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let share_record_models: Vec<ShareRecordModel> =
             share_records.iter().map(ShareRecordModel::from).collect();
 
@@ -69,7 +73,9 @@ impl ShareRepository for SqliteShareRepository {
         resource_id: &str,
         operation_type: &str,
     ) -> Result<Vec<ShareRecord>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let share_record_models = share_records::table
             .filter(share_records::resource_id.eq(resource_id))
@@ -95,7 +101,9 @@ impl ShareRepository for SqliteShareRepository {
         resource_id: &str,
         user_id: &str,
     ) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let share_record_model = share_records::table
             .filter(share_records::resource_id.eq(resource_id))
             .filter(share_records::recipient_user_id.eq(user_id))
@@ -115,7 +123,9 @@ impl ShareRepository for SqliteShareRepository {
         &self,
         resource_id: &str,
     ) -> Result<Vec<ShareRecord>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let share_record_models = share_records::table
             .filter(share_records::resource_id.eq(resource_id))
@@ -135,7 +145,9 @@ impl ShareRepository for SqliteShareRepository {
         Ok(share_records)
     }
     async fn find_by_id(&self, id: &str) -> Result<ShareRecord, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let share_record_model = share_records::table
             .filter(share_records::id.eq(id))
@@ -155,7 +167,9 @@ impl ShareRepository for SqliteShareRepository {
         &self,
         user_id: &str,
     ) -> Result<Vec<ShareRecord>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // Step 1: Get all share records where this user is the recipient
         let user_share_records = share_records::table
@@ -196,7 +210,9 @@ impl ShareRepository for SqliteShareRepository {
         operation_type: &str,
         user_id: &str,
     ) -> Result<ShareRecord, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let share_record_model = share_records::table
             .filter(share_records::resource_id.eq(resource_id))
@@ -214,7 +230,9 @@ impl ShareRepository for SqliteShareRepository {
         Ok(share_record_model.to_domain())
     }
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let share_record_model = share_records::table
             .filter(share_records::ucan_cid.eq(cid))
             .first::<ShareRecordModel>(&mut *conn)

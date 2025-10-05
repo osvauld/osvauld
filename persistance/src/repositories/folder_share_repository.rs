@@ -25,7 +25,9 @@ impl SqliteFolderShareRecordRepository {
 #[async_trait]
 impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
     async fn save(&self, folder_share_record: &FolderShareRecord) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let model = FolderShareRecordModel::from(folder_share_record);
 
         diesel::insert_into(folder_share_records::table)
@@ -45,7 +47,9 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
         &self,
         folder_id: &str,
     ) -> Result<Vec<FolderShareRecord>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let models: Vec<FolderShareRecordModel> = folder_share_records::table
             .filter(folder_share_records::folder_id.eq(folder_id))
@@ -65,7 +69,9 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
         &self,
         user_id: &str,
     ) -> Result<Vec<FolderShareRecord>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let models: Vec<FolderShareRecordModel> = folder_share_records::table
             .filter(folder_share_records::recipient_user_id.eq(user_id))
@@ -89,7 +95,9 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
             return Ok(());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let models: Vec<FolderShareRecordModel> = folder_share_records
             .iter()
             .map(FolderShareRecordModel::from)
@@ -117,7 +125,9 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
     }
 
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let ucan_token = folder_share_records::table
             .filter(folder_share_records::ucan_cid.eq(cid))
@@ -140,7 +150,9 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
         resource_share_records: &[ShareRecord],
         resource_vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         // Use a transaction to ensure all operations succeed or fail together
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             // 1. Insert folder share record
@@ -201,7 +213,9 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
         Ok(())
     }
     async fn get_shared_users(&self, folder_id: &str) -> Result<Vec<User>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let user_models: Vec<UserModel> = folder_share_records::table
             .inner_join(users::table.on(folder_share_records::recipient_user_id.eq(users::id)))

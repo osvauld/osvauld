@@ -20,7 +20,9 @@ impl SqliteResourceKeyRepository {
 impl ResourceKeyRepository for SqliteResourceKeyRepository {
     async fn save(&self, key: &ResourceKey) -> Result<(), RepositoryError> {
         let key_model = ResourceKeyModel::from(key);
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::insert_into(resource_keys::table)
             .values(key_model)
             .execute(&mut *conn)
@@ -39,7 +41,9 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         }
         let key_models: Vec<ResourceKeyModel> =
             keys.iter().map(|key| ResourceKeyModel::from(key)).collect();
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         conn.transaction::<_, diesel::result::Error, _>(|conn| {
             for key_model in &key_models {
                 diesel::insert_into(resource_keys::table)
@@ -63,7 +67,9 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         &self,
         resource_id: &str,
     ) -> Result<Vec<ResourceKey>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let key_models = resource_keys::table
             .filter(resource_keys::resource_id.eq(resource_id))
             .load::<ResourceKeyModel>(&mut *conn)
@@ -81,7 +87,9 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         resource_id: &str,
         user_id: &str,
     ) -> Result<ResourceKey, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let key_model = resource_keys::table
             .filter(resource_keys::resource_id.eq(resource_id))
             .filter(resource_keys::user_id.eq(user_id))
@@ -98,7 +106,9 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
     }
 
     async fn delete_by_resource_id(&self, resource_id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::delete(resource_keys::table)
             .filter(resource_keys::resource_id.eq(resource_id))
             .execute(&mut *conn)
@@ -116,7 +126,9 @@ impl ResourceKeyRepository for SqliteResourceKeyRepository {
         resource_id: &str,
         user_id: &str,
     ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         diesel::delete(resource_keys::table)
             .filter(resource_keys::resource_id.eq(resource_id))
             .filter(resource_keys::user_id.eq(user_id))

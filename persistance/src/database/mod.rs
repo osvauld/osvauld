@@ -3,7 +3,7 @@ use crate::repositories::{
     SqliteResourceKeyRepository, SqliteResourceRepository, SqliteShareRepository,
     SqliteStoreRepository, SqliteUserRepository, SqliteVectorClockRepository,
 };
-use diesel::Connection;
+use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::sqlite::SqliteConnection;
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use log::info;
@@ -11,12 +11,11 @@ use osvauld_core::repositories::{
     DeviceRepository, FolderRepository, FolderShareRecordRepository, ResourceKeyRepository,
     ResourceRepository, ShareRepository, StoreRepository, UserRepository, VectorClockRepository,
 };
-use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 pub mod schema;
 
-pub type DbConnection = Arc<Mutex<SqliteConnection>>;
+pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
+pub type DbConnection = Arc<DbPool>;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 #[derive(Clone)]
@@ -31,10 +30,17 @@ pub struct RepositoryContext {
     pub vector_clock_repo: Arc<dyn VectorClockRepository>,
     pub folder_share_repo: Arc<dyn FolderShareRecordRepository>,
 }
-pub async fn connect_database(db_path: &str) -> Result<DbConnection, diesel::result::Error> {
-    let path = Path::new(db_path);
-    let conn = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
-    Ok(Arc::new(Mutex::new(conn)))
+pub async fn connect_database(db_path: &str) -> Result<DbConnection, Box<dyn std::error::Error + Send + Sync>> {
+    let manager = ConnectionManager::<SqliteConnection>::new(db_path);
+    
+    // Create pool with configuration
+    // Set max_size to at least your MAX_CONCURRENT_TASKS + some buffer
+    let pool = Pool::builder()
+        .max_size(20) // Allow 20 concurrent connections
+        .connection_timeout(std::time::Duration::from_secs(30))
+        .build(manager)?;
+    
+    Ok(Arc::new(pool))
 }
 pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
@@ -61,9 +67,9 @@ pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
 }
 
 pub async fn run_migrations(
-    conn: &DbConnection,
+    pool: &DbConnection,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut conn = conn.lock().await;
+    let mut conn = pool.get()?;
     conn.run_pending_migrations(MIGRATIONS)?;
     info!("Migrations completed successfully");
     Ok(())

@@ -21,7 +21,9 @@ impl SqliteDeviceRepository {
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
     async fn save(&self, device: &Device) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_model = DeviceModel::from(device);
 
@@ -39,7 +41,9 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn find_by_id(&self, device_id: &str) -> Result<Device, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device = devices::table
             .find(device_id)
@@ -56,7 +60,9 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn get_devices_by_user_id(&self, user_id: &str) -> Result<Vec<Device>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_models = devices::table
             .filter(devices::user_id.eq(user_id))
@@ -73,7 +79,9 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn update_last_synced_at(&self, device_id: &str) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let timestamp = Local::now().timestamp_millis();
 
         diesel::update(devices::table)
@@ -94,7 +102,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         user_id: &str,
         exclude_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_models = devices::table
             .filter(devices::id.ne_all(exclude_ids))
@@ -116,7 +126,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         &self,
         except_devices: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_models = devices::table
             .filter(devices::id.ne_all(except_devices))
@@ -136,7 +148,9 @@ impl DeviceRepository for SqliteDeviceRepository {
             return Ok(());
         }
 
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
         let device_models: Vec<DeviceModel> = devices.iter().map(DeviceModel::from).collect();
         let device_count = device_models.len();
 
@@ -166,7 +180,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         &self,
         user_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // If the user_ids array is empty, return an empty vector
         if user_ids.is_empty() {
@@ -194,7 +210,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         &self,
         user_id: &str,
     ) -> Result<Vec<String>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         let device_ids = devices::table
             .filter(devices::user_id.eq(user_id))
@@ -214,7 +232,9 @@ impl DeviceRepository for SqliteDeviceRepository {
         &self,
         device_ids: &[String],
     ) -> Result<Vec<Device>, RepositoryError> {
-        let mut conn = self.connection.lock().await;
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
 
         // If the device_ids array is empty, return an empty vector
         if device_ids.is_empty() {
