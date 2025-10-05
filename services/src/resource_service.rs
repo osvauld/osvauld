@@ -339,7 +339,13 @@ pub async fn prepare_share_resource(
 
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
-    // 6. Create the signature for the share record
+    // 6. Get the resource owner (root authority for validation)
+    let resource_owner = repo_ctx
+        .resource_repo
+        .find_owner_by_resource_id(resource_id)
+        .await?;
+
+    // 7. Create the signature for the share record
     let repo_ctx_clone = repo_ctx.clone();
     let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
 
@@ -349,7 +355,7 @@ pub async fn prepare_share_resource(
             .issue_delegated_resource_ucan(
                 &encrypted_ucan_pvt_key,
                 &delegator_share_record.ucan_token,
-                &current_user.ucan_pub_key,
+                &resource_owner.ucan_pub_key,
                 resource_id,
                 &recipient_user.ucan_pub_key,
                 permissions,
@@ -358,7 +364,7 @@ pub async fn prepare_share_resource(
             .await?
     };
 
-    // 7. Create the share record
+    // 8. Create the share record
     let share_record = ShareRecord::prepare_share_record(
         resource_id.to_string(),
         current_user.id.to_string(),
@@ -368,7 +374,7 @@ pub async fn prepare_share_resource(
         ucan_cid,
     );
 
-    // 8. Get recipient's devices to create vector clocks
+    // 9. Get recipient's devices to create vector clocks
     let recipient_devices = repo_ctx
         .device_repo
         .get_devices_by_user_id(recipient_user_id)
@@ -377,7 +383,7 @@ pub async fn prepare_share_resource(
     let recipient_device_ids: Vec<String> =
         recipient_devices.iter().map(|d| d.id.clone()).collect();
 
-    // 9. Create vector clocks for recipient's devices
+    // 10. Create vector clocks for recipient's devices
     let recipient_vector_clocks =
         ResourceVectorClock::create_entries_for_sharing(resource_id, &recipient_device_ids);
 

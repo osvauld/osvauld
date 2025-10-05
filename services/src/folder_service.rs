@@ -117,6 +117,16 @@ pub async fn share_folder(
     // Get encrypted UCAN private key
     let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
 
+    // Find the folder owner (root authority) from self-share record
+    let folder_owner_id = existing_folder_shares
+        .iter()
+        .find(|share| share.shared_by_user_id == share.recipient_user_id)
+        .ok_or(FolderServiceError::InsufficientPermissions)?
+        .recipient_user_id
+        .clone();
+
+    let folder_owner = repo_ctx.user_repo.get_user_by_id(&folder_owner_id).await?;
+
     // Create proof resolver for folder UCAN validation
     let repo_ctx_clone = repo_ctx.clone();
     let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
@@ -128,7 +138,7 @@ pub async fn share_folder(
             .issue_delegated_folder_ucan(
                 &encrypted_ucan_key,
                 &user_folder_ucan_token,
-                &current_user.ucan_pub_key,
+                &folder_owner.ucan_pub_key,
                 folder_id,
                 &repo_ctx
                     .user_repo
