@@ -378,6 +378,35 @@ pub fn check_capability(
     Err(UcanError::CapabilityNotFound)
 }
 
+/// Extract the domain prefix from a UCAN's capabilities.
+///
+/// This function looks for resource or folder capabilities in the UCAN and extracts
+/// the domain prefix (e.g., "livnote" from "livnote:resource:abc123").
+///
+/// ### Arguments
+/// * `ucan` - The UCAN object to extract the domain from.
+/// * `resource_type` - The type of resource to look for ("resource" or "folder").
+///
+/// ### Returns
+/// The domain prefix string, or an error if no matching capability is found.
+pub fn extract_domain_from_ucan(ucan: &Ucan, resource_type: &str) -> Result<String, UcanError> {
+    for capability in ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+        
+        // Look for the resource_type pattern in the URI
+        // Format: "domain:resource_type:id" or "domain:resource_type:*"
+        if let Some(middle_pos) = cap_resource.find(&format!(":{}", resource_type)) {
+            // Extract everything before ":resource_type"
+            let domain = &cap_resource[..middle_pos];
+            if !domain.is_empty() {
+                return Ok(domain.to_string());
+            }
+        }
+    }
+    
+    Err(UcanError::CapabilityNotFound)
+}
+
 fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
     let key_bytes = general_purpose::STANDARD
         .decode(key_b64)

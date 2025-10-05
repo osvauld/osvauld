@@ -136,7 +136,6 @@ pub async fn share_folder(
                     .await?
                     .ucan_pub_key,
                 folder_permissions,
-                domain,
                 &proof_resolver,
             )
             .await?
