@@ -26,6 +26,7 @@ pub async fn handle_add_resource(
     app_handle: AppHandle,
     crypto_utils: State<'_, Arc<Mutex<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
@@ -75,6 +76,12 @@ pub async fn handle_add_resource(
 
     app_handle
         .emit("resource-added", resource_preview)
+        .map_err(|e| e.to_string())?;
+
+    // Sync the resource with users who have access to the folder
+    p2p_service
+        .sync_resource(&resource_added.id)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(CryptoResponse::SelectedResourceResponse(response))
