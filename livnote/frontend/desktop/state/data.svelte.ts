@@ -153,6 +153,14 @@ class DataState {
   }
 
   async switchVault(vault: Vault) {
+    // Save the current note if one is open (non-blocking)
+    const currentNoteId = this.currentNoteId;
+    if (currentNoteId) {
+      this.saveNote(currentNoteId).catch(error => {
+        console.error("Error saving note before switching vault:", error);
+      });
+    }
+
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
