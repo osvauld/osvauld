@@ -194,8 +194,8 @@
 {#if show}
 	<div
 		class="absolute {variant === 'folder'
-			? 'top-14 right-48'
-			: 'top-30 right-10'} mt-2 w-[25rem] h-auto max-h-[27.125rem] rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
+			? 'top-16 right-48'
+			: 'top-30 right-20'} mt-2 w-[25rem] h-auto max-h-[27.125rem] rounded-2xl border border-osvauld-activeBorder text-osvauld-fieldText bg-osvauld-frameblack p-5 flex flex-col z-[1000]"
 		role="dialog"
 		aria-labelledby="dialog-title"
 	>

@@ -25,6 +25,7 @@ export interface UserDetails {
 class DataState {
   vaults = $state<Vault[]>([{ id: "all", name: "All Vaults" }]);
   currentVault = $state<Vault>({ id: "all", name: "All Vaults" });
+  previousVault = $state<Vault | null>(null); // Track vault context before opening a note
   notes = $state<NotePreview[]>([]);
   private notesCoordinator: NotesCoordinator | null = null;
   currentNoteData = $state<Note | null>(null);
@@ -155,6 +156,8 @@ class DataState {
     this.currentVault = vault;
     StoreService.setCurrentVault(vault);
     uiState.toggleNoteViewLayout(false);
+    // Clear navigation history when manually switching vaults
+    this.previousVault = null;
     // Reset favorite selection when switching vaults
     this.favoriteSelected = false;
     this.fetchSharedFolderUsers(vault.id);
@@ -181,11 +184,12 @@ class DataState {
       this.sharedFolderUsers = [];
     }
   }
-  async addNote() {
+  async addNote(folderId?: string) {
+    const targetFolderId = folderId || this.currentVault.id;
     const noteContent = createEmptyNoteContent(this.clientId, this.userDetails?.username);
     const note = await sendMessage("addCredential", {
       resourcePayload: JSON.stringify(noteContent),
-      folderId: this.currentVault.id,
+      folderId: targetFolderId,
       resourceType: "notes"
     });
     
@@ -204,6 +208,12 @@ class DataState {
       console.error("Error updating current note:", error);
     });
     if (noteId) {
+      // Store the current vault context before opening a note
+      // This allows us to return to the same view (e.g., "All Notes") when navigating back
+      if (!this.previousVault) {
+        this.previousVault = this.currentVault;
+      }
+      
       uiState.setNoteFetching(true);
       uiState.setEditorLoading(false);
       uiState.toggleNoteViewLayout(true);
@@ -223,6 +233,12 @@ class DataState {
         }
       }
     } else {
+      // Restore the previous vault context when closing a note
+      if (this.previousVault) {
+        this.currentVault = this.previousVault;
+        StoreService.setCurrentVault(this.previousVault);
+        this.previousVault = null; // Reset after restoration
+      }
       dataState.clearCurrentNote();
     }
 
@@ -331,6 +347,7 @@ class DataState {
     this.sharedUsers = [];
     this.sharedFolderUsers = [];
     this.collaborators = [];
+    this.previousVault = null; // Clear navigation history
 
     // Clean up event listeners
     this.cleanupReactiveUpdates();

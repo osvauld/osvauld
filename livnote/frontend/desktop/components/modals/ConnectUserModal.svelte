@@ -133,7 +133,7 @@
 			>
 				<!-- Header -->
 				<header class="flex justify-between items-start mb-3">
-					<h2 id="add-user-title" class="text-2xl font-light text-white">
+					<h2 id="add-user-title" class="text-2xl font-normal text-white">
 						Connect a User
 					</h2>
 					<button
@@ -161,7 +161,7 @@
 					</div>
 					<p
 						id="add-user-description"
-						class="text-sm text-textActive font-light text-start"
+						class="text-sm text-textActive font-normal text-start"
 					>
 						Livnote creates a direct, peer-to-peer connection between users to
 						enable secure collaboration. This private handshake requires their

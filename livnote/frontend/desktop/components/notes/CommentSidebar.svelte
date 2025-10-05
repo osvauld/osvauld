@@ -244,7 +244,7 @@
 
 	.sidebar-title {
 		font-size: 16px;
-		font-weight: 300;
+		font-weight: 400;
 		letter-spacing: 0.02em;
 		color: #fff;
 		margin: 0 0 8px 0;
@@ -261,7 +261,7 @@
 
 	.filter-tab {
 		font-size: 15px;
-		font-weight: 300;
+		font-weight: 400;
 		letter-spacing: 0.02em;
 		padding: 0;
 		cursor: pointer;
@@ -295,7 +295,7 @@
 
 	.empty-state-title {
 		font-size: 14px;
-		font-weight: 300;
+		font-weight: 400;
 		letter-spacing: 0.02em;
 		margin-bottom: 8px;
 		color: #a3a4b5;
@@ -305,7 +305,7 @@
 		font-size: 14px;
 		color: #a3a4b5;
 		line-height: 1.4;
-		font-weight: 200;
+		font-weight: 400;
 		letter-spacing: 0.02em;
 		text-align: left;
 	}

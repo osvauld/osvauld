@@ -52,7 +52,7 @@
 
 			<!-- All Notes name -->
 			<span
-				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+				class="flex-1 text-left text-sm font-normal select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
 				title="All Notes"
 			>
 				All Notes

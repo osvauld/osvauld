@@ -5,6 +5,7 @@ packages:
   
   # Shared packages
   - 'icons'
+  - 'fonts'
   - 'packages/*'
   
   # Core packages

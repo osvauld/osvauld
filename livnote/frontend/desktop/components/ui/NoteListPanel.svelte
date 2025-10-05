@@ -19,7 +19,14 @@
 	};
 
 	const handleAddNote = async () => {
-		if (!dataState.currentVault || dataState.currentVault.id === "all") {
+		// If in "All Notes" view, use the default folder
+		if (dataState.currentVault.id === "all") {
+			const defaultFolder = dataState.vaults.find((v) => v.default === true);
+			if (defaultFolder) {
+				await dataState.addNote(defaultFolder.id);
+				return;
+			}
+			// Fallback: if no default folder exists, show toast
 			uiState.showToast("Please select a folder", false);
 			return;
 		}
@@ -70,7 +77,7 @@
 		<!-- Favourites button -->
 		<button
 			class="flex items-center gap-2 px-3 py-1.5 rounded-lg cursor-pointer
-				   transition-colors text-textActive
+				   transition-colors text-textActive font-normal
 				   {dataState.favoriteSelected
 				? 'text-osvauld-sideListTextActive bg-osvauld-fieldActive'
 				: 'hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive'}"
@@ -90,7 +97,7 @@
 	>
 		{#if dataState.currentVault.id !== "all" && dataState.currentVault.default !== true}
 			<button
-				class="rounded-lg p-2 text-sm font-semibold flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
+				class="rounded-lg p-2 text-sm font-medium flex justify-center items-center bg-livnotelavender text-primarydark border border-osvauld-iconblack cursor-pointer"
 				onclick={() => (showShareFolderList = true)}
 				aria-label="Share Folder"
 				aria-haspopup="dialog"
@@ -115,7 +122,7 @@
 			>
 		{/if}
 		<button
-			class="rounded-lg p-2 text-sm flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-textActive hover:bg-livnotelavender hover:text-primarydark group"
+			class="rounded-lg p-2 text-sm  font-normal flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-textActive hover:bg-livnotelavender hover:text-primarydark group"
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>

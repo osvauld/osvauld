@@ -83,7 +83,7 @@
 							></path>
 						</svg>
 					</span>
-					<span class="text-sm font-light">Create new folder</span>
+					<span class="text-sm font-normal">Create new folder</span>
 				</button>
 			{/if}
 		</div>

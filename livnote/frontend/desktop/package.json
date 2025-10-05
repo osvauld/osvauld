@@ -39,6 +39,7 @@
 	"dependencies": {
 		"@benrbray/prosemirror-math": "^1.0.0",
 		"@castlenine/svelte-qrcode": "^2.3.0",
+		"@osvauld/fonts": "workspace:*",
 		"@osvauld/icons": "workspace:*",
 		"@osvauld/livnote": "link:",
 		"@tauri-apps/api": "^2.6.0",

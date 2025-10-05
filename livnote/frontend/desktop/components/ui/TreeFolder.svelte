@@ -171,7 +171,7 @@
 
 			<!-- Folder name -->
 			<span
-				class="flex-1 text-left text-sm font-light select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+				class="flex-1 text-left text-sm font-normal select-none cursor-default min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
 				title={folder.id === "all" ? "All Notes" : folder.name}
 			>
 				{folder.name}
@@ -199,15 +199,12 @@
 					<Add color="currentColor" size={16} />
 				</button>
 			</div>
-			<!-- Note count badge -->
-			{#if folderNoteCount() > 0}
-				<span
-					class="shrink-0 text-xs text-textActive"
-					aria-label="{folderNoteCount()} notes"
-				>
-					{folderNoteCount()}
-				</span>
-			{/if}
+			<span
+				class="shrink-0 text-xs text-textActive"
+				aria-label="{folderNoteCount()} notes"
+			>
+				{folderNoteCount()}
+			</span>
 		</div>
 	</div>
 
