@@ -5,7 +5,6 @@ import { baseKeymap } from "prosemirror-commands";
 import { keymap } from "prosemirror-keymap";
 import { dropCursor } from "prosemirror-dropcursor";
 import { gapCursor } from "prosemirror-gapcursor";
-import { history } from "prosemirror-history";
 import { undo, redo } from "y-prosemirror";
 import type { Transaction } from "prosemirror-state";
 
@@ -85,6 +84,7 @@ export class EditorManager {
 	 */
     private createBasePlugins(): Plugin[] {
         // Base plugins without baseKeymap; we'll append baseKeymap last overall in initializeState
+        // Note: Do NOT include history() plugin - we use yUndoPlugin() for collaborative undo
         return [
             keymap({
                 "Mod-z": undo,
@@ -93,7 +93,6 @@ export class EditorManager {
             }),
             dropCursor(),
             gapCursor(),
-            history(),
             activeNodePlaceholderPlugin(),
         ];
     }

@@ -7,7 +7,7 @@ import {
   toggleMark,
 } from "prosemirror-commands";
 import { wrapInList, liftListItem } from "prosemirror-schema-list";
-import { undo, redo } from "prosemirror-history";
+import { undo, redo } from "y-prosemirror";
 import { indentRight, indentLeft } from "./indentUtils";
 import { setTextAlign } from "./alignmentUtils";
 import { hideDropdowns } from "./dropdownUtils";
