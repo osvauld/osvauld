@@ -102,7 +102,7 @@
 				role="alert">Wrong Passphrase</span
 			>
 		{:else}
-			<div class="text-xs text-textActive flex items-center gap-2 mt-4">
+			<div class="text-xs text-textActive font-medium flex items-center gap-2 mt-4">
 				<Locked size={16} /> End-to-end encrypted
 			</div>
 		{/if}
