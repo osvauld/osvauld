@@ -199,15 +199,12 @@
 					<Add color="currentColor" size={16} />
 				</button>
 			</div>
-			<!-- Note count badge -->
-			{#if folderNoteCount() > 0}
-				<span
-					class="shrink-0 text-xs text-textActive"
-					aria-label="{folderNoteCount()} notes"
-				>
-					{folderNoteCount()}
-				</span>
-			{/if}
+			<span
+				class="shrink-0 text-xs text-textActive"
+				aria-label="{folderNoteCount()} notes"
+			>
+				{folderNoteCount()}
+			</span>
 		</div>
 	</div>
 

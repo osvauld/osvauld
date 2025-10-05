@@ -19,7 +19,14 @@
 	};
 
 	const handleAddNote = async () => {
-		if (!dataState.currentVault || dataState.currentVault.id === "all") {
+		// If in "All Notes" view, use the default folder
+		if (dataState.currentVault.id === "all") {
+			const defaultFolder = dataState.vaults.find((v) => v.default === true);
+			if (defaultFolder) {
+				await dataState.addNote(defaultFolder.id);
+				return;
+			}
+			// Fallback: if no default folder exists, show toast
 			uiState.showToast("Please select a folder", false);
 			return;
 		}
