@@ -836,6 +836,7 @@ class LazyImageNodeView implements NodeView {
       this.placeholder = null;
     }
 
+<<<<<<< Updated upstream
     // FIXED: Apply maximum initial dimensions for newly pasted images
     let actualWidth = this.nodeAttrs.width || this.img.naturalWidth || 200;
     let actualHeight = this.nodeAttrs.height || this.img.naturalHeight || 150;
@@ -845,6 +846,19 @@ class LazyImageNodeView implements NodeView {
       const maxInitialWidth = 600;  // Maximum initial width
       const maxInitialHeight = 450; // Maximum initial height
 
+=======
+    // Get saved or natural dimensions
+    let actualWidth = this.nodeAttrs.width;
+    let actualHeight = this.nodeAttrs.height;
+
+    // If we have no saved dimensions at all, use natural size with constraints
+    if (!actualWidth && !actualHeight) {
+      actualWidth = this.img.naturalWidth || 200;
+      actualHeight = this.img.naturalHeight || 150;
+
+      const maxInitialWidth = 600;
+      const maxInitialHeight = 450;
+>>>>>>> Stashed changes
       const aspectRatio = actualWidth / actualHeight;
 
       if (actualWidth > maxInitialWidth) {
@@ -857,6 +871,7 @@ class LazyImageNodeView implements NodeView {
         actualWidth = maxInitialHeight * aspectRatio;
       }
 
+<<<<<<< Updated upstream
       // Round to integers
       actualWidth = Math.round(actualWidth);
       actualHeight = Math.round(actualHeight);
@@ -864,6 +879,25 @@ class LazyImageNodeView implements NodeView {
       // Update node attributes to persist these dimensions
       this.updateNodeDimensions(actualWidth, actualHeight);
     }
+=======
+      actualWidth = Math.round(actualWidth);
+      actualHeight = Math.round(actualHeight);
+
+      // Persist these calculated dimensions
+      this.updateNodeDimensions(actualWidth, actualHeight);
+    } else if (!actualWidth && actualHeight) {
+      // Height exists but width is missing - calculate width from height
+      const naturalAspectRatio = this.img.naturalWidth / this.img.naturalHeight;
+      actualWidth = Math.round(actualHeight * naturalAspectRatio);
+      this.updateNodeDimensions(actualWidth, actualHeight);
+    } else if (actualWidth && !actualHeight) {
+      // Width exists but height is missing - calculate height from width
+      const naturalAspectRatio = this.img.naturalWidth / this.img.naturalHeight;
+      actualHeight = Math.round(actualWidth / naturalAspectRatio);
+      this.updateNodeDimensions(actualWidth, actualHeight);
+    }
+    // else: both dimensions exist, use them as-is
+>>>>>>> Stashed changes
 
     // Update container to match dimensions
     this.dom.style.width = `${actualWidth}px`;
