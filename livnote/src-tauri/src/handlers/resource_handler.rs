@@ -78,11 +78,14 @@ pub async fn handle_add_resource(
         .emit("resource-added", resource_preview)
         .map_err(|e| e.to_string())?;
 
-    // Sync the resource with users who have access to the folder
-    p2p_service
-        .sync_resource(&resource_added.id)
-        .await
-        .map_err(|e| e.to_string())?;
+    // Sync the resource with users who have access to the folder (in background)
+    let p2p_service_clone = p2p_service.inner().clone();
+    let resource_id = resource_added.id.clone();
+    tokio::spawn(async move {
+        if let Err(e) = p2p_service_clone.sync_resource(&resource_id).await {
+            error!("Failed to sync resource {} over P2P: {}", resource_id, e);
+        }
+    });
 
     Ok(CryptoResponse::SelectedResourceResponse(response))
 }
