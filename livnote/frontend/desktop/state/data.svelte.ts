@@ -202,6 +202,15 @@ class DataState {
   }
 
   async switchNote(noteId: string | null) {
+    // Save the current note before switching away from it (non-blocking)
+    const currentNoteId = this.currentNoteId;
+    if (currentNoteId && currentNoteId !== noteId) {
+      // Fire and forget - save in background without blocking the switch
+      this.saveNote(currentNoteId).catch(error => {
+        console.error("Error saving note before switching:", error);
+      });
+    }
+
     emit("note-change", noteId
     ).catch(error => {
       uiState.clearAllLoadingStates();

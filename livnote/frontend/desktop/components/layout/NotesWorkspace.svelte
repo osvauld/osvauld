@@ -88,13 +88,9 @@
 		}
 	}
 
-	// Back button handler - saves and returns to list view
+	// Back button handler - returns to list view
 	const handleBackButton = () => {
-		const noteId = dataState.currentNoteId;
-		if (noteId) {
-			dataState.saveNote(noteId);
-			dataState.switchNote(null);
-		}
+		dataState.switchNote(null);
 		uiState.toggleNoteRightPanel(true);
 		uiState.toggleNoteViewLayout(false);
 	};
