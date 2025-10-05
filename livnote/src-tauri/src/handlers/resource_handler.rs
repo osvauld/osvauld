@@ -4,15 +4,13 @@ use crate::types::{
     ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,
     UpdateResources,
 };
-use search_indexer::SearchIndexManager;
-
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::error;
 use log::info;
 use network::P2PService;
-use osvauld_core::models::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
+use search_indexer::SearchIndexManager;
 use services::{
     create_resource, delete_resource, get_all_resources, get_resource_by_id_direct,
     get_resources_for_folder, share_resource, toggle_fav, update_last_accessed, update_resource,
