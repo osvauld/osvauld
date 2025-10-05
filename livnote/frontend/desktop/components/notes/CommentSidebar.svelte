@@ -305,7 +305,7 @@
 		font-size: 14px;
 		color: #a3a4b5;
 		line-height: 1.4;
-		font-weight: 200;
+		font-weight: 300;
 		letter-spacing: 0.02em;
 		text-align: left;
 	}

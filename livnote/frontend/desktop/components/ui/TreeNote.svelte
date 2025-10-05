@@ -56,7 +56,7 @@
 
 		<!-- Note title -->
 		<span
-			class="flex-1 text-left text-sm font-light min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+			class="flex-1 text-left text-sm font-normal min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
 			title={note.title || "Untitled"}
 		>
 			{note.title || "Untitled"}
