@@ -404,7 +404,6 @@ impl CryptoUtils {
         folder_id: &str,
         recipient_ucan_pub_key: &str,
         permissions_to_grant: Vec<(String, String)>,
-        capability_prefix: &str,
         proof_resolver: &F,
     ) -> Result<(String, String), CryptoError>
     where
@@ -414,8 +413,12 @@ impl CryptoUtils {
         // 1. Validate the proof folder UCAN structure
         let folder_ucan_to_prove = ucan_utils::validate_structure(proof_folder_ucan_string).await?;
 
-        // 2. Validate the user has permission to share this folder
-        let folder_resource = format!("{}:folder:{}", capability_prefix, folder_id);
+        // 2. Extract domain from the parent UCAN's capabilities
+        let domain = ucan_utils::extract_domain_from_ucan(&folder_ucan_to_prove, "folder")?;
+        
+        // 3. Construct the full folder URI for validation
+        let folder_resource = format!("{}:folder:{}", domain, folder_id);
+        
         ucan_utils::validate_ucan_permission(
             &folder_ucan_to_prove,
             verifier_ucan_pub_b64,
@@ -425,11 +428,11 @@ impl CryptoUtils {
         )
         .await?;
 
-        // 3. Decrypt the delegator's UCAN keys
+        // 4. Decrypt the delegator's UCAN keys
         let (delegator_signing_key, delegator_verifying_key) =
             self.decrypt_ucan_key(encrypted_delegator_private_key)?;
 
-        // 4. Generate the delegated UCAN using existing function
+        // 5. Generate the delegated UCAN using existing function
         let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
             &delegator_signing_key,
             &delegator_verifying_key,
@@ -459,11 +462,17 @@ impl CryptoUtils {
     {
         let ucan_to_prove = ucan_utils::validate_structure(proof_ucan_string).await?;
 
+        // Extract domain from the parent UCAN's capabilities
+        let domain = ucan_utils::extract_domain_from_ucan(&ucan_to_prove, "resource")?;
+        
+        // Construct the full resource URI for validation
+        let resource_uri = format!("{}:resource:{}", domain, resource_id);
+
         ucan_utils::validate_ucan_permission(
             &ucan_to_prove,
             verifier_ucan_pub_b64,
             proof_resolver,
-            resource_id,
+            &resource_uri,
             &"ucan/share".to_string(),
         )
         .await?;
