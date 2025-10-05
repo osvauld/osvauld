@@ -1,10 +1,10 @@
 use crate::preview_generator::generate_preview_html;
-use search_indexer::SearchIndexManager;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
     ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,
     UpdateResources,
 };
+use search_indexer::SearchIndexManager;
 
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
@@ -293,7 +293,7 @@ pub async fn handle_get_resource(
 ) -> Result<CryptoResponse, String> {
     let start = Instant::now();
     let user = user_state.get_user().await?;
-    
+
     let decrypt_start = Instant::now();
     let resource = get_resource_by_id_direct(
         &input.resource_id,
@@ -304,7 +304,7 @@ pub async fn handle_get_resource(
     .await
     .map_err(|e| e.to_string())?;
     info!("Decryption took: {:?}", decrypt_start.elapsed());
-    
+
     let json_parse_start = Instant::now();
     let response = ResourceResponse {
         id: resource.id,
@@ -315,7 +315,7 @@ pub async fn handle_get_resource(
     };
     info!("JSON parsing took: {:?}", json_parse_start.elapsed());
     info!("Total time: {:?}", start.elapsed());
-    
+
     Ok(CryptoResponse::SelectedResourceResponse(response))
 }
 #[tauri::command]

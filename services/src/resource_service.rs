@@ -152,13 +152,16 @@ async fn decrypt_single_resource(
     // Parse the JSON data
     let parsed_data: Value = serde_json::from_str(&decrypted_data)
         .unwrap_or_else(|_| serde_json::json!({"error": "Failed to parse resource data"}));
-
+    let last_modified = parsed_data
+        .get("last_modified")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(resource_with_key.resource.last_accessed);
     // Create the DecryptedResource
     let decrypted_resource = DecryptedResource {
         id: resource_with_key.resource.id,
         resource_type: resource_with_key.resource.resource_type,
         data: parsed_data,
-        last_accessed: resource_with_key.resource.last_accessed,
+        last_accessed: last_modified,
         favourite: resource_with_key.resource.favourite,
         folder_id: resource_with_key.resource.folder_id,
     };
