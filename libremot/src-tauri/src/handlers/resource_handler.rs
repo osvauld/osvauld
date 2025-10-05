@@ -35,7 +35,7 @@ pub async fn handle_add_resource(
     let resource_added = create_resource(
         input.resource_payload,
         input.resource_type,
-        input.folder_id,
+        input.folder_id.clone(),
         &user,
         &device.id,
         &"livnote".to_string(),
@@ -81,19 +81,46 @@ pub async fn handle_add_resource(
         data: resource_added.data,
         favourite: resource_added.favourite,
         last_accessed: resource_added.last_accessed,
-        folder_id: resource_added.folder_id,
+        folder_id: resource_added.folder_id.clone(),
     };
 
     app_handle
         .emit("resource-added", resource_preview)
         .map_err(|e| e.to_string())?;
 
-    // Sync the resource with users who have access to the folder (in background)
-    let p2p_service_clone = p2p_service.inner().clone();
+    // Spawn background task to share with folder users and sync over P2P
     let resource_id = resource_added.id.clone();
+    let folder_id = input.folder_id.clone();
+    let user_clone = user.clone();
+    let repo_ctx_clone = repo_ctx.inner().clone();
+    let crypto_utils_clone = crypto_utils.inner().clone();
+    let p2p_service_clone = p2p_service.inner().clone();
+    
     tokio::spawn(async move {
-        if let Err(e) = p2p_service_clone.sync_resource(&resource_id).await {
-            error!("Failed to sync resource {} over P2P: {}", resource_id, e);
+        // First, auto-share the resource with all users who have access to the folder
+        match services::auto_share_resource_with_folder_users(
+            &resource_id,
+            &folder_id,
+            &user_clone,
+            repo_ctx_clone,
+            &crypto_utils_clone,
+            "livnote",
+        )
+        .await
+        {
+            Ok(_) => {
+                info!("Successfully auto-shared resource {} with folder users", resource_id);
+                
+                // After successful sharing, sync over P2P
+                if let Err(e) = p2p_service_clone.sync_resource(&resource_id).await {
+                    error!("Failed to sync resource {} over P2P: {}", resource_id, e);
+                } else {
+                    info!("Successfully synced resource {} over P2P", resource_id);
+                }
+            }
+            Err(e) => {
+                error!("Failed to auto-share resource {} with folder users: {}", resource_id, e);
+            }
         }
     });
 
