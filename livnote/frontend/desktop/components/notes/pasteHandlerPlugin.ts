@@ -203,13 +203,39 @@ async function insertImageWithAssetStorage(
     const imageId = await imageStorage.storeImage(base64Data, mimeType, filename);
     const imageMetadata = imageStorage.getImageMetadata(imageId);
 
+    // Constrain initial dimensions for pasted images
+    let width = imageMetadata?.width || 200;
+    let height = imageMetadata?.height || 150;
+
+    const maxInitialWidth = 600;
+    const maxInitialHeight = 450;
+
+    if (width && height) {
+      const aspectRatio = width / height;
+
+      // Scale down if too wide
+      if (width > maxInitialWidth) {
+        width = maxInitialWidth;
+        height = maxInitialWidth / aspectRatio;
+      }
+
+      // Scale down if too tall
+      if (height > maxInitialHeight) {
+        height = maxInitialHeight;
+        width = maxInitialHeight * aspectRatio;
+      }
+
+      width = Math.round(width);
+      height = Math.round(height);
+    }
+
     const { schema } = view.state;
     const imageNode = schema.nodes.image.create({
       src: `yjs-image:${imageId}`,
       alt: filename || 'Pasted image',
       title: filename || 'Pasted image',
-      width: imageMetadata?.width,
-      height: imageMetadata?.height
+      width: width,
+      height: height
     });
 
     const tr = view.state.tr.replaceSelectionWith(imageNode);
@@ -218,7 +244,6 @@ async function insertImageWithAssetStorage(
     console.error("Error inserting image with asset storage:", error);
   }
 }
-
 /**
  * Handle HTML content from clipboard, including embedded images
  */
