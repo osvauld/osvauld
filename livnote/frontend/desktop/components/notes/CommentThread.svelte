@@ -1,7 +1,9 @@
 <script lang="ts">
+    import { onMount, onDestroy } from "svelte";
 	import type { CommentThread, Reply } from "../../types/notes.types";
 	import { ReplyIcon } from "@osvauld/icons";
 	import { dataState } from "../../state";
+    import type { CommentsStore } from "./commentsStore";
 
 	// Props
 	interface Props {
@@ -27,20 +29,71 @@
 	let replyText = $state("");
 	let isAddingReply = $state(false);
 	let replyFormRef = $state<HTMLDivElement>();
-	let commentsStore: any = null;
+	let commentsStore = $state<CommentsStore | null>(null);
+	let contentVersion = $state(0);
+	let unsubscribe: (() => void) | null = null;
+	let userCollapsed = $state(false);
+	let currentUserId: string | null = null;
 
-	// Get commentsStore reference
+	// Acquire commentsStore once ready
+	function setCommentsStoreFromCoordinator() {
+		try {
+			const coordinator = dataState.getNotesCoordinator();
+			const store = coordinator?.getCommentsStore();
+			if (store) commentsStore = store;
+			currentUserId = dataState.userDetails?.userId || null;
+		} catch (_) {
+			// ignore; will be provided by event later
+		}
+	}
+
+	onMount(() => {
+		setCommentsStoreFromCoordinator();
+		const handleReady = (event: CustomEvent) => {
+			commentsStore = event.detail.commentsStore;
+		};
+		document.addEventListener(
+			"comments-store-ready",
+			handleReady as EventListener,
+		);
+		// grab user id once mounted as well
+		currentUserId = dataState.userDetails?.userId || null;
+		return () => {
+			document.removeEventListener(
+				"comments-store-ready",
+				handleReady as EventListener,
+			);
+			if (unsubscribe) {
+				unsubscribe();
+				unsubscribe = null;
+			}
+		};
+	});
+
+	// Subscribe to commentsStore changes to refresh content
 	$effect(() => {
-		const coordinator = dataState.getNotesCoordinator();
-		commentsStore = coordinator?.getCommentsStore();
+		if (commentsStore && typeof commentsStore.subscribe === "function") {
+			if (unsubscribe) unsubscribe();
+			unsubscribe = commentsStore.subscribe(() => {
+				contentVersion++;
+			});
+		}
 	});
 
 	// Derived values
 	const replyCount = $derived(
 		thread.replies.length > 1 ? thread.replies.length - 1 : 0,
 	);
-	const mainReply = $derived(thread.replies[0]);
+	const mainReply = $derived(thread.replies[0] ?? {
+		id: "",
+		authorName: "Unknown",
+		createdAt: thread.threadInfo.createdAt,
+	});
 	const additionalReplies = $derived(thread.replies.slice(1));
+	const unreadRepliesCount = $derived.by(() => {
+		if (!currentUserId) return 0;
+		return additionalReplies.filter((r) => !r.readBy?.includes(currentUserId!)).length;
+	});
 	const previewText = $derived(getPreviewText());
 
 	function getPreviewText(): string {
@@ -67,6 +120,12 @@
 	function getReplyContent(replyId: string): string {
 		if (!commentsStore) return "";
 		return commentsStore.getReplyPlainText(replyId);
+	}
+
+	function getReplyContentReactive(replyId: string): string {
+		// depend on version so UI updates when store pushes changes
+		contentVersion;
+		return getReplyContent(replyId);
 	}
 
 	function sanitize(text: string): string {
@@ -136,6 +195,17 @@
 			}, 100);
 		}
 	});
+
+	// Expand when becoming selected, unless user manually collapsed
+	$effect(() => {
+		if (!isSelected) {
+			userCollapsed = false; // reset when deselected
+			return;
+		}
+		if (isSelected && !isExpanded && !userCollapsed) {
+			isExpanded = true;
+		}
+	});
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -150,28 +220,44 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
-		class="p-3 cursor-pointer flex items-start gap-2 relative"
+		class="p-2 cursor-pointer flex items-start gap-2 relative"
 		onclick={handleThreadClick}
+		onkeydown={(e) => {
+			if (e.key === 'Enter' || e.key === ' ') {
+				e.preventDefault();
+				handleThreadClick();
+			}
+			if (e.key.toLowerCase() === 'r') {
+				const target = e.target as HTMLElement | null;
+				if (target) {
+					const tag = target.tagName;
+					const isTextEntry = tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable || (typeof target.matches === 'function' && target.matches('[role="textbox"], [contenteditable="true"]'));
+					if (isTextEntry) {
+						return;
+					}
+				}
+				e.preventDefault();
+				isExpanded = true;
+				isAddingReply = true;
+			}
+		}}
+		tabindex="0"
+		aria-label="Comment thread. Press Enter to expand, R to reply"
 	>
 		<div class="flex-1 min-w-0">
 			<div class="flex justify-start items-center gap-2">
-				<span
-					class="w-11 h-11 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder group-hover:border-osvauld-sideListTextActive group-hover:text-osvauld-sideListTextActive transition-all duration-75"
-					>{mainReply.authorName.charAt(0).toUpperCase()}</span
-				>
-				<div class="flex flex-col items-start">
-					<span class="capitalize text-white text-sm font-medium tracking-wider"
+			
+				<div class="flex items-center gap-2 min-w-0">
+					<span class="capitalize text-white text-sm font-medium tracking-wider truncate max-w-[10rem]"
 						>{mainReply.authorName}</span
 					>
-					<span class="text-xs text-statusColor"
-						>{formatTimestamp(mainReply.createdAt)}</span
-					>
+					<span class="text-[11px] text-textActive">• {formatTimestamp(mainReply.createdAt)}</span>
 				</div>
 			</div>
 			<div
-				class="text-[11px] my-2.5 italic border-l-2 border-livnotePink pl-1.5 flex items-center justify-start text-statusColor"
+				class="text-[11px] my-2.5 italic border-l border-livnotePink pl-1.5 flex items-center justify-start text-textActive"
 			>
-				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+				<span class="max-w-full overflow-hidden text-ellipsis whitespace-nowrap tracking-wider"
 					>"{previewText}"</span
 				>
 			</div>
@@ -180,17 +266,49 @@
 					? 'whitespace-normal overflow-visible text-ellipsis-clip break-words'
 					: ''}"
 			>
-				<span>{getReplyContent(mainReply.id)}</span>
+				<span>{getReplyContentReactive(mainReply.id) || "Message unavailable"}</span>
 			</div>
-			{#if replyCount > 0}
-				<div class="text-xs text-statusColor">
-					{replyCount}
-					{replyCount === 1 ? "reply" : "replies"}
-				</div>
-			{/if}
+			<div class="flex items-center justify-between">
+				
+					<div class="text-xs text-textActive flex items-center">
+						{replyCount}
+						{replyCount === 1 ? "reply" : "replies"}
+						{#if !isExpanded && unreadRepliesCount > 0}
+							<span class="ml-1 inline-flex items-center justify-center rounded bg-red-500  text-[10px] leading-none px-[4px] min-w-[14px] h-[14px]">
+								{unreadRepliesCount}
+							</span>
+						{/if}
+					</div>
+				
+				{#if isExpanded}
+					<button
+						class="flex items-center gap-1 text-[11px] text-white/80 hover:text-white transition-colors px-1 py-0.5 rounded cursor-pointer"
+						aria-label="Hide replies"
+						onclick={(e) => {
+							e.stopPropagation();
+							isExpanded = false;
+							userCollapsed = true;
+						}}
+					>
+						Hide
+					</button>
+				{:else}
+					<button
+						class="flex items-center gap-1 text-[11px] text-white/80 hover:text-white transition-colors px-1 py-0.5 rounded cursor-pointer"
+						aria-label="Reply to thread"
+						onclick={(e) => {
+							e.stopPropagation();
+							isAddingReply = true;
+							if (!isExpanded) isExpanded = true;
+						}}
+					>
+						<ReplyIcon /> Reply
+					</button>
+				{/if}
+			</div>
 		</div>
 		<div
-			class="absolute top-3 right-2 flex items-start gap-1 opacity-0 transition-opacity duration-200 group-hover:opacity-100"
+			class="absolute top-3 right-2 flex items-start gap-1 transition-opacity duration-200 {isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}"
 		>
 			{#if thread.threadInfo.resolved}
 				<button
@@ -227,7 +345,7 @@
 				title="Delete thread"
 				onclick={(e) => {
 					e.stopPropagation();
-					onDelete();
+					if (confirm('Delete this comment thread?')) onDelete();
 				}}
 			>
 				<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -240,30 +358,25 @@
 	</div>
 
 	{#if isExpanded}
-		<div class="p-2 border-t border-osvauld-defaultBorder text-xs">
+		<div class="p-2 pt-0 border-t border-osvauld-defaultBorder text-xs">
 			{#if additionalReplies.length > 0}
-				<div class="mt-3 ml-2 pl-1 border-l border-osvauld-defaultBorder">
-					{#each additionalReplies as reply (reply.id)}
-						<div class="mb-3 pl-2 border-b border-osvauld-defaultBorder">
+				<div class="mt-2 ml-2 pl-1 border-l border-osvauld-defaultBorder">
+					{#each additionalReplies as reply, i (reply.id)}
+						<div class="mb-1 pl-1 {i !== additionalReplies.length - 1 ? 'border-b border-osvauld-defaultBorder' : ''}">
 							<div class="flex justify-start items-center gap-2">
-								<span
-									class="w-9 h-9 flex justify-center items-center rounded-full text-commentThreadNameInitial border border-collaboratorBorder"
-									>{reply.authorName.charAt(0).toUpperCase()}</span
-								>
-								<div class="flex flex-col items-start">
+							
+								<div class="flex items-center gap-2 min-w-0">
 									<span
-										class="capitalize text-white text-sm font-medium tracking-wider"
+										class="capitalize text-white text-sm font-medium tracking-wider truncate max-w-[10rem]"
 										>{reply.authorName}</span
 									>
-									<span class="text-xs text-statusColor"
-										>{formatTimestamp(reply.createdAt)}</span
-									>
+									<span class="text-[11px] text-statusColor">• {formatTimestamp(reply.createdAt)}</span>
 								</div>
 							</div>
 							<div
-								class="text-[13px] text-white leading-relaxed my-2 break-words"
+								class="text-[13px] text-textActive leading-relaxed mt-0.5 mb-1 break-words"
 							>
-								{getReplyContent(reply.id)}
+								{getReplyContentReactive(reply.id)}
 							</div>
 						</div>
 					{/each}
@@ -279,7 +392,7 @@
 						autofocus
 						autocapitalize="off"
 						spellcheck="false"
-						maxlength="150"
+						maxlength="1000"
 						onkeydown={(e) => {
 							if (e.key === "Enter" && !e.shiftKey) {
 								e.preventDefault();
@@ -288,7 +401,13 @@
 						}}
 					></textarea>
 					<div class="flex gap-2 justify-between items-center">
-						<span class="text-xs text-statusColor">{replyText.length}/150</span>
+						<span class="text-[11px] text-statusColor">
+							{#if replyText.length > 900}
+								{replyText.length}/1000
+							{:else}
+								Enter to submit • Shift+Enter for newline
+							{/if}
+						</span>
 						<div class="flex items-center gap-2">
 							<button
 								class="px-3 py-1.5 border border-osvauld-defaultBorder rounded bg-transparent text-osvauld-fieldText text-xs cursor-pointer transition-all duration-200 hover:bg-osvauld-defaultBorder hover:text-osvauld-fieldTextActive"
@@ -310,14 +429,14 @@
 					</div>
 				</div>
 			{:else}
-				<div class="flex justify-end">
-					<button
-						class="flex items-center gap-2 bg-livnotePink text-primarydark px-2 py-1 rounded-sm text-xs transition cursor-pointer"
-						onclick={() => (isAddingReply = true)}
-					>
-						<ReplyIcon />
-						Reply
-					</button>
+				<div class="flex justify-end mt-1">
+				<button
+					class="flex items-center gap-1 text-[11px] text-white/80 hover:text-white transition-colors px-1 py-0.5 rounded cursor-pointer"
+					aria-label="Reply to thread"
+					onclick={() => (isAddingReply = true)}
+				>
+					<ReplyIcon /> Reply
+				</button>
 				</div>
 			{/if}
 		</div>

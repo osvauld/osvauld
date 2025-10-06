@@ -93,3 +93,4 @@ export { default as ReplaceAll } from './icons/replaceAll.svelte';
 export { default as Regex } from './icons/regex.svelte';
 export { default as WholeWord } from './icons/wholeWord.svelte';
 export { default as CaseSensitive } from './icons/caseSensitive.svelte';
+export { default as ShareIos } from './icons/shareIos.svelte';

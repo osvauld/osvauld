@@ -35,6 +35,7 @@ export class YjsManager {
   private config: YjsManagerConfig;
   private afterTransactionsHandler: (() => void) | null = null;
   private cachedDataState: any = null;
+  private _metadataObserver: ((event: any) => void) | null = null;
   constructor(config: YjsManagerConfig) {
     this.config = config;
   }
@@ -84,12 +85,11 @@ export class YjsManager {
     });
 
     // Observe metadata changes (e.g., title updates from other peers)
-    metadata.observe((event) => {
-      event.changes.keys.forEach((change, key) => {
+    this._metadataObserver = (event) => {
+      event.changes.keys.forEach((change: any, key: string) => {
         if (key === "title") {
           const newTitle = metadata.get("title");
           if (newTitle !== undefined && newTitle !== null && typeof newTitle === "string") {
-            // Update dataState with the new title
             const currentNoteId = dataState.getCurrentNoteId();
             if (currentNoteId) {
               dataState.setCurrentNoteTitle(newTitle);
@@ -98,7 +98,8 @@ export class YjsManager {
           }
         }
       });
-    });
+    };
+    metadata.observe(this._metadataObserver);
 
     if (this.config.onAwarenessChange) {
       awareness.on('change', async (changes: { added: number[], updated: number[], removed: number[] }, origin: string) => {
@@ -286,6 +287,11 @@ export class YjsManager {
    */
   destroy(): void {
     if (this.documents) {
+      // Remove metadata observer if registered
+      if (this._metadataObserver) {
+        this.documents.metadata.unobserve(this._metadataObserver);
+        this._metadataObserver = null;
+      }
       // Remove afterAllTransactions listener if it exists
       if (this.afterTransactionsHandler) {
         this.documents.mainDoc.off("afterAllTransactions", this.afterTransactionsHandler);

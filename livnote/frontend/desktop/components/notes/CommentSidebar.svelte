@@ -54,7 +54,6 @@
 		let sorted = [...threads].sort(
 			(a, b) => b.threadInfo.createdAt - a.threadInfo.createdAt,
 		);
-		console.log(sorted);
 
 		// If a thread is highlighted, move it to the top
 		if (highlightedThreadId) {
@@ -74,6 +73,15 @@
 		return sortedThreads.filter((thread: CommentThread) =>
 			showResolved ? thread.threadInfo.resolved : !thread.threadInfo.resolved,
 		);
+	});
+
+	// Derived counts to avoid recomputing in template
+	const unresolvedCount = $derived.by(() => {
+		return sortedThreads.filter((t) => !t.threadInfo.resolved).length;
+	});
+
+	const resolvedCount = $derived.by(() => {
+		return sortedThreads.filter((t) => t.threadInfo.resolved).length;
 	});
 
 	// Check for unread comments
@@ -357,7 +365,7 @@
 				class:active={!showResolved}
 				onclick={() => (showResolved = false)}
 			>
-				Open
+			Open<sup class="ml-0.5 text-[10px] text-textActive align-super">{unresolvedCount}</sup>
 				{#if hasUnreadComments}
 					<span
 						class="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"
@@ -369,7 +377,7 @@
 				class:active={showResolved}
 				onclick={() => (showResolved = true)}
 			>
-				Resolved
+			Resolved<sup class="ml-0.5 text-[10px] text-textActive align-super">{resolvedCount}</sup>
 			</button>
 		</div>
 	</div>

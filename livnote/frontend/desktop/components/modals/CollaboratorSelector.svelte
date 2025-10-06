@@ -206,8 +206,9 @@
 			<button
 				class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
 				aria-label="Close panel"
-				onclick={(e) => {
+				onmousedown={(e) => {
 					e.preventDefault();
+					e.stopPropagation();
 					onClose();
 				}}
 			>
@@ -234,7 +235,7 @@
 			{#if selectedUsers.length !== 0}
 				{#each selectedUsers as user}
 					<span
-						class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-sm px-3 py-1 text-xs truncate max-w-[8rem]"
+						class="border border-osvauld-sideListHighlight bg-osvauld-fieldActive rounded-sm px-1 py-1 text-xs whitespace-nowrap"
 						>{user}</span
 					>
 				{/each}
@@ -269,7 +270,7 @@
 		<!-- Collaborators display area -->
 		<div class="relative p-0">
 			{#if !isFocused}
-				<div class="text-osvauld-quarzowhite/50 text-sm font-light py-1.5">
+				<div class="text-osvauld-quarzowhite/50 text-sm font-normal py-1.5">
 					Existing collaborators
 				</div>
 			{/if}
@@ -281,17 +282,13 @@
 				aria-label="Current collaborators"
 			>
 				{#if existingUsers.length === 0 && !isFocused}
-					<div class="py-3 text-sm font-light">
+					<div class="py-3 text-sm font-normal">
 						None found. Search to invite.
 					</div>
 				{:else if !isFocused}
 					{#each sortOnlineCollaborators(existingUsers) as collaborator}
 						<div class="flex justify-start items-center gap-2 py-2 pr-0.5">
-							<span
-								class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive"
-								aria-hidden="true"
-								>{extractIconLetter(collaborator.username)}</span
-							>
+						
 							<span class="font-normal text-base max-w-[16rem] truncate"
 								>{collaborator.username}</span
 							>
@@ -348,12 +345,7 @@
 										selectCollaborator(collaborator.username);
 									}}
 								>
-									<span
-										class="capitalize text-xl px-2.5 py-1 rounded-lg bg-osvauld-fieldActive transition-colors ease-in duration-150 group-hover:bg-osvauld-activeBorder/40"
-										aria-hidden="true"
-									>
-										{extractIconLetter(collaborator.username)}
-									</span>
+									
 									<span class="font-normal text-base max-w-[16rem] truncate">
 										{collaborator.username}
 									</span>
@@ -375,7 +367,7 @@
 
 			{#if selectedUsers.length !== 0 && isFocused}
 				<button
-					class="mt-3 w-full py-2.5 rounded-lg font-semibold bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
+					class="mt-3 w-full py-2.5 rounded-lg font-medium bg-livnotelavender flex justify-center items-center text-osvauld-ninjablack cursor-pointer"
 					onmousedown={handleCollaboratorSelection}
 				>
 					{buttonText}

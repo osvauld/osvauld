@@ -5,6 +5,8 @@
 	}
 
 	let { color = "#85889C", size = 24 }: Props = $props();
+
+	// 3 circles connected by lines
 </script>
 
 <svg

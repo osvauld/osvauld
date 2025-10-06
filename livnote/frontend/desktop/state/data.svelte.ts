@@ -460,11 +460,33 @@ class DataState {
 
   async handleFoldersAddedUpdate(event: any) {
     console.log(event.payload);
-    // Filter out duplicates
-    const newFolders = event.payload.folders.filter(
-      (newFolder: Vault) => !this.vaults.some((existing) => existing.id === newFolder.id)
-    );
-    this.vaults = [...this.vaults, ...newFolders];
+    // Merge updates by ID, preserving existing metadata and order; append new
+    const incomingFolders: Vault[] = event.payload.folders || [];
+    const existingById = new Map<string, Vault>(this.vaults.map(v => [v.id, v]));
+
+    // Apply incoming updates: replace/merge existing, add new
+    for (const incoming of incomingFolders) {
+      const current = existingById.get(incoming.id);
+      if (current) {
+        // Merge fields so updated metadata is preserved
+        existingById.set(incoming.id, { ...current, ...incoming });
+      } else {
+        existingById.set(incoming.id, incoming);
+      }
+    }
+
+    // Rebuild array preserving original order, then append any new IDs
+    const originalOrderIds = this.vaults.map(v => v.id);
+    const merged: Vault[] = [];
+    for (const id of originalOrderIds) {
+      const item = existingById.get(id);
+      if (item) merged.push(item);
+    }
+    for (const [id, item] of existingById.entries()) {
+      if (!originalOrderIds.includes(id)) merged.push(item);
+    }
+
+    this.vaults = merged;
   }
 
   async setupReactiveUpdates() {
