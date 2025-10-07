@@ -26,9 +26,7 @@
 <div class="h-full w-full flex flex-col items-center justify-around py-10">
 	<div class="flex flex-col items-center justify-center mb-4">
 		<h1 class="text-xl font-semibold text-white">This is your recovery Key</h1>
-		<p
-			class="text-sm font-inter font-extralight text-mobile-textActive text-center"
-		>
+		<p class="text-sm font-inter font-normal text-textActive text-center mt-4">
 			This helps you recover your account if you lose your password.<br />you
 			can find this in settings later.
 		</p>

@@ -6,9 +6,7 @@
 
 <div class="grow flex flex-col items-center select-none">
 	<div class="h-full flex justify-center items-center">
-		<h1
-			class="font-normal mb-4 font-jakarta text-7xl text-center text-white"
-		>
+		<h1 class="font-light mb-4 font-jakarta text-7xl text-center text-white">
 			Create and edit notes together<br />
 			<span class="text-mobile-textActive text-[76px]">
 				Live, offline-first, free
@@ -20,16 +18,16 @@
 		</h1>
 	</div>
 	<div class="flex flex-col items-center justify-center gap-12 my-10">
-		<div class="flex gap-13 text-md font-medium">
+		<div class="flex gap-13 text-md">
 			<button
-				class="py-3.5 px-5 border border-mobile-bgHighlight text-mobile-textActive rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive transition-colors duration-300"
+				class="py-3.5 px-5 border border-mobile-bgHighlight text-mobile-textActive font-semibold rounded-lg whitespace-nowrap cursor-pointer hover:text-white hover:border-mobile-textActive transition-colors duration-300"
 				onclick={() => onFlowSelect(true)}
 			>
 				I already have the key
 			</button>
 			<button
 				onclick={() => onFlowSelect(false)}
-				class="w-[13.75rem] py-3.5 px-5 rounded-md cursor-pointer transition-colors duration-300 bg-livnotePink text-black"
+				class="w-[13.75rem] py-3.5 px-5 font-semibold rounded-md cursor-pointer transition-colors duration-300 bg-livnotePink text-black"
 			>
 				I am new here
 			</button>

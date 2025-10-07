@@ -217,7 +217,7 @@
 				<NewPassword {isLoaderActive} onReturn={handleReturnedNewPassword} />
 			</FlowContainer>
 		{:else if currentView === VIEW_STATES.NEW_USER.PROVIDE_PRIVATE_KEY}
-			<FlowContainer onBack={goBack}>
+			<FlowContainer onBack={goBack} showBack={false}>
 				<ProvidePrivateKey
 					onLogin={handleUserSignUpComplete}
 					bind:collectedRecoveryString

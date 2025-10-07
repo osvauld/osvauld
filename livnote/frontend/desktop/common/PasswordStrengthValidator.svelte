@@ -55,15 +55,14 @@
 				<div class="h-1 flex-1 mx-1 rounded-full bg-[#35353b] overflow-hidden">
 					<div
 						class="h-full rounded-full transition-all duration-300"
-						style="width: {index < strengthScore ? '100%' : '0%'}; background-color: {getStrengthColor(
-							strengthScore,
-						)};">
-					</div>
+						style="width: {index < strengthScore
+							? '100%'
+							: '0%'}; background-color: {getStrengthColor(strengthScore)};"
+					></div>
 				</div>
 			{/each}
 		</div>
-		<p
-			class="text-xs mt-1 font-light text-osvauld-sheffieldgrey text-left tracking-wide">
+		<p class="text-xs mt-1 font-normal text-textActive text-left tracking-wide">
 			An Ideal Passphrase should include at least
 			{#each strengthResults as condition, index}
 				<span class={condition.met ? "text-green-500" : "text-[#FAFC6E]"}>
