@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
+	import ThemeToggle from "./lib/ThemeToggle.svelte";
 	import { editorStore } from "./store.svelte";
 
 	let showDebugInfo = $state(false);
@@ -110,6 +111,7 @@
 		<div class="header-content">
 			<h1>🎨 Website Builder</h1>
 			<div class="actions">
+				<ThemeToggle />
 				<button onclick={toggleDebugInfo}>
 					{showDebugInfo ? "Hide" : "Show"} Debug
 				</button>

@@ -6,9 +6,11 @@
 	let { onAddBlock }: Props = $props();
 
 	const blockTypes = [
-		{ type: "heading", label: "Heading", icon: "H" },
-		{ type: "text", label: "Text", icon: "T" },
-		{ type: "container", label: "Container", icon: "□" },
+		{ type: "heading", label: "Heading", icon: "H", description: "Large title text" },
+		{ type: "text", label: "Text", icon: "T", description: "Paragraph text" },
+		{ type: "image", label: "Image", icon: "🖼️", description: "Image or GIF" },
+		{ type: "container", label: "Container", icon: "□", description: "Layout box for grouping" },
+		{ type: "html", label: "HTML/CSS", icon: "<>", description: "Custom HTML with CSS" },
 	];
 </script>
 
@@ -35,22 +37,22 @@
 	.palette {
 		width: 200px;
 		height: 100%;
-		background: #ffffff;
-		border-right: 1px solid #e0e0e0;
+		background: var(--bg-primary, #ffffff);
+		border-right: 1px solid var(--border-color, #e0e0e0);
 		display: flex;
 		flex-direction: column;
 	}
 
 	.palette-header {
 		padding: 1rem;
-		border-bottom: 1px solid #e0e0e0;
+		border-bottom: 1px solid var(--border-color, #e0e0e0);
 	}
 
 	.palette-header h3 {
 		margin: 0;
 		font-size: 0.875rem;
 		font-weight: 600;
-		color: #333;
+		color: var(--text-primary, #333);
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -69,9 +71,9 @@
 		align-items: center;
 		gap: 0.75rem;
 		padding: 0.75rem;
-		border: 1px solid #e0e0e0;
+		border: 1px solid var(--border-color, #e0e0e0);
 		border-radius: 6px;
-		background: white;
+		background: var(--bg-primary, white);
 		cursor: pointer;
 		transition: all 0.2s;
 		text-align: left;
@@ -79,7 +81,7 @@
 	}
 
 	.block-type-btn:hover {
-		background: #f5f5ff;
+		background: var(--bg-hover, #f5f5ff);
 		border-color: #667eea;
 		box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
 	}
@@ -99,7 +101,7 @@
 
 	.label {
 		font-size: 0.875rem;
-		color: #333;
+		color: var(--text-primary, #333);
 		font-weight: 500;
 	}
 </style>

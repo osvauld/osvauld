@@ -23,29 +23,147 @@
 	let resizeHandle = $state<string | null>(null);
 	let dragStart = $state({ x: 0, y: 0 });
 	let blockStart = $state({ x: 0, y: 0, width: 0, height: 0 });
+	let dragModeEnabled = $state(false); // Ctrl+click to enable
+	let hoverEdge = $state<string | null>(null); // Track which edge is hovered
 
 	function handleMouseDown(e: MouseEvent) {
-		// Don't start drag if clicking on contenteditable or resize handle
+		// Don't start drag if clicking on resize handle
 		const target = e.target as HTMLElement;
-		if (target.contentEditable === "true" || target.classList.contains("resize-handle")) {
+		if (target.classList.contains("resize-handle")) {
 			return;
 		}
 
-		// Select the block
+		// Always select the block
 		onSelect(block.id);
 
-		isDragging = true;
-		dragStart = { x: e.clientX, y: e.clientY };
-		blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
-		e.stopPropagation(); // Prevent canvas panning
+		// Check if Shift is held for border resize
+		if (e.shiftKey) {
+			handleBorderResize(e);
+			return;
+		}
+
+		// Check if Ctrl (or Cmd on Mac) is held for drag mode
+		if (e.ctrlKey || e.metaKey) {
+			// Ctrl+click enables drag mode
+			isDragging = true;
+			dragModeEnabled = true;
+			dragStart = { x: e.clientX, y: e.clientY };
+			blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
+			e.stopPropagation(); // Prevent canvas panning
+			e.preventDefault(); // Prevent text selection
+		}
+		// Otherwise, allow normal text editing (don't start dragging)
 	}
 
-	function handleResizeStart(e: MouseEvent, handle: string) {
-		e.stopPropagation();
+	function handleBorderResize(e: MouseEvent) {
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const x = e.clientX - rect.left;
+		const y = e.clientY - rect.top;
+
+		const edgeThreshold = 10; // 10px from edge
+		const nearTop = y < edgeThreshold;
+		const nearBottom = y > rect.height - edgeThreshold;
+		const nearLeft = x < edgeThreshold;
+		const nearRight = x > rect.width - edgeThreshold;
+
+		let handle = "";
+
+		// Determine which edge/corner
+		if (nearTop && nearLeft) handle = "nw";
+		else if (nearTop && nearRight) handle = "ne";
+		else if (nearBottom && nearLeft) handle = "sw";
+		else if (nearBottom && nearRight) handle = "se";
+		else if (nearTop) handle = "n";
+		else if (nearBottom) handle = "s";
+		else if (nearLeft) handle = "w";
+		else if (nearRight) handle = "e";
+		else return; // Not near an edge
+
+		// Start resizing
 		isResizing = true;
 		resizeHandle = handle;
 		dragStart = { x: e.clientX, y: e.clientY };
 		blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
+		e.stopPropagation();
+		e.preventDefault();
+	}
+
+	function handleResizeStart(e: MouseEvent, handle: string) {
+		e.stopPropagation();
+		e.preventDefault();
+
+		// Shift+click for incremental resize
+		if (e.shiftKey) {
+			handleIncrementalResize(handle, e.ctrlKey || e.altKey);
+			return;
+		}
+
+		// Normal drag resize
+		isResizing = true;
+		resizeHandle = handle;
+		dragStart = { x: e.clientX, y: e.clientY };
+		blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
+	}
+
+	function handleIncrementalResize(handle: string, decrease: boolean) {
+		const increment = 20; // 20px per click
+		const amount = decrease ? -increment : increment;
+		let updates: any = {};
+
+		switch (handle) {
+			case "n": // Top edge
+				updates = {
+					y: block.y - amount,
+					height: Math.max(30, block.height + amount),
+				};
+				break;
+			case "s": // Bottom edge
+				updates = {
+					height: Math.max(30, block.height + amount),
+				};
+				break;
+			case "e": // Right edge
+				updates = {
+					width: Math.max(50, block.width + amount),
+				};
+				break;
+			case "w": // Left edge
+				updates = {
+					x: block.x - amount,
+					width: Math.max(50, block.width + amount),
+				};
+				break;
+			case "se": // Bottom-right
+				updates = {
+					width: Math.max(50, block.width + amount),
+					height: Math.max(30, block.height + amount),
+				};
+				break;
+			case "sw": // Bottom-left
+				updates = {
+					x: block.x - amount,
+					width: Math.max(50, block.width + amount),
+					height: Math.max(30, block.height + amount),
+				};
+				break;
+			case "ne": // Top-right
+				updates = {
+					y: block.y - amount,
+					width: Math.max(50, block.width + amount),
+					height: Math.max(30, block.height + amount),
+				};
+				break;
+			case "nw": // Top-left
+				updates = {
+					x: block.x - amount,
+					y: block.y - amount,
+					width: Math.max(50, block.width + amount),
+					height: Math.max(30, block.height + amount),
+				};
+				break;
+		}
+
+		onUpdate(block.id, updates);
 	}
 
 	function handleMouseMove(e: MouseEvent) {
@@ -124,24 +242,90 @@
 		isDragging = false;
 		isResizing = false;
 		resizeHandle = null;
+		dragModeEnabled = false; // Reset drag mode
 	}
+
+	function handleBlockMouseMove(e: MouseEvent) {
+		// Only track hover edge when not dragging/resizing
+		if (isDragging || isResizing) return;
+
+		const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+		const x = e.clientX - rect.left;
+		const y = e.clientY - rect.top;
+
+		const edgeThreshold = 10;
+		const nearTop = y < edgeThreshold;
+		const nearBottom = y > rect.height - edgeThreshold;
+		const nearLeft = x < edgeThreshold;
+		const nearRight = x > rect.width - edgeThreshold;
+
+		// Update hover edge for cursor styling
+		if (nearTop && nearLeft) hoverEdge = "nw";
+		else if (nearTop && nearRight) hoverEdge = "ne";
+		else if (nearBottom && nearLeft) hoverEdge = "sw";
+		else if (nearBottom && nearRight) hoverEdge = "se";
+		else if (nearTop) hoverEdge = "n";
+		else if (nearBottom) hoverEdge = "s";
+		else if (nearLeft) hoverEdge = "w";
+		else if (nearRight) hoverEdge = "e";
+		else hoverEdge = null;
+	}
+
+	function handleBlockMouseLeave() {
+		hoverEdge = null;
+	}
+
+	// Get cursor based on hover edge and Shift key
+	const blockCursor = $derived(() => {
+		if (isResizing || isDragging) return "grabbing";
+		if (!hoverEdge) return "default";
+
+		// Show resize cursor only when Shift is held
+		const cursors: Record<string, string> = {
+			n: "ns-resize",
+			s: "ns-resize",
+			e: "ew-resize",
+			w: "ew-resize",
+			ne: "nesw-resize",
+			sw: "nesw-resize",
+			nw: "nwse-resize",
+			se: "nwse-resize",
+		};
+
+		return cursors[hoverEdge] || "default";
+	});
 
 	// Compute dynamic styles
 	const computedStyles = $derived(() => {
 		const baseStyles = {
-			fontSize: block.styles.fontSize || "16px",
-			fontWeight: block.styles.fontWeight || "400",
-			color: block.styles.color || "#333",
-			backgroundColor: block.styles.backgroundColor || "transparent",
-			padding: block.styles.padding || "12px",
-			border: block.styles.border || "2px solid #ddd",
-			borderRadius: block.styles.borderRadius || "4px",
+			"font-size": block.styles.fontSize || "16px",
+			"font-weight": block.styles.fontWeight || "400",
+			"color": block.styles.color || "#333",
+			"background-color": block.styles.backgroundColor || "transparent",
+			"padding": block.styles.padding || "12px",
+			"border": block.styles.border || "2px solid #ddd",
+			"border-radius": block.styles.borderRadius || "4px",
 		};
 
 		return Object.entries(baseStyles)
 			.map(([key, value]) => `${key}: ${value}`)
 			.join("; ");
 	});
+
+	// Sanitize HTML to prevent script execution (no JS, only HTML/CSS)
+	function sanitizeHTML(html: string): string {
+		// Remove script tags and their content
+		let sanitized = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+
+		// Remove all event handler attributes (onclick, onload, etc.)
+		sanitized = sanitized.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, '');
+		sanitized = sanitized.replace(/\s*on\w+\s*=\s*[^\s>]*/gi, '');
+
+		// Remove javascript: URLs
+		sanitized = sanitized.replace(/javascript:/gi, '');
+
+		return sanitized;
+	}
 </script>
 
 <svelte:window onmousemove={handleMouseMove} onmouseup={handleMouseUp} />
@@ -153,11 +337,15 @@
 	style:width="{block.width}px"
 	style:height="{block.height}px"
 	style:z-index={block.zIndex}
-	style={computedStyles()}
+	style:cursor={blockCursor()}
+	style={block.type === "html" ? "" : computedStyles()}
 	onmousedown={handleMouseDown}
+	onmousemove={handleBlockMouseMove}
+	onmouseleave={handleBlockMouseLeave}
 	class:dragging={isDragging}
 	class:resizing={isResizing}
 	class:selected={isSelected}
+	class:shift-resize-mode={hoverEdge !== null}
 >
 	{#if block.type === "heading"}
 		<div class="block-heading" contenteditable="true">
@@ -167,9 +355,31 @@
 		<div class="block-text" contenteditable="true">
 			{block.content}
 		</div>
+	{:else if block.type === "image"}
+		<div class="block-image">
+			{#if block.content && block.content !== ""}
+				<img src={block.content} alt="User uploaded" />
+			{:else}
+				<div class="image-placeholder">
+					<span class="placeholder-icon">🖼️</span>
+					<span class="placeholder-text">Paste image URL in Properties</span>
+				</div>
+			{/if}
+		</div>
 	{:else if block.type === "container"}
 		<div class="block-container">
-			{block.content || "Container"}
+			<span class="container-label">{block.content || "Container (drop items here)"}</span>
+		</div>
+	{:else if block.type === "html"}
+		<div class="block-html">
+			{#if block.content && block.content !== ""}
+				{@html `${block.styles.css ? `<style>${block.styles.css}</style>` : ''}${sanitizeHTML(block.content)}`}
+			{:else}
+				<div class="html-placeholder">
+					<span class="placeholder-icon">&lt;/&gt;</span>
+					<span class="placeholder-text">Add HTML in Properties</span>
+				</div>
+			{/if}
 		</div>
 	{/if}
 
@@ -187,13 +397,17 @@
 <style>
 	.block {
 		position: absolute;
-		cursor: move;
-		transition: box-shadow 0.2s;
-		user-select: none;
+		transition: box-shadow 0.2s, outline 0.2s;
 	}
 
 	.block:hover {
 		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	}
+
+	/* Visual feedback when hovering near edge (shift-resize ready) */
+	.block.shift-resize-mode {
+		outline: 3px solid #667eea;
+		outline-offset: -3px;
 	}
 
 	.block:hover .resize-handle,
@@ -216,19 +430,102 @@
 
 	.block-heading,
 	.block-text,
-	.block-container {
+	.block-container,
+	.block-image,
+	.block-html {
 		width: 100%;
 		height: 100%;
 		outline: none;
 		overflow: auto;
+		/* Add padding to prevent scrollbar from covering resize handles */
+		box-sizing: border-box;
+	}
+
+	.block-html {
+		padding: 0;
+		background: transparent;
+		border: none;
+	}
+
+
+	/* Make content scrollable area smaller to avoid resize handle conflict */
+	.block.selected .block-heading,
+	.block.selected .block-text {
+		/* Add small padding when selected to make resize handles easier to grab */
+		padding-right: 8px;
+		padding-bottom: 8px;
 	}
 
 	.block-heading {
 		font-weight: bold;
 	}
 
+	.block-image {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		overflow: hidden;
+	}
+
+	.block-image img {
+		width: 100%;
+		height: 100%;
+		object-fit: contain;
+	}
+
+	.image-placeholder {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		color: #999;
+		text-align: center;
+		padding: 1rem;
+	}
+
+	.placeholder-icon {
+		font-size: 3rem;
+	}
+
+	.placeholder-text {
+		font-size: 0.875rem;
+	}
+
+	.html-placeholder {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		color: #999;
+		text-align: center;
+		padding: 1rem;
+	}
+
+	.block-container {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		border: 2px dashed #ccc;
+		background: rgba(0, 0, 0, 0.02);
+	}
+
+	.container-label {
+		color: #999;
+		font-size: 0.875rem;
+		pointer-events: none;
+	}
+
 	[contenteditable="true"] {
 		cursor: text;
+		user-select: text;
+	}
+
+	/* Visual hint: show subtle outline when hovering over block */
+	.block:hover:not(.dragging):not(.resizing) {
+		outline: 1px dashed rgba(102, 126, 234, 0.3);
+		outline-offset: -1px;
 	}
 
 	/* Resize handles */
@@ -238,80 +535,113 @@
 		border: 2px solid white;
 		box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 		opacity: 0;
+		transition: opacity 0.2s, transform 0.2s;
+		z-index: 10; /* Ensure handles are above content */
+	}
+
+	/* Make handles visible on hover or when selected */
+	.block:hover .resize-handle,
+	.block.selected .resize-handle {
+		opacity: 1;
+	}
+
+	/* Enlarge handles on hover for easier grabbing */
+	.resize-handle:hover {
+		transform: scale(1.3);
+		background: #5568d3;
+		box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	/* Visual hint for shift+click incremental resize */
+	.resize-handle::after {
+		content: '';
+		position: absolute;
+		top: 50%;
+		left: 50%;
+		transform: translate(-50%, -50%);
+		width: 0;
+		height: 0;
+		border: 3px solid transparent;
+		opacity: 0;
 		transition: opacity 0.2s;
 	}
 
-	/* Corner handles */
+	/* Show arrows when hovering with potential for shift-click */
+	.resize-handle:hover::after {
+		opacity: 0.7;
+	}
+
+	/* Corner handles - larger for easier grabbing */
 	.resize-nw,
 	.resize-ne,
 	.resize-se,
 	.resize-sw {
-		width: 10px;
-		height: 10px;
+		width: 14px;
+		height: 14px;
 		border-radius: 50%;
 	}
 
 	/* Edge handles */
 	.resize-n,
 	.resize-s {
-		width: 20px;
-		height: 6px;
+		width: 30px;
+		height: 8px;
 		left: 50%;
 		transform: translateX(-50%);
-		border-radius: 3px;
+		border-radius: 4px;
 	}
 
 	.resize-e,
 	.resize-w {
-		width: 6px;
-		height: 20px;
+		width: 8px;
+		height: 30px;
 		top: 50%;
 		transform: translateY(-50%);
-		border-radius: 3px;
+		border-radius: 4px;
 	}
 
-	/* Positioning */
+	/* Positioning - adjusted for larger handles */
 	.resize-nw {
-		top: -5px;
-		left: -5px;
+		top: -7px;
+		left: -7px;
 		cursor: nw-resize;
 	}
 
 	.resize-n {
-		top: -3px;
+		top: -4px;
 		cursor: n-resize;
 	}
 
 	.resize-ne {
-		top: -5px;
-		right: -5px;
+		top: -7px;
+		right: -7px;
 		cursor: ne-resize;
 	}
 
 	.resize-e {
-		right: -3px;
+		right: -4px;
 		cursor: e-resize;
 	}
 
 	.resize-se {
-		bottom: -5px;
-		right: -5px;
+		bottom: -7px;
+		right: -7px;
 		cursor: se-resize;
 	}
 
 	.resize-s {
-		bottom: -3px;
+		bottom: -4px;
 		cursor: s-resize;
 	}
 
 	.resize-sw {
-		bottom: -5px;
-		left: -5px;
+		bottom: -7px;
+		left: -7px;
 		cursor: sw-resize;
 	}
 
 	.resize-w {
-		left: -3px;
+		left: -4px;
 		cursor: w-resize;
 	}
 </style>

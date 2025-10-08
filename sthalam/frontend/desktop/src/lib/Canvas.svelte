@@ -76,8 +76,8 @@
 		height: 100%;
 		overflow: hidden;
 		position: relative;
-		background: #ffffff;
-		background-image: radial-gradient(circle, #e0e0e0 1px, transparent 1px);
+		background: var(--bg-secondary, #f5f5f5);
+		background-image: radial-gradient(circle, var(--border-color, #e0e0e0) 1px, transparent 1px);
 		background-size: 20px 20px;
 	}
 

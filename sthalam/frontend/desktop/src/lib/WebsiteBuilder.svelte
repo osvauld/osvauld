@@ -5,6 +5,7 @@
 	import Canvas from "./Canvas.svelte";
 	import BlockPalette from "./BlockPalette.svelte";
 	import PropertiesPanel from "./PropertiesPanel.svelte";
+	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
 
 	let doc: Y.Doc;
 	let yBlocks: Y.Map<any>;
@@ -161,36 +162,116 @@
 		}
 	}
 
+	function normalizeZIndexes() {
+		// Get all blocks sorted by current z-index
+		const allBlocks = Array.from(yBlocks.entries()).map(([id, block]) => ({
+			id,
+			block,
+		}));
+
+		allBlocks.sort((a, b) => a.block.zIndex - b.block.zIndex);
+
+		// Reassign sequential z-indexes starting from 1
+		allBlocks.forEach((item, index) => {
+			yBlocks.set(item.id, { ...item.block, zIndex: index + 1 });
+		});
+	}
+
 	function bringForward(blockId: string) {
 		const block = yBlocks.get(blockId);
-		if (block) {
-			// Find the highest zIndex
-			let maxZIndex = 0;
-			yBlocks.forEach((b) => {
-				if (b.zIndex > maxZIndex) {
-					maxZIndex = b.zIndex;
-				}
-			});
-			yBlocks.set(blockId, { ...block, zIndex: maxZIndex + 1 });
-		}
+		if (!block) return;
+
+		// Get all blocks sorted by z-index
+		const allBlocks = Array.from(yBlocks.entries()).map(([id, b]) => ({
+			id,
+			zIndex: b.zIndex,
+		}));
+		allBlocks.sort((a, b) => a.zIndex - b.zIndex);
+
+		// Find current position
+		const currentIndex = allBlocks.findIndex((b) => b.id === blockId);
+		if (currentIndex === -1 || currentIndex === allBlocks.length - 1) return; // Already at front
+
+		// Swap z-index with block above
+		const aboveBlock = allBlocks[currentIndex + 1];
+		const currentZIndex = block.zIndex;
+		const aboveZIndex = yBlocks.get(aboveBlock.id)?.zIndex || 0;
+
+		yBlocks.set(blockId, { ...block, zIndex: aboveZIndex });
+		yBlocks.set(aboveBlock.id, {
+			...yBlocks.get(aboveBlock.id)!,
+			zIndex: currentZIndex
+		});
+
+		// Normalize to clean up gaps
+		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
 	function sendBackward(blockId: string) {
 		const block = yBlocks.get(blockId);
-		if (block && block.zIndex > 1) {
-			yBlocks.set(blockId, { ...block, zIndex: block.zIndex - 1 });
-		}
+		if (!block) return;
+
+		// Get all blocks sorted by z-index
+		const allBlocks = Array.from(yBlocks.entries()).map(([id, b]) => ({
+			id,
+			zIndex: b.zIndex,
+		}));
+		allBlocks.sort((a, b) => a.zIndex - b.zIndex);
+
+		// Find current position
+		const currentIndex = allBlocks.findIndex((b) => b.id === blockId);
+		if (currentIndex === -1 || currentIndex === 0) return; // Already at back
+
+		// Swap z-index with block below
+		const belowBlock = allBlocks[currentIndex - 1];
+		const currentZIndex = block.zIndex;
+		const belowZIndex = yBlocks.get(belowBlock.id)?.zIndex || 0;
+
+		yBlocks.set(blockId, { ...block, zIndex: belowZIndex });
+		yBlocks.set(belowBlock.id, {
+			...yBlocks.get(belowBlock.id)!,
+			zIndex: currentZIndex
+		});
+
+		// Normalize to clean up gaps
+		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
 	function bringToFront(blockId: string) {
-		bringForward(blockId);
+		const block = yBlocks.get(blockId);
+		if (!block) return;
+
+		// Find the highest zIndex
+		let maxZIndex = 0;
+		yBlocks.forEach((b) => {
+			if (b.zIndex > maxZIndex) {
+				maxZIndex = b.zIndex;
+			}
+		});
+
+		yBlocks.set(blockId, { ...block, zIndex: maxZIndex + 1 });
+
+		// Normalize to clean up gaps
+		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
 	function sendToBack(blockId: string) {
 		const block = yBlocks.get(blockId);
-		if (block) {
-			yBlocks.set(blockId, { ...block, zIndex: 0 });
-		}
+		if (!block) return;
+
+		// Find the lowest zIndex
+		let minZIndex = Infinity;
+		yBlocks.forEach((b) => {
+			if (b.zIndex < minZIndex) {
+				minZIndex = b.zIndex;
+			}
+		});
+
+		// Set to below minimum (will be normalized to 1)
+		yBlocks.set(blockId, { ...block, zIndex: minZIndex - 1 });
+
+		// Normalize to clean up gaps
+		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
 	function addBlock(type: string) {
@@ -200,19 +281,54 @@
 		const centerX = Math.abs(viewport.x) + 400;
 		const centerY = Math.abs(viewport.y) + 200;
 
-		const newBlock = {
+		let newBlock: any = {
 			id,
 			type,
 			x: centerX,
 			y: centerY,
-			width: type === "heading" ? 400 : 300,
-			height: type === "heading" ? 60 : 100,
 			zIndex: blocks.size + 1,
-			content: type === "heading" ? "New Heading" : type === "text" ? "New text block" : "Container",
-			styles: type === "heading"
-				? { fontSize: "32px", fontWeight: "700" }
-				: {},
+			styles: {},
 		};
+
+		// Configure based on type
+		switch(type) {
+			case "heading":
+				newBlock.width = 400;
+				newBlock.height = 60;
+				newBlock.content = "New Heading";
+				newBlock.styles = { fontSize: "32px", fontWeight: "700" };
+				break;
+			case "text":
+				newBlock.width = 300;
+				newBlock.height = 100;
+				newBlock.content = "New text block";
+				break;
+			case "image":
+				newBlock.width = 300;
+				newBlock.height = 200;
+				newBlock.content = ""; // Image URL will be set via Properties
+				newBlock.styles = { backgroundColor: "transparent", border: "none" };
+				break;
+			case "container":
+				newBlock.width = 400;
+				newBlock.height = 300;
+				newBlock.content = "Container";
+				newBlock.styles = { backgroundColor: "rgba(255,255,255,0.8)" };
+				break;
+			case "html":
+				newBlock.width = 400;
+				newBlock.height = 300;
+				newBlock.content = ""; // HTML will be set via Properties
+				newBlock.styles = {
+					css: "" // Custom CSS
+				};
+				break;
+			default:
+				newBlock.width = 300;
+				newBlock.height = 100;
+				newBlock.content = "New block";
+		}
+
 		yBlocks.set(id, newBlock);
 	}
 </script>
@@ -232,7 +348,10 @@
 		onUpdateBlock={updateBlock}
 		onBringForward={bringForward}
 		onSendBackward={sendBackward}
+		onBringToFront={bringToFront}
+		onSendToBack={sendToBack}
 	/>
+	<KeyboardShortcuts />
 </div>
 
 <style>
@@ -240,7 +359,7 @@
 		width: 100%;
 		height: 100vh;
 		overflow: hidden;
-		background: #f5f5f5;
+		background: var(--bg-secondary, #f5f5f5);
 		display: flex;
 	}
 </style>
