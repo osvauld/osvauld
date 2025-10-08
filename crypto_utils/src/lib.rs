@@ -12,9 +12,7 @@ pub mod signature_operations;
 pub mod signature_utils;
 pub mod types;
 pub mod ucan_operations;
-
-// Internal modules
-mod ucan_utils;
+pub mod ucan_utils;
 
 // Re-export the main public API
 pub use crypto_utils::CryptoUtils;

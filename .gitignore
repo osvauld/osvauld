@@ -15,4 +15,9 @@ livnote/frontend/desktop/node_modules
 livnote/frontend/desktop/dist/
 chat/frontend/desktop/node_modules
 chat/frontend/desktop/dist/
+sthalam/frontend/desktop/node_modules
+sthalam/frontend/desktop/dist/
+sthalam/frontend/blocksuite-test/node_modules
+sthalam/frontend/blocksuite-test/dist/
+sthalam/src-tauri/target/
 .cursorignore

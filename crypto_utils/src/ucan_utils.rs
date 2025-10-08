@@ -545,6 +545,183 @@ pub async fn generate_folder_owner_ucan(
     Ok((token_str, token_cid.to_string()))
 }
 
+/// Generates a flexible UCAN token for a resource with custom permissions and expiry
+///
+/// This token can grant various levels of access to a resource.
+/// Supports custom expiry times and multiple capability types.
+///
+/// # Arguments
+/// * `owner_signing_key` - The signing key of the resource owner
+/// * `owner_verifying_key` - The verifying key of the resource owner
+/// * `resource_id` - The ID of the resource to share
+/// * `capability_prefix` - The domain prefix (e.g., "sthalam")
+/// * `expiry_seconds` - Token lifetime in seconds (None = infinite/30 years)
+/// * `capabilities` - List of capabilities to grant (e.g., ["view/public", "crud/update", "ucan/share"])
+/// * `audience` - Target audience DID or "*" for public
+///
+/// # Example capabilities:
+/// - "view/public" - Read-only public access
+/// - "crud/read" - Authenticated read
+/// - "crud/update" - Edit permissions
+/// - "crud/delete" - Delete permissions
+/// - "ucan/share" - Can reshare to others
+pub async fn generate_flexible_resource_token(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    resource_id: &str,
+    capability_prefix: &str,
+    expiry_seconds: Option<u64>,
+    capabilities: Vec<&str>,
+    audience: &str,
+) -> Result<String, UcanError> {
+    // 1. Create KeyMaterial for the owner
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+
+    // 2. Set lifetime (default to 30 years if None for "infinite")
+    let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
+
+    // 3. Build capabilities from the provided list
+    let resource_uri = format!("{}:resource:{}", capability_prefix, resource_id);
+    let mut builder = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(audience)
+        .with_lifetime(lifetime);
+
+    // Add each capability to the builder
+    for capability_str in capabilities {
+        let capability = Capability::from((resource_uri.as_str(), capability_str, &json!({})));
+        builder = builder.claiming_capability(capability);
+    }
+
+    // 4. Build and sign the UCAN
+    let ucan = builder
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    // 5. Return the encoded token string
+    let token_str = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    Ok(token_str)
+}
+
+/// Generates a public view-only UCAN token for a resource (convenience wrapper)
+///
+/// This token grants read-only access to a resource for public viewing.
+/// Uses wildcard audience (*) and only grants "view/public" capability.
+/// Default expiry: 30 days
+pub async fn generate_public_view_token(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    resource_id: &str,
+    capability_prefix: &str,
+) -> Result<String, UcanError> {
+    generate_flexible_resource_token(
+        owner_signing_key,
+        owner_verifying_key,
+        resource_id,
+        capability_prefix,
+        Some(30 * 24 * 60 * 60), // 30 days
+        vec!["view/public"],
+        "*", // Public wildcard audience
+    )
+    .await
+}
+
+/// Generates a flexible UCAN token for a folder with custom permissions and expiry
+///
+/// This token grants access to all resources in a folder.
+/// Supports custom expiry times and multiple capability types.
+///
+/// # Arguments
+/// * `owner_signing_key` - The signing key of the folder owner
+/// * `owner_verifying_key` - The verifying key of the folder owner
+/// * `folder_id` - The ID of the folder to share
+/// * `capability_prefix` - The domain prefix (e.g., "sthalam")
+/// * `expiry_seconds` - Token lifetime in seconds (None = infinite/30 years)
+/// * `capabilities` - List of capabilities to grant
+/// * `audience` - Target audience DID or "*" for public
+pub async fn generate_flexible_folder_token(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    folder_id: &str,
+    capability_prefix: &str,
+    expiry_seconds: Option<u64>,
+    capabilities: Vec<&str>,
+    audience: &str,
+) -> Result<String, UcanError> {
+    // 1. Create KeyMaterial for the owner
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+
+    // 2. Set lifetime (default to 30 years if None for "infinite")
+    let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
+
+    // 3. Build capabilities for both folder and its resources
+    let folder_uri = format!("{}:folder:{}", capability_prefix, folder_id);
+    let resource_wildcard = format!("{}:resource:{}/*", capability_prefix, folder_id);
+
+    let mut builder = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(audience)
+        .with_lifetime(lifetime);
+
+    // Add folder capabilities
+    for capability_str in &capabilities {
+        let folder_cap = Capability::from((folder_uri.as_str(), *capability_str, &json!({})));
+        builder = builder.claiming_capability(folder_cap);
+    }
+
+    // Add resource wildcard capabilities
+    for capability_str in capabilities {
+        let resource_cap = Capability::from((resource_wildcard.as_str(), capability_str, &json!({})));
+        builder = builder.claiming_capability(resource_cap);
+    }
+
+    // 4. Build and sign the UCAN
+    let ucan = builder
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    // 5. Return the encoded token string
+    let token_str = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    Ok(token_str)
+}
+
+/// Generates a public view-only UCAN token for a folder (convenience wrapper)
+///
+/// This token grants read-only access to all resources in a folder for public viewing.
+/// Uses wildcard audience and only grants "view/public" capability.
+/// Default expiry: 30 days
+pub async fn generate_public_folder_view_token(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    folder_id: &str,
+    capability_prefix: &str,
+) -> Result<String, UcanError> {
+    generate_flexible_folder_token(
+        owner_signing_key,
+        owner_verifying_key,
+        folder_id,
+        capability_prefix,
+        Some(30 * 24 * 60 * 60), // 30 days
+        vec!["view/public"],
+        "*", // Public wildcard audience
+    )
+    .await
+}
+
 pub async fn validate_ucan_permission<F, Fut>(
     ucan: &Ucan,
     verifier_ucan_pub_b64: &str,

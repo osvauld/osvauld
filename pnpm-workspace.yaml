@@ -2,12 +2,14 @@ packages:
   # Frontend apps
   - 'livnote/frontend/desktop'
   - 'libremot/frontend/desktop'
-  
+  - 'sthalam/frontend/desktop'
+  - 'sthalam/frontend/blocksuite-test'
+
   # Shared packages
   - 'icons'
   - 'fonts'
   - 'packages/*'
-  
+
   # Core packages
   - 'core'
   - 'crypto_utils'

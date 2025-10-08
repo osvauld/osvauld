@@ -9,7 +9,8 @@
     "build": "pnpm --filter '*' build",
     "install:all": "pnpm install",
     "dev:livnote": "pnpm --filter @osvauld/livnote dev",
-    "dev:libremot": "pnpm --filter @osvauld/libremot dev"
+    "dev:libremot": "pnpm --filter @osvauld/libremot dev",
+    "dev:sthalam": "pnpm --filter @osvauld/sthalam dev"
   },
   "devDependencies": {
     "pnpm": "^9.15.9"

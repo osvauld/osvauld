@@ -257,6 +257,7 @@ pub struct ResourceSyncData {
 pub enum ResourceType {
     Notes,
     Chat,
+    Website,
     Default,
 }
 
@@ -266,6 +267,7 @@ impl ResourceType {
         match self {
             ResourceType::Notes => true,
             ResourceType::Chat => true,
+            ResourceType::Website => true,
             ResourceType::Default => true,
         }
     }
@@ -275,6 +277,7 @@ impl ResourceType {
         match self {
             ResourceType::Notes => vec!["main_doc", "image_state", "comment_state"],
             ResourceType::Chat => vec!["chat", "image_state"],
+            ResourceType::Website => vec!["blocksuite_doc", "image_state"],
             ResourceType::Default => vec!["yjs_state"],
         }
     }
@@ -284,6 +287,7 @@ impl ResourceType {
         match self {
             ResourceType::Notes => Some("main_doc"),
             ResourceType::Chat => Some("chat"),
+            ResourceType::Website => Some("blocksuite_doc"),
             ResourceType::Default => Some("yjs_state"),
         }
     }
@@ -293,6 +297,7 @@ impl ResourceType {
         match s.to_lowercase().as_str() {
             "notes" => ResourceType::Notes,
             "chat" => ResourceType::Chat,
+            "website" => ResourceType::Website,
             _ => ResourceType::Default, // All unknown types default to Default
         }
     }
@@ -302,6 +307,7 @@ impl ResourceType {
         match self {
             ResourceType::Notes => "notes".to_string(),
             ResourceType::Chat => "chat".to_string(),
+            ResourceType::Website => "website".to_string(),
             ResourceType::Default => "default".to_string(),
         }
     }

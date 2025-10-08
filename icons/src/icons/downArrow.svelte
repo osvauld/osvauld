@@ -1,7 +1,7 @@
 <script lang="ts">
-	let { type } = $props();
-	function setbackground(type) {
-		const typeToClassMap = {
+	let { type } = $props<{ type: string }>();
+	function setbackground(type: string): string {
+		const typeToClassMap: Record<string, string> = {
 			reader: "#F9E2AF",
 			manager: "#F5C2E7",
 			owner: "#A6E3A1",
