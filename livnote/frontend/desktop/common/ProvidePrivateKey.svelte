@@ -36,7 +36,7 @@
 			class="h-[343px] text-osvauld-quarzowhite bg-osvauld-frameblack rounded-lg border border-osvauld-iconblack focus-within:border-livnotePink relative p-1.5 transition-colors duration-300"
 		>
 			<div
-				class="w-full max-w-full h-full border-0 tracking-wider font-light text-sm font-mono resize-none text-wrap scrollbar-thin overflow-y-scroll overflow-x-hidden p-1 outline-0 placeholder-placeholderGray break-all"
+				class="w-full max-w-full h-full border-0 tracking-wider font-normal text-sm font-mono resize-none text-wrap scrollbar-thin overflow-y-scroll overflow-x-hidden p-1 outline-0 placeholder-placeholderGray break-all"
 			>
 				{collectedRecoveryString}
 			</div>

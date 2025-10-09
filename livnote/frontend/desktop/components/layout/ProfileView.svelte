@@ -80,7 +80,7 @@
 			class="border-b border-osvauld-borderColor text-osvauld-fieldText flex flex-col my-3 py-1 gap-1"
 		></div>
 		<div
-			class="grow flex flex-col gap-2 px-1 py-2 text-white text-sm font-light whitespace-nowrap"
+			class="grow flex flex-col gap-2 px-1 py-2 text-white text-sm font-normal whitespace-nowrap"
 		>
 			{#each MENUITEMS as { id, label, icon: Icon }}
 				<button

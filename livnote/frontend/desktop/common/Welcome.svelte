@@ -98,11 +98,13 @@
 		{#if errorMessage}
 			<span
 				id="passphrase-error"
-				class="text-xs text-red-500 font-light mt-4"
+				class="text-xs text-red-500 font-normal mt-4"
 				role="alert">Wrong Passphrase</span
 			>
 		{:else}
-			<div class="text-xs text-textActive font-medium flex items-center gap-2 mt-4">
+			<div
+				class="text-xs text-textActive font-medium flex items-center gap-2 mt-4"
+			>
 				<Locked size={16} /> End-to-end encrypted
 			</div>
 		{/if}

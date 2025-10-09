@@ -176,7 +176,7 @@
 					<div class="space-y-2">
 						<label
 							for="userDetails"
-							class="block text-sm font-light text-white"
+							class="block text-sm font-normal text-white"
 						>
 							User Address
 						</label>
@@ -203,7 +203,7 @@
 					<div
 						class="h-0.5 bg-borderActive w-[calc(120%)] mx-4 ml-[-24px] scale-y-50 origin-top-left"
 					></div>
-					<div class="flex justify-end gap-3 font-light">
+					<div class="flex justify-end gap-3 font-normal">
 						<button
 							type="button"
 							onclick={closeModal}

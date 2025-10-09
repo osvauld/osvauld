@@ -29,7 +29,7 @@
 >
 	<label for="privateKey" class="sr-only">Private Key Input</label>
 	<textarea
-		class="w-full h-full border-0 tracking-wider font-light text-sm font-mono resize-none scrollbar-thin overflow-y-scroll p-1 outline-0 placeholder-placeholderGray"
+		class="w-full h-full border-0 tracking-wider font-normal text-sm font-mono resize-none scrollbar-thin overflow-y-scroll p-1 outline-0 placeholder-placeholderGray"
 		id="privateKey"
 		name="privateKey"
 		placeholder="Please Enter your private key"
@@ -49,7 +49,10 @@
 	></textarea>
 </div>
 
-<p class="text-red-400 text-sm font-light mt-4" class:invisible={!errorMessage}>
+<p
+	class="text-red-400 text-sm font-normal mt-4"
+	class:invisible={!errorMessage}
+>
 	Invalid private key format. Please enter a valid private key.
 </p>
 
