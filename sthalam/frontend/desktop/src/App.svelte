@@ -2,11 +2,11 @@
 	import { onMount } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
 	import ThemeToggle from "./lib/ThemeToggle.svelte";
-	import { editorStore } from "./store.svelte";
+	import { dataState } from "./store.svelte";
 
 	let showDebugInfo = $state(false);
 
-	const storeStatus = $derived(editorStore.doc ? "✅ Ready" : "❌ Not ready");
+	const storeStatus = $derived(dataState.userDetails ? "✅ Ready" : "❌ Not ready");
 
 	onMount(() => {
 		console.log("App mounted");
@@ -14,12 +14,6 @@
 
 	function toggleDebugInfo() {
 		showDebugInfo = !showDebugInfo;
-	}
-
-	function clearDocument() {
-		if (confirm("Are you sure you want to clear the document?")) {
-			editorStore.clear();
-		}
 	}
 </script>
 
@@ -115,7 +109,6 @@
 				<button onclick={toggleDebugInfo}>
 					{showDebugInfo ? "Hide" : "Show"} Debug
 				</button>
-				<button onclick={clearDocument}>Clear Canvas</button>
 			</div>
 		</div>
 	</header>

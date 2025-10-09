@@ -1,15 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
-	import * as Y from "yjs";
-	import { editorStore } from "../store.svelte";
+	import { dataState } from "../store.svelte";
 	import Canvas from "./Canvas.svelte";
 	import BlockPalette from "./BlockPalette.svelte";
 	import PropertiesPanel from "./PropertiesPanel.svelte";
 	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
+	import type { YjsDocuments } from "./yjsManager";
 
-	let doc: Y.Doc;
-	let yBlocks: Y.Map<any>;
-	let yViewport: Y.Map<any>;
+	let yDocs: YjsDocuments | null = null;
 	let blocks = $state<Map<string, any>>(new Map());
 	let viewport = $state({ x: 0, y: 0, zoom: 1 });
 	let selectedBlockId = $state<string | null>(null);
@@ -18,27 +16,30 @@
 		selectedBlockId ? blocks.get(selectedBlockId) || null : null
 	);
 
-	onMount(() => {
-		console.log("🚀 Initializing Website Builder with Yjs...");
+	onMount(async () => {
+		console.log("🚀 Initializing Website Builder...");
 
-		// Create Yjs document
-		doc = new Y.Doc();
+		// Initialize dataState (like livnote)
+		await dataState.initializeState();
 
-		// Create Y.Map for blocks
-		yBlocks = doc.getMap("blocks");
-
-		// Create Y.Map for viewport
-		yViewport = doc.getMap("viewport");
-
-		// Initialize viewport if empty
-		if (yViewport.size === 0) {
-			yViewport.set("x", 0);
-			yViewport.set("y", 0);
-			yViewport.set("zoom", 1);
+		const coordinator = dataState.getBlocksuiteCoordinator();
+		if (!coordinator) {
+			console.error("Failed to initialize coordinator");
+			return;
 		}
 
-		// Add some initial blocks for testing
-		if (yBlocks.size === 0) {
+		// Initialize coordinator
+		coordinator.initialize();
+
+		// Get Yjs documents
+		yDocs = coordinator.getDocuments();
+		if (!yDocs) {
+			console.error("Failed to get Yjs documents");
+			return;
+		}
+
+		// Add some initial blocks for testing if empty
+		if (yDocs.blocks.size === 0) {
 			const block1 = {
 				id: "block-1",
 				type: "heading",
@@ -70,14 +71,15 @@
 				},
 			};
 
-			yBlocks.set(block1.id, block1);
-			yBlocks.set(block2.id, block2);
+			yDocs.blocks.set(block1.id, block1);
+			yDocs.blocks.set(block2.id, block2);
 		}
 
 		// Subscribe to blocks changes
-		yBlocks.observe(() => {
+		yDocs.blocks.observe(() => {
+			if (!yDocs) return;
 			const newBlocks = new Map();
-			yBlocks.forEach((value, key) => {
+			yDocs.blocks.forEach((value, key) => {
 				newBlocks.set(key, value);
 			});
 			blocks = newBlocks;
@@ -85,41 +87,39 @@
 		});
 
 		// Subscribe to viewport changes
-		yViewport.observe(() => {
+		yDocs.viewport.observe(() => {
+			if (!yDocs) return;
 			viewport = {
-				x: yViewport.get("x") || 0,
-				y: yViewport.get("y") || 0,
-				zoom: yViewport.get("zoom") || 1,
+				x: yDocs.viewport.get("x") || 0,
+				y: yDocs.viewport.get("y") || 0,
+				zoom: yDocs.viewport.get("zoom") || 1,
 			};
 			console.log("🔍 Viewport updated:", viewport);
 		});
 
 		// Initial load
 		const newBlocks = new Map();
-		yBlocks.forEach((value, key) => {
+		yDocs.blocks.forEach((value, key) => {
 			newBlocks.set(key, value);
 		});
 		blocks = newBlocks;
 
 		viewport = {
-			x: yViewport.get("x") || 0,
-			y: yViewport.get("y") || 0,
-			zoom: yViewport.get("zoom") || 1,
+			x: yDocs.viewport.get("x") || 0,
+			y: yDocs.viewport.get("y") || 0,
+			zoom: yDocs.viewport.get("zoom") || 1,
 		};
-
-		// Update store
-		editorStore.setDoc(doc);
 
 		// For debugging
 		if (typeof window !== "undefined") {
-			(window as any).doc = doc;
-			(window as any).yBlocks = yBlocks;
-			(window as any).yViewport = yViewport;
+			(window as any).yDocs = yDocs;
+			(window as any).dataState = dataState;
 			(window as any).addBlock = (
 				type: string,
 				x: number,
 				y: number,
 			) => {
+				if (!yDocs) return;
 				const id = `block-${Date.now()}`;
 				const newBlock = {
 					id,
@@ -132,7 +132,7 @@
 					content: "New block",
 					styles: {},
 				};
-				yBlocks.set(id, newBlock);
+				yDocs.blocks.set(id, newBlock);
 				return id;
 			};
 			(window as any).bringForward = bringForward;
@@ -145,26 +145,28 @@
 	});
 
 	onDestroy(() => {
-		if (doc) {
-			doc.destroy();
-		}
+		// Cleanup is handled by dataState.clearAllState()
+		dataState.clearAllState();
 	});
 
 	function updateViewport(newViewport: { x: number; y: number }) {
-		yViewport.set("x", newViewport.x);
-		yViewport.set("y", newViewport.y);
+		if (!yDocs) return;
+		yDocs.viewport.set("x", newViewport.x);
+		yDocs.viewport.set("y", newViewport.y);
 	}
 
 	function updateBlock(blockId: string, updates: Partial<any>) {
-		const block = yBlocks.get(blockId);
+		if (!yDocs) return;
+		const block = yDocs.blocks.get(blockId);
 		if (block) {
-			yBlocks.set(blockId, { ...block, ...updates });
+			yDocs.blocks.set(blockId, { ...block, ...updates });
 		}
 	}
 
 	function normalizeZIndexes() {
+		if (!yDocs) return;
 		// Get all blocks sorted by current z-index
-		const allBlocks = Array.from(yBlocks.entries()).map(([id, block]) => ({
+		const allBlocks = Array.from(yDocs.blocks.entries()).map(([id, block]) => ({
 			id,
 			block,
 		}));
@@ -173,16 +175,17 @@
 
 		// Reassign sequential z-indexes starting from 1
 		allBlocks.forEach((item, index) => {
-			yBlocks.set(item.id, { ...item.block, zIndex: index + 1 });
+			yDocs!.blocks.set(item.id, { ...item.block, zIndex: index + 1 });
 		});
 	}
 
 	function bringForward(blockId: string) {
-		const block = yBlocks.get(blockId);
+		if (!yDocs) return;
+		const block = yDocs.blocks.get(blockId);
 		if (!block) return;
 
 		// Get all blocks sorted by z-index
-		const allBlocks = Array.from(yBlocks.entries()).map(([id, b]) => ({
+		const allBlocks = Array.from(yDocs.blocks.entries()).map(([id, b]) => ({
 			id,
 			zIndex: b.zIndex,
 		}));
@@ -195,11 +198,11 @@
 		// Swap z-index with block above
 		const aboveBlock = allBlocks[currentIndex + 1];
 		const currentZIndex = block.zIndex;
-		const aboveZIndex = yBlocks.get(aboveBlock.id)?.zIndex || 0;
+		const aboveZIndex = yDocs.blocks.get(aboveBlock.id)?.zIndex || 0;
 
-		yBlocks.set(blockId, { ...block, zIndex: aboveZIndex });
-		yBlocks.set(aboveBlock.id, {
-			...yBlocks.get(aboveBlock.id)!,
+		yDocs.blocks.set(blockId, { ...block, zIndex: aboveZIndex });
+		yDocs.blocks.set(aboveBlock.id, {
+			...yDocs.blocks.get(aboveBlock.id)!,
 			zIndex: currentZIndex
 		});
 
@@ -208,11 +211,12 @@
 	}
 
 	function sendBackward(blockId: string) {
-		const block = yBlocks.get(blockId);
+		if (!yDocs) return;
+		const block = yDocs.blocks.get(blockId);
 		if (!block) return;
 
 		// Get all blocks sorted by z-index
-		const allBlocks = Array.from(yBlocks.entries()).map(([id, b]) => ({
+		const allBlocks = Array.from(yDocs.blocks.entries()).map(([id, b]) => ({
 			id,
 			zIndex: b.zIndex,
 		}));
@@ -225,11 +229,11 @@
 		// Swap z-index with block below
 		const belowBlock = allBlocks[currentIndex - 1];
 		const currentZIndex = block.zIndex;
-		const belowZIndex = yBlocks.get(belowBlock.id)?.zIndex || 0;
+		const belowZIndex = yDocs.blocks.get(belowBlock.id)?.zIndex || 0;
 
-		yBlocks.set(blockId, { ...block, zIndex: belowZIndex });
-		yBlocks.set(belowBlock.id, {
-			...yBlocks.get(belowBlock.id)!,
+		yDocs.blocks.set(blockId, { ...block, zIndex: belowZIndex });
+		yDocs.blocks.set(belowBlock.id, {
+			...yDocs.blocks.get(belowBlock.id)!,
 			zIndex: currentZIndex
 		});
 
@@ -238,43 +242,46 @@
 	}
 
 	function bringToFront(blockId: string) {
-		const block = yBlocks.get(blockId);
+		if (!yDocs) return;
+		const block = yDocs.blocks.get(blockId);
 		if (!block) return;
 
 		// Find the highest zIndex
 		let maxZIndex = 0;
-		yBlocks.forEach((b) => {
+		yDocs.blocks.forEach((b) => {
 			if (b.zIndex > maxZIndex) {
 				maxZIndex = b.zIndex;
 			}
 		});
 
-		yBlocks.set(blockId, { ...block, zIndex: maxZIndex + 1 });
+		yDocs.blocks.set(blockId, { ...block, zIndex: maxZIndex + 1 });
 
 		// Normalize to clean up gaps
 		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
 	function sendToBack(blockId: string) {
-		const block = yBlocks.get(blockId);
+		if (!yDocs) return;
+		const block = yDocs.blocks.get(blockId);
 		if (!block) return;
 
 		// Find the lowest zIndex
 		let minZIndex = Infinity;
-		yBlocks.forEach((b) => {
+		yDocs.blocks.forEach((b) => {
 			if (b.zIndex < minZIndex) {
 				minZIndex = b.zIndex;
 			}
 		});
 
 		// Set to below minimum (will be normalized to 1)
-		yBlocks.set(blockId, { ...block, zIndex: minZIndex - 1 });
+		yDocs.blocks.set(blockId, { ...block, zIndex: minZIndex - 1 });
 
 		// Normalize to clean up gaps
 		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
 	function addBlock(type: string) {
+		if (!yDocs) return;
 		const id = `block-${Date.now()}`;
 
 		// Calculate center of viewport
@@ -354,7 +361,7 @@
 				newBlock.content = "New block";
 		}
 
-		yBlocks.set(id, newBlock);
+		yDocs.blocks.set(id, newBlock);
 	}
 </script>
 

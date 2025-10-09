@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import * as Y from "yjs";
-	import { editorStore } from "../store.svelte";
 
 	let editorContainer = $state<HTMLDivElement>();
 	let blocks = $state<any[]>([]);
@@ -52,9 +51,6 @@
 
 			// Initial render
 			blocks = yBlocks.toArray();
-
-			// Update Svelte store
-			editorStore.setDoc(doc);
 
 			// For debugging
 			if (typeof window !== "undefined") {
