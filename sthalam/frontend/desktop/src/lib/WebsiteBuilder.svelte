@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import { dataState } from "../store.svelte";
+	import { dataState as authDataState, uiState } from "../state";
 	import Canvas from "./Canvas.svelte";
 	import BlockPalette from "./BlockPalette.svelte";
 	import PropertiesPanel from "./PropertiesPanel.svelte";
 	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
+	import NavigationPanel from "../components/NavigationPanel.svelte";
+	import FolderManager from "../components/FolderManager.svelte";
 	import type { YjsDocuments } from "./yjsManager";
 
 	let yDocs: YjsDocuments | null = null;
@@ -366,6 +369,7 @@
 </script>
 
 <div class="builder-container">
+	<NavigationPanel />
 	<BlockPalette onAddBlock={addBlock} />
 	<Canvas
 		{blocks}
@@ -384,6 +388,9 @@
 		onSendToBack={sendToBack}
 	/>
 	<KeyboardShortcuts />
+	{#if uiState.showFolderManager}
+		<FolderManager position="navigationPanel" />
+	{/if}
 </div>
 
 <style>

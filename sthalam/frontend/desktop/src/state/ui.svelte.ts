@@ -15,11 +15,21 @@ class UIState {
   // Welcome screen
   showWelcome = $state(false);
 
+  // Folder manager modal
+  showFolderManager = $state(false);
+
   /**
    * Toggle navigation panel visibility
    */
   toggleNavigationPanel(show?: boolean) {
     this.showNavigationPanel = show ?? !this.showNavigationPanel;
+  }
+
+  /**
+   * Toggle folder manager modal
+   */
+  toggleFolderManager() {
+    this.showFolderManager = !this.showFolderManager;
   }
 
   /**

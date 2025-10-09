@@ -33,8 +33,9 @@
 		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 relative border-r border-osvauld-borderColor flex flex-col"
 		aria-label="Main Navigation"
 	>
-		<!-- All Websites Section -->
-		<div class="px-1 shrink-0 mb-2">
+		<!-- Header with All Websites and Folder Manager Button -->
+		<div class="px-1 shrink-0 mb-2 space-y-2">
+			<!-- All Websites Section -->
 			<button
 				class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
 				class:text-osvauld-sideListTextActive={dataState.currentWebsite.id ===
@@ -48,6 +49,16 @@
 				<span class="shrink-0 text-xs text-textActive">
 					{websites.length}
 				</span>
+			</button>
+
+			<!-- Folder Manager Button -->
+			<button
+				class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+				onclick={() => uiState.toggleFolderManager()}
+				title="Manage folders"
+			>
+				<span class="shrink-0 text-base">📁</span>
+				<span class="flex-1 text-left text-sm font-normal">Manage Websites</span>
 			</button>
 		</div>
 
