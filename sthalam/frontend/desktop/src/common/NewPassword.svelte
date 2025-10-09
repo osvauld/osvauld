@@ -1,7 +1,7 @@
 
 <script lang="ts">
 	import Loader from "./Loader.svelte";
-	import { ClosedEye, Eye } from "../lib/icons/src";
+	import { ClosedEye, Eye } from "@osvauld/icons";
 	import PasswordStrengthValidator from "./PasswordStrengthValidator.svelte";
 
 	let {

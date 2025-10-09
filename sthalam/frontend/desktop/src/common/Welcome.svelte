@@ -1,6 +1,6 @@
 <script lang="ts">
 	import Loader from "./Loader.svelte";
-	import { ClosedEye, Eye, Locked } from "../lib/icons/src";
+	import { ClosedEye, Eye, Locked } from "@osvauld/icons";
 	import { sendMessage } from "../utils/helper";
 
 	let { authenticated } = $props();

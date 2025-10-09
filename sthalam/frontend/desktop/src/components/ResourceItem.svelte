@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Resource } from "../types";
-	import FileText from "../lib/icons/src/icons/fileText.svelte";
+	import { FileText } from "@osvauld/icons";
 
 	interface Props {
 		resource: Resource;

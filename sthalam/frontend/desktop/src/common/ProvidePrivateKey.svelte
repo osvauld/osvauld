@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { CopyIcon, Tick } from "../lib/icons/src";
+	import { CopyIcon, Tick } from "@osvauld/icons";
 	import { writeToClipboard } from "../utils/helper";
 
 	let { onLogin, collectedRecoveryString = $bindable() } = $props<{

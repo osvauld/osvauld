@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { fade } from "svelte/transition";
-	import { GoBack } from "../lib/icons/src";
+	import { GoBack } from "@osvauld/icons";
 
 	let { onBack, children } = $props<{
 		onBack: () => void;

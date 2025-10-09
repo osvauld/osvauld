@@ -4,7 +4,7 @@
 	import { sendMessage } from "../utils/helper";
 	import { fly } from "svelte/transition";
 	import { generateCertificatePDF } from "../utils/backupUtil";
-	import { ClosedEye, Eye } from "../lib/icons/src";
+	import { ClosedEye, Eye } from "@osvauld/icons";
 	import SuccessView from "./SuccessView.svelte";
 	import NewPassword from "./NewPassword.svelte";
 	import Loader from "./Loader.svelte";

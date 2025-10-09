@@ -2,8 +2,7 @@
 	import { dataState } from "../state";
 	import ResourceItem from "./ResourceItem.svelte";
 	import type { Website } from "../types";
-	import RightArrow from "../lib/icons/src/icons/rightArrow.svelte";
-	import Add from "../lib/icons/src/icons/add.svelte";
+	import { RightArrow, Add } from "@osvauld/icons";
 
 	interface Props {
 		website: Website;
