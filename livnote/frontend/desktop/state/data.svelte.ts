@@ -2,9 +2,15 @@ import { sendMessage } from "../utils/helper";
 import { uiState } from './ui.svelte';
 import { listen, emit } from "@tauri-apps/api/event";
 import { StoreService } from './storeService';
-import { createEmptyNoteContent } from "../components/notes/documentUtils";
+import { createEmptyNoteContent, createNoteContentWithText } from "../components/notes/documentUtils";
 import type { Note, NotePreview, Collaborator } from "../types/notes.types";
 import { NotesCoordinator } from "../components/notes/notesCoordinator";
+import { 
+  WELCOME_NOTE_TITLE, 
+  WELCOME_NOTE_CONTENT, 
+  GUIDE_NOTE_TITLE, 
+  GUIDE_NOTE_CONTENT 
+} from "../utils/starterNotesContent";
 export interface Vault {
   id: string;
   name: string;
@@ -205,6 +211,59 @@ class DataState {
     await this.switchNote(note.id);
   }
 
+  async createStarterNotes() {
+    try {
+      // Ensure we have user details before creating notes
+      if (!this.userDetails) {
+        return;
+      }
+
+      const targetFolderId = this.currentVault.id;
+
+      // If targeting "all", use the first real folder
+      let actualFolderId = targetFolderId;
+      if (targetFolderId === "all") {
+        const realFolder = this.vaults.find(v => v.id !== "all");
+        if (realFolder) {
+          actualFolderId = realFolder.id;
+        } else {
+          return;
+        }
+      }
+
+      // First starter note: Welcome to Livnote
+      const welcomeContent = createNoteContentWithText(
+        this.clientId,
+        WELCOME_NOTE_TITLE,
+        WELCOME_NOTE_CONTENT
+      );
+
+      await sendMessage("addCredential", {
+        resourcePayload: JSON.stringify(welcomeContent),
+        folderId: actualFolderId,
+        resourceType: "notes"
+      });
+
+      // Second starter note: Getting Started Guide
+      const guideContent = createNoteContentWithText(
+        this.clientId,
+        GUIDE_NOTE_TITLE,
+        GUIDE_NOTE_CONTENT
+      );
+
+      await sendMessage("addCredential", {
+        resourcePayload: JSON.stringify(guideContent),
+        folderId: actualFolderId,
+        resourceType: "notes"
+      });
+
+      // Mark starter notes as created
+      await StoreService.setStarterNotesCreated(true);
+    } catch (error) {
+      // Silently fail - starter notes are not critical
+    }
+  }
+
   getNoteTitle(): string {
     return this.getNotesCoordinator()?.getCurrentTitle() || "Untitled";
   }
@@ -346,9 +405,40 @@ class DataState {
     await this.restoreSavedSelections();
     this.isDataLoading = false;
     if (savedNoteId) {
-      this.fetchAllNotes(savedNoteId)
+      await this.fetchAllNotes(savedNoteId);
     } else {
-      this.fetchAllNotes();
+      await this.fetchAllNotes();
+    }
+
+    // Check if we need to create starter notes after everything is initialized
+    // Use a small delay to ensure database is fully ready
+    this.checkAndCreateStarterNotes();
+  }
+
+  private async checkAndCreateStarterNotes() {
+    try {
+      const starterNotesCreated = await StoreService.getStarterNotesCreated();
+      
+      if (!starterNotesCreated && this.notes.length === 0) {
+        // Delay to ensure database is fully initialized after signup/login
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Double-check we still have no notes and user details are available
+        if (this.notes.length === 0 && this.userDetails) {
+          await this.createStarterNotes();
+          // Refresh the notes list to show the starter notes
+          await this.fetchAllNotes();
+        } else if (!this.userDetails) {
+          // If user details aren't ready yet, try again with a longer delay
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          if (this.notes.length === 0 && this.userDetails) {
+            await this.createStarterNotes();
+            await this.fetchAllNotes();
+          }
+        }
+      }
+    } catch (error) {
+      // Silently fail - starter notes are not critical
     }
   }
 
