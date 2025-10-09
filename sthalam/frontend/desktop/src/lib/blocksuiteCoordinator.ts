@@ -41,21 +41,47 @@ export class BlocksuiteCoordinator {
 
   /**
    * Load blocksuite data from saved state
+   * Following livnote's loadNote pattern: reinitialize docs, apply updates, wait for ready
    */
   loadBlocksuite(data: any): void {
-    if (!data) return;
+    if (!data) {
+      console.warn("⚠️ No data provided to loadBlocksuite");
+      return;
+    }
 
     try {
-      const docs = this.yjsManager.getDocuments();
-      if (!docs) return;
+      console.log("🔄 Loading blocksuite data...");
 
-      // Apply main document updates
+      // Step 1: Reinitialize Yjs documents (destroys old, creates fresh)
+      const docs = this.yjsManager.initialize();
+      console.log("✅ Yjs documents reinitialized");
+
+      // Step 2: Set user info in awareness
+      this.yjsManager.setUserInfo(this.config.userInfo);
+
+      // Step 3: Set up one-time listener for when document is ready
+      docs.mainDoc.once('afterAllTransactions', () => {
+        console.log("✅ Document transactions complete - blocksuite ready");
+
+        // Dispatch event so UI knows the document is ready
+        document.dispatchEvent(new CustomEvent('blocksuite-ready', {
+          detail: {
+            resourceId: this.config.userInfo.id
+          }
+        }));
+      });
+
+      // Step 4: Apply main document updates with 'loading' origin
       if (data.main_doc && data.main_doc.updates) {
         const updates = new Uint8Array(data.main_doc.updates);
+        console.log(`📥 Applying ${updates.length} bytes of updates...`);
         this.yjsManager.applyUpdate(updates, "loading");
+        console.log("✅ Updates applied");
+      } else {
+        console.warn("⚠️ No main_doc.updates found in data");
       }
     } catch (error) {
-      console.error("Error loading blocksuite:", error);
+      console.error("❌ Error loading blocksuite:", error);
     }
   }
 

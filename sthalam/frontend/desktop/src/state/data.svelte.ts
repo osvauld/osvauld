@@ -211,9 +211,18 @@ class DataState {
 
   /**
    * Switch to a different resource
-   * Following livnote's pattern: fetch data + load coordinator
+   * Following livnote's pattern: save current, fetch new data, load coordinator
    */
   async switchResource(resourceId: string | null) {
+    // Save the current resource before switching away from it (non-blocking)
+    const currentResourceId = this.currentResourceId;
+    if (currentResourceId && currentResourceId !== resourceId) {
+      // Fire and forget - save in background without blocking the switch
+      this.saveCurrentResource(currentResourceId).catch(error => {
+        console.error("❌ Error saving resource before switching:", error);
+      });
+    }
+
     if (resourceId) {
       try {
         console.log("🔄 Switching to resource:", resourceId);
@@ -284,7 +293,40 @@ class DataState {
   }
 
   /**
-   * Save current resource
+   * Save the currently active resource
+   * Gets content from coordinator and saves to backend
+   */
+  async saveCurrentResource(resourceId: string) {
+    try {
+      const coordinator = oldDataState.getBlocksuiteCoordinator();
+      if (!coordinator) {
+        console.warn("⚠️ No coordinator available for saving");
+        return;
+      }
+
+      console.log("💾 Saving current resource:", resourceId);
+
+      // Get the current blocksuite content from coordinator
+      const blocksuiteContent = coordinator.saveBlocksuite();
+
+      // Update lastModified timestamp locally first
+      const timestamp = Date.now();
+      this.updateResourceLastModified(resourceId, timestamp);
+
+      await sendMessage("updateCredential", {
+        id: resourceId,
+        data: JSON.stringify(blocksuiteContent)
+      });
+
+      console.log("✅ Resource saved:", resourceId);
+    } catch (error) {
+      console.error("❌ Error saving current resource:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save current resource (legacy method - use saveCurrentResource instead)
    */
   async saveResource(resourceId: string, content: any) {
     try {

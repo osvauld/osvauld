@@ -30,8 +30,10 @@ export class YjsManager {
 
   /**
    * Initialize YJS documents and structures
+   * IMPORTANT: Always destroys old documents first to ensure clean slate (livnote pattern)
    */
   initialize(): YjsDocuments {
+    // Destroy old documents first - critical for note switching
     this.destroy();
 
     const mainDoc = new Y.Doc({
