@@ -323,6 +323,31 @@
 					css: "" // Custom CSS
 				};
 				break;
+			case "notice-board":
+				newBlock.width = 500;
+				newBlock.height = 400;
+				newBlock.content = JSON.stringify([]); // Array of messages
+				newBlock.styles = {
+					backgroundColor: "white",
+					border: "2px solid #ddd"
+				};
+				break;
+			case "form":
+				newBlock.width = 500;
+				newBlock.height = 350;
+				newBlock.content = JSON.stringify({
+					fields: [
+						{ id: "field-1", type: "text", label: "Name", placeholder: "Enter your name", required: true },
+						{ id: "field-2", type: "email", label: "Email", placeholder: "Enter your email", required: true },
+						{ id: "field-3", type: "textarea", label: "Message", placeholder: "Your message...", required: false }
+					],
+					submitButtonText: "Submit"
+				});
+				newBlock.styles = {
+					backgroundColor: "white",
+					border: "2px solid #ddd"
+				};
+				break;
 			default:
 				newBlock.width = 300;
 				newBlock.height = 100;

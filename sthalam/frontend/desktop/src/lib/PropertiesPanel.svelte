@@ -38,6 +38,31 @@
 		expandedSections[section] = !expandedSections[section];
 	}
 
+	// Resizable panel width
+	let panelWidth = $state(280);
+	let isResizing = $state(false);
+	let resizeStartX = $state(0);
+	let resizeStartWidth = $state(0);
+
+	function handleResizeStart(e: MouseEvent) {
+		isResizing = true;
+		resizeStartX = e.clientX;
+		resizeStartWidth = panelWidth;
+		e.preventDefault();
+	}
+
+	function handleResizeMove(e: MouseEvent) {
+		if (isResizing) {
+			const dx = resizeStartX - e.clientX; // Inverted because we're resizing from the left
+			const newWidth = Math.max(200, Math.min(600, resizeStartWidth + dx));
+			panelWidth = newWidth;
+		}
+	}
+
+	function handleResizeEnd() {
+		isResizing = false;
+	}
+
 	function updateStyle(key: string, value: string) {
 		if (selectedBlock) {
 			onUpdateBlock(selectedBlock.id, {
@@ -50,6 +75,58 @@
 		if (selectedBlock) {
 			onUpdateBlock(selectedBlock.id, { [key]: value });
 		}
+	}
+
+	// Form field management
+	const formConfig = $derived(
+		selectedBlock?.type === "form" && selectedBlock.content
+			? (() => {
+				try {
+					return JSON.parse(selectedBlock.content);
+				} catch {
+					return { fields: [], submitButtonText: "Submit" };
+				}
+			})()
+			: { fields: [], submitButtonText: "Submit" }
+	);
+
+	const formFields = $derived(formConfig.fields || []);
+
+	function updateFormField(index: number, key: string, value: any) {
+		const updatedFields = [...formConfig.fields];
+		updatedFields[index] = { ...updatedFields[index], [key]: value };
+
+		onUpdateBlock(selectedBlock!.id, {
+			content: JSON.stringify({ ...formConfig, fields: updatedFields })
+		});
+	}
+
+	function addFormField() {
+		const newField = {
+			id: `field-${Date.now()}`,
+			type: "text",
+			label: "New Field",
+			placeholder: "",
+			required: false
+		};
+
+		onUpdateBlock(selectedBlock!.id, {
+			content: JSON.stringify({ ...formConfig, fields: [...formConfig.fields, newField] })
+		});
+	}
+
+	function removeFormField(index: number) {
+		const updatedFields = formConfig.fields.filter((_: any, i: number) => i !== index);
+
+		onUpdateBlock(selectedBlock!.id, {
+			content: JSON.stringify({ ...formConfig, fields: updatedFields })
+		});
+	}
+
+	function updateSubmitButtonText(text: string) {
+		onUpdateBlock(selectedBlock!.id, {
+			content: JSON.stringify({ ...formConfig, submitButtonText: text })
+		});
 	}
 
 	async function handleImageUpload() {
@@ -98,7 +175,10 @@
 	}
 </script>
 
-<div class="properties-panel">
+<svelte:window onmousemove={handleResizeMove} onmouseup={handleResizeEnd} />
+
+<div class="properties-panel" style:width="{panelWidth}px" class:resizing={isResizing}>
+	<div class="resize-handle" onmousedown={handleResizeStart}></div>
 	{#if selectedBlock}
 		<div class="panel-header">
 			<h3>Properties</h3>
@@ -187,6 +267,73 @@
 								💡 Styles apply to HTML above
 							</div>
 						{/if}
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Form Builder -->
+			{#if selectedBlock.type === "form"}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Form Builder</h4>
+					</button>
+					{#if expandedSections.content}
+						<div class="form-builder">
+							<h4>Form Fields</h4>
+							{#each formFields as field, index}
+								<div class="form-field-item">
+									<div class="field-header">
+										<span class="field-number">#{index + 1}</span>
+										<select
+											value={field.type}
+											onchange={(e) => updateFormField(index, 'type', e.currentTarget.value)}
+										>
+											<option value="text">Text</option>
+											<option value="email">Email</option>
+											<option value="number">Number</option>
+											<option value="textarea">Textarea</option>
+											<option value="checkbox">Checkbox</option>
+										</select>
+										<button class="field-delete" onclick={() => removeFormField(index)}>✕</button>
+									</div>
+									<label>
+										<span>Label</span>
+										<input
+											type="text"
+											value={field.label}
+											oninput={(e) => updateFormField(index, 'label', e.currentTarget.value)}
+										/>
+									</label>
+									<label>
+										<span>Placeholder</span>
+										<input
+											type="text"
+											value={field.placeholder}
+											oninput={(e) => updateFormField(index, 'placeholder', e.currentTarget.value)}
+										/>
+									</label>
+									<label class="checkbox-label">
+										<input
+											type="checkbox"
+											checked={field.required}
+											onchange={(e) => updateFormField(index, 'required', e.currentTarget.checked)}
+										/>
+										<span>Required</span>
+									</label>
+								</div>
+							{/each}
+							<button class="add-field-btn" onclick={addFormField}>+ Add Field</button>
+
+							<label>
+								<span>Submit Button Text</span>
+								<input
+									type="text"
+									value={formConfig.submitButtonText}
+									oninput={(e) => updateSubmitButtonText(e.currentTarget.value)}
+								/>
+							</label>
+						</div>
 					{/if}
 				</div>
 			{/if}
@@ -327,12 +474,40 @@
 
 <style>
 	.properties-panel {
-		width: 280px;
 		height: 100%;
 		background: var(--bg-primary, #ffffff);
 		border-left: 1px solid var(--border-color, #e0e0e0);
 		display: flex;
 		flex-direction: column;
+		position: relative;
+	}
+
+	.resize-handle {
+		position: absolute;
+		left: 0;
+		top: 0;
+		bottom: 0;
+		width: 5px;
+		cursor: col-resize;
+		background: transparent;
+		z-index: 100;
+		transition: background 0.2s;
+	}
+
+	.resize-handle:hover {
+		background: #667eea;
+	}
+
+	.resize-handle:active {
+		background: #5568d3;
+	}
+
+	.properties-panel.resizing {
+		user-select: none;
+	}
+
+	.properties-panel.resizing .resize-handle {
+		background: #667eea;
 	}
 
 	.panel-header {
@@ -610,5 +785,89 @@
 		padding: 0 0.5rem;
 		color: var(--text-muted, #999);
 		font-size: 0.75rem;
+	}
+
+	/* Form Builder */
+	.form-builder {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.form-builder h4 {
+		margin: 0 0 0.5rem 0;
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--text-primary, #333);
+	}
+
+	.form-field-item {
+		padding: 12px;
+		background: #f8f9fa;
+		border-radius: 6px;
+		border: 1px solid #e0e0e0;
+		margin-bottom: 8px;
+	}
+
+	.field-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+
+	.field-number {
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: #667eea;
+		min-width: 24px;
+	}
+
+	.field-header select {
+		flex: 1;
+	}
+
+	.field-delete {
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		background: #dc3545;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 0.875rem;
+		transition: background 0.2s;
+	}
+
+	.field-delete:hover {
+		background: #c82333;
+	}
+
+	.checkbox-label {
+		flex-direction: row !important;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		width: auto;
+		height: auto;
+		margin: 0;
+	}
+
+	.add-field-btn {
+		padding: 10px;
+		background: #28a745;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	.add-field-btn:hover {
+		background: #218838;
 	}
 </style>
