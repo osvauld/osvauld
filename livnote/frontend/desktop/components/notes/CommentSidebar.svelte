@@ -233,114 +233,8 @@
 	});
 </script>
 
-<!--Styles remain the same -->
+<!-- Flash animation for highlighting comments -->
 <style>
-	.comment-sidebar {
-		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		overflow: hidden;
-		padding-bottom: 3px;
-		min-height: 0;
-	}
-
-	.sidebar-header {
-		padding: 16px 0px;
-		position: relative;
-	}
-
-	.sidebar-title {
-		font-size: 16px;
-		font-weight: 400;
-		letter-spacing: 0.02em;
-		color: #fff;
-		margin: 0 0 8px 0;
-		border-bottom: 1px solid #2a2b2f;
-		padding-bottom: 16px;
-		margin-bottom: 16px;
-		width: 100%;
-	}
-
-	.filter-tabs {
-		display: flex;
-		gap: 16px;
-	}
-
-	.filter-tab {
-		font-size: 15px;
-		font-weight: 400;
-		letter-spacing: 0.02em;
-		padding: 0;
-		cursor: pointer;
-		color: #a3a4b5;
-		text-align: left;
-		transition: all 0.1s ease;
-		border-bottom: 2px solid transparent;
-	}
-
-	.filter-tab:hover {
-		color: #fff;
-		border-color: #fff;
-	}
-
-	.filter-tab.active {
-		color: #fff;
-		border-color: #fff;
-	}
-
-	.sidebar-content {
-		flex: 1;
-		overflow-y: auto;
-		min-height: 0;
-	}
-
-	.empty-state {
-		padding: 16px 0px;
-		text-align: center;
-		color: #a3a4b5;
-	}
-
-	.empty-state-title {
-		font-size: 14px;
-		font-weight: 400;
-		letter-spacing: 0.02em;
-		margin-bottom: 8px;
-		color: #a3a4b5;
-	}
-
-	.empty-state-text {
-		font-size: 14px;
-		color: #a3a4b5;
-		line-height: 1.4;
-		font-weight: 400;
-		letter-spacing: 0.02em;
-		text-align: left;
-	}
-
-	.thread-list {
-		display: flex;
-		flex-direction: column;
-		min-height: 0;
-		overflow-y: auto;
-		padding-right: 4px;
-	}
-
-	/* Scrollbar styling */
-	.sidebar-content::-webkit-scrollbar {
-		width: 4px;
-	}
-
-	.sidebar-content::-webkit-scrollbar-track {
-		background: transparent;
-	}
-
-	.sidebar-content::-webkit-scrollbar-thumb {
-		background-color: #2f303e;
-		border-radius: 4px;
-	}
-
-	/* Flash animation for highlighting comments */
 	:global(.comment-flash) {
 		animation: commentFlash 2s ease-in-out;
 	}
@@ -356,56 +250,80 @@
 	}
 </style>
 
-<div class="comment-sidebar">
-	<div class="sidebar-header">
-		<h3 class="sidebar-title">Comments</h3>
-		<div class="filter-tabs">
+<div class="w-full h-full flex flex-col overflow-hidden pb-[3px] min-h-0">
+	<div class="py-4 relative">
+		<h3
+			class="text-base font-normal tracking-[0.02em] text-osvauld-plainwhite m-0 border-b border-osvauld-defaultBorder pb-4 mb-4 w-full"
+		>
+			Comments
+		</h3>
+		<div class="flex gap-4">
 			<button
-				class="filter-tab relative"
-				class:active={!showResolved}
+				class="text-[15px] font-normal tracking-[0.02em] p-0 cursor-pointer text-textActive text-left transition-all duration-100 ease-in-out border-b-2 border-transparent relative hover:text-osvauld-plainwhite hover:border-osvauld-plainwhite"
+				class:!text-osvauld-plainwhite={!showResolved}
+				class:!border-osvauld-plainwhite={!showResolved}
 				onclick={() => (showResolved = false)}
 			>
-			Open<sup class="ml-0.5 text-[10px] text-textActive align-super">{unresolvedCount}</sup>
+				Open<sup class="ml-0.5 text-[10px] text-textActive align-super"
+					>{unresolvedCount}</sup
+				>
 				{#if hasUnreadComments}
 					<span
-						class="absolute -top-1 -right-1 w-2 h-2 bg-green-500 rounded-full"
+						class="absolute -top-1 -right-1 w-2 h-2 bg-liveGreen rounded-full"
 					></span>
 				{/if}
 			</button>
 			<button
-				class="filter-tab"
-				class:active={showResolved}
+				class="text-[15px] font-normal tracking-[0.02em] p-0 cursor-pointer text-textActive text-left transition-all duration-100 ease-in-out border-b-2 border-transparent hover:text-osvauld-plainwhite hover:border-osvauld-plainwhite"
+				class:!text-osvauld-plainwhite={showResolved}
+				class:!border-osvauld-plainwhite={showResolved}
 				onclick={() => (showResolved = true)}
 			>
-			Resolved<sup class="ml-0.5 text-[10px] text-textActive align-super">{resolvedCount}</sup>
+				Resolved<sup class="ml-0.5 text-[10px] text-textActive align-super"
+					>{resolvedCount}</sup
+				>
 			</button>
 		</div>
 	</div>
 
-	<div class="sidebar-content">
+	<div class="scrollbar-thin flex-1 overflow-y-auto min-h-0">
 		{#if filteredThreads.length === 0}
-			<div class="empty-state">
+			<div class="py-4 text-center text-textActive">
 				{#if threads.length === 0}
-					<span><CommentIcon size={24} color="#a3a4b5" /></span>
-					<div class="empty-state-text mt-4 text-xs">
+					<span><CommentIcon size={24} color="var(--color-textActive)" /></span>
+					<div
+						class="text-sm text-textActive leading-[1.4] font-normal tracking-[0.02em] text-left mt-4"
+					>
 						Give feedback, ask a question, or just leave a note of appreciation. <br
 						/>
 						Select anywhere in the note to leave a comment.
 					</div>
 				{:else if showResolved}
-					<div class="empty-state-title text-left">No resolved comments</div>
-					<div class="empty-state-text">
+					<div
+						class="text-sm font-normal tracking-[0.02em] mb-2 text-textActive text-left"
+					>
+						No resolved comments
+					</div>
+					<div
+						class="text-sm text-textActive leading-[1.4] font-normal tracking-[0.02em] text-left"
+					>
 						Resolved comments will appear here.
 					</div>
 				{:else}
-					<div class="empty-state-title text-left">No active comments</div>
-					<div class="empty-state-text text-left">
+					<div
+						class="text-sm font-normal tracking-[0.02em] mb-2 text-textActive text-left"
+					>
+						No active comments
+					</div>
+					<div
+						class="text-sm text-textActive leading-[1.4] font-normal tracking-[0.02em] text-left"
+					>
 						All comments have been resolved.
 					</div>
 				{/if}
 			</div>
 		{:else}
-			<div class="thread-list">
+			<div class="flex flex-col min-h-0 overflow-y-auto pr-1">
 				{#each filteredThreads as thread, index (thread.id)}
 					<CommentThreadComponent
 						{thread}

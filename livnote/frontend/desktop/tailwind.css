@@ -2,19 +2,17 @@
 @layer base, components, utilities;
 
 @layer base {
-	/* Apply Inter font globally to all elements */
-	* {
-		font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-		-webkit-font-smoothing: antialiased;
-		-moz-osx-font-smoothing: grayscale;
-	}
-	
-	/* Ensure body and html use Inter */
+	/* Ensure body and html use Inter with consistent rendering */
 	html,
 	body {
-		font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 		font-weight: 400;
 		font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		/* Prevent browser from synthesizing fake weights */
+		font-synthesis: none;
+		font-synthesis-weight: auto;
+		font-synthesis-style: auto;
 	}
 	
 	/* Default font weights for common elements */

@@ -21,7 +21,7 @@
 		{:else}
 			<ToastError />
 		{/if}
-		<span class="text-base font-sans whitespace-nowrap">
+		<span class="text-base font-inter whitespace-nowrap">
 			{uiState.toastMessage.message}!</span
 		>
 	</div>
