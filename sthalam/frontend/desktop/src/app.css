@@ -1,49 +1,234 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@layer base, components, utilities;
 
-/* CSS Variables for Theming */
-:root {
-  /* Light mode colors */
-  --bg-primary: #ffffff;
-  --bg-secondary: #f5f5f5;
-  --bg-hover: #f5f5ff;
-  --text-primary: #333333;
-  --text-secondary: #666666;
-  --text-muted: #999999;
-  --border-color: #e0e0e0;
-  --shadow: rgba(0, 0, 0, 0.1);
+@layer base {
+	/* Apply Inter font globally to all elements */
+	* {
+		font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+
+	/* Ensure body and html use Inter */
+	html,
+	body {
+		font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		font-weight: 400;
+		font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+		background-color: #010409;
+		color: #c9d1d9;
+	}
+
+	body {
+		margin: 0;
+		padding: 0;
+	}
+
+	/* Default font weights for common elements */
+	h1, h2, h3 {
+		font-weight: 600;
+	}
+
+	h4, h5, h6 {
+		font-weight: 500;
+	}
+
+	button {
+		font-weight: 500;
+	}
+
+	strong, b {
+		font-weight: 600;
+	}
 }
 
-/* Dark mode colors */
-[data-theme="dark"] {
-  --bg-primary: #1a1a1a;
-  --bg-secondary: #2a2a2a;
-  --bg-hover: #333333;
-  --text-primary: #e0e0e0;
-  --text-secondary: #b0b0b0;
-  --text-muted: #808080;
-  --border-color: #404040;
-  --shadow: rgba(0, 0, 0, 0.3);
+@theme {
+	--breakpoint-sm: 640px;
+	--breakpoint-md: 768px;
+	--breakpoint-lg: 1024px;
+	--breakpoint-xl: 1280px;
+	--breakpoint-2xl: 1536px;
+	--breakpoint-3xl: 1920px;
+
+	/* Osvauld Colors */
+	--color-osvauld-frameblack: #0d0e13;
+	--color-osvauld-bordergreen: #161b22;
+	--color-osvauld-iconblack: #2f303e;
+	--color-osvauld-cardshade: #111218;
+	--color-osvauld-ninjablack: #010409;
+	--color-osvauld-sheffieldgrey: #6e7681;
+	--color-osvauld-placeholderblack: #30363d;
+	--color-osvauld-addfieldgrey: #12161c;
+	--color-osvauld-quarzowhite: #c9d1d9;
+	--color-osvauld-lilacpink: #cba6f7;
+	--color-osvauld-carolinablue: #89b4fa;
+	--color-osvauld-flaxblue: #cdd6f4;
+	--color-osvauld-chalkwhite: #a6b0bb;
+	--color-osvauld-pearlgreen: #1c292c;
+	--color-osvauld-cretangreen: #598681;
+	--color-osvauld-dusklabel: #8b949e;
+	--color-osvauld-activelavender: #b4befe;
+	--color-osvauld-whaleblue: #1d333f;
+	--color-osvauld-spritzigblue: #74c7ec;
+	--color-osvauld-quartzitegreen: #223127;
+	--color-osvauld-grapegreen: #a6e3a1;
+	--color-osvauld-safflowerpink: #322a35;
+	--color-osvauld-croworange: #33302a;
+	--color-osvauld-frostylabel: #9399b2;
+	--color-osvauld-illutionpurple: #b7bdf8;
+	--color-osvauld-sensitivebgblack: #14191e;
+	--color-osvauld-sensitivebgblue: #253244;
+	--color-osvauld-highlightwhite: #e8eff6;
+	--color-osvauld-managerPurple: #3b3441;
+	--color-osvauld-ownerGreen: #2c3b33;
+	--color-osvauld-readerOrange: #3c3b35;
+	--color-osvauld-ownerText: #a6e3a1;
+	--color-osvauld-readerText: #f9e2af;
+	--color-osvauld-managerText: #f5c2e7;
+	--color-osvauld-plainwhite: #fff;
+	--color-osvauld-toastCloseBlue: #2d3a4d;
+	--color-osvauld-backgroundBlur: #010409ad;
+	--color-osvauld-activeBorder: #4d4f60;
+	--color-osvauld-defaultBorder: #2f303e;
+	--color-osvauld-textActive: #a3a4b5;
+	--color-osvauld-textPassive: #6e7681;
+	--color-osvauld-fieldActive: #16171f;
+	--color-osvauld-fieldText: #85889c;
+	--color-osvauld-fieldTextActive: #bfc0cc;
+	--color-osvauld-darkLineSeperator: #21262d;
+	--color-osvauld-modalFieldActive: #20212b;
+	--color-osvauld-sideListTextActive: #f2f2f0;
+	--color-osvauld-fadedCancel: #67697c;
+	--color-osvauld-dangerRed: #ff6a6a;
+	--color-osvauld-sideListHighlight: #292a36;
+	--color-osvauld-permissionsGreen: #263a47;
+	--color-osvauld-permissionGreenText: #74c7ec;
+	--color-osvauld-borderColor: #292a36;
+	--color-osvauld-cancelBackground: #21222c;
+	--color-osvauld-tickGreen: #00ff00;
+	--color-osvauld-cardBorder: #373946;
+	--color-livnotelavender: #8a86e5;
+	--color-primarydark: #010109;
+	--color-lavenderLight: #2b2b45;
+	--color-lavenderText: #8a86e5;
+	--color-liveGreen: #a6e3a1;
+	--color-statusColor: #757578;
+	--color-toolTipText: #b5b9d0;
+	--color-collaboratorBorder: #2D2D2D;
+	--color-collaboratorText: #767785;
+	--color-disclaimerGray: #7A7D90;
+	--color-signupGray: #2C2E34;
+	--color-livnotePink: #8A86E5;
+	--color-placeholderGray: #606471;
+	--color-commentThreadNameInitial: #6F707D;
+	--color-commentYellow: #D1D55D;
+	--color-commentUnresolve: #ff9800;
+	--color-commentResolve: #4CAF50;
+	--color-commentDelete: #f44336;
+	--color-bgPrimary: #000000;
+	--color-toastGreen: #9DD062;
+	--color-textActive: #a3a4b5;
+	--color-borderActive: #2F303E;
+	--color-bgSecondary: #0C0C10;
+	/* Mobile Colors */
+	--color-mobile-bgSeconary: #0d0e13;
+	--color-mobile-bgHighlight: #2f303e;
+	--color-mobile-bgFade: #161722;
+	--color-mobile-bgLight: #20212b;
+	--color-mobile-bgExtraLight: #111218;
+	--color-mobile-textPrimary: #85889c;
+	--color-mobile-textSecondary: #4d4f60;
+	--color-mobile-textTertiary: #f2f2f0;
+	--color-mobile-textbright: #bfc0cc;
+	--color-mobile-iconPrimary: #5b5d6d;
+	--color-mobile-highlightBlue: #89b4fa;
+	--color-mobile-navBlue: #010109;
+	--color-mobile-textActive: #a3a4b5;
+	--color-mobile-textlabel: #373946;
+	--color-mobile-textField: #dcdde4;
 }
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+.scrollbar-none::-webkit-scrollbar {
+	width: 0px;
+	/* width of the scrollbar */
 }
 
-body {
-  margin: 0;
-  display: flex;
-  min-width: 320px;
-  min-height: 100vh;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  transition: background-color 0.3s, color 0.3s;
+.scrollbar-thin::-webkit-scrollbar {
+	width: 4px;
+	/* width of the scrollbar */
+	height: 130px;
 }
 
-#app {
-  width: 100%;
-  height: 100vh;
+.scrollbar-thin::-webkit-scrollbar-track {
+	background: transparent;
+	/* color of the track */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+	background-color: #2f303e;
+	/* color of the thumb */
+	border-radius: 4px;
+	/* roundness of the scrollbar thumb */
+}
+
+.active.scrollbar-thin::-webkit-scrollbar-thumb {
+	background-color: #2f303e;
+	/* color of the thumb */
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+	background-color: #2f303e;
+	/* color of the thumb on hover */
+}
+
+.scrollbar::-webkit-scrollbar {
+	width: 15px;
+	height: 15px;
+}
+
+.scrollbar::-webkit-scrollbar-track {
+	border-radius: 100vh;
+	background: #f7f4ed;
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+	background: #e0cbcb;
+	border-radius: 100vh;
+	border: 3px solid #f6f7ed;
+}
+
+.scrollbar::-webkit-scrollbar-thumb:hover {
+	background: #c0a0b9;
+}
+
+.primary-btn {
+	@apply rounded-lg bg-osvauld-carolinablue text-osvauld-ninjablack;
+}
+
+.secondary-btn {
+	@apply border border-osvauld-iconblack bg-osvauld-addfieldgrey rounded-lg text-osvauld-sheffieldgrey active:scale-95;
+}
+
+.profileBtn {
+	@apply px-3 py-2.5 flex justify-start items-center gap-2 border border-osvauld-defaultBorder rounded-lg hover:bg-osvauld-frameblack hover:text-osvauld-sideListTextActive;
+}
+
+
+@keyframes shimmer {
+	0% {
+		background-position: -200px 0;
+	}
+	100% {
+		background-position: calc(200px + 100%) 0;
+	}
+}
+
+.animate-pulse-general {
+	animation: shimmer 1s ease-in-out infinite;
+}
+
+.animate-pulse-general > div {
+	background: linear-gradient(90deg, #0d0e13 25%, #3a3b44 37%, #0d0e13 63%);
+	background-size: 400px 100%;
+	animation: shimmer 0.5s ease-in-out infinite;
 }

@@ -1,9 +1,5 @@
-/** @type {import('tailwindcss').Config} */
 export default {
-  content: [
-    "./index.html",
-    "./src/**/*.{svelte,js,ts,jsx,tsx}",
-  ],
+  content: ["./src/**/*.{html,js,svelte,ts}", "./src/app.css"],
   theme: {
     screens: {
       sm: "640px",
@@ -24,7 +20,12 @@ export default {
           "Roboto",
           '"Helvetica Neue"',
           "Arial",
+          '"Noto Sans"',
           "sans-serif",
+          '"Apple Color Emoji"',
+          '"Segoe UI Emoji"',
+          '"Segoe UI Symbol"',
+          '"Noto Color Emoji"',
         ],
         jakarta: ['"Plus Jakarta Sans"', "sans-serif"],
       },
@@ -42,38 +43,6 @@ export default {
         xl: "20px",
         "2xl": "24px",
       },
-      colors: {
-        // Custom colors for the website builder theme
-        mobile: {
-          bgPrimary: "#0F0F14",
-          bgSecondary: "#1A1A21",
-          bgHighlight: "#25252E",
-          bgSeconary: "#0d0e13", // Note: keeping typo from livnote
-          bgLight: "#20212b",
-          textPrimary: "#FFFFFF",
-          textSecondary: "#9CA3AF",
-          textActive: "#A78BFA",
-        },
-        livnotePink: "#F472B6",
-        disclaimerGray: "#9CA3AF",
-        signupGray: "#4B5563",
-        bgPrimary: "#1F242A",
-        textActive: "#A78BFA",
-        primarydark: "#1F242A",
-        osvauld: {
-          frameblack: "#1A1D23",
-          iconblack: "#35353B",
-          activeBorder: "#F472B6",
-          sheffieldgrey: "#9CA3AF",
-          ninjablack: "#010409",
-          modalFieldActive: "#20212b",
-          sideListTextActive: "#f2f2f0",
-          fieldText: "#85889c",
-          fieldActive: "#16171f",
-          borderColor: "#292a36",
-        },
-      },
     },
   },
-  plugins: [],
-}
+};

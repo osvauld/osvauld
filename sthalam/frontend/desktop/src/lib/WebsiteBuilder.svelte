@@ -398,7 +398,7 @@
 		width: 100%;
 		height: 100vh;
 		overflow: hidden;
-		background: var(--bg-secondary, #f5f5f5);
+		background: #010409;
 		display: flex;
 	}
 </style>
