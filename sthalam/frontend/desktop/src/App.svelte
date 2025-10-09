@@ -1,15 +1,53 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
 	import ThemeToggle from "./lib/ThemeToggle.svelte";
 	import { dataState } from "./store.svelte";
+	import { dataState as authDataState } from "./state/data.svelte";
+	import Signup from "./common/Signup.svelte";
+	import Welcome from "./common/Welcome.svelte";
+	import Loader from "./common/Loader.svelte";
+	import { sendMessage } from "./utils/helper";
 
 	let showDebugInfo = $state(false);
+	let signedUp = $state(false);
+	let isLoading = $state(true);
+	let showWelcome = $state(false);
 
-	const storeStatus = $derived(dataState.userDetails ? "✅ Ready" : "❌ Not ready");
+	const storeStatus = $derived(authDataState.userDetails ? "✅ Ready" : "❌ Not ready");
 
-	onMount(() => {
-		console.log("App mounted");
+	const handleSignedUp = async () => {
+		signedUp = true;
+		showWelcome = false;
+		await authDataState.initializeState();
+	};
+
+	const handleAuthenticated = async () => {
+		showWelcome = false;
+		await authDataState.initializeState();
+	};
+
+	onMount(async () => {
+		try {
+			const response = await sendMessage("isSignedUp");
+			const checkPvtLoad = await sendMessage("checkPvtLoaded");
+			signedUp = response.isSignedUp;
+
+			if (checkPvtLoad === false) {
+				showWelcome = true;
+			} else {
+				await handleAuthenticated();
+			}
+		} catch (error) {
+			console.error("Error during initialization:", error);
+		} finally {
+			isLoading = false;
+		}
+	});
+
+	onDestroy(() => {
+		// Clean up event listener
+		authDataState.cleanupReactiveUpdates();
 	});
 
 	function toggleDebugInfo() {
@@ -19,6 +57,11 @@
 
 <style>
 	main {
+		width: 100vw;
+		height: 100vh;
+	}
+
+	.app-container {
 		display: flex;
 		flex-direction: column;
 		height: 100vh;
@@ -101,28 +144,42 @@
 </style>
 
 <main>
-	<header>
-		<div class="header-content">
-			<h1>🎨 Website Builder</h1>
-			<div class="actions">
-				<ThemeToggle />
-				<button onclick={toggleDebugInfo}>
-					{showDebugInfo ? "Hide" : "Show"} Debug
-				</button>
+	{#if isLoading}
+		<div class="h-screen w-screen flex items-center justify-center bg-mobile-bgPrimary">
+			<Loader size={24} color="#F472B6" duration={1} />
+		</div>
+	{:else if !signedUp}
+		<Signup onSignedUp={handleSignedUp} />
+	{:else if showWelcome}
+		<div class="h-screen w-screen flex items-center justify-center bg-mobile-bgPrimary overflow-hidden">
+			<Welcome authenticated={handleAuthenticated} />
+		</div>
+	{:else}
+		<div class="app-container">
+			<header>
+				<div class="header-content">
+					<h1>🎨 Website Builder</h1>
+					<div class="actions">
+						<ThemeToggle />
+						<button onclick={toggleDebugInfo}>
+							{showDebugInfo ? "Hide" : "Show"} Debug
+						</button>
+					</div>
+				</div>
+			</header>
+
+			<div class="content">
+				<WebsiteBuilder />
+
+				{#if showDebugInfo}
+					<aside class="debug-panel">
+						<h3>Debug Info</h3>
+						<div class="debug-content">
+							<p><strong>Store:</strong> {storeStatus}</p>
+						</div>
+					</aside>
+				{/if}
 			</div>
 		</div>
-	</header>
-
-	<div class="content">
-		<WebsiteBuilder />
-
-		{#if showDebugInfo}
-			<aside class="debug-panel">
-				<h3>Debug Info</h3>
-				<div class="debug-content">
-					<p><strong>Store:</strong> {storeStatus}</p>
-				</div>
-			</aside>
-		{/if}
-	</div>
+	{/if}
 </main>

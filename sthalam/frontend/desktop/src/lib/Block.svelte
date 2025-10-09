@@ -456,7 +456,7 @@
 	{:else if block.type === "html"}
 		<div class="block-html">
 			{#if block.content && block.content !== ""}
-				{@html `${block.styles.css ? `<style>${block.styles.css}</style>` : ''}${sanitizeHTML(block.content)}`}
+				{@html `${block.styles['css'] ? `<style>${block.styles['css']}</style>` : ''}${sanitizeHTML(block.content)}`}
 			{:else}
 				<div class="html-placeholder">
 					<span class="placeholder-icon">&lt;/&gt;</span>
