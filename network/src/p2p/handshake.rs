@@ -27,6 +27,7 @@ impl PeerConnection {
         current_device: Device,
     ) -> P2PResult<()> {
         info!("Initiating handshake");
+
         let peer_id = self.connection.remote_node_id().map_err(|e| P2PError::Custom(e.to_string()))?;
         debug!("Successfully retrieved peer id: {}", peer_id);
         let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
@@ -36,6 +37,24 @@ impl PeerConnection {
             .get_user_by_device_id(&device_id_b64)
             .await?;
         debug!("Successfully retrieved user for peer");
+
+        // Handle Website connection type specially
+        if matches!(connection_type, ConnectionType::Website) {
+            info!("Initiating website handshake with UCAN token from peer user");
+
+            let request = osvauld_core::models::WebsiteHandshakeRequest {
+                ucan_token: peer_user.ucan_token.clone(),
+                viewer_user: current_user,
+                viewer_device: current_device,
+            };
+
+            self.send_message(Message::Handshake(
+                HandshakeMessage::HandshakeWebsiteRequest(request),
+            )).await?;
+
+            info!("Sent website handshake request");
+            return Ok(());
+        }
         // Service error automatically propagates
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
         if !peer_user.first_sync {
@@ -101,6 +120,12 @@ impl PeerConnection {
             }
             HandshakeMessage::HandshakeExchange(payload) => {
                 self.process_exchange_message(payload).await
+            }
+            HandshakeMessage::HandshakeWebsiteRequest(payload) => {
+                self.process_website_handshake_request(payload).await
+            }
+            HandshakeMessage::HandshakeWebsiteResponse(payload) => {
+                self.process_website_handshake_response(payload).await
             }
         }
     }
@@ -377,10 +402,78 @@ impl PeerConnection {
                     Ok(())
                 }
                 ConnectionAction::UserSync => self.start_user_network_sync().await,
+                ConnectionAction::WebsiteRequest => {
+                    info!("Website request triggered - initial sync");
+                    // TODO: Implement initial website sync logic
+                    Ok(())
+                }
+                ConnectionAction::WebsiteSync => {
+                    info!("Website sync triggered - update sync");
+                    // TODO: Implement website update sync logic
+                    Ok(())
+                }
             }
         } else {
             debug!("No connection action to execute");
             Ok(())
         }
+    }
+
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn process_website_handshake_request(
+        &self,
+        payload: &osvauld_core::models::WebsiteHandshakeRequest,
+    ) -> P2PResult<()> {
+        info!("Processing website handshake request");
+
+        let current_user = self.get_local_user().await?;
+        let current_device = self.get_local_device().await
+            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
+        debug!("Retrieved local user and device information");
+
+        // TODO: Validate UCAN token
+        // For now, we'll assume validation passes
+        info!("UCAN token validation (TODO: implement)");
+
+        // Set peer user and device from the viewer
+        self.set_peer_user_and_device(payload.viewer_user.clone(), payload.viewer_device.clone()).await;
+        self.set_connection_type(ConnectionType::Website).await;
+        debug!("Set peer user and connection type to Website");
+
+        // Mark handshake as complete
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+
+        // Send response back to viewer
+        let response = osvauld_core::models::WebsiteHandshakeResponse {
+            node_user: current_user,
+            node_device: current_device,
+        };
+
+        self.send_message(Message::Handshake(
+            HandshakeMessage::HandshakeWebsiteResponse(response),
+        )).await?;
+
+        info!("Website handshake request processed successfully");
+        Ok(())
+    }
+
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn process_website_handshake_response(
+        &self,
+        payload: &osvauld_core::models::WebsiteHandshakeResponse,
+    ) -> P2PResult<()> {
+        info!("Processing website handshake response");
+
+        // Set peer user and device from the sovereign node
+        self.set_peer_user_and_device(payload.node_user.clone(), payload.node_device.clone()).await;
+        debug!("Set peer user and device from node response");
+
+        // Mark handshake as complete
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+
+        info!("Website handshake response processed successfully");
+        Ok(())
     }
 }

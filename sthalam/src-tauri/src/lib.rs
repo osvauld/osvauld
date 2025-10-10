@@ -24,8 +24,8 @@ use crate::handlers::resource_handler::{
 };
 use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
 use crate::handlers::website_handler::{
-    handle_connect_to_remote, handle_generate_share_token, handle_load_website_state,
-    handle_update_website_state,
+    handle_connect_to_remote, handle_connect_to_website, handle_generate_share_token,
+    handle_load_website_state, handle_update_website_state,
 };
 use crate::user_state::UserState;
 use crate::website_state::WebsiteState;
@@ -195,6 +195,7 @@ pub fn run() {
             handle_update_website_state,
             handle_load_website_state,
             handle_connect_to_remote,
+            handle_connect_to_website,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

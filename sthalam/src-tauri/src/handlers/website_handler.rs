@@ -1,12 +1,16 @@
-use crate::types::CryptoResponse;
+use crate::types::{ConnectToWebsiteInput, CryptoResponse};
 use crate::user_state::UserState;
 use crate::website_state::WebsiteState;
-use crypto_utils::ucan_utils::{generate_flexible_resource_token, generate_public_view_token};
+use base64::{engine::general_purpose, Engine as _};
 use crypto_utils::CryptoUtils;
-use log::error;
+use crypto_utils::ucan_utils::{generate_flexible_resource_token, generate_public_view_token};
+use log::{error, info};
+use network::p2p::P2PService;
+use osvauld_core::models::{ConnectionAction, ConnectionType, Device, User, UserWithDevices};
 use persistance::database::RepositoryContext;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
 
@@ -83,12 +87,9 @@ pub async fn handle_generate_share_token(
         .map_err(|e| e.to_string())?
     };
 
-    // TODO: Get actual kunki address from configuration
-    let kunki_address = Some("localhost:8080".to_string());
-
     Ok(CryptoResponse::ShareToken(ShareTokenResponse {
         token,
-        kunki_address,
+        kunki_address: None, // Not applicable for website tokens
     }))
 }
 
@@ -143,19 +144,125 @@ pub async fn handle_load_website_state(
     Ok(CryptoResponse::WebsiteState(state_bytes))
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ConnectionDetails {
+    user_public_key: String,
+    device_public_key: String,
+    username: String,
+    ucan_token: String,
+    ucan_pub_key: String,
+}
+
+#[tauri::command]
+pub async fn handle_connect_to_website(
+    input: ConnectToWebsiteInput,
+    p2p_service: State<'_, Arc<P2PService>>,
+    _website_state: State<'_, Arc<RwLock<WebsiteState>>>,
+    user_state: State<'_, UserState>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
+) -> Result<CryptoResponse, String> {
+    info!("Received website connection request");
+
+    // 1. Decode the base64 connection string
+    let decoded_bytes = general_purpose::STANDARD
+        .decode(input.connection_string.trim())
+        .map_err(|e| format!("Failed to decode connection string: {}", e))?;
+
+    let connection_json = String::from_utf8(decoded_bytes)
+        .map_err(|e| format!("Invalid UTF-8 in connection string: {}", e))?;
+
+    // 2. Parse the JSON
+    let connection_details: ConnectionDetails = serde_json::from_str(&connection_json)
+        .map_err(|e| format!("Failed to parse connection details: {}", e))?;
+
+    info!(
+        "Parsed connection details for sovereign node: {}",
+        connection_details.username
+    );
+
+    // 3. Create a User record for the sovereign node
+    // user_id and user_public_key are the same
+    let node_user_id = connection_details.user_public_key.clone();
+    let current_timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let node_user = User {
+        id: node_user_id.clone(),
+        username: connection_details.username.clone(),
+        public_key: connection_details.user_public_key.clone(),
+        created_at: current_timestamp,
+        signature: String::new(), // Not applicable for website connections
+        ucan_token: connection_details.ucan_token.clone(),
+        ucan_pub_key: connection_details.ucan_pub_key.clone(),
+        ucan_cid: String::new(), // Not applicable for website connections
+        first_sync: false,
+        updated_at: current_timestamp,
+        owner: false,
+        deleted: false,
+        deleted_at: None,
+    };
+
+    // device_id and device_key are the same
+    let node_device = Device {
+        id: connection_details.device_public_key.clone(),
+        device_key: connection_details.device_public_key.clone(),
+        user_id: node_user_id.clone(),
+        created_at: current_timestamp,
+        updated_at: current_timestamp,
+        last_synced_at: None,
+    };
+
+    let user_with_devices = UserWithDevices {
+        user: node_user,
+        devices: vec![node_device],
+    };
+
+    // 4. Store the user and device in the database
+    repo_ctx
+        .user_repo
+        .add_users_with_devices_bulk(&vec![user_with_devices])
+        .await
+        .map_err(|e| format!("Failed to store sovereign node user: {}", e))?;
+
+    info!("Stored sovereign node user and device in database");
+
+    // 5. Get current user for the connection
+    let _ = user_state.get_user().await?;
+    let _ = user_state.get_device().await?;
+
+    // 6. Initiate P2P connection
+    let p2p_clone = p2p_service.inner().clone();
+    let device_key = connection_details.device_public_key.clone();
+
+    tokio::spawn(async move {
+        info!("Initiating website connection to device: {}", device_key);
+
+        if let Err(e) = p2p_clone
+            .connect_with_ticket(
+                &device_key,
+                ConnectionType::Website,
+                Some(ConnectionAction::WebsiteRequest),
+            )
+            .await
+        {
+            error!("Failed to establish website connection: {}", e);
+        } else {
+            info!("Successfully initiated website connection");
+        }
+    });
+
+    Ok(CryptoResponse::Success)
+}
+
 #[tauri::command]
 pub async fn handle_connect_to_remote(
     _address: String,
     _token: String,
     _website_state: State<'_, Arc<RwLock<WebsiteState>>>,
 ) -> Result<CryptoResponse, String> {
-    // TODO: Implement remote connection logic
-    // This will involve:
-    // 1. Parsing the connection string
-    // 2. Validating the UCAN token
-    // 3. Establishing P2P connection to the kunki node
-    // 4. Setting up sync for the remote resource
-
-    error!("Remote connection not yet implemented");
+    // Deprecated - use handle_connect_to_website instead
+    error!("handle_connect_to_remote is deprecated, use handle_connect_to_website");
     Err("Remote connection feature not yet implemented".to_string())
 }

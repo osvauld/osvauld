@@ -55,6 +55,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       searchResource: (data: any) => invoke("handle_search_resources", { input: data }),
       shareFolder: (data: any) => invoke("handle_share_folder", { input: data }),
       getSharedFolderUsers: (data: any) => invoke("handle_get_shared_folder_users", { input: data }),
+      connectToWebsite: (data: any) => invoke("handle_connect_to_website", { input: data }),
     };
     //@ts-ignore
     const handler = handlerMap[action];

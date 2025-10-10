@@ -48,6 +48,7 @@ pub enum DisconnectStatus {
 pub enum ConnectionType {
     Device,
     User,
+    Website,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -86,6 +87,8 @@ pub enum HandshakeMessage {
     HandshakeFirstConnectRequest(FirstConnectRequest),
     HandshakeFirstConnectResponse(FirstConnectResponse),
     HandshakeExchange(UcanAndUserExchange),
+    HandshakeWebsiteRequest(WebsiteHandshakeRequest),
+    HandshakeWebsiteResponse(WebsiteHandshakeResponse),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -117,12 +120,27 @@ pub struct UcanAndUserExchange {
     pub connection_type: ConnectionType,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WebsiteHandshakeRequest {
+    pub ucan_token: String,
+    pub viewer_user: User,
+    pub viewer_device: Device,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WebsiteHandshakeResponse {
+    pub node_user: User,
+    pub node_device: Device,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionAction {
     DeviceSync,
     AddDevice,
     LiveEdit,
     UserSync,
+    WebsiteRequest,
+    WebsiteSync,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

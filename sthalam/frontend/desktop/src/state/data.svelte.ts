@@ -239,12 +239,9 @@ class DataState {
           id: resource.id,
           hasData: !!resource.data,
           dataType: typeof resource.data,
-          dataLength: resource.data?.length,
-          isString: typeof resource.data === 'string',
-          sample: typeof resource.data === 'string' ? resource.data.substring(0, 100) : resource.data
+          resourceKeys: Object.keys(resource),
+          fullResource: resource
         });
-
-        console.log("📦 Full resource object:", resource);
 
         // Store the full resource data (includes BlockSuite content)
         this.currentResourceData = resource;
@@ -259,18 +256,26 @@ class DataState {
           console.error("❌ No coordinator available!");
           return;
         }
-        if (!resource.data) {
-          console.error("❌ No resource.data available!", {
-            resourceId: resource.id,
-            dataType: typeof resource.data,
-            hasData: !!resource.data,
-            fullResource: resource
-          });
-          return;
+
+        // Parse the resource data - backend returns data as a JSON string
+        // Similar to livnote which also parses the note data
+        let blocksuiteData;
+        if (resource.data) {
+          if (typeof resource.data === 'string') {
+            blocksuiteData = JSON.parse(resource.data);
+          } else {
+            blocksuiteData = resource.data;
+          }
+        } else {
+          // Fallback: use the whole resource if no data field
+          blocksuiteData = resource;
         }
 
-        console.log("🔧 Loading resource data into coordinator...");
-        coordinator.loadBlocksuite(resource.data);
+        console.log("🔧 Loading resource data into coordinator...", {
+          hasMainDoc: !!blocksuiteData.main_doc,
+          hasUpdates: !!blocksuiteData.main_doc?.updates
+        });
+        coordinator.loadBlocksuite(blocksuiteData);
         console.log("✅ Coordinator loaded with resource data");
 
         // IMPORTANT: Set currentResourceId AFTER loadBlocksuite completes
@@ -311,6 +316,13 @@ class DataState {
 
       // Get the current blocksuite content from coordinator
       const blocksuiteContent = coordinator.saveBlocksuite();
+
+      console.log("📦 BlockSuite content to save:", {
+        hasMainDoc: !!blocksuiteContent?.main_doc,
+        hasUpdates: !!blocksuiteContent?.main_doc?.updates,
+        updatesLength: blocksuiteContent?.main_doc?.updates?.length,
+        lastModified: blocksuiteContent?.last_modified
+      });
 
       // Update lastModified timestamp locally first
       const timestamp = Date.now();

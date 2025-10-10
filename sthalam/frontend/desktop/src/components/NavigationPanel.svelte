@@ -3,6 +3,7 @@
 	import WebsiteFolder from "./WebsiteFolder.svelte";
 	import AddSovereignNodeModal from "./AddSovereignNodeModal.svelte";
 	import PublishButton from "./PublishButton.svelte";
+	import { Add, Settings } from "@osvauld/icons";
 
 	let showCreateWebsite = $state(false);
 	let websiteName = $state("");
@@ -35,7 +36,7 @@
 		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 relative border-r border-osvauld-borderColor flex flex-col"
 		aria-label="Main Navigation"
 	>
-		<!-- Header with All Websites and Folder Manager Button -->
+		<!-- Header with All Websites -->
 		<div class="px-1 shrink-0 mb-2 space-y-2">
 			<!-- All Websites Section -->
 			<button
@@ -51,16 +52,6 @@
 				<span class="shrink-0 text-xs text-textActive">
 					{websites.length}
 				</span>
-			</button>
-
-			<!-- Folder Manager Button -->
-			<button
-				class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
-				onclick={() => uiState.toggleFolderManager()}
-				title="Manage folders"
-			>
-				<span class="shrink-0 text-base">📁</span>
-				<span class="flex-1 text-left text-sm font-normal">Manage Websites</span>
 			</button>
 
 			<!-- Sovereign Node Button -->
@@ -132,20 +123,25 @@
 					onclick={() => (showCreateWebsite = true)}
 				>
 					<span class="shrink-0 w-4 h-4 flex items-center justify-center">
-						<svg
-							class="w-3 h-3"
-							fill="currentColor"
-							viewBox="0 0 12 12"
-							aria-hidden="true"
-						>
-							<path
-								d="M6 1a1 1 0 011 1v3h3a1 1 0 110 2H7v3a1 1 0 11-2 0V7H2a1 1 0 110-2h3V2a1 1 0 011-1z"
-							></path>
-						</svg>
+						<Add size={12} />
 					</span>
 					<span class="text-sm font-normal">Create Website</span>
 				</button>
 			{/if}
+		</div>
+
+		<!-- Manage Websites Section -->
+		<div class="shrink-0 py-2 border-t border-osvauld-borderColor">
+			<button
+				class="w-5/6 mx-auto flex items-center gap-3 px-3 py-2 rounded-lg text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+				onclick={() => uiState.toggleFolderManager()}
+				title="Manage websites"
+			>
+				<span class="shrink-0 w-4 h-4 flex items-center justify-center">
+					<Settings size={16} />
+				</span>
+				<span class="text-sm font-normal">Manage Websites</span>
+			</button>
 		</div>
 	</nav>
 

@@ -1,6 +1,15 @@
 <script lang="ts">
-	// Placeholder for viewer mode functionality
-	// Will add website connection and viewing features later
+	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
+
+	let showAddWebsiteModal = $state(false);
+
+	function openAddWebsiteModal() {
+		showAddWebsiteModal = true;
+	}
+
+	function closeAddWebsiteModal() {
+		showAddWebsiteModal = false;
+	}
 </script>
 
 <style>
@@ -37,6 +46,23 @@
 		margin-bottom: 1rem;
 		opacity: 0.3;
 	}
+
+	.add-website-btn {
+		padding: 0.75rem 1.5rem;
+		background: #16171f;
+		color: #8A86E5;
+		border: 1px solid #8A86E5;
+		border-radius: 8px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.add-website-btn:hover {
+		background: #8A86E5;
+		color: #0d0e13;
+	}
 </style>
 
 <div class="viewer-container">
@@ -44,8 +70,15 @@
 		<div class="empty-state">👀</div>
 		<h2>Viewer Mode</h2>
 		<p>
-			This is where you'll be able to view websites shared with you.
-			Website connection and viewing features coming soon!
+			Connect to published websites using their connection strings.
+			View and sync websites shared with you.
 		</p>
+		<button class="add-website-btn" onclick={openAddWebsiteModal}>
+			+ Add Website
+		</button>
 	</div>
 </div>
+
+{#if showAddWebsiteModal}
+	<AddWebsiteConnectionModal onClose={closeAddWebsiteModal} />
+{/if}

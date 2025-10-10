@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
-	import ThemeToggle from "./lib/ThemeToggle.svelte";
 	import ModeSwitcher from "./components/ModeSwitcher.svelte";
 	import ViewerMode from "./components/ViewerMode.svelte";
 	import { dataState } from "./store.svelte";
@@ -12,12 +11,9 @@
 	import Loader from "./common/Loader.svelte";
 	import { sendMessage } from "./utils/helper";
 
-	let showDebugInfo = $state(false);
 	let signedUp = $state(false);
 	let isLoading = $state(true);
 	let showWelcome = $state(false);
-
-	const storeStatus = $derived(authDataState.userDetails ? "✅ Ready" : "❌ Not ready");
 
 	const handleSignedUp = async () => {
 		signedUp = true;
@@ -52,10 +48,6 @@
 		// Clean up event listener
 		authDataState.cleanupReactiveUpdates();
 	});
-
-	function toggleDebugInfo() {
-		showDebugInfo = !showDebugInfo;
-	}
 </script>
 
 <style>
@@ -99,54 +91,11 @@
 		align-items: center;
 	}
 
-	button {
-		padding: 0.5rem 1rem;
-		border: 1px solid #2f303e;
-		border-radius: 6px;
-		background: #16171f;
-		color: #85889c;
-		cursor: pointer;
-		font-size: 0.875rem;
-		font-weight: 500;
-		transition: all 0.2s;
-	}
-
-	button:hover {
-		background: #20212b;
-		color: #bfc0cc;
-		border-color: #4d4f60;
-	}
-
 	.content {
 		flex: 1;
 		display: flex;
 		overflow: hidden;
 		position: relative;
-	}
-
-	.debug-panel {
-		position: absolute;
-		top: 1rem;
-		right: 1rem;
-		background: #16171f;
-		border: 1px solid #292a36;
-		border-radius: 8px;
-		padding: 1rem;
-		width: 250px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-		z-index: 1000;
-	}
-
-	.debug-panel h3 {
-		margin: 0 0 0.75rem 0;
-		font-size: 1rem;
-		color: #c9d1d9;
-	}
-
-	.debug-content p {
-		margin: 0.5rem 0;
-		font-size: 0.875rem;
-		color: #85889c;
 	}
 </style>
 
@@ -168,10 +117,6 @@
 					<h1>{uiState.mode === 'builder' ? '🎨 Website Builder' : '👀 Website Viewer'}</h1>
 					<div class="actions">
 						<ModeSwitcher />
-						<ThemeToggle />
-						<button onclick={toggleDebugInfo}>
-							{showDebugInfo ? "Hide" : "Show"} Debug
-						</button>
 					</div>
 				</div>
 			</header>
@@ -181,15 +126,6 @@
 					<WebsiteBuilder />
 				{:else}
 					<ViewerMode />
-				{/if}
-
-				{#if showDebugInfo}
-					<aside class="debug-panel">
-						<h3>Debug Info</h3>
-						<div class="debug-content">
-							<p><strong>Store:</strong> {storeStatus}</p>
-						</div>
-					</aside>
 				{/if}
 			</div>
 		</div>

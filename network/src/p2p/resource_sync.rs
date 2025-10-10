@@ -63,6 +63,9 @@ impl PeerConnection {
                     .cloned()
                     .collect()
             }
+            ConnectionType::Website => {
+                vec![]
+            }
         };
 
         info!(
@@ -142,6 +145,7 @@ impl PeerConnection {
                 self.remove_user_local_missing_resource(&payload.resource.id)
                     .await
             }
+            ConnectionType::Website => true,
         };
 
         if is_empty {
@@ -170,6 +174,9 @@ impl PeerConnection {
                 ConnectionType::User => {
                     let manifest = self.get_user_manifest_result().await?;
                     manifest.resources_requiring_sync.iter().cloned().collect()
+                }
+                ConnectionType::Website => {
+                    vec![]
                 }
             };
 

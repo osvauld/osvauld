@@ -432,6 +432,7 @@ pub async fn add_resource_sync(
             }
         }
         ConnectionType::Device => {}
+        ConnectionType::Website => {}
     }
 
     repo_ctx

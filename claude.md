@@ -791,3 +791,349 @@ src/lib/
 - Keep it simple - can iterate and add features incrementally
 - Support all types of blocks and custom blocks if necessary
 - Pages are supported in architecture (independent documents)
+
+---
+
+# Website Connection & Publishing (2025-10-11)
+
+## Overview
+Implementing P2P website connection feature where a builder publishes websites to a sovereign node and viewers can connect using a connection string.
+
+## Architecture
+
+### Connection Types
+- **Device**: Device-to-device sync
+- **User**: User sharing and sync
+- **Website**: Website publishing and viewing (NEW)
+
+### Connection Actions
+- **WebsiteRequest**: Initial connection - node sends folder + all resources
+- **WebsiteSync**: Subsequent updates - node checks state vectors and sends updates
+
+### Key Principles
+1. **No persistent share records**: Resource keys generated on-the-fly for each send
+2. **UCAN-based auth**: Connection string contains UCAN token with folder capabilities
+3. **User equivalence**: `user_id` = `user_public_key`, `device_id` = `device_public_key`
+4. **One-way sync**: Node → Viewer only (viewer doesn't edit)
+
+## Completed Implementation ✅
+
+### 1. Core P2P Models (`core/src/models/p2p.rs`)
+
+Added new connection types and handshake messages:
+
+```rust
+pub enum ConnectionType {
+    Device,
+    User,
+    Website,  // NEW
+}
+
+pub enum ConnectionAction {
+    DeviceSync,
+    AddDevice,
+    LiveEdit,
+    UserSync,
+    WebsiteRequest,  // NEW - initial sync
+    WebsiteSync,     // NEW - update sync
+}
+
+pub struct WebsiteHandshakeRequest {
+    pub ucan_token: String,
+    pub viewer_user: User,
+    pub viewer_device: Device,
+}
+
+pub struct WebsiteHandshakeResponse {
+    pub node_user: User,
+    pub node_device: Device,
+}
+```
+
+### 2. Handshake Protocol (`network/src/p2p/handshake.rs`)
+
+#### Initiate Handshake (Viewer Side)
+```rust
+// Lines 31-57
+pub async fn initiate_handshake(
+    &self,
+    connection_type: ConnectionType,
+    action: ConnectionAction,
+    current_user: User,
+    current_device: Device,
+) -> P2PResult<()> {
+    // For Website connections, retrieve peer user by device_id
+    // and send UCAN token from peer_user.ucan_token
+
+    if matches!(connection_type, ConnectionType::Website) {
+        let peer_user = self.repo_ctx
+            .user_repo
+            .get_user_by_device_id(&device_id_b64)
+            .await?;
+
+        let request = WebsiteHandshakeRequest {
+            ucan_token: peer_user.ucan_token.clone(),
+            viewer_user: current_user,
+            viewer_device: current_device,
+        };
+
+        self.send_message(Message::Handshake(
+            HandshakeMessage::HandshakeWebsiteRequest(request),
+        )).await?;
+    }
+    // ... rest of logic
+}
+```
+
+#### Process Handshake Request (Node Side)
+```rust
+// Lines 403-440
+pub async fn process_website_handshake_request(
+    &self,
+    payload: &WebsiteHandshakeRequest,
+) -> P2PResult<()> {
+    // TODO: Validate UCAN token here
+
+    // Set peer user and device from viewer
+    self.set_peer_user_and_device(
+        payload.viewer_user.clone(),
+        payload.viewer_device.clone()
+    ).await;
+
+    self.set_connection_type(ConnectionType::Website).await;
+
+    let mut handshake_complete = self.handshake_complete.lock().await;
+    *handshake_complete = true;
+
+    // Send response with node's user/device info
+    let response = WebsiteHandshakeResponse {
+        node_user: current_user,
+        node_device: current_device,
+    };
+
+    self.send_message(Message::Handshake(
+        HandshakeMessage::HandshakeWebsiteResponse(response),
+    )).await?;
+
+    Ok(())
+}
+```
+
+### 3. Backend Handler (`sthalam/src-tauri/src/handlers/website_handler.rs`)
+
+#### Connection String Format
+Base64-encoded JSON containing:
+```json
+{
+  "user_public_key": "base64...",
+  "device_public_key": "base64...",
+  "username": "NodeOwner",
+  "ucan_token": "eyJ...",
+  "ucan_pub_key": "base64..."
+}
+```
+
+#### Handler Implementation
+```rust
+#[tauri::command]
+pub async fn handle_connect_to_website(
+    input: ConnectToWebsiteInput,
+    p2p_service: State<'_, Arc<P2PService>>,
+    user_state: State<'_, UserState>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
+) -> Result<CryptoResponse, String> {
+    // 1. Decode base64 connection string
+    // 2. Parse JSON to ConnectionDetails
+    // 3. Create User record (id = user_public_key, ucan_token included)
+    // 4. Create Device record (id = device_public_key)
+    // 5. Store in database via add_users_with_devices_bulk
+    // 6. Call p2p_service.connect_with_ticket(
+    //      &device_key,
+    //      ConnectionType::Website,
+    //      Some(ConnectionAction::WebsiteRequest)
+    //    )
+}
+```
+
+### 4. Frontend Integration
+
+#### Type Definition (`sthalam/src-tauri/src/types.rs`)
+```rust
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectToWebsiteInput {
+    pub connection_string: String,
+}
+```
+
+#### Handler Registration (`sthalam/src-tauri/src/lib.rs`)
+```rust
+.invoke_handler(tauri::generate_handler![
+    // ... other handlers
+    handle_connect_to_website,
+])
+```
+
+#### Helper Function (`sthalam/frontend/desktop/src/utils/helper.ts`)
+```typescript
+connectToWebsite: (data: any) =>
+  invoke("handle_connect_to_website", { input: data }),
+```
+
+#### UI Modal (`sthalam/frontend/desktop/src/components/AddWebsiteConnectionModal.svelte`)
+```typescript
+const handleAddWebsite = async (connString: string) => {
+    const { sendMessage } = await import("../utils/helper");
+    await sendMessage("connectToWebsite", {
+      connectionString: connString
+    });
+};
+```
+
+## Pending Implementation 🚧
+
+### 1. UCAN Token Validation (`network/src/p2p/handshake.rs:403-440`)
+
+**Location**: `process_website_handshake_request`
+
+**TODO**:
+```rust
+// Extract folder_id from UCAN token
+// Validate token signature
+// Check expiry
+// Verify capabilities match "view/public" or custom
+```
+
+### 2. Execute Connection Action for WebsiteRequest (`network/src/p2p/handshake.rs:386-395`)
+
+**Current**:
+```rust
+ConnectionAction::WebsiteRequest => {
+    info!("Website request triggered - initial sync");
+    // TODO: Implement initial website sync logic
+    Ok(())
+}
+```
+
+**Needs**:
+1. Extract `folder_id` from validated UCAN token
+2. Get folder from database
+3. Get all resources in folder
+4. For each resource:
+   - Decrypt resource with stored key
+   - Generate new resource key on-the-fly
+   - Re-encrypt with generated key
+   - Encrypt generated key with viewer's public key
+   - Create share record on-the-fly (not persisted)
+   - Send as `ResourceAdd` message
+5. Send folder as `FolderAdd` message
+
+**Key Points**:
+- Resource keys are ephemeral (generated per-send, not stored)
+- Share records are generated on-the-fly to satisfy message spec
+- Everything sent via existing ResourceAdd/FolderAdd message types
+
+### 3. Execute Connection Action for WebsiteSync
+
+**Current**:
+```rust
+ConnectionAction::WebsiteSync => {
+    info!("Website sync triggered - update sync");
+    // TODO: Implement website update sync logic
+    Ok(())
+}
+```
+
+**Needs**:
+1. Receive `resource_id:state_vector` pairs from viewer
+2. For each resource in folder:
+   - Check if viewer has it (compare state vectors)
+   - If missing or outdated, send update/full resource
+3. Check for new resources viewer doesn't have
+4. Send as ResourceAdd/ResourceUpdate messages
+
+### 4. Website Handler Sync Logic
+
+**Location**: New functions in `sthalam/src-tauri/src/handlers/website_handler.rs` or `services/src/node_service.rs`
+
+**Needs**:
+- Helper functions to generate resource keys on-the-fly
+- Helper to create ephemeral share records
+- Integration with existing resource encryption/decryption
+- State vector comparison logic for sync
+
+## Data Flow
+
+### Initial Connection (WebsiteRequest)
+```
+1. Builder publishes website → generates connection string with UCAN token
+2. Viewer pastes connection string in AddWebsiteConnectionModal
+3. Frontend calls handle_connect_to_website
+4. Backend creates User record with UCAN token
+5. Backend calls P2P connect_with_ticket
+6. Viewer initiates handshake with UCAN token
+7. Node validates UCAN, completes handshake
+8. execute_connection_action(WebsiteRequest) triggered
+9. Node sends folder + all resources to viewer
+10. Viewer stores locally
+```
+
+### Subsequent Updates (WebsiteSync)
+```
+1. Viewer reconnects with WebsiteSync action
+2. Viewer sends state vectors for all known resources
+3. Node compares with current state
+4. Node sends only changed/new resources
+5. Viewer applies updates
+```
+
+## File References
+
+### Core Files Modified
+- `core/src/models/p2p.rs` - Connection types and handshake messages
+- `network/src/p2p/handshake.rs` - Handshake protocol
+- `sthalam/src-tauri/src/handlers/website_handler.rs` - Connection handler
+- `sthalam/src-tauri/src/types.rs` - Input types
+- `sthalam/src-tauri/src/lib.rs` - Handler registration
+- `sthalam/frontend/desktop/src/utils/helper.ts` - Frontend API
+- `sthalam/frontend/desktop/src/components/AddWebsiteConnectionModal.svelte` - UI
+
+### Reference Files
+- `services/src/node_service.rs` - Resource encryption patterns
+- `network/src/p2p/` - Message handling examples
+- `crypto_utils/src/ucan_utils.rs` - UCAN token validation
+
+## Next Steps
+
+1. **Implement UCAN validation** in `process_website_handshake_request`
+   - Use existing `crypto_utils/ucan_utils.rs` functions
+   - Extract folder_id from token claims
+
+2. **Implement WebsiteRequest sync** in `execute_connection_action`
+   - Reference node_service.rs for resource encryption patterns
+   - Generate keys on-the-fly using crypto_utils
+   - Send via existing ResourceAdd messages
+
+3. **Implement WebsiteSync update logic**
+   - Add state vector comparison
+   - Send only diffs/new resources
+
+4. **Testing**
+   - Test initial connection with valid connection string
+   - Verify resources received and stored
+   - Test sync updates
+
+## Testing Commands
+
+```bash
+# Build and run
+cd sthalam/src-tauri
+cargo tauri dev
+
+# Check compilation
+cargo check
+
+# View logs
+# Check terminal for P2P handshake logs
+# Look for "Initiating website handshake" and "Website handshake request processed"
+```
