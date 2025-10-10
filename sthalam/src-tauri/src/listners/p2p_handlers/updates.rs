@@ -171,4 +171,31 @@ impl EventManager {
             error!("Failed to emit added notification: {}", e);
         }
     }
+
+    /// Handle folder token received event
+    pub(crate) fn handle_folder_token_received(
+        &self,
+        folder_id: String,
+        connection_string: String,
+    ) {
+        info!(
+            "Handling folder token received for folder: {}",
+            folder_id
+        );
+
+        if let Err(e) = self.emit_json(
+            "folder-token-received",
+            json!({
+                "folderId": folder_id,
+                "connectionString": connection_string
+            }),
+        ) {
+            error!("Failed to emit folder-token-received event: {}", e);
+        } else {
+            info!(
+                "Successfully emitted folder-token-received event for folder: {}",
+                folder_id
+            );
+        }
+    }
 }

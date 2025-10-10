@@ -395,6 +395,25 @@ impl CryptoUtils {
         .await?;
         Ok((token, cid))
     }
+
+    /// Generate public folder view token
+    pub async fn generate_public_folder_view_token(
+        &self,
+        encrypted_ucan_private_key: &str,
+        folder_id: &str,
+        capability_prefix: &str,
+    ) -> Result<String, CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+        let token = ucan_utils::generate_public_folder_view_token(
+            &signing_key,
+            &verifying_key,
+            folder_id,
+            capability_prefix,
+        )
+        .await?;
+        Ok(token)
+    }
+
     /// Issue a delegated folder UCAN after validating permissions
     pub async fn issue_delegated_folder_ucan<F, Fut>(
         &self,

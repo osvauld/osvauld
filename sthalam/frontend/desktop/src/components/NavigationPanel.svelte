@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { dataState, uiState } from "../state";
 	import WebsiteFolder from "./WebsiteFolder.svelte";
+	import AddSovereignNodeModal from "./AddSovereignNodeModal.svelte";
+	import PublishButton from "./PublishButton.svelte";
 
 	let showCreateWebsite = $state(false);
 	let websiteName = $state("");
@@ -60,6 +62,18 @@
 				<span class="shrink-0 text-base">📁</span>
 				<span class="flex-1 text-left text-sm font-normal">Manage Websites</span>
 			</button>
+
+			<!-- Sovereign Node Button -->
+			<button
+				class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+				onclick={() => uiState.showSovereignNodeModalFn()}
+				title="Add sovereign node"
+			>
+				<span class="shrink-0 text-base">🌐</span>
+				<span class="flex-1 text-left text-sm font-normal">
+					{dataState.sovereignNodeId ? "Sovereign Node ✓" : "Add Sovereign Node"}
+				</span>
+			</button>
 		</div>
 
 		<!-- Websites Tree -->
@@ -75,6 +89,11 @@
 					/>
 				{/each}
 			</div>
+		</div>
+
+		<!-- Publish Button Section -->
+		<div class="shrink-0 border-t border-osvauld-borderColor">
+			<PublishButton />
 		</div>
 
 		<!-- Create Website Section -->
@@ -129,4 +148,9 @@
 			{/if}
 		</div>
 	</nav>
+
+	<!-- Sovereign Node Modal -->
+	{#if uiState.showSovereignNodeModal}
+		<AddSovereignNodeModal />
+	{/if}
 {/if}

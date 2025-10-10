@@ -174,6 +174,7 @@ pub struct ShareFolder {
     pub permissions: Vec<(String, String)>,
 }
 
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderResponse {

@@ -34,6 +34,8 @@ pub enum Message {
     FolderSync(FolderSyncMessage),
     RetryRequest,
     Handshake(HandshakeMessage),
+    FolderTokenRequest(FolderTokenRequest),
+    FolderTokenResponse(FolderTokenResponse),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -181,4 +183,16 @@ pub struct UnknownFoldersPayload {
 pub struct FolderRecipientUpdate {
     pub folder_id: String,
     pub new_share_records: Vec<FolderShareRecord>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderTokenRequest {
+    pub folder_id: String,
+    pub domain: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderTokenResponse {
+    pub folder_id: String,
+    pub connection_string: String,
 }

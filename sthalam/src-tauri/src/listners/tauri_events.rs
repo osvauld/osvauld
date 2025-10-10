@@ -22,6 +22,7 @@ impl EventManager {
         self.setup_update_listener(UpdateType::AwarenessUpdate);
         self.setup_note_change_listener();
         self.setup_resource_update_complete_listener();
+        self.setup_request_folder_token_listener();
     }
 
     fn setup_update_listener(&self, update_type: UpdateType) {
@@ -469,5 +470,89 @@ impl EventManager {
                 error!("Failed to get shared users for note {}: {}", note_id, e);
             }
         }
+    }
+
+    /// Set up listener for folder token request events from frontend
+    fn setup_request_folder_token_listener(&self) {
+        let p2p_sender = self.p2p_sender.clone();
+        let repo_ctx = self.repo_ctx.clone();
+
+        self.app_handle.listen("request-folder-token", move |event| {
+            let payload_str = event.payload();
+            let p2p_sender = p2p_sender.clone();
+            let repo_ctx = repo_ctx.clone();
+
+            info!("Received request-folder-token event: {}", payload_str);
+
+            // Parse the payload
+            let payload: Value = match serde_json::from_str(payload_str) {
+                Ok(p) => p,
+                Err(e) => {
+                    error!("Failed to parse folder token request payload: {}", e);
+                    return;
+                }
+            };
+
+            let folder_id = match payload.get("folderId").and_then(|v| v.as_str()) {
+                Some(id) => id.to_string(),
+                None => {
+                    error!("Missing folderId in folder token request");
+                    return;
+                }
+            };
+
+            let user_id = match payload.get("deviceId").and_then(|v| v.as_str()) {
+                Some(id) => id.to_string(),
+                None => {
+                    error!("Missing deviceId (user_id) in folder token request");
+                    return;
+                }
+            };
+
+            let domain = match payload.get("domain").and_then(|v| v.as_str()) {
+                Some(d) => d.to_string(),
+                None => {
+                    error!("Missing domain in folder token request");
+                    return;
+                }
+            };
+
+            // Spawn async task to resolve user_id to device_id
+            tokio::spawn(async move {
+                info!(
+                    "Resolving device_id for user_id {} to request folder token for folder {}",
+                    user_id, folder_id
+                );
+
+                // Get devices for the user (sovereign nodes have only one device)
+                let devices = match repo_ctx.device_repo.get_devices_by_user_id(&user_id).await {
+                    Ok(devices) => devices,
+                    Err(e) => {
+                        error!("Failed to get devices for user {}: {}", user_id, e);
+                        return;
+                    }
+                };
+
+                // Get the first device (sovereign nodes typically have one device)
+                let device = match devices.first() {
+                    Some(device) => device,
+                    None => {
+                        error!("No devices found for user: {}", user_id);
+                        return;
+                    }
+                };
+
+                let device_id = device.id.clone();
+                info!(
+                    "Resolved user_id {} to device_id {}, requesting folder token",
+                    user_id, device_id
+                );
+
+                // Send the request to P2P service with the actual device_id
+                if let Err(e) = p2p_sender.send_request_folder_token(folder_id, device_id, domain) {
+                    error!("Failed to send folder token request to P2P service: {}", e);
+                }
+            });
+        });
     }
 }

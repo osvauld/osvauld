@@ -6,7 +6,7 @@ use persistance::{database::initialize_repositories, initialize_database};
 
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::json;
-use services::{generate_one_time_ucan_token, handle_signup, is_signed_up, load_certificate};
+use services::{generate_folder_share_token, generate_one_time_ucan_token, handle_signup, is_signed_up, load_certificate};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -55,6 +55,17 @@ enum Commands {
         #[arg(short, long)]
         passphrase: String,
     },
+
+    /// Generate a folder share token for public viewing
+    FolderToken {
+        /// Passphrase to unlock the certificate
+        #[arg(short, long)]
+        passphrase: String,
+
+        /// Folder ID to generate token for
+        #[arg(short, long)]
+        folder_id: String,
+    },
 }
 
 #[tokio::main]
@@ -100,6 +111,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::Token { passphrase } => {
             handle_token(&passphrase, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
+        }
+        Commands::FolderToken {
+            passphrase,
+            folder_id,
+        } => {
+            handle_folder_token(&passphrase, &folder_id, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
         }
     }
 
@@ -331,6 +348,60 @@ async fn handle_token(
     println!("Public Key: {}", pub_key);
     println!("User ID: {}", user.id);
     println!("Username: {}", user.username);
+    println!("╚══════════════════════════════════════════╝\n");
+
+    Ok(())
+}
+
+async fn handle_folder_token(
+    passphrase: &str,
+    folder_id: &str,
+    repo_ctx: Arc<persistance::database::RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+    domain: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Check if user exists
+    if !is_signed_up(repo_ctx.clone()).await? {
+        error!("No user found. Please run 'init' first.");
+        return Ok(());
+    }
+
+    info!("Loading user certificate...");
+
+    // Load certificate to verify passphrase
+    let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
+
+    info!("✔ Authenticated as: {}", user.username);
+    info!("Generating folder share token for folder: {}", folder_id);
+
+    // Generate folder share token
+    let (token, pub_key) =
+        generate_folder_share_token(folder_id, domain, &crypto_utils, repo_ctx.clone()).await?;
+
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║     FOLDER SHARE TOKEN                   ║");
+    println!("╚══════════════════════════════════════════╝");
+    println!("Folder ID: {}", folder_id);
+    println!("╚══════════════════════════════════════════╝");
+    println!("Token: {}", token);
+    println!("╚══════════════════════════════════════════╝");
+    println!("Public Key: {}", pub_key);
+    println!("╚══════════════════════════════════════════╝");
+
+    // Create connection string JSON (same format as connection token)
+    let connection_details = json!({
+        "user_public_key": user.public_key,
+        "device_public_key": device.device_key,
+        "username": user.username,
+        "ucan_token": token,
+        "ucan_pub_key": pub_key,
+    });
+
+    // Convert to string and base64 encode
+    let connection_json = connection_details.to_string();
+    let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
+
+    println!("Connection String: {}", encoded_connection);
     println!("╚══════════════════════════════════════════╝\n");
 
     Ok(())

@@ -82,6 +82,10 @@ pub enum P2PEvent {
     FoldersAdded {
         folders: Vec<Folder>,
     },
+    FolderTokenReceived {
+        folder_id: String,
+        connection_string: String,
+    },
 }
 
 /// Handles event emission for the P2P service

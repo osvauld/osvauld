@@ -704,26 +704,46 @@ impl P2PService {
     }
 
     /// Send a message, reconnecting if necessary
+    /// The connection_id parameter can be either a device_id (public key) or node_id
     pub async fn send_or_reconnect(
         &self,
-        connection_id: &str,
+        device_or_node_id: &str,
         message: Message,
         action: ConnectionAction,
     ) -> P2PResult<()> {
+        // Convert device_id to node_id if necessary
+        // Connection manager stores connections by node_id, not device_id
+        let node_id = if let Ok(id) = NodeId::from_str(device_or_node_id) {
+            id
+        } else {
+            // It's a device public key, derive the node_id
+            let node_id_bytes = crypto_utils::derive_node_id_from_public_key(device_or_node_id)?;
+            NodeId::try_from(&node_id_bytes).map_err(|e| {
+                P2PError::Connection(ConnectionError::InvalidNodeId {
+                    node_id: e.to_string(),
+                })
+            })?
+        };
+
+        let connection_id = node_id.to_string();
+
         // Try to get and use existing connection
-        match self.get_connection_by_id(connection_id).await {
+        match self.get_connection_by_id(&connection_id).await {
             Ok(connection) => {
                 if connection.connection.close_reason().is_none() {
+                    debug!("Using existing healthy connection: {}", connection_id);
                     return connection.send_message(message).await;
                 } else {
+                    info!("Connection {} is closed, cleaning up", connection_id);
                     let state_guard = self.state.lock().await;
                     if let Some(state) = state_guard.as_ref() {
-                        let _ = state.connections.remove_connection(connection_id).await;
+                        let _ = state.connections.remove_connection(&connection_id).await;
                     }
                 }
             }
             Err(_) => {
                 // No connection exists, fall through to reconnect
+                debug!("No existing connection found for {}", connection_id);
             }
         }
 
@@ -732,8 +752,10 @@ impl P2PService {
             connection_id
         );
 
+        // Use the original device_or_node_id for connect_with_ticket
+        // (it handles both device_id and node_id)
         match self
-            .connect_with_ticket(connection_id, ConnectionType::User, Some(action))
+            .connect_with_ticket(device_or_node_id, ConnectionType::User, Some(action))
             .await
         {
             Ok(Some(new_conn)) => {

@@ -50,6 +50,11 @@ pub enum IncomingEvent {
     StartLiveConnection {
         device_ids: Vec<String>,
     },
+    RequestFolderToken {
+        folder_id: String,
+        device_id: String,
+        domain: String,
+    },
 }
 
 /// Sender for incoming events to be processed by the P2P service
@@ -178,6 +183,20 @@ impl P2PSender {
             client_id,
             awareness_data,
             connection_ids,
+        })
+    }
+
+    pub fn send_request_folder_token(
+        &self,
+        folder_id: String,
+        device_id: String,
+        domain: String,
+    ) -> Result<(), String> {
+        info!("Sending folder token request for folder: {}", folder_id);
+        self.send(IncomingEvent::RequestFolderToken {
+            folder_id,
+            device_id,
+            domain,
         })
     }
 }

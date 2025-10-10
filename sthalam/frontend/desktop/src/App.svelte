@@ -2,8 +2,11 @@
 	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
 	import ThemeToggle from "./lib/ThemeToggle.svelte";
+	import ModeSwitcher from "./components/ModeSwitcher.svelte";
+	import ViewerMode from "./components/ViewerMode.svelte";
 	import { dataState } from "./store.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
+	import { uiState } from "./state/ui.svelte";
 	import Signup from "./common/Signup.svelte";
 	import Welcome from "./common/Welcome.svelte";
 	import Loader from "./common/Loader.svelte";
@@ -69,10 +72,10 @@
 	}
 
 	header {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: #010409;
+		color: #c9d1d9;
 		padding: 1rem 2rem;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		border-bottom: 1px solid #292a36;
 	}
 
 	.header-content {
@@ -87,27 +90,31 @@
 		margin: 0;
 		font-size: 1.75rem;
 		font-weight: 600;
+		color: #c9d1d9;
 	}
 
 	.actions {
 		display: flex;
 		gap: 0.5rem;
+		align-items: center;
 	}
 
 	button {
 		padding: 0.5rem 1rem;
-		border: none;
+		border: 1px solid #2f303e;
 		border-radius: 6px;
-		background: rgba(255, 255, 255, 0.2);
-		color: white;
+		background: #16171f;
+		color: #85889c;
 		cursor: pointer;
 		font-size: 0.875rem;
 		font-weight: 500;
-		transition: background 0.2s;
+		transition: all 0.2s;
 	}
 
 	button:hover {
-		background: rgba(255, 255, 255, 0.3);
+		background: #20212b;
+		color: #bfc0cc;
+		border-color: #4d4f60;
 	}
 
 	.content {
@@ -121,25 +128,25 @@
 		position: absolute;
 		top: 1rem;
 		right: 1rem;
-		background: white;
-		border: 1px solid #e0e0e0;
+		background: #16171f;
+		border: 1px solid #292a36;
 		border-radius: 8px;
 		padding: 1rem;
 		width: 250px;
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 		z-index: 1000;
 	}
 
 	.debug-panel h3 {
 		margin: 0 0 0.75rem 0;
 		font-size: 1rem;
-		color: #333;
+		color: #c9d1d9;
 	}
 
 	.debug-content p {
 		margin: 0.5rem 0;
 		font-size: 0.875rem;
-		color: #666;
+		color: #85889c;
 	}
 </style>
 
@@ -158,8 +165,9 @@
 		<div class="app-container">
 			<header>
 				<div class="header-content">
-					<h1>🎨 Website Builder</h1>
+					<h1>{uiState.mode === 'builder' ? '🎨 Website Builder' : '👀 Website Viewer'}</h1>
 					<div class="actions">
+						<ModeSwitcher />
 						<ThemeToggle />
 						<button onclick={toggleDebugInfo}>
 							{showDebugInfo ? "Hide" : "Show"} Debug
@@ -169,7 +177,11 @@
 			</header>
 
 			<div class="content">
-				<WebsiteBuilder />
+				{#if uiState.mode === 'builder'}
+					<WebsiteBuilder />
+				{:else}
+					<ViewerMode />
+				{/if}
 
 				{#if showDebugInfo}
 					<aside class="debug-panel">

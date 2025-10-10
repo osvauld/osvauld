@@ -12,6 +12,7 @@ pub mod p2p_service;
 pub mod peer_connection;
 pub mod resource_sync;
 pub mod user_sync;
+pub mod website_handler;
 
 pub use emitter::{P2PEvent, P2PEventEmitter};
 pub use p2p_service::P2PService;

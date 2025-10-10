@@ -378,6 +378,24 @@ impl PeerConnection {
             Message::RetryRequest => self.start_user_network_sync().await,
             Message::Handshake(payload) => self.handle_handshake_message(payload).await,
             Message::FolderSync(payload) => self.process_folder_sync_message(payload).await,
+            Message::FolderTokenRequest(payload) => {
+                self.handle_folder_token_request(payload.folder_id.clone(), payload.domain.clone())
+                    .await
+            }
+            Message::FolderTokenResponse(payload) => {
+                info!(
+                    "Received folder token response for folder {}: {}",
+                    payload.folder_id, payload.connection_string
+                );
+
+                // Emit event to frontend
+                self.event_emitter.emit(P2PEvent::FolderTokenReceived {
+                    folder_id: payload.folder_id.clone(),
+                    connection_string: payload.connection_string.clone(),
+                });
+
+                Ok(())
+            }
         }
     }
 

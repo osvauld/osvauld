@@ -124,6 +124,15 @@ impl P2PService {
                             .broadcast_state_vector_request(connection_ids, resource_id)
                             .await;
                     }
+                    IncomingEvent::RequestFolderToken {
+                        folder_id,
+                        device_id,
+                        domain,
+                    } => {
+                        service
+                            .handle_request_folder_token(folder_id, device_id, domain)
+                            .await;
+                    }
                 }
             }
 
@@ -548,5 +557,44 @@ impl P2PService {
             client_id,
         )
         .await;
+    }
+
+    /// Handles a folder token request by sending a message to the sovereign node
+    #[instrument(skip(self), fields(folder_id = %folder_id, device_id = %device_id), level = "info")]
+    pub async fn handle_request_folder_token(
+        &self,
+        folder_id: String,
+        device_id: String,
+        domain: String,
+    ) {
+        info!(
+            "Handling folder token request for folder {} to device {}",
+            folder_id, device_id
+        );
+
+        // Create the FolderTokenRequest message
+        let message = Message::FolderTokenRequest(osvauld_core::models::p2p::FolderTokenRequest {
+            folder_id: folder_id.clone(),
+            domain,
+        });
+
+        // Send the message using send_or_reconnect
+        match self
+            .send_or_reconnect(&device_id, message, ConnectionAction::UserSync)
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    "Successfully sent folder token request for folder {}",
+                    folder_id
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to send folder token request for folder {}: {}",
+                    folder_id, e
+                );
+            }
+        }
     }
 }

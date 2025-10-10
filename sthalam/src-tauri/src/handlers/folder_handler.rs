@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use crate::{
     types::{
-        AddFolderInput, CryptoResponse, FolderResponse, FolderShareUsersInput, ShareFolder,
-        SoftDeleteFolder,
+        AddFolderInput, CryptoResponse, FolderResponse, FolderShareUsersInput,
+        ShareFolder, SoftDeleteFolder,
     },
     user_state::UserState,
 };
@@ -11,7 +11,8 @@ use crypto_utils::CryptoUtils;
 use network::P2PService;
 use persistance::database::RepositoryContext;
 use services::{
-    create_folder, get_all_folders, get_folder_shared_users, share_folder, soft_delete_folder,
+    create_folder, get_all_folders, get_folder_shared_users, share_folder,
+    soft_delete_folder,
 };
 use tauri::State;
 use tokio::sync::RwLock;
@@ -106,3 +107,4 @@ pub async fn handle_share_folder(
         .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::Success)
 }
+

@@ -334,3 +334,24 @@ pub async fn generate_one_time_ucan_token(
 
     Ok((ucan_token, ucan_public_key))
 }
+
+pub async fn generate_folder_share_token(
+    folder_id: &str,
+    capability_str: &str,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<(String, String)> {
+    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    let crypto = crypto_utils.read().await;
+
+    let ucan_token = crypto
+        .generate_public_folder_view_token(&encrypted_ucan_pvt_key, folder_id, capability_str)
+        .await?;
+
+    let ucan_public_key = crypto
+        .get_public_ucan_key(&encrypted_ucan_pvt_key)
+        .await?;
+
+    Ok((ucan_token, ucan_public_key))
+}

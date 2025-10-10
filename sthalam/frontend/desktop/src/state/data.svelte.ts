@@ -22,6 +22,9 @@ class DataState {
   userDetails = $state<UserDetails | null>(null);
   clientId: number = 0;
 
+  // Sovereign node
+  sovereignNodeId = $state<string | null>(null);
+
   // UI state
   isDataLoading = $state<boolean>(false);
 
@@ -373,6 +376,65 @@ class DataState {
   }
 
   /**
+   * Set sovereign node ID
+   */
+  setSovereignNodeId(userId: string) {
+    this.sovereignNodeId = userId;
+    console.log("✅ Sovereign node ID set:", userId);
+  }
+
+  /**
+   * Get sovereign node ID
+   */
+  getSovereignNodeId(): string | null {
+    return this.sovereignNodeId;
+  }
+
+  /**
+   * Check if a resource is published to sovereign node
+   */
+  async isResourcePublished(resourceId: string): Promise<boolean> {
+    if (!this.sovereignNodeId) return false;
+
+    // TODO: Query backend to check if resource is shared with sovereign node
+    // For now, we'll implement this later when we have the backend API
+    return false;
+  }
+
+  /**
+   * Publish resource to sovereign node
+   */
+  async publishToSovereignNode(resourceId: string) {
+    if (!this.sovereignNodeId) {
+      throw new Error("No sovereign node connected. Please add a sovereign node first.");
+    }
+
+    try {
+      console.log("📤 Publishing resource to sovereign node:", resourceId);
+
+      await sendMessage("shareResource", {
+        userId: this.sovereignNodeId,
+        resourceId: resourceId,
+        permissions: { read: true, write: true }
+      });
+
+      console.log("✅ Resource published successfully to sovereign node");
+    } catch (error) {
+      console.error("❌ Failed to publish resource:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update website on sovereign node (re-sync)
+   */
+  async updateWebsiteOnSovereignNode(resourceId: string) {
+    // For now, this just re-triggers the share which will sync
+    // Later we can add a dedicated update endpoint
+    await this.publishToSovereignNode(resourceId);
+  }
+
+  /**
    * Clear all state (for logout)
    */
   clearAllState() {
@@ -386,6 +448,7 @@ class DataState {
     this.currentResourceData = null;
     this.userDetails = null;
     this.clientId = 0;
+    this.sovereignNodeId = null;
     this.isDataLoading = false;
   }
 
