@@ -5,7 +5,7 @@
 </script>
 
 <div
-	class="fixed h-[6rem] left-2 bottom-12 flex items-center justify-center bg-transparent font-light text-xl"
+	class="fixed h-[6rem] left-2 bottom-12 flex items-center justify-center bg-transparent font-normal text-xl"
 	aria-live="polite"
 	in:fly={{ x: -300 }}
 	out:fly={{ x: -300 }}
@@ -21,7 +21,7 @@
 		{:else}
 			<ToastError />
 		{/if}
-		<span class="text-base font-sans whitespace-nowrap">
+		<span class="text-base font-inter whitespace-nowrap">
 			{uiState.toastMessage.message}!</span
 		>
 	</div>

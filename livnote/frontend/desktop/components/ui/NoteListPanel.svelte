@@ -35,7 +35,7 @@
 <div class="py-6 pr-4 flex items-center justify-start shrink-0">
 	<!-- <div class="relative shrink-0">
 		<button
-			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-light leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
+			class="w-[20.25rem] max-w-[20.25rem] text-[26px] text-osvauld-fieldText font-normal leading-6 rounded-lg border border-osvauld-defaultBorder px-4 py-2 flex justify-between items-center capitalize truncate cursor-pointer"
 			aria-label="Switch Vault"
 			aria-expanded={uiState.vaultManagerActive}
 			onclick={() => uiState.toggleVaultManager()}
@@ -59,7 +59,7 @@
 	<div class="mr-auto flex items-center gap-6 text-base min-w-0 flex-1">
 		<!-- Current folder title -->
 		<div
-			class="text-4xl py-2 text-osvauld-sideListTextActive font-light capitalize min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
+			class="text-4xl py-2 text-osvauld-sideListTextActive font-normal capitalize min-w-0 max-w-full overflow-hidden text-ellipsis whitespace-nowrap"
 			aria-label="Current folder: {dataState.currentVault.id === 'all'
 				? 'All Notes'
 				: dataState.currentVault.name}"
@@ -120,7 +120,7 @@
 			>
 		{/if}
 		<button
-			class="rounded-lg p-2 text-sm  font-normal flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-textActive hover:bg-livnotelavender hover:text-primarydark group"
+			class="rounded-lg p-2 text-sm font-normal flex justify-center items-center cursor-pointer transition-colors duration-150 bg-osvauld-fieldActive text-textActive hover:bg-livnotelavender hover:text-primarydark group"
 			onclick={handleAddNote}
 		>
 			<span class="mr-2 pl-2">New Note</span>

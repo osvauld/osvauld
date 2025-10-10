@@ -67,7 +67,7 @@
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
 		<div class="flex items-start justify-between gap-4 mb-2">
-			<h1 class="text-2xl font-light text-white">Connect a User</h1>
+			<h1 class="text-2xl font-normal text-white">Connect a User</h1>
 			<button
 				class="cursor-pointer p-1.5 text-osvauld-fieldText hover:text-osvauld-sideListTextActive transition-colors"
 				onclick={() => (uiState.profileViewLayout = false)}

@@ -70,7 +70,7 @@
 </style>
 
 <main
-	class="bg-bgPrimary w-screen h-screen text-macchiato-text text-lg !font-sans select-none"
+	class="bg-bgPrimary w-screen h-screen text-macchiato-text text-lg select-none"
 >
 	{#if isLoading}
 		<div class="flex justify-center items-center w-full h-full">

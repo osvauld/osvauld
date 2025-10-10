@@ -5,6 +5,7 @@ const appStore = new LazyStore('app_settings.json');
 
 const CURRENT_VAULT_KEY = 'currentVault';
 const CURRENT_NOTE_ID_KEY = 'currentNoteId';
+const STARTER_NOTES_CREATED_KEY = 'starterNotesCreated';
 
 export const StoreService = {
   getCurrentVault: async (): Promise<Vault | null> => {
@@ -52,6 +53,25 @@ export const StoreService = {
       await appStore.save();
     } catch (error) {
       console.error('Error clearing selections from store:', error);
+    }
+  },
+
+  getStarterNotesCreated: async (): Promise<boolean> => {
+    try {
+      const created = await appStore.get<boolean>(STARTER_NOTES_CREATED_KEY);
+      return created === true;
+    } catch (error) {
+      console.error('Error getting starter notes flag from store:', error);
+      return false;
+    }
+  },
+
+  setStarterNotesCreated: async (created: boolean): Promise<void> => {
+    try {
+      await appStore.set(STARTER_NOTES_CREATED_KEY, created);
+      await appStore.save();
+    } catch (error) {
+      console.error('Error saving starter notes flag to store:', error);
     }
   }
 };

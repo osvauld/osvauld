@@ -219,7 +219,7 @@
 			{#if dataState.isDataLoading}
 				<div class="p-3 text-osvauld-fieldText text-sm">Loading notes...</div>
 			{:else if folderNotes().length === 0}
-				<div class="p-3 text-osvauld-fieldText text-sm opacity-60">
+				<div class="p-3 text-osvauld-fieldText text-sm">
 					No notes in this folder
 				</div>
 			{:else}

@@ -288,7 +288,6 @@
 				{:else if !isFocused}
 					{#each sortOnlineCollaborators(existingUsers) as collaborator}
 						<div class="flex justify-start items-center gap-2 py-2 pr-0.5">
-						
 							<span class="font-normal text-base max-w-[16rem] truncate"
 								>{collaborator.username}</span
 							>
@@ -319,7 +318,7 @@
 					aria-label="Available collaborators"
 				>
 					{#if availableUsersFiltered.length === 0}
-						<div class="p-3 text-sm font-light">No users found!</div>
+						<div class="p-3 text-sm font-normal">No users found!</div>
 					{:else}
 						<div
 							id="collaborators-listbox"
@@ -345,7 +344,6 @@
 										selectCollaborator(collaborator.username);
 									}}
 								>
-									
 									<span class="font-normal text-base max-w-[16rem] truncate">
 										{collaborator.username}
 									</span>

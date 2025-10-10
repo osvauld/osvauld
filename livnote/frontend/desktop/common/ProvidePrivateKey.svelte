@@ -26,9 +26,7 @@
 <div class="h-full w-full flex flex-col items-center justify-around py-10">
 	<div class="flex flex-col items-center justify-center mb-4">
 		<h1 class="text-xl font-semibold text-white">This is your recovery Key</h1>
-		<p
-			class="text-sm font-inter font-extralight text-mobile-textActive text-center"
-		>
+		<p class="text-sm font-inter font-normal text-textActive text-center mt-4">
 			This helps you recover your account if you lose your password.<br />you
 			can find this in settings later.
 		</p>
@@ -38,7 +36,7 @@
 			class="h-[343px] text-osvauld-quarzowhite bg-osvauld-frameblack rounded-lg border border-osvauld-iconblack focus-within:border-livnotePink relative p-1.5 transition-colors duration-300"
 		>
 			<div
-				class="w-full max-w-full h-full border-0 tracking-wider font-light text-sm font-mono resize-none text-wrap scrollbar-thin overflow-y-scroll overflow-x-hidden p-1 outline-0 placeholder-placeholderGray break-all"
+				class="w-full max-w-full h-full border-0 tracking-wider font-normal text-sm font-mono resize-none text-wrap scrollbar-thin overflow-y-scroll overflow-x-hidden p-1 outline-0 placeholder-placeholderGray break-all"
 			>
 				{collectedRecoveryString}
 			</div>

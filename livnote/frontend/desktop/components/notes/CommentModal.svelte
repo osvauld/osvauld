@@ -1,5 +1,4 @@
 <script lang="ts">
-
 	interface Props {
 		isVisible: boolean;
 		selectedText?: string;
@@ -14,7 +13,7 @@
 	let textareaRef = $state<HTMLTextAreaElement>();
 
 	function sanitize(text: string): string {
-		const div = document.createElement('div');
+		const div = document.createElement("div");
 		div.textContent = text;
 		return div.innerHTML;
 	}
@@ -81,7 +80,7 @@
 
 	.modal-title {
 		font-size: 16px;
-		font-weight: 300;
+		font-weight: 400;
 		color: #fff;
 		margin: 0 0 8px 0;
 	}
@@ -155,8 +154,6 @@
 		background: var(--color-livnotePink);
 	}
 
-
-
 	.modal-btn.secondary {
 		background: transparent;
 		color: #85889c;
@@ -177,8 +174,16 @@
 </style>
 
 {#if isVisible}
-	<div class="modal-overlay"  role="presentation" onclick={handleCancel}>
-		<div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="modal-title" tabindex="0" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+	<div class="modal-overlay" role="presentation" onclick={handleCancel}>
+		<div
+			class="modal-content"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="modal-title"
+			tabindex="0"
+			onclick={(e) => e.stopPropagation()}
+			onkeydown={(e) => e.stopPropagation()}
+		>
 			<div class="modal-header">
 				<h3 class="modal-title">Add Comment</h3>
 			</div>
@@ -197,7 +202,8 @@
 				autocapitalize="off"
 				spellcheck="false"
 				onkeydown={handleKeydown}
-				maxlength="150"></textarea>
+				maxlength="150"
+			></textarea>
 
 			<div class="modal-actions">
 				<span class="shortcut-hint">{commentText.length}/150</span>
@@ -208,14 +214,16 @@
 					<button
 						class="modal-btn primary"
 						onclick={handleSave}
-						disabled={!commentText.trim()}>
+						disabled={!commentText.trim()}
+					>
 						Add Comment
 					</button>
 				</div>
 			</div>
 
-			<div class="shortcut-hint">Press Enter to save, Shift+Enter for new line, Esc to cancel</div>
+			<div class="shortcut-hint">
+				Press Enter to save, Shift+Enter for new line, Esc to cancel
+			</div>
 		</div>
 	</div>
 {/if}
-

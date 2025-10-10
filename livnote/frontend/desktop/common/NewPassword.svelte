@@ -1,4 +1,3 @@
-
 <script lang="ts">
 	import Loader from "./Loader.svelte";
 	import { ClosedEye, Eye } from "@osvauld/icons";
@@ -6,12 +5,11 @@
 
 	let {
 		onReturn,
-		isLoaderActive
+		isLoaderActive,
 	}: {
 		onReturn: (passphrase: string) => void;
 		isLoaderActive: boolean;
 	} = $props();
-
 
 	// State variables
 	let passphrase = $state("");
@@ -24,14 +22,12 @@
 	// TODO: for dev disabling this
 	// let submitDisabled = $derived(
 	// 	passphrase.length === 0 || passphrase.length < 6 ||
-	// 		passphrase !== reenteredPassPhrase 
+	// 		passphrase !== reenteredPassPhrase
 	// );
 
-	let submitDisabled =  $derived(
-		passphrase.length === 0 ||
-			passphrase !== reenteredPassPhrase 
+	let submitDisabled = $derived(
+		passphrase.length === 0 || passphrase !== reenteredPassPhrase,
 	);
-
 
 	const togglePasswordVisibility = (isInitialResponse: boolean) => {
 		if (isInitialResponse) {
@@ -61,7 +57,6 @@
 		isPassphraseAcceptable = isAcceptable;
 	};
 
-
 	const handleSubmit = async (event: Event) => {
 		event.preventDefault();
 
@@ -72,19 +67,26 @@
 	const preventDefault = (e: Event) => e.preventDefault();
 </script>
 
-
-<form onsubmit={handleSubmit} class="h-full flex flex-col items-center justify-around py-10">
+<form
+	onsubmit={handleSubmit}
+	class="h-full flex flex-col items-center justify-around py-10"
+>
 	<div class="flex flex-col items-center justify-center mb-4">
 		<h1 class="text-xl font-semibold text-white">Set passphrase</h1>
-		<p class="text-sm font-inter font-extralight text-mobile-textActive  text-center">This will be used to encrypt and decrypt your data. <br/> This will not leave your device.</p>
-    </div>
+		<p class="text-sm font-inter font-normal text-textActive text-center mt-4">
+			This will be used to encrypt and decrypt your data. <br /> This will not leave
+			your device.
+		</p>
+	</div>
 	<div class="mb-4">
 		<label
 			for="new-passphrase"
 			class="font-normal mb-2 text-white self-start block"
-			>Enter passphrase</label>
+			>Enter passphrase</label
+		>
 		<div
-			class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
+			class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink"
+		>
 			<input
 				class="w-full h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal focus:ring-0 focus:focus:outline-none"
 				type={showPassword ? "text" : "password"}
@@ -102,7 +104,8 @@
 			<button
 				type="button"
 				class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
-				onclick={() => togglePasswordVisibility(true)}>
+				onclick={() => togglePasswordVisibility(true)}
+			>
 				{#if showPassword}
 					<ClosedEye />
 				{:else}
@@ -112,13 +115,16 @@
 		</div>
 		<PasswordStrengthValidator
 			{passphrase}
-			onStrengthChange={handleStrengthChange} />
+			onStrengthChange={handleStrengthChange}
+		/>
 		<label
 			for="confirm-passphrase"
 			class="font-normal mb-2 text-white self-start block"
-			>Confirm passphrase</label>
+			>Confirm passphrase</label
+		>
 		<div
-			class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink ">
+			class="w-[24rem] flex justify-between items-center bg-osvauld-frameblack px-3 border rounded-lg border-osvauld-iconblack focus-within:border-livnotePink"
+		>
 			<input
 				class="w-full h-[3.3rem] text-white p-2 bg-osvauld-frameblack border-0 tracking-wider font-normal focus:ring-0 focus:focus:outline-none"
 				type={showReenteredPassword ? "text" : "password"}
@@ -126,12 +132,14 @@
 				autocomplete="off"
 				autocorrect="off"
 				oninput={handleConfirmationInputChange}
-				oncopy={preventDefault} />
+				oncopy={preventDefault}
+			/>
 
 			<button
 				type="button"
 				class="flex justify-center items-center border border-transparent focus:border-livnotePink outline-0 rounded-lg p-1 cursor-pointer"
-				onclick={() => togglePasswordVisibility(false)}>
+				onclick={() => togglePasswordVisibility(false)}
+			>
 				{#if showReenteredPassword}
 					<ClosedEye />
 				{:else}
@@ -147,12 +155,12 @@
 		class:bg-signupGray={submitDisabled}
 		class:text-white={submitDisabled}
 		type="submit"
-		disabled={submitDisabled}>
+		disabled={submitDisabled}
+	>
 		{#if isLoaderActive}
 			<Loader color="#000" size={20} />
 		{:else}
 			<span>Submit</span>
 		{/if}
 	</button>
-
 </form>

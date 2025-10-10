@@ -108,7 +108,7 @@
 			<input
 				type="text"
 				name="search"
-				class="mx-2 grow border-0 focus:ring-0 outline-0 bg-fieldActive text-white placeholder:text-osvauld-activeBorder font-light text-sm leading-6"
+				class="mx-2 grow border-0 focus:ring-0 outline-0 bg-fieldActive text-white placeholder:text-osvauld-activeBorder font-normal text-sm leading-6"
 				autocorrect="off"
 				autocapitalize="off"
 				autocomplete="off"
