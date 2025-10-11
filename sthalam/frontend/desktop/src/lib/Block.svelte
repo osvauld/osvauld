@@ -29,6 +29,40 @@
 	// Notice board state
 	let newMessageText = $state("");
 
+	// References to contenteditable elements
+	let headingRef: HTMLDivElement | null = null;
+	let textRef: HTMLDivElement | null = null;
+
+	// Handle contenteditable input
+	function handleContentInput(e: Event) {
+		const target = e.currentTarget as HTMLElement;
+		const newContent = target.textContent || "";
+
+		// Simply update Yjs - don't touch the DOM
+		onUpdate(block.id, { content: newContent });
+	}
+
+	// Sync content from props to DOM only when element is not focused
+	$effect(() => {
+		// Track block.id to reset content when switching blocks
+		const currentBlockId = block.id;
+		const currentContent = block.content;
+
+		// Update heading content only if not currently being edited
+		if (headingRef) {
+			if (document.activeElement !== headingRef && headingRef.textContent !== currentContent) {
+				headingRef.textContent = currentContent;
+			}
+		}
+
+		// Update text content only if not currently being edited
+		if (textRef) {
+			if (document.activeElement !== textRef && textRef.textContent !== currentContent) {
+				textRef.textContent = currentContent;
+			}
+		}
+	});
+
 	// Parse messages from block content
 	const messages = $derived(() => {
 		if (block.type !== "notice-board" || !block.content) return [];
@@ -431,13 +465,19 @@
 	class:shift-resize-mode={hoverEdge !== null}
 >
 	{#if block.type === "heading"}
-		<div class="block-heading" contenteditable="true">
-			{block.content}
-		</div>
+		<div
+			bind:this={headingRef}
+			class="block-heading"
+			contenteditable="true"
+			oninput={handleContentInput}
+		></div>
 	{:else if block.type === "text"}
-		<div class="block-text" contenteditable="true">
-			{block.content}
-		</div>
+		<div
+			bind:this={textRef}
+			class="block-text"
+			contenteditable="true"
+			oninput={handleContentInput}
+		></div>
 	{:else if block.type === "image"}
 		<div class="block-image">
 			{#if block.content && block.content !== ""}

@@ -14,6 +14,7 @@
 	let blocks = $state<Map<string, any>>(new Map());
 	let viewport = $state({ x: 0, y: 0, zoom: 1 });
 	let selectedBlockId = $state<string | null>(null);
+	let autoSaveInterval: number | null = null;
 
 	const selectedBlock = $derived(
 		selectedBlockId ? blocks.get(selectedBlockId) || null : null
@@ -28,7 +29,21 @@
 		// Initialize dataState (creates coordinator)
 		await dataState.initializeState();
 
-		console.log("✅ Website Builder initialized!");
+		// Set up auto-save every 10 seconds
+		autoSaveInterval = window.setInterval(async () => {
+			const currentResourceId = authDataState.currentResourceId;
+			if (currentResourceId) {
+				try {
+					console.log("💾 Auto-saving resource:", currentResourceId);
+					await authDataState.saveCurrentResource(currentResourceId);
+					console.log("✅ Auto-save completed");
+				} catch (error) {
+					console.error("❌ Auto-save failed:", error);
+				}
+			}
+		}, 10000); // 10 seconds
+
+		console.log("✅ Website Builder initialized with auto-save!");
 	});
 
 	// React to resource changes (like livnote's pattern)
@@ -121,6 +136,12 @@
 	});
 
 	onDestroy(() => {
+		// Clear auto-save interval
+		if (autoSaveInterval !== null) {
+			clearInterval(autoSaveInterval);
+			autoSaveInterval = null;
+		}
+
 		// Cleanup is handled by dataState.clearAllState()
 		dataState.clearAllState();
 	});
