@@ -27,9 +27,6 @@
 	let dragModeEnabled = $state(false); // Ctrl+click to enable
 	let hoverEdge = $state<string | null>(null); // Track which edge is hovered
 
-	// Notice board state
-	let newMessageText = $state("");
-
 	// References to contenteditable elements
 	let headingRef: HTMLDivElement | null = null;
 	let textRef: HTMLDivElement | null = null;
@@ -63,79 +60,6 @@
 			}
 		}
 	});
-
-	// Parse messages from block content
-	const messages = $derived(() => {
-		if (block.type !== "notice-board" || !block.content) return [];
-		try {
-			return JSON.parse(block.content);
-		} catch {
-			return [];
-		}
-	});
-
-	// Form state
-	let formData = $state<Record<string, any>>({});
-	let submitMessage = $state<{type: string, text: string} | null>(null);
-
-	// Parse form config from block content
-	const formConfigData = $derived(
-		block.type === "form" && block.content
-			? (() => {
-				try {
-					return JSON.parse(block.content);
-				} catch {
-					return { fields: [], submitButtonText: "Submit" };
-				}
-			})()
-			: { fields: [], submitButtonText: "Submit" }
-	);
-
-	function postMessage() {
-		if (!newMessageText.trim()) return;
-
-		const newMessage = {
-			id: `msg-${Date.now()}`,
-			username: "User", // TODO: Get from user context
-			timestamp: Date.now(),
-			content: newMessageText.trim()
-		};
-
-		const updatedMessages = [...messages(), newMessage];
-		onUpdate(block.id, { content: JSON.stringify(updatedMessages) });
-		newMessageText = "";
-	}
-
-	function formatTimestamp(timestamp: number): string {
-		const date = new Date(timestamp);
-		const now = new Date();
-		const diffMs = now.getTime() - date.getTime();
-		const diffMins = Math.floor(diffMs / 60000);
-
-		if (diffMins < 1) return "just now";
-		if (diffMins < 60) return `${diffMins}m ago`;
-		if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
-		return date.toLocaleDateString();
-	}
-
-	function handleFormSubmit() {
-		// TODO: Create subdoc and send to kunki (sovereign node)
-		console.log("Form submitted:", formData);
-
-		// Show success message
-		submitMessage = {
-			type: "success",
-			text: "Form submitted successfully!"
-		};
-
-		// Clear form
-		formData = {};
-
-		// Hide message after 3 seconds
-		setTimeout(() => {
-			submitMessage = null;
-		}, 3000);
-	}
 
 	function handleMouseDown(e: MouseEvent) {
 		// In readonly mode, don't allow any editing interactions
@@ -500,7 +424,7 @@
 		</div>
 	{:else if block.type === "container"}
 		<div class="block-container">
-			<span class="container-label">{block.content || "Container (drop items here)"}</span>
+			<!-- Empty container for layout -->
 		</div>
 	{:else if block.type === "html"}
 		<div class="block-html">
@@ -510,87 +434,6 @@
 				<div class="html-placeholder">
 					<span class="placeholder-icon">&lt;/&gt;</span>
 					<span class="placeholder-text">Add HTML in Properties</span>
-				</div>
-			{/if}
-		</div>
-	{:else if block.type === "notice-board"}
-		<div class="block-notice-board">
-			{#if messages.length > 0}
-				<div class="messages-container">
-					{#each messages as message}
-						<div class="message">
-							<div class="message-avatar">
-								{message.username.charAt(0).toUpperCase()}
-							</div>
-							<div class="message-body">
-								<div class="message-header">
-									<strong>{message.username}</strong>
-									<span class="timestamp">{formatTimestamp(message.timestamp)}</span>
-								</div>
-								<div class="message-content">{message.content}</div>
-							</div>
-						</div>
-					{/each}
-				</div>
-			{:else}
-				<div class="notice-placeholder">
-					<span class="placeholder-icon">💬</span>
-					<span class="placeholder-text">No comments yet. Be the first to comment!</span>
-				</div>
-			{/if}
-			<div class="message-input">
-				<input
-					type="text"
-					bind:value={newMessageText}
-					placeholder="Add a comment..."
-					onkeydown={(e) => e.key === 'Enter' && postMessage()}
-				/>
-				<button onclick={postMessage}>Add Comment</button>
-			</div>
-		</div>
-	{:else if block.type === "form"}
-		<div class="block-form">
-			<form class="custom-form" onsubmit={(e) => { e.preventDefault(); handleFormSubmit(); }}>
-				{#each formConfigData.fields as field}
-					<div class="form-field">
-						<label>
-							{field.label}
-							{#if field.required}<span class="required">*</span>{/if}
-						</label>
-						{#if field.type === "textarea"}
-							<textarea
-								name={field.id}
-								placeholder={field.placeholder}
-								required={field.required}
-								bind:value={formData[field.id]}
-							></textarea>
-						{:else if field.type === "checkbox"}
-							<label class="checkbox-field">
-								<input
-									type="checkbox"
-									name={field.id}
-									bind:checked={formData[field.id]}
-								/>
-								<span>{field.placeholder || field.label}</span>
-							</label>
-						{:else}
-							<input
-								type={field.type}
-								name={field.id}
-								placeholder={field.placeholder}
-								required={field.required}
-								bind:value={formData[field.id]}
-							/>
-						{/if}
-					</div>
-				{/each}
-				<button type="submit" class="form-submit-btn">
-					{formConfigData.submitButtonText || "Submit"}
-				</button>
-			</form>
-			{#if submitMessage}
-				<div class="submit-message {submitMessage.type}">
-					{submitMessage.text}
 				</div>
 			{/if}
 		</div>
@@ -647,8 +490,7 @@
 	.block-text,
 	.block-container,
 	.block-image,
-	.block-html,
-	.block-notice-board {
+	.block-html {
 		width: 100%;
 		height: 100%;
 		outline: none;
@@ -662,139 +504,6 @@
 		background: transparent;
 		border: none;
 	}
-
-	.block-notice-board {
-		display: flex;
-		flex-direction: column;
-		padding: 16px;
-		background: #fafafa;
-		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-	}
-
-	.messages-container {
-		flex: 1;
-		overflow-y: auto;
-		margin-bottom: 8px;
-	}
-
-	.message {
-		padding: 8px 0;
-		border-bottom: 1px solid #e3e6e8;
-		display: flex;
-		gap: 8px;
-	}
-
-	.message:last-child {
-		border-bottom: none;
-	}
-
-	.message-avatar {
-		width: 32px;
-		height: 32px;
-		border-radius: 3px;
-		background: #0077cc;
-		color: white;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		font-weight: 500;
-		font-size: 0.875rem;
-		flex-shrink: 0;
-	}
-
-	.message-body {
-		flex: 1;
-		min-width: 0;
-	}
-
-	.message-header {
-		display: flex;
-		align-items: baseline;
-		gap: 6px;
-		margin-bottom: 4px;
-	}
-
-	.message-header strong {
-		color: #0077cc;
-		font-size: 0.8125rem;
-		font-weight: 500;
-	}
-
-	.timestamp {
-		color: #9199a1;
-		font-size: 0.75rem;
-	}
-
-	.message-content {
-		color: #232629;
-		font-size: 0.8125rem;
-		line-height: 1.5;
-		word-wrap: break-word;
-	}
-
-	.notice-placeholder {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		gap: 0.5rem;
-		color: #999;
-		text-align: center;
-		padding: 2rem;
-	}
-
-	.notice-placeholder .placeholder-icon {
-		font-size: 3rem;
-	}
-
-	.notice-placeholder .placeholder-text {
-		font-size: 0.875rem;
-	}
-
-	.message-input {
-		display: flex;
-		gap: 8px;
-		padding-top: 12px;
-		border-top: 1px solid #e3e6e8;
-		margin-top: 8px;
-	}
-
-	.message-input input {
-		flex: 1;
-		padding: 8px;
-		border: 1px solid #babfc4;
-		border-radius: 3px;
-		font-size: 0.8125rem;
-		font-family: inherit;
-	}
-
-	.message-input input:focus {
-		outline: none;
-		border-color: #6cbbf7;
-		box-shadow: 0 0 0 4px rgba(0, 119, 204, 0.1);
-	}
-
-	.message-input button {
-		padding: 8px 12px;
-		background: #0a95ff;
-		color: white;
-		border: none;
-		border-radius: 3px;
-		font-size: 0.8125rem;
-		font-weight: normal;
-		cursor: pointer;
-		transition: background 0.1s;
-	}
-
-	.message-input button:hover {
-		background: #0074cc;
-	}
-
-	.message-input button:active {
-		background: #0063bf;
-	}
-
 
 	/* Make content scrollable area smaller to avoid resize handle conflict */
 	.block.selected .block-heading,
@@ -991,115 +700,5 @@
 	.resize-w {
 		left: -5px;
 		cursor: w-resize;
-	}
-
-	/* Form Block */
-	.block-form {
-		width: 100%;
-		height: 100%;
-		padding: 20px;
-		background: white;
-		overflow: auto;
-		box-sizing: border-box;
-	}
-
-	.custom-form {
-		display: flex;
-		flex-direction: column;
-		gap: 16px;
-	}
-
-	.form-field {
-		display: flex;
-		flex-direction: column;
-		gap: 6px;
-	}
-
-	.form-field label {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: #333;
-	}
-
-	.form-field .required {
-		color: #dc3545;
-		margin-left: 2px;
-	}
-
-	.form-field input[type="text"],
-	.form-field input[type="email"],
-	.form-field input[type="number"],
-	.form-field textarea {
-		padding: 10px 12px;
-		border: 1px solid #ced4da;
-		border-radius: 4px;
-		font-size: 0.875rem;
-		font-family: inherit;
-		transition: border-color 0.2s;
-	}
-
-	.form-field input:focus,
-	.form-field textarea:focus {
-		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-	}
-
-	.form-field textarea {
-		min-height: 100px;
-		resize: vertical;
-	}
-
-	.checkbox-field {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		cursor: pointer;
-	}
-
-	.checkbox-field input[type="checkbox"] {
-		width: 18px;
-		height: 18px;
-		cursor: pointer;
-	}
-
-	.form-submit-btn {
-		padding: 12px 24px;
-		background: #0a95ff;
-		color: white;
-		border: none;
-		border-radius: 4px;
-		font-size: 0.875rem;
-		font-weight: 600;
-		cursor: pointer;
-		transition: background 0.2s;
-		align-self: flex-start;
-	}
-
-	.form-submit-btn:hover {
-		background: #0074cc;
-	}
-
-	.form-submit-btn:active {
-		background: #0063bf;
-	}
-
-	.submit-message {
-		margin-top: 12px;
-		padding: 12px;
-		border-radius: 4px;
-		font-size: 0.875rem;
-	}
-
-	.submit-message.success {
-		background: #d4edda;
-		color: #155724;
-		border: 1px solid #c3e6cb;
-	}
-
-	.submit-message.error {
-		background: #f8d7da;
-		color: #721c24;
-		border: 1px solid #f5c6cb;
 	}
 </style>

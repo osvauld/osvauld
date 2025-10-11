@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from "svelte";
-	import { dataState } from "../store.svelte";
-	import { dataState as authDataState } from "../state";
+	import { dataState } from "../state";
 	import Canvas from "../lib/Canvas.svelte";
 	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
 	import type { YjsDocuments } from "../lib/yjsManager";
@@ -12,19 +11,16 @@
 	let showAddWebsiteModal = $state(false);
 
 	// Get synced resources
-	const syncedResources = $derived(authDataState.resources);
+	const syncedResources = $derived(dataState.resources);
 	const hasResources = $derived(syncedResources.length > 0);
-	const hasResource = $derived(!!authDataState.currentResourceId);
+	const hasResource = $derived(!!dataState.currentResourceId);
 
 	onMount(async () => {
 		console.log("🚀 Initializing Viewer Mode...");
 
-		// Initialize dataState (creates coordinator)
-		await dataState.initializeState();
-
 		// Fetch resources if not already loaded
-		if (authDataState.resources.length === 0) {
-			await authDataState.fetchAllResources();
+		if (dataState.resources.length === 0) {
+			await dataState.fetchAllResources();
 		}
 
 		console.log("✅ Viewer Mode initialized!");
@@ -33,7 +29,7 @@
 	// React to resource changes (same pattern as WebsiteBuilder)
 	$effect(() => {
 		console.log("🎬 [VIEWER EFFECT] Starting effect...");
-		const resourceId = authDataState.currentResourceId;
+		const resourceId = dataState.currentResourceId;
 		console.log("🔄 [VIEWER EFFECT] Resource changed:", resourceId);
 
 		if (!resourceId) {
@@ -119,8 +115,7 @@
 	});
 
 	onDestroy(() => {
-		// Cleanup is handled by dataState.clearAllState()
-		dataState.clearAllState();
+		// Note: Coordinator cleanup is handled by dataState.clearAllState() when needed
 	});
 
 	function updateViewport(newViewport: { x: number; y: number }) {
@@ -130,7 +125,7 @@
 
 	async function handleSelectResource(resourceId: string) {
 		console.log("🎯 Selecting resource:", resourceId);
-		await authDataState.switchResource(resourceId);
+		await dataState.switchResource(resourceId);
 	}
 
 	function openAddWebsiteModal() {
@@ -217,7 +212,7 @@
 				{#each syncedResources as resource (resource.id)}
 					<button
 						class="resource-item"
-						class:selected={authDataState.currentResourceId === resource.id}
+						class:selected={dataState.currentResourceId === resource.id}
 						onclick={() => handleSelectResource(resource.id)}
 					>
 						<div class="resource-title">{resource.title}</div>

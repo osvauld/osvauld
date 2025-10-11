@@ -64,6 +64,7 @@ pub enum CryptoResponse {
     UpdateResources,
     ResourceCreated(String),
     SelectedResourceResponse(ResourceResponse),
+    SelectedResourceResponse2(ResourceResponse2),
     CreatedKnownUser {
         user: User,
         device: Device,
@@ -174,7 +175,6 @@ pub struct ShareFolder {
     pub permissions: Vec<(String, String)>,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderResponse {
@@ -198,6 +198,17 @@ pub struct ResourceResponse {
     pub favourite: bool,
     pub last_accessed: i64,
     pub folder_id: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceResponse2 {
+    pub id: String,
+    pub data: serde_json::Value,
+    pub favourite: bool,
+    pub last_accessed: i64,
+    pub folder_id: String,
+    pub resource_type: String,
 }
 
 #[derive(Deserialize, Clone)]

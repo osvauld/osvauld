@@ -14,8 +14,10 @@ export interface BlocksuiteCoordinatorConfig {
 export class BlocksuiteCoordinator {
   private yjsManager: YjsManager;
   private config: BlocksuiteCoordinatorConfig;
+  private currentDocKey: string = 'main_doc'; // Track which doc type we're using
 
   constructor(config: BlocksuiteCoordinatorConfig) {
+    console.log("🔨 BlocksuiteCoordinator constructor called with userInfo:", config.userInfo);
     this.config = config;
 
     const yjsConfig: YjsManagerConfig = {
@@ -28,20 +30,25 @@ export class BlocksuiteCoordinator {
       }
     };
 
+    console.log("🔨 Creating YjsManager...");
     this.yjsManager = new YjsManager(yjsConfig);
+    console.log("✅ BlocksuiteCoordinator constructor complete");
   }
 
   /**
    * Initialize the coordinator and Yjs documents
    */
   initialize(): void {
+    console.log("🔧 BlocksuiteCoordinator.initialize() called");
     const docs = this.yjsManager.initialize();
     this.yjsManager.setUserInfo(this.config.userInfo);
+    console.log("✅ BlocksuiteCoordinator initialized with documents:", !!docs);
   }
 
   /**
    * Load blocksuite data from saved state
    * Following livnote's loadNote pattern: reinitialize docs, apply updates, wait for ready
+   * Supports multiple document keys: blocksuite_doc, form_doc, thread_doc, main_doc (legacy)
    */
   loadBlocksuite(data: any): void {
     if (!data) {
@@ -71,14 +78,44 @@ export class BlocksuiteCoordinator {
         }));
       });
 
-      // Step 4: Apply main document updates with 'loading' origin
-      if (data.main_doc && data.main_doc.updates) {
-        const updates = new Uint8Array(data.main_doc.updates);
-        console.log(`📥 Applying ${updates.length} bytes of updates...`);
+      // Step 4: Detect and apply document updates based on resource type
+      // Check for different document keys: blocksuite_doc, form_doc, thread_doc, main_doc (legacy)
+      let docKey: string | null = null;
+      let updates: Uint8Array | null = null;
+
+      if (data.blocksuite_doc) {
+        docKey = 'blocksuite_doc';
+        updates = Array.isArray(data.blocksuite_doc)
+          ? new Uint8Array(data.blocksuite_doc)
+          : (data.blocksuite_doc.updates ? new Uint8Array(data.blocksuite_doc.updates) : null);
+      } else if (data.form_doc) {
+        docKey = 'form_doc';
+        updates = Array.isArray(data.form_doc)
+          ? new Uint8Array(data.form_doc)
+          : (data.form_doc.updates ? new Uint8Array(data.form_doc.updates) : null);
+      } else if (data.thread_doc) {
+        docKey = 'thread_doc';
+        updates = Array.isArray(data.thread_doc)
+          ? new Uint8Array(data.thread_doc)
+          : (data.thread_doc.updates ? new Uint8Array(data.thread_doc.updates) : null);
+      } else if (data.main_doc) {
+        docKey = 'main_doc';  // Legacy support
+        updates = Array.isArray(data.main_doc)
+          ? new Uint8Array(data.main_doc)
+          : (data.main_doc.updates ? new Uint8Array(data.main_doc.updates) : null);
+      }
+
+      // Store the current doc key for saving
+      if (docKey) {
+        this.currentDocKey = docKey;
+      }
+
+      if (updates && updates.length > 0) {
+        console.log(`📥 Applying ${updates.length} bytes from ${docKey}...`);
         this.yjsManager.applyUpdate(updates, "loading");
         console.log("✅ Updates applied");
       } else {
-        console.warn("⚠️ No main_doc.updates found in data");
+        console.warn("⚠️ No document updates found in data");
       }
     } catch (error) {
       console.error("❌ Error loading blocksuite:", error);
@@ -87,20 +124,33 @@ export class BlocksuiteCoordinator {
 
   /**
    * Save blocksuite data to backend
+   * Uses the correct document key based on resource type (form_doc, blocksuite_doc, etc.)
    */
   saveBlocksuite(): any {
+    console.log("💾 saveBlocksuite called, currentDocKey:", this.currentDocKey);
+
     const docs = this.yjsManager.getDocuments();
-    if (!docs) return null;
+    if (!docs) {
+      console.error("❌ No documents available in yjsManager");
+      return null;
+    }
+    console.log("✅ Documents available:", !!docs.mainDoc, !!docs.viewport);
 
     const mainUpdates = this.yjsManager.getStateAsUpdate();
+    console.log("📦 Main updates length:", mainUpdates.length);
 
-    return {
-      main_doc: {
-        updates: Array.from(mainUpdates),
-        state_vector: Array.from(this.yjsManager.getStateVector())
-      },
+    const result = {
+      [this.currentDocKey]: Array.from(mainUpdates),
       last_modified: Date.now()
     };
+
+    console.log("📤 Returning save data:", {
+      docKey: this.currentDocKey,
+      updatesLength: mainUpdates.length,
+      result
+    });
+
+    return result;
   }
 
   /**
@@ -134,12 +184,6 @@ export class BlocksuiteCoordinator {
     return this.yjsManager.getDocuments();
   }
 
-  /**
-   * Set cached data state for collaborator updates
-   */
-  setCachedDataState(dataState: any): void {
-    this.yjsManager.setCachedDataState(dataState);
-  }
 
   /**
    * Clean up

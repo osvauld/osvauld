@@ -1,15 +1,38 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
+	import FormBuilder from "./lib/FormBuilder.svelte";
 	import ModeSwitcher from "./components/ModeSwitcher.svelte";
 	import ViewerMode from "./components/ViewerMode.svelte";
-	import { dataState } from "./store.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
 	import { uiState } from "./state/ui.svelte";
 	import Signup from "./common/Signup.svelte";
 	import Welcome from "./common/Welcome.svelte";
 	import Loader from "./common/Loader.svelte";
 	import { sendMessage } from "./utils/helper";
+
+	// Get current resource to determine which builder to show
+	const currentResource = $derived(
+		authDataState.currentResourceData ||
+		(authDataState.currentResourceId
+			? authDataState.resources.find(r => r.id === authDataState.currentResourceId)
+			: null)
+	);
+
+	const builderTitle = $derived(() => {
+		if (uiState.mode === 'viewer') return '👀 Website Viewer';
+		if (!currentResource) return '🎨 Builder';
+
+		const resourceType = currentResource.resource_type || currentResource.resourceType;
+		switch (resourceType) {
+			case 'form':
+				return '📝 Form Builder';
+			case 'noticeboard':
+				return '💬 Notice Board Builder';
+			default:
+				return '🎨 Website Builder';
+		}
+	});
 
 	let signedUp = $state(false);
 	let isLoading = $state(true);
@@ -18,11 +41,13 @@
 	const handleSignedUp = async () => {
 		signedUp = true;
 		showWelcome = false;
+		// Initialize the unified dataState (handles resources AND coordinator)
 		await authDataState.initializeState();
 	};
 
 	const handleAuthenticated = async () => {
 		showWelcome = false;
+		// Initialize the unified dataState (handles resources AND coordinator)
 		await authDataState.initializeState();
 	};
 
@@ -97,6 +122,26 @@
 		overflow: hidden;
 		position: relative;
 	}
+
+	.builder-placeholder {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		color: #8b949e;
+		background: #010409;
+	}
+
+	.builder-placeholder h2 {
+		font-size: 1.5rem;
+		margin-bottom: 0.5rem;
+		color: #c9d1d9;
+	}
+
+	.builder-placeholder p {
+		font-size: 1rem;
+	}
 </style>
 
 <main>
@@ -114,7 +159,7 @@
 		<div class="app-container">
 			<header>
 				<div class="header-content">
-					<h1>{uiState.mode === 'builder' ? '🎨 Website Builder' : '👀 Website Viewer'}</h1>
+					<h1>{builderTitle()}</h1>
 					<div class="actions">
 						<ModeSwitcher />
 					</div>
@@ -123,7 +168,23 @@
 
 			<div class="content">
 				{#if uiState.mode === 'builder'}
-					<WebsiteBuilder />
+					{#if !currentResource}
+						<!-- No resource selected -->
+						<WebsiteBuilder />
+					{:else}
+						{@const resourceType = currentResource.resource_type || currentResource.resourceType}
+						{#if resourceType === 'form'}
+							<FormBuilder />
+						{:else if resourceType === 'noticeboard'}
+							<!-- TODO: NoticeBoard Builder -->
+							<div class="builder-placeholder">
+								<h2>Notice Board Builder</h2>
+								<p>Coming soon...</p>
+							</div>
+						{:else}
+							<WebsiteBuilder />
+						{/if}
+					{/if}
 				{:else}
 					<ViewerMode />
 				{/if}

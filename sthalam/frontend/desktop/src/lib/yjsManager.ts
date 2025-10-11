@@ -22,7 +22,6 @@ export interface YjsManagerConfig {
 export class YjsManager {
   private documents: YjsDocuments | null = null;
   private config: YjsManagerConfig;
-  private cachedDataState: any = null;
 
   constructor(config: YjsManagerConfig) {
     this.config = config;
@@ -76,9 +75,6 @@ export class YjsManager {
             console.error("Error processing awareness update in YjsManager:", error);
           }
         }
-
-        // Sync collaborators whenever awareness changes
-        this.syncCollaboratorsToDataState();
       });
     }
 
@@ -164,42 +160,6 @@ export class YjsManager {
     }
   }
 
-  /**
-   * Sync collaborators from awareness state to dataState
-   */
-  public syncCollaboratorsToDataState(): void {
-    if (!this.documents) return;
-
-    const awareness = this.documents.awareness;
-    const states = awareness.getStates();
-    const collaborators: Collaborator[] = [];
-
-    states.forEach((state: any, clientId: number) => {
-      // Skip our own client
-      if (clientId === this.config.clientId) return;
-
-      if (state && state.user && state.user.name) {
-        collaborators.push({
-          id: clientId.toString(),
-          name: state.user.name,
-          color: state.user.color,
-          clientId: clientId
-        });
-      }
-    });
-
-    // Update dataState if cached
-    if (this.cachedDataState) {
-      this.cachedDataState.updateCollaborators(collaborators);
-    }
-  }
-
-  /**
-   * Cache dataState for collaborator updates
-   */
-  setCachedDataState(dataState: any): void {
-    this.cachedDataState = dataState;
-  }
 
   /**
    * Check if documents are initialized

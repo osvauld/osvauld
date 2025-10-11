@@ -11,8 +11,6 @@
 		{ type: "image", label: "Image", icon: "🖼️", description: "Image or GIF" },
 		{ type: "container", label: "Container", icon: "□", description: "Layout box for grouping" },
 		{ type: "html", label: "HTML/CSS", icon: "<>", description: "Custom HTML with CSS" },
-		{ type: "notice-board", label: "Notice Board", icon: "📌", description: "Public message board" },
-		{ type: "form", label: "Form", icon: "📝", description: "Form with custom fields" },
 	];
 </script>
 

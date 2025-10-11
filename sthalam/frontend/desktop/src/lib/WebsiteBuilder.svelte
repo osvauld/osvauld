@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from "svelte";
-	import { dataState } from "../store.svelte";
-	import { dataState as authDataState, uiState } from "../state";
+	import { dataState, uiState } from "../state";
 	import Canvas from "./Canvas.svelte";
 	import BlockPalette from "./BlockPalette.svelte";
 	import PropertiesPanel from "./PropertiesPanel.svelte";
@@ -21,21 +20,18 @@
 	);
 
 	// Track if we have a resource selected
-	const hasResource = $derived(!!authDataState.currentResourceId);
+	const hasResource = $derived(!!dataState.currentResourceId);
 
 	onMount(async () => {
 		console.log("🚀 Initializing Website Builder...");
 
-		// Initialize dataState (creates coordinator)
-		await dataState.initializeState();
-
 		// Set up auto-save every 10 seconds
 		autoSaveInterval = window.setInterval(async () => {
-			const currentResourceId = authDataState.currentResourceId;
+			const currentResourceId = dataState.currentResourceId;
 			if (currentResourceId) {
 				try {
 					console.log("💾 Auto-saving resource:", currentResourceId);
-					await authDataState.saveCurrentResource(currentResourceId);
+					await dataState.saveCurrentResource(currentResourceId);
 					console.log("✅ Auto-save completed");
 				} catch (error) {
 					console.error("❌ Auto-save failed:", error);
@@ -49,7 +45,7 @@
 	// React to resource changes (like livnote's pattern)
 	// Only track resourceId - don't track blocks/viewport changes
 	$effect(() => {
-		const resourceId = authDataState.currentResourceId;
+		const resourceId = dataState.currentResourceId;
 		console.log("🔄 Resource changed:", resourceId);
 
 		if (!resourceId) {
@@ -142,8 +138,7 @@
 			autoSaveInterval = null;
 		}
 
-		// Cleanup is handled by dataState.clearAllState()
-		dataState.clearAllState();
+		// Note: Coordinator cleanup is handled by dataState.clearAllState() when needed
 	});
 
 	function updateViewport(newViewport: { x: number; y: number }) {
@@ -325,31 +320,6 @@
 				newBlock.content = ""; // HTML will be set via Properties
 				newBlock.styles = {
 					css: "" // Custom CSS
-				};
-				break;
-			case "notice-board":
-				newBlock.width = 500;
-				newBlock.height = 400;
-				newBlock.content = JSON.stringify([]); // Array of messages
-				newBlock.styles = {
-					backgroundColor: "white",
-					border: "2px solid #ddd"
-				};
-				break;
-			case "form":
-				newBlock.width = 500;
-				newBlock.height = 350;
-				newBlock.content = JSON.stringify({
-					fields: [
-						{ id: "field-1", type: "text", label: "Name", placeholder: "Enter your name", required: true },
-						{ id: "field-2", type: "email", label: "Email", placeholder: "Enter your email", required: true },
-						{ id: "field-3", type: "textarea", label: "Message", placeholder: "Your message...", required: false }
-					],
-					submitButtonText: "Submit"
-				});
-				newBlock.styles = {
-					backgroundColor: "white",
-					border: "2px solid #ddd"
 				};
 				break;
 			default:

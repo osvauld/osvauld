@@ -1,8 +1,8 @@
 use crate::preview_generator::generate_preview_html;
 use crate::types::{
     AddResourceInput, CryptoResponse, DeleteResourceInput, GetResource, GetResourceForFolderInput,
-    ResourcePreview, ResourceResponse, ShareResource, ToggleFavInput, UpdateLastAccessedInput,
-    UpdateResources,
+    ResourcePreview, ResourceResponse, ResourceResponse2, ShareResource, ToggleFavInput,
+    UpdateLastAccessedInput, UpdateResources,
 };
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
@@ -85,7 +85,7 @@ pub async fn handle_add_resource(
     let repo_ctx_clone = repo_ctx.inner().clone();
     let crypto_utils_clone = crypto_utils.inner().clone();
     let p2p_service_clone = p2p_service.inner().clone();
-    
+
     tokio::spawn(async move {
         // First, auto-share the resource with all users who have access to the folder
         match services::auto_share_resource_with_folder_users(
@@ -99,8 +99,11 @@ pub async fn handle_add_resource(
         .await
         {
             Ok(_) => {
-                info!("Successfully auto-shared resource {} with folder users", resource_id);
-                
+                info!(
+                    "Successfully auto-shared resource {} with folder users",
+                    resource_id
+                );
+
                 // After successful sharing, sync over P2P
                 if let Err(e) = p2p_service_clone.sync_resource(&resource_id).await {
                     error!("Failed to sync resource {} over P2P: {}", resource_id, e);
@@ -109,7 +112,10 @@ pub async fn handle_add_resource(
                 }
             }
             Err(e) => {
-                error!("Failed to auto-share resource {} with folder users: {}", resource_id, e);
+                error!(
+                    "Failed to auto-share resource {} with folder users: {}",
+                    resource_id, e
+                );
             }
         }
     });
@@ -341,17 +347,18 @@ pub async fn handle_get_resource(
     info!("Decryption took: {:?}", decrypt_start.elapsed());
 
     let json_parse_start = Instant::now();
-    let response = ResourceResponse {
+    let response = ResourceResponse2 {
         id: resource.id,
         data: resource.data,
         favourite: resource.favourite,
         last_accessed: resource.last_accessed,
         folder_id: resource.folder_id,
+        resource_type: resource.resource_type.to_string(),
     };
     info!("JSON parsing took: {:?}", json_parse_start.elapsed());
     info!("Total time: {:?}", start.elapsed());
 
-    Ok(CryptoResponse::SelectedResourceResponse(response))
+    Ok(CryptoResponse::SelectedResourceResponse2(response))
 }
 #[tauri::command]
 pub async fn handle_share_resource(
@@ -491,15 +498,15 @@ pub async fn emit_all_resources(
 
     tokio::spawn(async move {
         let background_start = Instant::now();
-        
+
         // Concurrency limit - adjust based on your system
         const MAX_CONCURRENT_TASKS: usize = 10;
-        
+
         let mut tasks = tokio::task::JoinSet::new();
         let mut processed = 0;
-        
+
         let mut resource_iter = all_resource_ids.into_iter();
-        
+
         // Initial batch of tasks
         for _ in 0..MAX_CONCURRENT_TASKS {
             if let Some(resource_id) = resource_iter.next() {
@@ -507,11 +514,11 @@ pub async fn emit_all_resources(
                 let repo_ctx_task = repo_ctx_clone.clone();
                 let crypto_utils_task = crypto_utils_clone.clone();
                 let app_handle_task = app_handle_clone.clone();
-                
+
                 tasks.spawn(async move {
                     let resource_start = Instant::now();
                     let get_resource_start = Instant::now();
-                    
+
                     match get_resource_by_id_direct(
                         &resource_id,
                         &user_id_clone,
@@ -547,11 +554,19 @@ pub async fn emit_all_resources(
                             };
 
                             if let Err(e) = app_handle_task.emit("resource-added", response) {
-                                eprintln!("Failed to emit resource-added for {}: {}", resource_id, e);
+                                eprintln!(
+                                    "Failed to emit resource-added for {}: {}",
+                                    resource_id, e
+                                );
                             }
                             let emit_time = emit_start.elapsed();
-                            
-                            Ok((resource_id, resource_start.elapsed(), get_resource_time, emit_time))
+
+                            Ok((
+                                resource_id,
+                                resource_start.elapsed(),
+                                get_resource_time,
+                                emit_time,
+                            ))
                         }
                         Err(e) => {
                             eprintln!("Failed to decrypt resource {}: {}", resource_id, e);
@@ -561,13 +576,13 @@ pub async fn emit_all_resources(
                 });
             }
         }
-        
+
         // Process tasks as they complete and spawn new ones
         while let Some(result) = tasks.join_next().await {
             match result {
                 Ok(Ok((_resource_id, resource_time, get_resource_time, emit_time))) => {
                     processed += 1;
-                    
+
                     // Log every 10th resource or if it takes longer than 100ms
                     if processed % 10 == 0 || resource_time.as_millis() > 100 {
                         info!(
@@ -584,18 +599,18 @@ pub async fn emit_all_resources(
                     processed += 1;
                 }
             }
-            
+
             // Spawn a new task if there are more resources
             if let Some(resource_id) = resource_iter.next() {
                 let user_id_clone = user_id.clone();
                 let repo_ctx_task = repo_ctx_clone.clone();
                 let crypto_utils_task = crypto_utils_clone.clone();
                 let app_handle_task = app_handle_clone.clone();
-                
+
                 tasks.spawn(async move {
                     let resource_start = Instant::now();
                     let get_resource_start = Instant::now();
-                    
+
                     match get_resource_by_id_direct(
                         &resource_id,
                         &user_id_clone,
@@ -631,11 +646,19 @@ pub async fn emit_all_resources(
                             };
 
                             if let Err(e) = app_handle_task.emit("resource-added", response) {
-                                eprintln!("Failed to emit resource-added for {}: {}", resource_id, e);
+                                eprintln!(
+                                    "Failed to emit resource-added for {}: {}",
+                                    resource_id, e
+                                );
                             }
                             let emit_time = emit_start.elapsed();
-                            
-                            Ok((resource_id, resource_start.elapsed(), get_resource_time, emit_time))
+
+                            Ok((
+                                resource_id,
+                                resource_start.elapsed(),
+                                get_resource_time,
+                                emit_time,
+                            ))
                         }
                         Err(e) => {
                             eprintln!("Failed to decrypt resource {}: {}", resource_id, e);

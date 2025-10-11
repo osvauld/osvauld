@@ -1,12 +1,12 @@
 import { sendMessage } from '../utils/helper';
-import { createEmptyBlocksuiteDoc } from '../utils/blocksuiteUtils';
+import { createResourceDoc } from '../utils/blocksuiteUtils';
 import type { Website, Resource, UserDetails } from '../types';
-import { listen } from '@tauri-apps/api/event';
-import { dataState as oldDataState } from '../store.svelte';
+import { listen, emit } from '@tauri-apps/api/event';
+import { BlocksuiteCoordinator } from '../lib/blocksuiteCoordinator';
 
 /**
- * Data State Management for Sthalam
- * Inspired by livnote's architecture but adapted for website builder
+ * Unified Data State Management for Sthalam
+ * Manages resources, websites, AND BlockSuite coordinator in one place
  */
 class DataState {
   // Websites (folders)
@@ -21,6 +21,12 @@ class DataState {
   // User data
   userDetails = $state<UserDetails | null>(null);
   clientId: number = 0;
+
+  // BlockSuite coordinator (Yjs)
+  private blocksuiteCoordinator: BlocksuiteCoordinator | null = null;
+
+  // Collaborators (for awareness/real-time collaboration)
+  collaborators = $state<any[]>([]);
 
   // Sovereign node
   sovereignNodeId = $state<string | null>(null);
@@ -40,20 +46,121 @@ class DataState {
   });
 
   /**
-   * Initialize state - fetch websites and user details
+   * Get the BlockSuite coordinator
+   */
+  getBlocksuiteCoordinator(): BlocksuiteCoordinator | null {
+    console.log("🔍 getBlocksuiteCoordinator called, coordinator available:", !!this.blocksuiteCoordinator);
+    return this.blocksuiteCoordinator;
+  }
+
+  /**
+   * Get current resource ID
+   */
+  getCurrentResourceId(): string | null {
+    return this.currentResourceId;
+  }
+
+  /**
+   * Set current resource ID
+   */
+  setCurrentResourceId(resourceId: string | null) {
+    this.currentResourceId = resourceId;
+  }
+
+  /**
+   * Update collaborators list (for real-time awareness)
+   */
+  updateCollaborators(newCollaborators: any[]) {
+    this.collaborators = newCollaborators;
+  }
+
+  /**
+   * Generate random user color for awareness
+   */
+  private generateUserColor(): string {
+    const colors = [
+      "#FF5630",
+      "#FFAB00",
+      "#36B37E",
+      "#00B8D9",
+      "#6554C0",
+      "#FF7452",
+    ];
+    return colors[Math.floor(Math.random() * colors.length)];
+  }
+
+  /**
+   * Create BlockSuite coordinator
+   */
+  private createCoordinator() {
+    console.log("🔧 createCoordinator called");
+
+    if (this.blocksuiteCoordinator) {
+      console.log("⚠️ Destroying existing coordinator");
+      this.blocksuiteCoordinator.destroy();
+    }
+
+    if (!this.userDetails) {
+      console.error("❌ User details not available for coordinator creation");
+      throw new Error("User details not available for coordinator creation");
+    }
+
+    console.log("✅ User details available, clientId:", this.clientId);
+
+    const userInfo = {
+      name: this.userDetails.username,
+      color: this.generateUserColor(),
+      id: this.clientId,
+      userId: this.userDetails.userId,
+    };
+
+    console.log("🔨 Creating new BlocksuiteCoordinator...");
+    this.blocksuiteCoordinator = new BlocksuiteCoordinator({
+      onCollaborationUpdate: async (update) => {
+        if (!this.currentResourceId) return;
+        await emit("sync-update", {
+          update: Array.from(update),
+          clientID: this.clientId,
+          resource_id: this.currentResourceId,
+        });
+      },
+      onAwarenessUpdate: async (changes) => {
+        if (!this.currentResourceId) return;
+        await emit("awareness-update", {
+          update: Array.from(changes),
+          clientID: this.clientId,
+          resource_id: this.currentResourceId,
+        });
+      },
+      userInfo,
+    });
+
+    console.log("✅ BlocksuiteCoordinator created:", !!this.blocksuiteCoordinator);
+  }
+
+  /**
+   * Initialize state - fetch websites, user details, and create coordinator
    */
   async initializeState() {
+    console.log("🔧 dataState.initializeState() called");
     this.isDataLoading = true;
 
     // Clean up event listeners (but don't clear data)
     this.cleanupReactiveUpdates();
 
     try {
+      console.log("🔄 Getting user details and setting up...");
       await Promise.all([
         this.getUserDetails(),
         this.fetchWebsites(),
         this.setupReactiveUpdates()
       ]);
+      console.log("✅ User details and setup ready");
+
+      // Create coordinator after user details are fetched
+      console.log("🔧 About to create coordinator...");
+      this.createCoordinator();
+      console.log("✅ Coordinator created, available:", !!this.blocksuiteCoordinator);
 
       // Fetch all resources
       await this.fetchAllResources();
@@ -61,6 +168,7 @@ class DataState {
       console.error("Error initializing state:", error);
     } finally {
       this.isDataLoading = false;
+      console.log("✅ dataState initialization complete");
     }
   }
 
@@ -174,19 +282,20 @@ class DataState {
   /**
    * Add a new resource to a website
    */
-  async addResource(websiteId: string, title: string = "Untitled") {
+  async addResource(websiteId: string, title: string = "Untitled", resourceType: string = "website") {
     try {
-      console.log("📝 Creating resource:", { websiteId, title, clientId: this.clientId });
+      console.log("📝 Creating resource:", { websiteId, title, resourceType, clientId: this.clientId });
 
-      // Create empty BlockSuite document with initial template blocks
-      const blocksuiteContent = createEmptyBlocksuiteDoc(
+      // Create document based on resource type
+      const blocksuiteContent = createResourceDoc(
+        resourceType as any,
         this.clientId,
         title
       );
 
       console.log("✅ BlockSuite content created:", {
         title: blocksuiteContent.title,
-        updatesLength: blocksuiteContent.main_doc.length,
+        resourceType,
         clientId: blocksuiteContent.client_id
       });
 
@@ -194,7 +303,7 @@ class DataState {
       const resource = await sendMessage("addCredential", {
         resourcePayload: JSON.stringify(blocksuiteContent),
         folderId: websiteId,
-        resourceType: "website"
+        resourceType: resourceType
       });
 
       console.log("✅ Resource created by backend:", resource);
@@ -234,24 +343,29 @@ class DataState {
         const resource = await sendMessage("getCredential", {
           resourceId: resourceId
         });
+        console.log(resource, "RESOURCE");
 
         console.log("✅ Resource data fetched:", {
           id: resource.id,
           hasData: !!resource.data,
           dataType: typeof resource.data,
+          resourceType: resource.resource_type,
           resourceKeys: Object.keys(resource),
           fullResource: resource
         });
 
+        // Update the resource type in the preview array
+        const previewIndex = this.resources.findIndex(r => r.id === resourceId);
+        if (previewIndex !== -1 && resource.resource_type) {
+          this.resources[previewIndex].resourceType = resource.resource_type;
+        }
+
         // Store the full resource data (includes BlockSuite content)
         this.currentResourceData = resource;
 
-        // Set the resource ID in oldDataState (for coordinator events)
-        oldDataState.setCurrentResourceId(resourceId);
-
         // Load the resource data into the coordinator FIRST (livnote pattern!)
         // This reinitializes Yjs documents with fresh data
-        const coordinator = oldDataState.getBlocksuiteCoordinator();
+        const coordinator = this.getBlocksuiteCoordinator();
         if (!coordinator) {
           console.error("❌ No coordinator available!");
           return;
@@ -306,7 +420,7 @@ class DataState {
    */
   async saveCurrentResource(resourceId: string) {
     try {
-      const coordinator = oldDataState.getBlocksuiteCoordinator();
+      const coordinator = this.getBlocksuiteCoordinator();
       if (!coordinator) {
         console.warn("⚠️ No coordinator available for saving");
         return;
@@ -317,8 +431,12 @@ class DataState {
       // Get the current blocksuite content from coordinator
       const blocksuiteContent = coordinator.saveBlocksuite();
 
+      console.log("📦 BlockSuite content to save (full):", blocksuiteContent);
+      console.log("📦 BlockSuite content keys:", blocksuiteContent ? Object.keys(blocksuiteContent) : "null");
       console.log("📦 BlockSuite content to save:", {
         hasMainDoc: !!blocksuiteContent?.main_doc,
+        hasFormDoc: !!blocksuiteContent?.form_doc,
+        hasBlocksuiteDoc: !!blocksuiteContent?.blocksuite_doc,
         hasUpdates: !!blocksuiteContent?.main_doc?.updates,
         updatesLength: blocksuiteContent?.main_doc?.updates?.length,
         lastModified: blocksuiteContent?.last_modified
@@ -382,9 +500,6 @@ class DataState {
   clearCurrentResource() {
     this.currentResourceId = null;
     this.currentResourceData = null;
-
-    // Also clear in oldDataState
-    oldDataState.setCurrentResourceId(null);
   }
 
   /**
@@ -453,6 +568,12 @@ class DataState {
     // Clean up event listeners first
     this.cleanupReactiveUpdates();
 
+    // Clean up coordinator
+    if (this.blocksuiteCoordinator) {
+      this.blocksuiteCoordinator.destroy();
+      this.blocksuiteCoordinator = null;
+    }
+
     this.websites = [{ id: "all", name: "All Websites" }];
     this.currentWebsite = { id: "all", name: "All Websites" };
     this.resources = [];
@@ -476,7 +597,7 @@ class DataState {
       const newResource: Resource = {
         id: resourceData.id || "",
         title: resourceData.title || "Untitled",
-        resourceType: 'website' as const,
+        resourceType: resourceData.resource_type || resourceData.resourceType || 'website',
         websiteId: resourceData.folder_id || resourceData.folderId || "",
         lastModified: resourceData.last_modified || resourceData.lastModified || Date.now(),
         favourite: resourceData.favourite || false,
@@ -520,6 +641,7 @@ class DataState {
         this.resources[index] = {
           ...existingResource,
           title: resourceData.title || existingResource.title,
+          resourceType: resourceData.resource_type || resourceData.resourceType || existingResource.resourceType,
           lastModified,
           favourite: resourceData.favourite ?? existingResource.favourite,
           preview: resourceData.preview || existingResource.preview,
@@ -531,7 +653,7 @@ class DataState {
         const newResource: Resource = {
           id: resourceData.id || "",
           title: resourceData.title || "Untitled",
-          resourceType: 'website' as const,
+          resourceType: resourceData.resource_type || resourceData.resourceType || 'website',
           websiteId: resourceData.folder_id || "",
           lastModified: resourceData.last_modified || resourceData.lastModified || Date.now(),
           favourite: resourceData.favourite || false,

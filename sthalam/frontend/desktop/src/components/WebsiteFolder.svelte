@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { dataState } from "../state";
 	import ResourceItem from "./ResourceItem.svelte";
+	import CreateResourceModal from "./CreateResourceModal.svelte";
 	import type { Website } from "../types";
 	import { RightArrow, Add } from "@osvauld/icons";
 
@@ -15,7 +16,7 @@
 	let { website, isExpanded, onToggle, onSelect, isSelected }: Props =
 		$props();
 
-	let isCreatingResource = $state(false);
+	let showCreateModal = $state(false);
 
 	// Get resources for this website
 	const websiteResources = $derived(() => {
@@ -28,9 +29,7 @@
 		return websiteResources().length;
 	});
 
-	async function handleCreateResource() {
-		if (isCreatingResource) return;
-
+	function handleCreateResource() {
 		// Ensure website is selected
 		if (!isSelected) {
 			onSelect();
@@ -41,15 +40,8 @@
 			onToggle();
 		}
 
-		isCreatingResource = true;
-
-		try {
-			await dataState.addResource(website.id, "Untitled Page");
-		} catch (error) {
-			console.error("Failed to create resource:", error);
-		} finally {
-			isCreatingResource = false;
-		}
+		// Show create modal
+		showCreateModal = true;
 	}
 
 	function handleResourceSelect(resource: any) {
@@ -112,7 +104,7 @@
 			>
 				<button
 					type="button"
-					class="p-1.5 rounded-md transition-colors duration-150 cursor-pointer disabled:opacity-50"
+					class="p-1.5 rounded-md transition-colors duration-150 cursor-pointer"
 					class:text-osvauld-sideListTextActive={isSelected}
 					class:hover:bg-osvauld-modalFieldActive={isSelected}
 					class:text-osvauld-fieldText={!isSelected}
@@ -122,7 +114,6 @@
 						e.stopPropagation();
 						handleCreateResource();
 					}}
-					disabled={isCreatingResource}
 					title="Create new page"
 				>
 					<Add color="currentColor" size={16} />
@@ -157,3 +148,11 @@
 		</div>
 	{/if}
 </div>
+
+<!-- Create Resource Modal -->
+{#if showCreateModal}
+	<CreateResourceModal
+		websiteId={website.id}
+		onClose={() => (showCreateModal = false)}
+	/>
+{/if}

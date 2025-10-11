@@ -6,13 +6,13 @@ import * as Y from 'yjs';
  * It's only used for real-time collaboration syncing
  */
 export interface BlocksuiteContent {
-  main_doc: number[];  // Simplified - just the Yjs updates
+  [key: string]: any;  // Dynamic key based on resource type
   client_id: string;
   last_modified: number;
   title: string;
 }
 
-export type ResourceType = 'website' | 'notice-board' | 'form';
+export type ResourceType = 'website' | 'noticeboard' | 'form';
 
 /**
  * Create an empty BlockSuite document with initial state
@@ -72,7 +72,7 @@ export function createEmptyBlocksuiteDoc(
 
   // Create content structure matching backend expectations
   const content: BlocksuiteContent = {
-    main_doc: Array.from(encoded),  // Just the updates - state vector not needed!
+    blocksuite_doc: Array.from(encoded),  // Website uses blocksuite_doc key
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
@@ -102,7 +102,7 @@ export function createBlankBlocksuiteDoc(
   const encoded = Y.encodeStateAsUpdateV2(tempDoc);
 
   const content: BlocksuiteContent = {
-    main_doc: Array.from(encoded),
+    blocksuite_doc: Array.from(encoded),
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
@@ -146,7 +146,7 @@ export function createNoticeBoardDoc(
   const encoded = Y.encodeStateAsUpdateV2(tempDoc);
 
   const content: BlocksuiteContent = {
-    main_doc: Array.from(encoded),
+    thread_doc: Array.from(encoded),  // NoticeBoard uses thread_doc key
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
@@ -157,7 +157,7 @@ export function createNoticeBoardDoc(
 }
 
 /**
- * Create a form document
+ * Create a form document (empty, no default fields)
  */
 export function createFormDoc(
   clientId: number,
@@ -165,39 +165,27 @@ export function createFormDoc(
 ): BlocksuiteContent {
   const tempDoc = new Y.Doc();
   const blocks = tempDoc.getMap("blocks");
-  const viewport = tempDoc.getMap("viewport");
 
-  viewport.set("x", 0);
-  viewport.set("y", 0);
-  viewport.set("zoom", 1);
-
-  // Add a form block with default fields
-  blocks.set("form-1", {
-    id: "form-1",
-    type: "form",
-    x: 100,
-    y: 100,
-    width: 500,
-    height: 400,
-    zIndex: 1,
+  // Store form configuration in a special block
+  blocks.set("form-config", {
+    id: "form-config",
+    type: "form-config",
     content: JSON.stringify({
-      fields: [
-        { id: "field-1", type: "text", label: "Name", placeholder: "Enter your name", required: true },
-        { id: "field-2", type: "email", label: "Email", placeholder: "Enter your email", required: true },
-        { id: "field-3", type: "textarea", label: "Message", placeholder: "Your message...", required: false }
-      ],
+      fields: [],  // Empty form - user will add fields
       submitButtonText: "Submit"
     }),
-    styles: {
-      backgroundColor: "white",
-      border: "2px solid #ddd"
-    }
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+    zIndex: 0,
+    styles: {}
   });
 
   const encoded = Y.encodeStateAsUpdateV2(tempDoc);
 
   const content: BlocksuiteContent = {
-    main_doc: Array.from(encoded),
+    form_doc: Array.from(encoded),  // Form uses form_doc key
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
@@ -218,7 +206,7 @@ export function createResourceDoc(
   switch (resourceType) {
     case 'website':
       return createEmptyBlocksuiteDoc(clientId, title);
-    case 'notice-board':
+    case 'noticeboard':
       return createNoticeBoardDoc(clientId, title);
     case 'form':
       return createFormDoc(clientId, title);
