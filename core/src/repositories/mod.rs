@@ -243,6 +243,8 @@ pub trait UserRepository: Send + Sync {
     async fn get_users_by_ids(&self, user_ids: &[String]) -> Result<Vec<User>, RepositoryError>;
     async fn get_user_by_device_id(&self, device_id: &str) -> Result<User, RepositoryError>;
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
+    async fn update_first_sync(&self, user_id: &str, first_sync: bool)
+        -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

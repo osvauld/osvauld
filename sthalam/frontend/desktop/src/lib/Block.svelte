@@ -12,11 +12,12 @@
 			styles: Record<string, string>;
 		};
 		isSelected: boolean;
+		readonly?: boolean;
 		onUpdate: (blockId: string, updates: any) => void;
 		onSelect: (blockId: string) => void;
 	}
 
-	let { block, isSelected, onUpdate, onSelect }: Props = $props();
+	let { block, isSelected, readonly = false, onUpdate, onSelect }: Props = $props();
 
 	let isDragging = $state(false);
 	let isResizing = $state(false);
@@ -137,6 +138,11 @@
 	}
 
 	function handleMouseDown(e: MouseEvent) {
+		// In readonly mode, don't allow any editing interactions
+		if (readonly) {
+			return;
+		}
+
 		// Don't start drag if clicking on resize handle
 		const target = e.target as HTMLElement;
 		if (target.classList.contains("resize-handle")) {
@@ -394,6 +400,9 @@
 
 	// Get cursor based on hover edge
 	const blockCursor = $derived(() => {
+		// In readonly mode, always use default cursor
+		if (readonly) return "default";
+
 		if (isResizing || isDragging) return "grabbing";
 		if (!hoverEdge) return "default";
 
@@ -468,14 +477,14 @@
 		<div
 			bind:this={headingRef}
 			class="block-heading"
-			contenteditable="true"
+			contenteditable={!readonly}
 			oninput={handleContentInput}
 		></div>
 	{:else if block.type === "text"}
 		<div
 			bind:this={textRef}
 			class="block-text"
-			contenteditable="true"
+			contenteditable={!readonly}
 			oninput={handleContentInput}
 		></div>
 	{:else if block.type === "image"}
@@ -587,15 +596,17 @@
 		</div>
 	{/if}
 
-	<!-- Resize handles -->
-	<div class="resize-handle resize-nw" onmousedown={(e) => handleResizeStart(e, "nw")}></div>
-	<div class="resize-handle resize-n" onmousedown={(e) => handleResizeStart(e, "n")}></div>
-	<div class="resize-handle resize-ne" onmousedown={(e) => handleResizeStart(e, "ne")}></div>
-	<div class="resize-handle resize-e" onmousedown={(e) => handleResizeStart(e, "e")}></div>
-	<div class="resize-handle resize-se" onmousedown={(e) => handleResizeStart(e, "se")}></div>
-	<div class="resize-handle resize-s" onmousedown={(e) => handleResizeStart(e, "s")}></div>
-	<div class="resize-handle resize-sw" onmousedown={(e) => handleResizeStart(e, "sw")}></div>
-	<div class="resize-handle resize-w" onmousedown={(e) => handleResizeStart(e, "w")}></div>
+	<!-- Resize handles (hidden in readonly mode) -->
+	{#if !readonly}
+		<div class="resize-handle resize-nw" onmousedown={(e) => handleResizeStart(e, "nw")}></div>
+		<div class="resize-handle resize-n" onmousedown={(e) => handleResizeStart(e, "n")}></div>
+		<div class="resize-handle resize-ne" onmousedown={(e) => handleResizeStart(e, "ne")}></div>
+		<div class="resize-handle resize-e" onmousedown={(e) => handleResizeStart(e, "e")}></div>
+		<div class="resize-handle resize-se" onmousedown={(e) => handleResizeStart(e, "se")}></div>
+		<div class="resize-handle resize-s" onmousedown={(e) => handleResizeStart(e, "s")}></div>
+		<div class="resize-handle resize-sw" onmousedown={(e) => handleResizeStart(e, "sw")}></div>
+		<div class="resize-handle resize-w" onmousedown={(e) => handleResizeStart(e, "w")}></div>
+	{/if}
 </div>
 
 <style>

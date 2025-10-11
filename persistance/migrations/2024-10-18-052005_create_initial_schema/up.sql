@@ -1,6 +1,6 @@
 CREATE TABLE users (
     id TEXT PRIMARY KEY NOT NULL,
-    username TEXT NOT NULL UNIQUE,
+    username TEXT NOT NULL ,
     public_key TEXT NOT NULL,
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
@@ -52,7 +52,6 @@ CREATE TABLE resources (
     updated_at BIGINT NOT NULL,
     created_at BIGINT NOT NULL,
     FOREIGN KEY (folder_id) REFERENCES folders (id)
-    FOREIGN KEY (created_by) REFERENCES users (id)
 );
 
 CREATE TABLE resource_vector_clocks (

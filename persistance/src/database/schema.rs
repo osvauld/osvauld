@@ -129,7 +129,6 @@ diesel::joinable!(resource_keys -> users (user_id));
 diesel::joinable!(resource_vector_clocks -> devices (device_id));
 diesel::joinable!(resource_vector_clocks -> resources (resource_id));
 diesel::joinable!(resources -> folders (folder_id));
-diesel::joinable!(resources -> users (created_by));
 diesel::joinable!(share_records -> resources (resource_id));
 
 diesel::allow_tables_to_appear_in_same_query!(

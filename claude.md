@@ -1,5 +1,12 @@
 # Sthalam - Osvauld BlockSuite Editor
 
+## Tech Stack
+- **Frontend**: Svelte 5 (with runes) - `.svelte` files only, NO React/TSX
+- **Backend**: Rust with Tauri
+- **Editor**: BlockSuite for document editing
+- **P2P**: libp2p for networking
+- **State**: Yjs for collaborative editing
+
 ## Quick Start
 
 ```bash
@@ -791,6 +798,78 @@ src/lib/
 - Keep it simple - can iterate and add features incrementally
 - Support all types of blocks and custom blocks if necessary
 - Pages are supported in architecture (independent documents)
+
+---
+
+# Viewer Mode Implementation (2025-10-11)
+
+## Overview
+Implemented viewer mode for displaying synced resources from sovereign nodes in readonly mode. Viewer mode provides a similar experience to builder mode but without editing capabilities.
+
+## Key Features
+
+### 1. Viewer Mode Component (`ViewerMode.svelte`)
+- **Sidebar Navigation**: Shows list of synced websites from sovereign nodes
+- **Resource Display**: Loads and displays selected resources using the same Canvas component
+- **Readonly Canvas**: Resources are displayed in readonly mode (no editing)
+- **Add Connection**: Button to add new website connections via connection string
+
+### 2. Readonly Support in Canvas and Block Components
+- **Canvas Component** (`Canvas.svelte`):
+  - Added `readonly` prop (default: false)
+  - Passes readonly flag to all Block components
+  - Still allows viewport panning for navigation
+
+- **Block Component** (`Block.svelte`):
+  - Added `readonly` prop (default: false)
+  - **Disabled when readonly**:
+    - Dragging (no position changes)
+    - Resizing (no dimension changes)
+    - Content editing (contenteditable=false for text/heading blocks)
+    - Resize handles (hidden completely)
+    - Cursor changes (always default cursor)
+  - **Still enabled when readonly**:
+    - Interactive elements work normally:
+      - Forms can be submitted
+      - Notice boards can receive comments
+      - These interactions are intentional for viewer engagement
+
+### 3. Data Flow
+```
+1. User switches to Viewer Mode
+2. ViewerMode.svelte loads synced resources from dataState
+3. User selects a resource from sidebar
+4. dataState.switchResource() fetches full resource data
+5. Coordinator loads Yjs documents
+6. Canvas displays blocks in readonly mode
+7. User can pan around and view content
+8. Interactive elements (forms, notice boards) still work
+```
+
+### 4. File Changes
+- `/sthalam/frontend/desktop/src/components/ViewerMode.svelte` - Complete rewrite
+- `/sthalam/frontend/desktop/src/lib/Canvas.svelte` - Added readonly prop
+- `/sthalam/frontend/desktop/src/lib/Block.svelte` - Added readonly support
+
+## Usage
+
+### Builder Mode
+- Left panel: NavigationPanel with website folders
+- Center: Canvas with full editing capabilities
+- Left sidebar: BlockPalette to add blocks
+- Right sidebar: PropertiesPanel to edit selected block
+
+### Viewer Mode
+- Left panel: Sidebar with synced resources list
+- Center: Canvas in readonly mode (no editing)
+- No BlockPalette (can't add blocks)
+- No PropertiesPanel (can't edit properties)
+- Interactive elements (forms, notice boards) still functional
+
+## Future Enhancements
+- Some documents can be fully readonly
+- Some documents can have full interactivity (all forms/buttons work)
+- Currently all documents in viewer mode maintain interactive element functionality
 
 ---
 

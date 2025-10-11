@@ -403,13 +403,13 @@ impl PeerConnection {
                 }
                 ConnectionAction::UserSync => self.start_user_network_sync().await,
                 ConnectionAction::WebsiteRequest => {
-                    info!("Website request triggered - initial sync");
-                    // TODO: Implement initial website sync logic
+                    info!("Website request - not using execute_connection_action");
+                    // Website connections handle sync directly in handshake response
                     Ok(())
                 }
                 ConnectionAction::WebsiteSync => {
-                    info!("Website sync triggered - update sync");
-                    // TODO: Implement website update sync logic
+                    info!("Website sync - not using execute_connection_action");
+                    // Website connections handle sync directly in handshake response
                     Ok(())
                 }
             }
@@ -472,8 +472,16 @@ impl PeerConnection {
         // Mark handshake as complete
         let mut handshake_complete = self.handshake_complete.lock().await;
         *handshake_complete = true;
+        drop(handshake_complete);
 
         info!("Website handshake response processed successfully");
+
+        // Start website sync directly (only if initiator)
+        if self.is_initiator {
+            info!("Initiator: Starting website sync");
+            self.start_website_sync().await?;
+        }
+
         Ok(())
     }
 }

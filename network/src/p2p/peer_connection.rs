@@ -396,6 +396,7 @@ impl PeerConnection {
 
                 Ok(())
             }
+            Message::Website(payload) => self.handle_website_message(payload).await,
         }
     }
 

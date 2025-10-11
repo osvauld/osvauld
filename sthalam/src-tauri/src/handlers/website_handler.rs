@@ -1,16 +1,16 @@
 use crate::types::{ConnectToWebsiteInput, CryptoResponse};
 use crate::user_state::UserState;
 use crate::website_state::WebsiteState;
-use base64::{engine::general_purpose, Engine as _};
+use base64::{Engine as _, engine::general_purpose};
 use crypto_utils::CryptoUtils;
 use crypto_utils::ucan_utils::{generate_flexible_resource_token, generate_public_view_token};
 use log::{error, info};
 use network::p2p::P2PService;
-use osvauld_core::models::{ConnectionAction, ConnectionType, Device, User, UserWithDevices};
+use osvauld_core::models::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
 use serde::{Deserialize, Serialize};
+use services;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::RwLock;
 
@@ -160,6 +160,7 @@ pub async fn handle_connect_to_website(
     _website_state: State<'_, Arc<RwLock<WebsiteState>>>,
     user_state: State<'_, UserState>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
 ) -> Result<CryptoResponse, String> {
     info!("Received website connection request");
 
@@ -180,53 +181,20 @@ pub async fn handle_connect_to_website(
         connection_details.username
     );
 
-    // 3. Create a User record for the sovereign node
-    // user_id and user_public_key are the same
-    let node_user_id = connection_details.user_public_key.clone();
-    let current_timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    // 3. Add the sovereign node user and device using the service function
+    let (node_user, _node_device) = services::add_known_user(
+        connection_details.username.clone(),
+        connection_details.user_public_key.clone(),
+        connection_details.device_public_key.clone(),
+        connection_details.ucan_token.clone(),
+        connection_details.ucan_pub_key.clone(),
+        repo_ctx.inner().clone(),
+        &crypto_utils.inner().clone(),
+    )
+    .await
+    .map_err(|e| format!("Failed to add sovereign node user: {}", e))?;
 
-    let node_user = User {
-        id: node_user_id.clone(),
-        username: connection_details.username.clone(),
-        public_key: connection_details.user_public_key.clone(),
-        created_at: current_timestamp,
-        signature: String::new(), // Not applicable for website connections
-        ucan_token: connection_details.ucan_token.clone(),
-        ucan_pub_key: connection_details.ucan_pub_key.clone(),
-        ucan_cid: String::new(), // Not applicable for website connections
-        first_sync: false,
-        updated_at: current_timestamp,
-        owner: false,
-        deleted: false,
-        deleted_at: None,
-    };
-
-    // device_id and device_key are the same
-    let node_device = Device {
-        id: connection_details.device_public_key.clone(),
-        device_key: connection_details.device_public_key.clone(),
-        user_id: node_user_id.clone(),
-        created_at: current_timestamp,
-        updated_at: current_timestamp,
-        last_synced_at: None,
-    };
-
-    let user_with_devices = UserWithDevices {
-        user: node_user,
-        devices: vec![node_device],
-    };
-
-    // 4. Store the user and device in the database
-    repo_ctx
-        .user_repo
-        .add_users_with_devices_bulk(&vec![user_with_devices])
-        .await
-        .map_err(|e| format!("Failed to store sovereign node user: {}", e))?;
-
-    info!("Stored sovereign node user and device in database");
+    info!("Stored sovereign node user {} and device in database", node_user.id);
 
     // 5. Get current user for the connection
     let _ = user_state.get_user().await?;

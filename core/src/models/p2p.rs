@@ -36,6 +36,7 @@ pub enum Message {
     Handshake(HandshakeMessage),
     FolderTokenRequest(FolderTokenRequest),
     FolderTokenResponse(FolderTokenResponse),
+    Website(WebsiteMessage),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DisconnectStatus {
@@ -213,4 +214,19 @@ pub struct FolderTokenRequest {
 pub struct FolderTokenResponse {
     pub folder_id: String,
     pub connection_string: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum WebsiteMessage {
+    ResourceRequest {
+        ucan_token: String,
+    },
+    ResourceResponse {
+        resource_id: String,
+        resource_data: ResourceSyncData,
+    },
+    InitialSyncComplete {
+        folder_id: String,
+        resource_count: usize,
+    },
 }

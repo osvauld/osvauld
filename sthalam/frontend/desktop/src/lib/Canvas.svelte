@@ -5,12 +5,13 @@
 		blocks: Map<string, any>;
 		viewport: { x: number; y: number; zoom: number };
 		selectedBlockId: string | null;
+		readonly?: boolean;
 		onViewportChange: (viewport: { x: number; y: number }) => void;
 		onBlockUpdate: (blockId: string, updates: any) => void;
 		onBlockSelect: (blockId: string) => void;
 	}
 
-	let { blocks, viewport, selectedBlockId, onViewportChange, onBlockUpdate, onBlockSelect }: Props = $props();
+	let { blocks, viewport, selectedBlockId, readonly = false, onViewportChange, onBlockUpdate, onBlockSelect }: Props = $props();
 
 	let canvasContainer = $state<HTMLDivElement>();
 	let isPanning = $state(false);
@@ -63,6 +64,7 @@
 			<Block
 				{block}
 				isSelected={selectedBlockId === block.id}
+				{readonly}
 				onUpdate={onBlockUpdate}
 				onSelect={onBlockSelect}
 			/>

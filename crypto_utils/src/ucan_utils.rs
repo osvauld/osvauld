@@ -392,7 +392,7 @@ pub fn check_capability(
 pub fn extract_domain_from_ucan(ucan: &Ucan, resource_type: &str) -> Result<String, UcanError> {
     for capability in ucan.capabilities().iter() {
         let cap_resource = capability.resource;
-        
+
         // Look for the resource_type pattern in the URI
         // Format: "domain:resource_type:id" or "domain:resource_type:*"
         if let Some(middle_pos) = cap_resource.find(&format!(":{}", resource_type)) {
@@ -403,7 +403,38 @@ pub fn extract_domain_from_ucan(ucan: &Ucan, resource_type: &str) -> Result<Stri
             }
         }
     }
-    
+
+    Err(UcanError::CapabilityNotFound)
+}
+
+/// Extract the folder_id from a UCAN's folder capabilities.
+///
+/// This function looks for folder capabilities in the UCAN and extracts
+/// the folder_id (e.g., "abc123" from "domain:folder:abc123").
+///
+/// ### Arguments
+/// * `ucan` - The UCAN object to extract the folder_id from.
+///
+/// ### Returns
+/// The folder_id string, or an error if no matching capability is found.
+pub fn extract_folder_id_from_ucan(ucan: &Ucan) -> Result<String, UcanError> {
+    for capability in ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+
+        // Look for folder pattern in the URI
+        // Format: "domain:folder:folder_id"
+        if cap_resource.contains(":folder:") {
+            // Extract folder_id from "domain:folder:folder_id"
+            if let Some(last_colon_pos) = cap_resource.rfind(':') {
+                let folder_id = &cap_resource[last_colon_pos + 1..];
+                // Make sure it's not wildcard or empty
+                if !folder_id.is_empty() && folder_id != "*" {
+                    return Ok(folder_id.to_string());
+                }
+            }
+        }
+    }
+
     Err(UcanError::CapabilityNotFound)
 }
 

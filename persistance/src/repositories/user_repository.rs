@@ -473,4 +473,29 @@ impl UserRepository for SqliteUserRepository {
             })?;
         Ok(user_record_model.ucan_token)
     }
+
+    async fn update_first_sync(
+        &self,
+        user_id: &str,
+        first_sync: bool,
+    ) -> Result<(), RepositoryError> {
+        let now = Local::now().timestamp_millis();
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
+
+        diesel::update(users::table)
+            .filter(users::id.eq(user_id))
+            .set((users::first_sync.eq(first_sync), users::updated_at.eq(now)))
+            .execute(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to update first_sync for user '{}': {}",
+                    user_id, e
+                )),
+            })?;
+
+        Ok(())
+    }
 }
