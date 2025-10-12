@@ -271,69 +271,85 @@
 				</div>
 			{/if}
 
-			<!-- Form Builder -->
-			{#if selectedBlock.type === "form"}
+			<!-- Form Field Properties -->
+			{#if selectedBlock.type.startsWith('form-field-') || selectedBlock.type === 'form-container' || selectedBlock.type === 'form-submit-button'}
 				<div class="property-group">
 					<button class="section-header" onclick={() => toggleSection('content')}>
 						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
-						<h4>Form Builder</h4>
+						<h4>Form Settings</h4>
 					</button>
 					{#if expandedSections.content}
-						<div class="form-builder">
-							<h4>Form Fields</h4>
-							{#each formFields as field, index}
-								<div class="form-field-item">
-									<div class="field-header">
-										<span class="field-number">#{index + 1}</span>
-										<select
-											value={field.type}
-											onchange={(e) => updateFormField(index, 'type', e.currentTarget.value)}
-										>
-											<option value="text">Text</option>
-											<option value="email">Email</option>
-											<option value="number">Number</option>
-											<option value="textarea">Textarea</option>
-											<option value="checkbox">Checkbox</option>
-										</select>
-										<button class="field-delete" onclick={() => removeFormField(index)}>✕</button>
-									</div>
-									<label>
-										<span>Label</span>
-										<input
-											type="text"
-											value={field.label}
-											oninput={(e) => updateFormField(index, 'label', e.currentTarget.value)}
-										/>
-									</label>
-									<label>
-										<span>Placeholder</span>
-										<input
-											type="text"
-											value={field.placeholder}
-											oninput={(e) => updateFormField(index, 'placeholder', e.currentTarget.value)}
-										/>
-									</label>
-									<label class="checkbox-label">
-										<input
-											type="checkbox"
-											checked={field.required}
-											onchange={(e) => updateFormField(index, 'required', e.currentTarget.checked)}
-										/>
-										<span>Required</span>
-									</label>
-								</div>
-							{/each}
-							<button class="add-field-btn" onclick={addFormField}>+ Add Field</button>
-
+						{#if selectedBlock.type.startsWith('form-field-')}
+							<!-- Form Field Properties -->
 							<label>
-								<span>Submit Button Text</span>
+								<span>Label</span>
 								<input
 									type="text"
-									value={formConfig.submitButtonText}
-									oninput={(e) => updateSubmitButtonText(e.currentTarget.value)}
+									value={selectedBlock.label || ""}
+									oninput={(e) => onUpdateBlock(selectedBlock.id, { label: e.currentTarget.value })}
+									placeholder="Field label"
 								/>
 							</label>
-						</div>
+
+							{#if selectedBlock.type !== 'form-field-checkbox'}
+								<label>
+									<span>Placeholder</span>
+									<input
+										type="text"
+										value={selectedBlock.placeholder || ""}
+										oninput={(e) => onUpdateBlock(selectedBlock.id, { placeholder: e.currentTarget.value })}
+										placeholder="Placeholder text"
+									/>
+								</label>
+							{/if}
+
+							<label>
+								<span>Field Name (for JSON)</span>
+								<input
+									type="text"
+									value={selectedBlock.fieldName || ""}
+									oninput={(e) => onUpdateBlock(selectedBlock.id, { fieldName: e.currentTarget.value })}
+									placeholder="field_name"
+								/>
+							</label>
+
+							<label class="checkbox-label">
+								<input
+									type="checkbox"
+									checked={selectedBlock.required || false}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { required: e.currentTarget.checked })}
+								/>
+								<span>Required field</span>
+							</label>
+						{:else if selectedBlock.type === 'form-container'}
+							<!-- Form Container Properties -->
+							<label>
+								<span>Form Label</span>
+								<input
+									type="text"
+									value={selectedBlock.label || ""}
+									oninput={(e) => onUpdateBlock(selectedBlock.id, { label: e.currentTarget.value })}
+									placeholder="Form Container"
+								/>
+							</label>
+							<div class="info-box">
+								💡 Place form fields inside this container. Only fields inside will be submitted together.
+							</div>
+						{:else if selectedBlock.type === 'form-submit-button'}
+							<!-- Submit Button Properties -->
+							<label>
+								<span>Button Text</span>
+								<input
+									type="text"
+									value={selectedBlock.content || "Submit"}
+									oninput={(e) => onUpdateBlock(selectedBlock.id, { content: e.currentTarget.value })}
+									placeholder="Submit"
+								/>
+							</label>
+							<div class="info-box">
+								💡 This button will collect data from all form fields in the same form container and emit JSON.
+							</div>
+						{/if}
 					{/if}
 				</div>
 			{/if}

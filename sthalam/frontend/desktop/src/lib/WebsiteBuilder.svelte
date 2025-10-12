@@ -322,6 +322,65 @@
 					css: "" // Custom CSS
 				};
 				break;
+			case "form-container":
+				newBlock.width = 500;
+				newBlock.height = 400;
+				newBlock.content = "";
+				newBlock.label = "Form";
+				newBlock.styles = {
+					backgroundColor: "rgba(255,255,255,0.9)",
+					border: "2px solid #667eea",
+					padding: "20px"
+				};
+				break;
+			case "form-field-text":
+				newBlock.width = 350;
+				newBlock.height = 80;
+				newBlock.label = "Text Field";
+				newBlock.placeholder = "Enter text...";
+				newBlock.required = false;
+				newBlock.fieldName = `field_${Date.now()}`;
+				break;
+			case "form-field-email":
+				newBlock.width = 350;
+				newBlock.height = 80;
+				newBlock.label = "Email";
+				newBlock.placeholder = "Enter email...";
+				newBlock.required = false;
+				newBlock.fieldName = `email_${Date.now()}`;
+				break;
+			case "form-field-number":
+				newBlock.width = 350;
+				newBlock.height = 80;
+				newBlock.label = "Number";
+				newBlock.placeholder = "Enter number...";
+				newBlock.required = false;
+				newBlock.fieldName = `number_${Date.now()}`;
+				break;
+			case "form-field-textarea":
+				newBlock.width = 350;
+				newBlock.height = 120;
+				newBlock.label = "Message";
+				newBlock.placeholder = "Enter message...";
+				newBlock.required = false;
+				newBlock.fieldName = `message_${Date.now()}`;
+				break;
+			case "form-field-checkbox":
+				newBlock.width = 350;
+				newBlock.height = 60;
+				newBlock.label = "I agree to terms";
+				newBlock.required = false;
+				newBlock.fieldName = `checkbox_${Date.now()}`;
+				break;
+			case "form-submit-button":
+				newBlock.width = 150;
+				newBlock.height = 50;
+				newBlock.content = "Submit";
+				newBlock.styles = {
+					backgroundColor: "#667eea",
+					color: "#ffffff"
+				};
+				break;
 			default:
 				newBlock.width = 300;
 				newBlock.height = 100;

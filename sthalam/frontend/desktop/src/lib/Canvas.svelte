@@ -13,6 +13,78 @@
 
 	let { blocks, viewport, selectedBlockId, readonly = false, onViewportChange, onBlockUpdate, onBlockSelect }: Props = $props();
 
+	// Form submission handler
+	function handleFormSubmit(submitButtonId: string) {
+		console.log("🚀 Form submit triggered by button:", submitButtonId);
+
+		// Get the submit button block
+		const submitButton = blocks.get(submitButtonId);
+		if (!submitButton) {
+			console.error("❌ Submit button not found:", submitButtonId);
+			return;
+		}
+
+		// Find the form container this button belongs to (spatially)
+		let formContainer = null;
+		for (const [id, block] of blocks.entries()) {
+			if (block.type === 'form-container') {
+				// Check if submit button is spatially within this container
+				const isInside =
+					submitButton.x >= block.x &&
+					submitButton.x + submitButton.width <= block.x + block.width &&
+					submitButton.y >= block.y &&
+					submitButton.y + submitButton.height <= block.y + block.height;
+
+				if (isInside) {
+					formContainer = block;
+					console.log("📋 Found form container:", id);
+					break;
+				}
+			}
+		}
+
+		if (!formContainer) {
+			console.warn("⚠️ No form container found for submit button");
+			return;
+		}
+
+		// Find all form field blocks within this container
+		const formData: Record<string, any> = {};
+		let fieldCount = 0;
+
+		for (const [id, block] of blocks.entries()) {
+			if (block.type && block.type.startsWith('form-field-')) {
+				// Check if this field is spatially within the form container
+				const isInside =
+					block.x >= formContainer.x &&
+					block.x + block.width <= formContainer.x + formContainer.width &&
+					block.y >= formContainer.y &&
+					block.y + block.height <= formContainer.y + formContainer.height;
+
+				if (isInside) {
+					// Get the field value from the DOM
+					const fieldName = block.fieldName || block.id;
+					const inputElement = document.querySelector(`[data-field-id="${id}"]`) as HTMLInputElement;
+
+					if (inputElement) {
+						if (block.type === 'form-field-checkbox') {
+							formData[fieldName] = inputElement.checked;
+						} else {
+							formData[fieldName] = inputElement.value;
+						}
+						fieldCount++;
+						console.log(`  ✓ Field "${fieldName}":`, formData[fieldName]);
+					}
+				}
+			}
+		}
+
+		console.log(`✅ Form submission complete! Collected ${fieldCount} fields:`, formData);
+
+		// TODO: Emit this data to the parent or send to backend
+		// For now, just log it
+	}
+
 	let canvasContainer = $state<HTMLDivElement>();
 	let isPanning = $state(false);
 	let panStart = $state({ x: 0, y: 0 });
@@ -67,6 +139,7 @@
 				{readonly}
 				onUpdate={onBlockUpdate}
 				onSelect={onBlockSelect}
+				onFormSubmit={handleFormSubmit}
 			/>
 		{/each}
 	</div>

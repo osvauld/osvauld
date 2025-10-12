@@ -15,9 +15,10 @@
 		readonly?: boolean;
 		onUpdate: (blockId: string, updates: any) => void;
 		onSelect: (blockId: string) => void;
+		onFormSubmit?: (submitButtonId: string) => void;
 	}
 
-	let { block, isSelected, readonly = false, onUpdate, onSelect }: Props = $props();
+	let { block, isSelected, readonly = false, onUpdate, onSelect, onFormSubmit }: Props = $props();
 
 	let isDragging = $state(false);
 	let isResizing = $state(false);
@@ -30,6 +31,9 @@
 	// References to contenteditable elements
 	let headingRef: HTMLDivElement | null = null;
 	let textRef: HTMLDivElement | null = null;
+
+	// Form field state (for viewer mode)
+	let formFieldValue = $state<any>(block.type === 'form-field-checkbox' ? false : '');
 
 	// Handle contenteditable input
 	function handleContentInput(e: Event) {
@@ -437,6 +441,81 @@
 				</div>
 			{/if}
 		</div>
+	{:else if block.type === "form-container"}
+		<div class="block-form-container">
+			<div class="form-container-label">📋 {block.label || "Form Container"}</div>
+			<div class="form-container-hint">Drop form fields inside</div>
+		</div>
+	{:else if block.type === "form-field-text"}
+		<div class="block-form-field">
+			<label class="form-field-label">{block.label || "Text Field"}{block.required ? ' *' : ''}</label>
+			<input
+				type="text"
+				placeholder={block.placeholder || "Enter text..."}
+				bind:value={formFieldValue}
+				disabled={!readonly}
+				required={block.required}
+				data-field-id={block.id}
+			/>
+		</div>
+	{:else if block.type === "form-field-email"}
+		<div class="block-form-field">
+			<label class="form-field-label">{block.label || "Email"}{block.required ? ' *' : ''}</label>
+			<input
+				type="email"
+				placeholder={block.placeholder || "Enter email..."}
+				bind:value={formFieldValue}
+				disabled={!readonly}
+				required={block.required}
+				data-field-id={block.id}
+			/>
+		</div>
+	{:else if block.type === "form-field-number"}
+		<div class="block-form-field">
+			<label class="form-field-label">{block.label || "Number"}{block.required ? ' *' : ''}</label>
+			<input
+				type="number"
+				placeholder={block.placeholder || "Enter number..."}
+				bind:value={formFieldValue}
+				disabled={!readonly}
+				required={block.required}
+				data-field-id={block.id}
+			/>
+		</div>
+	{:else if block.type === "form-field-textarea"}
+		<div class="block-form-field">
+			<label class="form-field-label">{block.label || "Message"}{block.required ? ' *' : ''}</label>
+			<textarea
+				placeholder={block.placeholder || "Enter message..."}
+				bind:value={formFieldValue}
+				disabled={!readonly}
+				required={block.required}
+				rows="3"
+				data-field-id={block.id}
+			></textarea>
+		</div>
+	{:else if block.type === "form-field-checkbox"}
+		<div class="block-form-field checkbox-field">
+			<label class="form-field-label checkbox-label">
+				<input
+					type="checkbox"
+					bind:checked={formFieldValue}
+					disabled={!readonly}
+					data-field-id={block.id}
+				/>
+				<span>{block.label || "Checkbox"}{block.required ? ' *' : ''}</span>
+			</label>
+		</div>
+	{:else if block.type === "form-submit-button"}
+		<div class="block-form-submit">
+			<button
+				type="button"
+				disabled={!readonly}
+				onclick={() => readonly && onFormSubmit && onFormSubmit(block.id)}
+			>
+				{block.content || "Submit"}
+			</button>
+		</div>
 	{/if}
 
 	<!-- Resize handles (hidden in readonly mode) -->
@@ -700,5 +779,101 @@
 	.resize-w {
 		left: -5px;
 		cursor: w-resize;
+	}
+
+	/* Form block styles */
+	.block-form-container {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		border: 2px dashed #667eea;
+		background: rgba(102, 126, 234, 0.05);
+	}
+
+	.form-container-label {
+		font-size: 1rem;
+		font-weight: 600;
+		color: #667eea;
+	}
+
+	.form-container-hint {
+		font-size: 0.875rem;
+		color: #999;
+	}
+
+	.block-form-field {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 12px;
+	}
+
+	.form-field-label {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #333;
+	}
+
+	.block-form-field input,
+	.block-form-field textarea {
+		width: 100%;
+		padding: 0.5rem;
+		border: 1px solid #ddd;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		background: #f9f9f9;
+	}
+
+	.block-form-field textarea {
+		resize: vertical;
+		min-height: 60px;
+	}
+
+	.checkbox-field {
+		flex-direction: row;
+		align-items: center;
+	}
+
+	.checkbox-label {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		cursor: pointer;
+	}
+
+	.checkbox-label input[type="checkbox"] {
+		width: auto;
+		cursor: pointer;
+	}
+
+	.block-form-submit {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.block-form-submit button {
+		padding: 0.75rem 1.5rem;
+		border: none;
+		border-radius: 4px;
+		font-size: 0.875rem;
+		font-weight: 600;
+		cursor: pointer;
+		background: #667eea;
+		color: white;
+	}
+
+	.block-form-submit button:disabled {
+		opacity: 0.7;
+		cursor: not-allowed;
+		pointer-events: none; /* Allow clicks to pass through to block for dragging */
 	}
 </style>
