@@ -2,44 +2,50 @@
 	import { marked } from 'marked';
 
 	type Props = {
-		content: string;
-		onUpdate: (content: string) => void;
+		post: any; // Block object
+		onUpdate: (updates: any) => void;
 	};
 
-	let { content, onUpdate }: Props = $props();
+	let { post, onUpdate }: Props = $props();
 
-	let localContent = $state(content);
-	let editMode = $state<'markdown' | 'html' | 'preview'>('markdown');
-	let customCss = $state<string>("");
+	let editMode = $state<'markdown' | 'html' | 'preview'>(post?.mode || 'markdown');
 
-	// Sync local content with prop
+	// Sync edit mode when post changes
 	$effect(() => {
-		localContent = content;
+		if (post?.mode) {
+			editMode = post.mode;
+		}
 	});
 
 	function handleInput(e: Event) {
 		const target = e.target as HTMLTextAreaElement;
-		localContent = target.value;
-		onUpdate(localContent);
+		onUpdate({ content: target.value });
 	}
 
 	function handleCssInput(e: Event) {
 		const target = e.target as HTMLTextAreaElement;
-		customCss = target.value;
+		onUpdate({ css: target.value });
+	}
+
+	function handleModeChange(newMode: 'markdown' | 'html' | 'preview') {
+		editMode = newMode;
+		if (newMode !== 'preview') {
+			onUpdate({ mode: newMode });
+		}
 	}
 
 	// Parse markdown to HTML for preview
 	const previewHtml = $derived(() => {
-		if (editMode === 'html') {
-			return localContent;
-		} else if (editMode === 'markdown') {
+		if (!post) return '';
+		if (editMode === 'html' || post.mode === 'html') {
+			return post.content || '';
+		} else {
 			try {
-				return marked.parse(localContent || '');
+				return marked.parse(post.content || '');
 			} catch (error) {
 				return '<p>Error parsing markdown</p>';
 			}
 		}
-		return localContent;
 	});
 </script>
 
@@ -50,21 +56,21 @@
 			<button
 				class="tab"
 				class:active={editMode === 'markdown'}
-				onclick={() => editMode = 'markdown'}
+				onclick={() => handleModeChange('markdown')}
 			>
 				📝 Markdown
 			</button>
 			<button
 				class="tab"
 				class:active={editMode === 'html'}
-				onclick={() => editMode = 'html'}
+				onclick={() => handleModeChange('html')}
 			>
 				🌐 HTML/CSS
 			</button>
 			<button
 				class="tab"
 				class:active={editMode === 'preview'}
-				onclick={() => editMode = 'preview'}
+				onclick={() => handleModeChange('preview')}
 			>
 				👁️ Preview
 			</button>
@@ -77,7 +83,7 @@
 				<textarea
 					class="content-input"
 					placeholder="Write your thread post in markdown...&#10;&#10;# Heading&#10;**Bold** and *italic*&#10;- List items&#10;[Links](url)&#10;&#10;etc."
-					value={localContent}
+					value={post?.content || ''}
 					oninput={handleInput}
 				></textarea>
 			</div>
@@ -88,7 +94,7 @@
 					<textarea
 						class="content-input html-input"
 						placeholder="&lt;div&gt;&#10;  &lt;h1&gt;Your HTML here&lt;/h1&gt;&#10;  &lt;p&gt;Rich content...&lt;/p&gt;&#10;&lt;/div&gt;"
-						value={localContent}
+						value={post?.content || ''}
 						oninput={handleInput}
 					></textarea>
 				</div>
@@ -97,7 +103,7 @@
 					<textarea
 						class="content-input css-input"
 						placeholder="/* Custom CSS */&#10;.my-class &#123;&#10;  color: #667eea;&#10;  font-size: 18px;&#10;&#125;"
-						value={customCss}
+						value={post?.css || ''}
 						oninput={handleCssInput}
 					></textarea>
 				</div>
@@ -105,7 +111,7 @@
 		{:else if editMode === 'preview'}
 			<div class="preview-section">
 				<style>
-					{customCss}
+					{post?.css || ''}
 				</style>
 				<div class="preview-content">
 					{@html previewHtml()}

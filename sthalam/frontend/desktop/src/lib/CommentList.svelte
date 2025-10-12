@@ -3,8 +3,8 @@
 	import CommentInput from './CommentInput.svelte';
 
 	type Props = {
-		comments: any[];
-		onAddComment: (comment: any) => void;
+		comments: any[]; // Array of comment blocks
+		onAddComment: (content: string, mode: string, css: string, parentId?: string) => void;
 		onUpdateComment: (commentId: string, updates: any) => void;
 		onDeleteComment: (commentId: string) => void;
 	};
@@ -12,53 +12,13 @@
 	let { comments, onAddComment, onUpdateComment, onDeleteComment }: Props = $props();
 
 	function handleNewComment(content: string, mode: string, css?: string) {
-		const newComment = {
-			id: `comment-${Date.now()}`,
-			content,
-			mode, // 'markdown' | 'html'
-			css: css || "",
-			author: "Owner", // Will be replaced with actual user later
-			timestamp: new Date().toISOString(),
-			replies: []
-		};
-		onAddComment(newComment);
+		// Submit creates a new comment block
+		onAddComment(content, mode, css || '');
 	}
 
 	function handleReply(parentId: string, content: string, mode: string, css?: string) {
-		const reply = {
-			id: `comment-${Date.now()}`,
-			content,
-			mode,
-			css: css || "",
-			author: "Owner",
-			timestamp: new Date().toISOString(),
-			parentId,
-			replies: []
-		};
-
-		// Find parent comment and add reply
-		const updatedComments = addReplyToComment(comments, parentId, reply);
-		// For now, we'll just add it as a top-level comment with parentId
-		// In a real implementation, you'd update the parent's replies array
-		onAddComment(reply);
-	}
-
-	function addReplyToComment(commentsList: any[], parentId: string, reply: any): any[] {
-		return commentsList.map(comment => {
-			if (comment.id === parentId) {
-				return {
-					...comment,
-					replies: [...(comment.replies || []), reply]
-				};
-			}
-			if (comment.replies && comment.replies.length > 0) {
-				return {
-					...comment,
-					replies: addReplyToComment(comment.replies, parentId, reply)
-				};
-			}
-			return comment;
-		});
+		// Submit creates a new comment block with parentId
+		onAddComment(content, mode, css || '', parentId);
 	}
 
 	// Build a tree structure for nested comments

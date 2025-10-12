@@ -113,11 +113,11 @@ export function createBlankBlocksuiteDoc(
 }
 
 /**
- * Create a notice board document
+ * Create a thread document
  */
 export function createNoticeBoardDoc(
   clientId: number,
-  title: string = "Notice Board"
+  title: string = "Thread"
 ): BlocksuiteContent {
   const tempDoc = new Y.Doc();
   const blocks = tempDoc.getMap("blocks");

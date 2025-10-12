@@ -308,6 +308,10 @@ class DataState {
 
       console.log("✅ Resource created by backend:", resource);
 
+      // Add resourceType to the returned resource since backend doesn't include it
+      resource.resourceType = resourceType;
+      resource.resource_type = resourceType;
+
       // Don't manually add to array - backend will emit resource-added event
       // which will add it via handleResourceAdded
 
@@ -354,14 +358,34 @@ class DataState {
           fullResource: resource
         });
 
-        // Update the resource type in the preview array
+        // Update the resource type in the preview array (check both field names)
         const previewIndex = this.resources.findIndex(r => r.id === resourceId);
-        if (previewIndex !== -1 && resource.resource_type) {
-          this.resources[previewIndex].resourceType = resource.resource_type;
+        const backendResourceType = resource.resource_type || resource.resourceType;
+        if (previewIndex !== -1 && backendResourceType) {
+          this.resources[previewIndex].resourceType = backendResourceType;
+          console.log("📝 Updated preview resourceType to:", backendResourceType);
         }
 
+        // Get the resourceType from the preview array if not in backend response
+        const resourcePreview = this.resources.find(r => r.id === resourceId);
+        // Check both snake_case (resource_type) and camelCase (resourceType) from backend
+        const resourceType = resource.resource_type || resource.resourceType || resourcePreview?.resourceType || 'website';
+
+        console.log("🔍 Resource type resolution:", {
+          fromBackend_snake: resource.resource_type,
+          fromBackend_camel: resource.resourceType,
+          fromPreview: resourcePreview?.resourceType,
+          final: resourceType,
+          previewExists: !!resourcePreview
+        });
+
         // Store the full resource data (includes BlockSuite content)
-        this.currentResourceData = resource;
+        // Add resourceType if missing
+        this.currentResourceData = {
+          ...resource,
+          resource_type: resourceType,
+          resourceType: resourceType
+        };
 
         // Load the resource data into the coordinator FIRST (livnote pattern!)
         // This reinitializes Yjs documents with fresh data
@@ -397,7 +421,7 @@ class DataState {
         this.currentResourceId = resourceId;
 
         // Update current website to match the resource's website
-        const resourcePreview = this.resources.find(r => r.id === resourceId);
+        // Reuse resourcePreview from above instead of looking it up again
         if (resourcePreview?.websiteId) {
           const website = this.websites.find(w => w.id === resourcePreview.websiteId);
           if (website) {
@@ -593,6 +617,14 @@ class DataState {
     try {
       const resourceData = event.payload;
 
+      console.log("📥 Resource-added event received:", {
+        resource_type: resourceData.resource_type,
+        resourceType: resourceData.resourceType,
+        id: resourceData.id,
+        title: resourceData.title,
+        fullPayload: resourceData
+      });
+
       // Map ResourcePreview to Resource type
       const newResource: Resource = {
         id: resourceData.id || "",
@@ -603,6 +635,12 @@ class DataState {
         favourite: resourceData.favourite || false,
         preview: resourceData.preview || "",
       };
+
+      console.log("📝 Mapped resource preview:", {
+        id: newResource.id,
+        title: newResource.title,
+        resourceType: newResource.resourceType
+      });
 
       // Check if resource already exists (avoid duplicates)
       const exists = this.resources.some(r => r.id === newResource.id);

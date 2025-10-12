@@ -19,6 +19,20 @@
 			: null)
 	);
 
+	// Debug: Log current resource and type
+	$effect(() => {
+		console.log("🎨🎨🎨 App.svelte - currentResource EFFECT FIRED:", {
+			hasResource: !!currentResource,
+			resourceId: currentResource?.id,
+			resource_type_field: currentResource?.resource_type,
+			resourceType_field: currentResource?.resourceType,
+			derivedResourceType: currentResource?.resource_type || currentResource?.resourceType,
+			fullCurrentResource: currentResource,
+			currentResourceData: authDataState.currentResourceData,
+			currentResourceId: authDataState.currentResourceId
+		});
+	});
+
 	const builderTitle = $derived(() => {
 		if (uiState.mode === 'viewer') return '👀 Website Viewer';
 		if (!currentResource) return '🎨 Builder';
@@ -28,7 +42,7 @@
 			case 'form':
 				return '📝 Form Builder';
 			case 'noticeboard':
-				return '💬 Notice Board Builder';
+				return '💬 Thread Builder';
 			default:
 				return '🎨 Website Builder';
 		}
@@ -170,14 +184,18 @@
 				{#if uiState.mode === 'builder'}
 					{#if !currentResource}
 						<!-- No resource selected -->
+						{@const _ = console.log("🔴 ROUTING: No resource selected, showing WebsiteBuilder")}
 						<WebsiteBuilder />
 					{:else}
 						{@const resourceType = currentResource.resource_type || currentResource.resourceType}
+						{@const __ = console.log("🟢 ROUTING: Resource exists, type =", resourceType, "| resource_type =", currentResource.resource_type, "| resourceType =", currentResource.resourceType)}
 						{#if resourceType === 'noticeboard'}
-							<!-- NoticeBoard Builder -->
+							<!-- Thread Builder -->
+							{@const ___ = console.log("✅ ROUTING: Showing NoticeBoardBuilder (Thread)")}
 							<NoticeBoardBuilder />
 						{:else}
 							<!-- Both 'website' and 'form' use WebsiteBuilder -->
+							{@const ____ = console.log("⚠️ ROUTING: Showing WebsiteBuilder for type:", resourceType)}
 							<WebsiteBuilder />
 						{/if}
 					{/if}

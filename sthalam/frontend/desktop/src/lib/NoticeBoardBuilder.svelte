@@ -2,27 +2,48 @@
 	import { onMount, onDestroy, untrack } from "svelte";
 	import { dataState } from "../state";
 	import NavigationPanel from "../components/NavigationPanel.svelte";
-	import ThreadEditor from "./ThreadEditor.svelte";
-	import CommentSection from "./CommentSection.svelte";
+	import ThreadPost from "./ThreadPost.svelte";
+	import CommentList from "./CommentList.svelte";
 	import type { YjsDocuments } from "./yjsManager";
 
 	let yDocs: YjsDocuments | null = null;
-	let threadContent = $state<string>("");
-	let comments = $state<any[]>([]);
+	let blocks = $state<Map<string, any>>(new Map());
 	let autoSaveInterval: number | null = null;
 
 	// Track if we have a resource selected
 	const hasResource = $derived(!!dataState.currentResourceId);
 
+	// Get the thread post block (type: 'thread-post')
+	const threadPost = $derived(() => {
+		for (const [id, block] of blocks) {
+			if (block.type === 'thread-post') {
+				return block;
+			}
+		}
+		return null;
+	});
+
+	// Get all comment blocks (type: 'comment')
+	const comments = $derived(() => {
+		const commentBlocks: any[] = [];
+		for (const [id, block] of blocks) {
+			if (block.type === 'comment') {
+				commentBlocks.push(block);
+			}
+		}
+		// Sort by order/timestamp
+		return commentBlocks.sort((a, b) => (a.order || 0) - (b.order || 0));
+	});
+
 	onMount(async () => {
-		console.log("🚀 Initializing NoticeBoard Builder...");
+		console.log("🚀 Initializing Thread Builder...");
 
 		// Set up auto-save every 10 seconds
 		autoSaveInterval = window.setInterval(async () => {
 			const currentResourceId = dataState.currentResourceId;
 			if (currentResourceId) {
 				try {
-					console.log("💾 Auto-saving notice board:", currentResourceId);
+					console.log("💾 Auto-saving thread:", currentResourceId);
 					await dataState.saveCurrentResource(currentResourceId);
 					console.log("✅ Auto-save completed");
 				} catch (error) {
@@ -31,7 +52,7 @@
 			}
 		}, 10000); // 10 seconds
 
-		console.log("✅ NoticeBoard Builder initialized with auto-save!");
+		console.log("✅ Thread Builder initialized with auto-save!");
 	});
 
 	// React to resource changes
@@ -43,8 +64,7 @@
 			// No resource selected - clear everything
 			console.log("❌ No resource selected - clearing workspace");
 			yDocs = null;
-			threadContent = "";
-			comments = [];
+			blocks = new Map();
 			return;
 		}
 
@@ -70,38 +90,33 @@
 
 			console.log("📦 Yjs documents received for thread_doc");
 
-			// Subscribe to thread content changes
-			const threadObserver = () => {
+			// Subscribe to blocks changes
+			const blocksObserver = () => {
 				if (!yDocs) return;
-				const content = yDocs.blocks.get("thread_content");
-				threadContent = content || "";
-				console.log("📝 Thread content updated");
+				const newBlocks = new Map();
+				yDocs.blocks.forEach((value, key) => {
+					newBlocks.set(key, value);
+				});
+				blocks = newBlocks;
+				console.log("📦 Blocks updated:", blocks.size);
 			};
 
-			// Subscribe to comments changes
-			const commentsObserver = () => {
-				if (!yDocs) return;
-				const commentsData = yDocs.blocks.get("comments");
-				if (Array.isArray(commentsData)) {
-					comments = commentsData;
-				} else {
-					comments = [];
-				}
-				console.log("💬 Comments updated:", comments.length);
-			};
-
-			docs.blocks.observe(threadObserver);
-			docs.blocks.observe(commentsObserver);
+			docs.blocks.observe(blocksObserver);
 
 			// Initial load
-			threadObserver();
-			commentsObserver();
+			blocksObserver();
+
+			// If no thread post exists, create one
+			if (!Array.from(blocks.values()).some(b => b.type === 'thread-post')) {
+				console.log("📝 Creating initial thread post block");
+				createThreadPost();
+			}
 		});
 
 		// Cleanup function for this effect
 		return () => {
 			if (yDocs) {
-				// Note: Yjs will clean up when docs are destroyed
+				// Yjs will clean up when docs are destroyed
 			}
 		};
 	});
@@ -114,36 +129,58 @@
 		}
 	});
 
-	function updateThreadContent(content: string) {
+	function createThreadPost() {
 		if (!yDocs) return;
-		yDocs.blocks.set("thread_content", content);
+		const id = `thread-post-${Date.now()}`;
+		const newBlock = {
+			id,
+			type: 'thread-post',
+			content: '',
+			mode: 'markdown',
+			css: '',
+			author: 'Owner',
+			timestamp: new Date().toISOString(),
+			order: 0
+		};
+		yDocs.blocks.set(id, newBlock);
 	}
 
-	function addComment(comment: any) {
+	function updateThreadPost(updates: any) {
+		if (!yDocs || !threadPost()) return;
+		const post = threadPost();
+		if (post) {
+			yDocs.blocks.set(post.id, { ...post, ...updates });
+		}
+	}
+
+	function addComment(content: string, mode: string, css: string, parentId?: string) {
 		if (!yDocs) return;
-		const currentComments = yDocs.blocks.get("comments") || [];
-		const newComments = Array.isArray(currentComments) ? [...currentComments, comment] : [comment];
-		yDocs.blocks.set("comments", newComments);
+		const id = `comment-${Date.now()}`;
+		const newBlock = {
+			id,
+			type: 'comment',
+			content,
+			mode,
+			css: css || '',
+			author: 'Owner', // Will be replaced with actual user later
+			timestamp: new Date().toISOString(),
+			parentId: parentId || null,
+			order: blocks.size
+		};
+		yDocs.blocks.set(id, newBlock);
 	}
 
 	function updateComment(commentId: string, updates: any) {
 		if (!yDocs) return;
-		const currentComments = yDocs.blocks.get("comments") || [];
-		if (!Array.isArray(currentComments)) return;
-
-		const updatedComments = currentComments.map((c: any) =>
-			c.id === commentId ? { ...c, ...updates } : c
-		);
-		yDocs.blocks.set("comments", updatedComments);
+		const comment = blocks.get(commentId);
+		if (comment) {
+			yDocs.blocks.set(commentId, { ...comment, ...updates });
+		}
 	}
 
 	function deleteComment(commentId: string) {
 		if (!yDocs) return;
-		const currentComments = yDocs.blocks.get("comments") || [];
-		if (!Array.isArray(currentComments)) return;
-
-		const filteredComments = currentComments.filter((c: any) => c.id !== commentId);
-		yDocs.blocks.set("comments", filteredComments);
+		yDocs.blocks.delete(commentId);
 	}
 </script>
 
@@ -152,8 +189,8 @@
 	<div class="empty-state">
 		<NavigationPanel />
 		<div class="empty-message">
-			<h2>No notice board selected</h2>
-			<p>Select a notice board from the sidebar or create a new one to get started.</p>
+			<h2>No thread selected</h2>
+			<p>Select a thread from the sidebar or create a new one to get started.</p>
 		</div>
 	</div>
 {:else}
@@ -162,12 +199,15 @@
 		<NavigationPanel />
 		<div class="main-content">
 			<div class="thread-container">
-				<ThreadEditor
-					content={threadContent}
-					onUpdate={updateThreadContent}
-				/>
-				<CommentSection
-					{comments}
+				{#if threadPost()}
+					<ThreadPost
+						post={threadPost()}
+						onUpdate={updateThreadPost}
+					/>
+				{/if}
+
+				<CommentList
+					comments={comments()}
 					onAddComment={addComment}
 					onUpdateComment={updateComment}
 					onDeleteComment={deleteComment}
@@ -180,7 +220,7 @@
 <style>
 	.builder-container {
 		width: 100%;
-		height: 100vh;
+		height: 100%;
 		overflow: hidden;
 		background: #010409;
 		display: flex;
@@ -188,7 +228,7 @@
 
 	.empty-state {
 		width: 100%;
-		height: 100vh;
+		height: 100%;
 		display: flex;
 		background: #010409;
 	}
