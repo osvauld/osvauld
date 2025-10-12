@@ -32,15 +32,36 @@ pub struct RepositoryContext {
 }
 pub async fn connect_database(db_path: &str) -> Result<DbConnection, Box<dyn std::error::Error + Send + Sync>> {
     let manager = ConnectionManager::<SqliteConnection>::new(db_path);
-    
+
     // Create pool with configuration
     // Set max_size to at least your MAX_CONCURRENT_TASKS + some buffer
     let pool = Pool::builder()
         .max_size(20) // Allow 20 concurrent connections
         .connection_timeout(std::time::Duration::from_secs(30))
+        .connection_customizer(Box::new(ConnectionCustomizer))
         .build(manager)?;
-    
+
     Ok(Arc::new(pool))
+}
+
+// Custom connection customizer to enable WAL mode
+#[derive(Debug)]
+struct ConnectionCustomizer;
+
+impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error> for ConnectionCustomizer {
+    fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
+        use diesel::connection::SimpleConnection;
+
+        // Enable WAL mode for better concurrency
+        conn.batch_execute(
+            "PRAGMA journal_mode = WAL;
+             PRAGMA synchronous = NORMAL;
+             PRAGMA busy_timeout = 5000;
+             PRAGMA cache_size = -64000;"
+        ).map_err(diesel::r2d2::Error::QueryError)?;
+
+        Ok(())
+    }
 }
 pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));

@@ -113,61 +113,69 @@ export function createBlankBlocksuiteDoc(
 }
 
 /**
- * Create a thread document
+ * Create a thread document with split docs for post and comments
+ * NEW: Returns both thread_doc (main post) and thread_comments_doc (comments)
  */
 export function createNoticeBoardDoc(
   clientId: number,
   title: string = "Thread"
 ): BlocksuiteContent {
-  const tempDoc = new Y.Doc();
-  const blocks = tempDoc.getMap("blocks");
-  const viewport = tempDoc.getMap("viewport");
+  // Create thread_doc (for main post)
+  const threadDoc = new Y.Doc();
+  const threadBlocks = threadDoc.getMap("blocks");
+  const viewport = threadDoc.getMap("viewport");
 
   viewport.set("x", 0);
   viewport.set("y", 0);
   viewport.set("zoom", 1);
 
-  // Add a notice board block
-  blocks.set("notice-board-1", {
-    id: "notice-board-1",
-    type: "notice-board",
-    x: 100,
-    y: 100,
-    width: 600,
-    height: 500,
-    zIndex: 1,
-    content: JSON.stringify([]), // Empty messages array
-    styles: {
-      backgroundColor: "white",
-      border: "2px solid #ddd"
-    }
+  // Add initial thread post block
+  const postId = `thread-post-${Date.now()}`;
+  threadBlocks.set(postId, {
+    id: postId,
+    type: "thread-post",
+    content: "",
+    mode: "markdown",
+    css: "",
+    author: "Owner",
+    timestamp: new Date().toISOString(),
+    order: 0
   });
 
-  const encoded = Y.encodeStateAsUpdateV2(tempDoc);
+  const threadEncoded = Y.encodeStateAsUpdateV2(threadDoc);
+
+  // Create thread_comments_doc (for comments)
+  const commentsDoc = new Y.Doc();
+  const commentsBlocks = commentsDoc.getMap("blocks");
+  const commentsEncoded = Y.encodeStateAsUpdateV2(commentsDoc);
 
   const content: BlocksuiteContent = {
-    thread_doc: Array.from(encoded),  // NoticeBoard uses thread_doc key
+    thread_doc: Array.from(threadEncoded),          // Main post
+    thread_comments_doc: Array.from(commentsEncoded), // Comments (empty initially)
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
   };
 
-  tempDoc.destroy();
+  threadDoc.destroy();
+  commentsDoc.destroy();
   return content;
 }
 
 /**
- * Create a form document (empty, no default fields)
+ * Create a form document with split docs for definition and submissions
+ * NEW: Returns both form_doc (form definition) and form_submissions_doc (submissions)
  */
 export function createFormDoc(
   clientId: number,
   title: string = "Form"
 ): BlocksuiteContent {
-  const tempDoc = new Y.Doc();
-  const blocks = tempDoc.getMap("blocks");
+  // Create form_doc (for form definition/fields)
+  const formDoc = new Y.Doc();
+  const formBlocks = formDoc.getMap("blocks");
 
   // Store form configuration in a special block
-  blocks.set("form-config", {
+  formBlocks.set("form-config", {
     id: "form-config",
     type: "form-config",
     content: JSON.stringify({
@@ -182,16 +190,24 @@ export function createFormDoc(
     styles: {}
   });
 
-  const encoded = Y.encodeStateAsUpdateV2(tempDoc);
+  const formEncoded = Y.encodeStateAsUpdateV2(formDoc);
+
+  // Create form_submissions_doc (for submissions)
+  const submissionsDoc = new Y.Doc();
+  const submissionsBlocks = submissionsDoc.getMap("blocks");
+  // Empty initially - viewers/users will append submissions
+  const submissionsEncoded = Y.encodeStateAsUpdateV2(submissionsDoc);
 
   const content: BlocksuiteContent = {
-    form_doc: Array.from(encoded),  // Form uses form_doc key
+    form_doc: Array.from(formEncoded),                  // Form definition
+    form_submissions_doc: Array.from(submissionsEncoded), // Submissions (empty initially)
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
   };
 
-  tempDoc.destroy();
+  formDoc.destroy();
+  submissionsDoc.destroy();
   return content;
 }
 

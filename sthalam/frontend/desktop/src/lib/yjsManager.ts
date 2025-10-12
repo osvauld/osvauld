@@ -7,11 +7,15 @@ export interface YjsDocuments {
   blocks: Y.Map<any>;
   viewport: Y.Map<any>;
   awareness: Awareness;
+
+  // NEW: Secondary document for thread comments
+  secondaryDoc?: Y.Doc;
+  secondaryBlocks?: Y.Map<any>;
 }
 
 export interface YjsManagerConfig {
   clientId: number;
-  onUpdate?: (update: Uint8Array, origin: any) => void;
+  onUpdate?: (update: Uint8Array, origin: any, docType?: string) => void;
   onAwarenessChange?: (changes: any, origin: string) => void;
 }
 
@@ -30,8 +34,9 @@ export class YjsManager {
   /**
    * Initialize YJS documents and structures
    * IMPORTANT: Always destroys old documents first to ensure clean slate (livnote pattern)
+   * NEW: Supports resourceType parameter to create secondary docs for threads
    */
-  initialize(): YjsDocuments {
+  initialize(resourceType?: string): YjsDocuments {
     // Destroy old documents first - critical for note switching
     this.destroy();
 
@@ -51,11 +56,11 @@ export class YjsManager {
       viewport.set("zoom", 1);
     }
 
-    // Set up update listener
+    // Set up update listener for main doc
     if (this.config.onUpdate) {
       mainDoc.on("updateV2", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
-          this.config.onUpdate!(update, origin);
+          this.config.onUpdate!(update, origin, "main");
         }
       });
     }
@@ -78,11 +83,41 @@ export class YjsManager {
       });
     }
 
+    // NEW: Create secondary doc for thread comments or form submissions
+    let secondaryDoc: Y.Doc | undefined;
+    let secondaryBlocks: Y.Map<any> | undefined;
+
+    if (resourceType === 'noticeboard' || resourceType === 'form') {
+      const docTypeName = resourceType === 'noticeboard' ? 'thread comments' : 'form submissions';
+      const docTypeKey = resourceType === 'noticeboard' ? 'thread_comments_doc' : 'form_submissions_doc';
+
+      console.log(`🔧 Creating secondary doc for ${docTypeName}`);
+      secondaryDoc = new Y.Doc({
+        gc: true,
+        gcFilter: () => false,
+      });
+
+      secondaryBlocks = secondaryDoc.getMap("blocks");
+
+      // Set up update listener for secondary doc
+      if (this.config.onUpdate) {
+        secondaryDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+          if (origin !== "sync" && origin !== "loading") {
+            this.config.onUpdate!(update, origin, docTypeKey);
+          }
+        });
+      }
+
+      console.log(`✅ Secondary doc created for ${docTypeName}`);
+    }
+
     this.documents = {
       mainDoc,
       blocks,
       viewport,
-      awareness
+      awareness,
+      secondaryDoc,
+      secondaryBlocks
     };
 
     return this.documents;
@@ -125,11 +160,20 @@ export class YjsManager {
 
   /**
    * Apply update from remote
+   * NEW: Supports docType parameter to route updates to the correct document
    */
-  applyUpdate(update: Uint8Array | number[], origin: any = 'sync'): void {
+  applyUpdate(update: Uint8Array | number[], origin: any = 'sync', docType?: string): void {
     if (!this.documents) return;
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
-    Y.applyUpdateV2(this.documents.mainDoc, updateArray, origin);
+
+    // Route to secondary doc if docType is thread_comments_doc or form_submissions_doc
+    if ((docType === 'thread_comments_doc' || docType === 'form_submissions_doc')
+        && this.documents.secondaryDoc) {
+      Y.applyUpdateV2(this.documents.secondaryDoc, updateArray, origin);
+    } else {
+      // Default: apply to main doc
+      Y.applyUpdateV2(this.documents.mainDoc, updateArray, origin);
+    }
   }
 
   /**
@@ -170,11 +214,18 @@ export class YjsManager {
 
   /**
    * Clean up and destroy documents
+   * NEW: Also destroys secondary doc if it exists
    */
   destroy(): void {
     if (this.documents) {
       this.documents.awareness.destroy();
       this.documents.mainDoc.destroy();
+
+      // NEW: Destroy secondary doc if it exists
+      if (this.documents.secondaryDoc) {
+        this.documents.secondaryDoc.destroy();
+      }
+
       this.documents = null;
     }
   }

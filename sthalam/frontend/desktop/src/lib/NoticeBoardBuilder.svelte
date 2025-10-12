@@ -7,15 +7,19 @@
 	import type { YjsDocuments } from "./yjsManager";
 
 	let yDocs: YjsDocuments | null = null;
-	let blocks = $state<Map<string, any>>(new Map());
+
+	// NEW: Separate state for thread post and comments
+	let threadPostBlocks = $state<Map<string, any>>(new Map()); // From mainDoc
+	let commentBlocks = $state<Map<string, any>>(new Map());    // From secondaryDoc
+
 	let autoSaveInterval: number | null = null;
 
 	// Track if we have a resource selected
 	const hasResource = $derived(!!dataState.currentResourceId);
 
-	// Get the thread post block (type: 'thread-post')
+	// Get the thread post block (type: 'thread-post') from threadPostBlocks
 	const threadPost = $derived(() => {
-		for (const [id, block] of blocks) {
+		for (const [id, block] of threadPostBlocks) {
 			if (block.type === 'thread-post') {
 				return block;
 			}
@@ -23,16 +27,16 @@
 		return null;
 	});
 
-	// Get all comment blocks (type: 'comment')
+	// Get all comment blocks (type: 'comment') from commentBlocks
 	const comments = $derived(() => {
-		const commentBlocks: any[] = [];
-		for (const [id, block] of blocks) {
+		const commentList: any[] = [];
+		for (const [id, block] of commentBlocks) {
 			if (block.type === 'comment') {
-				commentBlocks.push(block);
+				commentList.push(block);
 			}
 		}
 		// Sort by order/timestamp
-		return commentBlocks.sort((a, b) => (a.order || 0) - (b.order || 0));
+		return commentList.sort((a, b) => (a.order || 0) - (b.order || 0));
 	});
 
 	onMount(async () => {
@@ -64,7 +68,8 @@
 			// No resource selected - clear everything
 			console.log("❌ No resource selected - clearing workspace");
 			yDocs = null;
-			blocks = new Map();
+			threadPostBlocks = new Map();
+			commentBlocks = new Map();
 			return;
 		}
 
@@ -88,26 +93,45 @@
 
 			yDocs = docs;
 
-			console.log("📦 Yjs documents received for thread_doc");
+			console.log("📦 Yjs documents received:", {
+				hasMainDoc: !!docs.mainDoc,
+				hasSecondaryDoc: !!docs.secondaryDoc
+			});
 
-			// Subscribe to blocks changes
-			const blocksObserver = () => {
+			// NEW: Subscribe to mainDoc blocks (thread post)
+			const mainBlocksObserver = () => {
 				if (!yDocs) return;
 				const newBlocks = new Map();
 				yDocs.blocks.forEach((value, key) => {
 					newBlocks.set(key, value);
 				});
-				blocks = newBlocks;
-				console.log("📦 Blocks updated:", blocks.size);
+				threadPostBlocks = newBlocks;
+				console.log("📦 Thread post blocks updated:", threadPostBlocks.size);
 			};
 
-			docs.blocks.observe(blocksObserver);
+			docs.blocks.observe(mainBlocksObserver);
+
+			// NEW: Subscribe to secondaryDoc blocks (comments) if it exists
+			const secondaryBlocksObserver = () => {
+				if (!yDocs || !yDocs.secondaryBlocks) return;
+				const newBlocks = new Map();
+				yDocs.secondaryBlocks.forEach((value, key) => {
+					newBlocks.set(key, value);
+				});
+				commentBlocks = newBlocks;
+				console.log("📦 Comment blocks updated:", commentBlocks.size);
+			};
+
+			if (docs.secondaryBlocks) {
+				docs.secondaryBlocks.observe(secondaryBlocksObserver);
+			}
 
 			// Initial load
-			blocksObserver();
+			mainBlocksObserver();
+			secondaryBlocksObserver();
 
 			// If no thread post exists, create one
-			if (!Array.from(blocks.values()).some(b => b.type === 'thread-post')) {
+			if (!Array.from(threadPostBlocks.values()).some(b => b.type === 'thread-post')) {
 				console.log("📝 Creating initial thread post block");
 				createThreadPost();
 			}
@@ -142,6 +166,7 @@
 			timestamp: new Date().toISOString(),
 			order: 0
 		};
+		// Add to mainDoc (thread post)
 		yDocs.blocks.set(id, newBlock);
 	}
 
@@ -149,12 +174,13 @@
 		if (!yDocs || !threadPost()) return;
 		const post = threadPost();
 		if (post) {
+			// Update in mainDoc (thread post)
 			yDocs.blocks.set(post.id, { ...post, ...updates });
 		}
 	}
 
 	function addComment(content: string, mode: string, css: string, parentId?: string) {
-		if (!yDocs) return;
+		if (!yDocs || !yDocs.secondaryBlocks) return;
 		const id = `comment-${Date.now()}`;
 		const newBlock = {
 			id,
@@ -165,22 +191,25 @@
 			author: 'Owner', // Will be replaced with actual user later
 			timestamp: new Date().toISOString(),
 			parentId: parentId || null,
-			order: blocks.size
+			order: commentBlocks.size
 		};
-		yDocs.blocks.set(id, newBlock);
+		// NEW: Add to secondaryDoc (comments)
+		yDocs.secondaryBlocks.set(id, newBlock);
 	}
 
 	function updateComment(commentId: string, updates: any) {
-		if (!yDocs) return;
-		const comment = blocks.get(commentId);
+		if (!yDocs || !yDocs.secondaryBlocks) return;
+		const comment = commentBlocks.get(commentId);
 		if (comment) {
-			yDocs.blocks.set(commentId, { ...comment, ...updates });
+			// NEW: Update in secondaryDoc (comments)
+			yDocs.secondaryBlocks.set(commentId, { ...comment, ...updates });
 		}
 	}
 
 	function deleteComment(commentId: string) {
-		if (!yDocs) return;
-		yDocs.blocks.delete(commentId);
+		if (!yDocs || !yDocs.secondaryBlocks) return;
+		// NEW: Delete from secondaryDoc (comments)
+		yDocs.secondaryBlocks.delete(commentId);
 	}
 </script>
 

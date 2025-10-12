@@ -388,6 +388,25 @@ pub async fn handle_share_resource(
 }
 
 #[tauri::command]
+pub async fn handle_publish_resource(
+    resource_id: String,
+    p2p_service: State<'_, Arc<P2PService>>,
+) -> Result<CryptoResponse, String> {
+    info!("Publishing/syncing resource: {}", resource_id);
+
+    p2p_service
+        .sync_resource(&resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to publish resource {}: {}", resource_id, e);
+            e.to_string()
+        })?;
+
+    info!("Successfully published resource: {}", resource_id);
+    Ok(CryptoResponse::Success)
+}
+
+#[tauri::command]
 pub async fn emit_all_resources(
     selected_resource_id: Option<String>,
     user_state: State<'_, UserState>,

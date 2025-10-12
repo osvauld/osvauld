@@ -31,12 +31,16 @@
 			const users = await sendMessage("getKnownUsers");
 			availableUsers = users || [];
 
+			console.log("📋 Available users:", availableUsers);
+			console.log("🌐 Sovereign node ID:", dataState.sovereignNodeId);
+
 			// Fetch users this folder is already shared with
 			if (dataState.currentWebsite && dataState.currentWebsite.id !== "all") {
 				const sharedUsers = await sendMessage("getSharedFolderUsers", {
 					folderId: dataState.currentWebsite.id
 				});
 				existingUsers = sharedUsers || [];
+				console.log("✅ Existing users for folder:", existingUsers);
 			}
 		} catch (error) {
 			console.error("Error fetching users:", error);
@@ -186,12 +190,12 @@
 
 	<!-- Modal -->
 	<div
-		class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[30rem] max-w-[90vw] max-h-[80vh] rounded-2xl border border-osvauld-activeBorder bg-osvauld-frameblack p-6 flex flex-col z-[1000]"
+		class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-[30rem] max-w-[90vw] max-h-[80vh] rounded-2xl border border-osvauld-activeBorder bg-osvauld-frameblack flex flex-col z-[1000]"
 		role="dialog"
 		aria-labelledby="publish-title"
 	>
-		<!-- Header -->
-		<div class="flex justify-between items-center mb-4">
+		<!-- Header (fixed at top) -->
+		<div class="flex justify-between items-center p-6 pb-4">
 			<h2 id="publish-title" class="text-xl text-white font-normal">
 				Publish Website
 			</h2>
@@ -206,9 +210,11 @@
 			</button>
 		</div>
 
-		<p class="text-sm text-textActive mb-4">
-			Select a user to publish "{dataState.currentWebsite?.name}" to:
-		</p>
+		<!-- Scrollable content area -->
+		<div class="flex-1 overflow-y-auto px-6">
+			<p class="text-sm text-textActive mb-4">
+				Select a user to publish "{dataState.currentWebsite?.name}" to:
+			</p>
 
 		<!-- Existing Users (Already Published To) -->
 		{#if existingUsers.length > 0}
@@ -216,11 +222,17 @@
 				<h3 class="text-sm text-textActive mb-2">Already published to:</h3>
 				<div class="space-y-2 max-h-[10rem] overflow-y-auto">
 					{#each existingUsers as user}
+						{@const isSovereignNode = user.id === dataState.sovereignNodeId}
 						<div class="flex items-center gap-3 px-3 py-2 bg-osvauld-fieldActive rounded-lg">
 							<div class="w-8 h-8 rounded-full bg-livnotePink flex items-center justify-center text-black font-medium">
 								{user.username.charAt(0).toUpperCase()}
 							</div>
-							<span class="text-white">{user.username}</span>
+							<span class="text-white flex items-center gap-2">
+								{user.username}
+								{#if isSovereignNode}
+									<span class="text-xs px-2 py-0.5 bg-livnotePink/20 text-livnotePink rounded-full border border-livnotePink/40">Node</span>
+								{/if}
+							</span>
 							<span class="ml-auto text-xs text-green-500">Published</span>
 						</div>
 					{/each}
@@ -230,14 +242,19 @@
 		{/if}
 
 		<!-- Available Users -->
-		<div class="flex-1 overflow-y-auto">
-			<h3 class="text-sm text-textActive mb-2">Available users:</h3>
+		<div class="flex-1 overflow-y-auto min-h-[8rem]">
+			<h3 class="text-sm text-textActive mb-2">Available users: ({availableUsers.length})</h3>
 			{#if availableUsers.length === 0}
 				<p class="text-sm text-textActive py-4">No users available. Add a user first.</p>
 			{:else}
 				<div class="space-y-2">
 					{#each availableUsers as user}
 						{@const isAlreadyPublished = existingUsers.some(u => u.id === user.id)}
+						{@const isSovereignNode = user.id === dataState.sovereignNodeId}
+						{(() => {
+							console.log("🔍 Rendering user:", user.username, "ID:", user.id, "Already published:", isAlreadyPublished);
+							return "";
+						})()}
 						<button
 							class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors {selectedUserId === user.id
 								? 'bg-livnotePink text-black'
@@ -254,7 +271,12 @@
 							<div class="w-8 h-8 rounded-full {selectedUserId === user.id ? 'bg-black' : 'bg-livnotePink'} flex items-center justify-center {selectedUserId === user.id ? 'text-white' : 'text-black'} font-medium">
 								{user.username.charAt(0).toUpperCase()}
 							</div>
-							<span class="flex-1 text-left">{user.username}</span>
+							<span class="flex-1 text-left flex items-center gap-2">
+								{user.username}
+								{#if isSovereignNode}
+									<span class="text-xs px-2 py-0.5 bg-livnotePink/20 text-livnotePink rounded-full border border-livnotePink/40">Node</span>
+								{/if}
+							</span>
 							{#if selectedUserId === user.id}
 								<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
 									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
@@ -337,9 +359,10 @@
 				{/if}
 			</div>
 		{/if}
+		</div>
 
-		<!-- Footer -->
-		<div class="flex justify-end gap-3 mt-6 pt-4 border-t border-osvauld-borderColor">
+		<!-- Footer (fixed at bottom) -->
+		<div class="flex justify-end gap-3 p-6 pt-4 border-t border-osvauld-borderColor">
 			<button
 				class="px-4 py-2 text-sm text-textActive hover:text-white transition-colors"
 				onclick={onClose}

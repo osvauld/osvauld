@@ -344,6 +344,7 @@ impl P2PService {
             .into_iter()
             .map(|record| record.recipient_user_id)
             .collect();
+        info!("found ids  {:?}", user_ids);
         self.connect_with_users(&user_ids).await?;
 
         Ok(())

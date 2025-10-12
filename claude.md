@@ -38,11 +38,30 @@ cargo tauri dev
   - Comment input with markdown, HTML/CSS, and preview
   - Rich text rendering with syntax highlighting
 
+### ✅ COMPLETED - Split Document Architecture (POC Implementation)
+**PHASE 1: Thread Split Documents** ✅
+- **Frontend**: Split thread documents into `thread_doc` (main post) + `thread_comments_doc` (comments)
+  - Updated `blocksuiteUtils.ts:createNoticeBoardDoc()` to create both docs
+  - Updated `yjsManager.ts` to support secondary docs for noticeboards
+  - Updated `blocksuiteCoordinator.ts` to load/save both docs
+  - Updated `NoticeBoardBuilder.svelte` to use separate block maps for posts vs comments
+- **Storage**: Both docs stored in same resource with separate Yjs doc keys
+- **Routing**: Comments automatically routed to `thread_comments_doc`, posts to `thread_doc`
+- **Status**: Tested and working ✅
+
+**PHASE 2: Form Split Documents** ✅
+- **Frontend**: Split form documents into `form_doc` (form definition) + `form_submissions_doc` (submissions)
+  - Updated `blocksuiteUtils.ts:createFormDoc()` to create both docs
+  - Updated `yjsManager.ts` to support secondary docs for forms (reused thread pattern)
+  - Updated `blocksuiteCoordinator.ts` to load/save both form docs
+  - Extended `detectResourceType()` to handle split-doc forms
+- **Storage**: Both docs stored in same resource (POC approach for simplicity)
+- **Routing**: Submissions routed to `form_submissions_doc`, form fields to `form_doc`
+- **Status**: Tested and working ✅
+
 ### 🚧 In Progress - VIEWER INTERACTION IMPLEMENTATION
-- **Split document architecture for threads** (thread_doc + thread_comments_doc)
 - **Resource-specific UCAN token generation** (different capabilities per resource type)
 - **Backend authorization and validation** (authorship for threads, append-only for forms)
-- **Forms with separate submissions storage** (form-{id}-submissions private resource)
 - **Dedicated form submission message flow** (FormMessage, not Yjs sync)
 - **Viewer mode UI for threads and forms**
 
@@ -67,8 +86,10 @@ This section details the comprehensive architecture for implementing viewer inte
 | Resource Type | Viewer Can Read | Viewer Can Write | Storage Model |
 |---------------|-----------------|------------------|---------------|
 | **Website**   | blocksuite_doc  | ❌ Nothing       | Single doc    |
-| **Thread**    | thread_doc      | thread_comments_doc | Split docs |
-| **Form**      | form_doc        | Separate submissions resource | Two resources |
+| **Thread**    | thread_doc      | thread_comments_doc | Split docs (same resource) ✅ |
+| **Form**      | form_doc        | form_submissions_doc | Split docs (same resource) ✅ POC |
+
+**Note**: For POC, forms use split docs within the same resource (like threads). Production implementation may use separate resources for submissions.
 
 ---
 
@@ -168,26 +189,22 @@ Resource: "thread-xyz"
 
 ---
 
-## 3. FORMS ARCHITECTURE (Separate Resources)
+## 3. FORMS ARCHITECTURE (Split Documents - POC Implementation)
 
-### Resource Structure
+### POC Resource Structure ✅ IMPLEMENTED
 ```
-PUBLIC Resource (viewers can access):
+Form Resource "form-abc123":
 ├─ resource_id: "form-abc123"
 ├─ resource_type: "form"
-├─ folder_id: "public-folder-1"
-└─ form_doc (Y.Doc):
-    └─ blocks (Y.Map):
-        ├─ form-config block (field definitions)
-        ├─ form-field-text blocks
-        ├─ form-field-email blocks
-        └─ form-submit-button block
-
-PRIVATE Resource (owner + node only):
-├─ resource_id: "form-abc123-submissions"
-├─ resource_type: "form_submissions"
-├─ folder_id: "private-submissions-folder"
-└─ form_submissions_doc (Y.Doc):
+├─ folder_id: "forms-folder"
+├─ form_doc (Y.Doc - Form definition):
+│   └─ blocks (Y.Map):
+│       ├─ form-config block (field definitions)
+│       ├─ form-field-text blocks
+│       ├─ form-field-email blocks
+│       └─ form-submit-button block
+│
+└─ form_submissions_doc (Y.Doc - Submissions):
     └─ blocks (Y.Map):
         ├─ submission-1 {
         │    id: "sub-001",
@@ -204,15 +221,16 @@ PRIVATE Resource (owner + node only):
         └─ submission-3 { ... }
 ```
 
-### Why Separate Submissions Resource?
-1. **Privacy**: Viewers cannot see other viewers' submissions
-2. **Access Control**: Only owner has access to submissions resource
-3. **Independent Sync**: Form definition and submissions sync separately
-4. **Scalability**: Thousands of submissions don't bloat form doc
+### Why Split Documents in Same Resource? (POC Approach)
+1. **Simplicity**: Single resource, simpler UCAN token (no need for multi-resource tokens)
+2. **Reuses Thread Pattern**: Same architecture as threads (already tested)
+3. **Easy to Migrate**: Can split into separate resources later if needed
+4. **Owner Access**: Owner has full access to both docs
+5. **Viewer Separation**: Viewers only write to submissions_doc (will be enforced via UCAN)
 
-### UCAN Token Capabilities for Forms
+### UCAN Token Capabilities for Forms (POC - Same Resource)
 ```rust
-// Binding token issued to viewer for form
+// Token issued to viewer for form (same resource, different doc permissions)
 {
   "capabilities": [
     {
@@ -220,11 +238,9 @@ PRIVATE Resource (owner + node only):
       "action": "crud/read"  // Can read form definition
     },
     {
-      "resource": "sthalam:resource:form-abc123-submissions:form_submissions_doc",
-      "action": "crud/append",  // Can ONLY append submissions
+      "resource": "sthalam:resource:form-abc123:form_submissions_doc",
+      "action": "crud/append",  // Can ONLY append submissions to same resource
       "constraints": {
-        "bound_to_form": "form-abc123",  // Only for this form
-        "merge_target": "form-abc123-submissions",  // Where to merge
         "append_only": true  // Cannot modify existing submissions
       }
     }
@@ -233,11 +249,11 @@ PRIVATE Resource (owner + node only):
 }
 ```
 
-### Submission Flow (NEW - Dedicated Message, Not Yjs Sync)
+### Submission Flow (POC - Using Yjs Sync)
 ```
 1. Viewer fills out form
 2. Viewer clicks Submit
-3. Frontend creates FormSubmission object:
+3. Frontend adds submission block to form_submissions_doc (secondaryDoc):
    {
      id: "sub-" + timestamp,
      type: "form-submission",
@@ -245,25 +261,15 @@ PRIVATE Resource (owner + node only):
      timestamp: Date.now(),
      form_data: { field1: "value1", ... }
    }
-4. Frontend sends FormMessage::SubmitFormData to node via IPC:
-   {
-     form_id: "form-abc123",
-     submission: FormSubmission object,
-     ucan_token: viewer_token
-   }
+4. Yjs automatically syncs update to backend
 5. Backend validates:
-   - Token has "crud/append" permission for "{form_id}-submissions" resource
+   - UCAN token has "crud/append" permission for form_submissions_doc
    - Token is valid and not expired
-6. Backend appends submission to private submissions resource (append_form_submission)
-7. Backend responds with FormMessage::SubmitFormDataResponse:
-   {
-     success: true/false,
-     submission_id: "sub-123" or None,
-     error: error_message or None
-   }
-8. Owner can load submissions resource from database → Views in dashboard
+   - Submission is append-only (not modifying existing submissions)
+6. Backend merges submission into form_submissions_doc
+7. Owner's client syncs and sees new submission
 
-NOTE: This is NOT using Yjs sync mechanism - it's a dedicated one-way operation
+NOTE: For POC, using Yjs sync (same as threads). Production may use dedicated FormMessage.
 ```
 
 ### Why Separate Blocks for Each Submission?
@@ -1619,22 +1625,23 @@ sthalam/frontend/desktop/src/
 
 ## 8. TESTING CHECKLIST
 
-### Thread Split Docs
-- [ ] Create thread resource → generates thread_doc + thread_comments_doc
-- [ ] Save thread → both docs saved to backend
-- [ ] Load thread → both docs loaded from backend
-- [ ] Add comment → goes to thread_comments_doc
-- [ ] Edit thread post → goes to thread_doc
-- [ ] Edit own comment → allowed
-- [ ] Edit other's comment → rejected
+### Thread Split Docs (Owner Side)
+- [x] Create thread resource → generates thread_doc + thread_comments_doc ✅
+- [x] Save thread → both docs saved to backend ✅
+- [x] Load thread → both docs loaded from backend ✅
+- [x] Add comment → goes to thread_comments_doc ✅
+- [x] Edit thread post → goes to thread_doc ✅
+- [ ] Edit own comment → allowed (viewer mode - pending)
+- [ ] Edit other's comment → rejected (viewer mode - pending)
 
-### Forms Submissions
-- [ ] Create form → generates form_doc + submissions resource
-- [ ] Submit form as viewer → submission added to private resource
-- [ ] Submit form again → new submission added (not overwriting)
-- [ ] Try to modify submission → rejected (append-only)
-- [ ] View submissions as owner → see all submissions
-- [ ] Try to view submissions as viewer → access denied
+### Form Split Docs (Owner Side)
+- [x] Create form → generates form_doc + form_submissions_doc ✅
+- [x] Save form → both docs saved to backend ✅
+- [x] Load form → both docs loaded from backend ✅
+- [ ] Submit form as viewer → submission added to form_submissions_doc (viewer mode - pending)
+- [ ] Submit form again → new submission added (not overwriting) (viewer mode - pending)
+- [ ] Try to modify submission → rejected (append-only) (backend validation - pending)
+- [ ] View submissions as owner → see all submissions (UI component - pending)
 
 ### Authorization
 - [ ] Viewer with thread token → can read post, can write comments
@@ -1757,4 +1764,38 @@ cargo tauri dev
 
 ---
 
-This implementation plan provides a complete architecture for viewer interactions with proper authorization, split documents for threads, and separate submissions storage for forms. All using CRDT-based merging for conflict-free collaboration through the sovereign node.
+## 11. IMPLEMENTATION STATUS & SUMMARY
+
+### ✅ Completed POC Implementation
+
+**Owner-Side Split Documents (Phases 1 & 2)** ✅
+- **Thread Resources**: Split into `thread_doc` (main post) + `thread_comments_doc` (comments)
+- **Form Resources**: Split into `form_doc` (form definition) + `form_submissions_doc` (submissions)
+- **Architecture**: Reusable pattern using YjsManager secondary docs
+- **Files Modified**:
+  - `sthalam/frontend/desktop/src/utils/blocksuiteUtils.ts` - Document creation functions
+  - `sthalam/frontend/desktop/src/lib/yjsManager.ts` - Multi-doc support
+  - `sthalam/frontend/desktop/src/lib/blocksuiteCoordinator.ts` - Load/save split docs
+  - `sthalam/frontend/desktop/src/lib/NoticeBoardBuilder.svelte` - Separate block maps
+- **Testing**: Both Phase 1 (threads) and Phase 2 (forms) tested and confirmed working ✅
+
+### 🚧 Next Steps
+
+**Phase 3: UCAN Token Generation & Validation**
+1. Update `prepare_resource_for_viewer()` in backend (Rust)
+2. Generate resource-specific permissions based on type (website/thread/form)
+3. Validate tokens on viewer updates
+
+**Phase 4: Viewer Mode UI**
+1. Create viewer components for threads and forms
+2. Implement read-only views with interaction capabilities
+3. Test end-to-end viewer flow
+
+**Phase 5: Backend Authorization**
+1. Implement authorship validation for thread comments
+2. Implement append-only validation for form submissions
+3. Extract author_id from UCAN tokens
+
+---
+
+This document provides a complete architecture for viewer interactions with proper authorization, split documents for threads and forms. The POC uses split docs within the same resource for simplicity, with all updates using CRDT-based Yjs merging for conflict-free collaboration.

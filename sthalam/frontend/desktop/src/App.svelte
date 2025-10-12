@@ -3,6 +3,7 @@
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
 	import NoticeBoardBuilder from "./lib/NoticeBoardBuilder.svelte";
 	import ModeSwitcher from "./components/ModeSwitcher.svelte";
+	import SyncResourceButton from "./components/SyncResourceButton.svelte";
 	import ViewerMode from "./components/ViewerMode.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
 	import { uiState } from "./state/ui.svelte";
@@ -175,6 +176,7 @@
 				<div class="header-content">
 					<h1>{builderTitle()}</h1>
 					<div class="actions">
+						<SyncResourceButton />
 						<ModeSwitcher />
 					</div>
 				</div>

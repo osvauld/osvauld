@@ -19,8 +19,9 @@ use crate::handlers::folder_handler::{
 };
 use crate::handlers::resource_handler::{
     emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
-    handle_get_resources_for_folder, handle_search_resources, handle_share_resource,
-    handle_toggle_fav, handle_update_last_accessed, handle_update_resource, soft_delete_resource,
+    handle_get_resources_for_folder, handle_publish_resource, handle_search_resources,
+    handle_share_resource, handle_toggle_fav, handle_update_last_accessed, handle_update_resource,
+    soft_delete_resource,
 };
 use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
 use crate::handlers::website_handler::{
@@ -184,6 +185,7 @@ pub fn run() {
             handle_add_user,
             handle_get_known_users,
             handle_share_resource,
+            handle_publish_resource,
             get_user_details,
             emit_all_resources,
             get_one_time_ucan_token,
