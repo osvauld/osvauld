@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
+	import NoticeBoardBuilder from "./lib/NoticeBoardBuilder.svelte";
 	import ModeSwitcher from "./components/ModeSwitcher.svelte";
 	import ViewerMode from "./components/ViewerMode.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
@@ -173,11 +174,8 @@
 					{:else}
 						{@const resourceType = currentResource.resource_type || currentResource.resourceType}
 						{#if resourceType === 'noticeboard'}
-							<!-- TODO: NoticeBoard Builder -->
-							<div class="builder-placeholder">
-								<h2>Notice Board Builder</h2>
-								<p>Coming soon...</p>
-							</div>
+							<!-- NoticeBoard Builder -->
+							<NoticeBoardBuilder />
 						{:else}
 							<!-- Both 'website' and 'form' use WebsiteBuilder -->
 							<WebsiteBuilder />
