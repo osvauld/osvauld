@@ -11,6 +11,7 @@
 	import { uiState } from "../../state/ui.svelte";
 	import AddUserForm from "../ui/AddUserForm.svelte";
 	import AddDevice from "../ui/AddDevice.svelte";
+	import packageJson from "../../package.json";
 
 	const MENUITEMS = [
 		{ id: "add", label: "Add Device", icon: QrScanner },
@@ -97,6 +98,12 @@
 					<span>{label}</span>
 				</button>
 			{/each}
+
+			<div class="mt-auto flex items-center justify-center">
+				<span class="text-osvauld-fieldText text-sm"
+					>Version {packageJson.version}</span
+				>
+			</div>
 		</div>
 	</nav>
 	<div class="flex-1 min-w-[25rem] py-4 px-6 overflow-hidden">
