@@ -161,18 +161,35 @@ export class YjsManager {
   /**
    * Apply update from remote
    * NEW: Supports docType parameter to route updates to the correct document
+   * OPTIMIZED: Returns Promise for async handling of large updates
    */
-  applyUpdate(update: Uint8Array | number[], origin: any = 'sync', docType?: string): void {
-    if (!this.documents) return;
+  applyUpdate(update: Uint8Array | number[], origin: any = 'sync', docType?: string): Promise<void> {
+    if (!this.documents) return Promise.resolve();
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
 
     // Route to secondary doc if docType is thread_comments_doc or form_submissions_doc
-    if ((docType === 'thread_comments_doc' || docType === 'form_submissions_doc')
-        && this.documents.secondaryDoc) {
-      Y.applyUpdateV2(this.documents.secondaryDoc, updateArray, origin);
+    const targetDoc = (docType === 'thread_comments_doc' || docType === 'form_submissions_doc')
+      && this.documents.secondaryDoc
+      ? this.documents.secondaryDoc
+      : this.documents.mainDoc;
+
+    // For loading large documents (>50KB), defer to next frame to keep UI responsive
+    if (origin === 'loading' && updateArray.length > 50000) {
+      console.log(`⚡ Deferring large update (${(updateArray.length / 1024).toFixed(1)}KB) to next frame...`);
+      return new Promise((resolve) => {
+        requestAnimationFrame(() => {
+          console.log(`📥 Applying deferred update...`);
+          targetDoc.transact(() => {
+            Y.applyUpdateV2(targetDoc, updateArray, origin);
+          }, origin);
+          console.log(`✅ Deferred update applied`);
+          resolve();
+        });
+      });
     } else {
-      // Default: apply to main doc
-      Y.applyUpdateV2(this.documents.mainDoc, updateArray, origin);
+      // Small updates or sync updates - apply immediately
+      Y.applyUpdateV2(targetDoc, updateArray, origin);
+      return Promise.resolve();
     }
   }
 

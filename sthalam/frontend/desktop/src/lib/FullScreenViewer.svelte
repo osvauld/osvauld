@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { untrack } from "svelte";
+	import { marked } from 'marked';
 
 	interface Props {
 		blocks: Map<string, any>;
@@ -66,6 +67,29 @@
 			return `<p style="${css}" data-block-id="${block.id}">${block.content || ''}</p>`;
 		} else if (block.type === 'image') {
 			return `<img src="${block.content || ''}" style="${css}" data-block-id="${block.id}" />`;
+		} else if (block.type === 'thread') {
+			// Render thread block content (just display the main post for now)
+			let threadContent = '';
+			try {
+				if (block.mode === 'html') {
+					threadContent = block.content || '';
+				} else {
+					// Default to markdown
+					threadContent = marked.parse(block.content || '');
+				}
+			} catch (error) {
+				threadContent = '<p>Error rendering thread</p>';
+			}
+
+			const customCss = block.css ? `<style>${block.css}</style>` : '';
+
+			return `
+				<div class="thread-block" style="${css}" data-block-id="${block.id}">
+					${customCss}
+					<div class="thread-content">${threadContent}</div>
+					${childrenHtml}
+				</div>
+			`;
 		} else if (block.type === 'form-field-text') {
 			const label = block.label || 'Text Field';
 			const required = block.required ? '*' : '';
@@ -333,5 +357,40 @@
 		background: #ffffff;
 		width: 32px;
 		border-radius: 1rem;
+	}
+
+	/* Thread block styling */
+	.viewer-content :global(.thread-block) {
+		width: 100%;
+		margin: 1rem 0;
+		padding: 1.5rem;
+		background: #f6f8fa;
+		border-radius: 8px;
+		border: 1px solid #e1e4e8;
+	}
+
+	.viewer-content :global(.thread-content) {
+		color: #24292e;
+		line-height: 1.6;
+	}
+
+	.viewer-content :global(.thread-content h1),
+	.viewer-content :global(.thread-content h2),
+	.viewer-content :global(.thread-content h3) {
+		color: #24292e;
+		margin-bottom: 0.75rem;
+	}
+
+	.viewer-content :global(.thread-content p) {
+		margin-bottom: 1rem;
+	}
+
+	.viewer-content :global(.thread-content a) {
+		color: #0366d6;
+		text-decoration: none;
+	}
+
+	.viewer-content :global(.thread-content a:hover) {
+		text-decoration: underline;
 	}
 </style>

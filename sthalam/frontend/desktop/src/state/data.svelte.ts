@@ -33,6 +33,7 @@ class DataState {
 
   // UI state
   isDataLoading = $state<boolean>(false);
+  isResourceLoading = $state<boolean>(false); // Guard for resource loading
 
   // Event listeners
   private _unlisteners: Array<() => void> = [];
@@ -345,6 +346,9 @@ class DataState {
       try {
         console.log("🔄 Switching to resource:", resourceId);
 
+        // Set loading flag to prevent saves during loading
+        this.isResourceLoading = true;
+
         // Fetch full resource data from backend
         const resource = await sendMessage("getCredential", {
           resourceId: resourceId
@@ -415,8 +419,24 @@ class DataState {
           hasMainDoc: !!blocksuiteData.main_doc,
           hasUpdates: !!blocksuiteData.main_doc?.updates
         });
-        coordinator.loadBlocksuite(blocksuiteData);
+        await coordinator.loadBlocksuite(blocksuiteData);
         console.log("✅ Coordinator loaded with resource data");
+
+        // Listen for blocksuite-ready event to clear loading flag
+        const clearLoading = () => {
+          console.log("✅ Blocksuite ready - clearing loading flag");
+          this.isResourceLoading = false;
+          document.removeEventListener('blocksuite-ready', clearLoading);
+        };
+        document.addEventListener('blocksuite-ready', clearLoading);
+
+        // Fallback: Clear loading after timeout (safety net for heavy documents)
+        setTimeout(() => {
+          if (this.isResourceLoading) {
+            console.log("⏰ Loading timeout reached - clearing loading flag");
+            this.isResourceLoading = false;
+          }
+        }, 10000); // 10 second safety timeout
 
         // IMPORTANT: Set currentResourceId AFTER loadBlocksuite completes
         // This ensures $effect in WebsiteBuilder gets the FRESH documents
@@ -434,6 +454,7 @@ class DataState {
         console.log("✅ Resource switched successfully");
       } catch (error) {
         console.error("❌ Error switching resource:", error);
+        this.isResourceLoading = false; // Clear loading flag on error
       }
     } else {
       this.clearCurrentResource();
@@ -446,6 +467,12 @@ class DataState {
    */
   async saveCurrentResource(resourceId: string) {
     try {
+      // Guard: Don't save while resource is still loading
+      if (this.isResourceLoading) {
+        console.log("⏸️ Skipping save - resource is still loading");
+        return;
+      }
+
       const coordinator = this.getBlocksuiteCoordinator();
       if (!coordinator) {
         console.warn("⚠️ No coordinator available for saving");

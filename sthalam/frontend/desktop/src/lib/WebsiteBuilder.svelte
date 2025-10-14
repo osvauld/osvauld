@@ -24,22 +24,7 @@
 
 	onMount(async () => {
 		console.log("🚀 Initializing Website Builder...");
-
-		// Set up auto-save every 10 seconds
-		autoSaveInterval = window.setInterval(async () => {
-			const currentResourceId = dataState.currentResourceId;
-			if (currentResourceId) {
-				try {
-					console.log("💾 Auto-saving resource:", currentResourceId);
-					await dataState.saveCurrentResource(currentResourceId);
-					console.log("✅ Auto-save completed");
-				} catch (error) {
-					console.error("❌ Auto-save failed:", error);
-				}
-			}
-		}, 10000); // 10 seconds
-
-		console.log("✅ Website Builder initialized with auto-save!");
+		console.log("✅ Website Builder initialized!");
 	});
 
 	// React to resource changes (like livnote's pattern)
@@ -47,6 +32,12 @@
 	$effect(() => {
 		const resourceId = dataState.currentResourceId;
 		console.log("🔄 Resource changed:", resourceId);
+
+		// Clear existing autosave interval when resource changes
+		if (autoSaveInterval !== null) {
+			clearInterval(autoSaveInterval);
+			autoSaveInterval = null;
+		}
 
 		if (!resourceId) {
 			// No resource selected - clear everything
@@ -113,10 +104,31 @@
 			// Initial load
 			blocksObserver();
 			viewportObserver();
+
+			// Start autosave timer for this resource (60 second interval)
+			autoSaveInterval = window.setInterval(async () => {
+				const currentResourceId = dataState.currentResourceId;
+				if (currentResourceId === resourceId) {
+					try {
+						console.log("💾 Auto-saving resource:", currentResourceId);
+						await dataState.saveCurrentResource(currentResourceId);
+						console.log("✅ Auto-save completed");
+					} catch (error) {
+						console.error("❌ Auto-save failed:", error);
+					}
+				}
+			}, 60000); // 60 seconds
+			console.log("⏰ Auto-save started for resource:", resourceId);
 		});
 
 		// Cleanup function for this effect
 		return () => {
+			// Clear autosave interval on cleanup
+			if (autoSaveInterval !== null) {
+				clearInterval(autoSaveInterval);
+				autoSaveInterval = null;
+			}
+
 			if (yDocs) {
 				// Store reference before clearing
 				const docsToCleanup = yDocs;
@@ -442,6 +454,16 @@
 {:else}
 	<!-- Resource selected - show builder -->
 	<div class="builder-container">
+		<!-- Loading overlay for heavy documents -->
+		{#if dataState.isResourceLoading}
+			<div class="loading-overlay">
+				<div class="loading-spinner">
+					<div class="spinner"></div>
+					<p>Loading resource...</p>
+					<span class="loading-hint">Heavy documents may take a moment</span>
+				</div>
+			</div>
+		{/if}
 		<NavigationPanel />
 		{#if !uiState.showNavigationPanel}
 			<div class="floating-toggle">
@@ -511,5 +533,52 @@
 		top: 1rem;
 		left: 1rem;
 		z-index: 1000;
+	}
+
+	/* Loading overlay for heavy documents */
+	.loading-overlay {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(1, 4, 9, 0.95);
+		backdrop-filter: blur(8px);
+		z-index: 9999;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.loading-spinner {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.5rem;
+	}
+
+	.spinner {
+		width: 48px;
+		height: 48px;
+		border: 4px solid #2f303e;
+		border-top-color: #667eea;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to { transform: rotate(360deg); }
+	}
+
+	.loading-spinner p {
+		color: #f2f2f0;
+		font-size: 1.125rem;
+		font-weight: 500;
+		margin: 0;
+	}
+
+	.loading-hint {
+		color: #8b949e;
+		font-size: 0.875rem;
 	}
 </style>

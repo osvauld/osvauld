@@ -4,6 +4,7 @@
 	import AddSovereignNodeModal from "./AddSovereignNodeModal.svelte";
 	import PublishButton from "./PublishButton.svelte";
 	import ModeSwitcher from "./ModeSwitcher.svelte";
+	import SaveButton from "./SaveButton.svelte";
 	import NavigationToggle from "./NavigationToggle.svelte";
 	import { Add } from "@osvauld/icons";
 
@@ -39,13 +40,15 @@
 		aria-label="Main Navigation"
 	>
 		<!-- Mode Switcher & Navigation Toggle -->
-		<div class="px-2 shrink-0 mb-3">
+		<div class="px-2 shrink-0 mb-3 space-y-2">
 			<div class="flex items-center gap-2">
 				<div class="flex-1">
 					<ModeSwitcher />
 				</div>
 				<NavigationToggle />
 			</div>
+			<!-- Save Button -->
+			<SaveButton />
 		</div>
 
 		<!-- Header with All Websites -->

@@ -53,8 +53,9 @@ export class BlocksuiteCoordinator {
    * Following livnote's loadNote pattern: reinitialize docs, apply updates, wait for ready
    * Supports multiple document keys: blocksuite_doc, form_doc, thread_doc + thread_comments_doc, main_doc (legacy)
    * NEW: Handles split docs for noticeboards (thread_doc + thread_comments_doc)
+   * OPTIMIZED: Async to handle deferred loading of large documents
    */
-  loadBlocksuite(data: any): void {
+  async loadBlocksuite(data: any): Promise<void> {
     if (!data) {
       console.warn("⚠️ No data provided to loadBlocksuite");
       return;
@@ -96,7 +97,7 @@ export class BlocksuiteCoordinator {
 
           if (threadUpdates && threadUpdates.length > 0) {
             console.log(`📥 Applying thread_doc updates (${threadUpdates.length} bytes)`);
-            this.yjsManager.applyUpdate(threadUpdates, "loading", "thread_doc");
+            await this.yjsManager.applyUpdate(threadUpdates, "loading", "thread_doc");
           }
         }
 
@@ -108,7 +109,7 @@ export class BlocksuiteCoordinator {
 
           if (commentsUpdates && commentsUpdates.length > 0) {
             console.log(`📥 Applying thread_comments_doc updates (${commentsUpdates.length} bytes)`);
-            this.yjsManager.applyUpdate(commentsUpdates, "loading", "thread_comments_doc");
+            await this.yjsManager.applyUpdate(commentsUpdates, "loading", "thread_comments_doc");
           }
         }
 
@@ -122,7 +123,7 @@ export class BlocksuiteCoordinator {
 
           if (formUpdates && formUpdates.length > 0) {
             console.log(`📥 Applying form_doc updates (${formUpdates.length} bytes)`);
-            this.yjsManager.applyUpdate(formUpdates, "loading", "form_doc");
+            await this.yjsManager.applyUpdate(formUpdates, "loading", "form_doc");
           }
         }
 
@@ -134,7 +135,7 @@ export class BlocksuiteCoordinator {
 
           if (submissionsUpdates && submissionsUpdates.length > 0) {
             console.log(`📥 Applying form_submissions_doc updates (${submissionsUpdates.length} bytes)`);
-            this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
+            await this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
           }
         }
 
@@ -173,7 +174,7 @@ export class BlocksuiteCoordinator {
 
         if (updates && updates.length > 0) {
           console.log(`📥 Applying ${updates.length} bytes from ${docKey}...`);
-          this.yjsManager.applyUpdate(updates, "loading");
+          await this.yjsManager.applyUpdate(updates, "loading");
           console.log("✅ Updates applied");
         } else {
           console.warn("⚠️ No document updates found in data");
