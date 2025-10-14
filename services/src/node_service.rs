@@ -46,12 +46,13 @@ pub async fn generate_folder_token(
 }
 
 /// Prepare folder data for sending to a viewer
-/// Creates a new folder share record for the viewer user
+/// Creates a new folder share record for the viewer user with a read-only folder token
 pub async fn prepare_folder_for_viewer(
     folder_id: &str,
     viewer_user: &User,
     local_user: &User,
     repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<FolderWithShareRecords> {
     info!(
         "Preparing folder {} for viewer {}",
@@ -61,18 +62,78 @@ pub async fn prepare_folder_for_viewer(
     // Get the folder
     let folder = repo_ctx.folder_repo.find_by_id(folder_id).await?;
 
-    // Create a new folder share record for the viewer using their UCAN token
+    // Get all folder share records
+    let folder_share_records = repo_ctx
+        .folder_share_repo
+        .get_records_by_folder_id(folder_id)
+        .await?;
+
+    // Get the local user's folder share record (to delegate from)
+    let local_folder_share_record = folder_share_records
+        .iter()
+        .find(|share| share.recipient_user_id == local_user.id)
+        .ok_or(crate::errors::FolderServiceError::InsufficientPermissions)?
+        .clone();
+
+    // Find the folder owner (root authority) from self-share record
+    let folder_owner_id = folder_share_records
+        .iter()
+        .find(|share| share.shared_by_user_id == share.recipient_user_id)
+        .ok_or(crate::errors::FolderServiceError::InsufficientPermissions)?
+        .recipient_user_id
+        .clone();
+
+    let folder_owner = repo_ctx.user_repo.get_user_by_id(&folder_owner_id).await?;
+
+    info!(
+        "Delegating from local user's folder token. Token CID: {}, Token: {}, Folder owner: {}",
+        local_folder_share_record.ucan_cid,
+        &local_folder_share_record.ucan_token[..50.min(local_folder_share_record.ucan_token.len())],
+        folder_owner.id
+    );
+
+    // Get encrypted UCAN private key
+    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    // Prepare folder proof resolver
+    let repo_ctx_clone = repo_ctx.clone();
+    let proof_resolver = move |cid: &str| {
+        info!("Proof resolver called for CID: {}", cid);
+        let result = resolve_folder_proof(repo_ctx_clone.clone(), cid.to_string());
+        result
+    };
+
+    // Generate a read-only folder token for the viewer
+    info!("Generating read-only folder token for viewer");
+    let folder_capability = format!("sthalam:folder:{}:read", folder_id);
+
+    let (folder_ucan_token, folder_ucan_cid) = {
+        let crypto = crypto_utils.read().await;
+        crypto
+            .issue_delegated_folder_ucan(
+                &encrypted_ucan_pvt_key,
+                &local_folder_share_record.ucan_token,
+                &folder_owner.ucan_pub_key,  // Use folder owner's key, not local user's key
+                folder_id,
+                &viewer_user.ucan_pub_key,
+                vec![(folder_capability, "crud/read".to_string())],
+                &proof_resolver,
+            )
+            .await?
+    };
+
+    // Create a new folder share record for the viewer with the generated token
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
         folder_id.to_string(),
         local_user.id.clone(),
         viewer_user.id.clone(),
         PermissionLevel::Read,
-        viewer_user.ucan_token.clone(),
-        viewer_user.ucan_cid.clone(),
+        folder_ucan_token,
+        folder_ucan_cid,
     );
 
     info!(
-        "Created folder share record for viewer {} on folder {}",
+        "Created folder share record with read-only token for viewer {} on folder {}",
         viewer_user.id, folder_id
     );
 
@@ -83,17 +144,18 @@ pub async fn prepare_folder_for_viewer(
 }
 
 /// Prepare a resource for sending to a viewer
-/// Creates new resource_key and share_record for the viewer
+/// Creates new resource_key and share_record for the viewer with resource-specific permissions
 pub async fn prepare_resource_for_viewer(
     resource_id: &str,
+    resource_type: &str,
     viewer_user: &User,
     local_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<ResourceSyncData> {
     info!(
-        "Preparing resource {} for viewer {}",
-        resource_id, viewer_user.id
+        "Preparing resource {} (type: {}) for viewer {}",
+        resource_id, resource_type, viewer_user.id
     );
 
     // Get the resource
@@ -141,24 +203,60 @@ pub async fn prepare_resource_for_viewer(
         .find_owner_by_resource_id(resource_id)
         .await?;
 
-    // Prepare proof resolver
+    // Prepare resource proof resolver
     let repo_ctx_clone = repo_ctx.clone();
-    let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
+    let proof_resolver = move |cid: &str| resolve_resource_proof(repo_ctx_clone.clone(), cid.to_string());
 
     // Get encrypted UCAN private key
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
-    // Issue delegated UCAN token for the viewer
-    let permissions = vec![
-        (
-            format!("sthalam:resource:{}", resource_id),
-            "crud/read".to_string(),
-        ),
-        (
-            format!("sthalam:resource:{}", resource_id),
-            "crud/update".to_string(),
-        ),
-    ];
+    // Generate resource-specific permissions based on resource type
+    let permissions = match resource_type {
+        "website" => {
+            info!("Generating read-only permissions for website resource");
+            vec![
+                (
+                    format!("sthalam:resource:{}:website_doc", resource_id),
+                    "crud/read".to_string(),
+                ),
+            ]
+        },
+        "noticeboard" => {
+            info!("Generating read + comment permissions for noticeboard resource");
+            vec![
+                (
+                    format!("sthalam:resource:{}:thread_doc", resource_id),
+                    "crud/read".to_string(),
+                ),
+                (
+                    format!("sthalam:resource:{}:thread_comments_doc", resource_id),
+                    "crud/write".to_string(),
+                ),
+            ]
+        },
+        "form" => {
+            info!("Generating read + submit permissions for form resource");
+            vec![
+                (
+                    format!("sthalam:resource:{}:form_doc", resource_id),
+                    "crud/read".to_string(),
+                ),
+                (
+                    format!("sthalam:resource:{}:form_submissions_doc", resource_id),
+                    "crud/append".to_string(),
+                ),
+            ]
+        },
+        _ => {
+            info!("Unknown resource type '{}', using default read-only permissions", resource_type);
+            vec![
+                (
+                    format!("sthalam:resource:{}", resource_id),
+                    "crud/read".to_string(),
+                ),
+            ]
+        }
+    };
 
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.read().await;
@@ -215,10 +313,26 @@ pub async fn prepare_resource_for_viewer(
     })
 }
 
-async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
+/// Resolve folder UCAN proof from folder_share_records
+async fn resolve_folder_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
+    repo_ctx
+        .folder_share_repo
+        .get_ucan_by_cid(&cid)
+        .await
+        .map_err(|e| UcanError::ProofChainInvalid(format!(
+            "Folder UCAN with CID '{}' not found: {}",
+            cid, e
+        )))
+}
+
+/// Resolve resource UCAN proof from share_records
+async fn resolve_resource_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
     repo_ctx
         .share_repo
         .get_ucan_by_cid(&cid)
         .await
-        .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
+        .map_err(|e| UcanError::ProofChainInvalid(format!(
+            "Resource UCAN with CID '{}' not found: {}",
+            cid, e
+        )))
 }

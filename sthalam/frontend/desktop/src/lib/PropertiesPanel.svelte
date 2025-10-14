@@ -16,14 +16,55 @@
 
 	interface Props {
 		selectedBlock: Block | null;
+		blocks?: Map<string, any>;
 		onUpdateBlock: (blockId: string, updates: Partial<Block>) => void;
 		onBringForward: (blockId: string) => void;
 		onSendBackward: (blockId: string) => void;
 		onBringToFront?: (blockId: string) => void;
 		onSendToBack?: (blockId: string) => void;
+		onDeleteBlock?: (blockId: string) => void;
 	}
 
-	let { selectedBlock, onUpdateBlock, onBringForward, onSendBackward, onBringToFront, onSendToBack }: Props = $props();
+	let { selectedBlock, blocks, onUpdateBlock, onBringForward, onSendBackward, onBringToFront, onSendToBack, onDeleteBlock }: Props = $props();
+
+	// Get all blocks as array for dropdowns
+	const allBlocks = $derived(blocks ? Array.from(blocks.entries()).map(([id, block]) => ({ id, ...block })) : []);
+
+	// Get branching questions for nav button configuration
+	const branchingQuestions = $derived(allBlocks.filter(b => b.type === 'branching-question'));
+
+	// Get all containers for navigation
+	const allContainers = $derived(allBlocks.filter(b => b.type === 'form-container' || b.type === 'container'));
+
+	// Get all forms for form field dropdowns
+	const allForms = $derived(allBlocks.filter(b => b.type === 'form'));
+
+	// Find branching question in same container as selected block (for nav buttons)
+	const branchingQuestionInContainer = $derived(() => {
+		if (!selectedBlock || selectedBlock.type !== 'nav-button') return null;
+
+		// Find which container this nav button is in
+		const container = allBlocks.find(b => {
+			if (b.type !== 'form-container' && b.type !== 'container') return false;
+
+			return selectedBlock.x >= b.x &&
+				selectedBlock.x + selectedBlock.width <= b.x + b.width &&
+				selectedBlock.y >= b.y &&
+				selectedBlock.y + selectedBlock.height <= b.y + b.height;
+		});
+
+		if (!container) return null;
+
+		// Find branching question in the same container
+		return allBlocks.find(b => {
+			if (b.type !== 'branching-question') return false;
+
+			return b.x >= container.x &&
+				b.x + b.width <= container.x + container.width &&
+				b.y >= container.y &&
+				b.y + b.height <= container.y + container.height;
+		});
+	});
 
 	// Collapsible sections state
 	let expandedSections = $state({
@@ -182,7 +223,14 @@
 	{#if selectedBlock}
 		<div class="panel-header">
 			<h3>Properties</h3>
-			<span class="block-type-badge">{selectedBlock.type}</span>
+			<div class="header-actions">
+				<span class="block-type-badge">{selectedBlock.type}</span>
+				{#if onDeleteBlock}
+					<button class="delete-btn" onclick={() => onDeleteBlock?.(selectedBlock.id)} title="Delete block (Delete key)">
+						🗑️
+					</button>
+				{/if}
+			</div>
 		</div>
 
 		<div class="panel-content">
@@ -271,6 +319,228 @@
 				</div>
 			{/if}
 
+			<!-- Container Properties -->
+			{#if selectedBlock.type === 'container'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Container Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Container Label</span>
+							<input
+								type="text"
+								value={selectedBlock.label || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { label: e.currentTarget.value })}
+								placeholder="Screen 1"
+							/>
+						</label>
+						<div class="info-box">
+							💡 Give this container a name to easily identify it in navigation dropdowns. Each container becomes a full-screen in viewer mode.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Branching Question Properties -->
+			{#if selectedBlock.type === 'branching-question'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Question Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Question Text</span>
+							<input
+								type="text"
+								value={selectedBlock.question || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { question: e.currentTarget.value })}
+								placeholder="Are you a new user?"
+							/>
+						</label>
+
+						<label>
+							<span>"Yes" Button Label</span>
+							<input
+								type="text"
+								value={selectedBlock.yesLabel || "Yes"}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { yesLabel: e.currentTarget.value })}
+								placeholder="Yes"
+							/>
+						</label>
+
+						<label>
+							<span>"No" Button Label</span>
+							<input
+								type="text"
+								value={selectedBlock.noLabel || "No"}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { noLabel: e.currentTarget.value })}
+								placeholder="No"
+							/>
+						</label>
+
+						<div class="info-box">
+							💡 This question will be used by Nav Buttons to create branching paths.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Form Metadata Properties -->
+			{#if selectedBlock.type === 'form'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Form Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Form Name (Required)</span>
+							<input
+								type="text"
+								value={selectedBlock.name || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { name: e.currentTarget.value })}
+								placeholder="Contact Form"
+							/>
+						</label>
+
+						<label>
+							<span>Event Name (Required)</span>
+							<input
+								type="text"
+								value={selectedBlock.eventName || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { eventName: e.currentTarget.value })}
+								placeholder="contact_form_submission"
+							/>
+						</label>
+
+						<div class="info-box">
+							🏷️ The event name identifies this form's data when sent to the backend. Use snake_case (e.g., "contact_form_submission", "newsletter_signup").
+						</div>
+
+						<label>
+							<span>Description (Optional)</span>
+							<textarea
+								value={selectedBlock.description || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { description: e.currentTarget.value })}
+								placeholder="A brief description of this form..."
+								rows="3"
+							></textarea>
+						</label>
+
+						<div class="info-box">
+							📋 This form is invisible in viewer mode. Form fields and submit buttons can reference this form by selecting it from a dropdown.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Nav Button Properties -->
+			{#if selectedBlock.type === 'nav-button'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Navigation Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Button Text</span>
+							<input
+								type="text"
+								value={selectedBlock.content || "Next"}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { content: e.currentTarget.value })}
+								placeholder="Next"
+							/>
+						</label>
+
+						{#if branchingQuestionInContainer()}
+							<!-- Branching navigation detected -->
+							<div class="info-box">
+								🔀 Branching question detected: "{branchingQuestionInContainer().question}"
+							</div>
+
+							<div class="branch-config">
+								<label>
+									<span>When "Yes" → Navigate to Container</span>
+									<select
+										value={selectedBlock.yesTargetId || ""}
+										onchange={(e) => {
+											const targetId = e.currentTarget.value;
+											onUpdateBlock(selectedBlock.id, {
+												yesTargetId: targetId,
+												questionId: branchingQuestionInContainer().id
+											});
+										}}
+									>
+										<option value="">-- Select Container --</option>
+										{#each allContainers as container}
+											<option value={container.id}>
+												{container.label || `${container.type} at (${container.x}, ${container.y})`}
+											</option>
+										{/each}
+									</select>
+								</label>
+
+								{#if selectedBlock.yesTargetId}
+									<div class="target-preview">
+										✓ YES path configured
+									</div>
+								{/if}
+
+								<label>
+									<span>When "No" → Navigate to Container</span>
+									<select
+										value={selectedBlock.noTargetId || ""}
+										onchange={(e) => {
+											const targetId = e.currentTarget.value;
+											onUpdateBlock(selectedBlock.id, {
+												noTargetId: targetId,
+												questionId: branchingQuestionInContainer().id
+											});
+										}}
+									>
+										<option value="">-- Select Container --</option>
+										{#each allContainers as container}
+											<option value={container.id}>
+												{container.label || `${container.type} at (${container.x}, ${container.y})`}
+											</option>
+										{/each}
+									</select>
+								</label>
+
+								{#if selectedBlock.noTargetId}
+									<div class="target-preview">
+										✓ NO path configured
+									</div>
+								{/if}
+							</div>
+						{:else}
+							<!-- Simple navigation -->
+							<label>
+								<span>Navigate to Container</span>
+								<select
+									value={selectedBlock.targetContainerId || ""}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { targetContainerId: e.currentTarget.value })}
+								>
+									<option value="">-- Next Container (default) --</option>
+									{#each allContainers as container}
+										<option value={container.id}>
+											{container.label || `${container.type} at (${container.x}, ${container.y})`}
+										</option>
+									{/each}
+								</select>
+							</label>
+
+							<div class="info-box">
+								💡 Place a branching question in the same container to enable yes/no navigation paths.
+							</div>
+						{/if}
+					{/if}
+				</div>
+			{/if}
+
 			<!-- Form Field Properties -->
 			{#if selectedBlock.type.startsWith('form-field-') || selectedBlock.type === 'form-container' || selectedBlock.type === 'form-submit-button'}
 				<div class="property-group">
@@ -281,6 +551,27 @@
 					{#if expandedSections.content}
 						{#if selectedBlock.type.startsWith('form-field-')}
 							<!-- Form Field Properties -->
+							<label>
+								<span>Belongs to Form</span>
+								<select
+									value={selectedBlock.formId || ""}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { formId: e.currentTarget.value })}
+								>
+									<option value="">-- No Form Selected --</option>
+									{#each allForms as form}
+										<option value={form.id}>
+											{form.name || "Unnamed Form"}
+										</option>
+									{/each}
+								</select>
+							</label>
+
+							{#if !selectedBlock.formId}
+								<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
+									⚠️ This field is not linked to any form. Select a form above to connect it to a submit button.
+								</div>
+							{/if}
+
 							<label>
 								<span>Label</span>
 								<input
@@ -338,6 +629,27 @@
 						{:else if selectedBlock.type === 'form-submit-button'}
 							<!-- Submit Button Properties -->
 							<label>
+								<span>Submits Form</span>
+								<select
+									value={selectedBlock.formId || ""}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { formId: e.currentTarget.value })}
+								>
+									<option value="">-- No Form Selected --</option>
+									{#each allForms as form}
+										<option value={form.id}>
+											{form.name || "Unnamed Form"}
+										</option>
+									{/each}
+								</select>
+							</label>
+
+							{#if !selectedBlock.formId}
+								<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
+									⚠️ This button is not linked to any form. Select a form above to collect field data on submit.
+								</div>
+							{/if}
+
+							<label>
 								<span>Button Text</span>
 								<input
 									type="text"
@@ -346,8 +658,24 @@
 									placeholder="Submit"
 								/>
 							</label>
+
+							<label>
+								<span>After Submit, Navigate to Container</span>
+								<select
+									value={selectedBlock.targetContainerId || ""}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { targetContainerId: e.currentTarget.value })}
+								>
+									<option value="">-- Next Container (default) --</option>
+									{#each allContainers as container}
+										<option value={container.id}>
+											{container.label || `${container.type} at (${container.x}, ${container.y})`}
+										</option>
+									{/each}
+								</select>
+							</label>
+
 							<div class="info-box">
-								💡 This button will collect data from all form fields in the same form container and emit JSON.
+								💡 This button will collect data from all form fields with the same form ID and navigate to the next screen.
 							</div>
 						{/if}
 					{/if}
@@ -543,6 +871,12 @@
 		letter-spacing: 0.05em;
 	}
 
+	.header-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
 	.block-type-badge {
 		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 		color: white;
@@ -551,6 +885,22 @@
 		font-size: 0.75rem;
 		font-weight: 600;
 		text-transform: uppercase;
+	}
+
+	.delete-btn {
+		padding: 0.25rem 0.5rem;
+		background: #dc3545;
+		color: white;
+		border: none;
+		border-radius: 4px;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.delete-btn:hover {
+		background: #c82333;
+		transform: scale(1.1);
 	}
 
 	.panel-content {
@@ -885,5 +1235,31 @@
 
 	.add-field-btn:hover {
 		background: #218838;
+	}
+
+	/* Branching navigation */
+	.branch-config {
+		padding: 1rem;
+		background: var(--bg-secondary, #f5f5f5);
+		border-radius: 6px;
+		margin-top: 0.5rem;
+	}
+
+	.target-preview {
+		padding: 0.75rem;
+		background: #d4edda;
+		border-left: 3px solid #28a745;
+		border-radius: 4px;
+		font-size: 0.75rem;
+		color: #155724;
+		margin-top: 0.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.target-preview small {
+		font-family: monospace;
+		opacity: 0.7;
 	}
 </style>

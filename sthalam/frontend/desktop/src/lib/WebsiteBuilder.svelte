@@ -95,7 +95,6 @@
 					newBlocks.set(key, value);
 				});
 				blocks = newBlocks;
-				console.log("📦 Blocks updated:", blocks.size);
 			};
 
 			// Subscribe to viewport changes
@@ -106,7 +105,6 @@
 					y: yDocs.viewport.get("y") || 0,
 					zoom: yDocs.viewport.get("zoom") || 1,
 				};
-				console.log("🔍 Viewport updated:", viewport);
 			};
 
 			docs.blocks.observe(blocksObserver);
@@ -141,10 +139,11 @@
 		// Note: Coordinator cleanup is handled by dataState.clearAllState() when needed
 	});
 
-	function updateViewport(newViewport: { x: number; y: number }) {
+	function updateViewport(newViewport: { x?: number; y?: number; zoom?: number }) {
 		if (!yDocs) return;
-		yDocs.viewport.set("x", newViewport.x);
-		yDocs.viewport.set("y", newViewport.y);
+		if (newViewport.x !== undefined) yDocs.viewport.set("x", newViewport.x);
+		if (newViewport.y !== undefined) yDocs.viewport.set("y", newViewport.y);
+		if (newViewport.zoom !== undefined) yDocs.viewport.set("zoom", newViewport.zoom);
 	}
 
 	function updateBlock(blockId: string, updates: Partial<any>) {
@@ -272,6 +271,15 @@
 		setTimeout(() => normalizeZIndexes(), 0);
 	}
 
+	function deleteBlock(blockId: string) {
+		if (!yDocs) return;
+		yDocs.blocks.delete(blockId);
+		// Clear selection if the deleted block was selected
+		if (selectedBlockId === blockId) {
+			selectedBlockId = null;
+		}
+	}
+
 	function addBlock(type: string) {
 		if (!yDocs) return;
 		const id = `block-${Date.now()}`;
@@ -381,6 +389,32 @@
 					color: "#ffffff"
 				};
 				break;
+			case "branching-question":
+				newBlock.width = 600;
+				newBlock.height = 200;
+				newBlock.question = "Are you a new user?";
+				newBlock.yesLabel = "Yes";
+				newBlock.noLabel = "No";
+				newBlock.styles = {
+					backgroundColor: "rgba(255,255,255,0.95)",
+					border: "2px solid #667eea",
+					borderRadius: "12px"
+				};
+				break;
+			case "nav-button":
+				newBlock.width = 200;
+				newBlock.height = 60;
+				newBlock.content = "Next";
+				newBlock.questionId = ""; // Will be configured in properties panel
+				newBlock.branches = {
+					yes: { x: 0, y: -1000, zoom: 1 },
+					no: { x: 0, y: -1000, zoom: 1 }
+				};
+				newBlock.styles = {
+					backgroundColor: "#48bb78",
+					color: "#ffffff"
+				};
+				break;
 			default:
 				newBlock.width = 300;
 				newBlock.height = 100;
@@ -415,11 +449,13 @@
 		/>
 		<PropertiesPanel
 			{selectedBlock}
+			{blocks}
 			onUpdateBlock={updateBlock}
 			onBringForward={bringForward}
 			onSendBackward={sendBackward}
 			onBringToFront={bringToFront}
 			onSendToBack={sendToBack}
+			onDeleteBlock={deleteBlock}
 		/>
 		<KeyboardShortcuts />
 		{#if uiState.showFolderManager}
@@ -431,7 +467,7 @@
 <style>
 	.builder-container {
 		width: 100%;
-		height: 100vh;
+		height: 100%;
 		overflow: hidden;
 		background: #010409;
 		display: flex;
@@ -439,7 +475,7 @@
 
 	.empty-state {
 		width: 100%;
-		height: 100vh;
+		height: 100%;
 		display: flex;
 		background: #010409;
 	}

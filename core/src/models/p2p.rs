@@ -132,6 +132,7 @@ pub struct WebsiteHandshakeRequest {
 pub struct WebsiteHandshakeResponse {
     pub node_user: User,
     pub node_device: Device,
+    pub viewer_specific_token: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

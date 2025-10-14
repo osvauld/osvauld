@@ -13,12 +13,14 @@
 		};
 		isSelected: boolean;
 		readonly?: boolean;
+		noPositioning?: boolean; // Don't apply position styles (for viewer mode)
 		onUpdate: (blockId: string, updates: any) => void;
 		onSelect: (blockId: string) => void;
 		onFormSubmit?: (submitButtonId: string) => void;
+		onNavigate?: (navButtonId: string) => void;
 	}
 
-	let { block, isSelected, readonly = false, onUpdate, onSelect, onFormSubmit }: Props = $props();
+	let { block, isSelected, readonly = false, noPositioning = false, onUpdate, onSelect, onFormSubmit, onNavigate }: Props = $props();
 
 	let isDragging = $state(false);
 	let isResizing = $state(false);
@@ -34,6 +36,9 @@
 
 	// Form field state (for viewer mode)
 	let formFieldValue = $state<any>(block.type === 'form-field-checkbox' ? false : '');
+
+	// Branching question answer state (local only)
+	let selectedAnswer = $state<string | null>(null);
 
 	// Handle contenteditable input
 	function handleContentInput(e: Event) {
@@ -386,11 +391,12 @@
 
 <div
 	class="block block-{block.type}"
-	style:left="{block.x}px"
-	style:top="{block.y}px"
-	style:width="{block.width}px"
-	style:height="{block.height}px"
-	style:z-index={block.zIndex}
+	class:no-positioning={noPositioning}
+	style:left={noPositioning ? undefined : `${block.x}px`}
+	style:top={noPositioning ? undefined : `${block.y}px`}
+	style:width={noPositioning ? "100%" : `${block.width}px`}
+	style:height={noPositioning ? "100%" : `${block.height}px`}
+	style:z-index={noPositioning ? undefined : block.zIndex}
 	style:cursor={blockCursor()}
 	style={block.type === "html" ? "" : computedStyles()}
 	onmousedown={handleMouseDown}
@@ -439,6 +445,19 @@
 					<span class="placeholder-icon">&lt;/&gt;</span>
 					<span class="placeholder-text">Add HTML in Properties</span>
 				</div>
+			{/if}
+		</div>
+	{:else if block.type === "form"}
+		<div class="block-form-metadata" class:viewer-mode={readonly}>
+			<div class="form-metadata-header">
+				<span class="form-metadata-icon">📋</span>
+				<span class="form-metadata-name">{block.name || "Unnamed Form"}</span>
+			</div>
+			{#if block.eventName}
+				<div class="form-metadata-event">🏷️ {block.eventName}</div>
+			{/if}
+			{#if block.description}
+				<div class="form-metadata-description">{block.description}</div>
 			{/if}
 		</div>
 	{:else if block.type === "form-container"}
@@ -516,6 +535,43 @@
 				{block.content || "Submit"}
 			</button>
 		</div>
+	{:else if block.type === "branching-question"}
+		<div class="block-branching-question">
+			<div class="question-text">{block.question || "Your question here?"}</div>
+			<div class="question-options">
+				<button
+					class="option-button"
+					class:selected={selectedAnswer === 'yes'}
+					disabled={!readonly}
+					onclick={() => readonly && (selectedAnswer = 'yes')}
+					data-answer="yes"
+					data-question-id={block.id}
+				>
+					{block.yesLabel || "Yes"}
+				</button>
+				<button
+					class="option-button"
+					class:selected={selectedAnswer === 'no'}
+					disabled={!readonly}
+					onclick={() => readonly && (selectedAnswer = 'no')}
+					data-answer="no"
+					data-question-id={block.id}
+				>
+					{block.noLabel || "No"}
+				</button>
+			</div>
+		</div>
+	{:else if block.type === "nav-button"}
+		<div class="block-nav-button">
+			<button
+				type="button"
+				disabled={!readonly}
+				data-nav-button={block.id}
+				onclick={() => readonly && onNavigate && onNavigate(block.id)}
+			>
+				{block.content || "Next"}
+			</button>
+		</div>
 	{/if}
 
 	<!-- Resize handles (hidden in readonly mode) -->
@@ -535,6 +591,12 @@
 	.block {
 		position: absolute;
 		transition: box-shadow 0.2s, outline 0.2s;
+	}
+
+	.block.no-positioning {
+		position: relative;
+		width: 100%;
+		height: 100%;
 	}
 
 	.block:hover {
@@ -782,6 +844,54 @@
 	}
 
 	/* Form block styles */
+	.block-form-metadata {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		padding: 12px;
+		border: 2px solid #667eea;
+		background: rgba(102, 126, 234, 0.1);
+		border-radius: 8px;
+	}
+
+	.block-form-metadata.viewer-mode {
+		display: none; /* Invisible in viewer mode */
+	}
+
+	.form-metadata-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.form-metadata-icon {
+		font-size: 1.25rem;
+	}
+
+	.form-metadata-name {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #667eea;
+	}
+
+	.form-metadata-event {
+		font-size: 0.7rem;
+		font-family: monospace;
+		color: #48bb78;
+		background: rgba(72, 187, 120, 0.1);
+		padding: 0.25rem 0.5rem;
+		border-radius: 4px;
+		font-weight: 600;
+	}
+
+	.form-metadata-description {
+		font-size: 0.75rem;
+		color: #666;
+		font-style: italic;
+	}
+
 	.block-form-container {
 		width: 100%;
 		height: 100%;
@@ -875,5 +985,91 @@
 		opacity: 0.7;
 		cursor: not-allowed;
 		pointer-events: none; /* Allow clicks to pass through to block for dragging */
+	}
+
+	/* Branching question styles */
+	.block-branching-question {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		padding: 1.5rem;
+		justify-content: center;
+	}
+
+	.question-text {
+		font-size: 1.125rem;
+		font-weight: 600;
+		color: #333;
+		text-align: center;
+	}
+
+	.question-options {
+		display: flex;
+		gap: 1rem;
+		justify-content: center;
+	}
+
+	.option-button {
+		padding: 0.75rem 2rem;
+		border: 2px solid #667eea;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 500;
+		background: white;
+		color: #667eea;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.option-button:hover {
+		background: #f0f2ff;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+	}
+
+	.option-button.selected {
+		background: #667eea;
+		color: white;
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+	}
+
+	.option-button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		pointer-events: none;
+	}
+
+	/* Navigation button styles */
+	.block-nav-button {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.block-nav-button button {
+		padding: 0.75rem 2rem;
+		border: none;
+		border-radius: 8px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		background: #48bb78;
+		color: white;
+		transition: all 0.2s;
+	}
+
+	.block-nav-button button:hover {
+		background: #38a169;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(72, 187, 120, 0.3);
+	}
+
+	.block-nav-button button:disabled {
+		cursor: not-allowed;
+		pointer-events: none;
 	}
 </style>

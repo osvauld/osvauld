@@ -146,12 +146,13 @@ impl PeerConnection {
         let local_user = self.get_local_user().await?;
         let peer_user = self.get_peer_user().await;
 
-        // 1. Prepare and send folder
+        // 1. Prepare and send folder with folder-specific token
         let folder_data = services::prepare_folder_for_viewer(
             &folder_id,
             &peer_user,
             &local_user,
             self.repo_ctx.clone(),
+            &self.crypto_utils,
         )
         .await
         .map_err(|e| {
@@ -199,8 +200,26 @@ impl PeerConnection {
         for resource_id in resource_ids {
             info!("Preparing resource {} for viewer", resource_id);
 
+            // Get resource to determine its type
+            let resource = self
+                .repo_ctx
+                .resource_repo
+                .find_by_id(&resource_id, &local_user.id)
+                .await
+                .map_err(|e| {
+                    error!("Failed to get resource {} details: {}", resource_id, e);
+                    crate::p2p::errors::P2PError::Custom(format!(
+                        "Failed to get resource details: {}",
+                        e
+                    ))
+                })?;
+
+            let resource_type = resource.resource.resource_type.to_string();
+            info!("Resource {} is of type '{}'", resource_id, resource_type);
+
             let resource_sync_data = services::prepare_resource_for_viewer(
                 &resource_id,
+                &resource_type,
                 &peer_user,
                 &local_user,
                 self.repo_ctx.clone(),
@@ -219,7 +238,7 @@ impl PeerConnection {
             self.send_message(Message::ResourceAdditionRequest(resource_sync_data))
                 .await?;
 
-            info!("Sent resource {}", resource_id);
+            info!("Sent resource {} with resource-specific permissions", resource_id);
         }
 
         info!(

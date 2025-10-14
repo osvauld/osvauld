@@ -117,20 +117,22 @@ class DataState {
     console.log("🔨 Creating new BlocksuiteCoordinator...");
     this.blocksuiteCoordinator = new BlocksuiteCoordinator({
       onCollaborationUpdate: async (update) => {
-        if (!this.currentResourceId) return;
-        await emit("sync-update", {
-          update: Array.from(update),
-          clientID: this.clientId,
-          resource_id: this.currentResourceId,
-        });
+        // Disabled: No live events needed for now
+        // if (!this.currentResourceId) return;
+        // await emit("sync-update", {
+        //   update: Array.from(update),
+        //   clientID: this.clientId,
+        //   resource_id: this.currentResourceId,
+        // });
       },
       onAwarenessUpdate: async (changes) => {
-        if (!this.currentResourceId) return;
-        await emit("awareness-update", {
-          update: Array.from(changes),
-          clientID: this.clientId,
-          resource_id: this.currentResourceId,
-        });
+        // Disabled: No live events needed for now
+        // if (!this.currentResourceId) return;
+        // await emit("awareness-update", {
+        //   update: Array.from(changes),
+        //   clientID: this.clientId,
+        //   resource_id: this.currentResourceId,
+        // });
       },
       userInfo,
     });

@@ -11,13 +11,16 @@
 		{ type: "image", label: "Image", icon: "🖼️", description: "Image or GIF" },
 		{ type: "container", label: "Container", icon: "□", description: "Layout box for grouping" },
 		{ type: "html", label: "HTML/CSS", icon: "<>", description: "Custom HTML with CSS" },
-		{ type: "form-container", label: "Form", icon: "📋", description: "Interactive form container" },
+		{ type: "form", label: "Form", icon: "📋", description: "Form metadata (invisible in viewer)" },
+		{ type: "form-container", label: "Form Container", icon: "▭", description: "Visual form container (legacy)" },
 		{ type: "form-field-text", label: "Text Input", icon: "T", description: "Single-line text field" },
 		{ type: "form-field-email", label: "Email Input", icon: "@", description: "Email field" },
 		{ type: "form-field-number", label: "Number Input", icon: "#", description: "Number field" },
 		{ type: "form-field-textarea", label: "Text Area", icon: "¶", description: "Multi-line text field" },
 		{ type: "form-field-checkbox", label: "Checkbox", icon: "☑", description: "Checkbox field" },
 		{ type: "form-submit-button", label: "Submit Button", icon: "→", description: "Form submit button" },
+		{ type: "branching-question", label: "Yes/No Question", icon: "?", description: "Branching question with yes/no" },
+		{ type: "nav-button", label: "Nav Button", icon: "➜", description: "Navigate viewport on click" },
 	];
 </script>
 
@@ -67,10 +70,12 @@
 	.palette-content {
 		flex: 1;
 		padding: 1rem;
+		padding-bottom: 2rem; /* Add extra padding at bottom */
 		overflow-y: auto;
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+		min-height: 0; /* Enable flex scrolling */
 	}
 
 	.block-type-btn {

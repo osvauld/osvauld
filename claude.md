@@ -15,7 +15,7 @@ cargo tauri dev
 
 ---
 
-## Current Status (2025-10-13)
+## Current Status (2025-10-14)
 
 ### ✅ Completed
 - Infinite canvas website builder with drag/drop blocks
@@ -58,6 +58,81 @@ cargo tauri dev
 - **Storage**: Both docs stored in same resource (POC approach for simplicity)
 - **Routing**: Submissions routed to `form_submissions_doc`, form fields to `form_doc`
 - **Status**: Tested and working ✅
+
+### ✅ COMPLETED - Full-Screen Viewer Mode (2025-10-14)
+**Container-Based Presentation** ✅
+- **Full-screen containers**: Each container fills entire viewport (no zoom/pan)
+- **Direct navigation**: Click interactive elements to transition between containers
+- **Container hierarchy**: Automatic spatial detection of blocks within containers
+- **Responsive positioning**: Percentage-based child positioning for scaling
+- **Navigation indicators**: Bottom indicators for multi-screen navigation
+- **Branching navigation**: Yes/No questions automatically link to nav buttons in same container
+
+**Architecture Changes:**
+- Created `FullScreenViewer.svelte` component for container-based display
+- Added `noPositioning` prop to Block component for viewer-specific rendering
+- Container sorting by position (top-to-bottom, left-to-right)
+- Form submission and navigation button handlers
+- Fixed layout compression issues (100vh → 100%)
+
+**UI/UX Improvements:**
+- Fixed layout overflow issues with NavigationPanel and BlockPalette
+- Added delete functionality for blocks with delete button in properties panel
+- Disabled unnecessary console logs (blocks updated, viewport updated)
+- Disabled live event emissions (no sync-update or awareness-update events during editing)
+- Fixed scrolling in BlockPalette to show all block types
+
+**Files Modified:**
+- `sthalam/frontend/desktop/src/lib/FullScreenViewer.svelte` - NEW: Full-screen viewer component
+- `sthalam/frontend/desktop/src/lib/Block.svelte` - Added noPositioning prop
+- `sthalam/frontend/desktop/src/components/ViewerMode.svelte` - Integrated FullScreenViewer
+- `sthalam/frontend/desktop/src/lib/WebsiteBuilder.svelte` - Height fixes, delete function, removed logs
+- `sthalam/frontend/desktop/src/lib/PropertiesPanel.svelte` - Added delete button
+- `sthalam/frontend/desktop/src/state/data.svelte.ts` - Disabled live event emissions
+- `sthalam/frontend/desktop/src/lib/BlockPalette.svelte` - Fixed scrolling
+- `sthalam/frontend/desktop/src/components/NavigationPanel.svelte` - Layout adjustments
+
+### 🚧 In Progress - FORM GROUPING & EVENT-BASED SUBMISSION
+**Next Steps:**
+- **Form element grouping**: Define form elements under one unified `formId`
+- **Event-based submission**: Submit buttons emit events with defined event name/id
+- **Form-button binding**: Tie submit buttons to form elements by unified ID
+- **Event payload structure**: Define standardized event payload format
+
+**Proposed Architecture:**
+```typescript
+// Form element with unified grouping
+{
+  type: "form-field-text",
+  formId: "contact-form",  // NEW: Links all elements in same form
+  fieldName: "name",
+  ...
+}
+
+// Submit button tied to form
+{
+  type: "form-submit-button",
+  formId: "contact-form",  // NEW: Links to form elements
+  eventName: "contact-form-submit",  // NEW: Custom event identifier
+  eventPayload: { ... },  // NEW: Additional data to send with event
+  ...
+}
+
+// On submit: emit custom event
+emit(eventName, {
+  formId: "contact-form",
+  data: { name: "...", email: "..." },
+  timestamp: Date.now(),
+  ...eventPayload
+});
+```
+
+**Implementation Tasks:**
+1. Add `formId` field to all form-related blocks
+2. Add `eventName` and `eventPayload` fields to submit buttons
+3. Update form submission handler to collect fields by formId
+4. Implement event emission system for submit actions
+5. Add form grouping UI in properties panel
 
 ### 🚧 In Progress - VIEWER INTERACTION IMPLEMENTATION
 - **Resource-specific UCAN token generation** (different capabilities per resource type)

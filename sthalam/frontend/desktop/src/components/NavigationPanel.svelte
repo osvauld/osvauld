@@ -33,7 +33,7 @@
 
 {#if uiState.showNavigationPanel}
 	<nav
-		class="w-[17rem] shrink-0 h-full pt-4 pb-1 px-1 relative border-r border-osvauld-borderColor flex flex-col"
+		class="w-[17rem] shrink-0 h-full pt-2 pb-2 px-1 relative border-r border-osvauld-borderColor flex flex-col overflow-hidden"
 		aria-label="Main Navigation"
 	>
 		<!-- Header with All Websites -->
@@ -83,7 +83,7 @@
 		</div>
 
 		<!-- Publish Button Section -->
-		<div class="shrink-0 border-t border-osvauld-borderColor">
+		<div class="shrink-0 border-t border-osvauld-borderColor pt-2">
 			<PublishButton />
 		</div>
 

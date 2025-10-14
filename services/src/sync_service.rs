@@ -1,5 +1,6 @@
 use crate::errors::{ServiceResult, SyncServiceError};
 use crypto_utils::CryptoUtils;
+use log::info;
 use osvauld_core::{
     models::{
         ConnectionType, Device, DeviceManifestComparisonResult, DeviceManifestDifferences,
@@ -712,6 +713,7 @@ pub async fn create_user_network_sync_payload(
 
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
+    info!("user with devices {:?}", unknown_users_with_devices);
     for user_with_devices in &mut unknown_users_with_devices {
         // Generate delegated token for peer to connect to this user
         let delegated_token = {

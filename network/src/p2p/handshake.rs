@@ -424,30 +424,55 @@ impl PeerConnection {
         &self,
         payload: &osvauld_core::models::WebsiteHandshakeRequest,
     ) -> P2PResult<()> {
-        info!("Processing website handshake request");
+        info!("Processing website handshake request from viewer");
 
         let current_user = self.get_local_user().await?;
         let current_device = self.get_local_device().await
             .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
         debug!("Retrieved local user and device information");
 
-        // TODO: Validate UCAN token
-        // For now, we'll assume validation passes
-        info!("UCAN token validation (TODO: implement)");
+        // Validate folder UCAN token
+        info!("Validating folder UCAN token from viewer");
+        let ucan = crypto_utils::ucan_utils::validate_structure(&payload.ucan_token)
+            .await
+            .map_err(|e| {
+                error!("Failed to parse viewer's UCAN token: {}", e);
+                HandshakeError::InvalidCredentials {
+                    user_id: payload.viewer_user.id.clone(),
+                }
+            })?;
 
-        // Set peer user and device from the viewer
+        // Extract folder_id from token capabilities
+        let folder_id = crypto_utils::ucan_utils::extract_folder_id_from_ucan(&ucan)
+            .map_err(|e| {
+                error!("Failed to extract folder_id from UCAN: {}", e);
+                HandshakeError::InvalidCredentials {
+                    user_id: payload.viewer_user.id.clone(),
+                }
+            })?;
+
+        info!("Validated folder token for folder_id: {}", folder_id);
+
+        // Return the same wildcard token back to viewer
+        // Viewer will use this for the first resource request
+        // After receiving folder + resources, viewer will use the folder-specific tokens
+        let viewer_token = payload.ucan_token.clone();
+        info!("Returning wildcard folder token back to viewer for resource requests");
+
+        // Set peer user and device from the viewer (in-memory only, not saved to DB)
         self.set_peer_user_and_device(payload.viewer_user.clone(), payload.viewer_device.clone()).await;
         self.set_connection_type(ConnectionType::Website).await;
-        debug!("Set peer user and connection type to Website");
+        info!("Set peer user and connection type to Website (viewer not saved to database)");
 
         // Mark handshake as complete
         let mut handshake_complete = self.handshake_complete.lock().await;
         *handshake_complete = true;
 
-        // Send response back to viewer
+        // Send response back to viewer with the wildcard token
         let response = osvauld_core::models::WebsiteHandshakeResponse {
             node_user: current_user,
             node_device: current_device,
+            viewer_specific_token: viewer_token,
         };
 
         self.send_message(Message::Handshake(
@@ -463,10 +488,38 @@ impl PeerConnection {
         &self,
         payload: &osvauld_core::models::WebsiteHandshakeResponse,
     ) -> P2PResult<()> {
-        info!("Processing website handshake response");
+        info!("Processing website handshake response from sovereign node");
+
+        // Receive the wildcard folder token back from sovereign node
+        // This is the same token we sent in the request (from connection string)
+        // We'll use this for the first resource request to get folder + resources
+        // After that, we'll use the folder-specific tokens from the folder_share_record
+        info!("Received wildcard folder token from sovereign node");
+
+        // Update node user in viewer's local database with the wildcard token
+        let mut node_user = payload.node_user.clone();
+        node_user.ucan_token = payload.viewer_specific_token.clone(); // Save wildcard token for first resource request
+        node_user.first_sync = true; // Mark as synced
+        node_user.owner = false;
+
+        // Get node's devices (for now, just the current device)
+        let node_devices = vec![payload.node_device.clone()];
+
+        let user_with_devices = UserWithDevices {
+            user: node_user.clone(),
+            devices: node_devices,
+        };
+
+        // Save or update node user in viewer's database
+        self.repo_ctx
+            .user_repo
+            .add_users_with_devices_bulk(&vec![user_with_devices])
+            .await?;
+
+        info!("Updated sovereign node user in local database with new token and first_sync=true");
 
         // Set peer user and device from the sovereign node
-        self.set_peer_user_and_device(payload.node_user.clone(), payload.node_device.clone()).await;
+        self.set_peer_user_and_device(node_user, payload.node_device.clone()).await;
         debug!("Set peer user and device from node response");
 
         // Mark handshake as complete

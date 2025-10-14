@@ -1,19 +1,43 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from "svelte";
-	import { dataState } from "../state";
-	import Canvas from "../lib/Canvas.svelte";
+	import { dataState, uiState } from "../state";
+	import FullScreenViewer from "../lib/FullScreenViewer.svelte";
 	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
+	import ViewerWebsiteFolder from "./ViewerWebsiteFolder.svelte";
 	import type { YjsDocuments } from "../lib/yjsManager";
+	import type { Website } from "../types";
 
 	let yDocs: YjsDocuments | null = null;
 	let blocks = $state<Map<string, any>>(new Map());
-	let viewport = $state({ x: 0, y: 0, zoom: 1 });
 	let showAddWebsiteModal = $state(false);
 
 	// Get synced resources
 	const syncedResources = $derived(dataState.resources);
 	const hasResources = $derived(syncedResources.length > 0);
 	const hasResource = $derived(!!dataState.currentResourceId);
+
+	// Get unique websites from synced resources
+	const syncedWebsites = $derived(() => {
+		const websiteMap = new Map<string, Website>();
+
+		syncedResources.forEach(resource => {
+			if (resource.websiteId && !websiteMap.has(resource.websiteId)) {
+				// Find the website info from dataState.websites
+				const website = dataState.websites.find(w => w.id === resource.websiteId);
+				if (website) {
+					websiteMap.set(resource.websiteId, website);
+				} else {
+					// Fallback: create a basic website object if not found
+					websiteMap.set(resource.websiteId, {
+						id: resource.websiteId,
+						name: resource.websiteId, // Use ID as name if website info not available
+					});
+				}
+			}
+		});
+
+		return Array.from(websiteMap.values());
+	});
 
 	onMount(async () => {
 		console.log("🚀 Initializing Viewer Mode...");
@@ -37,7 +61,6 @@
 			console.log("❌ No resource selected - clearing workspace");
 			yDocs = null;
 			blocks = new Map();
-			viewport = { x: 0, y: 0, zoom: 1 };
 			return;
 		}
 
@@ -62,12 +85,7 @@
 			yDocs = docs;
 
 			console.log("📦 Yjs documents received:", {
-				blocks: docs.blocks.size,
-				viewport: {
-					x: docs.viewport.get("x"),
-					y: docs.viewport.get("y"),
-					zoom: docs.viewport.get("zoom")
-				}
+				blocks: docs.blocks.size
 			});
 
 			// Subscribe to blocks changes
@@ -78,26 +96,12 @@
 					newBlocks.set(key, value);
 				});
 				blocks = newBlocks;
-				console.log("📦 Blocks updated:", blocks.size);
-			};
-
-			// Subscribe to viewport changes
-			const viewportObserver = () => {
-				if (!yDocs) return;
-				viewport = {
-					x: yDocs.viewport.get("x") || 0,
-					y: yDocs.viewport.get("y") || 0,
-					zoom: yDocs.viewport.get("zoom") || 1,
-				};
-				console.log("🔍 Viewport updated:", viewport);
 			};
 
 			docs.blocks.observe(blocksObserver);
-			docs.viewport.observe(viewportObserver);
 
 			// Initial load
 			blocksObserver();
-			viewportObserver();
 		});
 
 		// Cleanup function for this effect
@@ -118,11 +122,6 @@
 		// Note: Coordinator cleanup is handled by dataState.clearAllState() when needed
 	});
 
-	function updateViewport(newViewport: { x: number; y: number }) {
-		// In viewer mode, allow viewport panning but don't save to Yjs
-		viewport = { ...viewport, ...newViewport };
-	}
-
 	async function handleSelectResource(resourceId: string) {
 		console.log("🎯 Selecting resource:", resourceId);
 		await dataState.switchResource(resourceId);
@@ -134,18 +133,6 @@
 
 	function closeAddWebsiteModal() {
 		showAddWebsiteModal = false;
-	}
-
-	function formatDate(timestamp: number): string {
-		const date = new Date(timestamp);
-		const now = new Date();
-		const diffMs = now.getTime() - date.getTime();
-		const diffMins = Math.floor(diffMs / 60000);
-
-		if (diffMins < 1) return "just now";
-		if (diffMins < 60) return `${diffMins}m ago`;
-		if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
-		return date.toLocaleDateString();
 	}
 </script>
 
@@ -177,24 +164,22 @@
 				</button>
 			</div>
 			<div class="resources-list">
-				{#each syncedResources as resource (resource.id)}
-					<button
-						class="resource-item"
-						onclick={() => handleSelectResource(resource.id)}
-					>
-						<div class="resource-title">{resource.title}</div>
-						<div class="resource-meta">
-							Updated {formatDate(resource.lastModified)}
-						</div>
-					</button>
+				{#each syncedWebsites() as website (website.id)}
+					<ViewerWebsiteFolder
+						{website}
+						isExpanded={uiState.isFolderExpanded(website.id)}
+						onToggle={() => uiState.toggleFolderExpansion(website.id)}
+						onSelect={() => {}}
+						isSelected={false}
+					/>
 				{/each}
 			</div>
 		</div>
 		<div class="empty-main">
 			<div class="empty-state">
 				<div class="empty-icon">👈</div>
-				<h2>Select a website</h2>
-				<p>Choose a synced website from the sidebar to view its content.</p>
+				<h2>Select a page</h2>
+				<p>Choose a page from the sidebar to view its content.</p>
 			</div>
 		</div>
 	</div>
@@ -209,29 +194,20 @@
 				</button>
 			</div>
 			<div class="resources-list">
-				{#each syncedResources as resource (resource.id)}
-					<button
-						class="resource-item"
-						class:selected={dataState.currentResourceId === resource.id}
-						onclick={() => handleSelectResource(resource.id)}
-					>
-						<div class="resource-title">{resource.title}</div>
-						<div class="resource-meta">
-							Updated {formatDate(resource.lastModified)}
-						</div>
-					</button>
+				{#each syncedWebsites() as website (website.id)}
+					<ViewerWebsiteFolder
+						{website}
+						isExpanded={uiState.isFolderExpanded(website.id)}
+						onToggle={() => uiState.toggleFolderExpansion(website.id)}
+						onSelect={() => {}}
+						isSelected={false}
+					/>
 				{/each}
 			</div>
 		</div>
-		<Canvas
-			{blocks}
-			{viewport}
-			selectedBlockId={null}
-			readonly={true}
-			onViewportChange={updateViewport}
-			onBlockUpdate={() => {}}
-			onBlockSelect={() => {}}
-		/>
+		<div class="viewer-main">
+			<FullScreenViewer {blocks} />
+		</div>
 	</div>
 {/if}
 
@@ -242,7 +218,7 @@
 <style>
 	.viewer-container {
 		width: 100%;
-		height: 100vh;
+		height: 100%;
 		overflow: hidden;
 		background: #010409;
 		display: flex;
@@ -294,46 +270,16 @@
 		padding: 0.5rem;
 	}
 
-	.resource-item {
-		width: 100%;
-		padding: 0.75rem;
-		margin-bottom: 0.5rem;
-		background: #16171f;
-		border: 1px solid #292a36;
-		border-radius: 6px;
-		cursor: pointer;
-		transition: all 0.2s;
-		text-align: left;
-	}
-
-	.resource-item:hover {
-		background: #1c1d26;
-		border-color: #8A86E5;
-	}
-
-	.resource-item.selected {
-		background: #1c1d26;
-		border-color: #8A86E5;
-		box-shadow: 0 0 0 1px #8A86E5;
-	}
-
-	.resource-title {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: #c9d1d9;
-		margin-bottom: 0.25rem;
-	}
-
-	.resource-meta {
-		font-size: 0.75rem;
-		color: #8b949e;
-	}
-
 	.empty-main {
 		flex: 1;
 		display: flex;
 		align-items: center;
 		justify-content: center;
+	}
+
+	.viewer-main {
+		flex: 1;
+		overflow: hidden;
 	}
 
 	.empty-state {
