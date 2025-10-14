@@ -48,29 +48,99 @@
 			(loadingPhase === "content-loaded" || loadingPhase === "ready"),
 	);
 	let showSearchBox = $state(false);
-	const copyContentListener = (event: Event): void => {
-		if (!view) return;
+	const copyContentListener = async (event: Event): Promise<void> => {
+		if (!view) {
+			return;
+		}
 
 		try {
+			// Get coordinator and image storage
+			const coordinator = dataState.getNotesCoordinator();
+			const imageStorage = coordinator?.getImageStorage();
+
+			// Serialize the document to DOM
 			const serializer = DOMSerializer.fromSchema(view.state.schema);
 			const fragment = view.state.doc.content;
 			const domFragment = document.createElement("div");
 			serializer.serializeFragment(fragment, { document }, domFragment);
 
+			// Resolve image references to actual base64 data
+			if (imageStorage) {
+				const images = domFragment.querySelectorAll("img[src^='yjs-image:']");
+				let resolvedCount = 0;
+				let failedCount = 0;
+
+				images.forEach((img) => {
+					const src = img.getAttribute("src");
+					if (src && src.startsWith("yjs-image:")) {
+						const imageId = src.replace("yjs-image:", "");
+						const imageSrc = imageStorage.getImageSrc(imageId);
+
+						if (imageSrc) {
+							img.setAttribute("src", imageSrc);
+							resolvedCount++;
+						} else {
+							console.warn(`Failed to resolve image: ${imageId}`);
+							failedCount++;
+							// Keep the yjs-image reference or set alt text
+							img.setAttribute("alt", `[Image not available: ${imageId}]`);
+						}
+					}
+				});
+
+				console.log(
+					`Copy: Resolved ${resolvedCount} images, ${failedCount} failed`,
+				);
+			}
+
+			// Clean up comment marks for cleaner external paste
+			// Remove livnote-specific comment attributes and classes
+			const commentSpans = domFragment.querySelectorAll(
+				"[data-livnote-comment]",
+			);
+			commentSpans.forEach((span) => {
+				// Remove comment-specific attributes
+				span.removeAttribute("data-livnote-comment");
+				span.removeAttribute("data-livnote-comment-ids");
+				span.removeAttribute("data-livnote-comment-count");
+				span.removeAttribute("data-livnote-resolved");
+				span.removeAttribute("data-livnote-author");
+				span.removeAttribute("data-livnote-internal");
+
+				// Remove comment classes
+				span.classList.remove(
+					"livnote-comment-highlight",
+					"active",
+					"resolved",
+				);
+
+				// Remove inline styles related to comments
+				const style = span.getAttribute("style");
+				if (style) {
+					const cleanedStyle = style
+						.split(";")
+						.filter(
+							(s) => !s.includes("border-bottom") && !s.includes("background"),
+						)
+						.join(";");
+					if (cleanedStyle.trim()) {
+						span.setAttribute("style", cleanedStyle);
+					} else {
+						span.removeAttribute("style");
+					}
+				}
+			});
+
 			const html = domFragment.innerHTML;
 			const text = domFragment.textContent || "";
 
 			if (navigator.clipboard && window.ClipboardItem) {
-				navigator.clipboard
-					.write([
-						new ClipboardItem({
-							"text/html": new Blob([html], { type: "text/html" }),
-							"text/plain": new Blob([text], { type: "text/plain" }),
-						}),
-					])
-					.catch((err) => {
-						console.error("Clipboard API error:", err);
-					});
+				await navigator.clipboard.write([
+					new ClipboardItem({
+						"text/html": new Blob([html], { type: "text/html" }),
+						"text/plain": new Blob([text], { type: "text/plain" }),
+					}),
+				]);
 			}
 		} catch (error) {
 			console.error("Error during copy:", error);

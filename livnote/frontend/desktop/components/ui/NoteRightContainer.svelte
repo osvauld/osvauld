@@ -42,9 +42,9 @@
 		// isPdfGenerating = false;
 	};
 
-	const handleToggleNoteRightPanel = () => {
-		uiState.toggleNoteRightPanel();
-	};
+	// const handleToggleNoteRightPanel = () => {
+	// 	uiState.toggleNoteRightPanel();
+	// };
 
 	const closeNoteRightPanel = () => {
 		uiState.toggleNoteRightPanel(false);
@@ -54,20 +54,24 @@
 	// Handle copying note content
 	const handleCopyNote = async () => {
 		if (!dataState.currentNoteId) {
-			uiState.showToast("No note content to copy", false);
 			return;
 		}
 
 		try {
+			// Show visual feedback immediately
+			noteCopied = true;
+
+			// Dispatch the copy event (the listener in RichTextEditor will handle the actual copy)
 			const copyEvent = new CustomEvent("request-editor-content");
 			document.dispatchEvent(copyEvent);
-			noteCopied = true;
+
+			// Reset visual feedback after delay
 			setTimeout(() => {
 				noteCopied = false;
-			}, 1000);
+			}, 1500);
 		} catch (error) {
-			console.error("Error copying note:", error);
-			uiState.showToast("Failed to copy note content", false);
+			console.error("Error dispatching copy event:", error);
+			noteCopied = false;
 		}
 	};
 
@@ -195,7 +199,9 @@
 			>
 				<MenuToggle />
 			</button>
-			<p class="text-textActive text-xs font-normal">Last modified: {lastModifiedDate}</p>
+			<p class="text-textActive text-xs font-normal">
+				Last modified: {lastModifiedDate}
+			</p>
 		</div>
 	</div>
 {/if}
