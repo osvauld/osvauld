@@ -271,26 +271,18 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
     const hasExistingLink = !!existingMark;
     linkInput.value = existingMark?.attrs.href || "";
 
-    // Configure input and button based on whether this is an existing link
-    if (hasExistingLink) {
-      // Read-only mode for existing links
-      linkInput.readOnly = true;
-      linkInput.placeholder = "Link URL (read-only)";
-      linkDoneButton.style.display = "none";
-    } else {
-      // Editable mode for new links
-      linkInput.readOnly = false;
-      linkInput.placeholder = "Enter Link";
-      linkDoneButton.style.display = "block";
-    }
+    // Always allow editing - both for new and existing links
+    linkInput.readOnly = false;
+    linkInput.placeholder = hasExistingLink ? "Edit or clear to remove link" : "Enter Link";
+    linkDoneButton.style.display = "block";
 
     buttonsContainer.style.display = "none";
     linkInputContainer.style.display = "flex";
     currentMode = "linkInput";
     linkInput.focus(); // Focus the input
-    if (hasExistingLink) {
-      linkInput.select(); // Select text for easy copying
-    }
+    
+    // Select all text for easy editing/replacement
+    linkInput.select();
   }
 
   function switchToButtonsMode() {
