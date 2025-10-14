@@ -6,21 +6,19 @@
 	let { onAddBlock }: Props = $props();
 
 	const blockTypes = [
+		{ type: "screen-container", label: "Screen Container", icon: "🖥️", description: "Main page container (responsive root)" },
+		{ type: "section-container", label: "Section Container", icon: "📦", description: "Layout section with CSS" },
 		{ type: "heading", label: "Heading", icon: "H", description: "Large title text" },
 		{ type: "text", label: "Text", icon: "T", description: "Paragraph text" },
 		{ type: "image", label: "Image", icon: "🖼️", description: "Image or GIF" },
-		{ type: "container", label: "Container", icon: "□", description: "Layout box for grouping" },
-		{ type: "html", label: "HTML/CSS", icon: "<>", description: "Custom HTML with CSS" },
 		{ type: "form", label: "Form", icon: "📋", description: "Form metadata (invisible in viewer)" },
-		{ type: "form-container", label: "Form Container", icon: "▭", description: "Visual form container (legacy)" },
-		{ type: "form-field-text", label: "Text Input", icon: "T", description: "Single-line text field" },
+		{ type: "form-field-text", label: "Text Input", icon: "📝", description: "Single-line text field" },
+		{ type: "form-field-password", label: "Password Input", icon: "🔒", description: "Password field" },
 		{ type: "form-field-email", label: "Email Input", icon: "@", description: "Email field" },
 		{ type: "form-field-number", label: "Number Input", icon: "#", description: "Number field" },
 		{ type: "form-field-textarea", label: "Text Area", icon: "¶", description: "Multi-line text field" },
 		{ type: "form-field-checkbox", label: "Checkbox", icon: "☑", description: "Checkbox field" },
 		{ type: "form-submit-button", label: "Submit Button", icon: "→", description: "Form submit button" },
-		{ type: "branching-question", label: "Yes/No Question", icon: "?", description: "Branching question with yes/no" },
-		{ type: "nav-button", label: "Nav Button", icon: "➜", description: "Navigate viewport on click" },
 	];
 </script>
 

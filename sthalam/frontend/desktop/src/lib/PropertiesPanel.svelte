@@ -30,14 +30,15 @@
 	// Get all blocks as array for dropdowns
 	const allBlocks = $derived(blocks ? Array.from(blocks.entries()).map(([id, block]) => ({ id, ...block })) : []);
 
-	// Get branching questions for nav button configuration
-	const branchingQuestions = $derived(allBlocks.filter(b => b.type === 'branching-question'));
-
-	// Get all containers for navigation
-	const allContainers = $derived(allBlocks.filter(b => b.type === 'form-container' || b.type === 'container'));
-
 	// Get all forms for form field dropdowns
 	const allForms = $derived(allBlocks.filter(b => b.type === 'form'));
+
+	// Get all screen and section containers for parent selection
+	const allScreenContainers = $derived(allBlocks.filter(b => b.type === 'screen-container'));
+	const allSectionContainers = $derived(allBlocks.filter(b => b.type === 'section-container'));
+
+	// Combined list of all valid parent containers
+	const allParentContainers = $derived([...allScreenContainers, ...allSectionContainers]);
 
 	// Find branching question in same container as selected block (for nav buttons)
 	const branchingQuestionInContainer = $derived(() => {
@@ -68,6 +69,7 @@
 
 	// Collapsible sections state
 	let expandedSections = $state({
+		hierarchy: true,
 		dimensions: true,
 		content: true,
 		text: false,
@@ -234,11 +236,67 @@
 		</div>
 
 		<div class="panel-content">
-			<!-- Position & Size -->
+			<!-- Parent Container & CSS (for all blocks except screen-container) -->
+			{#if selectedBlock.type !== 'screen-container'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('hierarchy')}>
+						<span class="section-toggle">{expandedSections.hierarchy ? '▼' : '▶'}</span>
+						<h4>Hierarchy & Layout</h4>
+					</button>
+					{#if expandedSections.hierarchy}
+						<label>
+							<span>Parent Container</span>
+							<select
+								value={selectedBlock.parentId || ""}
+								onchange={(e) => onUpdateBlock(selectedBlock.id, { parentId: e.currentTarget.value })}
+							>
+								<option value="">-- No Parent (Root) --</option>
+								<optgroup label="Screen Containers">
+									{#each allScreenContainers as container}
+										<option value={container.id}>
+											🖥️ {container.name || "Unnamed Screen"}
+										</option>
+									{/each}
+								</optgroup>
+								<optgroup label="Section Containers">
+									{#each allSectionContainers as container}
+										<option value={container.id}>
+											📦 {container.name || "Unnamed Section"}
+										</option>
+									{/each}
+								</optgroup>
+							</select>
+						</label>
+
+						{#if !selectedBlock.parentId}
+							<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
+								⚠️ This block has no parent container. It won't be part of the responsive layout in viewer mode.
+							</div>
+						{/if}
+
+						<label>
+							<span>Custom CSS</span>
+							<textarea
+								value={selectedBlock.css || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { css: e.currentTarget.value })}
+								placeholder="font-size: 24px;&#10;color: #333;&#10;width: 100%;"
+								rows="8"
+								style="font-family: monospace;"
+							></textarea>
+						</label>
+
+						<div class="info-box">
+							💡 Define CSS styles for this block. In viewer mode, it will be positioned according to its parent container's layout.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Position & Size (Builder Mode Only) -->
 			<div class="property-group">
 				<button class="section-header" onclick={() => toggleSection('dimensions')}>
 					<span class="section-toggle">{expandedSections.dimensions ? '▼' : '▶'}</span>
-					<h4>Dimensions</h4>
+					<h4>Dimensions (Builder Mode)</h4>
 				</button>
 				{#if expandedSections.dimensions}
 					<div class="property-row">
@@ -258,6 +316,9 @@
 								oninput={(e) => updateDimension("height", parseInt(e.currentTarget.value))}
 							/>
 						</label>
+					</div>
+					<div class="info-box">
+						📐 These dimensions are for visual editing in builder mode only. In viewer mode, CSS controls the layout.
 					</div>
 				{/if}
 			</div>
@@ -319,12 +380,116 @@
 				</div>
 			{/if}
 
-			<!-- Container Properties -->
+			<!-- Screen Container Properties -->
+			{#if selectedBlock.type === 'screen-container'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Screen Container Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Container Name</span>
+							<input
+								type="text"
+								value={selectedBlock.name || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { name: e.currentTarget.value })}
+								placeholder="Home Page"
+							/>
+						</label>
+
+						<label class="checkbox-label">
+							<input
+								type="checkbox"
+								checked={selectedBlock.isEntryPoint || false}
+								onchange={(e) => onUpdateBlock(selectedBlock.id, { isEntryPoint: e.currentTarget.checked })}
+							/>
+							<span>Set as Entry Point (first screen in viewer)</span>
+						</label>
+
+						{#if selectedBlock.isEntryPoint}
+							<div class="info-box" style="background: #d4edda; color: #155724; border-left: 3px solid #28a745;">
+								✓ This screen will load first in viewer mode
+							</div>
+						{/if}
+
+						<label>
+							<span>Custom CSS</span>
+							<textarea
+								value={selectedBlock.css || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { css: e.currentTarget.value })}
+								placeholder="max-width: 1200px;&#10;margin: 0 auto;&#10;padding: 40px;"
+								rows="10"
+								style="font-family: monospace;"
+							></textarea>
+						</label>
+
+						<div class="info-box">
+							🖥️ The main page container. All sections and blocks should be children of this. Define responsive CSS here.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Section Container Properties -->
+			{#if selectedBlock.type === 'section-container'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Section Container Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Parent Container</span>
+							<select
+								value={selectedBlock.parentId || ""}
+								onchange={(e) => onUpdateBlock(selectedBlock.id, { parentId: e.currentTarget.value })}
+							>
+								<option value="">-- No Parent --</option>
+								<optgroup label="Screen Containers">
+									{#each allScreenContainers as container}
+										<option value={container.id}>
+											🖥️ {container.name || "Unnamed Screen"}
+										</option>
+									{/each}
+								</optgroup>
+							</select>
+						</label>
+
+						<label>
+							<span>Section Name</span>
+							<input
+								type="text"
+								value={selectedBlock.name || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { name: e.currentTarget.value })}
+								placeholder="Hero Section"
+							/>
+						</label>
+
+						<label>
+							<span>Custom CSS</span>
+							<textarea
+								value={selectedBlock.css || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { css: e.currentTarget.value })}
+								placeholder="display: flex;&#10;justify-content: center;&#10;gap: 20px;&#10;padding: 60px 40px;"
+								rows="10"
+								style="font-family: monospace;"
+							></textarea>
+						</label>
+
+						<div class="info-box">
+							📦 A layout section within the screen. Define flex/grid layout CSS here. Child blocks will follow this layout.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Container Properties (Legacy) -->
 			{#if selectedBlock.type === 'container'}
 				<div class="property-group">
 					<button class="section-header" onclick={() => toggleSection('content')}>
 						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
-						<h4>Container Settings</h4>
+						<h4>Container Settings (Legacy)</h4>
 					</button>
 					{#if expandedSections.content}
 						<label>
@@ -660,15 +825,15 @@
 							</label>
 
 							<label>
-								<span>After Submit, Navigate to Container</span>
+								<span>After Submit, Navigate to Screen</span>
 								<select
 									value={selectedBlock.targetContainerId || ""}
 									onchange={(e) => onUpdateBlock(selectedBlock.id, { targetContainerId: e.currentTarget.value })}
 								>
-									<option value="">-- Next Container (default) --</option>
-									{#each allContainers as container}
+									<option value="">-- Stay on Current Screen --</option>
+									{#each allScreenContainers as container}
 										<option value={container.id}>
-											{container.label || `${container.type} at (${container.x}, ${container.y})`}
+											🖥️ {container.name || "Unnamed Screen"}
 										</option>
 									{/each}
 								</select>

@@ -447,6 +447,22 @@
 				</div>
 			{/if}
 		</div>
+	{:else if block.type === "screen-container"}
+		<div class="block-screen-container" class:viewer-mode={readonly}>
+			<div class="container-badge">
+				<span class="container-icon">🖥️</span>
+				<span class="container-name">{block.name || "Screen Container"}</span>
+			</div>
+			<div class="container-hint">Main responsive container</div>
+		</div>
+	{:else if block.type === "section-container"}
+		<div class="block-section-container" class:viewer-mode={readonly}>
+			<div class="container-badge">
+				<span class="container-icon">📦</span>
+				<span class="container-name">{block.name || "Section Container"}</span>
+			</div>
+			<div class="container-hint">Layout section with CSS</div>
+		</div>
 	{:else if block.type === "form"}
 		<div class="block-form-metadata" class:viewer-mode={readonly}>
 			<div class="form-metadata-header">
@@ -471,6 +487,18 @@
 			<input
 				type="text"
 				placeholder={block.placeholder || "Enter text..."}
+				bind:value={formFieldValue}
+				disabled={!readonly}
+				required={block.required}
+				data-field-id={block.id}
+			/>
+		</div>
+	{:else if block.type === "form-field-password"}
+		<div class="block-form-field">
+			<label class="form-field-label">{block.label || "Password"}{block.required ? ' *' : ''}</label>
+			<input
+				type="password"
+				placeholder={block.placeholder || "Enter password..."}
 				bind:value={formFieldValue}
 				disabled={!readonly}
 				required={block.required}
@@ -841,6 +869,69 @@
 	.resize-w {
 		left: -5px;
 		cursor: w-resize;
+	}
+
+	/* Container styles */
+	.block-screen-container,
+	.block-section-container {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		gap: 0.5rem;
+		padding: 16px;
+		border: 3px dashed #667eea;
+		background: rgba(102, 126, 234, 0.05);
+		border-radius: 8px;
+		position: relative;
+	}
+
+	.block-screen-container {
+		border-color: #2563eb;
+		background: rgba(37, 99, 235, 0.05);
+	}
+
+	.block-screen-container.viewer-mode,
+	.block-section-container.viewer-mode {
+		border: none;
+		background: transparent;
+		padding: 0;
+	}
+
+	.container-badge {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 8px 12px;
+		background: white;
+		border: 2px solid currentColor;
+		border-radius: 6px;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	}
+
+	.block-screen-container .container-badge {
+		color: #2563eb;
+	}
+
+	.block-section-container .container-badge {
+		color: #667eea;
+	}
+
+	.container-icon {
+		font-size: 1.25rem;
+	}
+
+	.container-name {
+		font-size: 0.875rem;
+		font-weight: 600;
+	}
+
+	.container-hint {
+		font-size: 0.75rem;
+		color: #999;
+		font-style: italic;
 	}
 
 	/* Form block styles */

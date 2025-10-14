@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Block from "./Block.svelte";
 	import { untrack } from "svelte";
 
 	interface Props {
@@ -8,270 +7,210 @@
 
 	let { blocks }: Props = $props();
 
-	// Current container being viewed
-	let currentContainerId = $state<string | null>(null);
+	// Current screen being viewed
+	let currentScreenId = $state<string | null>(null);
 
-	// Container hierarchy: Map of container ID -> array of child blocks
-	let containerChildren = $state<Map<string, any[]>>(new Map());
+	// All screen containers
+	let screens = $state<any[]>([]);
 
-	// All containers sorted by position
-	let containers = $state<any[]>([]);
-
-	// Build container hierarchy whenever blocks change
+	// Build hierarchy based on parentId relationships
 	$effect(() => {
 		const allBlocks = Array.from(blocks.values());
-		const containerBlocks = allBlocks.filter(b => b.type === 'form-container' || b.type === 'container');
 
-		// Sort containers by position (top to bottom, left to right)
-		const sortedContainers = containerBlocks.sort((a, b) => {
+		// Find all screen containers
+		const screenBlocks = allBlocks.filter(b => b.type === 'screen-container');
+
+		// Sort screens by position (for navigation order)
+		const sortedScreens = screenBlocks.sort((a, b) => {
 			if (Math.abs(a.y - b.y) < 50) {
 				return a.x - b.x; // Same row, sort by x
 			}
 			return a.y - b.y; // Sort by y
 		});
 
-		// Build map of which blocks are inside which containers
-		const newContainerChildren = new Map<string, any[]>();
-
-		for (const container of sortedContainers) {
-			const children: any[] = [];
-
-			for (const block of allBlocks) {
-				if (block.id === container.id) continue; // Skip the container itself
-
-				// Check if block is spatially inside this container
-				const isInside =
-					block.x >= container.x &&
-					block.x + block.width <= container.x + container.width &&
-					block.y >= container.y &&
-					block.y + block.height <= container.y + container.height;
-
-				if (isInside) {
-					children.push(block);
-				}
-			}
-
-			newContainerChildren.set(container.id, children);
-		}
-
-		// Update all state without triggering reactivity (use untrack to prevent loop)
 		untrack(() => {
-			containers = sortedContainers;
-			containerChildren = newContainerChildren;
+			screens = sortedScreens;
 
-			// Set initial container if not set
-			if (sortedContainers.length > 0 && !currentContainerId) {
-				currentContainerId = sortedContainers[0].id;
-				console.log("🎬 Starting with first container:", currentContainerId);
+			// Set initial screen if not set
+			if (sortedScreens.length > 0 && !currentScreenId) {
+				// Check if any screen is marked as entry point
+				const entryPointScreen = sortedScreens.find(s => s.isEntryPoint);
+				currentScreenId = entryPointScreen ? entryPointScreen.id : sortedScreens[0].id;
+				console.log("🎬 Starting with first screen:", currentScreenId);
 			}
 		});
 	});
 
-	// Get current container and its children
-	const currentContainer = $derived(() => {
-		if (!currentContainerId) return null;
-		return blocks.get(currentContainerId);
+	// Build hierarchical tree based on parentId
+	function buildTree(parentId: string | null = null): any[] {
+		const allBlocks = Array.from(blocks.values());
+		return allBlocks
+			.filter(b => b.parentId === parentId)
+			.sort((a, b) => (a.order || 0) - (b.order || 0));
+	}
+
+	// Recursively render a block and its children
+	function renderBlock(block: any): string {
+		const children = buildTree(block.id);
+		const childrenHtml = children.map(child => renderBlock(child)).join('');
+
+		// Get CSS for this block
+		const css = block.css || '';
+
+		// Render based on block type
+		if (block.type === 'screen-container' || block.type === 'section-container') {
+			return `<div class="container-${block.type}" style="${css}" data-block-id="${block.id}">${childrenHtml}</div>`;
+		} else if (block.type === 'heading') {
+			return `<h1 style="${css}" data-block-id="${block.id}">${block.content || ''}</h1>`;
+		} else if (block.type === 'text') {
+			return `<p style="${css}" data-block-id="${block.id}">${block.content || ''}</p>`;
+		} else if (block.type === 'image') {
+			return `<img src="${block.content || ''}" style="${css}" data-block-id="${block.id}" />`;
+		} else if (block.type === 'form-field-text') {
+			const label = block.label || 'Text Field';
+			const required = block.required ? '*' : '';
+			return `
+				<div class="form-field" style="${css}" data-block-id="${block.id}">
+					<label>${label}${required}</label>
+					<input type="text" placeholder="${block.placeholder || ''}" data-field-id="${block.id}" ${block.required ? 'required' : ''} />
+				</div>
+			`;
+		} else if (block.type === 'form-field-password') {
+			const label = block.label || 'Password';
+			const required = block.required ? '*' : '';
+			return `
+				<div class="form-field" style="${css}" data-block-id="${block.id}">
+					<label>${label}${required}</label>
+					<input type="password" placeholder="${block.placeholder || ''}" data-field-id="${block.id}" ${block.required ? 'required' : ''} />
+				</div>
+			`;
+		} else if (block.type === 'form-field-email') {
+			const label = block.label || 'Email';
+			const required = block.required ? '*' : '';
+			return `
+				<div class="form-field" style="${css}" data-block-id="${block.id}">
+					<label>${label}${required}</label>
+					<input type="email" placeholder="${block.placeholder || ''}" data-field-id="${block.id}" ${block.required ? 'required' : ''} />
+				</div>
+			`;
+		} else if (block.type === 'form-submit-button') {
+			return `
+				<button class="submit-button" style="${css}" data-block-id="${block.id}" data-form-id="${block.formId || ''}" data-target="${block.targetContainerId || ''}">${block.content || 'Submit'}</button>
+			`;
+		} else if (block.type === 'form') {
+			// Form metadata is invisible
+			return '';
+		}
+
+		return `<div style="${css}" data-block-id="${block.id}">${childrenHtml}</div>`;
+	}
+
+	// Get current screen
+	const currentScreen = $derived(() => {
+		if (!currentScreenId) return null;
+		return blocks.get(currentScreenId);
 	});
 
-	const currentChildren = $derived(() => {
-		if (!currentContainerId) return [];
-		return containerChildren.get(currentContainerId) || [];
+	// Rendered HTML for current screen
+	const renderedHtml = $derived(() => {
+		const screen = currentScreen();
+		if (!screen) return '';
+		return renderBlock(screen);
 	});
 
-	// Navigate to a specific container
-	function navigateToContainer(containerId: string) {
-		console.log("🎯 Navigating to container:", containerId);
-		currentContainerId = containerId;
+	// Navigate to a screen
+	function navigateToScreen(screenId: string) {
+		console.log("🎯 Navigating to screen:", screenId);
+		currentScreenId = screenId;
 	}
 
-	// Handle navigation from nav buttons
-	function handleNavigation(navButtonId: string) {
-		console.log("🧭 Navigation triggered by button:", navButtonId);
+	// Handle form submission
+	function handleFormSubmission(event: Event) {
+		const button = event.target as HTMLButtonElement;
+		const formId = button.getAttribute('data-form-id');
+		const targetScreenId = button.getAttribute('data-target');
 
-		const navButton = blocks.get(navButtonId);
-		if (!navButton) {
-			console.error("❌ Nav button not found:", navButtonId);
+		console.log("🚀 Form submit triggered:", { formId, targetScreenId });
+
+		if (!formId) {
+			console.warn("⚠️ Submit button has no formId");
 			return;
 		}
 
-		// Check if this is a simple navigation (direct targetContainerId)
-		if (navButton.targetContainerId) {
-			console.log("📍 Direct navigation to container:", navButton.targetContainerId);
-			navigateToContainer(navButton.targetContainerId);
-			return;
-		}
-
-		// Check if this is branching navigation (based on a question)
-		const questionId = navButton.questionId;
-		if (questionId) {
-			handleBranchingNavigation(navButton, questionId);
-			return;
-		}
-
-		// Default: go to next container in sequence
-		console.log("➡️ No target specified, going to next container");
-		const currentIndex = containers.findIndex(c => c.id === currentContainerId);
-		if (currentIndex >= 0 && currentIndex < containers.length - 1) {
-			navigateToContainer(containers[currentIndex + 1].id);
-		} else {
-			console.warn("⚠️ Already at last container");
-		}
-	}
-
-	// Handle branching navigation based on question answer
-	function handleBranchingNavigation(navButton: any, questionId: string) {
-		console.log("🔀 Branching navigation for question:", questionId);
-
-		// Read the answer from the DOM
-		const questionElement = document.querySelector(`[data-question-id="${questionId}"]`);
-		if (!questionElement) {
-			console.error("❌ Question not found:", questionId);
-			return;
-		}
-
-		// Get selected answer
-		const selectedButton = questionElement.parentElement?.querySelector('.option-button.selected');
-		if (!selectedButton) {
-			console.warn("⚠️ No answer selected yet");
-			return;
-		}
-
-		const answer = selectedButton.getAttribute('data-answer');
-		console.log("📋 User answered:", answer);
-
-		// Get target block ID based on answer
-		const targetBlockId = answer === 'yes' ? navButton.yesTargetId : navButton.noTargetId;
-
-		if (!targetBlockId) {
-			console.error("❌ No target block configured for answer:", answer);
-			return;
-		}
-
-		// Navigate to the container containing the target block
-		navigateToTargetBlock(targetBlockId);
-	}
-
-	// Navigate to the container that contains a specific block
-	function navigateToTargetBlock(targetBlockId: string) {
-		const targetBlock = blocks.get(targetBlockId);
-		if (!targetBlock) {
-			console.error("❌ Target block not found:", targetBlockId);
-			return;
-		}
-
-		// If target is a container, navigate to it directly
-		if (targetBlock.type === 'form-container' || targetBlock.type === 'container') {
-			navigateToContainer(targetBlockId);
-			return;
-		}
-
-		// Otherwise, find which container contains the target block
-		for (const [containerId, children] of containerChildren.entries()) {
-			if (children.some(child => child.id === targetBlockId)) {
-				navigateToContainer(containerId);
-				return;
-			}
-		}
-
-		console.error("❌ Could not find container for target block:", targetBlockId);
-	}
-
-	// Handle form submission (can also navigate to next container if configured)
-	function handleFormSubmit(submitButtonId: string) {
-		console.log("🚀 Form submit triggered by button:", submitButtonId);
-
-		const submitButton = blocks.get(submitButtonId);
-		if (!submitButton) {
-			console.error("❌ Submit button not found:", submitButtonId);
-			return;
-		}
-
-		// Collect form data from current container
+		// Collect form data
 		const formData: Record<string, any> = {};
-		let fieldCount = 0;
+		const allBlocks = Array.from(blocks.values());
 
-		for (const block of currentChildren()) {
-			if (block.type && block.type.startsWith('form-field-')) {
-				const fieldName = block.fieldName || block.id;
+		for (const block of allBlocks) {
+			if (block.formId === formId && block.type?.startsWith('form-field-')) {
+				const fieldName = block.fieldName || block.label || block.id;
 				const inputElement = document.querySelector(`[data-field-id="${block.id}"]`) as HTMLInputElement;
 
 				if (inputElement) {
-					if (block.type === 'form-field-checkbox') {
-						formData[fieldName] = inputElement.checked;
-					} else {
-						formData[fieldName] = inputElement.value;
-					}
-					fieldCount++;
+					formData[fieldName] = inputElement.value;
 					console.log(`  ✓ Field "${fieldName}":`, formData[fieldName]);
 				}
 			}
 		}
 
-		console.log(`✅ Form submission complete! Collected ${fieldCount} fields:`, formData);
+		// Get form metadata
+		const formBlock = allBlocks.find(b => b.id === formId);
+		const eventName = formBlock?.eventName;
 
-		// Navigate to next container
-		// Priority: targetContainerId > nextContainerId > next in sequence
-		const targetId = submitButton.targetContainerId || submitButton.nextContainerId;
+		console.log(`✅ Form submission:`, {
+			eventName,
+			formId,
+			data: formData,
+			timestamp: Date.now()
+		});
 
-		if (targetId) {
-			navigateToContainer(targetId);
-		} else {
-			// Default: go to next container in list
-			const currentIndex = containers.findIndex(c => c.id === currentContainerId);
-			if (currentIndex >= 0 && currentIndex < containers.length - 1) {
-				navigateToContainer(containers[currentIndex + 1].id);
-			} else {
-				console.log("✅ Form submitted - at last container");
-			}
+		// Navigate to target screen if specified
+		if (targetScreenId) {
+			navigateToScreen(targetScreenId);
 		}
 	}
 
-	// Dummy handlers for blocks (they shouldn't be editable in viewer mode)
-	function handleBlockUpdate() {}
-	function handleBlockSelect() {}
+	// Set up click listener for submit buttons
+	function setupListeners(node: HTMLElement) {
+		function onClick(event: Event) {
+			const target = event.target as HTMLElement;
+			if (target.classList.contains('submit-button')) {
+				handleFormSubmission(event);
+			}
+		}
+
+		node.addEventListener('click', onClick);
+
+		return {
+			destroy() {
+				node.removeEventListener('click', onClick);
+			}
+		};
+	}
 </script>
 
 <div class="fullscreen-viewer">
-	{#if currentContainer()}
-		<div class="screen-container" style:background-color={currentContainer().styles?.backgroundColor || '#ffffff'}>
-			{#each currentChildren() as block (block.id)}
-				<div
-					class="block-wrapper"
-					style:left="{((block.x - currentContainer().x) / currentContainer().width) * 100}%"
-					style:top="{((block.y - currentContainer().y) / currentContainer().height) * 100}%"
-					style:width="{(block.width / currentContainer().width) * 100}%"
-					style:height="{(block.height / currentContainer().height) * 100}%"
-				>
-					<Block
-						{block}
-						isSelected={false}
-						readonly={true}
-						noPositioning={true}
-						onUpdate={handleBlockUpdate}
-						onSelect={handleBlockSelect}
-						onFormSubmit={handleFormSubmit}
-						onNavigate={handleNavigation}
-					/>
-				</div>
-			{/each}
+	{#if currentScreen()}
+		<div class="viewer-content" use:setupListeners>
+			{@html renderedHtml()}
 		</div>
 	{:else}
 		<div class="empty-state">
-			<div class="empty-icon">📦</div>
-			<h2>No containers found</h2>
-			<p>Add containers in builder mode to create screens</p>
+			<div class="empty-icon">🖥️</div>
+			<h2>No screens found</h2>
+			<p>Add a Screen Container in builder mode to create pages</p>
 		</div>
 	{/if}
 
-	<!-- Navigation indicators -->
-	{#if containers.length > 1}
+	<!-- Screen navigation indicators -->
+	{#if screens.length > 1}
 		<div class="screen-indicators">
-			{#each containers as container, index (container.id)}
+			{#each screens as screen, index (screen.id)}
 				<button
 					class="indicator"
-					class:active={container.id === currentContainerId}
-					onclick={() => navigateToContainer(container.id)}
-					title="Screen {index + 1}"
+					class:active={screen.id === currentScreenId}
+					onclick={() => navigateToScreen(screen.id)}
+					title={screen.name || `Screen ${index + 1}`}
 				></button>
 			{/each}
 		</div>
@@ -283,18 +222,53 @@
 		width: 100%;
 		height: 100%;
 		position: relative;
-		overflow: hidden;
+		overflow: auto;
+		background: #ffffff;
 	}
 
-	.screen-container {
+	.viewer-content {
 		width: 100%;
-		height: 100%;
-		position: relative;
-		transition: opacity 0.3s ease;
+		min-height: 100%;
 	}
 
-	.block-wrapper {
-		position: absolute;
+	.viewer-content :global(.container-screen-container),
+	.viewer-content :global(.container-section-container) {
+		width: 100%;
+	}
+
+	.viewer-content :global(.form-field) {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.viewer-content :global(.form-field label) {
+		font-size: 0.875rem;
+		font-weight: 500;
+		color: #333;
+	}
+
+	.viewer-content :global(.form-field input) {
+		padding: 0.75rem;
+		border: 1px solid #ddd;
+		border-radius: 6px;
+		font-size: 0.875rem;
+	}
+
+	.viewer-content :global(.form-field input:focus) {
+		outline: none;
+		border-color: #667eea;
+		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+	}
+
+	.viewer-content :global(.submit-button) {
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.viewer-content :global(.submit-button:hover) {
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 	}
 
 	.empty-state {
@@ -317,23 +291,23 @@
 	.empty-state h2 {
 		font-size: 1.5rem;
 		margin-bottom: 1rem;
-		color: #c9d1d9;
+		color: #1a1a1a;
 	}
 
 	.empty-state p {
-		color: #8b949e;
+		color: #666;
 		line-height: 1.6;
 	}
 
 	.screen-indicators {
-		position: absolute;
+		position: fixed;
 		bottom: 2rem;
 		left: 50%;
 		transform: translateX(-50%);
 		display: flex;
 		gap: 0.75rem;
 		padding: 0.75rem 1.5rem;
-		background: rgba(0, 0, 0, 0.5);
+		background: rgba(0, 0, 0, 0.8);
 		backdrop-filter: blur(10px);
 		border-radius: 2rem;
 		z-index: 1000;
