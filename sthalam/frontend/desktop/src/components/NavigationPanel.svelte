@@ -3,7 +3,9 @@
 	import WebsiteFolder from "./WebsiteFolder.svelte";
 	import AddSovereignNodeModal from "./AddSovereignNodeModal.svelte";
 	import PublishButton from "./PublishButton.svelte";
-	import { Add, Settings } from "@osvauld/icons";
+	import ModeSwitcher from "./ModeSwitcher.svelte";
+	import NavigationToggle from "./NavigationToggle.svelte";
+	import { Add } from "@osvauld/icons";
 
 	let showCreateWebsite = $state(false);
 	let websiteName = $state("");
@@ -36,6 +38,16 @@
 		class="w-[17rem] shrink-0 h-full pt-2 pb-2 px-1 relative border-r border-osvauld-borderColor flex flex-col overflow-hidden"
 		aria-label="Main Navigation"
 	>
+		<!-- Mode Switcher & Navigation Toggle -->
+		<div class="px-2 shrink-0 mb-3">
+			<div class="flex items-center gap-2">
+				<div class="flex-1">
+					<ModeSwitcher />
+				</div>
+				<NavigationToggle />
+			</div>
+		</div>
+
 		<!-- Header with All Websites -->
 		<div class="px-1 shrink-0 mb-2 space-y-2">
 			<!-- All Websites Section -->
@@ -130,19 +142,6 @@
 			{/if}
 		</div>
 
-		<!-- Manage Websites Section -->
-		<div class="shrink-0 py-2 border-t border-osvauld-borderColor">
-			<button
-				class="w-5/6 mx-auto flex items-center gap-3 px-3 py-2 rounded-lg text-textActive hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
-				onclick={() => uiState.toggleFolderManager()}
-				title="Manage websites"
-			>
-				<span class="shrink-0 w-4 h-4 flex items-center justify-center">
-					<Settings size={16} />
-				</span>
-				<span class="text-sm font-normal">Manage Websites</span>
-			</button>
-		</div>
 	</nav>
 
 	<!-- Sovereign Node Modal -->

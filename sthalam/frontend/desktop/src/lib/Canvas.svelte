@@ -358,8 +358,8 @@
 		height: 100%;
 		overflow: hidden;
 		position: relative;
-		background: var(--bg-secondary, #f5f5f5);
-		background-image: radial-gradient(circle, var(--border-color, #e0e0e0) 1px, transparent 1px);
+		background: #0d0e13;
+		background-image: radial-gradient(circle, #21262d 1px, transparent 1px);
 		background-size: 20px 20px;
 	}
 
@@ -378,20 +378,21 @@
 		display: flex;
 		align-items: center;
 		gap: 8px;
-		background: rgba(255, 255, 255, 0.95);
+		background: #161b22;
 		padding: 8px 12px;
 		border-radius: 8px;
-		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+		border: 1px solid #30363d;
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
 		z-index: 1000;
 	}
 
 	.zoom-btn {
 		width: 32px;
 		height: 32px;
-		border: 1px solid #e0e0e0;
+		border: 1px solid #30363d;
 		border-radius: 6px;
-		background: white;
-		color: #333;
+		background: #0d0e13;
+		color: #c9d1d9;
 		font-size: 18px;
 		font-weight: 600;
 		cursor: pointer;
@@ -417,7 +418,7 @@
 	.zoom-level {
 		font-size: 13px;
 		font-weight: 600;
-		color: #666;
+		color: #8b949e;
 		min-width: 50px;
 		text-align: center;
 		font-family: monospace;

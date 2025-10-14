@@ -6,7 +6,7 @@
 	import PropertiesPanel from "./PropertiesPanel.svelte";
 	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
 	import NavigationPanel from "../components/NavigationPanel.svelte";
-	import FolderManager from "../components/FolderManager.svelte";
+	import NavigationToggle from "../components/NavigationToggle.svelte";
 	import type { YjsDocuments } from "./yjsManager";
 
 	let yDocs: YjsDocuments | null = null;
@@ -429,6 +429,11 @@
 	<!-- No resource selected - show empty state -->
 	<div class="empty-state">
 		<NavigationPanel />
+		{#if !uiState.showNavigationPanel}
+			<div class="floating-toggle">
+				<NavigationToggle />
+			</div>
+		{/if}
 		<div class="empty-message">
 			<h2>No resource selected</h2>
 			<p>Select a resource from the sidebar or create a new one to get started.</p>
@@ -438,6 +443,11 @@
 	<!-- Resource selected - show builder -->
 	<div class="builder-container">
 		<NavigationPanel />
+		{#if !uiState.showNavigationPanel}
+			<div class="floating-toggle">
+				<NavigationToggle />
+			</div>
+		{/if}
 		<BlockPalette onAddBlock={addBlock} />
 		<Canvas
 			{blocks}
@@ -458,9 +468,6 @@
 			onDeleteBlock={deleteBlock}
 		/>
 		<KeyboardShortcuts />
-		{#if uiState.showFolderManager}
-			<FolderManager position="navigationPanel" />
-		{/if}
 	</div>
 {/if}
 
@@ -497,5 +504,12 @@
 
 	.empty-message p {
 		font-size: 1rem;
+	}
+
+	.floating-toggle {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		z-index: 1000;
 	}
 </style>

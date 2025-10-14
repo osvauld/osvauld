@@ -4,6 +4,8 @@
 	import FullScreenViewer from "../lib/FullScreenViewer.svelte";
 	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
 	import ViewerWebsiteFolder from "./ViewerWebsiteFolder.svelte";
+	import ModeSwitcher from "./ModeSwitcher.svelte";
+	import NavigationToggle from "./NavigationToggle.svelte";
 	import type { YjsDocuments } from "../lib/yjsManager";
 	import type { Website } from "../types";
 
@@ -156,25 +158,38 @@
 {:else if !hasResource}
 	<!-- Has websites but none selected -->
 	<div class="viewer-container">
-		<div class="sidebar">
-			<div class="sidebar-header">
-				<div class="sidebar-title">Synced Websites</div>
-				<button class="add-website-btn" onclick={openAddWebsiteModal}>
-					+ Add Website
-				</button>
+		{#if uiState.showNavigationPanel}
+			<div class="sidebar">
+				<div class="mode-switcher-wrapper">
+					<div style="flex: 1;">
+						<ModeSwitcher />
+					</div>
+					<NavigationToggle />
+				</div>
+				<div class="sidebar-header">
+					<div class="sidebar-title">Synced Websites</div>
+					<button class="add-website-btn" onclick={openAddWebsiteModal}>
+						+ Add Website
+					</button>
+				</div>
+				<div class="resources-list">
+					{#each syncedWebsites() as website (website.id)}
+						<ViewerWebsiteFolder
+							{website}
+							isExpanded={uiState.isFolderExpanded(website.id)}
+							onToggle={() => uiState.toggleFolderExpansion(website.id)}
+							onSelect={() => {}}
+							isSelected={false}
+						/>
+					{/each}
+				</div>
 			</div>
-			<div class="resources-list">
-				{#each syncedWebsites() as website (website.id)}
-					<ViewerWebsiteFolder
-						{website}
-						isExpanded={uiState.isFolderExpanded(website.id)}
-						onToggle={() => uiState.toggleFolderExpansion(website.id)}
-						onSelect={() => {}}
-						isSelected={false}
-					/>
-				{/each}
+		{/if}
+		{#if !uiState.showNavigationPanel}
+			<div class="floating-toggle">
+				<NavigationToggle />
 			</div>
-		</div>
+		{/if}
 		<div class="empty-main">
 			<div class="empty-state">
 				<div class="empty-icon">👈</div>
@@ -186,25 +201,38 @@
 {:else}
 	<!-- Resource selected - show viewer -->
 	<div class="viewer-container">
-		<div class="sidebar">
-			<div class="sidebar-header">
-				<div class="sidebar-title">Synced Websites</div>
-				<button class="add-website-btn" onclick={openAddWebsiteModal}>
-					+ Add Website
-				</button>
+		{#if uiState.showNavigationPanel}
+			<div class="sidebar">
+				<div class="mode-switcher-wrapper">
+					<div style="flex: 1;">
+						<ModeSwitcher />
+					</div>
+					<NavigationToggle />
+				</div>
+				<div class="sidebar-header">
+					<div class="sidebar-title">Synced Websites</div>
+					<button class="add-website-btn" onclick={openAddWebsiteModal}>
+						+ Add Website
+					</button>
+				</div>
+				<div class="resources-list">
+					{#each syncedWebsites() as website (website.id)}
+						<ViewerWebsiteFolder
+							{website}
+							isExpanded={uiState.isFolderExpanded(website.id)}
+							onToggle={() => uiState.toggleFolderExpansion(website.id)}
+							onSelect={() => {}}
+							isSelected={false}
+						/>
+					{/each}
+				</div>
 			</div>
-			<div class="resources-list">
-				{#each syncedWebsites() as website (website.id)}
-					<ViewerWebsiteFolder
-						{website}
-						isExpanded={uiState.isFolderExpanded(website.id)}
-						onToggle={() => uiState.toggleFolderExpansion(website.id)}
-						onSelect={() => {}}
-						isSelected={false}
-					/>
-				{/each}
+		{/if}
+		{#if !uiState.showNavigationPanel}
+			<div class="floating-toggle">
+				<NavigationToggle />
 			</div>
-		</div>
+		{/if}
 		<div class="viewer-main">
 			<FullScreenViewer {blocks} />
 		</div>
@@ -231,6 +259,22 @@
 		display: flex;
 		flex-direction: column;
 		overflow: hidden;
+	}
+
+	.mode-switcher-wrapper {
+		padding: 0.5rem;
+		border-bottom: 1px solid #292a36;
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.floating-toggle {
+		position: absolute;
+		top: 1rem;
+		left: 1rem;
+		z-index: 1000;
 	}
 
 	.sidebar-header {

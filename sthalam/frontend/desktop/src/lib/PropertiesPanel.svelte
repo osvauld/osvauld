@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { open } from '@tauri-apps/plugin-dialog';
 	import { readFile } from '@tauri-apps/plugin-fs';
+	import { BinIcon } from "@osvauld/icons";
 
 	interface Block {
 		id: string;
@@ -229,7 +230,7 @@
 				<span class="block-type-badge">{selectedBlock.type}</span>
 				{#if onDeleteBlock}
 					<button class="delete-btn" onclick={() => onDeleteBlock?.(selectedBlock.id)} title="Delete block (Delete key)">
-						🗑️
+						<BinIcon size={16} color="white" />
 					</button>
 				{/if}
 			</div>
@@ -597,6 +598,41 @@
 
 						<div class="info-box">
 							📋 This form is invisible in viewer mode. Form fields and submit buttons can reference this form by selecting it from a dropdown.
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<!-- Thread Block Properties -->
+			{#if selectedBlock.type === 'thread'}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Thread Settings</h4>
+					</button>
+					{#if expandedSections.content}
+						<label>
+							<span>Thread Name (Required)</span>
+							<input
+								type="text"
+								value={selectedBlock.name || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { name: e.currentTarget.value })}
+								placeholder="Discussion Thread"
+							/>
+						</label>
+
+						<label>
+							<span>Description (Optional)</span>
+							<textarea
+								value={selectedBlock.description || ""}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { description: e.currentTarget.value })}
+								placeholder="What is this thread about?"
+								rows="3"
+							></textarea>
+						</label>
+
+						<div class="info-box">
+							💬 This is a collaborative comment thread. Viewers can read and write comments. Updates sync in real-time.
 						</div>
 					{/if}
 				</div>
@@ -984,8 +1020,8 @@
 <style>
 	.properties-panel {
 		height: 100%;
-		background: var(--bg-primary, #ffffff);
-		border-left: 1px solid var(--border-color, #e0e0e0);
+		background: #010409;
+		border-left: 1px solid #21262d;
 		display: flex;
 		flex-direction: column;
 		position: relative;
@@ -1021,7 +1057,7 @@
 
 	.panel-header {
 		padding: 1rem;
-		border-bottom: 1px solid var(--border-color, #e0e0e0);
+		border-bottom: 1px solid #21262d;
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -1031,7 +1067,7 @@
 		margin: 0;
 		font-size: 0.875rem;
 		font-weight: 600;
-		color: var(--text-primary, #333);
+		color: #c9d1d9;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 	}
@@ -1043,8 +1079,8 @@
 	}
 
 	.block-type-badge {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: #89b4fa;
+		color: #1e1e2e;
 		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
 		font-size: 0.75rem;
@@ -1053,18 +1089,25 @@
 	}
 
 	.delete-btn {
-		padding: 0.25rem 0.5rem;
-		background: #dc3545;
+		padding: 0.5rem;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #f38ba8;
 		color: white;
 		border: none;
 		border-radius: 4px;
-		font-size: 1rem;
 		cursor: pointer;
 		transition: all 0.2s;
 	}
 
+	.delete-btn :global(svg) {
+		width: 16px;
+		height: 16px;
+	}
+
 	.delete-btn:hover {
-		background: #c82333;
+		background: #eba0ac;
 		transform: scale(1.1);
 	}
 
@@ -1072,23 +1115,25 @@
 		flex: 1;
 		padding: 1rem;
 		overflow-y: auto;
+		overflow-x: hidden;
 	}
 
 	.panel-content::-webkit-scrollbar {
-		width: 8px;
+		width: 4px;
+		height: 4px;
 	}
 
 	.panel-content::-webkit-scrollbar-track {
-		background: var(--bg-secondary, #f5f5f5);
+		background: transparent;
 	}
 
 	.panel-content::-webkit-scrollbar-thumb {
-		background: var(--border-color, #e0e0e0);
+		background: #30363d;
 		border-radius: 4px;
 	}
 
 	.panel-content::-webkit-scrollbar-thumb:hover {
-		background: #999;
+		background: #484f58;
 	}
 
 	.panel-empty {
@@ -1101,13 +1146,13 @@
 	}
 
 	.panel-empty p {
-		color: var(--text-muted, #999);
+		color: #6e7681;
 		font-size: 0.875rem;
 	}
 
 	.property-group {
 		margin-bottom: 1rem;
-		border-bottom: 1px solid var(--border-color, #e0e0e0);
+		border-bottom: 1px solid #21262d;
 		padding-bottom: 0.5rem;
 	}
 
@@ -1125,13 +1170,13 @@
 	}
 
 	.section-header:hover {
-		background: var(--bg-hover, #f5f5ff);
+		background: #161b22;
 		border-radius: 4px;
 	}
 
 	.section-toggle {
 		font-size: 0.75rem;
-		color: var(--text-secondary, #666);
+		color: #8b949e;
 		transition: transform 0.2s;
 	}
 
@@ -1139,7 +1184,7 @@
 		margin: 0;
 		font-size: 0.75rem;
 		font-weight: 600;
-		color: var(--text-secondary, #666);
+		color: #8b949e;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		flex: 1;
@@ -1154,7 +1199,7 @@
 
 	label span {
 		font-size: 0.75rem;
-		color: var(--text-secondary, #666);
+		color: #8b949e;
 		font-weight: 500;
 	}
 
@@ -1163,11 +1208,11 @@
 	select,
 	textarea {
 		padding: 0.5rem;
-		border: 1px solid var(--border-color, #e0e0e0);
+		border: 1px solid #30363d;
 		border-radius: 4px;
 		font-size: 0.875rem;
-		background: var(--bg-primary, white);
-		color: var(--text-primary, #333);
+		background: #0d0e13;
+		color: #c9d1d9;
 		transition: border-color 0.2s;
 		font-family: monospace;
 	}
@@ -1178,6 +1223,35 @@
 	textarea:focus {
 		outline: none;
 		border-color: #667eea;
+		background: #161b22;
+	}
+
+	/* Fix dropdown option styling */
+	select {
+		appearance: none;
+		background-image: url("data:image/svg+xml,%3Csvg width='12' height='8' viewBox='0 0 12 8' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L6 6L11 1' stroke='%238b949e' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+		background-repeat: no-repeat;
+		background-position: right 0.5rem center;
+		padding-right: 2rem;
+	}
+
+	select option {
+		background: #0d0e13;
+		color: #c9d1d9;
+		padding: 0.5rem;
+	}
+
+	select optgroup {
+		background: #0d0e13;
+		color: #8b949e;
+		font-weight: 600;
+	}
+
+	/* Force dark background on focused/active state */
+	select:focus option,
+	select:active option {
+		background: #161b22;
+		color: #c9d1d9;
 	}
 
 	textarea {
@@ -1188,9 +1262,10 @@
 	input[type="color"] {
 		width: 100%;
 		height: 40px;
-		border: 1px solid var(--border-color, #e0e0e0);
+		border: 1px solid #30363d;
 		border-radius: 4px;
 		cursor: pointer;
+		background: #0d0e13;
 	}
 
 	.property-row {
@@ -1208,10 +1283,10 @@
 	.button-grid button,
 	.upload-btn {
 		padding: 0.5rem;
-		border: 1px solid var(--border-color, #e0e0e0);
+		border: 1px solid #30363d;
 		border-radius: 4px;
-		background: var(--bg-primary, white);
-		color: var(--text-primary, #333);
+		background: #0d0e13;
+		color: #c9d1d9;
 		font-size: 0.75rem;
 		font-weight: 500;
 		cursor: pointer;
@@ -1219,20 +1294,21 @@
 	}
 
 	.button-grid button:hover {
-		background: var(--bg-hover, #f5f5ff);
+		background: #161b22;
 		border-color: #667eea;
 	}
 
 	.button-grid button.primary-btn {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: #89b4fa;
+		color: #1e1e2e;
 		border: none;
 		font-weight: 600;
 	}
 
 	.button-grid button.primary-btn:hover {
+		background: #74c7ec;
 		transform: translateY(-1px);
-		box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+		box-shadow: 0 2px 8px rgba(137, 180, 250, 0.4);
 	}
 
 	.layer-hint {
@@ -1250,14 +1326,15 @@
 		align-items: center;
 		justify-content: space-between;
 		padding: 0.75rem;
-		background: var(--bg-secondary, #f5f5f5);
+		background: #161b22;
+		border: 1px solid #30363d;
 		border-radius: 6px;
 		margin-bottom: 0.75rem;
 	}
 
 	.z-index-badge {
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-		color: white;
+		background: #89b4fa;
+		color: #1e1e2e;
 		padding: 0.25rem 0.75rem;
 		border-radius: 20px;
 		font-size: 0.75rem;
@@ -1266,36 +1343,38 @@
 
 	.layer-type {
 		font-size: 0.875rem;
-		color: var(--text-secondary, #666);
+		color: #8b949e;
 		font-weight: 500;
 		text-transform: capitalize;
 	}
 
 	.info-box {
-		background: #e3f2fd;
+		background: #1c2128;
+		border: 1px solid #30363d;
 		padding: 0.75rem;
 		border-radius: 4px;
 		font-size: 0.75rem;
-		color: #1976d2;
+		color: #58a6ff;
 		margin-top: 0.5rem;
 	}
 
 	.upload-btn {
 		width: 100%;
 		padding: 0.75rem !important;
-		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-		color: white !important;
+		background: #89b4fa !important;
+		color: #1e1e2e !important;
 		border: none !important;
 		border-radius: 6px;
 		font-weight: 600;
 		cursor: pointer;
-		transition: transform 0.2s, box-shadow 0.2s;
+		transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
 		margin-bottom: 1rem;
 	}
 
 	.upload-btn:hover {
+		background: #74c7ec !important;
 		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+		box-shadow: 0 4px 12px rgba(137, 180, 250, 0.4);
 	}
 
 	.divider {
@@ -1309,12 +1388,12 @@
 	.divider::after {
 		content: '';
 		flex: 1;
-		border-bottom: 1px solid var(--border-color, #e0e0e0);
+		border-bottom: 1px solid #30363d;
 	}
 
 	.divider span {
 		padding: 0 0.5rem;
-		color: var(--text-muted, #999);
+		color: #6e7681;
 		font-size: 0.75rem;
 	}
 
@@ -1329,14 +1408,14 @@
 		margin: 0 0 0.5rem 0;
 		font-size: 0.875rem;
 		font-weight: 600;
-		color: var(--text-primary, #333);
+		color: #c9d1d9;
 	}
 
 	.form-field-item {
 		padding: 12px;
-		background: #f8f9fa;
+		background: #161b22;
 		border-radius: 6px;
-		border: 1px solid #e0e0e0;
+		border: 1px solid #30363d;
 		margin-bottom: 8px;
 	}
 
@@ -1405,18 +1484,20 @@
 	/* Branching navigation */
 	.branch-config {
 		padding: 1rem;
-		background: var(--bg-secondary, #f5f5f5);
+		background: #161b22;
+		border: 1px solid #30363d;
 		border-radius: 6px;
 		margin-top: 0.5rem;
 	}
 
 	.target-preview {
 		padding: 0.75rem;
-		background: #d4edda;
-		border-left: 3px solid #28a745;
+		background: #1c2d20;
+		border: 1px solid #2ea043;
+		border-left: 3px solid #2ea043;
 		border-radius: 4px;
 		font-size: 0.75rem;
-		color: #155724;
+		color: #7ee787;
 		margin-top: 0.5rem;
 		display: flex;
 		flex-direction: column;

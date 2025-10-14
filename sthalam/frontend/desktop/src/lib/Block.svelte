@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Maximize, FolderIcon } from "@osvauld/icons";
+
 	interface Props {
 		block: {
 			id: string;
@@ -359,7 +361,7 @@
 		const baseStyles = {
 			"font-size": block.styles.fontSize || "16px",
 			"font-weight": block.styles.fontWeight || "400",
-			"color": block.styles.color || "#333",
+			"color": block.styles.color || "#ffffff",
 			"background-color": block.styles.backgroundColor || "transparent",
 			"padding": block.styles.padding || "12px",
 			"border": block.styles.border || "2px solid #ddd",
@@ -432,6 +434,22 @@
 				</div>
 			{/if}
 		</div>
+	{:else if block.type === "thread"}
+		<div class="block-thread">
+			<div class="thread-header">
+				<span class="thread-icon">💬</span>
+				<span class="thread-title">{block.name || "Discussion Thread"}</span>
+			</div>
+			{#if readonly}
+				<div class="thread-placeholder-viewer">
+					Thread comments will appear here in viewer mode
+				</div>
+			{:else}
+				<div class="thread-placeholder-builder">
+					Collaborative comment thread (interactive in viewer mode)
+				</div>
+			{/if}
+		</div>
 	{:else if block.type === "container"}
 		<div class="block-container">
 			<!-- Empty container for layout -->
@@ -450,18 +468,14 @@
 	{:else if block.type === "screen-container"}
 		<div class="block-screen-container" class:viewer-mode={readonly}>
 			<div class="container-badge">
-				<span class="container-icon">🖥️</span>
 				<span class="container-name">{block.name || "Screen Container"}</span>
 			</div>
-			<div class="container-hint">Main responsive container</div>
 		</div>
 	{:else if block.type === "section-container"}
 		<div class="block-section-container" class:viewer-mode={readonly}>
 			<div class="container-badge">
-				<span class="container-icon">📦</span>
 				<span class="container-name">{block.name || "Section Container"}</span>
 			</div>
-			<div class="container-hint">Layout section with CSS</div>
 		</div>
 	{:else if block.type === "form"}
 		<div class="block-form-metadata" class:viewer-mode={readonly}>
@@ -487,42 +501,6 @@
 			<input
 				type="text"
 				placeholder={block.placeholder || "Enter text..."}
-				bind:value={formFieldValue}
-				disabled={!readonly}
-				required={block.required}
-				data-field-id={block.id}
-			/>
-		</div>
-	{:else if block.type === "form-field-password"}
-		<div class="block-form-field">
-			<label class="form-field-label">{block.label || "Password"}{block.required ? ' *' : ''}</label>
-			<input
-				type="password"
-				placeholder={block.placeholder || "Enter password..."}
-				bind:value={formFieldValue}
-				disabled={!readonly}
-				required={block.required}
-				data-field-id={block.id}
-			/>
-		</div>
-	{:else if block.type === "form-field-email"}
-		<div class="block-form-field">
-			<label class="form-field-label">{block.label || "Email"}{block.required ? ' *' : ''}</label>
-			<input
-				type="email"
-				placeholder={block.placeholder || "Enter email..."}
-				bind:value={formFieldValue}
-				disabled={!readonly}
-				required={block.required}
-				data-field-id={block.id}
-			/>
-		</div>
-	{:else if block.type === "form-field-number"}
-		<div class="block-form-field">
-			<label class="form-field-label">{block.label || "Number"}{block.required ? ' *' : ''}</label>
-			<input
-				type="number"
-				placeholder={block.placeholder || "Enter number..."}
 				bind:value={formFieldValue}
 				disabled={!readonly}
 				required={block.required}
@@ -878,19 +856,19 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-		align-items: center;
-		justify-content: center;
+		align-items: flex-start;
+		justify-content: flex-start;
 		gap: 0.5rem;
 		padding: 16px;
 		border: 3px dashed #667eea;
-		background: rgba(102, 126, 234, 0.05);
+		background: rgba(102, 126, 234, 0.1);
 		border-radius: 8px;
 		position: relative;
 	}
 
 	.block-screen-container {
 		border-color: #2563eb;
-		background: rgba(37, 99, 235, 0.05);
+		background: rgba(37, 99, 235, 0.1);
 	}
 
 	.block-screen-container.viewer-mode,
@@ -904,34 +882,24 @@
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 8px 12px;
-		background: white;
+		padding: 6px 10px;
+		background: #0d0e13;
 		border: 2px solid currentColor;
 		border-radius: 6px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 	}
 
 	.block-screen-container .container-badge {
-		color: #2563eb;
+		color: #58a6ff;
 	}
 
 	.block-section-container .container-badge {
-		color: #667eea;
-	}
-
-	.container-icon {
-		font-size: 1.25rem;
+		color: #8b949e;
 	}
 
 	.container-name {
-		font-size: 0.875rem;
-		font-weight: 600;
-	}
-
-	.container-hint {
 		font-size: 0.75rem;
-		color: #999;
-		font-style: italic;
+		font-weight: 600;
 	}
 
 	/* Form block styles */
@@ -943,7 +911,7 @@
 		gap: 0.5rem;
 		padding: 12px;
 		border: 2px solid #667eea;
-		background: rgba(102, 126, 234, 0.1);
+		background: rgba(102, 126, 234, 0.15);
 		border-radius: 8px;
 	}
 
@@ -964,14 +932,14 @@
 	.form-metadata-name {
 		font-size: 0.875rem;
 		font-weight: 600;
-		color: #667eea;
+		color: #8b949e;
 	}
 
 	.form-metadata-event {
 		font-size: 0.7rem;
 		font-family: monospace;
-		color: #48bb78;
-		background: rgba(72, 187, 120, 0.1);
+		color: #7ee787;
+		background: rgba(126, 231, 135, 0.15);
 		padding: 0.25rem 0.5rem;
 		border-radius: 4px;
 		font-weight: 600;
@@ -979,7 +947,7 @@
 
 	.form-metadata-description {
 		font-size: 0.75rem;
-		color: #666;
+		color: #6e7681;
 		font-style: italic;
 	}
 
@@ -992,18 +960,18 @@
 		justify-content: center;
 		gap: 0.5rem;
 		border: 2px dashed #667eea;
-		background: rgba(102, 126, 234, 0.05);
+		background: rgba(102, 126, 234, 0.1);
 	}
 
 	.form-container-label {
 		font-size: 1rem;
 		font-weight: 600;
-		color: #667eea;
+		color: #8b949e;
 	}
 
 	.form-container-hint {
 		font-size: 0.875rem;
-		color: #999;
+		color: #6e7681;
 	}
 
 	.block-form-field {
@@ -1018,17 +986,18 @@
 	.form-field-label {
 		font-size: 0.875rem;
 		font-weight: 500;
-		color: #333;
+		color: #c9d1d9;
 	}
 
 	.block-form-field input,
 	.block-form-field textarea {
 		width: 100%;
 		padding: 0.5rem;
-		border: 1px solid #ddd;
+		border: 1px solid #30363d;
 		border-radius: 4px;
 		font-size: 0.875rem;
-		background: #f9f9f9;
+		background: #0d0e13;
+		color: #c9d1d9;
 	}
 
 	.block-form-field textarea {
@@ -1087,12 +1056,13 @@
 		gap: 1rem;
 		padding: 1.5rem;
 		justify-content: center;
+		background: #0d0e13;
 	}
 
 	.question-text {
 		font-size: 1.125rem;
 		font-weight: 600;
-		color: #333;
+		color: #c9d1d9;
 		text-align: center;
 	}
 
@@ -1108,16 +1078,16 @@
 		border-radius: 8px;
 		font-size: 1rem;
 		font-weight: 500;
-		background: white;
+		background: #161b22;
 		color: #667eea;
 		cursor: pointer;
 		transition: all 0.2s;
 	}
 
 	.option-button:hover {
-		background: #f0f2ff;
+		background: #21262d;
 		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+		box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 	}
 
 	.option-button.selected {
@@ -1162,5 +1132,52 @@
 	.block-nav-button button:disabled {
 		cursor: not-allowed;
 		pointer-events: none;
+	}
+
+	/* Thread block styles */
+	.block-thread {
+		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
+		padding: 16px;
+		background: rgba(147, 197, 253, 0.1);
+		border: 2px solid #60a5fa;
+		border-radius: 8px;
+	}
+
+	.thread-header {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin-bottom: 0.75rem;
+		padding-bottom: 0.75rem;
+		border-bottom: 1px solid rgba(96, 165, 250, 0.3);
+	}
+
+	.thread-icon {
+		font-size: 1.25rem;
+	}
+
+	.thread-title {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: #2563eb;
+	}
+
+	.thread-placeholder-builder,
+	.thread-placeholder-viewer {
+		flex: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 0.875rem;
+		color: #60a5fa;
+		font-style: italic;
+		text-align: center;
+	}
+
+	.thread-placeholder-viewer {
+		color: #3b82f6;
 	}
 </style>

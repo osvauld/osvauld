@@ -2,8 +2,6 @@
 	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
 	import NoticeBoardBuilder from "./lib/NoticeBoardBuilder.svelte";
-	import ModeSwitcher from "./components/ModeSwitcher.svelte";
-	import SyncResourceButton from "./components/SyncResourceButton.svelte";
 	import ViewerMode from "./components/ViewerMode.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
 	import { uiState } from "./state/ui.svelte";
@@ -32,21 +30,6 @@
 			currentResourceData: authDataState.currentResourceData,
 			currentResourceId: authDataState.currentResourceId
 		});
-	});
-
-	const builderTitle = $derived(() => {
-		if (uiState.mode === 'viewer') return '👀 Website Viewer';
-		if (!currentResource) return '🎨 Builder';
-
-		const resourceType = currentResource.resource_type || currentResource.resourceType;
-		switch (resourceType) {
-			case 'form':
-				return '📝 Form Builder';
-			case 'noticeboard':
-				return '💬 Thread Builder';
-			default:
-				return '🎨 Website Builder';
-		}
 	});
 
 	let signedUp = $state(false);
@@ -103,34 +86,6 @@
 		width: 100%;
 	}
 
-	header {
-		background: #010409;
-		color: #c9d1d9;
-		padding: 1rem 2rem;
-		border-bottom: 1px solid #292a36;
-	}
-
-	.header-content {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		max-width: 1400px;
-		margin: 0 auto;
-	}
-
-	h1 {
-		margin: 0;
-		font-size: 1.75rem;
-		font-weight: 600;
-		color: #c9d1d9;
-	}
-
-	.actions {
-		display: flex;
-		gap: 0.5rem;
-		align-items: center;
-	}
-
 	.content {
 		flex: 1;
 		display: flex;
@@ -172,16 +127,6 @@
 		</div>
 	{:else}
 		<div class="app-container">
-			<header>
-				<div class="header-content">
-					<h1>{builderTitle()}</h1>
-					<div class="actions">
-						<SyncResourceButton />
-						<ModeSwitcher />
-					</div>
-				</div>
-			</header>
-
 			<div class="content">
 				{#if uiState.mode === 'builder'}
 					{#if !currentResource}
