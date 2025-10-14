@@ -127,11 +127,15 @@
 <style>
 	dialog {
 		position: fixed;
-		top: 50%;
-		left: 50%;
-		transform: translate(-50%, -50%);
+		inset: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		border: none;
 		padding: 0;
+		margin: auto;
+		max-width: fit-content;
+		max-height: fit-content;
 	}
 
 	dialog::backdrop {
@@ -148,7 +152,7 @@
 	onclick={handleBackdropClick}
 >
 	<div
-		class="p-4 bg-bgPrimary border border-osvauld-activeBorder rounded-xl w-[42rem] flex flex-col justify-center items-center overflow-y-auto"
+		class="p-4 px-16 bg-bgPrimary border border-osvauld-activeBorder rounded-xl flex flex-col justify-center items-center overflow-y-auto font-sans"
 		role="document"
 		aria-labelledby="confirm-passphrase"
 		in:fly
@@ -174,7 +178,9 @@
 					? newPasswordViewHandler
 					: handleExportPdfSubmit}
 			>
-				<header class="flex p-2 pb-4 justify-center items-center w-full">
+				<header
+					class="flex p-2 pb-4 justify-center items-center w-full font-inter"
+				>
 					<h2
 						id="confirm-passphrase"
 						class="text-[21px] font-normal text-white"
