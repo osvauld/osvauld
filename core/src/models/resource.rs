@@ -258,8 +258,6 @@ pub enum ResourceType {
     Notes,
     Chat,
     Website,
-    NoticeBoard,
-    Form,
     Default,
 }
 
@@ -270,8 +268,6 @@ impl ResourceType {
             ResourceType::Notes => true,
             ResourceType::Chat => true,
             ResourceType::Website => true,
-            ResourceType::NoticeBoard => true,
-            ResourceType::Form => true,
             ResourceType::Default => true,
         }
     }
@@ -281,9 +277,11 @@ impl ResourceType {
         match self {
             ResourceType::Notes => vec!["main_doc", "image_state", "comment_state"],
             ResourceType::Chat => vec!["chat", "image_state"],
-            ResourceType::Website => vec!["blocksuite_doc"],
-            ResourceType::NoticeBoard => vec!["thread_doc"],
-            ResourceType::Form => vec!["form_doc"],
+            ResourceType::Website => vec![
+                "blocksuite_doc",         // Main website content (owner edits, viewer reads)
+                "thread_comments_doc",    // Collaborative comments (bidirectional sync)
+                "form_submissions_doc",   // Form submissions (viewer appends, owner receives)
+            ],
             ResourceType::Default => vec!["yjs_state"],
         }
     }
@@ -294,8 +292,6 @@ impl ResourceType {
             ResourceType::Notes => Some("main_doc"),
             ResourceType::Chat => Some("chat"),
             ResourceType::Website => Some("blocksuite_doc"),
-            ResourceType::NoticeBoard => Some("thread_doc"),
-            ResourceType::Form => Some("form_doc"),
             ResourceType::Default => Some("yjs_state"),
         }
     }
@@ -306,9 +302,7 @@ impl ResourceType {
             "notes" => ResourceType::Notes,
             "chat" => ResourceType::Chat,
             "website" => ResourceType::Website,
-            "noticeboard" => ResourceType::NoticeBoard,
-            "form" => ResourceType::Form,
-            _ => ResourceType::Default, // All unknown types default to Default
+            _ => ResourceType::Default,
         }
     }
 
@@ -318,8 +312,6 @@ impl ResourceType {
             ResourceType::Notes => "notes".to_string(),
             ResourceType::Chat => "chat".to_string(),
             ResourceType::Website => "website".to_string(),
-            ResourceType::NoticeBoard => "noticeboard".to_string(),
-            ResourceType::Form => "form".to_string(),
             ResourceType::Default => "default".to_string(),
         }
     }

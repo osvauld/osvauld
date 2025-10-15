@@ -1,0 +1,501 @@
+<script lang="ts">
+	import { marked } from 'marked';
+	import DOMPurify from 'dompurify';
+	import type * as Y from 'yjs';
+
+	interface Props {
+		blockId: string;
+		ydoc: Y.Doc;
+		commentsDoc?: Y.Doc;
+	}
+
+	let { blockId, ydoc, commentsDoc }: Props = $props();
+
+	// State for main post
+	let mainPost = $state({
+		content: '',
+		mode: 'markdown',
+		css: '',
+		name: '',
+		description: ''
+	});
+
+	// State for comments
+	let comments = $state<Array<{
+		id: string;
+		author: string;
+		content: string;
+		timestamp: number;
+	}>>([]);
+
+	// Comment input
+	let commentInput = $state('');
+
+	// Collapse/expand state
+	let isExpanded = $state(false);
+
+	// Observe mainDoc for thread post data
+	$effect(() => {
+		const mainBlocks = ydoc.getMap('blocks');
+
+		const observer = () => {
+			const data = mainBlocks.get(blockId);
+			if (data) {
+				mainPost = {
+					content: data.content || '',
+					mode: data.mode || 'markdown',
+					css: data.css || '',
+					name: data.name || '',
+					description: data.description || ''
+				};
+			}
+		};
+
+		mainBlocks.observe(observer);
+		observer(); // Initial load
+
+		return () => mainBlocks.unobserve(observer);
+	});
+
+	// Observe commentsDoc for comments
+	$effect(() => {
+		if (!commentsDoc) return;
+
+		const commentsBlocks = commentsDoc.getMap('blocks');
+
+		const observer = () => {
+			const data = commentsBlocks.get(`${blockId}_comments`);
+			if (data?.items && Array.isArray(data.items)) {
+				comments = data.items;
+			}
+		};
+
+		commentsBlocks.observe(observer);
+		observer(); // Initial load
+
+		return () => commentsBlocks.unobserve(observer);
+	});
+
+	function submitComment() {
+		const content = commentInput.trim();
+
+		console.log('submitComment called:', {
+			content,
+			hasCommentsDoc: !!commentsDoc,
+			blockId
+		});
+
+		if (!content) {
+			console.warn('No content provided');
+			return;
+		}
+
+		if (!commentsDoc) {
+			console.error('commentsDoc is not available! Cannot add comment.');
+			alert('Comments are not available for this resource type.');
+			return;
+		}
+
+		// Parse and sanitize markdown
+		const sanitized = DOMPurify.sanitize(marked.parse(content));
+
+		const newComment = {
+			id: crypto.randomUUID(),
+			author: 'Anonymous', // TODO: Get from user context
+			content: sanitized,
+			timestamp: Date.now()
+		};
+
+		console.log('Adding comment:', newComment);
+
+		// Update Yjs commentsDoc
+		// YjsManager will automatically detect this update and sync to sovereign node
+		try {
+			commentsDoc.transact(() => {
+				const commentsBlocks = commentsDoc.getMap('blocks');
+				const current = commentsBlocks.get(`${blockId}_comments`) || { items: [] };
+				console.log('Current comments:', current);
+
+				commentsBlocks.set(`${blockId}_comments`, {
+					items: [...current.items, newComment]
+				});
+
+				console.log('Comment added to Yjs');
+			});
+
+			// Clear input
+			commentInput = '';
+
+			// Expand comments section to show the new comment
+			isExpanded = true;
+		} catch (error) {
+			console.error('Error adding comment:', error);
+			alert('Failed to add comment: ' + error.message);
+		}
+	}
+
+	function handleKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Enter' && !e.shiftKey) {
+			e.preventDefault();
+			submitComment();
+		}
+	}
+
+	// Render main post content
+	const postHtml = $derived(() => {
+		if (!mainPost.content) return '';
+		const raw = mainPost.mode === 'html'
+			? mainPost.content
+			: marked.parse(mainPost.content);
+		return DOMPurify.sanitize(raw);
+	});
+</script>
+
+{#if mainPost.css}
+	<style>
+		{mainPost.css}
+	</style>
+{/if}
+
+<div class="thread-container" data-block-id={blockId}>
+	<div class="thread-main">
+		{#if mainPost.name}
+			<h2 class="thread-title">{mainPost.name}</h2>
+		{/if}
+		{#if mainPost.description}
+			<p class="thread-description">{mainPost.description}</p>
+		{/if}
+		<div class="thread-content">
+			{@html postHtml()}
+		</div>
+	</div>
+
+	<div class="thread-comments">
+		{#if comments.length > 0}
+			<button class="comments-toggle" onclick={() => isExpanded = !isExpanded}>
+				<span class="toggle-icon">{isExpanded ? '▼' : '▶'}</span>
+				<span class="comments-count">
+					{#if comments.length === 1}
+						1 comment
+					{:else}
+						{comments.length} comments
+					{/if}
+				</span>
+			</button>
+
+			{#if isExpanded}
+				<div class="comments-expanded">
+					<div class="comments-list">
+						{#each comments as comment (comment.id)}
+							<div class="comment">
+								<div class="comment-header">
+									<strong class="comment-author">{comment.author}</strong>
+									<span class="comment-time">
+										{new Date(comment.timestamp).toLocaleString()}
+									</span>
+								</div>
+								<div class="comment-content">
+									{@html comment.content}
+								</div>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		{/if}
+
+		<!-- Comment form always visible -->
+		<div class="comment-form" class:first-comment={comments.length === 0}>
+			{#if comments.length === 0}
+				<p class="no-comments-label">Be the first to comment!</p>
+			{/if}
+			<textarea
+				bind:value={commentInput}
+				placeholder="Write a comment (Markdown supported)... Press Enter to post, Shift+Enter for new line"
+				onkeydown={handleKeyDown}
+				rows="3"
+			></textarea>
+			<button onclick={submitComment} disabled={!commentInput.trim()}>
+				Post Comment
+			</button>
+		</div>
+	</div>
+</div>
+
+<style>
+	.thread-container {
+		width: 100%;
+		padding: 1.5rem;
+		background: #f6f8fa;
+		border-radius: 8px;
+		border: 1px solid #e1e4e8;
+		margin: 1rem 0;
+	}
+
+	.thread-main {
+		margin-bottom: 2rem;
+		padding-bottom: 1.5rem;
+		border-bottom: 2px solid #e1e4e8;
+	}
+
+	.thread-title {
+		font-size: 1.75rem;
+		font-weight: 700;
+		color: #24292e;
+		margin: 0 0 0.5rem 0;
+	}
+
+	.thread-description {
+		font-size: 1rem;
+		color: #586069;
+		margin: 0 0 1rem 0;
+	}
+
+	.thread-content {
+		color: #24292e;
+		line-height: 1.6;
+		max-height: 500px;
+		overflow-y: auto;
+		padding-right: 0.5rem;
+	}
+
+	.thread-content::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	.thread-content::-webkit-scrollbar-track {
+		background: #f1f3f5;
+		border-radius: 3px;
+	}
+
+	.thread-content::-webkit-scrollbar-thumb {
+		background: #adb5bd;
+		border-radius: 3px;
+	}
+
+	.thread-content::-webkit-scrollbar-thumb:hover {
+		background: #868e96;
+	}
+
+	.thread-content :global(h1),
+	.thread-content :global(h2),
+	.thread-content :global(h3) {
+		color: #24292e;
+		margin-bottom: 0.75rem;
+		margin-top: 1.5rem;
+	}
+
+	.thread-content :global(p) {
+		margin-bottom: 1rem;
+	}
+
+	.thread-content :global(a) {
+		color: #0366d6;
+		text-decoration: none;
+	}
+
+	.thread-content :global(a:hover) {
+		text-decoration: underline;
+	}
+
+	.thread-content :global(code) {
+		background: #f6f8fa;
+		padding: 0.2em 0.4em;
+		border-radius: 3px;
+		font-family: monospace;
+		font-size: 0.9em;
+	}
+
+	.thread-content :global(pre) {
+		background: #f6f8fa;
+		padding: 1rem;
+		border-radius: 6px;
+		overflow-x: auto;
+		margin-bottom: 1rem;
+	}
+
+	.thread-comments {
+		margin-top: 1.5rem;
+	}
+
+	.comments-toggle {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		background: white;
+		border: 1px solid #d1d5da;
+		border-radius: 6px;
+		width: 100%;
+		text-align: left;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-size: 0.9375rem;
+		font-weight: 600;
+		color: #586069;
+	}
+
+	.comments-toggle:hover {
+		background: #f6f8fa;
+		border-color: #0366d6;
+		color: #0366d6;
+	}
+
+	.toggle-icon {
+		font-size: 0.75rem;
+		color: #6a737d;
+		transition: transform 0.2s;
+	}
+
+	.comments-count {
+		flex: 1;
+	}
+
+	.comments-expanded {
+		margin-top: 1rem;
+		animation: slideDown 0.2s ease-out;
+	}
+
+	@keyframes slideDown {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.comments-list {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-bottom: 1.5rem;
+		max-height: 400px;
+		overflow-y: auto;
+		padding-right: 0.5rem;
+	}
+
+	.comments-list::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	.comments-list::-webkit-scrollbar-track {
+		background: #f1f3f5;
+		border-radius: 3px;
+	}
+
+	.comments-list::-webkit-scrollbar-thumb {
+		background: #adb5bd;
+		border-radius: 3px;
+	}
+
+	.comments-list::-webkit-scrollbar-thumb:hover {
+		background: #868e96;
+	}
+
+	.comment {
+		background: white;
+		padding: 1rem;
+		border-radius: 6px;
+		border: 1px solid #e1e4e8;
+	}
+
+	.comment-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.comment-author {
+		font-weight: 600;
+		color: #24292e;
+	}
+
+	.comment-time {
+		font-size: 0.875rem;
+		color: #586069;
+	}
+
+	.comment-content {
+		color: #24292e;
+		line-height: 1.5;
+	}
+
+	.comment-content :global(p) {
+		margin: 0;
+	}
+
+	.comment-content :global(p + p) {
+		margin-top: 0.5rem;
+	}
+
+	.no-comments {
+		color: #586069;
+		font-style: italic;
+		margin: 1rem 0;
+	}
+
+	.comment-form {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		margin-top: 1rem;
+	}
+
+	.comment-form.first-comment {
+		margin-top: 0;
+	}
+
+	.no-comments-label {
+		color: #586069;
+		font-size: 0.875rem;
+		margin: 0 0 0.75rem 0;
+		font-style: italic;
+	}
+
+	textarea {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #d1d5da;
+		border-radius: 6px;
+		font-family: inherit;
+		font-size: 0.875rem;
+		line-height: 1.5;
+		resize: vertical;
+		transition: border-color 0.2s;
+	}
+
+	textarea:focus {
+		outline: none;
+		border-color: #0366d6;
+		box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+	}
+
+	textarea::placeholder {
+		color: #6a737d;
+	}
+
+	button {
+		align-self: flex-end;
+		padding: 0.75rem 1.5rem;
+		background: #0366d6;
+		color: white;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		cursor: pointer;
+		transition: background 0.2s;
+	}
+
+	button:hover:not(:disabled) {
+		background: #0256c7;
+	}
+
+	button:disabled {
+		background: #94a3b8;
+		cursor: not-allowed;
+	}
+</style>

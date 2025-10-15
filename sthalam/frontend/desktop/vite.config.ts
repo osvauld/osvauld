@@ -32,30 +32,11 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: [
-      'yjs',
-      'lit',
-      '@lit/reactive-element',
-      '@preact/signals-core'
-    ],
-    // Exclude ALL BlockSuite packages from pre-bundling
-    exclude: [
-      '@blocksuite/affine',
-      '@blocksuite/integration-test'
+      'yjs'
     ],
     esbuildOptions: {
-      target: 'esnext',
-      supported: {
-        'decorators': true
-      }
+      target: 'esnext'
     }
-  },
-  ssr: {
-    noExternal: [
-      '@blocksuite/affine',
-      '@blocksuite/affine-block-note',
-      '@blocksuite/affine-fragment-outline',
-      '@blocksuite/integration-test'
-    ]
   },
   server: {
     port: 1422,
@@ -66,13 +47,12 @@ export default defineConfig({
   },
   resolve: {
     extensions: ['.ts', '.js', '.svelte'],
-    dedupe: ['lit', 'yjs', '@preact/signals-core']
+    dedupe: ['yjs']
   },
   esbuild: {
     target: 'esnext',
     supported: {
-      'top-level-await': true,
-      'decorators': true
+      'top-level-await': true
     }
   }
 });

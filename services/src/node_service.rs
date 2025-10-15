@@ -210,53 +210,28 @@ pub async fn prepare_resource_for_viewer(
     // Get encrypted UCAN private key
     let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
 
-    // Generate resource-specific permissions based on resource type
-    let permissions = match resource_type {
-        "website" => {
-            info!("Generating read-only permissions for website resource");
-            vec![
-                (
-                    format!("sthalam:resource:{}:website_doc", resource_id),
-                    "crud/read".to_string(),
-                ),
-            ]
-        },
-        "noticeboard" => {
-            info!("Generating read + comment permissions for noticeboard resource");
-            vec![
-                (
-                    format!("sthalam:resource:{}:thread_doc", resource_id),
-                    "crud/read".to_string(),
-                ),
-                (
-                    format!("sthalam:resource:{}:thread_comments_doc", resource_id),
-                    "crud/write".to_string(),
-                ),
-            ]
-        },
-        "form" => {
-            info!("Generating read + submit permissions for form resource");
-            vec![
-                (
-                    format!("sthalam:resource:{}:form_doc", resource_id),
-                    "crud/read".to_string(),
-                ),
-                (
-                    format!("sthalam:resource:{}:form_submissions_doc", resource_id),
-                    "crud/append".to_string(),
-                ),
-            ]
-        },
-        _ => {
-            info!("Unknown resource type '{}', using default read-only permissions", resource_type);
-            vec![
-                (
-                    format!("sthalam:resource:{}", resource_id),
-                    "crud/read".to_string(),
-                ),
-            ]
-        }
-    };
+    // Generate permissions for 3-doc architecture
+    // All resources use blocksuite_doc for main content
+    // thread_comments_doc for collaborative comments
+    // form_submissions_doc for append-only submissions
+    info!("Generating permissions for {} resource (3-doc architecture)", resource_type);
+    let permissions = vec![
+        // Main website content - read-only for viewer
+        (
+            format!("sthalam:resource:{}:blocksuite_doc", resource_id),
+            "crud/read".to_string(),
+        ),
+        // Thread comments - bidirectional sync (collaborative)
+        (
+            format!("sthalam:resource:{}:thread_comments_doc", resource_id),
+            "crud/write".to_string(),
+        ),
+        // Form submissions - append-only (viewer → sovereign, no updates back)
+        (
+            format!("sthalam:resource:{}:form_submissions_doc", resource_id),
+            "crud/append".to_string(),
+        ),
+    ];
 
     let (ucan_token, ucan_cid) = {
         let crypto = crypto_utils.read().await;

@@ -1,12 +1,21 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { marked } from 'marked';
+	import ThreadBlock from './blocks/ThreadBlock.svelte';
+	import FormField from './blocks/FormField.svelte';
+	import FormSubmitButton from './blocks/FormSubmitButton.svelte';
+	import NavButton from './blocks/NavButton.svelte';
+	import BranchingQuestion from './blocks/BranchingQuestion.svelte';
+	import type * as Y from 'yjs';
 
 	interface Props {
 		blocks: Map<string, any>;
+		ydoc?: Y.Doc;
+		commentsDoc?: Y.Doc;
+		submissionsDoc?: Y.Doc;
 	}
 
-	let { blocks }: Props = $props();
+	let { blocks, ydoc, commentsDoc, submissionsDoc }: Props = $props();
 
 	// Current screen being viewed
 	let currentScreenId = $state<string | null>(null);
@@ -51,82 +60,9 @@
 	}
 
 	// Recursively render a block and its children
-	function renderBlock(block: any): string {
+	function renderBlockComponent(block: any) {
 		const children = buildTree(block.id);
-		const childrenHtml = children.map(child => renderBlock(child)).join('');
-
-		// Get CSS for this block
-		const css = block.css || '';
-
-		// Render based on block type
-		if (block.type === 'screen-container' || block.type === 'section-container') {
-			return `<div class="container-${block.type}" style="${css}" data-block-id="${block.id}">${childrenHtml}</div>`;
-		} else if (block.type === 'heading') {
-			return `<h1 style="${css}" data-block-id="${block.id}">${block.content || ''}</h1>`;
-		} else if (block.type === 'text') {
-			return `<p style="${css}" data-block-id="${block.id}">${block.content || ''}</p>`;
-		} else if (block.type === 'image') {
-			return `<img src="${block.content || ''}" style="${css}" data-block-id="${block.id}" />`;
-		} else if (block.type === 'thread') {
-			// Render thread block content (just display the main post for now)
-			let threadContent = '';
-			try {
-				if (block.mode === 'html') {
-					threadContent = block.content || '';
-				} else {
-					// Default to markdown
-					threadContent = marked.parse(block.content || '');
-				}
-			} catch (error) {
-				threadContent = '<p>Error rendering thread</p>';
-			}
-
-			const customCss = block.css ? `<style>${block.css}</style>` : '';
-
-			return `
-				<div class="thread-block" style="${css}" data-block-id="${block.id}">
-					${customCss}
-					<div class="thread-content">${threadContent}</div>
-					${childrenHtml}
-				</div>
-			`;
-		} else if (block.type === 'form-field-text') {
-			const label = block.label || 'Text Field';
-			const required = block.required ? '*' : '';
-			return `
-				<div class="form-field" style="${css}" data-block-id="${block.id}">
-					<label>${label}${required}</label>
-					<input type="text" placeholder="${block.placeholder || ''}" data-field-id="${block.id}" ${block.required ? 'required' : ''} />
-				</div>
-			`;
-		} else if (block.type === 'form-field-password') {
-			const label = block.label || 'Password';
-			const required = block.required ? '*' : '';
-			return `
-				<div class="form-field" style="${css}" data-block-id="${block.id}">
-					<label>${label}${required}</label>
-					<input type="password" placeholder="${block.placeholder || ''}" data-field-id="${block.id}" ${block.required ? 'required' : ''} />
-				</div>
-			`;
-		} else if (block.type === 'form-field-email') {
-			const label = block.label || 'Email';
-			const required = block.required ? '*' : '';
-			return `
-				<div class="form-field" style="${css}" data-block-id="${block.id}">
-					<label>${label}${required}</label>
-					<input type="email" placeholder="${block.placeholder || ''}" data-field-id="${block.id}" ${block.required ? 'required' : ''} />
-				</div>
-			`;
-		} else if (block.type === 'form-submit-button') {
-			return `
-				<button class="submit-button" style="${css}" data-block-id="${block.id}" data-form-id="${block.formId || ''}" data-target="${block.targetContainerId || ''}">${block.content || 'Submit'}</button>
-			`;
-		} else if (block.type === 'form') {
-			// Form metadata is invisible
-			return '';
-		}
-
-		return `<div style="${css}" data-block-id="${block.id}">${childrenHtml}</div>`;
+		return { block, children };
 	}
 
 	// Get current screen
@@ -135,11 +71,24 @@
 		return blocks.get(currentScreenId);
 	});
 
-	// Rendered HTML for current screen
-	const renderedHtml = $derived(() => {
+	// Get all blocks for current screen (hierarchical)
+	const screenBlocks = $derived(() => {
 		const screen = currentScreen();
-		if (!screen) return '';
-		return renderBlock(screen);
+		if (!screen) return [];
+
+		function collectBlocks(parentId: string): any[] {
+			const children = buildTree(parentId);
+			let result: any[] = [];
+
+			for (const child of children) {
+				result.push(child);
+				result.push(...collectBlocks(child.id));
+			}
+
+			return result;
+		}
+
+		return [screen, ...collectBlocks(screen.id)];
 	});
 
 	// Navigate to a screen
@@ -147,76 +96,44 @@
 		console.log("🎯 Navigating to screen:", screenId);
 		currentScreenId = screenId;
 	}
-
-	// Handle form submission
-	function handleFormSubmission(event: Event) {
-		const button = event.target as HTMLButtonElement;
-		const formId = button.getAttribute('data-form-id');
-		const targetScreenId = button.getAttribute('data-target');
-
-		console.log("🚀 Form submit triggered:", { formId, targetScreenId });
-
-		if (!formId) {
-			console.warn("⚠️ Submit button has no formId");
-			return;
-		}
-
-		// Collect form data
-		const formData: Record<string, any> = {};
-		const allBlocks = Array.from(blocks.values());
-
-		for (const block of allBlocks) {
-			if (block.formId === formId && block.type?.startsWith('form-field-')) {
-				const fieldName = block.fieldName || block.label || block.id;
-				const inputElement = document.querySelector(`[data-field-id="${block.id}"]`) as HTMLInputElement;
-
-				if (inputElement) {
-					formData[fieldName] = inputElement.value;
-					console.log(`  ✓ Field "${fieldName}":`, formData[fieldName]);
-				}
-			}
-		}
-
-		// Get form metadata
-		const formBlock = allBlocks.find(b => b.id === formId);
-		const eventName = formBlock?.eventName;
-
-		console.log(`✅ Form submission:`, {
-			eventName,
-			formId,
-			data: formData,
-			timestamp: Date.now()
-		});
-
-		// Navigate to target screen if specified
-		if (targetScreenId) {
-			navigateToScreen(targetScreenId);
-		}
-	}
-
-	// Set up click listener for submit buttons
-	function setupListeners(node: HTMLElement) {
-		function onClick(event: Event) {
-			const target = event.target as HTMLElement;
-			if (target.classList.contains('submit-button')) {
-				handleFormSubmission(event);
-			}
-		}
-
-		node.addEventListener('click', onClick);
-
-		return {
-			destroy() {
-				node.removeEventListener('click', onClick);
-			}
-		};
-	}
 </script>
 
 <div class="fullscreen-viewer">
 	{#if currentScreen()}
-		<div class="viewer-content" use:setupListeners>
-			{@html renderedHtml()}
+		<div class="viewer-content">
+			<div class="container-screen-container" style={currentScreen().css || ""}>
+				{#each screenBlocks() as block (block.id)}
+					{#if block.type === 'screen-container'}
+						<!-- Skip screen container itself, we rendered it above -->
+					{:else if block.type === 'section-container'}
+						<div class="container-section-container" style={block.css || ""} data-block-id={block.id}>
+							<!-- Children will be rendered in next iteration -->
+						</div>
+					{:else if block.type === 'thread'}
+						<ThreadBlock blockId={block.id} {ydoc} {commentsDoc} />
+					{:else if block.type.startsWith('form-field-')}
+						<FormField blockId={block.id} blockData={block} />
+					{:else if block.type === 'form-submit-button'}
+						<FormSubmitButton blockId={block.id} blockData={block} {ydoc} {submissionsDoc} allBlocks={blocks} onNavigate={navigateToScreen} />
+					{:else if block.type === 'nav-button'}
+						<NavButton blockId={block.id} blockData={block} allBlocks={blocks} onNavigate={navigateToScreen} />
+					{:else if block.type === 'branching-question'}
+						<BranchingQuestion blockId={block.id} blockData={block} />
+					{:else if block.type === 'heading'}
+						<h1 style={block.css || ""} data-block-id={block.id}>{block.content || ''}</h1>
+					{:else if block.type === 'text'}
+						<p style={block.css || ""} data-block-id={block.id}>{block.content || ''}</p>
+					{:else if block.type === 'image'}
+						<img src={block.content || ''} alt="" style={block.css || ""} data-block-id={block.id} />
+					{:else if block.type === 'form'}
+						<!-- Form metadata is invisible -->
+					{:else if block.type === 'html'}
+						<div class="html-block" style={block.css || ""} data-block-id={block.id}>
+							{@html block.content || ''}
+						</div>
+					{/if}
+				{/each}
+			</div>
 		</div>
 	{:else}
 		<div class="empty-state">
@@ -253,6 +170,26 @@
 	.viewer-content {
 		width: 100%;
 		min-height: 100%;
+		padding: 2rem;
+		box-sizing: border-box;
+	}
+
+	/* Custom scrollbar for viewer */
+	.fullscreen-viewer::-webkit-scrollbar {
+		width: 10px;
+	}
+
+	.fullscreen-viewer::-webkit-scrollbar-track {
+		background: #f1f3f5;
+	}
+
+	.fullscreen-viewer::-webkit-scrollbar-thumb {
+		background: #adb5bd;
+		border-radius: 5px;
+	}
+
+	.fullscreen-viewer::-webkit-scrollbar-thumb:hover {
+		background: #868e96;
 	}
 
 	.viewer-content :global(.container-screen-container),
@@ -260,39 +197,8 @@
 		width: 100%;
 	}
 
-	.viewer-content :global(.form-field) {
-		display: flex;
-		flex-direction: column;
-		gap: 0.5rem;
-	}
-
-	.viewer-content :global(.form-field label) {
-		font-size: 0.875rem;
-		font-weight: 500;
-		color: #333;
-	}
-
-	.viewer-content :global(.form-field input) {
-		padding: 0.75rem;
-		border: 1px solid #ddd;
-		border-radius: 6px;
-		font-size: 0.875rem;
-	}
-
-	.viewer-content :global(.form-field input:focus) {
-		outline: none;
-		border-color: #667eea;
-		box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-	}
-
-	.viewer-content :global(.submit-button) {
-		cursor: pointer;
-		transition: all 0.2s;
-	}
-
-	.viewer-content :global(.submit-button:hover) {
-		transform: translateY(-2px);
-		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+	.html-block {
+		width: 100%;
 	}
 
 	.empty-state {
@@ -357,40 +263,5 @@
 		background: #ffffff;
 		width: 32px;
 		border-radius: 1rem;
-	}
-
-	/* Thread block styling */
-	.viewer-content :global(.thread-block) {
-		width: 100%;
-		margin: 1rem 0;
-		padding: 1.5rem;
-		background: #f6f8fa;
-		border-radius: 8px;
-		border: 1px solid #e1e4e8;
-	}
-
-	.viewer-content :global(.thread-content) {
-		color: #24292e;
-		line-height: 1.6;
-	}
-
-	.viewer-content :global(.thread-content h1),
-	.viewer-content :global(.thread-content h2),
-	.viewer-content :global(.thread-content h3) {
-		color: #24292e;
-		margin-bottom: 0.75rem;
-	}
-
-	.viewer-content :global(.thread-content p) {
-		margin-bottom: 1rem;
-	}
-
-	.viewer-content :global(.thread-content a) {
-		color: #0366d6;
-		text-decoration: none;
-	}
-
-	.viewer-content :global(.thread-content a:hover) {
-		text-decoration: underline;
 	}
 </style>

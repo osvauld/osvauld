@@ -234,7 +234,7 @@
 			</div>
 		{/if}
 		<div class="viewer-main">
-			<FullScreenViewer {blocks} />
+			<FullScreenViewer {blocks} ydoc={yDocs?.mainDoc} commentsDoc={yDocs?.commentsDoc} submissionsDoc={yDocs?.submissionsDoc} />
 		</div>
 	</div>
 {/if}

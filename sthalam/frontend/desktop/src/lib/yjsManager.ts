@@ -8,9 +8,13 @@ export interface YjsDocuments {
   viewport: Y.Map<any>;
   awareness: Awareness;
 
-  // NEW: Secondary document for thread comments
-  secondaryDoc?: Y.Doc;
-  secondaryBlocks?: Y.Map<any>;
+  // Thread comments document (collaborative - all participants can read/write)
+  commentsDoc?: Y.Doc;
+  commentsBlocks?: Y.Map<any>;
+
+  // Form submissions document (viewers append, owner receives)
+  submissionsDoc?: Y.Doc;
+  submissionsBlocks?: Y.Map<any>;
 }
 
 export interface YjsManagerConfig {
@@ -83,32 +87,54 @@ export class YjsManager {
       });
     }
 
-    // NEW: Create secondary doc for thread comments or form submissions
-    let secondaryDoc: Y.Doc | undefined;
-    let secondaryBlocks: Y.Map<any> | undefined;
+    // Create comments doc if needed (for thread blocks)
+    let commentsDoc: Y.Doc | undefined;
+    let commentsBlocks: Y.Map<any> | undefined;
 
-    if (resourceType === 'noticeboard' || resourceType === 'form') {
-      const docTypeName = resourceType === 'noticeboard' ? 'thread comments' : 'form submissions';
-      const docTypeKey = resourceType === 'noticeboard' ? 'thread_comments_doc' : 'form_submissions_doc';
-
-      console.log(`🔧 Creating secondary doc for ${docTypeName}`);
-      secondaryDoc = new Y.Doc({
+    if (resourceType === 'noticeboard' || resourceType === 'website') {
+      console.log('🔧 Creating commentsDoc for thread blocks');
+      commentsDoc = new Y.Doc({
         gc: true,
         gcFilter: () => false,
       });
 
-      secondaryBlocks = secondaryDoc.getMap("blocks");
+      commentsBlocks = commentsDoc.getMap("blocks");
 
-      // Set up update listener for secondary doc
+      // Set up update listener for comments doc
       if (this.config.onUpdate) {
-        secondaryDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+        commentsDoc.on("updateV2", (update: Uint8Array, origin: any) => {
           if (origin !== "sync" && origin !== "loading") {
-            this.config.onUpdate!(update, origin, docTypeKey);
+            this.config.onUpdate!(update, origin, "thread_comments_doc");
           }
         });
       }
 
-      console.log(`✅ Secondary doc created for ${docTypeName}`);
+      console.log('✅ commentsDoc created');
+    }
+
+    // Create submissions doc if needed (for form blocks)
+    let submissionsDoc: Y.Doc | undefined;
+    let submissionsBlocks: Y.Map<any> | undefined;
+
+    if (resourceType === 'form' || resourceType === 'website') {
+      console.log('🔧 Creating submissionsDoc for form blocks');
+      submissionsDoc = new Y.Doc({
+        gc: true,
+        gcFilter: () => false,
+      });
+
+      submissionsBlocks = submissionsDoc.getMap("blocks");
+
+      // Set up update listener for submissions doc
+      if (this.config.onUpdate) {
+        submissionsDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+          if (origin !== "sync" && origin !== "loading") {
+            this.config.onUpdate!(update, origin, "form_submissions_doc");
+          }
+        });
+      }
+
+      console.log('✅ submissionsDoc created');
     }
 
     this.documents = {
@@ -116,8 +142,10 @@ export class YjsManager {
       blocks,
       viewport,
       awareness,
-      secondaryDoc,
-      secondaryBlocks
+      commentsDoc,
+      commentsBlocks,
+      submissionsDoc,
+      submissionsBlocks
     };
 
     return this.documents;
@@ -160,25 +188,30 @@ export class YjsManager {
 
   /**
    * Apply update from remote
-   * NEW: Supports docType parameter to route updates to the correct document
+   * Routes updates to the correct document based on docType
    * OPTIMIZED: Returns Promise for async handling of large updates
    */
   applyUpdate(update: Uint8Array | number[], origin: any = 'sync', docType?: string): Promise<void> {
     if (!this.documents) return Promise.resolve();
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
 
-    // Route to secondary doc if docType is thread_comments_doc or form_submissions_doc
-    const targetDoc = (docType === 'thread_comments_doc' || docType === 'form_submissions_doc')
-      && this.documents.secondaryDoc
-      ? this.documents.secondaryDoc
-      : this.documents.mainDoc;
+    // Route to correct document based on docType
+    let targetDoc: Y.Doc = this.documents.mainDoc;
+
+    if (docType === 'thread_comments_doc' && this.documents.commentsDoc) {
+      targetDoc = this.documents.commentsDoc;
+    } else if (docType === 'form_submissions_doc' && this.documents.submissionsDoc) {
+      targetDoc = this.documents.submissionsDoc;
+    } else if (docType === 'blocksuite_doc' || docType === 'main') {
+      targetDoc = this.documents.mainDoc;
+    }
 
     // For loading large documents (>50KB), defer to next frame to keep UI responsive
     if (origin === 'loading' && updateArray.length > 50000) {
       console.log(`⚡ Deferring large update (${(updateArray.length / 1024).toFixed(1)}KB) to next frame...`);
       return new Promise((resolve) => {
         requestAnimationFrame(() => {
-          console.log(`📥 Applying deferred update...`);
+          console.log(`📥 Applying deferred update to ${docType || 'mainDoc'}...`);
           targetDoc.transact(() => {
             Y.applyUpdateV2(targetDoc, updateArray, origin);
           }, origin);
@@ -231,16 +264,18 @@ export class YjsManager {
 
   /**
    * Clean up and destroy documents
-   * NEW: Also destroys secondary doc if it exists
    */
   destroy(): void {
     if (this.documents) {
       this.documents.awareness.destroy();
       this.documents.mainDoc.destroy();
 
-      // NEW: Destroy secondary doc if it exists
-      if (this.documents.secondaryDoc) {
-        this.documents.secondaryDoc.destroy();
+      if (this.documents.commentsDoc) {
+        this.documents.commentsDoc.destroy();
+      }
+
+      if (this.documents.submissionsDoc) {
+        this.documents.submissionsDoc.destroy();
       }
 
       this.documents = null;

@@ -16,7 +16,9 @@ export class BlocksuiteCoordinator {
   private yjsManager: YjsManager;
   private config: BlocksuiteCoordinatorConfig;
   private currentDocKey: string = 'main_doc'; // Track which doc type we're using
-  private resourceType: string = 'website'; // Track resource type for split docs
+  private resourceType: string = 'website'; // Track resource type
+  private hasThreadBlocks: boolean = false; // Track if resource has thread blocks
+  private hasFormBlocks: boolean = false; // Track if resource has form blocks
 
   constructor(config: BlocksuiteCoordinatorConfig) {
     console.log("🔨 BlocksuiteCoordinator constructor called with userInfo:", config.userInfo);
@@ -87,97 +89,56 @@ export class BlocksuiteCoordinator {
         }));
       });
 
-      // Step 5: Handle split docs for noticeboards and forms
-      if (this.resourceType === 'noticeboard') {
-        // Load thread_doc (main post)
-        if (data.thread_doc) {
-          const threadUpdates = Array.isArray(data.thread_doc)
-            ? new Uint8Array(data.thread_doc)
-            : (data.thread_doc.updates ? new Uint8Array(data.thread_doc.updates) : null);
+      // Step 5: Load main document
+      let mainDocKey: string | null = null;
+      let mainUpdates: Uint8Array | null = null;
 
-          if (threadUpdates && threadUpdates.length > 0) {
-            console.log(`📥 Applying thread_doc updates (${threadUpdates.length} bytes)`);
-            await this.yjsManager.applyUpdate(threadUpdates, "loading", "thread_doc");
-          }
+      if (data.blocksuite_doc) {
+        mainDocKey = 'blocksuite_doc';
+        mainUpdates = Array.isArray(data.blocksuite_doc)
+          ? new Uint8Array(data.blocksuite_doc)
+          : (data.blocksuite_doc.updates ? new Uint8Array(data.blocksuite_doc.updates) : null);
+      } else if (data.thread_doc) {
+        mainDocKey = 'thread_doc';
+        mainUpdates = Array.isArray(data.thread_doc)
+          ? new Uint8Array(data.thread_doc)
+          : (data.thread_doc.updates ? new Uint8Array(data.thread_doc.updates) : null);
+      } else if (data.form_doc) {
+        mainDocKey = 'form_doc';
+        mainUpdates = Array.isArray(data.form_doc)
+          ? new Uint8Array(data.form_doc)
+          : (data.form_doc.updates ? new Uint8Array(data.form_doc.updates) : null);
+      }
+
+      if (mainDocKey) {
+        this.currentDocKey = mainDocKey;
+        if (mainUpdates && mainUpdates.length > 0) {
+          console.log(`📥 Applying ${mainDocKey} updates (${mainUpdates.length} bytes)`);
+          await this.yjsManager.applyUpdate(mainUpdates, "loading", mainDocKey);
         }
+      }
 
-        // Load thread_comments_doc (comments)
-        if (data.thread_comments_doc) {
-          const commentsUpdates = Array.isArray(data.thread_comments_doc)
-            ? new Uint8Array(data.thread_comments_doc)
-            : (data.thread_comments_doc.updates ? new Uint8Array(data.thread_comments_doc.updates) : null);
+      // Step 6: Load comments doc (if exists and has thread blocks)
+      if (this.hasThreadBlocks && data.thread_comments_doc) {
+        const commentsUpdates = Array.isArray(data.thread_comments_doc)
+          ? new Uint8Array(data.thread_comments_doc)
+          : (data.thread_comments_doc.updates ? new Uint8Array(data.thread_comments_doc.updates) : null);
 
-          if (commentsUpdates && commentsUpdates.length > 0) {
-            console.log(`📥 Applying thread_comments_doc updates (${commentsUpdates.length} bytes)`);
-            await this.yjsManager.applyUpdate(commentsUpdates, "loading", "thread_comments_doc");
-          }
+        if (commentsUpdates && commentsUpdates.length > 0) {
+          console.log(`📥 Applying thread_comments_doc updates (${commentsUpdates.length} bytes)`);
+          await this.yjsManager.applyUpdate(commentsUpdates, "loading", "thread_comments_doc");
         }
+      }
 
-        this.currentDocKey = 'thread_doc';
-      } else if (this.resourceType === 'form') {
-        // Load form_doc (form definition)
-        if (data.form_doc) {
-          const formUpdates = Array.isArray(data.form_doc)
-            ? new Uint8Array(data.form_doc)
-            : (data.form_doc.updates ? new Uint8Array(data.form_doc.updates) : null);
+      // Step 7: Load submissions doc (if exists and has form blocks)
+      if (this.hasFormBlocks && data.form_submissions_doc) {
+        const submissionsUpdates = Array.isArray(data.form_submissions_doc)
+          ? new Uint8Array(data.form_submissions_doc)
+          : (data.form_submissions_doc.updates ? new Uint8Array(data.form_submissions_doc.updates) : null);
 
-          if (formUpdates && formUpdates.length > 0) {
-            console.log(`📥 Applying form_doc updates (${formUpdates.length} bytes)`);
-            await this.yjsManager.applyUpdate(formUpdates, "loading", "form_doc");
-          }
-        }
-
-        // Load form_submissions_doc (submissions)
-        if (data.form_submissions_doc) {
-          const submissionsUpdates = Array.isArray(data.form_submissions_doc)
-            ? new Uint8Array(data.form_submissions_doc)
-            : (data.form_submissions_doc.updates ? new Uint8Array(data.form_submissions_doc.updates) : null);
-
-          if (submissionsUpdates && submissionsUpdates.length > 0) {
-            console.log(`📥 Applying form_submissions_doc updates (${submissionsUpdates.length} bytes)`);
-            await this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
-          }
-        }
-
-        this.currentDocKey = 'form_doc';
-      } else {
-        // Step 6: Standard single-doc loading (website, form)
-        let docKey: string | null = null;
-        let updates: Uint8Array | null = null;
-
-        if (data.blocksuite_doc) {
-          docKey = 'blocksuite_doc';
-          updates = Array.isArray(data.blocksuite_doc)
-            ? new Uint8Array(data.blocksuite_doc)
-            : (data.blocksuite_doc.updates ? new Uint8Array(data.blocksuite_doc.updates) : null);
-        } else if (data.form_doc) {
-          docKey = 'form_doc';
-          updates = Array.isArray(data.form_doc)
-            ? new Uint8Array(data.form_doc)
-            : (data.form_doc.updates ? new Uint8Array(data.form_doc.updates) : null);
-        } else if (data.thread_doc) {
-          docKey = 'thread_doc';
-          updates = Array.isArray(data.thread_doc)
-            ? new Uint8Array(data.thread_doc)
-            : (data.thread_doc.updates ? new Uint8Array(data.thread_doc.updates) : null);
-        } else if (data.main_doc) {
-          docKey = 'main_doc';  // Legacy support
-          updates = Array.isArray(data.main_doc)
-            ? new Uint8Array(data.main_doc)
-            : (data.main_doc.updates ? new Uint8Array(data.main_doc.updates) : null);
-        }
-
-        // Store the current doc key for saving
-        if (docKey) {
-          this.currentDocKey = docKey;
-        }
-
-        if (updates && updates.length > 0) {
-          console.log(`📥 Applying ${updates.length} bytes from ${docKey}...`);
-          await this.yjsManager.applyUpdate(updates, "loading");
-          console.log("✅ Updates applied");
-        } else {
-          console.warn("⚠️ No document updates found in data");
+        if (submissionsUpdates && submissionsUpdates.length > 0) {
+          console.log(`📥 Applying form_submissions_doc updates (${submissionsUpdates.length} bytes)`);
+          await this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
         }
       }
     } catch (error) {
@@ -186,24 +147,85 @@ export class BlocksuiteCoordinator {
   }
 
   /**
-   * NEW: Detect resource type from data
+   * Detect resource type and check for thread/form blocks
    */
   private detectResourceType(data: any): string {
-    if (data.thread_doc && data.thread_comments_doc) return 'noticeboard';
-    if (data.thread_doc) return 'noticeboard'; // Legacy single-doc noticeboard
-    if (data.form_doc && data.form_submissions_doc) return 'form'; // Split-doc form
-    if (data.form_doc) return 'form'; // Legacy single-doc form
-    if (data.blocksuite_doc) return 'website';
+    // Reset flags
+    this.hasThreadBlocks = false;
+    this.hasFormBlocks = false;
+
+    // Check for blocksuite_doc (website with potential thread/form blocks)
+    if (data.blocksuite_doc) {
+      const blockCheck = this.checkForThreadOrFormBlocks(data.blocksuite_doc);
+      this.hasThreadBlocks = blockCheck.hasThread;
+      this.hasFormBlocks = blockCheck.hasForm;
+      console.log('🔍 Website resource detected:', { hasThreadBlocks: this.hasThreadBlocks, hasFormBlocks: this.hasFormBlocks });
+      return 'website';
+    }
+
+    // Legacy/dedicated resource types
+    if (data.thread_doc) {
+      this.hasThreadBlocks = true;
+      return 'noticeboard';
+    }
+
+    if (data.form_doc) {
+      this.hasFormBlocks = true;
+      return 'form';
+    }
+
     return 'website'; // Default
   }
 
   /**
+   * Check if document data contains thread or form blocks
+   * This helps determine if we need a secondaryDoc
+   */
+  private checkForThreadOrFormBlocks(docData: any): { hasThread: boolean; hasForm: boolean } {
+    try {
+      // Decode the Yjs update to peek at blocks
+      const updates = Array.isArray(docData)
+        ? new Uint8Array(docData)
+        : (docData.updates ? new Uint8Array(docData.updates) : null);
+
+      if (!updates || updates.length === 0) {
+        return { hasThread: false, hasForm: false };
+      }
+
+      // Create temporary doc to decode
+      const tempDoc = new Y.Doc();
+      Y.applyUpdateV2(tempDoc, updates);
+      const blocks = tempDoc.getMap('blocks');
+
+      let hasThread = false;
+      let hasForm = false;
+
+      blocks.forEach((block: any) => {
+        if (block.type === 'thread') hasThread = true;
+        if (block.type === 'form-submit-button') hasForm = true;
+      });
+
+      tempDoc.destroy();
+
+      console.log('🔍 Block detection:', { hasThread, hasForm });
+      return { hasThread, hasForm };
+    } catch (error) {
+      console.warn('⚠️ Error checking for thread/form blocks:', error);
+      return { hasThread: false, hasForm: false };
+    }
+  }
+
+  /**
    * Save blocksuite data to backend
-   * Uses the correct document key based on resource type (form_doc, blocksuite_doc, etc.)
-   * NEW: Saves both docs for noticeboards (thread_doc + thread_comments_doc)
+   * Saves all 3 documents when applicable: main + comments + submissions
    */
   saveBlocksuite(): any {
-    console.log("💾 saveBlocksuite called, resourceType:", this.resourceType, "currentDocKey:", this.currentDocKey);
+    console.log("💾 saveBlocksuite called", {
+      resourceType: this.resourceType,
+      currentDocKey: this.currentDocKey,
+      hasThreadBlocks: this.hasThreadBlocks,
+      hasFormBlocks: this.hasFormBlocks
+    });
 
     const docs = this.yjsManager.getDocuments();
     if (!docs) {
@@ -211,52 +233,30 @@ export class BlocksuiteCoordinator {
       return null;
     }
 
-    // Handle split docs for noticeboards and forms
-    if (this.resourceType === 'noticeboard' && docs.secondaryDoc) {
-      const threadUpdates = Y.encodeStateAsUpdateV2(docs.mainDoc);
-      const commentsUpdates = Y.encodeStateAsUpdateV2(docs.secondaryDoc);
+    const result: any = {
+      last_modified: Date.now()
+    };
 
-      console.log("📤 Saving split docs:", {
-        thread_doc: threadUpdates.length,
-        thread_comments_doc: commentsUpdates.length
-      });
+    // Save main document
+    const mainUpdates = Y.encodeStateAsUpdateV2(docs.mainDoc);
+    result[this.currentDocKey] = Array.from(mainUpdates);
+    console.log(`📤 Saving ${this.currentDocKey}: ${mainUpdates.length} bytes`);
 
-      return {
-        thread_doc: Array.from(threadUpdates),
-        thread_comments_doc: Array.from(commentsUpdates),
-        last_modified: Date.now()
-      };
-    } else if (this.resourceType === 'form' && docs.secondaryDoc) {
-      const formUpdates = Y.encodeStateAsUpdateV2(docs.mainDoc);
-      const submissionsUpdates = Y.encodeStateAsUpdateV2(docs.secondaryDoc);
-
-      console.log("📤 Saving split docs:", {
-        form_doc: formUpdates.length,
-        form_submissions_doc: submissionsUpdates.length
-      });
-
-      return {
-        form_doc: Array.from(formUpdates),
-        form_submissions_doc: Array.from(submissionsUpdates),
-        last_modified: Date.now()
-      };
-    } else {
-      // Standard single-doc save
-      const mainUpdates = this.yjsManager.getStateAsUpdate();
-      console.log("📦 Main updates length:", mainUpdates.length);
-
-      const result = {
-        [this.currentDocKey]: Array.from(mainUpdates),
-        last_modified: Date.now()
-      };
-
-      console.log("📤 Returning save data:", {
-        docKey: this.currentDocKey,
-        updatesLength: mainUpdates.length
-      });
-
-      return result;
+    // Save comments doc if exists
+    if (docs.commentsDoc) {
+      const commentsUpdates = Y.encodeStateAsUpdateV2(docs.commentsDoc);
+      result.thread_comments_doc = Array.from(commentsUpdates);
+      console.log(`📤 Saving thread_comments_doc: ${commentsUpdates.length} bytes`);
     }
+
+    // Save submissions doc if exists
+    if (docs.submissionsDoc) {
+      const submissionsUpdates = Y.encodeStateAsUpdateV2(docs.submissionsDoc);
+      result.form_submissions_doc = Array.from(submissionsUpdates);
+      console.log(`📤 Saving form_submissions_doc: ${submissionsUpdates.length} bytes`);
+    }
+
+    return result;
   }
 
   /**
