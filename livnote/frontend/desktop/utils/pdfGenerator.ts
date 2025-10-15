@@ -264,12 +264,14 @@ export const pdfGenerator = async (content: string, givenTitle: string): Promise
 
     // Process images before PDF generation
     const images = container.getElementsByTagName('img');
+    const imageLoadPromises: Promise<void>[] = [];
+    
     for (let i = 0; i < images.length; i++) {
       const img = images[i];
-      // Add loading="eager" to ensure images are loaded before PDF generation
-      img.loading = "eager";
+      
       // Add crossOrigin attribute to handle CORS
       img.crossOrigin = "anonymous";
+      
       // Ensure max-width is respected
       if (!img.style.maxWidth) {
         img.style.maxWidth = "100%";
@@ -278,6 +280,26 @@ export const pdfGenerator = async (content: string, givenTitle: string): Promise
       if (!img.style.margin) {
         img.style.margin = "1.5em 0";
       }
+      
+      // Wait for image to load if not already loaded
+      if (!img.complete) {
+        imageLoadPromises.push(
+          new Promise((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => {
+              console.warn(`Failed to load image: ${img.src}`);
+              resolve(); // Resolve anyway to not block PDF generation
+            };
+            // Add timeout to prevent hanging
+            setTimeout(() => resolve(), 5000);
+          })
+        );
+      }
+    }
+    
+    // Wait for all images to load
+    if (imageLoadPromises.length > 0) {
+      await Promise.all(imageLoadPromises);
     }
 
     // Wrap pdf.html in a Promise
@@ -315,14 +337,14 @@ export const pdfGenerator = async (content: string, givenTitle: string): Promise
 
             resolve({
               show: true,
-              message: `Note exported as PDF to Downloads folder: ${uniqueFileName}`,
+              message: `${uniqueFileName} Saved to Downloads folder`,
               success: true,
             });
           } catch (error: unknown) {
             console.error("Error saving PDF file:", error);
             reject({
               show: true,
-              message: `Failed to save PDF file: ${error instanceof Error ? error.message : 'Unknown error'}`,
+              message: `Failed to save PDF file`,
               success: false,
             });
           }
@@ -339,7 +361,7 @@ export const pdfGenerator = async (content: string, givenTitle: string): Promise
     console.error("Error creating PDF:", error);
     return {
       show: true,
-      message: `Failed to create PDF: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      message: `Failed to create PDF`,
       success: false,
     };
   }

@@ -183,12 +183,12 @@ export async function generateCertificatePDF(certificateData) {
 	// Convert to Uint8Array for file writing
 	const pdfBuffer = new Uint8Array(pdfData);
 
-	// Save the PDF file to Documents directory
+	// Save the PDF file to Downloads directory
 	const file = await open(fileName, {
 		write: true,
 		create: true,
 		truncate: true,
-		baseDir: BaseDirectory.Document,
+		baseDir: BaseDirectory.Download,
 	});
 
 	// Write PDF data

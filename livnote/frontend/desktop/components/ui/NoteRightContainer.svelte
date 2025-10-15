@@ -26,20 +26,31 @@
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
-		// if (!dataState.currentNote?.data) {
-		// 	uiState.showToast("No note content to download", false);
-		// 	return;
-		// }
-		//
-		// isPdfGenerating = true;
-		// const pdfStatus = await pdfGenerator(
-		// 	dataState.currentNote.data.content ?? "",
-		// 	dataState.currentNote.data.title ?? "Untitled",
-		// );
-		//
-		// uiState.showToast(pdfStatus.message, pdfStatus.success);
-		//
-		// isPdfGenerating = false;
+		const currentNote = dataState.getCurrentNoteData();
+		if (!currentNote?.data) {
+			uiState.showToast("No note content to download", false);
+			return;
+		}
+
+		// Prevent multiple concurrent generations
+		if (isPdfGenerating) return;
+
+		isPdfGenerating = true;
+
+		try {
+			const pdfStatus = await pdfGenerator(
+				currentNote.data.content ?? "",
+				dataState.getNoteTitle(),
+			);
+
+			uiState.showToast(pdfStatus.message, pdfStatus.success);
+		} catch (error) {
+			console.error("PDF generation failed:", error);
+			uiState.showToast("Failed to generate PDF", false);
+		} finally {
+			// Always reset loading state
+			isPdfGenerating = false;
+		}
 	};
 
 	// const handleToggleNoteRightPanel = () => {
@@ -141,13 +152,17 @@
 				>
 					<Bin size={24} />
 				</button>
-				<!-- 
+
 				<div class="relative flex justify-center items-center">
 					<button
-						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 						onclick={handleDownloadPdf}
-						aria-label="Download as PDF"
-						title="Download as PDF"
+						disabled={isPdfGenerating}
+						aria-label={isPdfGenerating
+							? "Generating PDF..."
+							: "Download as PDF"}
+						aria-busy={isPdfGenerating}
+						title={isPdfGenerating ? "Generating PDF..." : "Download as PDF"}
 					>
 						{#if isPdfGenerating}
 							<Loader color="#85889C" />
@@ -155,7 +170,7 @@
 							<DownloadIcon />
 						{/if}
 					</button>
-				</div> -->
+				</div>
 			</div>
 
 			<button
