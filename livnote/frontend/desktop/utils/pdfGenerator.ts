@@ -44,7 +44,11 @@ function cleanupCommentMarkup(container: HTMLElement): void {
 export const pdfGenerator = async (content: string, givenTitle: string): Promise<PdfResult> => {
   try {
     const title = givenTitle;
-    const safeTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    // Keep spaces and capitalization, only remove/replace unsafe filename characters
+    const safeTitle = title
+      .replace(/[<>:"/\\|?*]/g, '') // Remove invalid filename characters
+      .replace(/\s+/g, ' ')          // Normalize multiple spaces to single space
+      .trim();                        // Remove leading/trailing spaces
 
     // Generate sequence number from timestamp
     const sequence = String(Date.now() % 10000).padStart(4, '0');

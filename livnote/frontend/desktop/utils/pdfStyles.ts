@@ -27,8 +27,8 @@ export const getPdfStyles = (): string => {
     
     /* Paragraph styles */
     .pdf-prosemirror p {
-      margin: 0 0 1em 0;
-      line-height: 1.5;
+      margin: 0 0 0.75em 0;
+      line-height: 1.6;
       word-break: break-word;
       white-space: normal;
       display: block;
@@ -38,7 +38,7 @@ export const getPdfStyles = (): string => {
     /* Heading styles with correct font weights matching editor */
     .pdf-prosemirror h1 {
       font-size: 2em;
-      margin: 0.67em 0;
+      margin: 0.5em 0 0.4em 0;
       color: #000;
       font-weight: 600;
       line-height: 1.2;
@@ -46,7 +46,7 @@ export const getPdfStyles = (): string => {
     
     .pdf-prosemirror h2 {
       font-size: 1.5em;
-      margin: 0.83em 0;
+      margin: 0.6em 0 0.4em 0;
       color: #000;
       font-weight: 600;
       line-height: 1.2;
@@ -54,7 +54,7 @@ export const getPdfStyles = (): string => {
     
     .pdf-prosemirror h3 {
       font-size: 1.17em;
-      margin: 1em 0;
+      margin: 0.7em 0 0.4em 0;
       color: #000;
       font-weight: 600;
       line-height: 1.2;
@@ -62,7 +62,7 @@ export const getPdfStyles = (): string => {
     
     .pdf-prosemirror h4 {
       font-size: 1.1em;
-      margin: 1.1em 0;
+      margin: 0.8em 0 0.4em 0;
       color: #000;
       font-weight: 500;
       line-height: 1.2;
@@ -70,7 +70,7 @@ export const getPdfStyles = (): string => {
     
     .pdf-prosemirror h5 {
       font-size: 1.05em;
-      margin: 1.2em 0;
+      margin: 0.8em 0 0.4em 0;
       color: #000;
       font-weight: 500;
       line-height: 1.2;
@@ -78,7 +78,7 @@ export const getPdfStyles = (): string => {
     
     .pdf-prosemirror h6 {
       font-size: 1em;
-      margin: 1.3em 0;
+      margin: 0.8em 0 0.4em 0;
       color: #000;
       font-weight: 500;
       line-height: 1.2;
@@ -104,32 +104,53 @@ export const getPdfStyles = (): string => {
     
     /* List styling */
     .pdf-prosemirror ul {
-      padding-left: 1.5em;
-      margin: 0.5em 0;
+      padding-left: 1.8em;
+      margin: 0.5em 0 0.75em 0;
       list-style-type: disc;
+      list-style-position: outside;
     }
     
     .pdf-prosemirror ul li {
-      margin: 0.2em 0;
-      position: relative;
+      margin: 0.25em 0;
+      padding-left: 0.25em;
       line-height: 1.5;
+    }
+    
+    .pdf-prosemirror ul li::marker {
+      font-size: 0.8em;
+    }
+    
+    .pdf-prosemirror ul li p {
+      margin: 0;
+      line-height: inherit;
     }
     
     .pdf-prosemirror ol {
-      padding-left: 1.5em;
-      margin: 0.5em 0;
+      padding-left: 1.8em;
+      margin: 0.5em 0 0.75em 0;
       list-style-type: decimal;
+      list-style-position: outside;
     }
     
     .pdf-prosemirror ol li {
-      margin: 0.2em 0;
+      margin: 0.25em 0;
+      padding-left: 0.25em;
       line-height: 1.5;
+    }
+    
+    .pdf-prosemirror ol li::marker {
+      font-size: 0.9em;
+    }
+    
+    .pdf-prosemirror ol li p {
+      margin: 0;
+      line-height: inherit;
     }
     
     /* Blockquote styling */
     .pdf-prosemirror blockquote {
       border-left: 3px solid #666;
-      margin: 1em 0;
+      margin: 0.75em 0;
       padding: 8px 16px 8px 12px;
       font-style: italic;
       color: #333;
@@ -152,9 +173,9 @@ export const getPdfStyles = (): string => {
       background: #f5f5f5;
       color: #000;
       font-family: 'Courier New', Courier, monospace;
-      padding: 1em;
+      padding: 0.75em;
       border-radius: 4px;
-      margin: 1em 0;
+      margin: 0.75em 0;
       overflow-x: auto;
       font-size: 0.9em;
       line-height: 1.4;
@@ -336,6 +357,51 @@ export const getPdfStyles = (): string => {
     .pdf-prosemirror td[rowspan],
     .pdf-prosemirror th[rowspan] {
       vertical-align: middle;
+    }
+    
+    /* Math equation styles adapted for PDF (light theme) */
+    .pdf-prosemirror .katex,
+    .pdf-prosemirror .katex * {
+      color: #000 !important;
+    }
+    
+    .pdf-prosemirror .katex .mathnormal {
+      color: #000 !important;
+    }
+    
+    .pdf-prosemirror .math-node,
+    .pdf-prosemirror math-inline,
+    .pdf-prosemirror math-display {
+      color: #000 !important;
+      background: transparent !important;
+    }
+    
+    .pdf-prosemirror .math-render {
+      padding: 0.25rem;
+      background: transparent !important;
+    }
+    
+    .pdf-prosemirror .math-display {
+      margin: 1rem 0;
+      padding: 0.5rem 0;
+      text-align: center;
+    }
+    
+    .pdf-prosemirror .math-inline {
+      margin: 0 0.125rem;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    
+    /* Hide equation numbers and labels in PDF */
+    .pdf-prosemirror .equation-number,
+    .pdf-prosemirror .equation-label-container {
+      display: none !important;
+    }
+    
+    /* Math source code container (editing view) - hide in PDF */
+    .pdf-prosemirror .math-src {
+      display: none !important;
     }
     
     /* CRITICAL: Hide all comment-related styles */
