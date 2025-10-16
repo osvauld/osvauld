@@ -31,10 +31,20 @@
 		return note?.favourite ?? false;
 	});
 
-	// Derived state for filtered collaborators (excluding current user)
-	let otherOnlineCollaborators = $derived(
-		dataState.collaborators.filter((c) => c.name !== myUsername),
-	);
+	// Derived state for filtered collaborators (excluding current user and deduplicating by id)
+	let otherOnlineCollaborators = $derived(() => {
+		const collaborators = dataState.collaborators.filter(
+			(c) => c.name !== myUsername,
+		);
+
+		// Deduplicate by id to handle backend bug where same users get added multiple times
+		const uniqueCollaborators = new Map();
+		collaborators.forEach((collaborator) => {
+			uniqueCollaborators.set(collaborator.id, collaborator);
+		});
+
+		return Array.from(uniqueCollaborators.values());
+	});
 
 	// Title editing functions
 	const startEditingTitle = () => {
@@ -308,9 +318,9 @@
 						<Timer />
 					{/key}
 				</div>
-				{#if otherOnlineCollaborators.length > 0 && myUsername}
+				{#if otherOnlineCollaborators().length > 0 && myUsername}
 					<div class="ml-auto flex items-center">
-						{#each otherOnlineCollaborators.slice(0, 3) as collaborator, index (collaborator.id)}
+						{#each otherOnlineCollaborators().slice(0, 3) as collaborator, index (collaborator.id)}
 							<div
 								class="relative {index !== 0 ? '-ml-3' : ''} select-none"
 								aria-label={collaborator.name}
@@ -331,15 +341,15 @@
 							</div>
 						{/each}
 
-						{#if otherOnlineCollaborators.length > 3}
+						{#if otherOnlineCollaborators().length > 3}
 							<div
 								class="relative -ml-3"
-								aria-label={`+${otherOnlineCollaborators.length - 3} more collaborators`}
+								aria-label={`+${otherOnlineCollaborators().length - 3} more collaborators`}
 							>
 								<div
 									class="w-12 h-12 -z-10 rounded-full bg-osvauld-fieldActive text-sm font-medium text-collaboratorText border border-collaboratorBorder flex justify-center items-center"
 								>
-									+{otherOnlineCollaborators.length - 3}
+									+{otherOnlineCollaborators().length - 3}
 								</div>
 							</div>
 						{/if}
