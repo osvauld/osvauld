@@ -5,7 +5,7 @@ use crate::{
 use crypto_utils::{CryptoUtils, errors::UcanError};
 use osvauld_core::models::{
     Folder, FolderRecipientDiff, FolderRecipientUpdate, FolderShareRecord, FolderWithShareRecords,
-    PermissionLevel, UnknownFoldersPayload, User,
+    PermissionLevel, UnknownFoldersPayload, User, ViewerFolderInfo,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
@@ -394,4 +394,31 @@ pub async fn add_missing_recipients(
         )
         .await?;
     Ok(())
+}
+pub async fn get_viewer_folder_manifest(
+    peer_user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Vec<ViewerFolderInfo>> {
+    // 1. Get folder share records for peer_user_id
+    let folder_share_records = repo_ctx
+        .folder_share_repo
+        .get_records_by_recipient_user_id(peer_user_id)
+        .await?;
+
+    // 2. For each folder, get resource_ids
+    let mut result = Vec::new();
+    for folder_share_record in folder_share_records {
+        let resource_ids = repo_ctx
+            .resource_repo
+            .get_resource_ids_by_folder_id(&folder_share_record.folder_id)
+            .await?;
+
+        result.push(ViewerFolderInfo {
+            folder_id: folder_share_record.folder_id,
+            resource_ids,
+            folder_ucan: folder_share_record.ucan_token,
+        });
+    }
+
+    Ok(result)
 }

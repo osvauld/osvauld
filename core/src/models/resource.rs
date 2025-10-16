@@ -111,7 +111,7 @@ impl DecryptedResource {
                     .collect();
 
                 let mut doc_data = serde_json::Map::new();
-                doc_data.insert("updates".to_string(), serde_json::Value::Array(vec![])); // Empty updates
+                doc_data.insert("updates".to_string(), serde_json::Value::Array(vec![]));
                 doc_data.insert(
                     "state_vector".to_string(),
                     serde_json::Value::Array(vector_array),
@@ -181,28 +181,49 @@ impl DecryptedResource {
                         let updates_for_peer = doc.get_diff_update_v2(&input_state_vector).await?;
                         let current_state_vector = doc.get_state_vector_v2().await;
 
-                        // Always return both updates and current state vector
-                        let updates_array: Vec<serde_json::Value> = updates_for_peer
-                            .iter()
-                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                            .collect();
+                        // Special handling for Website form_submissions_doc
+                        // Always apply incoming form data, but return empty updates
+                        if self.resource_type == ResourceType::Website
+                            && state_key == "form_submissions_doc"
+                        {
+                            // Return empty updates for form submissions (node doesn't send form data back to viewer)
+                            let mut doc_result = serde_json::Map::new();
+                            doc_result
+                                .insert("updates".to_string(), serde_json::Value::Array(vec![]));
+                            doc_result.insert(
+                                "state_vector".to_string(),
+                                serde_json::Value::Array(vec![]),
+                            );
+                            result_updates.insert(
+                                state_key.to_string(),
+                                serde_json::Value::Object(doc_result),
+                            );
+                        } else {
+                            // Normal flow: return both updates and current state vector
+                            let updates_array: Vec<serde_json::Value> = updates_for_peer
+                                .iter()
+                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                                .collect();
 
-                        let state_vector_array: Vec<serde_json::Value> = current_state_vector
-                            .iter()
-                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                            .collect();
+                            let state_vector_array: Vec<serde_json::Value> = current_state_vector
+                                .iter()
+                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                                .collect();
 
-                        let mut doc_result = serde_json::Map::new();
-                        doc_result.insert(
-                            "updates".to_string(),
-                            serde_json::Value::Array(updates_array),
-                        );
-                        doc_result.insert(
-                            "state_vector".to_string(),
-                            serde_json::Value::Array(state_vector_array),
-                        );
-                        result_updates
-                            .insert(state_key.to_string(), serde_json::Value::Object(doc_result));
+                            let mut doc_result = serde_json::Map::new();
+                            doc_result.insert(
+                                "updates".to_string(),
+                                serde_json::Value::Array(updates_array),
+                            );
+                            doc_result.insert(
+                                "state_vector".to_string(),
+                                serde_json::Value::Array(state_vector_array),
+                            );
+                            result_updates.insert(
+                                state_key.to_string(),
+                                serde_json::Value::Object(doc_result),
+                            );
+                        }
                     }
 
                     // Update our resource data if doc was modified
@@ -253,6 +274,13 @@ pub struct ResourceSyncData {
     pub vector_clocks: Vec<ResourceVectorClock>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceSyncInfo {
+    pub resource_id: String,
+    pub resource_ucan: String,
+    pub sync_data: String, // JSON with state vectors (and form data for viewer)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ResourceType {
     Notes,
@@ -278,9 +306,9 @@ impl ResourceType {
             ResourceType::Notes => vec!["main_doc", "image_state", "comment_state"],
             ResourceType::Chat => vec!["chat", "image_state"],
             ResourceType::Website => vec![
-                "blocksuite_doc",         // Main website content (owner edits, viewer reads)
-                "thread_comments_doc",    // Collaborative comments (bidirectional sync)
-                "form_submissions_doc",   // Form submissions (viewer appends, owner receives)
+                "blocksuite_doc",       // Main website content (owner edits, viewer reads)
+                "thread_comments_doc",  // Collaborative comments (bidirectional sync)
+                "form_submissions_doc", // Form submissions (viewer appends, owner receives)
             ],
             ResourceType::Default => vec!["yjs_state"],
         }

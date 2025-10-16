@@ -194,7 +194,10 @@ pub async fn handle_connect_to_website(
     .await
     .map_err(|e| format!("Failed to add sovereign node user: {}", e))?;
 
-    info!("Stored sovereign node user {} and device in database", node_user.id);
+    info!(
+        "Stored sovereign node user {} and device in database",
+        node_user.id
+    );
 
     // 5. Get current user for the connection
     let _ = user_state.get_user().await?;
@@ -211,7 +214,8 @@ pub async fn handle_connect_to_website(
             .connect_with_ticket(
                 &device_key,
                 ConnectionType::Website,
-                Some(ConnectionAction::WebsiteRequest),
+                //TODO: depretiate connection action
+                Some(ConnectionAction::UserSync),
             )
             .await
         {

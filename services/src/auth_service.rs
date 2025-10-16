@@ -5,7 +5,7 @@ use crypto_utils::{
 };
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
-use osvauld_core::models::{Certificate, Folder, FolderShareRecord, PermissionLevel};
+use osvauld_core::models::{Certificate, Folder, FolderShareRecord, PermissionLevel, UserRole};
 use persistance::database::RepositoryContext;
 use rand::{RngCore, rngs::OsRng};
 use std::sync::Arc;
@@ -320,6 +320,7 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> ServiceResult<Certific
 
 pub async fn generate_one_time_ucan_token(
     capability_str: &str,
+    role: &str,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(String, String)> {
@@ -328,7 +329,11 @@ pub async fn generate_one_time_ucan_token(
     let (ucan_token, ucan_public_key) = {
         let crypto = crypto_utils.read().await;
         crypto
-            .generate_one_time_user_connect_token(&encrypted_ucan_pvt_key, capability_str)
+            .generate_one_time_user_connect_token(
+                &encrypted_ucan_pvt_key,
+                capability_str,
+                &UserRole::Owner.to_string(),
+            )
             .await?
     };
 
@@ -349,9 +354,7 @@ pub async fn generate_folder_share_token(
         .generate_public_folder_view_token(&encrypted_ucan_pvt_key, folder_id, capability_str)
         .await?;
 
-    let ucan_public_key = crypto
-        .get_public_ucan_key(&encrypted_ucan_pvt_key)
-        .await?;
+    let ucan_public_key = crypto.get_public_ucan_key(&encrypted_ucan_pvt_key).await?;
 
     Ok((ucan_token, ucan_public_key))
 }

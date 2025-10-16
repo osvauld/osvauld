@@ -12,8 +12,8 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
-use std::boxed::Box;
 use std::future::Future;
+use std::{boxed::Box, clone};
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
@@ -199,6 +199,7 @@ pub async fn generate_one_time_connection_token(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
     capability_str: &str,
+    role: &str,
 ) -> Result<String, UcanError> {
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
     let expiry_seconds = 24 * 60 * 60;
@@ -208,6 +209,7 @@ pub async fn generate_one_time_connection_token(
         .for_audience("*")
         .with_lifetime(expiry_seconds)
         .claiming_capability(capability)
+        .with_fact("role", role.to_string())
         .build()
         .map_err(|e| UcanError::KeyExtractionError(format!("UCAN build error: {}", e)))?
         .sign()
@@ -231,6 +233,17 @@ pub fn is_one_time_connect_token(ucan: &Ucan, domain: &str) -> bool {
         .any(|cap| cap.resource.starts_with(&required_prefix) && cap.ability == "use");
 
     is_wildcard_audience && has_connect_capability
+}
+
+/// Extract the user role from a UCAN token
+/// Returns the role string from the token's facts, or "viewer" as default
+pub fn get_role_from_token(ucan: &Ucan) -> String {
+    ucan.facts()
+        .as_ref()
+        .and_then(|facts| facts.get("role"))
+        .and_then(|value| value.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "viewer".to_string())
 }
 
 /// Generate a delegation and connection token
@@ -430,6 +443,43 @@ pub fn extract_folder_id_from_ucan(ucan: &Ucan) -> Result<String, UcanError> {
                 // Make sure it's not wildcard or empty
                 if !folder_id.is_empty() && folder_id != "*" {
                     return Ok(folder_id.to_string());
+                }
+            }
+        }
+    }
+
+    Err(UcanError::CapabilityNotFound)
+}
+
+/// Extract the resource_id from a UCAN's resource capabilities.
+///
+/// This function looks for resource capabilities in the UCAN and extracts
+/// the resource_id (e.g., "abc123" from "domain:resource:abc123").
+///
+/// ### Arguments
+/// * `ucan` - The UCAN object to extract the resource_id from.
+///
+/// ### Returns
+/// The resource_id string, or an error if no matching capability is found.
+pub fn extract_resource_id_from_ucan(ucan: &Ucan) -> Result<String, UcanError> {
+    for capability in ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+
+        // Look for resource pattern in the URI
+        // Format: "domain:resource:resource_id" or "domain:resource:folder_id/resource_id"
+        if cap_resource.contains(":resource:") {
+            // Extract resource_id from "domain:resource:resource_id"
+            if let Some(last_colon_pos) = cap_resource.rfind(':') {
+                let resource_part = &cap_resource[last_colon_pos + 1..];
+                // Handle both "resource_id" and "folder_id/resource_id" patterns
+                let resource_id = if let Some(slash_pos) = resource_part.find('/') {
+                    &resource_part[slash_pos + 1..]
+                } else {
+                    resource_part
+                };
+                // Make sure it's not wildcard or empty
+                if !resource_id.is_empty() && resource_id != "*" {
+                    return Ok(resource_id.to_string());
                 }
             }
         }
@@ -677,6 +727,7 @@ pub async fn generate_public_view_token(
 /// * `expiry_seconds` - Token lifetime in seconds (None = infinite/30 years)
 /// * `capabilities` - List of capabilities to grant
 /// * `audience` - Target audience DID or "*" for public
+/// * `role` - The role to embed in the token (e.g., "viewer", "user", "owner")
 pub async fn generate_flexible_folder_token(
     owner_signing_key: &SigningKey,
     owner_verifying_key: &VerifyingKey,
@@ -685,6 +736,7 @@ pub async fn generate_flexible_folder_token(
     expiry_seconds: Option<u64>,
     capabilities: Vec<&str>,
     audience: &str,
+    role: &str,
 ) -> Result<String, UcanError> {
     // 1. Create KeyMaterial for the owner
     let key_material =
@@ -700,7 +752,8 @@ pub async fn generate_flexible_folder_token(
     let mut builder = UcanBuilder::default()
         .issued_by(&key_material)
         .for_audience(audience)
-        .with_lifetime(lifetime);
+        .with_lifetime(lifetime)
+        .with_fact("role", role.to_string());
 
     // Add folder capabilities
     for capability_str in &capabilities {
@@ -710,7 +763,8 @@ pub async fn generate_flexible_folder_token(
 
     // Add resource wildcard capabilities
     for capability_str in capabilities {
-        let resource_cap = Capability::from((resource_wildcard.as_str(), capability_str, &json!({})));
+        let resource_cap =
+            Capability::from((resource_wildcard.as_str(), capability_str, &json!({})));
         builder = builder.claiming_capability(resource_cap);
     }
 
@@ -748,7 +802,8 @@ pub async fn generate_public_folder_view_token(
         capability_prefix,
         Some(30 * 24 * 60 * 60), // 30 days
         vec!["view/public"],
-        "*", // Public wildcard audience
+        "*",      // Public wildcard audience
+        "viewer", // Role for public folder viewers
     )
     .await
 }

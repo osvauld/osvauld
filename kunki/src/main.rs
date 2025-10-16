@@ -2,11 +2,15 @@ use clap::{Parser, Subcommand};
 use crypto_utils::CryptoUtils;
 use log::{error, info};
 use network::P2PService;
+use osvauld_core::models::UserRole;
 use persistance::{database::initialize_repositories, initialize_database};
 
 use base64::{Engine as _, engine::general_purpose};
 use serde_json::json;
-use services::{generate_folder_share_token, generate_one_time_ucan_token, handle_signup, is_signed_up, load_certificate};
+use services::{
+    generate_folder_share_token, generate_one_time_ucan_token, handle_signup, is_signed_up,
+    load_certificate,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -116,7 +120,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             passphrase,
             folder_id,
         } => {
-            handle_folder_token(&passphrase, &folder_id, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
+            handle_folder_token(
+                &passphrase,
+                &folder_id,
+                repo_ctx.clone(),
+                crypto_utils.clone(),
+                &domain,
+            )
+            .await?;
         }
     }
 
@@ -172,8 +183,13 @@ async fn handle_start(
 
     // Generate and print connection token if requested
     if print_token {
-        let (token, pub_key) =
-            generate_one_time_ucan_token(&domain, &crypto_utils, repo_ctx.clone()).await?;
+        let (token, pub_key) = generate_one_time_ucan_token(
+            &domain,
+            &UserRole::Owner.to_string(),
+            &crypto_utils,
+            repo_ctx.clone(),
+        )
+        .await?;
 
         println!("\n╔══════════════════════════════════════════╗");
         println!("ONE-TIME CONNECTION TOKEN");
@@ -337,8 +353,13 @@ async fn handle_token(
     info!("✔ Authenticated as: {}", user.username);
 
     // Generate connection token
-    let (token, pub_key) =
-        generate_one_time_ucan_token(domain, &crypto_utils, repo_ctx.clone()).await?;
+    let (token, pub_key) = generate_one_time_ucan_token(
+        domain,
+        &UserRole::Owner.to_string(),
+        &crypto_utils,
+        repo_ctx.clone(),
+    )
+    .await?;
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("ONE-TIME CONNECTION TOKEN");

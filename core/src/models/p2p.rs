@@ -90,6 +90,8 @@ pub enum HandshakeMessage {
     HandshakeExchange(UcanAndUserExchange),
     HandshakeWebsiteRequest(WebsiteHandshakeRequest),
     HandshakeWebsiteResponse(WebsiteHandshakeResponse),
+    HandshakeWebsiteReconnectRequest(WebsiteReconnectRequest),
+    HandshakeWebsiteReconnectResponse(WebsiteReconnectResponse),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -135,14 +137,25 @@ pub struct WebsiteHandshakeResponse {
     pub viewer_specific_token: String,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WebsiteReconnectRequest {
+    pub ucan_token: String,
+    pub viewer_user: User,
+    pub viewer_device: Device,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WebsiteReconnectResponse {
+    pub node_user: User,
+    pub node_device: Device,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConnectionAction {
     DeviceSync,
     AddDevice,
     LiveEdit,
     UserSync,
-    WebsiteRequest,
-    WebsiteSync,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -229,5 +242,24 @@ pub enum WebsiteMessage {
     InitialSyncComplete {
         folder_id: String,
         resource_count: usize,
+    },
+    FolderResourceInfo {
+        folder_id: String,
+        resource_ids: Vec<String>,
+        folder_ucan: String,
+    },
+    IncrementalSyncRequest {
+        resource_id: String,
+        resource_ucan: String,
+        sync_data: String, // JSON with state vectors and form updates
+    },
+    IncrementalSyncResponse {
+        resource_id: String,
+        sync_data: String, // JSON with comment and website updates
+    },
+    ViewerCommentsUpdate {
+        resource_id: String,
+        resource_ucan: String,
+        sync_data: String, // JSON with only thread_comments_doc updates
     },
 }

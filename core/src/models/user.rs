@@ -1,7 +1,51 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 
 use super::Device;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UserRole {
+    User,
+    Owner,
+    Viewer,
+    Server,
+    Owned,
+}
+
+impl fmt::Display for UserRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UserRole::User => write!(f, "user"),
+            UserRole::Owner => write!(f, "owner"),
+            UserRole::Viewer => write!(f, "viewer"),
+            UserRole::Server => write!(f, "server"),
+            UserRole::Owned => write!(f, "owned"),
+        }
+    }
+}
+
+impl FromStr for UserRole {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "user" => Ok(UserRole::User),
+            "owner" => Ok(UserRole::Owner),
+            "viewer" => Ok(UserRole::Viewer),
+            "server" => Ok(UserRole::Server),
+            "owned" => Ok(UserRole::Owned),
+            _ => Err(format!("Invalid user role: {}", s)),
+        }
+    }
+}
+
+impl Default for UserRole {
+    fn default() -> Self {
+        UserRole::Viewer
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

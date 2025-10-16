@@ -444,6 +444,125 @@ pub async fn get_resource_state_vector(
     Ok(state_vectors)
 }
 
+pub async fn get_resource_sync_info(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<osvauld_core::models::ResourceSyncInfo> {
+    // 1. Get decrypted resource
+    let (decrypted_resource, _) = get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
+
+    // 2. Get state vectors JSON
+    let state_vectors_json = decrypted_resource
+        .get_state_vectors()
+        .await
+        .map_err(|e| ResourceServiceError::ParseError(e))?;
+
+    // 3. For Website resources being synced by viewer, populate form data
+    let sync_data = if decrypted_resource.resource_type == osvauld_core::models::ResourceType::Website {
+        let mut parsed: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&state_vectors_json)?;
+
+        // Get form data and populate it
+        if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
+            if let Some(doc_obj) = form_doc.as_object_mut() {
+                let form_data = decrypted_resource
+                    .get_document_state("form_submissions_doc")
+                    .unwrap_or_default();
+
+                let form_data_array: Vec<serde_json::Value> = form_data
+                    .iter()
+                    .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                    .collect();
+
+                doc_obj.insert("updates".to_string(), serde_json::Value::Array(form_data_array));
+                doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
+            }
+        }
+
+        serde_json::to_string(&parsed)?
+    } else {
+        state_vectors_json
+    };
+
+    // 4. Get resource UCAN token
+    let resource_ucan = get_resource_ucan_key(resource_id, user_id, repo_ctx).await?;
+
+    Ok(osvauld_core::models::ResourceSyncInfo {
+        resource_id: resource_id.to_string(),
+        resource_ucan,
+        sync_data,
+    })
+}
+
+/// Process incremental sync from viewer and return updates for viewer
+/// Replaces form_submissions_doc with empty updates (node doesn't send form data back)
+pub async fn process_incremental_resource_sync(
+    resource_id: &str,
+    user_id: &str,
+    viewer_sync_data: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<String> {
+    // Use existing function to apply updates and get response
+    let response = apply_updates_and_get_peer_updates(
+        resource_id,
+        user_id,
+        viewer_sync_data,
+        repo_ctx,
+        crypto_utils,
+    ).await?;
+
+    // Parse response and replace form_submissions_doc with empty updates
+    let mut parsed: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&response)
+            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+
+    // Always set form_submissions_doc to empty updates (replace any existing)
+    let mut doc_result = serde_json::Map::new();
+    doc_result.insert("updates".to_string(), serde_json::Value::Array(vec![]));
+    doc_result.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
+    parsed.insert("form_submissions_doc".to_string(), serde_json::Value::Object(doc_result));
+
+    Ok(serde_json::to_string(&parsed)
+        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)
+}
+
+/// Apply updates from node and generate viewer updates (only comments)
+/// Used by viewer to process node's sync response and generate updates to send back
+/// Viewer only sends back thread_comments_doc updates (bidirectional sync)
+pub async fn apply_and_generate_viewer_updates(
+    resource_id: &str,
+    user_id: &str,
+    node_sync_data: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<String> {
+    // Apply updates from node and get response
+    let response = apply_updates_and_get_peer_updates(
+        resource_id,
+        user_id,
+        node_sync_data,
+        repo_ctx,
+        crypto_utils,
+    ).await?;
+
+    // Parse and keep only thread_comments_doc (remove website and forms)
+    let mut parsed: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&response)
+            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+
+    // Remove blocksuite_doc (viewer is read-only for website content)
+    parsed.remove("blocksuite_doc");
+    // Remove form_submissions_doc (viewer → node only, not bidirectional)
+    parsed.remove("form_submissions_doc");
+
+    // Only thread_comments_doc remains for bidirectional sync
+    Ok(serde_json::to_string(&parsed)
+        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)
+}
+
 pub async fn get_resource_ucan_key(
     resource_id: &str,
     user_id: &str,

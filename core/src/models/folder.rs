@@ -36,3 +36,10 @@ impl Folder {
         }
     }
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ViewerFolderInfo {
+    pub folder_id: String,
+    pub resource_ids: Vec<String>,
+    pub folder_ucan: String,
+}

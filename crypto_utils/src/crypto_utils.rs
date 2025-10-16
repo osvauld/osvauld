@@ -271,11 +271,12 @@ impl CryptoUtils {
         Ok((signing_key, verifying_key))
     }
 
-    /// Generate a one-time user connect token
+    /// Generate a one-time user connect token with specified role
     pub async fn generate_one_time_user_connect_token(
         &self,
         encrypted_private_key: &str,
         domain: &str,
+        role: &str,
     ) -> Result<(String, String), CryptoError> {
         let public_key = self.get_public_key()?;
         let user_id = get_key_id(&public_key)?;
@@ -286,6 +287,7 @@ impl CryptoUtils {
             &signing_key,
             &verifying_key,
             &capability,
+            role,
         )
         .await?;
 

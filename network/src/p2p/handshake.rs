@@ -38,21 +38,51 @@ impl PeerConnection {
             .await?;
         debug!("Successfully retrieved user for peer");
 
-        // Handle Website connection type specially
-        if matches!(connection_type, ConnectionType::Website) {
-            info!("Initiating website handshake with UCAN token from peer user");
+        // Extract role from peer's UCAN token to determine connection type
+        let role = crypto_utils::get_role_from_ucan_token(&peer_user.ucan_token)
+            .await
+            .unwrap_or_else(|e| {
+                debug!("Failed to extract role from token: {}, defaulting to viewer", e);
+                "viewer".to_string()
+            });
 
-            let request = osvauld_core::models::WebsiteHandshakeRequest {
-                ucan_token: peer_user.ucan_token.clone(),
-                viewer_user: current_user,
-                viewer_device: current_device,
-            };
+        debug!("Extracted role from peer UCAN token: {}", role);
 
-            self.send_message(Message::Handshake(
-                HandshakeMessage::HandshakeWebsiteRequest(request),
-            )).await?;
+        // Handle viewer role specially - initiate website handshake
+        if role == "viewer" {
+            info!("Peer has viewer role, initiating website handshake with UCAN token");
 
-            info!("Sent website handshake request");
+            // Check if this is a first connection or reconnection
+            if !peer_user.first_sync {
+                // First connection: send WebsiteHandshakeRequest
+                info!("First connection to node, sending WebsiteHandshakeRequest");
+                let request = osvauld_core::models::WebsiteHandshakeRequest {
+                    ucan_token: peer_user.ucan_token.clone(),
+                    viewer_user: current_user,
+                    viewer_device: current_device,
+                };
+
+                self.send_message(Message::Handshake(
+                    HandshakeMessage::HandshakeWebsiteRequest(request),
+                )).await?;
+
+                info!("Sent website handshake request for first connection");
+            } else {
+                // Reconnection: send WebsiteReconnectRequest
+                info!("Reconnecting to node, sending WebsiteReconnectRequest");
+                let request = osvauld_core::models::WebsiteReconnectRequest {
+                    ucan_token: peer_user.ucan_token.clone(),
+                    viewer_user: current_user,
+                    viewer_device: current_device,
+                };
+
+                self.send_message(Message::Handshake(
+                    HandshakeMessage::HandshakeWebsiteReconnectRequest(request),
+                )).await?;
+
+                info!("Sent website reconnect request for reconnection");
+            }
+
             return Ok(());
         }
         // Service error automatically propagates
@@ -86,7 +116,6 @@ impl PeerConnection {
             info!("Sent HandshakeFirstConnectRequest to peer");
         } else {
             info!("Peer is an existing user, preparing HandshakeExchange");
-            
             let exchange_message = UcanAndUserExchange {
                 ucan_token: peer_user.ucan_token,
                 peer_user: current_user,
@@ -94,15 +123,12 @@ impl PeerConnection {
                 connection_type,
                 signed_ucan_pub,
             };
-            
             self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
                 exchange_message,
             ))).await?;
-            
             self.set_connection_type(ConnectionType::User).await;
             info!("Sent HandshakeExchange to peer");
         }
-        
         info!("Handshake initiation process completed successfully");
         Ok(())
     }
@@ -126,6 +152,12 @@ impl PeerConnection {
             }
             HandshakeMessage::HandshakeWebsiteResponse(payload) => {
                 self.process_website_handshake_response(payload).await
+            }
+            HandshakeMessage::HandshakeWebsiteReconnectRequest(payload) => {
+                self.process_website_reconnect_request(payload).await
+            }
+            HandshakeMessage::HandshakeWebsiteReconnectResponse(payload) => {
+                self.process_website_reconnect_response(payload).await
             }
         }
     }
@@ -402,16 +434,6 @@ impl PeerConnection {
                     Ok(())
                 }
                 ConnectionAction::UserSync => self.start_user_network_sync().await,
-                ConnectionAction::WebsiteRequest => {
-                    info!("Website request - not using execute_connection_action");
-                    // Website connections handle sync directly in handshake response
-                    Ok(())
-                }
-                ConnectionAction::WebsiteSync => {
-                    info!("Website sync - not using execute_connection_action");
-                    // Website connections handle sync directly in handshake response
-                    Ok(())
-                }
             }
         } else {
             debug!("No connection action to execute");
@@ -532,7 +554,91 @@ impl PeerConnection {
         // Start website sync directly (only if initiator)
         if self.is_initiator {
             info!("Initiator: Starting website sync");
-            self.start_website_sync().await?;
+            self.start_website_sync(false).await?;
+        }
+
+        Ok(())
+    }
+
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn process_website_reconnect_request(
+        &self,
+        payload: &osvauld_core::models::WebsiteReconnectRequest,
+    ) -> P2PResult<()> {
+        info!("Processing website reconnect request from viewer");
+
+        let current_user = self.get_local_user().await?;
+        let current_device = self.get_local_device().await
+            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
+        debug!("Retrieved local user and device information");
+
+        // Validate folder UCAN token
+        info!("Validating folder UCAN token from viewer");
+        let ucan = crypto_utils::ucan_utils::validate_structure(&payload.ucan_token)
+            .await
+            .map_err(|e| {
+                error!("Failed to parse viewer's UCAN token: {}", e);
+                HandshakeError::InvalidCredentials {
+                    user_id: payload.viewer_user.id.clone(),
+                }
+            })?;
+
+        // Extract folder_id from token capabilities for validation
+        let folder_id = crypto_utils::ucan_utils::extract_folder_id_from_ucan(&ucan)
+            .map_err(|e| {
+                error!("Failed to extract folder_id from UCAN: {}", e);
+                HandshakeError::InvalidCredentials {
+                    user_id: payload.viewer_user.id.clone(),
+                }
+            })?;
+
+        info!("Validated folder token for folder_id: {} (reconnection)", folder_id);
+
+        // Set peer user and device from the viewer (in-memory only, not saved to DB)
+        self.set_peer_user_and_device(payload.viewer_user.clone(), payload.viewer_device.clone()).await;
+        self.set_connection_type(ConnectionType::Website).await;
+        info!("Set peer user and connection type to Website (reconnection)");
+
+        // Mark handshake as complete
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+
+        // Send response back to viewer
+        let response = osvauld_core::models::WebsiteReconnectResponse {
+            node_user: current_user,
+            node_device: current_device,
+        };
+
+        self.send_message(Message::Handshake(
+            HandshakeMessage::HandshakeWebsiteReconnectResponse(response),
+        )).await?;
+
+        info!("Website reconnect request processed successfully");
+        Ok(())
+    }
+
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn process_website_reconnect_response(
+        &self,
+        payload: &osvauld_core::models::WebsiteReconnectResponse,
+    ) -> P2PResult<()> {
+        info!("Processing website reconnect response from sovereign node");
+
+        // Set peer user and device from the sovereign node
+        self.set_peer_user_and_device(payload.node_user.clone(), payload.node_device.clone()).await;
+        debug!("Set peer user and device from node response");
+
+        // Mark handshake as complete
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+        drop(handshake_complete);
+
+        info!("Website reconnect response processed successfully");
+
+        // Start website sync with first_sync = true (reconnection = incremental sync)
+        if self.is_initiator {
+            info!("Initiator: Starting website sync for reconnection");
+            self.start_website_sync(true).await?;
         }
 
         Ok(())

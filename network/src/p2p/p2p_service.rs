@@ -616,6 +616,7 @@ impl P2PService {
                             self.event_emitter
                                 .emit(P2PEvent::LiveEditConnected { connection_id });
                         }
+
                         _ => {
                             if existing_connection.is_initiator {
                                 existing_connection.start_user_network_sync().await?;

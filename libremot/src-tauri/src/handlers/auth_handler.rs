@@ -1,4 +1,3 @@
-use search_indexer::SearchIndexManager;
 use crate::types::{
     AddDeviceInput, CryptoResponse, ExportedCertificate, LoadPvtKeyInput, PasswordChangeInput,
     SavePassphraseInput, UcanOneTimeTokenOut,
@@ -7,7 +6,9 @@ use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::{error, info};
 use network::P2PService;
+use osvauld_core::models::UserRole;
 use persistance::database::RepositoryContext;
+use search_indexer::SearchIndexManager;
 use services::{
     change_passphrase, export_certificate, generate_one_time_ucan_token, handle_signup,
     import_user, is_signed_up, load_certificate,
@@ -179,10 +180,14 @@ pub async fn get_one_time_ucan_token(
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<CryptoResponse, String> {
-    let (ucan_token, ucan_pub_key) =
-        generate_one_time_ucan_token("livnote", &crypto_utils, repo_ctx.inner().clone())
-            .await
-            .map_err(|e| e.to_string())?;
+    let (ucan_token, ucan_pub_key) = generate_one_time_ucan_token(
+        "livnote",
+        &crypto_utils,
+        repo_ctx.inner().clone(),
+        UserRole::User.to_string(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(CryptoResponse::OneTimeUcanToken(UcanOneTimeTokenOut {
         ucan_token,
         ucan_pub_key,

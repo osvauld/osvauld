@@ -112,6 +112,40 @@ impl PeerConnection {
                 self.process_initial_sync_complete(folder_id.clone(), *resource_count)
                     .await
             }
+            WebsiteMessage::FolderResourceInfo {
+                folder_id,
+                resource_ids,
+                folder_ucan,
+            } => {
+                self.process_folder_resource_info(
+                    folder_id.clone(),
+                    resource_ids.clone(),
+                    folder_ucan.clone(),
+                )
+                .await
+            }
+            WebsiteMessage::IncrementalSyncRequest {
+                resource_id,
+                resource_ucan,
+                sync_data,
+            } => {
+                self.process_incremental_sync_request(
+                    resource_id.clone(),
+                    resource_ucan.clone(),
+                    sync_data.clone(),
+                )
+                .await
+            }
+            WebsiteMessage::IncrementalSyncResponse {
+                resource_id,
+                sync_data,
+            } => {
+                self.process_incremental_sync_response(
+                    resource_id.clone(),
+                    sync_data.clone(),
+                )
+                .await
+            }
         }
     }
 
@@ -186,10 +220,7 @@ impl PeerConnection {
             })?;
 
         let resource_count = resource_ids.len();
-        info!(
-            "Found {} resources in folder {}",
-            resource_count, folder_id
-        );
+        info!("Found {} resources in folder {}", resource_count, folder_id);
 
         if resource_ids.is_empty() {
             info!("No resources found for folder {}", folder_id);
@@ -227,18 +258,21 @@ impl PeerConnection {
             )
             .await
             .map_err(|e| {
-                error!("Failed to prepare resource {} for viewer: {}", resource_id, e);
-                crate::p2p::errors::P2PError::Custom(format!(
-                    "Failed to prepare resource: {}",
-                    e
-                ))
+                error!(
+                    "Failed to prepare resource {} for viewer: {}",
+                    resource_id, e
+                );
+                crate::p2p::errors::P2PError::Custom(format!("Failed to prepare resource: {}", e))
             })?;
 
             // Send as ResourceAdditionRequest
             self.send_message(Message::ResourceAdditionRequest(resource_sync_data))
                 .await?;
 
-            info!("Sent resource {} with resource-specific permissions", resource_id);
+            info!(
+                "Sent resource {} with resource-specific permissions",
+                resource_id
+            );
         }
 
         info!(
@@ -340,7 +374,7 @@ impl PeerConnection {
     /// Start website sync - called by viewer after handshake
     /// This is called by the viewer (initiator) after WebsiteHandshakeResponse
     #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn start_website_sync(&self) -> P2PResult<()> {
+    pub async fn start_website_sync(&self, first_sync: bool) -> P2PResult<()> {
         info!("Starting website sync");
 
         // Only initiator should execute this
@@ -360,20 +394,371 @@ impl PeerConnection {
             .user_repo
             .get_user_by_id(&peer_user.id)
             .await?;
+        if !first_sync {
+            // Get the UCAN token from peer user
+            let ucan_token = peer_user.ucan_token.clone();
 
-        // Get the UCAN token from peer user
-        let ucan_token = peer_user.ucan_token.clone();
+            // For now, just send the request with the ucan_token
+            let message = Message::Website(WebsiteMessage::ResourceRequest { ucan_token });
 
-        // TODO: Check if first_sync is false (meaning this IS first connection)
-        // If !first_sync, need to get ALL resources
-        // If first_sync, need to get folder_id from ucan, get resources, and state vectors
+            self.send_message(message).await?;
 
-        // For now, just send the request with the ucan_token
-        let message = Message::Website(WebsiteMessage::ResourceRequest { ucan_token });
+            info!("Sent website resource request");
+            Ok(())
+        } else {
+            self.perform_incremental_sync().await?;
+            Ok(())
+        }
+    }
 
-        self.send_message(message).await?;
+    /// Perform incremental sync for reconnection
+    /// Sends folder info and resource state vectors for sync
+    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn perform_incremental_sync(&self) -> P2PResult<()> {
+        info!("Starting incremental sync");
 
-        info!("Sent website resource request");
+        // Get peer user and local user
+        let peer_user = self.get_peer_user().await;
+        let local_user = self.get_local_user().await?;
+        info!(
+            "Performing incremental sync for peer user: {}",
+            peer_user.id
+        );
+
+        // Get folder manifest (folders with their resources and UCAN tokens)
+        let folder_manifest =
+            services::get_viewer_folder_manifest(&peer_user.id, self.repo_ctx.clone())
+                .await
+                .map_err(|e| {
+                    error!("Failed to get viewer folder manifest: {}", e);
+                    crate::p2p::errors::P2PError::Custom(format!(
+                        "Failed to get folder manifest: {}",
+                        e
+                    ))
+                })?;
+
+        info!("Found {} folders to sync", folder_manifest.len());
+
+        // For each folder, send folder info and resource sync requests
+        for folder_info in folder_manifest {
+            info!(
+                "Processing folder {} with {} resources",
+                folder_info.folder_id,
+                folder_info.resource_ids.len()
+            );
+
+            // Send folder resource info message
+            let message = Message::Website(WebsiteMessage::FolderResourceInfo {
+                folder_id: folder_info.folder_id.clone(),
+                resource_ids: folder_info.resource_ids.clone(),
+                folder_ucan: folder_info.folder_ucan.clone(),
+            });
+
+            self.send_message(message).await?;
+            info!(
+                "Sent FolderResourceInfo for folder {} with {} resources",
+                folder_info.folder_id,
+                folder_info.resource_ids.len()
+            );
+
+            // For each resource, get state vectors and send incremental sync request
+            for resource_id in &folder_info.resource_ids {
+                info!("Getting sync info for resource {}", resource_id);
+
+                let sync_info = services::get_resource_sync_info(
+                    resource_id,
+                    &local_user.id,
+                    self.repo_ctx.clone(),
+                    &self.crypto_utils,
+                )
+                .await
+                .map_err(|e| {
+                    error!("Failed to get sync info for resource {}: {}", resource_id, e);
+                    crate::p2p::errors::P2PError::Custom(format!(
+                        "Failed to get resource sync info: {}",
+                        e
+                    ))
+                })?;
+
+                // Send incremental sync request with sync_data string
+                let sync_message = Message::Website(WebsiteMessage::IncrementalSyncRequest {
+                    resource_id: sync_info.resource_id,
+                    resource_ucan: sync_info.resource_ucan,
+                    sync_data: sync_info.sync_data,
+                });
+
+                self.send_message(sync_message).await?;
+                info!("Sent incremental sync request for resource {}", resource_id);
+            }
+
+            info!("Folder {} processing complete", folder_info.folder_id);
+        }
+
+        info!("Incremental sync complete");
+        Ok(())
+    }
+
+    /// Process folder resource info from viewer during incremental sync
+    /// This is called on the node side to detect and send new resources
+    #[instrument(skip(self, viewer_resource_ids, folder_ucan), fields(connection_id = %self.get_id(), folder_id = %folder_id), level = "info")]
+    async fn process_folder_resource_info(
+        &self,
+        folder_id: String,
+        viewer_resource_ids: Vec<String>,
+        folder_ucan: String,
+    ) -> P2PResult<()> {
+        info!(
+            "Processing folder resource info for folder {} with {} viewer resources",
+            folder_id,
+            viewer_resource_ids.len()
+        );
+
+        // 1. Validate folder UCAN token
+        let ucan = match crypto_utils::ucan_utils::validate_structure(&folder_ucan).await {
+            Ok(ucan) => ucan,
+            Err(e) => {
+                error!("Failed to validate folder UCAN token: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // 2. Extract folder_id from UCAN and verify it matches
+        let ucan_folder_id = match crypto_utils::ucan_utils::extract_folder_id_from_ucan(&ucan) {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to extract folder_id from UCAN: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        if ucan_folder_id != folder_id {
+            error!(
+                "Folder ID mismatch: message={}, ucan={}",
+                folder_id, ucan_folder_id
+            );
+            return Ok(()); // Log and skip
+        }
+
+        info!("Folder UCAN validated for folder {}", folder_id);
+
+        // 3. Get local user and peer user
+        let local_user = match self.get_local_user().await {
+            Ok(user) => user,
+            Err(e) => {
+                error!("Failed to get local user: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+        let peer_user = self.get_peer_user().await;
+
+        // 4. Get node's current resource list for this folder
+        let node_resource_ids = match self
+            .repo_ctx
+            .resource_repo
+            .get_resource_ids_by_folder_id(&folder_id)
+            .await
+        {
+            Ok(ids) => ids,
+            Err(e) => {
+                error!("Failed to get resource IDs for folder {}: {}", folder_id, e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        info!(
+            "Node has {} resources in folder {}",
+            node_resource_ids.len(),
+            folder_id
+        );
+
+        // 5. Find new resources (resources on node but not on viewer)
+        let new_resource_ids: Vec<String> = node_resource_ids
+            .into_iter()
+            .filter(|id| !viewer_resource_ids.contains(id))
+            .collect();
+
+        if new_resource_ids.is_empty() {
+            info!("No new resources to send for folder {}", folder_id);
+            return Ok(());
+        }
+
+        info!(
+            "Found {} new resources to send for folder {}",
+            new_resource_ids.len(),
+            folder_id
+        );
+
+        // 6. Send each new resource individually
+        for resource_id in new_resource_ids {
+            info!("Preparing new resource {} for viewer", resource_id);
+
+            // Get resource to determine its type (for prepare_resource_for_viewer)
+            let resource = match self
+                .repo_ctx
+                .resource_repo
+                .find_by_id(&resource_id, &local_user.id)
+                .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("Failed to get resource {} details: {}", resource_id, e);
+                    continue; // Log and skip this resource
+                }
+            };
+
+            let resource_type = resource.resource.resource_type.to_string();
+            info!("New resource {} is of type '{}'", resource_id, resource_type);
+
+            // Prepare resource for viewer
+            let resource_sync_data = match services::prepare_resource_for_viewer(
+                &resource_id,
+                &resource_type,
+                &peer_user,
+                &local_user,
+                self.repo_ctx.clone(),
+                &self.crypto_utils,
+            )
+            .await
+            {
+                Ok(data) => data,
+                Err(e) => {
+                    error!(
+                        "Failed to prepare resource {} for viewer: {}",
+                        resource_id, e
+                    );
+                    continue; // Log and skip this resource
+                }
+            };
+
+            // Send resource as ResourceAdditionRequest
+            if let Err(e) = self
+                .send_message(Message::ResourceAdditionRequest(resource_sync_data))
+                .await
+            {
+                error!("Failed to send resource {}: {}", resource_id, e);
+                continue; // Log and skip this resource
+            }
+
+            info!(
+                "Sent new resource {} to viewer with resource-specific permissions",
+                resource_id
+            );
+        }
+
+        info!(
+            "Completed processing folder resource info for folder {}",
+            folder_id
+        );
+        Ok(())
+    }
+
+    /// Process incremental sync request from viewer
+    /// This is called on the node side to sync existing resources
+    #[instrument(skip(self, resource_ucan, sync_data), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "info")]
+    async fn process_incremental_sync_request(
+        &self,
+        resource_id: String,
+        resource_ucan: String,
+        sync_data: String,
+    ) -> P2PResult<()> {
+        info!(
+            "Processing incremental sync request for resource {}",
+            resource_id
+        );
+
+        // 1. Validate resource UCAN token
+        let ucan = match crypto_utils::ucan_utils::validate_structure(&resource_ucan).await {
+            Ok(ucan) => ucan,
+            Err(e) => {
+                error!("Failed to validate resource UCAN token: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // 2. Extract resource_id from UCAN and verify it matches
+        let ucan_resource_id = match crypto_utils::ucan_utils::extract_resource_id_from_ucan(&ucan)
+        {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to extract resource_id from UCAN: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        if ucan_resource_id != resource_id {
+            error!(
+                "Resource ID mismatch: message={}, ucan={}",
+                resource_id, ucan_resource_id
+            );
+            return Ok(()); // Log and skip
+        }
+
+        info!("Resource UCAN validated for resource {}", resource_id);
+
+        // 3. Get local user
+        let local_user = match self.get_local_user().await {
+            Ok(user) => user,
+            Err(e) => {
+                error!("Failed to get local user: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // Call service function to process sync and get updates
+        let response_sync_data = match services::process_incremental_resource_sync(
+            &resource_id,
+            &local_user.id,
+            &sync_data,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await
+        {
+            Ok(data) => data,
+            Err(e) => {
+                error!("Failed to process incremental sync for resource {}: {}", resource_id, e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // Send response back to viewer
+        if let Err(e) = self
+            .send_message(Message::Website(WebsiteMessage::IncrementalSyncResponse {
+                resource_id: resource_id.clone(),
+                sync_data: response_sync_data,
+            }))
+            .await
+        {
+            error!("Failed to send incremental sync response: {}", e);
+            return Ok(()); // Log and skip
+        }
+
+        info!(
+            "Completed processing incremental sync request for resource {}",
+            resource_id
+        );
+        Ok(())
+    }
+
+    /// Process incremental sync response from node
+    /// This is called on the viewer side to apply updates
+    #[instrument(skip(self, sync_data), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "info")]
+    async fn process_incremental_sync_response(
+        &self,
+        resource_id: String,
+        sync_data: String,
+    ) -> P2PResult<()> {
+        info!(
+            "Processing incremental sync response for resource {}",
+            resource_id
+        );
+
+        // TODO: Apply updates to local resource
+
+        info!(
+            "Completed processing incremental sync response for resource {}",
+            resource_id
+        );
         Ok(())
     }
 }
