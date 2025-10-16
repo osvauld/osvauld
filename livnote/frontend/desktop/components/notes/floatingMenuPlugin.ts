@@ -82,6 +82,11 @@ const FLOATING_MENU_STYLES = `
     border-color: #3a3b44;
   }
 
+  .floating-menu-input.invalid {
+    border-color: #ef4444;
+    box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.2);
+  }
+
   .floating-menu-done-button {
     background-color: #2a2b2f;
     border-radius: 4px;
@@ -96,6 +101,17 @@ const FLOATING_MENU_STYLES = `
 
   .floating-menu-done-button:hover {
     background-color: #3a3b44;
+  }
+
+  .floating-menu-done-button:disabled {
+    background-color: #1a1b1f;
+    color: #6b7280;
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .floating-menu-done-button:disabled:hover {
+    background-color: #1a1b1f;
   }
 
   .pseudo-selection {
@@ -133,6 +149,49 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
 
   // Inject styles when plugin is created
   injectStyles();
+
+  // URL validation function
+  function isValidUrl(string: string): boolean {
+    if (!string.trim()) return false;
+    
+    try {
+      // Auto-add https:// for www. URLs
+      let urlString = string.trim();
+      if (urlString.startsWith('www.')) {
+        urlString = 'https://' + urlString;
+      }
+      
+      const url = new URL(urlString);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Normalize URL for storage (adds https:// to www. URLs)
+  function normalizeUrl(string: string): string {
+    if (!string.trim()) return string;
+    
+    const trimmed = string.trim();
+    if (trimmed.startsWith('www.')) {
+      return 'https://' + trimmed;
+    }
+    return trimmed;
+  }
+
+  // Update validation state for link input
+  function updateLinkValidation() {
+    if (!linkInput || !linkDoneButton) return;
+    
+    const inputValue = linkInput.value.trim();
+    const isValid = !inputValue || isValidUrl(inputValue); // Allow empty for removing links
+    
+    // Update input styling
+    linkInput.classList.toggle('invalid', !isValid && inputValue.length > 0);
+    
+    // Update button state
+    linkDoneButton.disabled = !isValid && inputValue.length > 0;
+  }
 
   // Create the menu element and its internal structure
   function createMenu() {
@@ -207,12 +266,15 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
 
     linkInput = document.createElement("input");
     linkInput.type = "text";
-    linkInput.placeholder = "Enter Link";
+    linkInput.placeholder = "Enter URL (e.g., www.example.com)";
     linkInput.className = "floating-menu-input";
     linkInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        handleLinkDoneClick();
+        // Only allow Enter if validation passes
+        if (!linkDoneButton?.disabled) {
+          handleLinkDoneClick();
+        }
       }
       if (e.key === "Escape") {
         e.preventDefault();
@@ -220,6 +282,7 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
         hideMenu();
       }
     });
+    linkInput.addEventListener("input", updateLinkValidation);
     linkInputContainer.appendChild(linkInput);
 
     linkDoneButton = document.createElement("button");
@@ -228,7 +291,10 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
     linkDoneButton.addEventListener("mousedown", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      handleLinkDoneClick();
+      // Only proceed if validation passes
+      if (linkDoneButton && !linkDoneButton.disabled) {
+        handleLinkDoneClick();
+      }
     });
     linkInputContainer.appendChild(linkDoneButton);
     menu.appendChild(linkInputContainer);
@@ -271,26 +337,21 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
     const hasExistingLink = !!existingMark;
     linkInput.value = existingMark?.attrs.href || "";
 
-    // Configure input and button based on whether this is an existing link
-    if (hasExistingLink) {
-      // Read-only mode for existing links
-      linkInput.readOnly = true;
-      linkInput.placeholder = "Link URL (read-only)";
-      linkDoneButton.style.display = "none";
-    } else {
-      // Editable mode for new links
-      linkInput.readOnly = false;
-      linkInput.placeholder = "Enter Link";
-      linkDoneButton.style.display = "block";
-    }
+    // Always allow editing - both for new and existing links
+    linkInput.readOnly = false;
+    linkInput.placeholder = hasExistingLink ? "Edit or clear to remove link" : "Enter URL (e.g., www.example.com)";
+    linkDoneButton.style.display = "block";
 
     buttonsContainer.style.display = "none";
     linkInputContainer.style.display = "flex";
     currentMode = "linkInput";
     linkInput.focus(); // Focus the input
-    if (hasExistingLink) {
-      linkInput.select(); // Select text for easy copying
-    }
+    
+    // Select all text for easy editing/replacement
+    linkInput.select();
+    
+    // Initialize validation state
+    updateLinkValidation();
   }
 
   function switchToButtonsMode() {
@@ -298,12 +359,20 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
 
     // Reset link input to default editable state
     linkInput.readOnly = false;
-    linkInput.placeholder = "Enter Link";
+    linkInput.placeholder = "Enter URL (e.g., www.example.com)";
     linkDoneButton.style.display = "block";
 
     buttonsContainer.style.display = "flex";
     linkInputContainer.style.display = "none";
     currentMode = "buttons";
+
+    // Reset validation state
+    if (linkInput) {
+      linkInput.classList.remove('invalid');
+    }
+    if (linkDoneButton) {
+      linkDoneButton.disabled = false;
+    }
 
     // Clear pseudo-selection decoration
     if (pseudoSelectionDecoration && view) {
@@ -328,9 +397,38 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
     const href = linkInput.value.trim();
 
     const { state, dispatch } = view;
+    const { selection } = state;
+    const { $from, from, to } = selection;
 
-    // Apply or remove the mark
-    toggleMark(schema.marks.link, href ? { href } : null)(state, dispatch);
+    // Get the original link URL from the existing mark
+    let originalHref: string | null = null;
+    if (!selection.empty) {
+      // For non-empty selections, check if the entire range has the link mark
+      state.doc.nodesBetween(from, to, (node, pos) => {
+        if (!originalHref && node.isText) {
+          const linkMark = schema.marks.link.isInSet(node.marks);
+          if (linkMark) {
+            originalHref = linkMark.attrs.href;
+            return false; // Stop iteration once we find a link mark
+          }
+        }
+      });
+    } else {
+      // For cursor position, check stored marks or marks at the position
+      const existingMark = schema.marks.link.isInSet($from.marks());
+      originalHref = existingMark?.attrs.href || null;
+    }
+
+    // Normalize the URL before applying (adds https:// to www. URLs)
+    const normalizedHref = href ? normalizeUrl(href) : null;
+
+    // Only apply the mark if the URL has actually changed
+    const hasChanged = originalHref !== normalizedHref;
+    
+    if (hasChanged) {
+      // Apply or remove the mark only if there's a change
+      toggleMark(schema.marks.link, normalizedHref ? { href: normalizedHref } : null)(state, dispatch);
+    }
 
     switchToButtonsMode();
     hideMenu(); // Hide menu after action is done
@@ -438,6 +536,14 @@ export function floatingMenuPlugin(schema: Schema, searchManager: SearchManager)
         currentMode = "buttons"; // Reset mode state, UI handled by display none
         if (buttonsContainer) buttonsContainer.style.display = "flex";
         if (linkInputContainer) linkInputContainer.style.display = "none";
+        
+        // Reset validation state
+        if (linkInput) {
+          linkInput.classList.remove('invalid');
+        }
+        if (linkDoneButton) {
+          linkDoneButton.disabled = false;
+        }
       }
     }, 150);
     isMenuVisible = false;

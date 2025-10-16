@@ -11,6 +11,7 @@
 	import { uiState } from "../../state/ui.svelte";
 	import AddUserForm from "../ui/AddUserForm.svelte";
 	import AddDevice from "../ui/AddDevice.svelte";
+	import packageJson from "../../package.json";
 
 	const MENUITEMS = [
 		{ id: "add", label: "Add Device", icon: QrScanner },
@@ -85,7 +86,7 @@
 			{#each MENUITEMS as { id, label, icon: Icon }}
 				<button
 					bind:this={menuButtons[id]}
-					class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText transition-colors duration-150 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive"
+					class="group w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText transition-colors duration-150 cursor-pointer hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive focus:outline-1 outline-livnotePink"
 					class:text-osvauld-sideListTextActive={id === activeMenuItem}
 					class:bg-osvauld-fieldActive={id === activeMenuItem}
 					aria-label={label}
@@ -97,14 +98,22 @@
 					<span>{label}</span>
 				</button>
 			{/each}
+
+			<div class="mt-auto flex items-center justify-center">
+				<span class="text-osvauld-fieldText text-sm"
+					>Version {packageJson.version}</span
+				>
+			</div>
 		</div>
 	</nav>
-	<div class="flex-1 min-w-[25rem] py-4 px-6 overflow-hidden">
-		{#if activeMenuItem === "addUser"}
-			<AddUserForm />
-		{/if}
-		{#if activeMenuItem === "add"}
-			<AddDevice />
-		{/if}
+	<div class="flex-1 p-4">
+		<div class="h-full w-full">
+			{#if activeMenuItem === "addUser"}
+				<AddUserForm />
+			{/if}
+			{#if activeMenuItem === "add"}
+				<AddDevice />
+			{/if}
+		</div>
 	</div>
 </div>

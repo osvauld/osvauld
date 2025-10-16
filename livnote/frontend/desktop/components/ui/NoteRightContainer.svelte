@@ -26,25 +26,36 @@
 
 	// Handle PDF download
 	const handleDownloadPdf = async () => {
-		// if (!dataState.currentNote?.data) {
-		// 	uiState.showToast("No note content to download", false);
-		// 	return;
-		// }
-		//
-		// isPdfGenerating = true;
-		// const pdfStatus = await pdfGenerator(
-		// 	dataState.currentNote.data.content ?? "",
-		// 	dataState.currentNote.data.title ?? "Untitled",
-		// );
-		//
-		// uiState.showToast(pdfStatus.message, pdfStatus.success);
-		//
-		// isPdfGenerating = false;
+		const currentNote = dataState.getCurrentNoteData();
+		if (!currentNote?.data) {
+			uiState.showToast("No note content to download", false);
+			return;
+		}
+
+		// Prevent multiple concurrent generations
+		if (isPdfGenerating) return;
+
+		isPdfGenerating = true;
+
+		try {
+			const pdfStatus = await pdfGenerator(
+				currentNote.data.content ?? "",
+				dataState.getNoteTitle(),
+			);
+
+			uiState.showToast(pdfStatus.message, pdfStatus.success);
+		} catch (error) {
+			console.error("PDF generation failed:", error);
+			uiState.showToast("Failed to generate PDF", false);
+		} finally {
+			// Always reset loading state
+			isPdfGenerating = false;
+		}
 	};
 
-	const handleToggleNoteRightPanel = () => {
-		uiState.toggleNoteRightPanel();
-	};
+	// const handleToggleNoteRightPanel = () => {
+	// 	uiState.toggleNoteRightPanel();
+	// };
 
 	const closeNoteRightPanel = () => {
 		uiState.toggleNoteRightPanel(false);
@@ -54,20 +65,24 @@
 	// Handle copying note content
 	const handleCopyNote = async () => {
 		if (!dataState.currentNoteId) {
-			uiState.showToast("No note content to copy", false);
 			return;
 		}
 
 		try {
+			// Show visual feedback immediately
+			noteCopied = true;
+
+			// Dispatch the copy event (the listener in RichTextEditor will handle the actual copy)
 			const copyEvent = new CustomEvent("request-editor-content");
 			document.dispatchEvent(copyEvent);
-			noteCopied = true;
+
+			// Reset visual feedback after delay
 			setTimeout(() => {
 				noteCopied = false;
-			}, 1000);
+			}, 1500);
 		} catch (error) {
-			console.error("Error copying note:", error);
-			uiState.showToast("Failed to copy note content", false);
+			console.error("Error dispatching copy event:", error);
+			noteCopied = false;
 		}
 	};
 
@@ -137,13 +152,17 @@
 				>
 					<Bin size={24} />
 				</button>
-				<!-- 
+
 				<div class="relative flex justify-center items-center">
 					<button
-						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer"
+						class="rounded-lg p-2.5 flex justify-center items-center bg-osvauld-fieldActive cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
 						onclick={handleDownloadPdf}
-						aria-label="Download as PDF"
-						title="Download as PDF"
+						disabled={isPdfGenerating}
+						aria-label={isPdfGenerating
+							? "Generating PDF..."
+							: "Download as PDF"}
+						aria-busy={isPdfGenerating}
+						title={isPdfGenerating ? "Generating PDF..." : "Download as PDF"}
 					>
 						{#if isPdfGenerating}
 							<Loader color="#85889C" />
@@ -151,7 +170,7 @@
 							<DownloadIcon />
 						{/if}
 					</button>
-				</div> -->
+				</div>
 			</div>
 
 			<button
@@ -195,7 +214,9 @@
 			>
 				<MenuToggle />
 			</button>
-			<p class="text-textActive text-xs font-normal">Last modified: {lastModifiedDate}</p>
+			<p class="text-textActive text-xs font-normal">
+				Last modified: {lastModifiedDate}
+			</p>
 		</div>
 	</div>
 {/if}

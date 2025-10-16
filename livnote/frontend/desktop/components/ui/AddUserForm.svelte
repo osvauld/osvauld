@@ -63,7 +63,7 @@
 	}
 </script>
 
-<div class="h-full flex flex-col text-base overflow-y-auto">
+<div class="h-full flex flex-col text-base overflow-y-auto p-4">
 	<!-- Header Section -->
 	<div class="border-b border-osvauld-borderColor pb-6 mb-8">
 		<div class="flex items-start justify-between gap-4 mb-2">
@@ -95,7 +95,7 @@
 					placeholder="Paste here..."
 					rows="10"
 					required
-					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-2 focus:ring-livnotePink focus:border-transparent resize-none transition-colors grow"
+					class="w-full px-4 py-3 bg-osvauld-frameblack border border-osvauld-addfieldgrey rounded-lg text-white placeholder-osvauld-fieldText focus:outline-none focus:ring-1 focus:ring-livnotePink focus:border-transparent resize-none transition-colors grow"
 					onkeydown={handleKeyDown}
 				></textarea>
 				<p class="text-xs text-osvauld-fieldText">
@@ -110,14 +110,14 @@
 				<button
 					type="button"
 					onclick={handleClear}
-					class="px-6 border border-osvauld-addfieldgrey text-osvauld-fieldText text-sm hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer"
+					class="px-6 border border-osvauld-addfieldgrey text-osvauld-fieldText text-sm hover:text-white hover:border-white rounded-lg focus:outline-none focus:ring-1 focus:ring-livnotePink focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors cursor-pointer"
 				>
 					Clear
 				</button>
 				<button
 					type="submit"
 					disabled={!userDetails.trim() || isSubmitting}
-					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 text-sm px-16 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-osvauld-frameblack transition-colors"
+					class=" bg-livnotePink text-osvauld-frameblack font-semibold cursor-pointer py-3 text-sm px-16 rounded-lg transition-colors"
 				>
 					{isSubmitting ? "Connecting.." : "Connect"}
 				</button>
