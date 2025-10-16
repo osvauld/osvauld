@@ -153,6 +153,15 @@
 			showSearchBox = true;
 		}
 
+		// Ctrl+S or Cmd+S to save note
+		if ((event.ctrlKey || event.metaKey) && event.key === "s") {
+			event.preventDefault();
+			const noteId = dataState.currentNoteId;
+			if (noteId) {
+				dataState.saveNote(noteId);
+			}
+		}
+
 		// ESC to hide search (fallback)
 		if (event.key === "Escape" && showSearchBox) {
 			showSearchBox = false;

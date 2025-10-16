@@ -663,6 +663,10 @@ class DataState {
     if (!coordinator) {
       throw new Error("Coordinator not available");
     }
+    
+    // Show UI feedback immediately
+    uiState.setNoteSaved(true);
+    
     const noteContent = coordinator.saveNote();
     let stateVectors = coordinator.getStateVectors();
     
@@ -676,7 +680,6 @@ class DataState {
       data: JSON.stringify(noteContent),
     });
     emit("resource-update-complete", { id: noteId, state_vectors: stateVectors });
-    uiState.setNoteSaved(true);
 
     setTimeout(() => {
       uiState.setNoteSaved(false);
