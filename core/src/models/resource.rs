@@ -5,6 +5,7 @@ use crate::models::{
     document::{YjsDocExt, create_doc},
 };
 use chrono::Local;
+use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -100,7 +101,9 @@ impl DecryptedResource {
         let mut result = serde_json::Map::new();
 
         for state_key in self.resource_type.document_state_keys() {
+            info!("state_key {:?}", state_key);
             if let Some(state_data) = self.get_document_state(state_key) {
+                info!("document_state_data {:?}", state_data);
                 let mut doc = create_doc();
                 doc.apply_update_v2(&state_data).await?;
                 let state_vector = doc.get_state_vector_v2().await;

@@ -451,8 +451,9 @@ pub async fn get_resource_sync_info(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<osvauld_core::models::ResourceSyncInfo> {
     // 1. Get decrypted resource
-    let (decrypted_resource, _) = get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
-
+    let (decrypted_resource, _) =
+        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
+    info!("decrypted_resource {:?}", decrypted_resource.data);
     // 2. Get state vectors JSON
     let state_vectors_json = decrypted_resource
         .get_state_vectors()
@@ -460,31 +461,37 @@ pub async fn get_resource_sync_info(
         .map_err(|e| ResourceServiceError::ParseError(e))?;
 
     // 3. For Website resources being synced by viewer, populate form data
-    let sync_data = if decrypted_resource.resource_type == osvauld_core::models::ResourceType::Website {
-        let mut parsed: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(&state_vectors_json)?;
+    let sync_data =
+        if decrypted_resource.resource_type == osvauld_core::models::ResourceType::Website {
+            let mut parsed: serde_json::Map<String, serde_json::Value> =
+                serde_json::from_str(&state_vectors_json)
+                    .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
-        // Get form data and populate it
-        if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
-            if let Some(doc_obj) = form_doc.as_object_mut() {
-                let form_data = decrypted_resource
-                    .get_document_state("form_submissions_doc")
-                    .unwrap_or_default();
+            // Get form data and populate it
+            if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
+                if let Some(doc_obj) = form_doc.as_object_mut() {
+                    let form_data = decrypted_resource
+                        .get_document_state("form_submissions_doc")
+                        .unwrap_or_default();
 
-                let form_data_array: Vec<serde_json::Value> = form_data
-                    .iter()
-                    .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                    .collect();
+                    let form_data_array: Vec<serde_json::Value> = form_data
+                        .iter()
+                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                        .collect();
 
-                doc_obj.insert("updates".to_string(), serde_json::Value::Array(form_data_array));
-                doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
+                    doc_obj.insert(
+                        "updates".to_string(),
+                        serde_json::Value::Array(form_data_array),
+                    );
+                    doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
+                }
             }
-        }
 
-        serde_json::to_string(&parsed)?
-    } else {
-        state_vectors_json
-    };
+            serde_json::to_string(&parsed)
+                .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?
+        } else {
+            state_vectors_json
+        };
 
     // 4. Get resource UCAN token
     let resource_ucan = get_resource_ucan_key(resource_id, user_id, repo_ctx).await?;
@@ -506,24 +513,28 @@ pub async fn process_incremental_resource_sync(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
     // Use existing function to apply updates and get response
-    let response = apply_updates_and_get_peer_updates(
+    let response = generate_updates_for_peer(
         resource_id,
         user_id,
-        viewer_sync_data,
         repo_ctx,
         crypto_utils,
-    ).await?;
+        &viewer_sync_data.to_string(),
+    )
+    .await?;
 
+    info!("response back from node {:?}", response);
     // Parse response and replace form_submissions_doc with empty updates
-    let mut parsed: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&response)
-            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+    let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&response)
+        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
     // Always set form_submissions_doc to empty updates (replace any existing)
     let mut doc_result = serde_json::Map::new();
     doc_result.insert("updates".to_string(), serde_json::Value::Array(vec![]));
     doc_result.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
-    parsed.insert("form_submissions_doc".to_string(), serde_json::Value::Object(doc_result));
+    parsed.insert(
+        "form_submissions_doc".to_string(),
+        serde_json::Value::Object(doc_result),
+    );
 
     Ok(serde_json::to_string(&parsed)
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)
@@ -546,12 +557,12 @@ pub async fn apply_and_generate_viewer_updates(
         node_sync_data,
         repo_ctx,
         crypto_utils,
-    ).await?;
+    )
+    .await?;
 
     // Parse and keep only thread_comments_doc (remove website and forms)
-    let mut parsed: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&response)
-            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+    let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&response)
+        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
     // Remove blocksuite_doc (viewer is read-only for website content)
     parsed.remove("blocksuite_doc");
@@ -591,6 +602,7 @@ pub async fn generate_updates_for_peer(
     // 1. Get the decrypted resource
     let (mut decrypted_resource, _) =
         get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
+    info!("decrypted_resource {:?}", decrypted_resource);
 
     let updates = decrypted_resource
         .sync_updates(peer_state_vectors)
@@ -612,6 +624,7 @@ pub async fn apply_updates_and_get_peer_updates(
     let (mut decrypted_resource, encrypted_key) =
         get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
 
+    info!("decrypted resource {:?}", &decrypted_resource);
     let remote_updates = decrypted_resource
         .sync_updates(updates)
         .await

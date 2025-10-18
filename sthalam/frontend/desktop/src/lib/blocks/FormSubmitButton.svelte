@@ -1,5 +1,7 @@
 <script lang="ts">
 	import type * as Y from 'yjs';
+	import { dataState } from '../../state';
+	import { sendMessage } from '../../utils/helper';
 
 	interface Props {
 		blockId: string;
@@ -98,6 +100,21 @@
 						items: [...current.items, newSubmission]
 					});
 				});
+
+				// Trigger immediate save
+				const currentResourceId = dataState.currentResourceId;
+				if (currentResourceId) {
+					dataState.saveCurrentResource(currentResourceId);
+
+					// Sync resource to P2P network after saving
+					try {
+						await sendMessage('syncResource', { resourceId: currentResourceId });
+						console.log('Form submission synced to P2P network');
+					} catch (syncError) {
+						console.error('Failed to sync form submission:', syncError);
+						// Don't fail the submission if sync fails
+					}
+				}
 			}
 
 			// 4. Show success

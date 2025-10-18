@@ -77,19 +77,7 @@ export class BlocksuiteCoordinator {
       // Step 3: Set user info in awareness
       this.yjsManager.setUserInfo(this.config.userInfo);
 
-      // Step 4: Set up one-time listener for when document is ready
-      docs.mainDoc.once('afterAllTransactions', () => {
-        console.log("✅ Document transactions complete - blocksuite ready");
-
-        // Dispatch event so UI knows the document is ready
-        document.dispatchEvent(new CustomEvent('blocksuite-ready', {
-          detail: {
-            resourceId: this.config.userInfo.id
-          }
-        }));
-      });
-
-      // Step 5: Load main document
+      // Step 4: Load main document
       let mainDocKey: string | null = null;
       let mainUpdates: Uint8Array | null = null;
 
@@ -118,7 +106,7 @@ export class BlocksuiteCoordinator {
         }
       }
 
-      // Step 6: Load comments doc (if exists and has thread blocks)
+      // Step 5: Load comments doc (if exists and has thread blocks)
       if (this.hasThreadBlocks && data.thread_comments_doc) {
         const commentsUpdates = Array.isArray(data.thread_comments_doc)
           ? new Uint8Array(data.thread_comments_doc)
@@ -130,7 +118,7 @@ export class BlocksuiteCoordinator {
         }
       }
 
-      // Step 7: Load submissions doc (if exists and has form blocks)
+      // Step 6: Load submissions doc (if exists and has form blocks)
       if (this.hasFormBlocks && data.form_submissions_doc) {
         const submissionsUpdates = Array.isArray(data.form_submissions_doc)
           ? new Uint8Array(data.form_submissions_doc)
@@ -141,8 +129,24 @@ export class BlocksuiteCoordinator {
           await this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
         }
       }
+
+      // Step 7: Dispatch blocksuite-ready event after all loading is complete
+      // This ensures the event fires even if there were no updates or they completed instantly
+      console.log("✅ Blocksuite loading complete - dispatching ready event");
+      document.dispatchEvent(new CustomEvent('blocksuite-ready', {
+        detail: {
+          resourceId: this.config.userInfo.id
+        }
+      }));
     } catch (error) {
       console.error("❌ Error loading blocksuite:", error);
+      // Dispatch ready event even on error to prevent infinite loading state
+      document.dispatchEvent(new CustomEvent('blocksuite-ready', {
+        detail: {
+          resourceId: this.config.userInfo.id,
+          error: true
+        }
+      }));
     }
   }
 
@@ -271,9 +275,9 @@ export class BlocksuiteCoordinator {
   /**
    * Apply remote update from sync
    */
-  applyRemoteUpdate(update: Uint8Array, senderId: number): void {
+  applyRemoteUpdate(update: Uint8Array | number[], senderId: number, docType?: string): void {
     if (senderId === this.config.userInfo.id) return;
-    this.yjsManager.applyUpdate(update, 'sync');
+    this.yjsManager.applyUpdate(update, 'sync', docType);
   }
 
   /**

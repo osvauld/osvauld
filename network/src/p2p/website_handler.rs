@@ -140,8 +140,17 @@ impl PeerConnection {
                 resource_id,
                 sync_data,
             } => {
-                self.process_incremental_sync_response(
+                self.process_incremental_sync_response(resource_id.clone(), sync_data.clone())
+                    .await
+            }
+            WebsiteMessage::ViewerCommentsUpdate {
+                resource_id,
+                resource_ucan,
+                sync_data,
+            } => {
+                self.process_viewer_comments_update(
                     resource_id.clone(),
+                    resource_ucan.clone(),
                     sync_data.clone(),
                 )
                 .await
@@ -426,8 +435,9 @@ impl PeerConnection {
         );
 
         // Get folder manifest (folders with their resources and UCAN tokens)
+        // TODO: this should be based on who sent it.
         let folder_manifest =
-            services::get_viewer_folder_manifest(&peer_user.id, self.repo_ctx.clone())
+            services::get_viewer_folder_manifest(&local_user.id, self.repo_ctx.clone())
                 .await
                 .map_err(|e| {
                     error!("Failed to get viewer folder manifest: {}", e);
@@ -473,7 +483,10 @@ impl PeerConnection {
                 )
                 .await
                 .map_err(|e| {
-                    error!("Failed to get sync info for resource {}: {}", resource_id, e);
+                    error!(
+                        "Failed to get sync info for resource {}: {}",
+                        resource_id, e
+                    );
                     crate::p2p::errors::P2PError::Custom(format!(
                         "Failed to get resource sync info: {}",
                         e
@@ -607,7 +620,10 @@ impl PeerConnection {
             };
 
             let resource_type = resource.resource.resource_type.to_string();
-            info!("New resource {} is of type '{}'", resource_id, resource_type);
+            info!(
+                "New resource {} is of type '{}'",
+                resource_id, resource_type
+            );
 
             // Prepare resource for viewer
             let resource_sync_data = match services::prepare_resource_for_viewer(
@@ -716,7 +732,10 @@ impl PeerConnection {
         {
             Ok(data) => data,
             Err(e) => {
-                error!("Failed to process incremental sync for resource {}: {}", resource_id, e);
+                error!(
+                    "Failed to process incremental sync for resource {}: {}",
+                    resource_id, e
+                );
                 return Ok(()); // Log and skip
             }
         };
@@ -753,10 +772,181 @@ impl PeerConnection {
             resource_id
         );
 
-        // TODO: Apply updates to local resource
+        // Get local user
+        let local_user = match self.get_local_user().await {
+            Ok(user) => user,
+            Err(e) => {
+                error!("Failed to get local user: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // Apply updates from node and generate viewer updates (only comments)
+        let viewer_updates = match services::apply_and_generate_viewer_updates(
+            &resource_id,
+            &local_user.id,
+            &sync_data,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await
+        {
+            Ok(data) => data,
+            Err(e) => {
+                error!(
+                    "Failed to apply and generate viewer updates for resource {}: {}",
+                    resource_id, e
+                );
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // Emit updates event to frontend (for viewer side)
+        self.event_emitter.emit(P2PEvent::UpdatesEvent {
+            resource_id: resource_id.clone(),
+            updates: sync_data.clone(),
+            client_id: 0, // Website sync uses default client_id
+        });
 
         info!(
-            "Completed processing incremental sync response for resource {}",
+            "Updates event emitted to frontend for resource {}",
+            resource_id
+        );
+
+        // Get resource UCAN token
+        let resource_ucan = match services::get_resource_ucan_key(
+            &resource_id,
+            &local_user.id,
+            self.repo_ctx.clone(),
+        )
+        .await
+        {
+            Ok(ucan) => ucan,
+            Err(e) => {
+                error!(
+                    "Failed to get resource UCAN for resource {}: {}",
+                    resource_id, e
+                );
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // Send viewer comments updates back to node
+        if let Err(e) = self
+            .send_message(Message::Website(WebsiteMessage::ViewerCommentsUpdate {
+                resource_id: resource_id.clone(),
+                resource_ucan,
+                sync_data: viewer_updates,
+            }))
+            .await
+        {
+            error!("Failed to send viewer comments update back to node: {}", e);
+            return Ok(()); // Log and skip
+        }
+
+        info!(
+            "Successfully processed incremental sync response and sent viewer comments for resource {}",
+            resource_id
+        );
+        Ok(())
+    }
+
+    /// Process viewer comments update on node side
+    /// This is called on the node when viewer sends back comment updates
+    #[instrument(skip(self, resource_ucan, sync_data), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "info")]
+    async fn process_viewer_comments_update(
+        &self,
+        resource_id: String,
+        resource_ucan: String,
+        sync_data: String,
+    ) -> P2PResult<()> {
+        info!(
+            "Processing viewer comments update for resource {}",
+            resource_id
+        );
+
+        // 1. Validate resource UCAN token
+        let ucan = match crypto_utils::ucan_utils::validate_structure(&resource_ucan).await {
+            Ok(ucan) => ucan,
+            Err(e) => {
+                error!("Failed to validate resource UCAN token: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        // 2. Extract resource_id from UCAN and verify it matches
+        let ucan_resource_id = match crypto_utils::ucan_utils::extract_resource_id_from_ucan(&ucan)
+        {
+            Ok(id) => id,
+            Err(e) => {
+                error!("Failed to extract resource_id from UCAN: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        if ucan_resource_id != resource_id {
+            error!(
+                "Resource ID mismatch: message={}, ucan={}",
+                resource_id, ucan_resource_id
+            );
+            return Ok(()); // Log and skip
+        }
+
+        info!(
+            "Resource UCAN validated for viewer comments update {}",
+            resource_id
+        );
+
+        // 3. Get local user
+        let local_user = match self.get_local_user().await {
+            Ok(user) => user,
+            Err(e) => {
+                error!("Failed to get local user: {}", e);
+                return Ok(()); // Log and skip
+            }
+        };
+
+        let local_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => {
+                return Ok(()); // Log and skip
+            }
+        };
+        // 4. Apply viewer's comment updates
+        if let Err(e) = services::apply_updates(
+            &resource_id,
+            &sync_data,
+            &local_user.id,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await
+        {
+            error!(
+                "Failed to apply viewer comments for resource {}: {}",
+                resource_id, e
+            );
+            return Ok(()); // Log and skip
+        }
+        self.repo_ctx
+            .vector_clock_repo
+            .increment_vector_clock(&resource_id, &local_device.id)
+            .await?;
+
+        // Emit updates event to frontend (for node side)
+        self.event_emitter.emit(P2PEvent::UpdatesEvent {
+            resource_id: resource_id.clone(),
+            updates: sync_data.clone(),
+            client_id: 0, // Website sync uses default client_id
+        });
+
+        info!(
+            "Updates event emitted to frontend for resource {} (viewer comments)",
+            resource_id
+        );
+
+        info!(
+            "Successfully processed viewer comments update for resource {}",
             resource_id
         );
         Ok(())

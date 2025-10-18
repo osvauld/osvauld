@@ -13,7 +13,7 @@ use openpgp::{
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
 use std::future::Future;
-use std::{boxed::Box, clone};
+use std::boxed::Box;
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
@@ -256,6 +256,7 @@ pub async fn generate_delegation_and_connection_token(
     audience_ucan_pub_key: &str,
     domain: &str,
     lifetime_seconds: u64,
+    role: &str,
 ) -> Result<String, UcanError> {
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
     let audience_did = pub_key_b64_to_did(audience_ucan_pub_key)?;
@@ -269,6 +270,7 @@ pub async fn generate_delegation_and_connection_token(
         .with_lifetime(lifetime_seconds)
         .claiming_capability(connect_cap)
         .claiming_capability(share_cap)
+        .with_fact("role", role.to_string())
         .build()
         .map_err(|e| UcanError::CreationError(e.to_string()))?
         .sign()
@@ -454,7 +456,10 @@ pub fn extract_folder_id_from_ucan(ucan: &Ucan) -> Result<String, UcanError> {
 /// Extract the resource_id from a UCAN's resource capabilities.
 ///
 /// This function looks for resource capabilities in the UCAN and extracts
-/// the resource_id (e.g., "abc123" from "domain:resource:abc123").
+/// the resource_id. Supports multiple formats:
+/// - "domain:resource:resource_id" (standard format)
+/// - "domain:resource:resource_id:doc_type" (3-doc architecture)
+/// - "domain:resource:folder_id/resource_id" (folder-scoped)
 ///
 /// ### Arguments
 /// * `ucan` - The UCAN object to extract the resource_id from.
@@ -466,20 +471,25 @@ pub fn extract_resource_id_from_ucan(ucan: &Ucan) -> Result<String, UcanError> {
         let cap_resource = capability.resource;
 
         // Look for resource pattern in the URI
-        // Format: "domain:resource:resource_id" or "domain:resource:folder_id/resource_id"
         if cap_resource.contains(":resource:") {
-            // Extract resource_id from "domain:resource:resource_id"
-            if let Some(last_colon_pos) = cap_resource.rfind(':') {
-                let resource_part = &cap_resource[last_colon_pos + 1..];
-                // Handle both "resource_id" and "folder_id/resource_id" patterns
-                let resource_id = if let Some(slash_pos) = resource_part.find('/') {
-                    &resource_part[slash_pos + 1..]
+            let parts: Vec<&str> = cap_resource.split(':').collect();
+
+            // Handle different formats:
+            // - Standard: [domain, "resource", resource_id] (3 parts)
+            // - 3-doc: [domain, "resource", resource_id, doc_type] (4 parts)
+            if parts.len() >= 3 && parts[1] == "resource" {
+                let resource_id = parts[2];
+
+                // Handle folder-scoped pattern: "folder_id/resource_id"
+                let final_resource_id = if let Some(slash_pos) = resource_id.find('/') {
+                    &resource_id[slash_pos + 1..]
                 } else {
-                    resource_part
+                    resource_id
                 };
+
                 // Make sure it's not wildcard or empty
-                if !resource_id.is_empty() && resource_id != "*" {
-                    return Ok(resource_id.to_string());
+                if !final_resource_id.is_empty() && final_resource_id != "*" && final_resource_id != "**" {
+                    return Ok(final_resource_id.to_string());
                 }
             }
         }

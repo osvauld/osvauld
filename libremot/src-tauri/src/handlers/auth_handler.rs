@@ -182,9 +182,9 @@ pub async fn get_one_time_ucan_token(
 ) -> Result<CryptoResponse, String> {
     let (ucan_token, ucan_pub_key) = generate_one_time_ucan_token(
         "livnote",
+        &UserRole::User.to_string(),
         &crypto_utils,
         repo_ctx.inner().clone(),
-        UserRole::User.to_string(),
     )
     .await
     .map_err(|e| e.to_string())?;

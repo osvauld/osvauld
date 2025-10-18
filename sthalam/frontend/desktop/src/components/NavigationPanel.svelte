@@ -3,6 +3,7 @@
 	import WebsiteFolder from "./WebsiteFolder.svelte";
 	import AddSovereignNodeModal from "./AddSovereignNodeModal.svelte";
 	import PublishButton from "./PublishButton.svelte";
+	import SyncResourceButton from "./SyncResourceButton.svelte";
 	import ModeSwitcher from "./ModeSwitcher.svelte";
 	import SaveButton from "./SaveButton.svelte";
 	import NavigationToggle from "./NavigationToggle.svelte";
@@ -49,6 +50,8 @@
 			</div>
 			<!-- Save Button -->
 			<SaveButton />
+			<!-- Sync Resource Button -->
+			<SyncResourceButton />
 		</div>
 
 		<!-- Header with All Websites -->

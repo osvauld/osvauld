@@ -332,7 +332,7 @@ pub async fn generate_one_time_ucan_token(
             .generate_one_time_user_connect_token(
                 &encrypted_ucan_pvt_key,
                 capability_str,
-                &UserRole::Owner.to_string(),
+                role,
             )
             .await?
     };

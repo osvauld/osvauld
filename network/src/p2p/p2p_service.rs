@@ -345,6 +345,26 @@ impl P2PService {
             .map(|record| record.recipient_user_id)
             .collect();
         info!("found ids  {:?}", user_ids);
+        //TODO: implmeneted only for poc.
+        if user_ids.len() > 1 {
+            self.connect_with_users(&user_ids).await?;
+        } else {
+            self.sync_website(resource_id).await?;
+        }
+
+        Ok(())
+    }
+    pub async fn sync_website(&self, resource_id: &str) -> P2PResult<()> {
+        let resource_share_records = self
+            .repo_ctx
+            .share_repo
+            .find_by_resource_and_operation(resource_id, &ShareOperation::Share.to_string())
+            .await?;
+        let user_ids: Vec<String> = resource_share_records
+            .into_iter()
+            .map(|record| record.shared_by_user_id)
+            .collect();
+        info!("found ids  {:?}", user_ids);
         self.connect_with_users(&user_ids).await?;
 
         Ok(())
@@ -618,12 +638,31 @@ impl P2PService {
                         }
 
                         _ => {
-                            if existing_connection.is_initiator {
-                                existing_connection.start_user_network_sync().await?;
-                            } else {
-                                existing_connection
-                                    .send_message(Message::RetryRequest)
-                                    .await?;
+                            // Check the existing connection's type to determine which sync to use
+                            let conn_type = existing_connection.get_connection_type().await;
+
+                            match conn_type {
+                                ConnectionType::Website => {
+                                    // For website connections, check first_sync to decide between initial and incremental sync
+                                    let peer_user = existing_connection.get_peer_user().await;
+                                    info!(
+                                        "Reconnecting to website connection, first_sync: {}",
+                                        peer_user.first_sync
+                                    );
+                                    existing_connection
+                                        .start_website_sync(peer_user.first_sync)
+                                        .await?;
+                                }
+                                _ => {
+                                    // Existing user/device sync behavior
+                                    if existing_connection.is_initiator {
+                                        existing_connection.start_user_network_sync().await?;
+                                    } else {
+                                        existing_connection
+                                            .send_message(Message::RetryRequest)
+                                            .await?;
+                                    }
+                                }
                             }
                         }
                     }

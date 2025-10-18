@@ -8,10 +8,12 @@
 	import NavigationToggle from "./NavigationToggle.svelte";
 	import type { YjsDocuments } from "../lib/yjsManager";
 	import type { Website } from "../types";
+	import { sendMessage } from "../utils/helper";
 
 	let yDocs: YjsDocuments | null = null;
 	let blocks = $state<Map<string, any>>(new Map());
 	let showAddWebsiteModal = $state(false);
+	let isSyncing = $state(false);
 
 	// Get synced resources
 	const syncedResources = $derived(dataState.resources);
@@ -136,6 +138,24 @@
 	function closeAddWebsiteModal() {
 		showAddWebsiteModal = false;
 	}
+
+	async function handleRefresh() {
+		const resourceId = dataState.currentResourceId;
+		if (!resourceId) {
+			console.warn('No resource selected to refresh');
+			return;
+		}
+
+		isSyncing = true;
+		try {
+			await sendMessage('syncResource', { resourceId });
+			console.log('Successfully triggered sync for resource:', resourceId);
+		} catch (error) {
+			console.error('Failed to sync resource:', error);
+		} finally {
+			isSyncing = false;
+		}
+	}
 </script>
 
 {#if !hasResources}
@@ -234,6 +254,18 @@
 			</div>
 		{/if}
 		<div class="viewer-main">
+			<button
+				class="refresh-button"
+				onclick={handleRefresh}
+				disabled={isSyncing}
+				title="Refresh and sync latest changes"
+			>
+				{#if isSyncing}
+					<span class="refresh-spinner"></span>
+				{:else}
+					↻
+				{/if}
+			</button>
 			<FullScreenViewer {blocks} ydoc={yDocs?.mainDoc} commentsDoc={yDocs?.commentsDoc} submissionsDoc={yDocs?.submissionsDoc} />
 		</div>
 	</div>
@@ -324,6 +356,53 @@
 	.viewer-main {
 		flex: 1;
 		overflow: hidden;
+		position: relative;
+	}
+
+	.refresh-button {
+		position: absolute;
+		top: 1rem;
+		right: 1rem;
+		z-index: 1000;
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: 50%;
+		background: #16171f;
+		border: 1px solid #8A86E5;
+		color: #8A86E5;
+		font-size: 1.5rem;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	}
+
+	.refresh-button:hover:not(:disabled) {
+		background: #8A86E5;
+		color: #16171f;
+		transform: rotate(180deg) scale(1.1);
+	}
+
+	.refresh-button:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+
+	.refresh-spinner {
+		width: 16px;
+		height: 16px;
+		border: 2px solid rgba(138, 134, 229, 0.3);
+		border-top-color: #8A86E5;
+		border-radius: 50%;
+		animation: spin 0.8s linear infinite;
+	}
+
+	@keyframes spin {
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	.empty-state {

@@ -14,8 +14,8 @@ use crate::handlers::auth_handler::{
     handle_sign_up, login,
 };
 use crate::handlers::folder_handler::{
-    handle_add_folder, handle_get_folders, handle_get_shared_folder_users,
-    handle_share_folder, handle_soft_delete_folder,
+    handle_add_folder, handle_get_folders, handle_get_shared_folder_users, handle_share_folder,
+    handle_soft_delete_folder,
 };
 use crate::handlers::resource_handler::{
     emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
@@ -25,8 +25,8 @@ use crate::handlers::resource_handler::{
 };
 use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
 use crate::handlers::website_handler::{
-    handle_connect_to_remote, handle_connect_to_website, handle_generate_share_token,
-    handle_load_website_state, handle_update_website_state,
+    handle_connect_to_website, handle_generate_share_token, handle_load_website_state,
+    handle_sync_resource, handle_update_website_state,
 };
 use crate::user_state::UserState;
 use crate::website_state::WebsiteState;
@@ -89,7 +89,10 @@ pub fn run() {
                     panic!("Cannot continue without app data directory");
                 }
             }
-            let search_manager = Arc::new(Mutex::new(SearchIndexManager::new(&app_dir, "main_doc".to_string())?));
+            let search_manager = Arc::new(Mutex::new(SearchIndexManager::new(
+                &app_dir,
+                "main_doc".to_string(),
+            )?));
             app.manage(search_manager);
             let db_path = app_dir
                 .join(format!("{}.db", args.db_name))
@@ -196,8 +199,8 @@ pub fn run() {
             handle_generate_share_token,
             handle_update_website_state,
             handle_load_website_state,
-            handle_connect_to_remote,
             handle_connect_to_website,
+            handle_sync_resource,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

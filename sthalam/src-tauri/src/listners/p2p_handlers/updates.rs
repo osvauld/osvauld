@@ -104,31 +104,29 @@ impl EventManager {
             updates.len()
         );
 
-        // Check if we have a current note
-        if let Some(current_resource_id) = self.current_note_state.get_current_note().await {
-            // Emit document updates for the current note
-            let payload = serde_json::json!({
-                "resource_id": current_resource_id,
-                "updates": updates,
-                "client_id": client_id
-            });
+        // Always emit document-updates with the actual resource_id from the event
+        // Frontend will check if it's the current resource and apply if it matches
+        let payload = serde_json::json!({
+            "resource_id": resource_id.clone(),
+            "updates": updates,
+            "client_id": client_id
+        });
 
-            if let Err(e) = self.emit_json("document-updates", payload) {
-                error!("Failed to emit document-updates event: {}", e);
-            } else {
-                info!(
-                    "Successfully emitted document-updates event for resource: {}",
-                    current_resource_id
-                );
-            }
+        if let Err(e) = self.emit_json("document-updates", payload) {
+            error!("Failed to emit document-updates event: {}", e);
         } else {
-            // No current note, emit as resource update preview
-            if let Err(e) = self
-                .emit_resource_preview(&resource_id, "resource-update")
-                .await
-            {
-                error!("Failed to emit resource update preview: {}", e);
-            }
+            info!(
+                "Successfully emitted document-updates event for resource: {}",
+                resource_id
+            );
+        }
+
+        // Also emit resource update preview for the preview list
+        if let Err(e) = self
+            .emit_resource_preview(&resource_id, "resource-update")
+            .await
+        {
+            error!("Failed to emit resource update preview: {}", e);
         }
     }
 

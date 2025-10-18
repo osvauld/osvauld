@@ -301,6 +301,7 @@ impl CryptoUtils {
         encrypted_private_key: &str,
         domain: &str,
         audience_ucan_pub_key: &str,
+        role: &str,
     ) -> Result<String, CryptoError> {
         let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
         let public_key = self.get_public_key()?;
@@ -313,6 +314,7 @@ impl CryptoUtils {
             audience_ucan_pub_key,
             domain,
             lifetime,
+            role,
         )
         .await?;
         Ok(token)

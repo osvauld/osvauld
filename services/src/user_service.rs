@@ -131,6 +131,7 @@ pub async fn issue_connect_ucan_token(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
     peer_ucan_pub_key: &str,
+    role: &str,
 ) -> ServiceResult<String> {
     let encrypted_pvt_key = repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
         error!("Failed to get UCAN key for issuing new token: {}", e);
@@ -139,7 +140,7 @@ pub async fn issue_connect_ucan_token(
 
     let crypto = crypto_utils.read().await;
     crypto
-        .issue_connect_and_share_user_token(&encrypted_pvt_key, domain, peer_ucan_pub_key)
+        .issue_connect_and_share_user_token(&encrypted_pvt_key, domain, peer_ucan_pub_key, role)
         .await
         .map_err(|e| {
             error!("Failed to issue connect and share token: {}", e);

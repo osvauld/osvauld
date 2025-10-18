@@ -2,6 +2,8 @@
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
 	import type * as Y from 'yjs';
+	import { dataState } from '../../state';
+	import { sendMessage } from '../../utils/helper';
 
 	interface Props {
 		blockId: string;
@@ -24,6 +26,7 @@
 	let comments = $state<Array<{
 		id: string;
 		author: string;
+		userId?: string;
 		content: string;
 		timestamp: number;
 	}>>([]);
@@ -76,7 +79,7 @@
 		return () => commentsBlocks.unobserve(observer);
 	});
 
-	function submitComment() {
+	async function submitComment() {
 		const content = commentInput.trim();
 
 		console.log('submitComment called:', {
@@ -99,9 +102,14 @@
 		// Parse and sanitize markdown
 		const sanitized = DOMPurify.sanitize(marked.parse(content));
 
+		// Get user details from dataState
+		const username = dataState.userDetails?.username || 'Anonymous';
+		const userId = dataState.userDetails?.userId || '';
+
 		const newComment = {
 			id: crypto.randomUUID(),
-			author: 'Anonymous', // TODO: Get from user context
+			author: username,
+			userId: userId,
 			content: sanitized,
 			timestamp: Date.now()
 		};
@@ -128,6 +136,21 @@
 
 			// Expand comments section to show the new comment
 			isExpanded = true;
+
+			// Trigger immediate save
+			const currentResourceId = dataState.currentResourceId;
+			if (currentResourceId) {
+				dataState.saveCurrentResource(currentResourceId);
+
+				// Sync comment to P2P network after saving
+				try {
+					await sendMessage('syncResource', { resourceId: currentResourceId });
+					console.log('Comment synced to P2P network');
+				} catch (syncError) {
+					console.error('Failed to sync comment:', syncError);
+					// Don't fail the comment submission if sync fails
+				}
+			}
 		} catch (error) {
 			console.error('Error adding comment:', error);
 			alert('Failed to add comment: ' + error.message);

@@ -295,6 +295,7 @@ class DataState {
         this.clientId,
         title
       );
+      console.log(blocksuiteContent, "Blocksuite content");
 
       console.log("✅ BlockSuite content created:", {
         title: blocksuiteContent.title,
@@ -771,6 +772,67 @@ class DataState {
   }
 
   /**
+   * Handle document-updates event from P2P sync
+   * Applies remote updates to the currently open resource
+   */
+  async handleDocumentUpdates(event: any) {
+    try {
+      const { resource_id, updates, client_id } = event.payload;
+
+      console.log("📥 Received document-updates event:", {
+        resource_id,
+        current_resource: this.currentResourceId,
+        client_id
+      });
+
+      // Only apply if it's the currently open resource
+      if (resource_id === this.currentResourceId) {
+        const coordinator = this.getBlocksuiteCoordinator();
+        if (!coordinator) {
+          console.warn("⚠️ No coordinator available to apply updates");
+          return;
+        }
+
+        if (!updates) {
+          console.warn("⚠️ No updates data provided");
+          return;
+        }
+
+        // Parse JSON updates (following livnote pattern)
+        const updatesJson = JSON.parse(updates);
+        console.log("📦 Parsed multi-doc updates:", Object.keys(updatesJson));
+
+        // Apply blocksuite_doc updates
+        if (updatesJson.blocksuite_doc?.updates?.length > 0) {
+          const updateArray = new Uint8Array(updatesJson.blocksuite_doc.updates);
+          console.log(`📥 Applying blocksuite_doc update: ${updateArray.length} bytes`);
+          coordinator.applyRemoteUpdate(updateArray, client_id, "blocksuite_doc");
+        }
+
+        // Apply thread_comments_doc updates
+        if (updatesJson.thread_comments_doc?.updates?.length > 0) {
+          const updateArray = new Uint8Array(updatesJson.thread_comments_doc.updates);
+          console.log(`📥 Applying thread_comments_doc update: ${updateArray.length} bytes`);
+          coordinator.applyRemoteUpdate(updateArray, client_id, "thread_comments_doc");
+        }
+
+        // Apply form_submissions_doc updates
+        if (updatesJson.form_submissions_doc?.updates?.length > 0) {
+          const updateArray = new Uint8Array(updatesJson.form_submissions_doc.updates);
+          console.log(`📥 Applying form_submissions_doc update: ${updateArray.length} bytes`);
+          coordinator.applyRemoteUpdate(updateArray, client_id, "form_submissions_doc");
+        }
+
+        console.log("✅ Applied all remote updates for resource:", resource_id);
+      } else {
+        console.log("ℹ️ Ignoring updates for non-current resource:", resource_id);
+      }
+    } catch (error) {
+      console.error("❌ Error handling document-updates event:", error);
+    }
+  }
+
+  /**
    * Set up real-time event listeners for resource/folder updates
    */
   async setupReactiveUpdates() {
@@ -784,12 +846,14 @@ class DataState {
       const resourceUpdateUnlisten = await listen("resource-update", this.handleResourceUpdate.bind(this));
       const foldersAddedUnlisten = await listen("folders-added-notification", this.handleFoldersAdded.bind(this));
       const resourcesCompleteUnlisten = await listen("resources-loading-complete", this.handleResourcesLoadingComplete.bind(this));
+      const documentUpdatesUnlisten = await listen("document-updates", this.handleDocumentUpdates.bind(this));
 
       this._unlisteners.push(
         resourceAddedUnlisten,
         resourceUpdateUnlisten,
         foldersAddedUnlisten,
-        resourcesCompleteUnlisten
+        resourcesCompleteUnlisten,
+        documentUpdatesUnlisten
       );
 
       console.log("✅ Reactive updates set up successfully");

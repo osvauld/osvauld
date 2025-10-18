@@ -105,7 +105,7 @@ pub async fn prepare_folder_for_viewer(
 
     // Generate a read-only folder token for the viewer
     info!("Generating read-only folder token for viewer");
-    let folder_capability = format!("sthalam:folder:{}:read", folder_id);
+    let folder_capability = format!("sthalam:folder:{}", folder_id);
 
     let (folder_ucan_token, folder_ucan_cid) = {
         let crypto = crypto_utils.read().await;

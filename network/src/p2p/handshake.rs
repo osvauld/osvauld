@@ -98,8 +98,9 @@ impl PeerConnection {
                 &self.crypto_utils,
                 &self.domain,
                 &peer_user.ucan_pub_key,
+                &role,
             ).await?;
-            debug!("Successfully issued new UCAN token for peer");
+            debug!("Successfully issued new UCAN token for peer with role '{}'", role);
 
             self.send_message(Message::Handshake(
                 HandshakeMessage::HandshakeFirstConnectRequest(FirstConnectRequest {
@@ -275,17 +276,21 @@ impl PeerConnection {
             &current_user.id,
             &self.domain,
         ).await?;
-        
+
         debug!("Completed validation of one-time UCAN");
-        
+
         if !one_time_token_validation {
             error!("Peer's one-time UCAN is invalid");
             return Err(HandshakeError::InvalidCredentials {
                 user_id: payload.peer_user.id.clone(),
             }.into());
         }
-        
+
         info!("Peer's one-time UCAN is valid. Proceeding to issue persistent UCAN.");
+
+        // Extract role from one-time UCAN token
+               let role = crypto_utils::get_role_from_ucan_token(&payload.one_time_ucan).await?;
+        info!("Extracted role '{}' from one-time UCAN token", role);
 
         // Service errors automatically propagate
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
@@ -294,8 +299,9 @@ impl PeerConnection {
             &self.crypto_utils,
             &self.domain,
             &peer_ucan_pub,
+            &role,
         ).await?;
-        debug!("Successfully issued new UCAN token for peer and signed local public key");
+        debug!("Successfully issued new UCAN token for peer with role '{}' and signed local public key", role);
 
         let mut user = payload.peer_user.clone();
         user.first_sync = true;
@@ -542,6 +548,7 @@ impl PeerConnection {
 
         // Set peer user and device from the sovereign node
         self.set_peer_user_and_device(node_user, payload.node_device.clone()).await;
+        self.set_connection_type(ConnectionType::Website).await;
         debug!("Set peer user and device from node response");
 
         // Mark handshake as complete
@@ -626,6 +633,7 @@ impl PeerConnection {
 
         // Set peer user and device from the sovereign node
         self.set_peer_user_and_device(payload.node_user.clone(), payload.node_device.clone()).await;
+        self.set_connection_type(ConnectionType::Website).await;
         debug!("Set peer user and device from node response");
 
         // Mark handshake as complete

@@ -229,12 +229,25 @@ pub async fn handle_connect_to_website(
 }
 
 #[tauri::command]
-pub async fn handle_connect_to_remote(
-    _address: String,
-    _token: String,
-    _website_state: State<'_, Arc<RwLock<WebsiteState>>>,
+pub async fn handle_sync_resource(
+    resource_id: String,
+    p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<CryptoResponse, String> {
-    // Deprecated - use handle_connect_to_website instead
-    error!("handle_connect_to_remote is deprecated, use handle_connect_to_website");
-    Err("Remote connection feature not yet implemented".to_string())
+    info!("Received sync resource request for: {}", resource_id);
+
+    // Spawn async task to sync resource to P2P network
+    let p2p_clone = p2p_service.inner().clone();
+    let resource_id_clone = resource_id.clone();
+
+    tokio::spawn(async move {
+        info!("Syncing resource to P2P network: {}", resource_id_clone);
+
+        if let Err(e) = p2p_clone.sync_resource(&resource_id_clone).await {
+            error!("Failed to sync resource: {}", e);
+        } else {
+            info!("Successfully synced resource: {}", resource_id_clone);
+        }
+    });
+
+    Ok(CryptoResponse::Success)
 }

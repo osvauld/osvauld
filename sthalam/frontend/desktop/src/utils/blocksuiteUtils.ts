@@ -70,16 +70,26 @@ export function createEmptyBlocksuiteDoc(
   // Encode to byte array (V2 format for better compression)
   const encoded = Y.encodeStateAsUpdateV2(tempDoc);
 
-  // Create content structure matching backend expectations
+  // Create empty documents for thread_comments and form_submissions
+  const commentsDoc = new Y.Doc();
+  const formsDoc = new Y.Doc();
+  const encodedComments = Y.encodeStateAsUpdateV2(commentsDoc);
+  const encodedForms = Y.encodeStateAsUpdateV2(formsDoc);
+
+  // Create content structure matching backend expectations with all 3 docs
   const content: BlocksuiteContent = {
-    blocksuite_doc: Array.from(encoded),  // Website uses blocksuite_doc key
+    blocksuite_doc: Array.from(encoded),  // Main website content
+    thread_comments_doc: Array.from(encodedComments),  // Comments document (empty initially)
+    form_submissions_doc: Array.from(encodedForms),  // Form submissions (empty initially)
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
   };
 
-  // Cleanup temporary document
+  // Cleanup temporary documents
   tempDoc.destroy();
+  commentsDoc.destroy();
+  formsDoc.destroy();
 
   return content;
 }
@@ -101,14 +111,24 @@ export function createBlankBlocksuiteDoc(
 
   const encoded = Y.encodeStateAsUpdateV2(tempDoc);
 
+  // Create empty documents for thread_comments and form_submissions
+  const commentsDoc = new Y.Doc();
+  const formsDoc = new Y.Doc();
+  const encodedComments = Y.encodeStateAsUpdateV2(commentsDoc);
+  const encodedForms = Y.encodeStateAsUpdateV2(formsDoc);
+
   const content: BlocksuiteContent = {
     blocksuite_doc: Array.from(encoded),
+    thread_comments_doc: Array.from(encodedComments),
+    form_submissions_doc: Array.from(encodedForms),
     client_id: clientId.toString(),
     last_modified: Date.now(),
     title
   };
 
   tempDoc.destroy();
+  commentsDoc.destroy();
+  formsDoc.destroy();
   return content;
 }
 
