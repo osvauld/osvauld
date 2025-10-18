@@ -41,8 +41,11 @@
 		untrack(() => {
 			screens = sortedScreens;
 
-			// Set initial screen if not set
-			if (sortedScreens.length > 0 && !currentScreenId) {
+			// Reset currentScreenId if it doesn't exist in the new blocks (resource switch)
+			const currentScreenExists = currentScreenId && sortedScreens.some(s => s.id === currentScreenId);
+
+			// Set initial screen if not set OR if current screen no longer exists
+			if (sortedScreens.length > 0 && (!currentScreenId || !currentScreenExists)) {
 				// Check if any screen is marked as entry point
 				const entryPointScreen = sortedScreens.find(s => s.isEntryPoint);
 				currentScreenId = entryPointScreen ? entryPointScreen.id : sortedScreens[0].id;
