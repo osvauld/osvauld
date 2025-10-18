@@ -58,6 +58,9 @@ export class BlocksuiteCoordinator {
    * OPTIMIZED: Async to handle deferred loading of large documents
    */
   async loadBlocksuite(data: any): Promise<void> {
+    const loadStartTime = performance.now();
+    console.log("🔧 [LOAD START] loadBlocksuite called at", loadStartTime);
+
     if (!data) {
       console.warn("⚠️ No data provided to loadBlocksuite");
       return;
@@ -67,17 +70,22 @@ export class BlocksuiteCoordinator {
       console.log("🔄 Loading blocksuite data...");
 
       // Step 1: Detect resource type
+      console.log("⏱️ [LOAD] Step 1: Detecting resource type at", performance.now() - loadStartTime, "ms");
       this.resourceType = this.detectResourceType(data);
       console.log("🔍 Detected resource type:", this.resourceType);
 
       // Step 2: Reinitialize Yjs documents with resource type (destroys old, creates fresh)
+      console.log("⏱️ [LOAD] Step 2: Reinitializing Yjs documents at", performance.now() - loadStartTime, "ms");
       const docs = this.yjsManager.initialize(this.resourceType);
+      console.log("⏱️ [LOAD] Yjs documents reinitialized at", performance.now() - loadStartTime, "ms");
       console.log("✅ Yjs documents reinitialized");
 
       // Step 3: Set user info in awareness
+      console.log("⏱️ [LOAD] Step 3: Setting user info at", performance.now() - loadStartTime, "ms");
       this.yjsManager.setUserInfo(this.config.userInfo);
 
       // Step 4: Load main document
+      console.log("⏱️ [LOAD] Step 4: Preparing main document at", performance.now() - loadStartTime, "ms");
       let mainDocKey: string | null = null;
       let mainUpdates: Uint8Array | null = null;
 
@@ -102,12 +110,15 @@ export class BlocksuiteCoordinator {
         this.currentDocKey = mainDocKey;
         if (mainUpdates && mainUpdates.length > 0) {
           console.log(`📥 Applying ${mainDocKey} updates (${mainUpdates.length} bytes)`);
+          console.log("⏱️ [LOAD] Applying main doc updates at", performance.now() - loadStartTime, "ms");
           await this.yjsManager.applyUpdate(mainUpdates, "loading", mainDocKey);
+          console.log("⏱️ [LOAD] Main doc updates applied at", performance.now() - loadStartTime, "ms");
         }
       }
 
       // Step 5: Load comments doc (if exists and has thread blocks)
       if (this.hasThreadBlocks && data.thread_comments_doc) {
+        console.log("⏱️ [LOAD] Step 5: Loading comments doc at", performance.now() - loadStartTime, "ms");
         const commentsUpdates = Array.isArray(data.thread_comments_doc)
           ? new Uint8Array(data.thread_comments_doc)
           : (data.thread_comments_doc.updates ? new Uint8Array(data.thread_comments_doc.updates) : null);
@@ -115,11 +126,13 @@ export class BlocksuiteCoordinator {
         if (commentsUpdates && commentsUpdates.length > 0) {
           console.log(`📥 Applying thread_comments_doc updates (${commentsUpdates.length} bytes)`);
           await this.yjsManager.applyUpdate(commentsUpdates, "loading", "thread_comments_doc");
+          console.log("⏱️ [LOAD] Comments doc updates applied at", performance.now() - loadStartTime, "ms");
         }
       }
 
       // Step 6: Load submissions doc (if exists and has form blocks)
       if (this.hasFormBlocks && data.form_submissions_doc) {
+        console.log("⏱️ [LOAD] Step 6: Loading submissions doc at", performance.now() - loadStartTime, "ms");
         const submissionsUpdates = Array.isArray(data.form_submissions_doc)
           ? new Uint8Array(data.form_submissions_doc)
           : (data.form_submissions_doc.updates ? new Uint8Array(data.form_submissions_doc.updates) : null);
@@ -127,26 +140,33 @@ export class BlocksuiteCoordinator {
         if (submissionsUpdates && submissionsUpdates.length > 0) {
           console.log(`📥 Applying form_submissions_doc updates (${submissionsUpdates.length} bytes)`);
           await this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
+          console.log("⏱️ [LOAD] Submissions doc updates applied at", performance.now() - loadStartTime, "ms");
         }
       }
 
       // Step 7: Dispatch blocksuite-ready event after all loading is complete
       // This ensures the event fires even if there were no updates or they completed instantly
+      console.log("⏱️ [LOAD] Step 7: All loading complete, dispatching blocksuite-ready event at", performance.now() - loadStartTime, "ms");
       console.log("✅ Blocksuite loading complete - dispatching ready event");
+      console.log("🎉 [EVENT DISPATCH] Dispatching blocksuite-ready event NOW");
       document.dispatchEvent(new CustomEvent('blocksuite-ready', {
         detail: {
           resourceId: this.config.userInfo.id
         }
       }));
+      console.log("🎉 [EVENT DISPATCH] blocksuite-ready event dispatched at", performance.now() - loadStartTime, "ms");
     } catch (error) {
       console.error("❌ Error loading blocksuite:", error);
+      console.log("⏱️ [LOAD] Error occurred at", performance.now() - loadStartTime, "ms");
       // Dispatch ready event even on error to prevent infinite loading state
+      console.log("🎉 [EVENT DISPATCH] Dispatching blocksuite-ready event (error case)");
       document.dispatchEvent(new CustomEvent('blocksuite-ready', {
         detail: {
           resourceId: this.config.userInfo.id,
           error: true
         }
       }));
+      console.log("🎉 [EVENT DISPATCH] blocksuite-ready event dispatched (error) at", performance.now() - loadStartTime, "ms");
     }
   }
 

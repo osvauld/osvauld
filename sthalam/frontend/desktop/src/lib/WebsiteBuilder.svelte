@@ -30,8 +30,9 @@
 	// React to resource changes (like livnote's pattern)
 	// Only track resourceId - don't track blocks/viewport changes
 	$effect(() => {
+		const effectStartTime = performance.now();
 		const resourceId = dataState.currentResourceId;
-		console.log("🔄 Resource changed:", resourceId);
+		console.log("🔄 [EFFECT START] WebsiteBuilder $effect triggered at", effectStartTime, "- resourceId:", resourceId);
 
 		// Clear existing autosave interval when resource changes
 		if (autoSaveInterval !== null) {
@@ -50,16 +51,18 @@
 		}
 
 		// Resource selected - get fresh documents from coordinator
-		console.log("✅ Resource selected - setting up workspace");
+		console.log("✅ [EFFECT] Resource selected - setting up workspace at", performance.now() - effectStartTime, "ms");
 
 		// Use untracked to avoid infinite loops
 		untrack(() => {
+			console.log("⏱️ [EFFECT] Inside untrack at", performance.now() - effectStartTime, "ms");
 			const coordinator = dataState.getBlocksuiteCoordinator();
 			if (!coordinator) {
 				console.error("❌ No coordinator available");
 				return;
 			}
 
+			console.log("⏱️ [EFFECT] Got coordinator, getting documents at", performance.now() - effectStartTime, "ms");
 			// Get the FRESH Yjs documents (after loadBlocksuite was called)
 			const docs = coordinator.getDocuments();
 			if (!docs) {
@@ -67,6 +70,7 @@
 				return;
 			}
 
+			console.log("⏱️ [EFFECT] Got documents, setting yDocs at", performance.now() - effectStartTime, "ms");
 			yDocs = docs;
 
 			console.log("📦 Yjs documents received:", {
@@ -78,6 +82,7 @@
 				}
 			});
 
+			console.log("⏱️ [EFFECT] Setting up observers at", performance.now() - effectStartTime, "ms");
 			// Subscribe to blocks changes
 			const blocksObserver = () => {
 				if (!yDocs) return;
@@ -98,13 +103,17 @@
 				};
 			};
 
+			console.log("⏱️ [EFFECT] Attaching observers at", performance.now() - effectStartTime, "ms");
 			docs.blocks.observe(blocksObserver);
 			docs.viewport.observe(viewportObserver);
 
+			console.log("⏱️ [EFFECT] Running initial observers at", performance.now() - effectStartTime, "ms");
 			// Initial load
 			blocksObserver();
 			viewportObserver();
+			console.log("⏱️ [EFFECT] Initial observers complete at", performance.now() - effectStartTime, "ms");
 
+			console.log("⏱️ [EFFECT] Starting autosave timer at", performance.now() - effectStartTime, "ms");
 			// Start autosave timer for this resource (60 second interval)
 			autoSaveInterval = window.setInterval(async () => {
 				const currentResourceId = dataState.currentResourceId;
@@ -119,6 +128,7 @@
 				}
 			}, 60000); // 60 seconds
 			console.log("⏰ Auto-save started for resource:", resourceId);
+			console.log("🏁 [EFFECT COMPLETE] WebsiteBuilder $effect finished at", performance.now() - effectStartTime, "ms");
 		});
 
 		// Cleanup function for this effect
@@ -139,6 +149,15 @@
 				// This is acceptable as Yjs will clean up when docs are destroyed
 			}
 		};
+	});
+
+	// Track loading state changes for debugging
+	$effect(() => {
+		const isLoading = dataState.isResourceLoading;
+		console.log("🔄 [LOADING STATE CHANGE] isResourceLoading =", isLoading, "at", performance.now());
+		if (!isLoading) {
+			console.log("✅ [LOADING STATE] Loading complete - UI should be interactive now");
+		}
 	});
 
 	onDestroy(() => {

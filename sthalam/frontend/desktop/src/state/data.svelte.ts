@@ -334,6 +334,9 @@ class DataState {
    * Following livnote's pattern: save current, fetch new data, load coordinator
    */
   async switchResource(resourceId: string | null) {
+    const startTime = performance.now();
+    console.log("🚀 [SWITCH START]", { resourceId, timestamp: new Date().toISOString() });
+
     // Save the current resource before switching away from it (non-blocking)
     const currentResourceId = this.currentResourceId;
     if (currentResourceId && currentResourceId !== resourceId) {
@@ -348,12 +351,15 @@ class DataState {
         console.log("🔄 Switching to resource:", resourceId);
 
         // Set loading flag to prevent saves during loading
+        console.log("⏱️ [TIMING] Setting isResourceLoading=true at", performance.now() - startTime, "ms");
         this.isResourceLoading = true;
 
         // Fetch full resource data from backend
+        console.log("⏱️ [TIMING] Fetching resource from backend at", performance.now() - startTime, "ms");
         const resource = await sendMessage("getCredential", {
           resourceId: resourceId
         });
+        console.log("⏱️ [TIMING] Resource fetched from backend at", performance.now() - startTime, "ms");
         console.log(resource, "RESOURCE");
 
         console.log("✅ Resource data fetched:", {
@@ -404,6 +410,7 @@ class DataState {
 
         // Parse the resource data - backend returns data as a JSON string
         // Similar to livnote which also parses the note data
+        console.log("⏱️ [TIMING] Starting JSON parse at", performance.now() - startTime, "ms");
         let blocksuiteData;
         if (resource.data) {
           if (typeof resource.data === 'string') {
@@ -415,32 +422,40 @@ class DataState {
           // Fallback: use the whole resource if no data field
           blocksuiteData = resource;
         }
+        console.log("⏱️ [TIMING] JSON parse complete at", performance.now() - startTime, "ms");
 
         console.log("🔧 Loading resource data into coordinator...", {
           hasMainDoc: !!blocksuiteData.main_doc,
           hasUpdates: !!blocksuiteData.main_doc?.updates
         });
-        await coordinator.loadBlocksuite(blocksuiteData);
-        console.log("✅ Coordinator loaded with resource data");
 
-        // Listen for blocksuite-ready event to clear loading flag
+        // IMPORTANT: Set up event listener BEFORE calling loadBlocksuite
+        // because the event is dispatched synchronously inside loadBlocksuite
+        console.log("⏱️ [TIMING] Setting up blocksuite-ready event listener at", performance.now() - startTime, "ms");
         const clearLoading = () => {
+          console.log("⏱️ [TIMING] 🎉 blocksuite-ready event RECEIVED at", performance.now() - startTime, "ms");
           console.log("✅ Blocksuite ready - clearing loading flag");
           this.isResourceLoading = false;
           document.removeEventListener('blocksuite-ready', clearLoading);
         };
         document.addEventListener('blocksuite-ready', clearLoading);
 
+        console.log("⏱️ [TIMING] Calling coordinator.loadBlocksuite at", performance.now() - startTime, "ms");
+        await coordinator.loadBlocksuite(blocksuiteData);
+        console.log("⏱️ [TIMING] coordinator.loadBlocksuite returned at", performance.now() - startTime, "ms");
+        console.log("✅ Coordinator loaded with resource data");
+
         // Fallback: Clear loading after timeout (safety net for heavy documents)
         setTimeout(() => {
           if (this.isResourceLoading) {
-            console.log("⏰ Loading timeout reached - clearing loading flag");
+            console.log("⏱️ [TIMING] ⏰ TIMEOUT REACHED at", performance.now() - startTime, "ms - clearing loading flag via timeout");
             this.isResourceLoading = false;
           }
         }, 10000); // 10 second safety timeout
 
         // IMPORTANT: Set currentResourceId AFTER loadBlocksuite completes
         // This ensures $effect in WebsiteBuilder gets the FRESH documents
+        console.log("⏱️ [TIMING] Setting currentResourceId at", performance.now() - startTime, "ms");
         this.currentResourceId = resourceId;
 
         // Update current website to match the resource's website
