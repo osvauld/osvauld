@@ -512,29 +512,59 @@ pub async fn process_incremental_resource_sync(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
-    // Use existing function to apply updates and get response
-    let response = generate_updates_for_peer(
+    // 1. Parse viewer's sync data
+    let mut viewer_data: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(viewer_sync_data)
+            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+
+    // 2. Empty updates for blocksuite_doc (viewer can't edit main content)
+    // Keep state_vector so sync protocol works correctly
+    if let Some(blocksuite_doc) = viewer_data.get_mut("blocksuite_doc") {
+        if let Some(obj) = blocksuite_doc.as_object_mut() {
+            obj.insert("updates".to_string(), serde_json::Value::Array(vec![]));
+        }
+    }
+
+    // 3. Empty updates for thread_comments_doc (comments use separate ViewerCommentsUpdate flow)
+    // Keep state_vector so sync protocol works correctly
+    if let Some(thread_doc) = viewer_data.get_mut("thread_comments_doc") {
+        if let Some(obj) = thread_doc.as_object_mut() {
+            obj.insert("updates".to_string(), serde_json::Value::Array(vec![]));
+        }
+    }
+
+    // 4. Keep form_submissions_doc with updates intact - these will be applied to DB
+    let modified_sync = serde_json::to_string(&viewer_data)
+        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+
+    // 5. Apply form submissions to DB and generate response for viewer
+    // This will:
+    // - Merge form_submissions_doc into database
+    // - Emit form_submissions_doc updates to owner
+    // - Generate updates viewer needs (blocksuite_doc, thread_comments_doc)
+    let response = apply_updates_and_get_peer_updates(
         resource_id,
         user_id,
+        &modified_sync,
         repo_ctx,
         crypto_utils,
-        &viewer_sync_data.to_string(),
     )
     .await?;
 
     info!("response back from node {:?}", response);
-    // Parse response and replace form_submissions_doc with empty updates
+
+    // 6. Parse response and empty form_submissions_doc (viewer doesn't need it back)
     let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&response)
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
-    // Always set form_submissions_doc to empty updates (replace any existing)
-    let mut doc_result = serde_json::Map::new();
-    doc_result.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-    doc_result.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
-    parsed.insert(
-        "form_submissions_doc".to_string(),
-        serde_json::Value::Object(doc_result),
-    );
+    // Empty form_submissions_doc updates in response (viewer has append-only, doesn't read back)
+    // Keep state_vector for sync protocol
+    if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
+        if let Some(obj) = form_doc.as_object_mut() {
+            obj.insert("updates".to_string(), serde_json::Value::Array(vec![]));
+            // state_vector is preserved
+        }
+    }
 
     Ok(serde_json::to_string(&parsed)
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)

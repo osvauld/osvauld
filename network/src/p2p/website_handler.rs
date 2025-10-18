@@ -740,6 +740,16 @@ impl PeerConnection {
             }
         };
 
+        let local_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => {
+                return Ok(()); // Log and skip
+            }
+        };
+        self.repo_ctx
+            .vector_clock_repo
+            .increment_vector_clock(&resource_id, &local_device.id)
+            .await?;
         // Send response back to viewer
         if let Err(e) = self
             .send_message(Message::Website(WebsiteMessage::IncrementalSyncResponse {
@@ -906,12 +916,6 @@ impl PeerConnection {
             }
         };
 
-        let local_device = match self.get_local_device().await {
-            Some(device) => device,
-            None => {
-                return Ok(()); // Log and skip
-            }
-        };
         // 4. Apply viewer's comment updates
         if let Err(e) = services::apply_updates(
             &resource_id,
@@ -928,6 +932,13 @@ impl PeerConnection {
             );
             return Ok(()); // Log and skip
         }
+
+        let local_device = match self.get_local_device().await {
+            Some(device) => device,
+            None => {
+                return Ok(()); // Log and skip
+            }
+        };
         self.repo_ctx
             .vector_clock_repo
             .increment_vector_clock(&resource_id, &local_device.id)

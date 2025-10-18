@@ -2,6 +2,7 @@
 	import { onMount, onDestroy, untrack } from "svelte";
 	import { dataState, uiState } from "../state";
 	import FullScreenViewer from "../lib/FullScreenViewer.svelte";
+	import SubmissionsViewer from "./SubmissionsViewer.svelte";
 	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
 	import ViewerWebsiteFolder from "./ViewerWebsiteFolder.svelte";
 	import ModeSwitcher from "./ModeSwitcher.svelte";
@@ -14,6 +15,7 @@
 	let blocks = $state<Map<string, any>>(new Map());
 	let showAddWebsiteModal = $state(false);
 	let isSyncing = $state(false);
+	let viewMode = $state<'content' | 'submissions'>('content');
 
 	// Get synced resources
 	const syncedResources = $derived(dataState.resources);
@@ -254,19 +256,49 @@
 			</div>
 		{/if}
 		<div class="viewer-main">
-			<button
-				class="refresh-button"
-				onclick={handleRefresh}
-				disabled={isSyncing}
-				title="Refresh and sync latest changes"
-			>
-				{#if isSyncing}
-					<span class="refresh-spinner"></span>
+			<div class="viewer-controls">
+				<div class="view-mode-toggle">
+					<button
+						class="toggle-btn {viewMode === 'content' ? 'active' : ''}"
+						onclick={() => viewMode = 'content'}
+					>
+						<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+							<path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+							<path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd" />
+						</svg>
+						Content
+					</button>
+					<button
+						class="toggle-btn {viewMode === 'submissions' ? 'active' : ''}"
+						onclick={() => viewMode = 'submissions'}
+					>
+						<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+							<path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm5 6a1 1 0 10-2 0v3.586l-1.293-1.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V8z" clip-rule="evenodd" />
+						</svg>
+						Submissions
+					</button>
+				</div>
+				<button
+					class="refresh-button"
+					onclick={handleRefresh}
+					disabled={isSyncing}
+					title="Refresh and sync latest changes"
+				>
+					{#if isSyncing}
+						<span class="refresh-spinner"></span>
+					{:else}
+						↻
+					{/if}
+				</button>
+			</div>
+
+			<div class="viewer-content">
+				{#if viewMode === 'content'}
+					<FullScreenViewer {blocks} ydoc={yDocs?.mainDoc} commentsDoc={yDocs?.commentsDoc} submissionsDoc={yDocs?.submissionsDoc} />
 				{:else}
-					↻
+					<SubmissionsViewer submissionsDoc={yDocs?.submissionsDoc} />
 				{/if}
-			</button>
-			<FullScreenViewer {blocks} ydoc={yDocs?.mainDoc} commentsDoc={yDocs?.commentsDoc} submissionsDoc={yDocs?.submissionsDoc} />
+			</div>
 		</div>
 	</div>
 {/if}
@@ -357,13 +389,60 @@
 		flex: 1;
 		overflow: hidden;
 		position: relative;
+		display: flex;
+		flex-direction: column;
+	}
+
+	.viewer-controls {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 1rem;
+		border-bottom: 1px solid #292a36;
+		background: #010409;
+		flex-shrink: 0;
+	}
+
+	.view-mode-toggle {
+		display: flex;
+		gap: 0.5rem;
+		background: #16171f;
+		border-radius: 8px;
+		padding: 0.25rem;
+		border: 1px solid #292a36;
+	}
+
+	.toggle-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.5rem 1rem;
+		background: transparent;
+		color: #8b949e;
+		border: none;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.toggle-btn:hover {
+		color: #c9d1d9;
+		background: rgba(138, 134, 229, 0.1);
+	}
+
+	.toggle-btn.active {
+		background: #8a86e5;
+		color: #0d0e13;
+	}
+
+	.toggle-btn svg {
+		width: 1rem;
+		height: 1rem;
 	}
 
 	.refresh-button {
-		position: absolute;
-		top: 1rem;
-		right: 1rem;
-		z-index: 1000;
 		width: 2.5rem;
 		height: 2.5rem;
 		border-radius: 50%;
@@ -388,6 +467,12 @@
 	.refresh-button:disabled {
 		opacity: 0.5;
 		cursor: not-allowed;
+	}
+
+	.viewer-content {
+		flex: 1;
+		overflow: hidden;
+		position: relative;
 	}
 
 	.refresh-spinner {

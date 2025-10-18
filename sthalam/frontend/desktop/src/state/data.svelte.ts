@@ -816,6 +816,11 @@ class DataState {
         // Parse JSON updates (following livnote pattern)
         const updatesJson = JSON.parse(updates);
         console.log("📦 Parsed multi-doc updates:", Object.keys(updatesJson));
+        console.log("📊 Update details:", {
+          blocksuite_doc: updatesJson.blocksuite_doc?.updates?.length || 0,
+          thread_comments_doc: updatesJson.thread_comments_doc?.updates?.length || 0,
+          form_submissions_doc: updatesJson.form_submissions_doc?.updates?.length || 0
+        });
 
         // Apply blocksuite_doc updates
         if (updatesJson.blocksuite_doc?.updates?.length > 0) {
@@ -836,6 +841,8 @@ class DataState {
           const updateArray = new Uint8Array(updatesJson.form_submissions_doc.updates);
           console.log(`📥 Applying form_submissions_doc update: ${updateArray.length} bytes`);
           coordinator.applyRemoteUpdate(updateArray, client_id, "form_submissions_doc");
+        } else if (updatesJson.form_submissions_doc) {
+          console.warn("⚠️ form_submissions_doc key exists but updates array is empty or missing:", updatesJson.form_submissions_doc);
         }
 
         console.log("✅ Applied all remote updates for resource:", resource_id);
