@@ -1,26 +1,12 @@
 <script lang="ts">
-	import type * as Y from "yjs";
-	import { untrack } from "svelte";
+	import { onMount, onDestroy } from "svelte";
+	import type { Submission, SubmissionsStore } from "../lib/submissionsStore";
 
-	interface Props {
-		submissionsDoc?: Y.Doc;
-	}
-
-	interface Submission {
-		id: string;
-		formId: string;
-		eventName: string;
-		data: Record<string, any>;
-		timestamp: number;
-	}
-
-	let { submissionsDoc }: Props = $props();
-
-	let submissionsBlocks = $state<Y.Map<any> | null>(null);
 	let allSubmissions = $state<Submission[]>([]);
 	let selectedEvent = $state<string>("all");
 	let uniqueEvents = $state<string[]>([]);
-	let observer: (() => void) | null = null;
+	let submissionsUnsubscribe: (() => void) | null = null;
+	let submissionsStore: SubmissionsStore | null = null;
 
 	// Filtered submissions based on selected event
 	const filteredSubmissions = $derived(() => {
@@ -30,32 +16,43 @@
 		return allSubmissions.filter((s) => s.eventName === selectedEvent);
 	});
 
-	// Load submissions from Yjs document
-	function loadSubmissions() {
-		if (!submissionsBlocks) return;
+	// Setup subscription to submissions store
+	function handleStoreReady(event: CustomEvent) {
+		const storeInstance = event.detail.submissionsStore;
+		setupSubmissionsSubscription(storeInstance);
+	}
 
-		const submissions: Submission[] = [];
-		const events = new Set<string>();
+	function setupSubmissionsSubscription(storeInstance: SubmissionsStore) {
+		// Clean up previous subscription
+		if (submissionsUnsubscribe) {
+			submissionsUnsubscribe();
+			submissionsUnsubscribe = null;
+		}
 
-		// Iterate through all keys in submissionsBlocks
-		submissionsBlocks.forEach((value, key) => {
-			// Keys are in format: ${formId}_submissions
-			if (key.endsWith("_submissions")) {
-				const items = value?.items || [];
-				items.forEach((item: Submission) => {
-					submissions.push(item);
-					if (item.eventName) {
-						events.add(item.eventName);
-					}
-				});
-			}
+		// Store reference
+		submissionsStore = storeInstance;
+
+		// Subscribe to updates
+		submissionsUnsubscribe = submissionsStore.subscribe(() => {
+			loadSubmissions();
 		});
+
+		// Get initial submissions
+		loadSubmissions();
+	}
+
+	// Load submissions from store
+	function loadSubmissions() {
+		if (!submissionsStore) return;
+
+		// Get all submissions from store
+		const submissions = submissionsStore.getAllSubmissions();
 
 		// Sort by timestamp (newest first)
 		submissions.sort((a, b) => b.timestamp - a.timestamp);
 
 		allSubmissions = submissions;
-		uniqueEvents = Array.from(events).sort();
+		uniqueEvents = submissionsStore.getUniqueEvents();
 
 		console.log("📊 Loaded submissions:", submissions.length, "Events:", uniqueEvents);
 	}
@@ -126,51 +123,25 @@
 		URL.revokeObjectURL(url);
 	}
 
-	// Use $effect to reload when submissionsDoc changes (e.g., when switching resources)
-	$effect(() => {
-		// Only track submissionsDoc, nothing else
-		const doc = submissionsDoc;
-		console.log("📊 [SUBMISSIONS EFFECT] submissionsDoc changed:", !!doc);
+	// Listen for store ready event (like livnote's pattern)
+	onMount(() => {
+		document.addEventListener(
+			"submissions-store-ready",
+			handleStoreReady as EventListener
+		);
 
-		// Use untrack to modify state without triggering infinite loops
-		untrack(() => {
-			// Cleanup previous observer
-			if (observer && submissionsBlocks) {
-				console.log("📊 [SUBMISSIONS CLEANUP] Unobserving previous submissionsBlocks");
-				submissionsBlocks.unobserve(observer);
-				observer = null;
-			}
-
-			// Clear previous state
-			submissionsBlocks = null;
-			allSubmissions = [];
-			selectedEvent = "all";
-			uniqueEvents = [];
-
-			if (doc) {
-				submissionsBlocks = doc.getMap("blocks");
-
-				// Initial load
-				loadSubmissions();
-
-				// Subscribe to changes
-				observer = () => {
-					loadSubmissions();
-				};
-				submissionsBlocks?.observe(observer);
-			}
-		});
-
-		// Cleanup when effect re-runs or component unmounts
 		return () => {
-			untrack(() => {
-				if (observer && submissionsBlocks) {
-					console.log("📊 [SUBMISSIONS CLEANUP] Unobserving on cleanup");
-					submissionsBlocks.unobserve(observer);
-					observer = null;
-				}
-			});
+			document.removeEventListener(
+				"submissions-store-ready",
+				handleStoreReady as EventListener
+			);
 		};
+	});
+
+	onDestroy(() => {
+		if (submissionsUnsubscribe) {
+			submissionsUnsubscribe();
+		}
 	});
 </script>
 

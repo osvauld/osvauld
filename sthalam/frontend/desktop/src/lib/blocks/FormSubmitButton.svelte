@@ -1,22 +1,37 @@
 <script lang="ts">
-	import type * as Y from 'yjs';
+	import { onMount, onDestroy } from 'svelte';
+	import type { SubmissionsStore } from '../submissionsStore';
 	import { dataState } from '../../state';
 	import { sendMessage } from '../../utils/helper';
 
 	interface Props {
 		blockId: string;
 		blockData: any;
-		ydoc: Y.Doc;
-		submissionsDoc?: Y.Doc;
 		allBlocks: Map<string, any>;
 		onNavigate?: (screenId: string) => void;
 	}
 
-	let { blockId, blockData, ydoc, submissionsDoc, allBlocks, onNavigate }: Props = $props();
+	let { blockId, blockData, allBlocks, onNavigate }: Props = $props();
+
+	let submissionsStore: SubmissionsStore | null = null;
 
 	let isSubmitting = $state(false);
 	let submitStatus = $state<'idle' | 'success' | 'error'>('idle');
 	let errorMessage = $state('');
+
+	// Setup subscription to submissions store
+	function handleStoreReady(event: CustomEvent) {
+		const storeInstance = event.detail.submissionsStore;
+
+		// Validate that the store is actually initialized
+		// The store might be passed but not set up if resource type doesn't support forms
+		if (storeInstance) {
+			submissionsStore = storeInstance;
+			console.log('📊 [FormSubmitButton] SubmissionsStore ready and initialized');
+		} else {
+			console.warn('📊 [FormSubmitButton] SubmissionsStore event received but store is null');
+		}
+	}
 
 	async function handleSubmit(e: Event) {
 		e.preventDefault();
@@ -81,25 +96,22 @@
 			const formMetadata = allBlocks.get(blockData.formId);
 			const eventName = formMetadata?.eventName || 'form_submission';
 
-			// 3. Save to Yjs submissionsDoc (form submissions)
-			// YjsManager will automatically detect this update and sync to sovereign node
-			if (submissionsDoc) {
-				submissionsDoc.transact(() => {
-					const submissionsBlocks = submissionsDoc.getMap('blocks');
-					const current = submissionsBlocks.get(`${blockData.formId}_submissions`) || { items: [] };
+			// 3. Save to SubmissionsStore
+			if (!submissionsStore) {
+				console.error('📊 SubmissionsStore not available - form submission feature may not be loaded yet');
+				errorMessage = 'Form submissions are not available. Please try again.';
+				submitStatus = 'error';
+				return;
+			}
 
-					const newSubmission = {
-						id: crypto.randomUUID(),
-						formId: blockData.formId,
-						eventName,
-						data: formData,
-						timestamp: Date.now()
-					};
-
-					submissionsBlocks.set(`${blockData.formId}_submissions`, {
-						items: [...current.items, newSubmission]
-					});
+			try {
+				submissionsStore.addSubmission(blockData.formId, {
+					formId: blockData.formId,
+					eventName,
+					data: formData
 				});
+
+				console.log('✅ Form submission added to store');
 
 				// Trigger immediate save
 				const currentResourceId = dataState.currentResourceId;
@@ -109,12 +121,17 @@
 					// Sync resource to P2P network after saving
 					try {
 						await sendMessage('syncResource', { resourceId: currentResourceId });
-						console.log('Form submission synced to P2P network');
+						console.log('✅ Form submission synced to P2P network');
 					} catch (syncError) {
 						console.error('Failed to sync form submission:', syncError);
 						// Don't fail the submission if sync fails
 					}
 				}
+			} catch (storeError) {
+				console.error('❌ Error adding submission to store:', storeError);
+				errorMessage = 'This resource type does not support form submissions';
+				submitStatus = 'error';
+				return;
 			}
 
 			// 4. Show success
@@ -152,6 +169,32 @@
 			}
 		}
 	}
+
+	// Listen for store ready event (like livnote's pattern)
+	onMount(() => {
+		// First, check if coordinator already exists (event may have already fired)
+		const coordinator = dataState.getBlocksuiteCoordinator();
+		if (coordinator) {
+			const existingStore = coordinator.getSubmissionsStore();
+			if (existingStore) {
+				console.log('📊 [FormSubmitButton] Found existing SubmissionsStore on mount');
+				submissionsStore = existingStore;
+			}
+		}
+
+		// Also listen for the event in case it fires later
+		document.addEventListener(
+			"submissions-store-ready",
+			handleStoreReady as EventListener
+		);
+
+		return () => {
+			document.removeEventListener(
+				"submissions-store-ready",
+				handleStoreReady as EventListener
+			);
+		};
+	});
 </script>
 
 <button

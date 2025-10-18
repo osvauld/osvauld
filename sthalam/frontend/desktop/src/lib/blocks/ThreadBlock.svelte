@@ -1,17 +1,22 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
 	import { marked } from 'marked';
 	import DOMPurify from 'dompurify';
-	import type * as Y from 'yjs';
+	import type { ThreadCommentsStore } from '../threadCommentsStore';
+	import type { BlocksuiteStore } from '../blocksuiteStore';
 	import { dataState } from '../../state';
 	import { sendMessage } from '../../utils/helper';
 
 	interface Props {
 		blockId: string;
-		ydoc: Y.Doc;
-		commentsDoc?: Y.Doc;
 	}
 
-	let { blockId, ydoc, commentsDoc }: Props = $props();
+	let { blockId }: Props = $props();
+
+	let blocksuiteStore: BlocksuiteStore | null = null;
+	let threadCommentsStore: ThreadCommentsStore | null = null;
+	let blocksuiteUnsubscribe: (() => void) | null = null;
+	let commentsUnsubscribe: (() => void) | null = null;
 
 	// State for main post
 	let mainPost = $state({
@@ -37,65 +42,92 @@
 	// Collapse/expand state
 	let isExpanded = $state(false);
 
-	// Observe mainDoc for thread post data
-	$effect(() => {
-		const mainBlocks = ydoc.getMap('blocks');
+	// Error state
+	let commentError = $state<string | null>(null);
 
-		const observer = () => {
-			const data = mainBlocks.get(blockId);
-			if (data) {
-				mainPost = {
-					content: data.content || '',
-					mode: data.mode || 'markdown',
-					css: data.css || '',
-					name: data.name || '',
-					description: data.description || ''
-				};
-			}
-		};
+	// Handle blocksuite store ready
+	function handleBlocksuiteStoreReady(event: CustomEvent) {
+		const storeInstance = event.detail.blocksuiteStore;
+		setupBlocksuiteSubscription(storeInstance);
+	}
 
-		mainBlocks.observe(observer);
-		observer(); // Initial load
+	function setupBlocksuiteSubscription(storeInstance: BlocksuiteStore) {
+		// Clean up previous subscription
+		if (blocksuiteUnsubscribe) {
+			blocksuiteUnsubscribe();
+			blocksuiteUnsubscribe = null;
+		}
 
-		return () => mainBlocks.unobserve(observer);
-	});
+		blocksuiteStore = storeInstance;
 
-	// Observe commentsDoc for comments
-	$effect(() => {
-		if (!commentsDoc) return;
+		// Subscribe to updates
+		blocksuiteUnsubscribe = blocksuiteStore.subscribe(() => {
+			loadBlockData();
+		});
 
-		const commentsBlocks = commentsDoc.getMap('blocks');
+		// Initial load
+		loadBlockData();
+	}
 
-		const observer = () => {
-			const data = commentsBlocks.get(`${blockId}_comments`);
-			if (data?.items && Array.isArray(data.items)) {
-				comments = data.items;
-			}
-		};
+	function loadBlockData() {
+		if (!blocksuiteStore) return;
 
-		commentsBlocks.observe(observer);
-		observer(); // Initial load
+		const data = blocksuiteStore.getBlock(blockId);
+		if (data) {
+			mainPost = {
+				content: data.content || '',
+				mode: data.mode || 'markdown',
+				css: data.css || '',
+				name: data.name || '',
+				description: data.description || ''
+			};
+		}
+	}
 
-		return () => commentsBlocks.unobserve(observer);
-	});
+	// Handle comments store ready
+	function handleCommentsStoreReady(event: CustomEvent) {
+		const storeInstance = event.detail.threadCommentsStore;
+		setupCommentsSubscription(storeInstance);
+	}
+
+	function setupCommentsSubscription(storeInstance: ThreadCommentsStore) {
+		// Clean up previous subscription
+		if (commentsUnsubscribe) {
+			commentsUnsubscribe();
+			commentsUnsubscribe = null;
+		}
+
+		threadCommentsStore = storeInstance;
+
+		// Subscribe to updates
+		commentsUnsubscribe = threadCommentsStore.subscribe(() => {
+			loadComments();
+		});
+
+		// Initial load
+		loadComments();
+	}
+
+	function loadComments() {
+		if (!threadCommentsStore) return;
+
+		comments = threadCommentsStore.getThreadComments(blockId);
+	}
 
 	async function submitComment() {
 		const content = commentInput.trim();
 
-		console.log('submitComment called:', {
-			content,
-			hasCommentsDoc: !!commentsDoc,
-			blockId
-		});
+		// Clear previous errors
+		commentError = null;
 
 		if (!content) {
 			console.warn('No content provided');
 			return;
 		}
 
-		if (!commentsDoc) {
-			console.error('commentsDoc is not available! Cannot add comment.');
-			alert('Comments are not available for this resource type.');
+		if (!threadCommentsStore) {
+			console.error('💬 ThreadCommentsStore is not available - comments feature may not be loaded yet');
+			commentError = 'Comments are not available. Please try again.';
 			return;
 		}
 
@@ -106,33 +138,19 @@
 		const username = dataState.userDetails?.username || 'Anonymous';
 		const userId = dataState.userDetails?.userId || '';
 
-		const newComment = {
-			id: crypto.randomUUID(),
-			author: username,
-			userId: userId,
-			content: sanitized,
-			timestamp: Date.now()
-		};
-
-		console.log('Adding comment:', newComment);
-
-		// Update Yjs commentsDoc
-		// YjsManager will automatically detect this update and sync to sovereign node
 		try {
-			commentsDoc.transact(() => {
-				const commentsBlocks = commentsDoc.getMap('blocks');
-				const current = commentsBlocks.get(`${blockId}_comments`) || { items: [] };
-				console.log('Current comments:', current);
-
-				commentsBlocks.set(`${blockId}_comments`, {
-					items: [...current.items, newComment]
-				});
-
-				console.log('Comment added to Yjs');
+			// Add comment using store
+			threadCommentsStore.addComment(blockId, {
+				author: username,
+				userId: userId,
+				content: sanitized
 			});
 
-			// Clear input
+			console.log('✅ Comment added via ThreadCommentsStore');
+
+			// Clear input and error
 			commentInput = '';
+			commentError = null;
 
 			// Expand comments section to show the new comment
 			isExpanded = true;
@@ -145,15 +163,15 @@
 				// Sync comment to P2P network after saving
 				try {
 					await sendMessage('syncResource', { resourceId: currentResourceId });
-					console.log('Comment synced to P2P network');
+					console.log('✅ Comment synced to P2P network');
 				} catch (syncError) {
 					console.error('Failed to sync comment:', syncError);
 					// Don't fail the comment submission if sync fails
 				}
 			}
 		} catch (error) {
-			console.error('Error adding comment:', error);
-			alert('Failed to add comment: ' + error.message);
+			console.error('❌ Error adding comment:', error);
+			commentError = 'Failed to add comment: ' + (error as Error).message;
 		}
 	}
 
@@ -171,6 +189,56 @@
 			? mainPost.content
 			: marked.parse(mainPost.content);
 		return DOMPurify.sanitize(raw);
+	});
+
+	// Listen for store ready events
+	onMount(() => {
+		// Check if coordinator and stores already exist (event may have already fired)
+		const coordinator = dataState.getBlocksuiteCoordinator();
+		if (coordinator) {
+			const existingBlocksuiteStore = coordinator.getBlocksuiteStore();
+			const existingCommentsStore = coordinator.getThreadCommentsStore();
+
+			if (existingBlocksuiteStore) {
+				console.log('💬 [ThreadBlock] Found existing BlocksuiteStore on mount');
+				setupBlocksuiteSubscription(existingBlocksuiteStore);
+			}
+
+			if (existingCommentsStore) {
+				console.log('💬 [ThreadBlock] Found existing ThreadCommentsStore on mount');
+				setupCommentsSubscription(existingCommentsStore);
+			}
+		}
+
+		// Also listen for future events
+		document.addEventListener(
+			"blocksuite-store-ready",
+			handleBlocksuiteStoreReady as EventListener
+		);
+		document.addEventListener(
+			"thread-comments-store-ready",
+			handleCommentsStoreReady as EventListener
+		);
+
+		return () => {
+			document.removeEventListener(
+				"blocksuite-store-ready",
+				handleBlocksuiteStoreReady as EventListener
+			);
+			document.removeEventListener(
+				"thread-comments-store-ready",
+				handleCommentsStoreReady as EventListener
+			);
+		};
+	});
+
+	onDestroy(() => {
+		if (blocksuiteUnsubscribe) {
+			blocksuiteUnsubscribe();
+		}
+		if (commentsUnsubscribe) {
+			commentsUnsubscribe();
+		}
 	});
 </script>
 
@@ -231,6 +299,11 @@
 		<div class="comment-form" class:first-comment={comments.length === 0}>
 			{#if comments.length === 0}
 				<p class="no-comments-label">Be the first to comment!</p>
+			{/if}
+			{#if commentError}
+				<div class="comment-error">
+					{commentError}
+				</div>
 			{/if}
 			<textarea
 				bind:value={commentInput}
@@ -520,5 +593,15 @@
 	button:disabled {
 		background: #94a3b8;
 		cursor: not-allowed;
+	}
+
+	.comment-error {
+		padding: 0.75rem;
+		background: #f8d7da;
+		color: #721c24;
+		border: 1px solid #f5c6cb;
+		border-radius: 6px;
+		font-size: 0.875rem;
+		margin-bottom: 0.75rem;
 	}
 </style>

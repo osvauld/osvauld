@@ -298,7 +298,7 @@
 				{#if viewMode === 'content'}
 					<FullScreenViewer {blocks} ydoc={yDocs?.mainDoc} commentsDoc={yDocs?.commentsDoc} submissionsDoc={yDocs?.submissionsDoc} />
 				{:else}
-					<SubmissionsViewer submissionsDoc={yDocs?.submissionsDoc} />
+					<SubmissionsViewer />
 				{/if}
 			</div>
 		</div>

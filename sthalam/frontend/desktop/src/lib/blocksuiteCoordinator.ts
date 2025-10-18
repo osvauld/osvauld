@@ -1,6 +1,9 @@
 import { YjsManager, type YjsManagerConfig } from "./yjsManager";
 import type { Block, Viewport, UserInfo } from "../types/blocksuite.types";
 import * as Y from "yjs";
+import { SubmissionsStore } from "./submissionsStore";
+import { ThreadCommentsStore } from "./threadCommentsStore";
+import { BlocksuiteStore } from "./blocksuiteStore";
 
 export interface BlocksuiteCoordinatorConfig {
   onCollaborationUpdate: (update: Uint8Array) => Promise<void>;
@@ -20,6 +23,11 @@ export class BlocksuiteCoordinator {
   private hasThreadBlocks: boolean = false; // Track if resource has thread blocks
   private hasFormBlocks: boolean = false; // Track if resource has form blocks
 
+  // Stores for managing different document types
+  private submissionsStore: SubmissionsStore;
+  private threadCommentsStore: ThreadCommentsStore;
+  private blocksuiteStore: BlocksuiteStore;
+
   constructor(config: BlocksuiteCoordinatorConfig) {
     console.log("🔨 BlocksuiteCoordinator constructor called with userInfo:", config.userInfo);
     this.config = config;
@@ -37,6 +45,13 @@ export class BlocksuiteCoordinator {
 
     console.log("🔨 Creating YjsManager...");
     this.yjsManager = new YjsManager(yjsConfig);
+
+    // Initialize stores
+    console.log("🔨 Creating stores...");
+    this.submissionsStore = new SubmissionsStore();
+    this.threadCommentsStore = new ThreadCommentsStore();
+    this.blocksuiteStore = new BlocksuiteStore();
+
     console.log("✅ BlocksuiteCoordinator constructor complete");
   }
 
@@ -76,7 +91,7 @@ export class BlocksuiteCoordinator {
 
       // Step 2: Reinitialize Yjs documents with resource type (destroys old, creates fresh)
       console.log("⏱️ [LOAD] Step 2: Reinitializing Yjs documents at", performance.now() - loadStartTime, "ms");
-      const docs = this.yjsManager.initialize(this.resourceType);
+      this.yjsManager.initialize(this.resourceType);
       console.log("⏱️ [LOAD] Yjs documents reinitialized at", performance.now() - loadStartTime, "ms");
       console.log("✅ Yjs documents reinitialized");
 
@@ -144,9 +159,45 @@ export class BlocksuiteCoordinator {
         }
       }
 
-      // Step 7: Dispatch blocksuite-ready event after all loading is complete
+      // Step 7: Set up stores with Yjs maps
+      console.log("⏱️ [LOAD] Step 7: Setting up stores at", performance.now() - loadStartTime, "ms");
+      const docs = this.yjsManager.getDocuments();
+      if (docs) {
+        // Set up blocksuite store (main doc blocks) - always available
+        this.blocksuiteStore.setBlocksMap(docs.blocks);
+
+        // Set up thread comments store (if available for this resource type)
+        if (docs.commentsBlocks && docs.commentsDoc) {
+          this.threadCommentsStore.setCommentsMap(docs.commentsBlocks, docs.commentsDoc);
+          console.log("✅ Thread comments store initialized");
+        } else {
+          console.log("ℹ️ Thread comments store not needed for this resource type");
+        }
+
+        // Set up submissions store (if available for this resource type)
+        if (docs.submissionsBlocks && docs.submissionsDoc) {
+          this.submissionsStore.setSubmissionsMap(docs.submissionsBlocks, docs.submissionsDoc);
+          console.log("✅ Submissions store initialized");
+        } else {
+          console.log("ℹ️ Submissions store not needed for this resource type");
+        }
+      }
+
+      // Step 8: Dispatch store-ready events (like livnote's pattern)
+      console.log("⏱️ [LOAD] Step 8: Dispatching store-ready events at", performance.now() - loadStartTime, "ms");
+      document.dispatchEvent(new CustomEvent('blocksuite-store-ready', {
+        detail: { blocksuiteStore: this.blocksuiteStore }
+      }));
+      document.dispatchEvent(new CustomEvent('submissions-store-ready', {
+        detail: { submissionsStore: this.submissionsStore }
+      }));
+      document.dispatchEvent(new CustomEvent('thread-comments-store-ready', {
+        detail: { threadCommentsStore: this.threadCommentsStore }
+      }));
+
+      // Step 9: Dispatch blocksuite-ready event after all loading is complete
       // This ensures the event fires even if there were no updates or they completed instantly
-      console.log("⏱️ [LOAD] Step 7: All loading complete, dispatching blocksuite-ready event at", performance.now() - loadStartTime, "ms");
+      console.log("⏱️ [LOAD] Step 9: All loading complete, dispatching blocksuite-ready event at", performance.now() - loadStartTime, "ms");
       console.log("✅ Blocksuite loading complete - dispatching ready event");
       console.log("🎉 [EVENT DISPATCH] Dispatching blocksuite-ready event NOW");
       document.dispatchEvent(new CustomEvent('blocksuite-ready', {
@@ -314,11 +365,37 @@ export class BlocksuiteCoordinator {
     return this.yjsManager.getDocuments();
   }
 
+  /**
+   * Get the submissions store
+   */
+  getSubmissionsStore(): SubmissionsStore {
+    return this.submissionsStore;
+  }
+
+  /**
+   * Get the thread comments store
+   */
+  getThreadCommentsStore(): ThreadCommentsStore {
+    return this.threadCommentsStore;
+  }
+
+  /**
+   * Get the blocksuite store
+   */
+  getBlocksuiteStore(): BlocksuiteStore {
+    return this.blocksuiteStore;
+  }
 
   /**
    * Clean up
    */
   destroy(): void {
+    // Destroy stores
+    this.submissionsStore.destroy();
+    this.threadCommentsStore.destroy();
+    this.blocksuiteStore.destroy();
+
+    // Destroy Yjs manager
     this.yjsManager.destroy();
   }
 }
