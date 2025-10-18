@@ -10,12 +10,15 @@
 	import type { YjsDocuments } from "../lib/yjsManager";
 	import type { Website } from "../types";
 	import { sendMessage } from "../utils/helper";
+	import type { BlocksuiteStore } from "../lib/blocksuiteStore";
 
 	let yDocs: YjsDocuments | null = null;
 	let blocks = $state<Map<string, any>>(new Map());
 	let showAddWebsiteModal = $state(false);
 	let isSyncing = $state(false);
 	let viewMode = $state<'content' | 'submissions'>('content');
+	let blocksuiteStore: BlocksuiteStore | null = null;
+	let blocksuiteUnsubscribe: (() => void) | null = null;
 
 	// Get synced resources
 	const syncedResources = $derived(dataState.resources);
@@ -96,37 +99,43 @@
 				blocks: docs.blocks.size
 			});
 
-			// Subscribe to blocks changes
-			const blocksObserver = () => {
-				if (!yDocs) return;
-				const newBlocks = new Map();
-				yDocs.blocks.forEach((value, key) => {
-					newBlocks.set(key, value);
+			// Get BlocksuiteStore and subscribe to it
+			const store = coordinator.getBlocksuiteStore();
+			if (store) {
+				// Clean up previous subscription
+				if (blocksuiteUnsubscribe) {
+					blocksuiteUnsubscribe();
+				}
+
+				blocksuiteStore = store;
+
+				// Subscribe to blocks changes via store
+				blocksuiteUnsubscribe = blocksuiteStore.subscribe(() => {
+					blocks = blocksuiteStore!.getAllBlocks();
 				});
-				blocks = newBlocks;
-			};
 
-			docs.blocks.observe(blocksObserver);
-
-			// Initial load
-			blocksObserver();
+				// Initial load from store
+				blocks = blocksuiteStore.getAllBlocks();
+				console.log("✅ [ViewerMode] Subscribed to BlocksuiteStore, got", blocks.size, "blocks");
+			}
 		});
 
 		// Cleanup function for this effect
 		return () => {
-			if (yDocs) {
-				// Store reference before clearing
-				const docsToCleanup = yDocs;
-				// Unobserve using the stored reference
-				const blocksObserver = () => {};
-				const viewportObserver = () => {};
-				// Note: We can't properly unobserve here because the observers are scoped
-				// This is acceptable as Yjs will clean up when docs are destroyed
+			// Unsubscribe from BlocksuiteStore
+			if (blocksuiteUnsubscribe) {
+				blocksuiteUnsubscribe();
+				blocksuiteUnsubscribe = null;
 			}
 		};
 	});
 
 	onDestroy(() => {
+		// Unsubscribe from BlocksuiteStore
+		if (blocksuiteUnsubscribe) {
+			blocksuiteUnsubscribe();
+		}
+
 		// Note: Coordinator cleanup is handled by dataState.clearAllState() when needed
 	});
 

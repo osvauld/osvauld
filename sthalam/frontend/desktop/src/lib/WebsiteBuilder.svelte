@@ -8,12 +8,15 @@
 	import NavigationPanel from "../components/NavigationPanel.svelte";
 	import NavigationToggle from "../components/NavigationToggle.svelte";
 	import type { YjsDocuments } from "./yjsManager";
+	import type { BlocksuiteStore } from "./blocksuiteStore";
 
 	let yDocs: YjsDocuments | null = null;
 	let blocks = $state<Map<string, any>>(new Map());
 	let viewport = $state({ x: 0, y: 0, zoom: 1 });
 	let selectedBlockId = $state<string | null>(null);
 	let autoSaveInterval: number | null = null;
+	let blocksuiteStore: BlocksuiteStore | null = null;
+	let blocksuiteUnsubscribe: (() => void) | null = null;
 
 	const selectedBlock = $derived(
 		selectedBlockId ? blocks.get(selectedBlockId) || null : null
@@ -82,18 +85,29 @@
 				}
 			});
 
-			console.log("⏱️ [EFFECT] Setting up observers at", performance.now() - effectStartTime, "ms");
-			// Subscribe to blocks changes
-			const blocksObserver = () => {
-				if (!yDocs) return;
-				const newBlocks = new Map();
-				yDocs.blocks.forEach((value, key) => {
-					newBlocks.set(key, value);
-				});
-				blocks = newBlocks;
-			};
+			console.log("⏱️ [EFFECT] Setting up BlocksuiteStore subscription at", performance.now() - effectStartTime, "ms");
 
-			// Subscribe to viewport changes
+			// Get BlocksuiteStore and subscribe to it
+			const store = coordinator.getBlocksuiteStore();
+			if (store) {
+				// Clean up previous subscription
+				if (blocksuiteUnsubscribe) {
+					blocksuiteUnsubscribe();
+				}
+
+				blocksuiteStore = store;
+
+				// Subscribe to blocks changes via store
+				blocksuiteUnsubscribe = blocksuiteStore.subscribe(() => {
+					blocks = blocksuiteStore!.getAllBlocks();
+				});
+
+				// Initial load from store
+				blocks = blocksuiteStore.getAllBlocks();
+				console.log("✅ Subscribed to BlocksuiteStore, got", blocks.size, "blocks");
+			}
+
+			// Subscribe to viewport changes (still direct Yjs - no ViewportStore needed)
 			const viewportObserver = () => {
 				if (!yDocs) return;
 				viewport = {
@@ -103,15 +117,13 @@
 				};
 			};
 
-			console.log("⏱️ [EFFECT] Attaching observers at", performance.now() - effectStartTime, "ms");
-			docs.blocks.observe(blocksObserver);
+			console.log("⏱️ [EFFECT] Attaching viewport observer at", performance.now() - effectStartTime, "ms");
 			docs.viewport.observe(viewportObserver);
 
-			console.log("⏱️ [EFFECT] Running initial observers at", performance.now() - effectStartTime, "ms");
-			// Initial load
-			blocksObserver();
+			console.log("⏱️ [EFFECT] Running initial viewport observer at", performance.now() - effectStartTime, "ms");
+			// Initial viewport load
 			viewportObserver();
-			console.log("⏱️ [EFFECT] Initial observers complete at", performance.now() - effectStartTime, "ms");
+			console.log("⏱️ [EFFECT] Initial setup complete at", performance.now() - effectStartTime, "ms");
 
 			console.log("⏱️ [EFFECT] Starting autosave timer at", performance.now() - effectStartTime, "ms");
 			// Start autosave timer for this resource (60 second interval)
@@ -139,14 +151,10 @@
 				autoSaveInterval = null;
 			}
 
-			if (yDocs) {
-				// Store reference before clearing
-				const docsToCleanup = yDocs;
-				// Unobserve using the stored reference
-				const blocksObserver = () => {};
-				const viewportObserver = () => {};
-				// Note: We can't properly unobserve here because the observers are scoped
-				// This is acceptable as Yjs will clean up when docs are destroyed
+			// Unsubscribe from BlocksuiteStore
+			if (blocksuiteUnsubscribe) {
+				blocksuiteUnsubscribe();
+				blocksuiteUnsubscribe = null;
 			}
 		};
 	});
@@ -165,6 +173,11 @@
 		if (autoSaveInterval !== null) {
 			clearInterval(autoSaveInterval);
 			autoSaveInterval = null;
+		}
+
+		// Unsubscribe from BlocksuiteStore
+		if (blocksuiteUnsubscribe) {
+			blocksuiteUnsubscribe();
 		}
 
 		// Note: Coordinator cleanup is handled by dataState.clearAllState() when needed
