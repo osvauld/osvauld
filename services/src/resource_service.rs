@@ -537,6 +537,7 @@ pub async fn process_incremental_resource_sync(
     let modified_sync = serde_json::to_string(&viewer_data)
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
+    info!("modified {:?}", modified_sync);
     // 5. Apply form submissions to DB and generate response for viewer
     // This will:
     // - Merge form_submissions_doc into database
@@ -580,7 +581,7 @@ pub async fn apply_and_generate_viewer_updates(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
-    // Apply updates from node and get response
+    // Apply ALL updates from node (including blocksuite_doc) and get response
     let response = apply_updates_and_get_peer_updates(
         resource_id,
         user_id,
@@ -590,16 +591,21 @@ pub async fn apply_and_generate_viewer_updates(
     )
     .await?;
 
-    // Parse and keep only thread_comments_doc (remove website and forms)
+    // Parse response
     let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&response)
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
-    // Remove blocksuite_doc (viewer is read-only for website content)
-    parsed.remove("blocksuite_doc");
-    // Remove form_submissions_doc (viewer → node only, not bidirectional)
-    parsed.remove("form_submissions_doc");
+    // For blocksuite_doc: Keep state_vector (so node knows what to send), but empty updates (viewer is read-only)
+    if let Some(blocksuite) = parsed.get_mut("blocksuite_doc").and_then(|v| v.as_object_mut()) {
+        blocksuite.insert("updates".to_string(), serde_json::Value::Array(vec![]));
+    }
 
-    // Only thread_comments_doc remains for bidirectional sync
+    // For form_submissions_doc: Keep state_vector, but empty updates (node doesn't send this back)
+    if let Some(form_doc) = parsed.get_mut("form_submissions_doc").and_then(|v| v.as_object_mut()) {
+        form_doc.insert("updates".to_string(), serde_json::Value::Array(vec![]));
+    }
+
+    // thread_comments_doc remains unchanged for bidirectional sync
     Ok(serde_json::to_string(&parsed)
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)
 }
@@ -654,11 +660,34 @@ pub async fn apply_updates_and_get_peer_updates(
     let (mut decrypted_resource, encrypted_key) =
         get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
 
-    info!("decrypted resource {:?}", &decrypted_resource);
+    info!("BEFORE sync_updates - decrypted_resource.data: {:?}", decrypted_resource.data);
+
+    // Check form_submissions_doc before sync
+    if let Some(data_obj) = decrypted_resource.data.as_object() {
+        if let Some(form_data) = data_obj.get("form_submissions_doc") {
+            info!("BEFORE: form_submissions_doc exists! Length: {}",
+                form_data.as_array().map(|a| a.len()).unwrap_or(0));
+        } else {
+            info!("BEFORE: form_submissions_doc does NOT exist in data!");
+        }
+    }
+
     let remote_updates = decrypted_resource
         .sync_updates(updates)
         .await
         .map_err(|e| ResourceServiceError::ParseError(e))?;
+
+    info!("AFTER sync_updates - decrypted_resource.data: {:?}", decrypted_resource.data);
+
+    // Check form_submissions_doc after sync
+    if let Some(data_obj) = decrypted_resource.data.as_object() {
+        if let Some(form_data) = data_obj.get("form_submissions_doc") {
+            info!("AFTER: form_submissions_doc exists! Length: {}",
+                form_data.as_array().map(|a| a.len()).unwrap_or(0));
+        } else {
+            info!("AFTER: form_submissions_doc does NOT exist in data!");
+        }
+    }
 
     let encrypted_data = {
         let crypto = crypto_utils.read().await;

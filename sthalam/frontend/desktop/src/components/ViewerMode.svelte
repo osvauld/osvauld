@@ -67,11 +67,13 @@
 			console.log("❌ No resource selected - clearing workspace");
 			yDocs = null;
 			blocks = new Map();
+			viewMode = 'content'; // Reset to content view
 			return;
 		}
 
-		// Resource selected - get fresh documents from coordinator
+		// Resource selected - reset to content view and get fresh documents
 		console.log("✅ Resource selected - setting up workspace");
+		viewMode = 'content'; // Reset to content view when switching resources
 
 		// Use untracked to avoid infinite loops
 		untrack(() => {

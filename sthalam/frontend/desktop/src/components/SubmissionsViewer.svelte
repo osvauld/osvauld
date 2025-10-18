@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type * as Y from "yjs";
-	import { onMount, onDestroy } from "svelte";
+	import { untrack } from "svelte";
 
 	interface Props {
 		submissionsDoc?: Y.Doc;
@@ -20,6 +20,7 @@
 	let allSubmissions = $state<Submission[]>([]);
 	let selectedEvent = $state<string>("all");
 	let uniqueEvents = $state<string[]>([]);
+	let observer: (() => void) | null = null;
 
 	// Filtered submissions based on selected event
 	const filteredSubmissions = $derived(() => {
@@ -125,24 +126,51 @@
 		URL.revokeObjectURL(url);
 	}
 
-	onMount(() => {
-		if (submissionsDoc) {
-			submissionsBlocks = submissionsDoc.getMap("blocks");
+	// Use $effect to reload when submissionsDoc changes (e.g., when switching resources)
+	$effect(() => {
+		// Only track submissionsDoc, nothing else
+		const doc = submissionsDoc;
+		console.log("📊 [SUBMISSIONS EFFECT] submissionsDoc changed:", !!doc);
 
-			// Initial load
-			loadSubmissions();
+		// Use untrack to modify state without triggering infinite loops
+		untrack(() => {
+			// Cleanup previous observer
+			if (observer && submissionsBlocks) {
+				console.log("📊 [SUBMISSIONS CLEANUP] Unobserving previous submissionsBlocks");
+				submissionsBlocks.unobserve(observer);
+				observer = null;
+			}
 
-			// Subscribe to changes
-			const observer = () => {
+			// Clear previous state
+			submissionsBlocks = null;
+			allSubmissions = [];
+			selectedEvent = "all";
+			uniqueEvents = [];
+
+			if (doc) {
+				submissionsBlocks = doc.getMap("blocks");
+
+				// Initial load
 				loadSubmissions();
-			};
-			submissionsBlocks?.observe(observer);
 
-			// Cleanup
-			return () => {
-				submissionsBlocks?.unobserve(observer);
-			};
-		}
+				// Subscribe to changes
+				observer = () => {
+					loadSubmissions();
+				};
+				submissionsBlocks?.observe(observer);
+			}
+		});
+
+		// Cleanup when effect re-runs or component unmounts
+		return () => {
+			untrack(() => {
+				if (observer && submissionsBlocks) {
+					console.log("📊 [SUBMISSIONS CLEANUP] Unobserving on cleanup");
+					submissionsBlocks.unobserve(observer);
+					observer = null;
+				}
+			});
+		};
 	});
 </script>
 

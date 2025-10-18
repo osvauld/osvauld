@@ -141,24 +141,28 @@ impl DecryptedResource {
         let mut result_updates = serde_json::Map::new();
 
         for state_key in self.resource_type.document_state_keys() {
-            if let Some(our_state_data) = self.get_document_state(state_key) {
-                if let Some(doc_data) = input_json.get(state_key) {
-                    let mut doc = create_doc();
+            if let Some(doc_data) = input_json.get(state_key) {
+                // Get our current state, or empty if document doesn't exist yet
+                let our_state_data = self.get_document_state(state_key).unwrap_or_default();
+
+                let mut doc = create_doc();
+                if !our_state_data.is_empty() {
                     doc.apply_update_v2(&our_state_data).await?;
+                }
 
-                    // Parse input updates and state vector
-                    let input_updates: Vec<u8> = doc_data
-                        .get("updates")
-                        .and_then(|u| u.as_array())
-                        .map(|array| {
-                            array
-                                .iter()
-                                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                                .collect()
-                        })
-                        .unwrap_or_default();
+                // Parse input updates and state vector
+                let input_updates: Vec<u8> = doc_data
+                    .get("updates")
+                    .and_then(|u| u.as_array())
+                    .map(|array| {
+                        array
+                            .iter()
+                            .filter_map(|v| v.as_u64().map(|n| n as u8))
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
-                    let input_state_vector: Vec<u8> = doc_data
+                let input_state_vector: Vec<u8> = doc_data
                         .get("state_vector")
                         .and_then(|sv| sv.as_array())
                         .map(|array| {
@@ -184,49 +188,30 @@ impl DecryptedResource {
                         let updates_for_peer = doc.get_diff_update_v2(&input_state_vector).await?;
                         let current_state_vector = doc.get_state_vector_v2().await;
 
-                        // Special handling for Website form_submissions_doc
-                        // Always apply incoming form data, but return empty updates
-                        if self.resource_type == ResourceType::Website
-                            && state_key == "form_submissions_doc"
-                        {
-                            // Return empty updates for form submissions (node doesn't send form data back to viewer)
-                            let mut doc_result = serde_json::Map::new();
-                            doc_result
-                                .insert("updates".to_string(), serde_json::Value::Array(vec![]));
-                            doc_result.insert(
-                                "state_vector".to_string(),
-                                serde_json::Value::Array(vec![]),
-                            );
-                            result_updates.insert(
-                                state_key.to_string(),
-                                serde_json::Value::Object(doc_result),
-                            );
-                        } else {
-                            // Normal flow: return both updates and current state vector
-                            let updates_array: Vec<serde_json::Value> = updates_for_peer
-                                .iter()
-                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                                .collect();
+                        // Normal flow: return both updates and current state vector
+                        let updates_array: Vec<serde_json::Value> = updates_for_peer
+                            .iter()
+                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                            .collect();
 
-                            let state_vector_array: Vec<serde_json::Value> = current_state_vector
-                                .iter()
-                                .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                                .collect();
+                        let state_vector_array: Vec<serde_json::Value> = current_state_vector
+                            .iter()
+                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                            .collect();
 
-                            let mut doc_result = serde_json::Map::new();
-                            doc_result.insert(
-                                "updates".to_string(),
-                                serde_json::Value::Array(updates_array),
-                            );
-                            doc_result.insert(
-                                "state_vector".to_string(),
-                                serde_json::Value::Array(state_vector_array),
-                            );
-                            result_updates.insert(
-                                state_key.to_string(),
-                                serde_json::Value::Object(doc_result),
-                            );
-                        }
+                        let mut doc_result = serde_json::Map::new();
+                        doc_result.insert(
+                            "updates".to_string(),
+                            serde_json::Value::Array(updates_array),
+                        );
+                        doc_result.insert(
+                            "state_vector".to_string(),
+                            serde_json::Value::Array(state_vector_array),
+                        );
+                        result_updates.insert(
+                            state_key.to_string(),
+                            serde_json::Value::Object(doc_result),
+                        );
                     }
 
                     // Update our resource data if doc was modified
@@ -245,7 +230,6 @@ impl DecryptedResource {
                         }
                     }
                 }
-            }
         }
 
         serde_json::to_string(&result_updates)
