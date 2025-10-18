@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import type { Submission, SubmissionsStore } from "../lib/submissionsStore";
+	import Dropdown from "./Dropdown.svelte";
 
 	let allSubmissions = $state<Submission[]>([]);
 	let selectedEvent = $state<string>("all");
@@ -90,6 +91,28 @@
 		return Array.from(fields).sort();
 	});
 
+	// Dropdown options for event filter
+	const eventOptions = $derived(() => {
+		const options = [
+			{
+				value: "all",
+				label: "All Events",
+				count: allSubmissions.length
+			}
+		];
+
+		uniqueEvents.forEach(event => {
+			const count = allSubmissions.filter((s) => s.eventName === event).length;
+			options.push({
+				value: event,
+				label: event,
+				count
+			});
+		});
+
+		return options;
+	});
+
 	// Export submissions as CSV
 	function exportToCSV() {
 		const submissions = filteredSubmissions();
@@ -163,17 +186,12 @@
 			<!-- Event Filter Dropdown -->
 			<div class="filter-group">
 				<label for="event-filter">Filter by Event:</label>
-				<select
-					id="event-filter"
+				<Dropdown
 					bind:value={selectedEvent}
-					class="event-select"
-				>
-					<option value="all">All Events ({allSubmissions.length})</option>
-					{#each uniqueEvents as event}
-						{@const count = allSubmissions.filter((s) => s.eventName === event).length}
-						<option value={event}>{event} ({count})</option>
-					{/each}
-				</select>
+					options={eventOptions()}
+					onChange={(value) => selectedEvent = value || "all"}
+					class="event-dropdown"
+				/>
 			</div>
 
 			<!-- Export Buttons -->
@@ -296,21 +314,8 @@
 		white-space: nowrap;
 	}
 
-	.event-select {
-		padding: 0.5rem 0.75rem;
-		background: #16171f;
-		color: #c9d1d9;
-		border: 1px solid #292a36;
-		border-radius: 6px;
-		font-size: 0.875rem;
-		cursor: pointer;
+	.filter-group :global(.event-dropdown) {
 		min-width: 200px;
-	}
-
-	.event-select:focus {
-		outline: none;
-		border-color: #8a86e5;
-		box-shadow: 0 0 0 1px #8a86e5;
 	}
 
 	.export-buttons {

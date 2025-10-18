@@ -3,6 +3,7 @@
 	import { sendMessage } from "../utils/helper";
 	import { onMount, onDestroy } from "svelte";
 	import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
+	import Dropdown from "./Dropdown.svelte";
 
 	interface User {
 		username: string;
@@ -179,6 +180,27 @@
 			unlisten();
 		}
 	});
+
+	// Dropdown options for sovereign node selection
+	const nodeOptions = $derived(() => {
+		const options = [
+			{
+				value: null as string | null,
+				label: "-- Select a node --",
+				disabled: true
+			}
+		];
+
+		existingUsers.forEach(user => {
+			options.push({
+				value: user.id,
+				label: user.username,
+				disabled: false
+			});
+		});
+
+		return options;
+	});
 </script>
 
 {#if show}
@@ -299,15 +321,12 @@
 				<!-- Select Sovereign Node -->
 				<div class="mb-3">
 					<label class="block text-xs text-textActive mb-2">Select Node:</label>
-					<select
+					<Dropdown
 						bind:value={selectedSovereignNodeId}
-						class="w-full px-3 py-2 bg-osvauld-fieldActive text-white rounded-lg text-sm border border-osvauld-activeBorder focus:outline-none focus:ring-1 focus:ring-livnotePink"
-					>
-						<option value={null}>-- Select a node --</option>
-						{#each existingUsers as user}
-							<option value={user.id}>{user.username}</option>
-						{/each}
-					</select>
+						options={nodeOptions()}
+						onChange={(value) => selectedSovereignNodeId = value}
+						placeholder="-- Select a node --"
+					/>
 				</div>
 
 				<button
