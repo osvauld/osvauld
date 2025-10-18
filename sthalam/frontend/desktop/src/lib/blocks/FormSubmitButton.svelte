@@ -116,9 +116,11 @@
 				// Trigger immediate save
 				const currentResourceId = dataState.currentResourceId;
 				if (currentResourceId) {
-					dataState.saveCurrentResource(currentResourceId);
+					// IMPORTANT: Wait for save to complete before syncing
+					await dataState.saveCurrentResource(currentResourceId);
+					console.log('✅ Form submission saved to database');
 
-					// Sync resource to P2P network after saving
+					// Sync resource to P2P network after saving completes
 					try {
 						await sendMessage('syncResource', { resourceId: currentResourceId });
 						console.log('✅ Form submission synced to P2P network');

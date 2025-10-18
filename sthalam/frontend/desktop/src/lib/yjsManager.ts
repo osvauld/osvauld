@@ -206,6 +206,14 @@ export class YjsManager {
       targetDoc = this.documents.mainDoc;
     }
 
+    // Track byte size changes for form_submissions_doc
+    let beforeSize = 0;
+    let afterSize = 0;
+    if (docType === 'form_submissions_doc' && this.documents.submissionsDoc) {
+      beforeSize = Y.encodeStateAsUpdateV2(targetDoc).length;
+      console.log(`📊 [YjsManager] form_submissions_doc BEFORE applying update: ${beforeSize} bytes`);
+    }
+
     // For loading large documents (>50KB), defer to next frame to keep UI responsive
     if (origin === 'loading' && updateArray.length > 50000) {
       console.log(`⚡ Deferring large update (${(updateArray.length / 1024).toFixed(1)}KB) to next frame...`);
@@ -216,12 +224,26 @@ export class YjsManager {
             Y.applyUpdateV2(targetDoc, updateArray, origin);
           }, origin);
           console.log(`✅ Deferred update applied`);
+
+          // Log size change for form_submissions_doc
+          if (docType === 'form_submissions_doc' && this.documents?.submissionsDoc) {
+            afterSize = Y.encodeStateAsUpdateV2(targetDoc).length;
+            console.log(`📊 [YjsManager] form_submissions_doc AFTER applying update: ${afterSize} bytes (diff: ${afterSize - beforeSize})`);
+          }
+
           resolve();
         });
       });
     } else {
       // Small updates or sync updates - apply immediately
       Y.applyUpdateV2(targetDoc, updateArray, origin);
+
+      // Log size change for form_submissions_doc
+      if (docType === 'form_submissions_doc' && this.documents.submissionsDoc) {
+        afterSize = Y.encodeStateAsUpdateV2(targetDoc).length;
+        console.log(`📊 [YjsManager] form_submissions_doc AFTER applying update: ${afterSize} bytes (diff: ${afterSize - beforeSize})`);
+      }
+
       return Promise.resolve();
     }
   }

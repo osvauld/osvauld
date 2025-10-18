@@ -840,7 +840,24 @@ class DataState {
         if (updatesJson.form_submissions_doc?.updates?.length > 0) {
           const updateArray = new Uint8Array(updatesJson.form_submissions_doc.updates);
           console.log(`📥 Applying form_submissions_doc update: ${updateArray.length} bytes`);
+
+          // Check submissions count BEFORE applying update
+          const submissionsStore = coordinator.getSubmissionsStore();
+          let beforeCount = 0;
+          let afterCount = 0;
+
+          if (submissionsStore) {
+            beforeCount = submissionsStore.getAllSubmissions().length;
+            console.log(`📊 BEFORE applying update: ${beforeCount} submissions`);
+          }
+
           coordinator.applyRemoteUpdate(updateArray, client_id, "form_submissions_doc");
+
+          // Check submissions count AFTER applying update
+          if (submissionsStore) {
+            afterCount = submissionsStore.getAllSubmissions().length;
+            console.log(`📊 AFTER applying update: ${afterCount} submissions (changed: ${afterCount !== beforeCount})`);
+          }
         } else if (updatesJson.form_submissions_doc) {
           console.warn("⚠️ form_submissions_doc key exists but updates array is empty or missing:", updatesJson.form_submissions_doc);
         }

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy, untrack } from "svelte";
 	import { dataState } from "../state";
+	import { sendMessage } from "../utils/helper";
 	import NavigationPanel from "../components/NavigationPanel.svelte";
 	import ThreadPost from "./ThreadPost.svelte";
 	import CommentList from "./CommentList.svelte";
@@ -179,7 +180,7 @@
 		}
 	}
 
-	function addComment(content: string, mode: string, css: string, parentId?: string) {
+	async function addComment(content: string, mode: string, css: string, parentId?: string) {
 		if (!yDocs || !yDocs.secondaryBlocks) return;
 		const id = `comment-${Date.now()}`;
 		const newBlock = {
@@ -195,6 +196,23 @@
 		};
 		// NEW: Add to secondaryDoc (comments)
 		yDocs.secondaryBlocks.set(id, newBlock);
+
+		// Trigger immediate save and sync after adding comment
+		const currentResourceId = dataState.currentResourceId;
+		if (currentResourceId) {
+			try {
+				// IMPORTANT: Wait for save to complete before syncing
+				await dataState.saveCurrentResource(currentResourceId);
+				console.log('✅ Comment saved to database');
+
+				// Sync resource to P2P network after saving completes
+				await sendMessage('syncResource', { resourceId: currentResourceId });
+				console.log('✅ Comment synced to P2P network');
+			} catch (error) {
+				console.error('Failed to save/sync comment:', error);
+				// Don't fail the comment addition if save/sync fails
+			}
+		}
 	}
 
 	function updateComment(commentId: string, updates: any) {

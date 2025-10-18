@@ -153,9 +153,16 @@ export class BlocksuiteCoordinator {
           : (data.form_submissions_doc.updates ? new Uint8Array(data.form_submissions_doc.updates) : null);
 
         if (submissionsUpdates && submissionsUpdates.length > 0) {
-          console.log(`📥 Applying form_submissions_doc updates (${submissionsUpdates.length} bytes)`);
+          console.log(`📥 [LOAD] Applying form_submissions_doc updates from backend: ${submissionsUpdates.length} bytes`);
           await this.yjsManager.applyUpdate(submissionsUpdates, "loading", "form_submissions_doc");
           console.log("⏱️ [LOAD] Submissions doc updates applied at", performance.now() - loadStartTime, "ms");
+
+          // Log the final size after loading
+          const docs = this.yjsManager.getDocuments();
+          if (docs?.submissionsDoc) {
+            const finalSize = Y.encodeStateAsUpdateV2(docs.submissionsDoc).length;
+            console.log(`📊 [LOAD] form_submissions_doc total size after loading: ${finalSize} bytes`);
+          }
         }
       }
 

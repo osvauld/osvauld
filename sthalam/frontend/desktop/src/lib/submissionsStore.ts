@@ -39,7 +39,16 @@ export class SubmissionsStore {
    * Handle changes to submissions
    */
   private handleSubmissionsChange = (): void => {
-    console.log("📊 [SubmissionsStore] Yjs change detected, notifying observers");
+    console.log("📊 [SubmissionsStore] Yjs change detected!");
+
+    // Log what changed
+    if (this.submissionsBlocks) {
+      const allSubmissions = this.getAllSubmissions();
+      console.log("📊 [SubmissionsStore] Total submissions after change:", allSubmissions.length);
+      console.log("📊 [SubmissionsStore] Submissions:", allSubmissions);
+    }
+
+    console.log("📊 [SubmissionsStore] Notifying", this.observers.size, "observers");
     this.notifyObservers();
   };
 
@@ -47,23 +56,46 @@ export class SubmissionsStore {
    * Get all submissions from all forms
    */
   getAllSubmissions(): Submission[] {
+    console.log("📊 [SubmissionsStore.getAllSubmissions] Called");
+
     if (!this.submissionsBlocks) {
+      console.log("📊 [SubmissionsStore.getAllSubmissions] No submissionsBlocks!");
       return [];
     }
 
     const submissions: Submission[] = [];
 
+    console.log("📊 [SubmissionsStore.getAllSubmissions] submissionsBlocks size:", this.submissionsBlocks.size);
+
+    // Log all keys in the map
+    const allKeys: string[] = [];
+    this.submissionsBlocks.forEach((value, key) => {
+      allKeys.push(key);
+    });
+    console.log("📊 [SubmissionsStore.getAllSubmissions] All keys in map:", allKeys);
+
     // Iterate through all keys in submissionsBlocks
     this.submissionsBlocks.forEach((value, key) => {
+      console.log("📊 [SubmissionsStore.getAllSubmissions] Checking key:", key, "value type:", typeof value, "value:", value);
+
       // Keys are in format: ${formId}_submissions
       if (key.endsWith("_submissions")) {
         const items = value?.items || [];
+        console.log("📊 [SubmissionsStore.getAllSubmissions] Found", items.length, "items for key:", key);
+        if (items.length > 0) {
+          console.log("📊 [SubmissionsStore.getAllSubmissions] First item:", items[0]);
+        }
         items.forEach((item: Submission) => {
           submissions.push(item);
         });
       }
     });
 
+    console.log("📊 [SubmissionsStore.getAllSubmissions] Returning", submissions.length, "submissions");
+    if (submissions.length > 0) {
+      console.log("📊 [SubmissionsStore.getAllSubmissions] First submission:", submissions[0]);
+      console.log("📊 [SubmissionsStore.getAllSubmissions] Last submission:", submissions[submissions.length - 1]);
+    }
     return submissions;
   }
 
@@ -134,7 +166,11 @@ export class SubmissionsStore {
    * Notify all observers
    */
   private notifyObservers(): void {
-    this.observers.forEach((callback) => callback());
+    console.log("📊 [SubmissionsStore] Calling", this.observers.size, "observer callbacks");
+    this.observers.forEach((callback, index) => {
+      console.log("📊 [SubmissionsStore] Calling observer callback", index);
+      callback();
+    });
   }
 
   /**

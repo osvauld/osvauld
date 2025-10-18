@@ -8,7 +8,6 @@ use chrono::Local;
 use log::info;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Resource {
     pub id: String,
@@ -97,6 +96,60 @@ impl DecryptedResource {
             })
     }
 
+    /// Encode the entire document state as a YJS update
+    /// This is useful for one-way sync where you want to send the complete document state
+    /// The returned update can be applied to an empty document to recreate the full state
+    pub async fn encode_state_as_update(&self, state_key: &str) -> Result<Vec<u8>, String> {
+        // Get the current document state
+        let state_data = self.get_document_state(state_key).unwrap_or_default();
+
+        if state_data.is_empty() {
+            // If there's no state, return an empty update
+            return Ok(vec![]);
+        }
+
+        // Create a new YJS document and apply the state
+        let mut doc = create_doc();
+        doc.apply_update_v2(&state_data).await?;
+
+        // Get the entire state encoded as an update
+        // This update can be applied to an empty document
+        let update = doc.get_state_as_update_v2().await;
+
+        Ok(update)
+    }
+
+    /// Generate diff update based on a peer's state vector
+    /// This is the CORRECT way to do one-way sync - only send what the peer doesn't have
+    pub async fn get_diff_update(
+        &self,
+        state_key: &str,
+        peer_state_vector: &[u8],
+    ) -> Result<Vec<u8>, String> {
+        // Get the current document state
+        let state_data = self.get_document_state(state_key).unwrap_or_default();
+
+        if state_data.is_empty() {
+            // If we have no state, return empty update
+            return Ok(vec![]);
+        }
+
+        // Create a YJS document with our current state
+        let mut doc = create_doc();
+        doc.apply_update_v2(&state_data).await?;
+
+        // Generate only the updates the peer doesn't have
+        let diff_update = if peer_state_vector.is_empty() {
+            // Peer has nothing, send everything
+            doc.get_state_as_update_v2().await
+        } else {
+            // Peer has some state, send only the diff
+            doc.get_diff_update_v2(peer_state_vector).await?
+        };
+
+        Ok(diff_update)
+    }
+
     pub async fn get_state_vectors(&self) -> Result<String, String> {
         let mut result = serde_json::Map::new();
 
@@ -163,73 +216,69 @@ impl DecryptedResource {
                     .unwrap_or_default();
 
                 let input_state_vector: Vec<u8> = doc_data
-                        .get("state_vector")
-                        .and_then(|sv| sv.as_array())
-                        .map(|array| {
-                            array
-                                .iter()
-                                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                                .collect()
-                        })
-                        .unwrap_or_default();
-
-                    let has_updates = !input_updates.is_empty();
-                    let has_state_vector = !input_state_vector.is_empty();
-                    let mut doc_was_updated = false;
-
-                    // Apply updates if present
-                    if has_updates {
-                        doc.apply_update_v2(&input_updates).await?;
-                        doc_was_updated = true;
-                    }
-
-                    // Generate updates for peer if state vector present
-                    if has_state_vector {
-                        let updates_for_peer = doc.get_diff_update_v2(&input_state_vector).await?;
-                        let current_state_vector = doc.get_state_vector_v2().await;
-
-                        // Normal flow: return both updates and current state vector
-                        let updates_array: Vec<serde_json::Value> = updates_for_peer
+                    .get("state_vector")
+                    .and_then(|sv| sv.as_array())
+                    .map(|array| {
+                        array
                             .iter()
-                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                            .collect();
+                            .filter_map(|v| v.as_u64().map(|n| n as u8))
+                            .collect()
+                    })
+                    .unwrap_or_default();
 
-                        let state_vector_array: Vec<serde_json::Value> = current_state_vector
-                            .iter()
-                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                            .collect();
+                let has_updates = !input_updates.is_empty();
+                let has_state_vector = !input_state_vector.is_empty();
+                let mut doc_was_updated = false;
 
-                        let mut doc_result = serde_json::Map::new();
-                        doc_result.insert(
-                            "updates".to_string(),
-                            serde_json::Value::Array(updates_array),
-                        );
-                        doc_result.insert(
-                            "state_vector".to_string(),
-                            serde_json::Value::Array(state_vector_array),
-                        );
-                        result_updates.insert(
-                            state_key.to_string(),
-                            serde_json::Value::Object(doc_result),
-                        );
-                    }
+                // Apply updates if present
+                if has_updates {
+                    doc.apply_update_v2(&input_updates).await?;
+                    doc_was_updated = true;
+                }
 
-                    // Update our resource data if doc was modified
-                    if doc_was_updated {
-                        let new_state = doc.get_state_as_update_v2().await;
-                        let state_array: Vec<serde_json::Value> = new_state
-                            .iter()
-                            .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                            .collect();
+                // Generate updates for peer if state vector present
+                if has_state_vector {
+                    let updates_for_peer = doc.get_diff_update_v2(&input_state_vector).await?;
+                    let current_state_vector = doc.get_state_vector_v2().await;
 
-                        if let Some(data_obj) = self.data.as_object_mut() {
-                            data_obj.insert(
-                                state_key.to_string(),
-                                serde_json::Value::Array(state_array),
-                            );
-                        }
+                    // Normal flow: return both updates and current state vector
+                    let updates_array: Vec<serde_json::Value> = updates_for_peer
+                        .iter()
+                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                        .collect();
+
+                    let state_vector_array: Vec<serde_json::Value> = current_state_vector
+                        .iter()
+                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                        .collect();
+
+                    let mut doc_result = serde_json::Map::new();
+                    doc_result.insert(
+                        "updates".to_string(),
+                        serde_json::Value::Array(updates_array),
+                    );
+                    doc_result.insert(
+                        "state_vector".to_string(),
+                        serde_json::Value::Array(state_vector_array),
+                    );
+                    result_updates
+                        .insert(state_key.to_string(), serde_json::Value::Object(doc_result));
+                }
+
+                // Update our resource data if doc was modified
+                if doc_was_updated {
+                    let new_state = doc.get_state_as_update_v2().await;
+                    let state_array: Vec<serde_json::Value> = new_state
+                        .iter()
+                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                        .collect();
+
+                    if let Some(data_obj) = self.data.as_object_mut() {
+                        data_obj
+                            .insert(state_key.to_string(), serde_json::Value::Array(state_array));
                     }
                 }
+            }
         }
 
         serde_json::to_string(&result_updates)

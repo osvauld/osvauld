@@ -4,6 +4,7 @@ use log::{error, info};
 use osvauld_core::models::{
     DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
     ResourceWithKey, ShareOperation, ShareRecord, User,
+    document::{create_doc, YjsDocExt},
 };
 use persistance::database::RepositoryContext;
 use serde_json::Value;
@@ -453,7 +454,6 @@ pub async fn get_resource_sync_info(
     // 1. Get decrypted resource
     let (decrypted_resource, _) =
         get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
-    info!("decrypted_resource {:?}", decrypted_resource.data);
     // 2. Get state vectors JSON
     let state_vectors_json = decrypted_resource
         .get_state_vectors()
@@ -467,21 +467,37 @@ pub async fn get_resource_sync_info(
                 serde_json::from_str(&state_vectors_json)
                     .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
-            // Get form data and populate it
+            // Encode form submissions doc as a proper YJS update for one-way sync
             if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
                 if let Some(doc_obj) = form_doc.as_object_mut() {
-                    let form_data = decrypted_resource
-                        .get_document_state("form_submissions_doc")
-                        .unwrap_or_default();
+                    // Encode the entire document state as a YJS update
+                    let form_update = decrypted_resource
+                        .encode_state_as_update("form_submissions_doc")
+                        .await
+                        .map_err(|e| ResourceServiceError::ParseError(e))?;
 
-                    let form_data_array: Vec<serde_json::Value> = form_data
+                    // Log the actual form submissions to debug
+                    if let Some(form_data_value) = decrypted_resource.data.get("form_submissions_doc") {
+                        info!(
+                            "Viewer form_submissions_doc raw size: {} bytes",
+                            form_data_value.to_string().len()
+                        );
+                    }
+
+                    info!(
+                        "Encoded form_submissions_doc as update for resource {}: {} bytes",
+                        resource_id,
+                        form_update.len()
+                    );
+
+                    let form_update_array: Vec<serde_json::Value> = form_update
                         .iter()
                         .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
                         .collect();
 
                     doc_obj.insert(
                         "updates".to_string(),
-                        serde_json::Value::Array(form_data_array),
+                        serde_json::Value::Array(form_update_array),
                     );
                     doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
                 }
@@ -596,12 +612,18 @@ pub async fn apply_and_generate_viewer_updates(
         .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
 
     // For blocksuite_doc: Keep state_vector (so node knows what to send), but empty updates (viewer is read-only)
-    if let Some(blocksuite) = parsed.get_mut("blocksuite_doc").and_then(|v| v.as_object_mut()) {
+    if let Some(blocksuite) = parsed
+        .get_mut("blocksuite_doc")
+        .and_then(|v| v.as_object_mut())
+    {
         blocksuite.insert("updates".to_string(), serde_json::Value::Array(vec![]));
     }
 
     // For form_submissions_doc: Keep state_vector, but empty updates (node doesn't send this back)
-    if let Some(form_doc) = parsed.get_mut("form_submissions_doc").and_then(|v| v.as_object_mut()) {
+    if let Some(form_doc) = parsed
+        .get_mut("form_submissions_doc")
+        .and_then(|v| v.as_object_mut())
+    {
         form_doc.insert("updates".to_string(), serde_json::Value::Array(vec![]));
     }
 
@@ -638,7 +660,6 @@ pub async fn generate_updates_for_peer(
     // 1. Get the decrypted resource
     let (mut decrypted_resource, _) =
         get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
-    info!("decrypted_resource {:?}", decrypted_resource);
 
     let updates = decrypted_resource
         .sync_updates(peer_state_vectors)
@@ -660,30 +681,115 @@ pub async fn apply_updates_and_get_peer_updates(
     let (mut decrypted_resource, encrypted_key) =
         get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
 
-    info!("BEFORE sync_updates - decrypted_resource.data: {:?}", decrypted_resource.data);
+    // Log document size before merge
+    let size_before = decrypted_resource.data.to_string().len();
+    info!(
+        "Document size BEFORE merging updates for resource {}: {} bytes",
+        resource_id, size_before
+    );
 
     // Check form_submissions_doc before sync
     if let Some(data_obj) = decrypted_resource.data.as_object() {
         if let Some(form_data) = data_obj.get("form_submissions_doc") {
-            info!("BEFORE: form_submissions_doc exists! Length: {}",
-                form_data.as_array().map(|a| a.len()).unwrap_or(0));
+            info!(
+                "BEFORE: form_submissions_doc exists! Length: {}",
+                form_data.as_array().map(|a| a.len()).unwrap_or(0)
+            );
         } else {
             info!("BEFORE: form_submissions_doc does NOT exist in data!");
         }
     }
 
+    // Parse the incoming updates to handle form_submissions_doc specially
+    let mut updates_json: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(updates)
+            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+
+    // Special handling for form_submissions_doc: compute diff to avoid duplicates
+    if let Some(form_doc) = updates_json.get_mut("form_submissions_doc") {
+        if let Some(doc_obj) = form_doc.as_object_mut() {
+            if let Some(viewer_updates_array) = doc_obj.get("updates").and_then(|v| v.as_array()) {
+                let viewer_updates_bytes: Vec<u8> = viewer_updates_array
+                    .iter()
+                    .filter_map(|v| v.as_u64().map(|n| n as u8))
+                    .collect();
+
+                info!(
+                    "Receiving form_submissions_doc with {} bytes, computing diff",
+                    viewer_updates_bytes.len()
+                );
+
+                // Get our current state and generate state vector
+                let our_state = decrypted_resource
+                    .get_document_state("form_submissions_doc")
+                    .unwrap_or_default();
+
+                // Compute the diff: what viewer has that we don't
+                let diff_update = if !viewer_updates_bytes.is_empty() {
+                    // Create temp doc with viewer's full state
+                    let mut viewer_doc = create_doc();
+                    viewer_doc.apply_update_v2(&viewer_updates_bytes).await
+                        .map_err(|e| ResourceServiceError::ParseError(e))?;
+
+                    // Get our state vector
+                    let our_state_vector = if !our_state.is_empty() {
+                        let mut our_doc = create_doc();
+                        our_doc.apply_update_v2(&our_state).await
+                            .map_err(|e| ResourceServiceError::ParseError(e))?;
+                        our_doc.get_state_vector_v2().await
+                    } else {
+                        vec![] // We have nothing, so viewer should send everything
+                    };
+
+                    // Get the diff: what viewer has that we don't have
+                    let diff = viewer_doc.get_diff_update_v2(&our_state_vector).await
+                        .map_err(|e| ResourceServiceError::ParseError(e))?;
+
+                    info!(
+                        "Computed diff for form_submissions_doc: {} bytes",
+                        diff.len()
+                    );
+
+                    diff
+                } else {
+                    vec![]
+                };
+
+                // Replace the updates with the diff
+                let diff_array: Vec<serde_json::Value> = diff_update
+                    .iter()
+                    .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
+                    .collect();
+
+                doc_obj.insert("updates".to_string(), serde_json::Value::Array(diff_array));
+                doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
+            }
+        }
+    }
+
+    // Convert back to string and use normal sync_updates
+    let modified_updates = serde_json::to_string(&updates_json)
+        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
+
     let remote_updates = decrypted_resource
-        .sync_updates(updates)
+        .sync_updates(&modified_updates)
         .await
         .map_err(|e| ResourceServiceError::ParseError(e))?;
 
-    info!("AFTER sync_updates - decrypted_resource.data: {:?}", decrypted_resource.data);
+    // Log document size after merge
+    let size_after = decrypted_resource.data.to_string().len();
+    info!(
+        "Document size AFTER merging updates for resource {}: {} bytes",
+        resource_id, size_after
+    );
 
     // Check form_submissions_doc after sync
     if let Some(data_obj) = decrypted_resource.data.as_object() {
         if let Some(form_data) = data_obj.get("form_submissions_doc") {
-            info!("AFTER: form_submissions_doc exists! Length: {}",
-                form_data.as_array().map(|a| a.len()).unwrap_or(0));
+            info!(
+                "AFTER: form_submissions_doc exists! Length: {}",
+                form_data.as_array().map(|a| a.len()).unwrap_or(0)
+            );
         } else {
             info!("AFTER: form_submissions_doc does NOT exist in data!");
         }
@@ -762,10 +868,24 @@ pub async fn apply_updates(
     let (mut decrypted_resource, encrypted_key) =
         get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
 
+    // Log document size before merge
+    let size_before = decrypted_resource.data.to_string().len();
+    info!(
+        "Document size BEFORE merging updates for resource {}: {} bytes",
+        resource_id, size_before
+    );
+
     decrypted_resource
         .sync_updates(updates)
         .await
         .map_err(|e| ResourceServiceError::ParseError(e))?;
+
+    // Log document size after merge
+    let size_after = decrypted_resource.data.to_string().len();
+    info!(
+        "Document size AFTER merging updates for resource {}: {} bytes",
+        resource_id, size_after
+    );
 
     let encrypted_data = {
         let crypto = crypto_utils.read().await;

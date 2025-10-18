@@ -34,19 +34,29 @@
 
 		// Subscribe to updates
 		submissionsUnsubscribe = submissionsStore.subscribe(() => {
+			console.log("📊 [SubmissionsViewer] Store notified of changes, calling loadSubmissions()");
 			loadSubmissions();
 		});
 
+		console.log("📊 [SubmissionsViewer] Subscribed to SubmissionsStore");
 		// Get initial submissions
 		loadSubmissions();
 	}
 
 	// Load submissions from store
 	function loadSubmissions() {
-		if (!submissionsStore) return;
+		console.log("📊 [SubmissionsViewer] loadSubmissions() called");
+
+		if (!submissionsStore) {
+			console.warn("📊 [SubmissionsViewer] No submissionsStore available");
+			return;
+		}
 
 		// Get all submissions from store
 		const submissions = submissionsStore.getAllSubmissions();
+		console.log("📊 [SubmissionsViewer] Got submissions from store:", submissions.length);
+		console.log("📊 [SubmissionsViewer] Submission IDs:", submissions.map(s => s.id));
+		console.log("📊 [SubmissionsViewer] Submission timestamps:", submissions.map(s => new Date(s.timestamp).toISOString()));
 
 		// Sort by timestamp (newest first)
 		submissions.sort((a, b) => b.timestamp - a.timestamp);
@@ -54,7 +64,8 @@
 		allSubmissions = submissions;
 		uniqueEvents = submissionsStore.getUniqueEvents();
 
-		console.log("📊 Loaded submissions:", submissions.length, "Events:", uniqueEvents);
+		console.log("📊 [SubmissionsViewer] Updated allSubmissions:", allSubmissions.length, "Events:", uniqueEvents);
+		console.log("📊 [SubmissionsViewer] Filtered submissions for display:", filteredSubmissions().length);
 	}
 
 	// Format timestamp for display
