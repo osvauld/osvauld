@@ -28,6 +28,10 @@ export function createEmptyBlocksuiteDoc(
   // Get the maps (same structure as yjsManager.ts)
   const blocks = tempDoc.getMap("blocks");
   const viewport = tempDoc.getMap("viewport");
+  const metadata = tempDoc.getMap("metadata");
+
+  // Set metadata with title (for preview generator)
+  metadata.set("title", title);
 
   // Initialize viewport with default values
   viewport.set("x", 0);
@@ -103,6 +107,10 @@ export function createBlankBlocksuiteDoc(
 ): BlocksuiteContent {
   const tempDoc = new Y.Doc();
   const viewport = tempDoc.getMap("viewport");
+  const metadata = tempDoc.getMap("metadata");
+
+  // Set metadata with title (for preview generator)
+  metadata.set("title", title);
 
   // Only initialize viewport, no blocks
   viewport.set("x", 0);
@@ -144,6 +152,10 @@ export function createNoticeBoardDoc(
   const threadDoc = new Y.Doc();
   const threadBlocks = threadDoc.getMap("blocks");
   const viewport = threadDoc.getMap("viewport");
+  const metadata = threadDoc.getMap("metadata");
+
+  // Set metadata with title (for preview generator)
+  metadata.set("title", title);
 
   viewport.set("x", 0);
   viewport.set("y", 0);
@@ -193,6 +205,10 @@ export function createFormDoc(
   // Create form_doc (for form definition/fields)
   const formDoc = new Y.Doc();
   const formBlocks = formDoc.getMap("blocks");
+  const metadata = formDoc.getMap("metadata");
+
+  // Set metadata with title (for preview generator)
+  metadata.set("title", title);
 
   // Store form configuration in a special block
   formBlocks.set("form-config", {

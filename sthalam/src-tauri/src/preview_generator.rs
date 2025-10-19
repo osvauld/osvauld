@@ -18,30 +18,18 @@ impl PreviewGenerator {
     }
 
     /// Generate preview HTML from YJS states
+    /// Now only returns title, content preview generation is skipped
     pub async fn generate_preview_html(
         &self,
         main_doc_state: &[u8],
-        image_state: &[u8],
-        max_nodes: usize,
+        _image_state: &[u8],
+        _max_nodes: usize,
     ) -> Result<(String, String), Box<dyn std::error::Error>> {
-        // Extract content from main YJS state
-        let (content_xml, title) = self.extract_content_from_yjs_state(main_doc_state).await?;
+        // Only extract title from main YJS state, skip content generation
+        let title = self.extract_title_from_yjs_state(main_doc_state).await?;
 
-        if content_xml.is_empty() {
-            return Ok((String::new(), title));
-        }
-
-        // Convert ProseMirror XML to HTML
-        let html = self.convert_prosemirror_to_html(&content_xml, max_nodes)?;
-
-        // Process images if we have image state and images in content
-        let processed_html = if !image_state.is_empty() && html.contains("yjs-image:") {
-            self.process_html_images(&html, image_state).await?
-        } else {
-            html
-        };
-
-        Ok((processed_html, title))
+        // Return empty string for content, only title
+        Ok((String::new(), title))
     }
 
     /// Convert ProseMirror XML to standard HTML
@@ -364,6 +352,46 @@ impl PreviewGenerator {
         None
     }
 
+    /// Extract only the title from YJS state (optimized version, no content processing)
+    async fn extract_title_from_yjs_state(
+        &self,
+        yjs_state: &[u8],
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        if yjs_state.is_empty() {
+            return Ok("Untitled Note".to_string());
+        }
+
+        let mut doc = create_doc();
+        doc.apply_update_v2(yjs_state)
+            .await
+            .map_err(|e| format!("Failed to apply YJS state: {}", e))?;
+
+        let txn = doc.transact();
+
+        let title = if let Some(metadata_map) = txn.get_map("metadata") {
+            if let Some(title_out) = metadata_map.get(&txn, "title") {
+                match title_out {
+                    Out::Any(Any::String(s)) => {
+                        let title_str = s.to_string();
+                        if title_str.trim().is_empty() {
+                            "Untitled Note".to_string()
+                        } else {
+                            title_str
+                        }
+                    },
+                    Out::Any(Any::Null) => "Untitled Note".to_string(),
+                    _ => "Untitled Note".to_string(),
+                }
+            } else {
+                "Untitled Note".to_string()
+            }
+        } else {
+            "Untitled Note".to_string()
+        };
+
+        Ok(title)
+    }
+
     /// Extract content HTML from YJS state
     async fn extract_content_from_yjs_state(
         &self,
@@ -470,12 +498,14 @@ impl PreviewGenerator {
 }
 
 /// Convenience function for generating preview HTML
+/// Only extracts title from blocksuite_doc metadata, returns empty string for preview content
 pub async fn generate_preview_html(
     data: &serde_json::Value,
     max_nodes: usize,
 ) -> Result<(String, String), Box<dyn std::error::Error>> {
-    let main_doc = data
-        .get("main_doc")
+    // Extract blocksuite_doc which contains metadata with title
+    let doc_state = data
+        .get("blocksuite_doc")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -484,18 +514,11 @@ pub async fn generate_preview_html(
         })
         .unwrap_or_default();
 
-    let image_state = data
-        .get("image_state")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|v| v.as_u64().unwrap_or(0) as u8)
-                .collect::<Vec<u8>>()
-        })
-        .unwrap_or_default();
+    // We don't need image_state anymore
+    let image_state = Vec::new();
 
     let generator = PreviewGenerator::new()?;
     generator
-        .generate_preview_html(&main_doc, &image_state, max_nodes)
+        .generate_preview_html(&doc_state, &image_state, max_nodes)
         .await
 }

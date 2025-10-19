@@ -11,16 +11,33 @@
 	} from "@osvauld/icons";
 
 	interface Props {
-		onAddBlock: (type: string) => void;
+		onAddBlock: (type: string, x?: number, y?: number) => void;
 	}
 
 	let { onAddBlock }: Props = $props();
+
+	function handleDragStart(e: DragEvent, blockType: string) {
+		// Set the block type in drag data
+		e.dataTransfer!.effectAllowed = 'copy';
+		e.dataTransfer!.setData('application/block-type', blockType);
+
+		// Add visual feedback
+		const target = e.currentTarget as HTMLElement;
+		target.style.opacity = '0.5';
+	}
+
+	function handleDragEnd(e: DragEvent) {
+		// Reset visual feedback
+		const target = e.currentTarget as HTMLElement;
+		target.style.opacity = '1';
+	}
 
 	const blockTypes = [
 		{ type: "screen-container", label: "Screen Container", icon: Maximize, description: "Main page container (responsive root)" },
 		{ type: "section-container", label: "Section Container", icon: FolderIcon, description: "Layout section with CSS" },
 		{ type: "heading", label: "Heading", icon: FileText, description: "Large title text" },
 		{ type: "text", label: "Text", icon: EditIcon, description: "Paragraph text" },
+		{ type: "markdown-text", label: "Markdown Text", icon: FileText, description: "Rich text with markdown formatting" },
 		{ type: "image", label: "Image", icon: FileText, description: "Image or GIF" },
 		{ type: "thread", label: "Thread", icon: CommentIcon, description: "Collaborative comment thread" },
 		{ type: "form", label: "Form", icon: MobileNote, description: "Form metadata (invisible in viewer)" },
@@ -28,6 +45,8 @@
 		{ type: "form-field-textarea", label: "Text Area", icon: MobileNote, description: "Multi-line text field" },
 		{ type: "form-field-checkbox", label: "Checkbox", icon: Tick, description: "Checkbox field" },
 		{ type: "form-submit-button", label: "Submit Button", icon: RightArrow, description: "Form submit button" },
+		{ type: "nav-button", label: "Navigation Button", icon: RightArrow, description: "Show/hide/toggle containers or navigate screens" },
+		{ type: "branching-question", label: "Branching Question", icon: CommentIcon, description: "Yes/No question for conditional navigation" },
 	];
 </script>
 
@@ -40,8 +59,11 @@
 		{#each blockTypes as blockType}
 			<button
 				class="block-type-btn"
+				draggable="true"
+				ondragstart={(e) => handleDragStart(e, blockType.type)}
+				ondragend={handleDragEnd}
 				onclick={() => onAddBlock(blockType.type)}
-				title="Add {blockType.label}"
+				title="Drag to canvas or click to add {blockType.label}"
 			>
 				<span class="icon">
 					<svelte:component this={blockType.icon} size={20} color="#1e1e2e" />
@@ -112,10 +134,14 @@
 		border: 1px solid #30363d;
 		border-radius: 6px;
 		background: #0d0e13;
-		cursor: pointer;
+		cursor: grab;
 		transition: all 0.2s;
 		text-align: left;
 		width: 100%;
+	}
+
+	.block-type-btn:active {
+		cursor: grabbing;
 	}
 
 	.block-type-btn:hover {

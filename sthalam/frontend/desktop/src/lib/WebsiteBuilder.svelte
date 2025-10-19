@@ -324,13 +324,34 @@
 		}
 	}
 
-	function addBlock(type: string) {
+	function addBlock(type: string, x?: number, y?: number) {
 		if (!yDocs) return;
 		const id = `block-${Date.now()}`;
 
-		// Calculate center of viewport
-		const centerX = Math.abs(viewport.x) + 400;
-		const centerY = Math.abs(viewport.y) + 200;
+		let centerX: number;
+		let centerY: number;
+
+		// If x and y are provided (from drag-drop), use them directly
+		if (x !== undefined && y !== undefined) {
+			centerX = x;
+			centerY = y;
+		} else {
+			// Calculate center of current viewport (click mode)
+			// The canvas has: transform: translate(viewport.x, viewport.y) scale(viewport.zoom)
+			// BlockPalette takes 200px on the left, PropertiesPanel takes 300px on the right if open
+			const paletteWidth = 200;
+			const propertiesPanelWidth = selectedBlockId ? 300 : 0;
+
+			// Center of visible canvas area in screen coordinates (pixels on screen)
+			const screenCenterX = paletteWidth + (window.innerWidth - paletteWidth - propertiesPanelWidth) / 2;
+			const screenCenterY = window.innerHeight / 2;
+
+			// Convert screen coordinates to canvas coordinates
+			// Screen position = (canvas position * zoom) + viewport offset + palette offset
+			// So: canvas position = (screen position - palette offset - viewport offset) / zoom
+			centerX = (screenCenterX - paletteWidth - viewport.x) / viewport.zoom;
+			centerY = (screenCenterY - viewport.y) / viewport.zoom;
+		}
 
 		let newBlock: any = {
 			id,
@@ -459,6 +480,26 @@
 					color: "#ffffff"
 				};
 				break;
+			case "screen-container":
+				newBlock.width = 800;
+				newBlock.height = 600;
+				newBlock.name = "New Screen";
+				newBlock.isEntryPoint = false;
+				newBlock.css = "padding: 2rem; background: #f5f5f5;";
+				break;
+			case "section-container":
+				newBlock.width = 600;
+				newBlock.height = 400;
+				newBlock.name = "New Section";
+				newBlock.css = "padding: 1rem; background: #ffffff; border: 1px solid #e0e0e0;";
+				newBlock.visible = true;
+				newBlock.isModal = false;
+				break;
+			case "markdown-text":
+				newBlock.width = 500;
+				newBlock.height = 300;
+				newBlock.content = "# New Markdown\n\nStart typing...";
+				break;
 			default:
 				newBlock.width = 300;
 				newBlock.height = 100;
@@ -510,6 +551,7 @@
 			onViewportChange={updateViewport}
 			onBlockUpdate={updateBlock}
 			onBlockSelect={(id) => (selectedBlockId = id)}
+			onBlockDrop={addBlock}
 		/>
 		<PropertiesPanel
 			{selectedBlock}

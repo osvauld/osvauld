@@ -42,6 +42,9 @@
 	// Branching question answer state (local only)
 	let selectedAnswer = $state<string | null>(null);
 
+	// Markdown content state
+	let markdownContent = $state(block.content || '');
+
 	// Handle contenteditable input
 	function handleContentInput(e: Event) {
 		const target = e.currentTarget as HTMLElement;
@@ -70,7 +73,20 @@
 				textRef.textContent = currentContent;
 			}
 		}
+
+		// Update markdown content when block content changes externally
+		if (block.type === 'markdown-text' && markdownContent !== currentContent) {
+			markdownContent = currentContent;
+		}
 	});
+
+	// Handle markdown textarea input
+	function handleMarkdownInput(e: Event) {
+		const target = e.currentTarget as HTMLTextAreaElement;
+		const newContent = target.value;
+		markdownContent = newContent;
+		onUpdate(block.id, { content: newContent });
+	}
 
 	function handleMouseDown(e: MouseEvent) {
 		// In readonly mode, don't allow any editing interactions
@@ -423,6 +439,13 @@
 			contenteditable={!readonly}
 			oninput={handleContentInput}
 		></div>
+	{:else if block.type === "markdown-text"}
+		<textarea
+			value={markdownContent}
+			oninput={handleMarkdownInput}
+			class="block-markdown-editor"
+			placeholder="Enter markdown text..."
+		></textarea>
 	{:else if block.type === "image"}
 		<div class="block-image">
 			{#if block.content && block.content !== ""}
@@ -466,13 +489,13 @@
 			{/if}
 		</div>
 	{:else if block.type === "screen-container"}
-		<div class="block-screen-container" class:viewer-mode={readonly}>
+		<div class="screen-container-inner" class:viewer-mode={readonly}>
 			<div class="container-badge">
 				<span class="container-name">{block.name || "Screen Container"}</span>
 			</div>
 		</div>
 	{:else if block.type === "section-container"}
-		<div class="block-section-container" class:viewer-mode={readonly}>
+		<div class="section-container-inner" class:viewer-mode={readonly}>
 			<div class="container-badge">
 				<span class="container-name">{block.name || "Section Container"}</span>
 			</div>
@@ -635,6 +658,8 @@
 
 	.block-heading,
 	.block-text,
+	.block-markdown,
+	.block-markdown-editor,
 	.block-container,
 	.block-image,
 	.block-html {
@@ -654,7 +679,9 @@
 
 	/* Make content scrollable area smaller to avoid resize handle conflict */
 	.block.selected .block-heading,
-	.block.selected .block-text {
+	.block.selected .block-text,
+	.block.selected .block-markdown,
+	.block.selected .block-markdown-editor {
 		/* Add small padding when selected to make resize handles easier to grab */
 		padding-right: 8px;
 		padding-bottom: 8px;
@@ -662,6 +689,30 @@
 
 	.block-heading {
 		font-weight: bold;
+	}
+
+	.block-markdown {
+		font-family: inherit;
+		line-height: 1.6;
+	}
+
+	.block-markdown-editor {
+		font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+		font-size: 14px;
+		line-height: 1.6;
+		padding: 12px;
+		background: #0d0e13;
+		color: #c9d1d9;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		resize: none;
+		white-space: pre-wrap;
+		word-wrap: break-word;
+	}
+
+	.block-markdown-editor:focus {
+		border-color: #89b4fa;
+		outline: none;
 	}
 
 	.block-image {
@@ -850,8 +901,8 @@
 	}
 
 	/* Container styles */
-	.block-screen-container,
-	.block-section-container {
+	.screen-container-inner,
+	.section-container-inner {
 		width: 100%;
 		height: 100%;
 		display: flex;
@@ -866,13 +917,13 @@
 		position: relative;
 	}
 
-	.block-screen-container {
+	.screen-container-inner {
 		border-color: #2563eb;
 		background: rgba(37, 99, 235, 0.1);
 	}
 
-	.block-screen-container.viewer-mode,
-	.block-section-container.viewer-mode {
+	.screen-container-inner.viewer-mode,
+	.section-container-inner.viewer-mode {
 		border: none;
 		background: transparent;
 		padding: 0;
@@ -889,11 +940,11 @@
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 	}
 
-	.block-screen-container .container-badge {
+	.screen-container-inner .container-badge {
 		color: #58a6ff;
 	}
 
-	.block-section-container .container-badge {
+	.section-container-inner .container-badge {
 		color: #8b949e;
 	}
 

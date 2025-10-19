@@ -269,6 +269,19 @@
 							</select>
 						</label>
 
+						<label>
+							<span>Render Order (in parent)</span>
+							<input
+								type="number"
+								value={selectedBlock.order ?? 0}
+								oninput={(e) => onUpdateBlock(selectedBlock.id, { order: parseInt(e.currentTarget.value) || 0 })}
+								min="0"
+								max="9999"
+								placeholder="0"
+							/>
+							<small style="color: #8b949e; font-size: 0.75rem;">Lower numbers appear first</small>
+						</label>
+
 						{#if !selectedBlock.parentId}
 							<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
 								⚠️ This block has no parent container. It won't be part of the responsive layout in viewer mode.
@@ -454,6 +467,13 @@
 										</option>
 									{/each}
 								</optgroup>
+								<optgroup label="Section Containers">
+									{#each allSectionContainers.filter(c => c.id !== selectedBlock.id) as container}
+										<option value={container.id}>
+											📦 {container.name || "Unnamed Section"}
+										</option>
+									{/each}
+								</optgroup>
 							</select>
 						</label>
 
@@ -466,6 +486,54 @@
 								placeholder="Hero Section"
 							/>
 						</label>
+
+						<label class="checkbox-label">
+							<input
+								type="checkbox"
+								checked={selectedBlock.isModal || false}
+								onchange={(e) => onUpdateBlock(selectedBlock.id, { isModal: e.currentTarget.checked })}
+							/>
+							<span>Modal Container</span>
+						</label>
+
+						{#if selectedBlock.isModal}
+							<div class="info-box" style="background: #e3f2fd; color: #1565c0; border-left: 3px solid #2196f3;">
+								🪟 Modal containers appear as overlays with a backdrop. Use navigation buttons to show/hide them.
+							</div>
+
+							<label class="checkbox-label">
+								<input
+									type="checkbox"
+									checked={selectedBlock.visible !== false}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { visible: e.currentTarget.checked })}
+								/>
+								<span>Initially Visible</span>
+							</label>
+
+							<label>
+								<span>Z-Index (Layer Order)</span>
+								<input
+									type="number"
+									value={selectedBlock.zIndex || 1000}
+									oninput={(e) => onUpdateBlock(selectedBlock.id, { zIndex: parseInt(e.currentTarget.value) || 1000 })}
+									min="1"
+									max="9999"
+								/>
+							</label>
+
+							<div class="info-box" style="font-size: 0.75rem;">
+								💡 Higher z-index values appear on top. Use 1000+ for modals.
+							</div>
+						{:else}
+							<label class="checkbox-label">
+								<input
+									type="checkbox"
+									checked={selectedBlock.visible !== false}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { visible: e.currentTarget.checked })}
+								/>
+								<span>Visible by Default</span>
+							</label>
+						{/if}
 
 						<label>
 							<span>Custom CSS</span>
@@ -656,7 +724,32 @@
 							/>
 						</label>
 
-						{#if branchingQuestionInContainer()}
+						<label>
+							<span>Action</span>
+							<select
+								value={selectedBlock.action || "navigate"}
+								onchange={(e) => onUpdateBlock(selectedBlock.id, { action: e.currentTarget.value })}
+							>
+								<option value="navigate">Navigate to Screen</option>
+								<option value="show">Show Container</option>
+								<option value="hide">Hide Container</option>
+								<option value="toggle">Toggle Container</option>
+							</select>
+						</label>
+
+						<div class="info-box" style="font-size: 0.75rem; padding: 0.5rem;">
+							{#if selectedBlock.action === 'navigate' || !selectedBlock.action}
+								🎯 <strong>Navigate:</strong> Switch to a different screen
+							{:else if selectedBlock.action === 'show'}
+								👁️ <strong>Show:</strong> Make a hidden container visible (like opening a modal)
+							{:else if selectedBlock.action === 'hide'}
+								🚫 <strong>Hide:</strong> Hide a visible container (like closing a modal)
+							{:else if selectedBlock.action === 'toggle'}
+								🔄 <strong>Toggle:</strong> Show if hidden, hide if visible
+							{/if}
+						</div>
+
+						{#if branchingQuestionInContainer() && (selectedBlock.action === 'navigate' || !selectedBlock.action)}
 							<!-- Branching navigation detected -->
 							<div class="info-box">
 								🔀 Branching question detected: "{branchingQuestionInContainer().question}"
@@ -664,7 +757,7 @@
 
 							<div class="branch-config">
 								<label>
-									<span>When "Yes" → Navigate to Container</span>
+									<span>When "Yes" → Navigate to Screen</span>
 									<select
 										value={selectedBlock.yesTargetId || ""}
 										onchange={(e) => {
@@ -675,10 +768,10 @@
 											});
 										}}
 									>
-										<option value="">-- Select Container --</option>
-										{#each allContainers as container}
+										<option value="">-- Select Screen --</option>
+										{#each allScreenContainers as container}
 											<option value={container.id}>
-												{container.label || `${container.type} at (${container.x}, ${container.y})`}
+												🖥️ {container.name || "Unnamed Screen"}
 											</option>
 										{/each}
 									</select>
@@ -691,7 +784,7 @@
 								{/if}
 
 								<label>
-									<span>When "No" → Navigate to Container</span>
+									<span>When "No" → Navigate to Screen</span>
 									<select
 										value={selectedBlock.noTargetId || ""}
 										onchange={(e) => {
@@ -702,10 +795,10 @@
 											});
 										}}
 									>
-										<option value="">-- Select Container --</option>
-										{#each allContainers as container}
+										<option value="">-- Select Screen --</option>
+										{#each allScreenContainers as container}
 											<option value={container.id}>
-												{container.label || `${container.type} at (${container.x}, ${container.y})`}
+												🖥️ {container.name || "Unnamed Screen"}
 											</option>
 										{/each}
 									</select>
@@ -718,24 +811,40 @@
 								{/if}
 							</div>
 						{:else}
-							<!-- Simple navigation -->
+							<!-- Simple action configuration -->
 							<label>
-								<span>Navigate to Container</span>
+								<span>
+									{#if selectedBlock.action === 'navigate' || !selectedBlock.action}
+										Navigate to Screen
+									{:else}
+										Target Container
+									{/if}
+								</span>
 								<select
 									value={selectedBlock.targetContainerId || ""}
 									onchange={(e) => onUpdateBlock(selectedBlock.id, { targetContainerId: e.currentTarget.value })}
 								>
-									<option value="">-- Next Container (default) --</option>
-									{#each allContainers as container}
-										<option value={container.id}>
-											{container.label || `${container.type} at (${container.x}, ${container.y})`}
-										</option>
-									{/each}
+									<option value="">-- Select Target --</option>
+									{#if selectedBlock.action === 'navigate' || !selectedBlock.action}
+										<!-- Show only screen containers for navigation -->
+										{#each allScreenContainers as container}
+											<option value={container.id}>
+												🖥️ {container.name || "Unnamed Screen"}
+											</option>
+										{/each}
+									{:else}
+										<!-- Show section containers for show/hide/toggle -->
+										{#each allSectionContainers as container}
+											<option value={container.id}>
+												📦 {container.name || "Unnamed Section"}
+											</option>
+										{/each}
+									{/if}
 								</select>
 							</label>
 
 							<div class="info-box">
-								💡 Place a branching question in the same container to enable yes/no navigation paths.
+								💡 Place a branching question in the same container to enable yes/no navigation paths (works with Navigate action only).
 							</div>
 						{/if}
 					{/if}

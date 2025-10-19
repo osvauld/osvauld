@@ -1,11 +1,7 @@
 <script lang="ts">
 	import { untrack } from "svelte";
 	import { marked } from 'marked';
-	import ThreadBlock from './blocks/ThreadBlock.svelte';
-	import FormField from './blocks/FormField.svelte';
-	import FormSubmitButton from './blocks/FormSubmitButton.svelte';
-	import NavButton from './blocks/NavButton.svelte';
-	import BranchingQuestion from './blocks/BranchingQuestion.svelte';
+	import BlockRenderer from './blocks/BlockRenderer.svelte';
 	import type * as Y from 'yjs';
 
 	interface Props {
@@ -74,25 +70,16 @@
 		return blocks.get(currentScreenId);
 	});
 
-	// Get all blocks for current screen (hierarchical)
-	const screenBlocks = $derived(() => {
-		const screen = currentScreen();
-		if (!screen) return [];
-
-		function collectBlocks(parentId: string): any[] {
-			const children = buildTree(parentId);
-			let result: any[] = [];
-
-			for (const child of children) {
-				result.push(child);
-				result.push(...collectBlocks(child.id));
+	// Get children for a specific parent (with visibility filtering)
+	function getChildren(parentId: string): any[] {
+		return buildTree(parentId).filter(child => {
+			// Filter out hidden section containers
+			if (child.type === 'section-container' && child.visible === false) {
+				return false;
 			}
-
-			return result;
-		}
-
-		return [screen, ...collectBlocks(screen.id)];
-	});
+			return true;
+		});
+	}
 
 	// Navigate to a screen
 	function navigateToScreen(screenId: string) {
@@ -104,37 +91,18 @@
 <div class="fullscreen-viewer">
 	{#if currentScreen()}
 		<div class="viewer-content">
-			<div class="container-screen-container" style={currentScreen().css || ""}>
-				{#each screenBlocks() as block (block.id)}
-					{#if block.type === 'screen-container'}
-						<!-- Skip screen container itself, we rendered it above -->
-					{:else if block.type === 'section-container'}
-						<div class="container-section-container" style={block.css || ""} data-block-id={block.id}>
-							<!-- Children will be rendered in next iteration -->
-						</div>
-					{:else if block.type === 'thread'}
-						<ThreadBlock blockId={block.id} {ydoc} {commentsDoc} />
-					{:else if block.type.startsWith('form-field-')}
-						<FormField blockId={block.id} blockData={block} />
-					{:else if block.type === 'form-submit-button'}
-						<FormSubmitButton blockId={block.id} blockData={block} {ydoc} {submissionsDoc} allBlocks={blocks} onNavigate={navigateToScreen} />
-					{:else if block.type === 'nav-button'}
-						<NavButton blockId={block.id} blockData={block} allBlocks={blocks} onNavigate={navigateToScreen} />
-					{:else if block.type === 'branching-question'}
-						<BranchingQuestion blockId={block.id} blockData={block} />
-					{:else if block.type === 'heading'}
-						<h1 style={block.css || ""} data-block-id={block.id}>{block.content || ''}</h1>
-					{:else if block.type === 'text'}
-						<p style={block.css || ""} data-block-id={block.id}>{block.content || ''}</p>
-					{:else if block.type === 'image'}
-						<img src={block.content || ''} alt="" style={block.css || ""} data-block-id={block.id} />
-					{:else if block.type === 'form'}
-						<!-- Form metadata is invisible -->
-					{:else if block.type === 'html'}
-						<div class="html-block" style={block.css || ""} data-block-id={block.id}>
-							{@html block.content || ''}
-						</div>
-					{/if}
+			<div class="container-screen-container" style={currentScreen().css || ""} data-block-id={currentScreen().id}>
+				<!-- Render all top-level children of the screen recursively -->
+				{#each getChildren(currentScreen().id) as child (child.id)}
+					<BlockRenderer
+						block={child}
+						children={getChildren(child.id)}
+						{ydoc}
+						{commentsDoc}
+						{submissionsDoc}
+						allBlocks={blocks}
+						onNavigate={navigateToScreen}
+					/>
 				{/each}
 			</div>
 		</div>
@@ -166,38 +134,45 @@
 		width: 100%;
 		height: 100%;
 		position: relative;
-		overflow: auto;
-		background: #ffffff;
+		overflow: hidden;
+		background: #010409;
 	}
 
 	.viewer-content {
 		width: 100%;
-		min-height: 100%;
-		padding: 2rem;
+		height: 100%;
 		box-sizing: border-box;
+		overflow-y: auto;
 	}
 
-	/* Custom scrollbar for viewer */
-	.fullscreen-viewer::-webkit-scrollbar {
-		width: 10px;
+	/* Scrollbar for viewer-content */
+	.viewer-content::-webkit-scrollbar {
+		width: 8px;
 	}
 
-	.fullscreen-viewer::-webkit-scrollbar-track {
-		background: #f1f3f5;
+	.viewer-content::-webkit-scrollbar-track {
+		background: transparent;
 	}
 
-	.fullscreen-viewer::-webkit-scrollbar-thumb {
-		background: #adb5bd;
-		border-radius: 5px;
+	.viewer-content::-webkit-scrollbar-thumb {
+		background: #2f303e;
+		border-radius: 4px;
 	}
 
-	.fullscreen-viewer::-webkit-scrollbar-thumb:hover {
-		background: #868e96;
+	.viewer-content::-webkit-scrollbar-thumb:hover {
+		background: #4d4f60;
 	}
+
 
 	.viewer-content :global(.container-screen-container),
 	.viewer-content :global(.container-section-container) {
 		width: 100%;
+		border: none;
+		outline: none;
+	}
+
+	.viewer-content :global(.container-screen-container) {
+		min-height: 100vh;
 	}
 
 	.html-block {
@@ -266,5 +241,18 @@
 		background: #ffffff;
 		width: 32px;
 		border-radius: 1rem;
+	}
+
+	/* Modal styles */
+	.modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.5);
+		backdrop-filter: blur(4px);
+	}
+
+	.modal-container {
+		/* Modal containers can use their own positioning */
+		box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 	}
 </style>

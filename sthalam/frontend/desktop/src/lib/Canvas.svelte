@@ -9,9 +9,10 @@
 		onViewportChange: (viewport: { x?: number; y?: number; zoom?: number }) => void;
 		onBlockUpdate: (blockId: string, updates: any) => void;
 		onBlockSelect: (blockId: string) => void;
+		onBlockDrop?: (blockType: string, x: number, y: number) => void;
 	}
 
-	let { blocks, viewport, selectedBlockId, readonly = false, onViewportChange, onBlockUpdate, onBlockSelect }: Props = $props();
+	let { blocks, viewport, selectedBlockId, readonly = false, onViewportChange, onBlockUpdate, onBlockSelect, onBlockDrop }: Props = $props();
 
 	// Local state for branching form answers (not synced to Yjs)
 	let formAnswers = $state<Map<string, string>>(new Map());
@@ -290,6 +291,87 @@
 		}
 	}
 
+	// Handle drag and drop from palette
+	function handleDragOver(e: DragEvent) {
+		// Prevent default to allow drop
+		e.preventDefault();
+		if (e.dataTransfer) {
+			e.dataTransfer.dropEffect = 'copy';
+		}
+	}
+
+	function handleDrop(e: DragEvent) {
+		e.preventDefault();
+
+		// Get the block type from drag data
+		const blockType = e.dataTransfer?.getData('application/block-type');
+		if (!blockType || !onBlockDrop || !canvasContainer) return;
+
+		// Get mouse position in screen coordinates
+		const mouseScreenX = e.clientX;
+		const mouseScreenY = e.clientY;
+
+		// Get canvas container's position
+		const rect = canvasContainer.getBoundingClientRect();
+
+		// Mouse position relative to canvas container
+		const relativeX = mouseScreenX - rect.left;
+		const relativeY = mouseScreenY - rect.top;
+
+		// The canvas element has transform: translate(viewport.x, viewport.y) scale(viewport.zoom)
+		// To convert from screen position to canvas coordinates:
+		// A point at canvas coordinates (cx, cy) appears on screen at:
+		//   screenX = (cx * zoom) + viewport.x
+		//   screenY = (cy * zoom) + viewport.y
+		// So to reverse:
+		//   cx = (screenX - viewport.x) / zoom
+		//   cy = (screenY - viewport.y) / zoom
+
+		const canvasX = (relativeX - viewport.x) / viewport.zoom;
+		const canvasY = (relativeY - viewport.y) / viewport.zoom;
+
+		// Call the drop handler
+		onBlockDrop(blockType, canvasX, canvasY);
+	}
+
+	// Fit all blocks in view
+	function fitToContent() {
+		if (blocksArray.length === 0) return;
+
+		// Find bounding box of all blocks
+		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+		for (const block of blocksArray) {
+			minX = Math.min(minX, block.x);
+			minY = Math.min(minY, block.y);
+			maxX = Math.max(maxX, block.x + (block.width || 300));
+			maxY = Math.max(maxY, block.y + (block.height || 100));
+		}
+
+		// Add padding
+		const padding = 100;
+		minX -= padding;
+		minY -= padding;
+		maxX += padding;
+		maxY += padding;
+
+		// Calculate required zoom to fit content
+		const contentWidth = maxX - minX;
+		const contentHeight = maxY - minY;
+		const containerWidth = canvasContainer?.clientWidth || 800;
+		const containerHeight = canvasContainer?.clientHeight || 600;
+
+		const zoomX = containerWidth / contentWidth;
+		const zoomY = containerHeight / contentHeight;
+		const zoom = Math.min(zoomX, zoomY, 1); // Don't zoom in beyond 100%
+
+		// Calculate viewport offset to center content
+		const x = -(minX * zoom);
+		const y = -(minY * zoom);
+
+		onViewportChange({ x, y, zoom });
+	}
+
 	// Convert blocks Map to array for iteration
 	$effect(() => {
 		blocksArray = Array.from(blocks.values());
@@ -305,6 +387,8 @@
 	bind:this={canvasContainer}
 	onmousedown={handleMouseDown}
 	onwheel={handleWheel}
+	ondragover={handleDragOver}
+	ondrop={handleDrop}
 	style:cursor={isPanning ? "grabbing" : "grab"}
 >
 	<div
@@ -341,6 +425,13 @@
 			title="Zoom Out (Ctrl+Scroll Down)"
 		>
 			−
+		</button>
+		<button
+			class="reset-view-btn"
+			onclick={fitToContent}
+			title="Fit All Blocks in View"
+		>
+			⊡
 		</button>
 		<button
 			class="zoom-btn"
@@ -422,5 +513,34 @@
 		min-width: 50px;
 		text-align: center;
 		font-family: monospace;
+	}
+
+	.reset-view-btn {
+		width: 32px;
+		height: 32px;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		background: #0d0e13;
+		color: #89b4fa;
+		font-size: 18px;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		padding: 0;
+		margin-left: 4px;
+	}
+
+	.reset-view-btn:hover {
+		background: #89b4fa;
+		color: #010409;
+		border-color: #89b4fa;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(137, 180, 250, 0.3);
+	}
+
+	.reset-view-btn:active {
+		transform: translateY(0);
 	}
 </style>
