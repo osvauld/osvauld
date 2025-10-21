@@ -36,7 +36,10 @@
 	// Container drag state (only used for containers: screen-container, section-container)
 	let containerOnlyDrag = $state(false); // Ctrl+Shift+Drag = container only, Ctrl+Drag = container + children
 	let childBlocksStart = $state<Map<string, { x: number; y: number }>>(new Map());
-	let dragOffset = $state({ x: 0, y: 0 }); // Live offset during drag (for CSS transforms)
+
+	// Visual offset for smooth transforms (applied during drag/resize, committed on mouse up)
+	let dragOffset = $state({ x: 0, y: 0 }); // Drag offset
+	let resizeOffset = $state({ x: 0, y: 0, width: 0, height: 0 }); // Resize offset
 
 	// References to contenteditable elements
 	let headingRef: HTMLDivElement | null = null;
@@ -94,15 +97,27 @@
 		onUpdate(block.id, { content: newContent });
 	}
 
-	// Helper to find all children of a container block
-	function findChildBlocks(containerId: string): string[] {
-		const children: string[] = [];
+	// Helper to recursively find all descendants of a container block
+	function findAllDescendants(containerId: string, visited: Set<string> = new Set()): string[] {
+		// Prevent infinite recursion by tracking visited blocks
+		if (visited.has(containerId)) {
+			return [];
+		}
+		visited.add(containerId);
+
+		const descendants: string[] = [];
+
+		// Find immediate children
 		for (const [id, childBlock] of blocks.entries()) {
-			if (childBlock.parentId === containerId) {
-				children.push(id);
+			if (childBlock.parentId === containerId && !visited.has(id)) {
+				descendants.push(id);
+				// Recursively find descendants of this child
+				const childDescendants = findAllDescendants(id, visited);
+				descendants.push(...childDescendants);
 			}
 		}
-		return children;
+
+		return descendants;
 	}
 
 	function handleMouseDown(e: MouseEvent) {
@@ -143,18 +158,18 @@
 			blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
 			dragOffset = { x: 0, y: 0 }; // Reset offset
 
-			// If this is a container, check drag mode and store child positions
+			// If this is a container, check drag mode and store ALL descendant positions (recursive)
 			if (isContainer) {
 				containerOnlyDrag = e.shiftKey; // Ctrl+Shift = container only, Ctrl = container + children
 
-				// If NOT container-only mode, store child positions for batch update on mouse up
+				// If NOT container-only mode, store ALL descendant positions for batch update on mouse up
 				if (!containerOnlyDrag) {
-					const children = findChildBlocks(block.id);
+					const allDescendants = findAllDescendants(block.id);
 					childBlocksStart.clear();
-					for (const childId of children) {
-						const childBlock = blocks.get(childId);
-						if (childBlock) {
-							childBlocksStart.set(childId, { x: childBlock.x, y: childBlock.y });
+					for (const descendantId of allDescendants) {
+						const descendantBlock = blocks.get(descendantId);
+						if (descendantBlock) {
+							childBlocksStart.set(descendantId, { x: descendantBlock.x, y: descendantBlock.y });
 						}
 					}
 				}
@@ -195,6 +210,7 @@
 		resizeHandle = handle;
 		dragStart = { x: e.clientX, y: e.clientY };
 		blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
+		resizeOffset = { x: 0, y: 0, width: 0, height: 0 }; // Reset offset
 		e.stopPropagation();
 		e.preventDefault();
 	}
@@ -214,6 +230,7 @@
 		resizeHandle = handle;
 		dragStart = { x: e.clientX, y: e.clientY };
 		blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
+		resizeOffset = { x: 0, y: 0, width: 0, height: 0 }; // Reset offset
 	}
 
 	function handleIncrementalResize(handle: string, decrease: boolean) {
@@ -291,67 +308,81 @@
 			const dx = e.clientX - dragStart.x;
 			const dy = e.clientY - dragStart.y;
 
-			let updates: any = {};
-
+			// Calculate resize offset based on handle
+			// We'll apply these as CSS transforms for smooth visual feedback
 			switch (resizeHandle) {
 				case "nw": // Top-left
-					updates = {
-						x: blockStart.x + dx,
-						y: blockStart.y + dy,
-						width: Math.max(50, blockStart.width - dx),
-						height: Math.max(30, blockStart.height - dy),
+					resizeOffset = {
+						x: dx,
+						y: dy,
+						width: Math.max(50, blockStart.width - dx) - blockStart.width,
+						height: Math.max(30, blockStart.height - dy) - blockStart.height,
 					};
 					break;
 				case "n": // Top
-					updates = {
-						y: blockStart.y + dy,
-						height: Math.max(30, blockStart.height - dy),
+					resizeOffset = {
+						x: 0,
+						y: dy,
+						width: 0,
+						height: Math.max(30, blockStart.height - dy) - blockStart.height,
 					};
 					break;
 				case "ne": // Top-right
-					updates = {
-						y: blockStart.y + dy,
-						width: Math.max(50, blockStart.width + dx),
-						height: Math.max(30, blockStart.height - dy),
+					resizeOffset = {
+						x: 0,
+						y: dy,
+						width: Math.max(50, blockStart.width + dx) - blockStart.width,
+						height: Math.max(30, blockStart.height - dy) - blockStart.height,
 					};
 					break;
 				case "e": // Right
-					updates = {
-						width: Math.max(50, blockStart.width + dx),
+					resizeOffset = {
+						x: 0,
+						y: 0,
+						width: Math.max(50, blockStart.width + dx) - blockStart.width,
+						height: 0,
 					};
 					break;
 				case "se": // Bottom-right
-					updates = {
-						width: Math.max(50, blockStart.width + dx),
-						height: Math.max(30, blockStart.height + dy),
+					resizeOffset = {
+						x: 0,
+						y: 0,
+						width: Math.max(50, blockStart.width + dx) - blockStart.width,
+						height: Math.max(30, blockStart.height + dy) - blockStart.height,
 					};
 					break;
 				case "s": // Bottom
-					updates = {
-						height: Math.max(30, blockStart.height + dy),
+					resizeOffset = {
+						x: 0,
+						y: 0,
+						width: 0,
+						height: Math.max(30, blockStart.height + dy) - blockStart.height,
 					};
 					break;
 				case "sw": // Bottom-left
-					updates = {
-						x: blockStart.x + dx,
-						width: Math.max(50, blockStart.width - dx),
-						height: Math.max(30, blockStart.height + dy),
+					resizeOffset = {
+						x: dx,
+						y: 0,
+						width: Math.max(50, blockStart.width - dx) - blockStart.width,
+						height: Math.max(30, blockStart.height + dy) - blockStart.height,
 					};
 					break;
 				case "w": // Left
-					updates = {
-						x: blockStart.x + dx,
-						width: Math.max(50, blockStart.width - dx),
+					resizeOffset = {
+						x: dx,
+						y: 0,
+						width: Math.max(50, blockStart.width - dx) - blockStart.width,
+						height: 0,
 					};
 					break;
 			}
 
-			onUpdate(block.id, updates);
+			// Don't update Yjs during resize - only on mouse up
 		}
 	}
 
 	function handleMouseUp() {
-		// Apply Yjs updates on mouse up (after drag is complete)
+		// Apply Yjs updates on mouse up (after drag/resize is complete)
 		if (isDragging && (dragOffset.x !== 0 || dragOffset.y !== 0)) {
 			const dx = dragOffset.x;
 			const dy = dragOffset.y;
@@ -376,7 +407,26 @@
 			dragOffset = { x: 0, y: 0 };
 		}
 
-		// Reset all drag state
+		// Apply resize updates on mouse up
+		if (isResizing && (resizeOffset.x !== 0 || resizeOffset.y !== 0 || resizeOffset.width !== 0 || resizeOffset.height !== 0)) {
+			const updates: any = {};
+
+			// Calculate final position and size
+			if (resizeOffset.x !== 0) updates.x = blockStart.x + resizeOffset.x;
+			if (resizeOffset.y !== 0) updates.y = blockStart.y + resizeOffset.y;
+			if (resizeOffset.width !== 0) updates.width = blockStart.width + resizeOffset.width;
+			if (resizeOffset.height !== 0) updates.height = blockStart.height + resizeOffset.height;
+
+			// Apply updates to Yjs
+			if (Object.keys(updates).length > 0) {
+				onUpdate(block.id, updates);
+			}
+
+			// Reset resize offset after applying updates
+			resizeOffset = { x: 0, y: 0, width: 0, height: 0 };
+		}
+
+		// Reset all drag/resize state
 		isDragging = false;
 		isResizing = false;
 		resizeHandle = null;
@@ -477,11 +527,11 @@
 	class:no-positioning={noPositioning}
 	style:left={noPositioning ? undefined : `${block.x}px`}
 	style:top={noPositioning ? undefined : `${block.y}px`}
-	style:width={noPositioning ? "100%" : `${block.width}px`}
-	style:height={noPositioning ? "100%" : `${block.height}px`}
+	style:width={noPositioning ? "100%" : `${block.width + (isResizing ? resizeOffset.width : 0)}px`}
+	style:height={noPositioning ? "100%" : `${block.height + (isResizing ? resizeOffset.height : 0)}px`}
 	style:z-index={noPositioning ? undefined : block.zIndex}
 	style:cursor={blockCursor()}
-	style:transform={isDragging ? `translate(${dragOffset.x}px, ${dragOffset.y}px)` : undefined}
+	style:transform={isDragging ? `translate(${dragOffset.x}px, ${dragOffset.y}px)` : isResizing ? `translate(${resizeOffset.x}px, ${resizeOffset.y}px)` : undefined}
 	style={block.type === "html" ? "" : computedStyles()}
 	onmousedown={handleMouseDown}
 	onmousemove={handleBlockMouseMove}
