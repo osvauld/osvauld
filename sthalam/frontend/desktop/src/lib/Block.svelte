@@ -12,7 +12,9 @@
 			zIndex: number;
 			content: string;
 			styles: Record<string, string>;
+			parentId?: string;
 		};
+		blocks: Map<string, any>;
 		isSelected: boolean;
 		readonly?: boolean;
 		noPositioning?: boolean; // Don't apply position styles (for viewer mode)
@@ -22,15 +24,19 @@
 		onNavigate?: (navButtonId: string) => void;
 	}
 
-	let { block, isSelected, readonly = false, noPositioning = false, onUpdate, onSelect, onFormSubmit, onNavigate }: Props = $props();
+	let { block, blocks, isSelected, readonly = false, noPositioning = false, onUpdate, onSelect, onFormSubmit, onNavigate }: Props = $props();
 
 	let isDragging = $state(false);
 	let isResizing = $state(false);
 	let resizeHandle = $state<string | null>(null);
 	let dragStart = $state({ x: 0, y: 0 });
 	let blockStart = $state({ x: 0, y: 0, width: 0, height: 0 });
-	let dragModeEnabled = $state(false); // Ctrl+click to enable
 	let hoverEdge = $state<string | null>(null); // Track which edge is hovered
+
+	// Container drag state (only used for containers: screen-container, section-container)
+	let containerOnlyDrag = $state(false); // Ctrl+Shift+Drag = container only, Ctrl+Drag = container + children
+	let childBlocksStart = $state<Map<string, { x: number; y: number }>>(new Map());
+	let dragOffset = $state({ x: 0, y: 0 }); // Live offset during drag (for CSS transforms)
 
 	// References to contenteditable elements
 	let headingRef: HTMLDivElement | null = null;
@@ -88,6 +94,17 @@
 		onUpdate(block.id, { content: newContent });
 	}
 
+	// Helper to find all children of a container block
+	function findChildBlocks(containerId: string): string[] {
+		const children: string[] = [];
+		for (const [id, childBlock] of blocks.entries()) {
+			if (childBlock.parentId === containerId) {
+				children.push(id);
+			}
+		}
+		return children;
+	}
+
 	function handleMouseDown(e: MouseEvent) {
 		// In readonly mode, don't allow any editing interactions
 		if (readonly) {
@@ -118,11 +135,31 @@
 
 		// Check if Ctrl (or Cmd on Mac) is held for drag mode
 		if (e.ctrlKey || e.metaKey) {
-			// Ctrl+click enables drag mode
+			const isContainer = block.type === 'screen-container' || block.type === 'section-container';
+
+			// Start drag
 			isDragging = true;
-			dragModeEnabled = true;
 			dragStart = { x: e.clientX, y: e.clientY };
 			blockStart = { x: block.x, y: block.y, width: block.width, height: block.height };
+			dragOffset = { x: 0, y: 0 }; // Reset offset
+
+			// If this is a container, check drag mode and store child positions
+			if (isContainer) {
+				containerOnlyDrag = e.shiftKey; // Ctrl+Shift = container only, Ctrl = container + children
+
+				// If NOT container-only mode, store child positions for batch update on mouse up
+				if (!containerOnlyDrag) {
+					const children = findChildBlocks(block.id);
+					childBlocksStart.clear();
+					for (const childId of children) {
+						const childBlock = blocks.get(childId);
+						if (childBlock) {
+							childBlocksStart.set(childId, { x: childBlock.x, y: childBlock.y });
+						}
+					}
+				}
+			}
+
 			e.stopPropagation(); // Prevent canvas panning
 			e.preventDefault(); // Prevent text selection
 		}
@@ -245,10 +282,11 @@
 			const dx = e.clientX - dragStart.x;
 			const dy = e.clientY - dragStart.y;
 
-			onUpdate(block.id, {
-				x: blockStart.x + dx,
-				y: blockStart.y + dy,
-			});
+			// Update drag offset for CSS transform (smooth visual feedback)
+			dragOffset = { x: dx, y: dy };
+
+			// Don't update Yjs during drag - only on mouse up
+			// Children will snap to position on mouse up (performance optimization)
 		} else if (isResizing && resizeHandle) {
 			const dx = e.clientX - dragStart.x;
 			const dy = e.clientY - dragStart.y;
@@ -313,10 +351,37 @@
 	}
 
 	function handleMouseUp() {
+		// Apply Yjs updates on mouse up (after drag is complete)
+		if (isDragging && (dragOffset.x !== 0 || dragOffset.y !== 0)) {
+			const dx = dragOffset.x;
+			const dy = dragOffset.y;
+
+			// Update container position
+			onUpdate(block.id, {
+				x: blockStart.x + dx,
+				y: blockStart.y + dy,
+			});
+
+			// If container drag with children, update all child positions
+			if (!containerOnlyDrag && childBlocksStart.size > 0) {
+				for (const [childId, childStart] of childBlocksStart.entries()) {
+					onUpdate(childId, {
+						x: childStart.x + dx,
+						y: childStart.y + dy,
+					});
+				}
+			}
+
+			// Reset drag offset after applying updates
+			dragOffset = { x: 0, y: 0 };
+		}
+
+		// Reset all drag state
 		isDragging = false;
 		isResizing = false;
 		resizeHandle = null;
-		dragModeEnabled = false; // Reset drag mode
+		containerOnlyDrag = false;
+		childBlocksStart.clear();
 	}
 
 	function handleBlockMouseMove(e: MouseEvent) {
@@ -416,6 +481,7 @@
 	style:height={noPositioning ? "100%" : `${block.height}px`}
 	style:z-index={noPositioning ? undefined : block.zIndex}
 	style:cursor={blockCursor()}
+	style:transform={isDragging ? `translate(${dragOffset.x}px, ${dragOffset.y}px)` : undefined}
 	style={block.type === "html" ? "" : computedStyles()}
 	onmousedown={handleMouseDown}
 	onmousemove={handleBlockMouseMove}
@@ -619,6 +685,12 @@
 <style>
 	.block {
 		position: absolute;
+		transition: box-shadow 0.2s, outline 0.2s;
+		will-change: transform; /* Optimize for transform animations */
+	}
+
+	/* Disable transform transition when dragging for immediate feedback */
+	.block.dragging {
 		transition: box-shadow 0.2s, outline 0.2s;
 	}
 

@@ -399,6 +399,7 @@
 		{#each blocksArray as block (block.id)}
 			<Block
 				{block}
+				{blocks}
 				isSelected={selectedBlockId === block.id}
 				{readonly}
 				onUpdate={onBlockUpdate}
