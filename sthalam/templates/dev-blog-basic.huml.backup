@@ -1,0 +1,218 @@
+# Dev Confession Blog - Basic Version
+# Simple structure with minimal styling
+
+name: "Dev Confession Blog"
+resourceType: "website"
+
+screens::
+  # Home Screen - Blog Feed
+  - id: "home"
+    name: "Home"
+    isEntryPoint: true
+    children::
+      - type: "heading"
+        content: "💻 DEV CONFESSIONS"
+        css: "font-size: 48px; text-align: center; color: #89b4fa; margin-bottom: 20px;"
+
+      - type: "text"
+        content: "Anonymous developer confessions and memes"
+        css: "text-align: center; color: #8b949e; margin-bottom: 40px;"
+
+      # Blog Post Cards Container
+      - type: "section-container"
+        name: "blog-cards"
+        css: "display: flex; flex-direction: column; gap: 20px; padding: 20px; max-width: 800px; margin: 0 auto;"
+        children::
+          # Card 1
+          - type: "section-container"
+            css: "background: #0d0e13; border: 1px solid #30363d; border-radius: 12px; padding: 20px;"
+            children::
+              - type: "heading"
+                content: "I Use Light Mode"
+                css: "font-size: 24px; color: #cba6f7; margin-bottom: 10px;"
+
+              - type: "text"
+                content: "And I'm not sorry... (Click to read more)"
+                css: "color: #8b949e; margin-bottom: 15px;"
+
+              - type: "nav-button"
+                content: "Read More →"
+                action: "navigate"
+                targetScreen: "post-1"
+                css: "background: #89b4fa; color: #010409; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer;"
+
+          # Card 2
+          - type: "section-container"
+            css: "background: #0d0e13; border: 1px solid #30363d; border-radius: 12px; padding: 20px;"
+            children::
+              - type: "heading"
+                content: "I Don't Know What DNS Is"
+                css: "font-size: 24px; color: #cba6f7; margin-bottom: 10px;"
+
+              - type: "text"
+                content: "At this point I'm too afraid to ask..."
+                css: "color: #8b949e; margin-bottom: 15px;"
+
+              - type: "nav-button"
+                content: "Read More →"
+                action: "navigate"
+                targetScreen: "post-2"
+                css: "background: #89b4fa; color: #010409; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer;"
+
+          # Card 3
+          - type: "section-container"
+            css: "background: #0d0e13; border: 1px solid #30363d; border-radius: 12px; padding: 20px;"
+            children::
+              - type: "heading"
+                content: "My Code Works and I Don't Know Why"
+                css: "font-size: 24px; color: #cba6f7; margin-bottom: 10px;"
+
+              - type: "text"
+                content: "A tutorial on mysterious fixes"
+                css: "color: #8b949e; margin-bottom: 15px;"
+
+              - type: "nav-button"
+                content: "Read More →"
+                action: "navigate"
+                targetScreen: "post-3"
+                css: "background: #89b4fa; color: #010409; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer;"
+
+  # Blog Post 1 - Light Mode
+  - id: "post-1"
+    name: "Post 1 - Light Mode"
+    children::
+      - type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 40px 20px;"
+        children::
+          - type: "heading"
+            content: "I Use Light Mode (And I'm Not Sorry)"
+            css: "font-size: 36px; color: #cba6f7; margin-bottom: 20px;"
+
+          - type: "thread"
+            name: "Light Mode Post"
+            description: "Satirical defense of light mode"
+            mode: "markdown"
+            content: """
+# I Use Light Mode (And I'm Not Sorry)
+
+Look, I know what you're thinking. You're judging me right now. I can feel the collective gasp of developers everywhere reading this.
+
+## Why Light Mode?
+
+1. **I can read it** - Shocking concept, I know
+2. **My eyes don't hurt** - Revolutionary idea
+3. **I work during the day** - You know, when there's actual light
+
+## The Dark Side of Dark Mode
+
+Everyone acts like dark mode is the only way to code. "It's easier on the eyes!" they say, squinting at their screens in a pitch-black room at 3 AM.
+
+Meanwhile, I'm here, living my best life with readable text and proper contrast.
+
+## Join the Light Side
+
+We have cookies. And properly lit rooms.
+            """
+
+          - type: "nav-button"
+            content: "← Back to Confessions"
+            action: "navigate"
+            targetScreen: "home"
+            css: "background: #21262d; color: #c9d1d9; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; margin-top: 30px;"
+
+  # Blog Post 2 - DNS
+  - id: "post-2"
+    name: "Post 2 - DNS"
+    children::
+      - type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 40px 20px;"
+        children::
+          - type: "heading"
+            content: "I Don't Know What DNS Is"
+            css: "font-size: 36px; color: #cba6f7; margin-bottom: 20px;"
+
+          - type: "thread"
+            name: "DNS Confession"
+            description: "Humorous exploration of tech acronyms"
+            mode: "markdown"
+            content: """
+# I Don't Know What DNS Is (And At This Point I'm Too Afraid to Ask)
+
+It's been 5 years since I started programming. I've built websites, deployed applications, even fixed production bugs.
+
+But if you ask me what DNS actually stands for? I panic.
+
+## Things I Tell Myself
+
+- "It's those server things"
+- "Something about domains"
+- "The internet phone book?" (Is it though?)
+
+## Other Acronyms I Pretend to Understand
+
+- API (I know this one... I think)
+- REST (Definitely about sleeping)
+- CORS (The beer, right?)
+- JWT (Just... Web... Tokens?)
+
+## The Truth
+
+I Google it every single time. And immediately forget. It's a vicious cycle.
+
+*Note: If you're reading this and you work with me, no you didn't.*
+            """
+
+          - type: "nav-button"
+            content: "← Back to Confessions"
+            action: "navigate"
+            targetScreen: "home"
+            css: "background: #21262d; color: #c9d1d9; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; margin-top: 30px;"
+
+  # Blog Post 3 - Code Works
+  - id: "post-3"
+    name: "Post 3 - Code Works"
+    children::
+      - type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 40px 20px;"
+        children::
+          - type: "heading"
+            content: "My Code Works and I Don't Know Why"
+            css: "font-size: 36px; color: #cba6f7; margin-bottom: 20px;"
+
+          - type: "thread"
+            name: "Mysterious Fixes"
+            description: "Tutorial on mysterious bug fixes"
+            mode: "markdown"
+            content: """
+# My Code Works and I Don't Know Why
+
+## The Journey
+
+1. **Hour 1:** Code doesn't work. Obviously.
+2. **Hour 2:** Stack Overflow says to try random things
+3. **Hour 3:** Nothing works. Considering career change.
+4. **Hour 4:** Changed one line. IT WORKS???
+
+## What Did I Change?
+
+Honestly? I have no idea. I added a console.log, removed it, changed a variable name, changed it back, and suddenly everything works.
+
+## The Fear
+
+Now I'm terrified to touch anything. The code is working. I don't know why. If I look at it too hard, it might break again.
+
+## Best Practices
+
+- Don't question it
+- Don't touch it
+- Commit immediately
+- Never look back
+
+*If it ain't broke, don't try to understand it.*
+            """
+
+          - type: "nav-button"
+            content: "← Back to Confessions"
+            action: "navigate"
+            targetScreen: "home"
+            css: "background: #21262d; color: #c9d1d9; padding: 10px 20px; border-radius: 6px; border: none; cursor: pointer; margin-top: 30px;"

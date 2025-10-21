@@ -12,9 +12,10 @@
 
 	interface Props {
 		onAddBlock: (type: string, x?: number, y?: number) => void;
+		onImportTemplate?: () => void;
 	}
 
-	let { onAddBlock }: Props = $props();
+	let { onAddBlock, onImportTemplate }: Props = $props();
 
 	function handleDragStart(e: DragEvent, blockType: string) {
 		// Set the block type in drag data
@@ -72,6 +73,14 @@
 			</button>
 		{/each}
 	</div>
+
+	{#if onImportTemplate}
+		<div class="palette-footer">
+			<button class="import-btn" onclick={onImportTemplate} title="Import HUML template">
+				📥 Import Template
+			</button>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -173,5 +182,28 @@
 		font-size: 0.875rem;
 		color: #c9d1d9;
 		font-weight: 500;
+	}
+
+	.palette-footer {
+		padding: 1rem;
+		border-top: 1px solid #21262d;
+	}
+
+	.import-btn {
+		width: 100%;
+		padding: 0.75rem;
+		border: 1px solid #89b4fa;
+		border-radius: 6px;
+		background: rgba(137, 180, 250, 0.1);
+		color: #89b4fa;
+		font-size: 0.875rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+	}
+
+	.import-btn:hover {
+		background: rgba(137, 180, 250, 0.2);
+		box-shadow: 0 2px 8px rgba(137, 180, 250, 0.3);
 	}
 </style>

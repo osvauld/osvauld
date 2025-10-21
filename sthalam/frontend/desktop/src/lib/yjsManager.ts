@@ -3,7 +3,7 @@ import { applyAwarenessUpdate, Awareness, encodeAwarenessUpdate } from "y-protoc
 import type { UserInfo, Collaborator } from "../types/blocksuite.types";
 
 export interface YjsDocuments {
-  mainDoc: Y.Doc;
+  blocksuiteDoc: Y.Doc;
   blocks: Y.Map<any>;
   viewport: Y.Map<any>;
   awareness: Awareness;
@@ -44,14 +44,14 @@ export class YjsManager {
     // Destroy old documents first - critical for note switching
     this.destroy();
 
-    const mainDoc = new Y.Doc({
+    const blocksuiteDoc = new Y.Doc({
       gc: true,
       gcFilter: () => false,
     });
 
-    const blocks = mainDoc.getMap("blocks");
-    const viewport = mainDoc.getMap("viewport");
-    const awareness = new Awareness(mainDoc);
+    const blocks = blocksuiteDoc.getMap("blocks");
+    const viewport = blocksuiteDoc.getMap("viewport");
+    const awareness = new Awareness(blocksuiteDoc);
 
     // Initialize viewport if empty
     if (viewport.size === 0) {
@@ -60,11 +60,11 @@ export class YjsManager {
       viewport.set("zoom", 1);
     }
 
-    // Set up update listener for main doc
+    // Set up update listener for blocksuite doc
     if (this.config.onUpdate) {
-      mainDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+      blocksuiteDoc.on("updateV2", (update: Uint8Array, origin: any) => {
         if (origin !== "sync" && origin !== "loading") {
-          this.config.onUpdate!(update, origin, "main");
+          this.config.onUpdate!(update, origin, "blocksuite_doc");
         }
       });
     }
@@ -138,7 +138,7 @@ export class YjsManager {
     }
 
     this.documents = {
-      mainDoc,
+      blocksuiteDoc,
       blocks,
       viewport,
       awareness,
@@ -183,7 +183,7 @@ export class YjsManager {
    */
   getStateVector(): Uint8Array {
     if (!this.documents) return new Uint8Array();
-    return Y.encodeStateVector(this.documents.mainDoc);
+    return Y.encodeStateVector(this.documents.blocksuiteDoc);
   }
 
   /**
@@ -196,14 +196,14 @@ export class YjsManager {
     const updateArray = update instanceof Uint8Array ? update : new Uint8Array(update);
 
     // Route to correct document based on docType
-    let targetDoc: Y.Doc = this.documents.mainDoc;
+    let targetDoc: Y.Doc = this.documents.blocksuiteDoc;
 
     if (docType === 'thread_comments_doc' && this.documents.commentsDoc) {
       targetDoc = this.documents.commentsDoc;
     } else if (docType === 'form_submissions_doc' && this.documents.submissionsDoc) {
       targetDoc = this.documents.submissionsDoc;
-    } else if (docType === 'blocksuite_doc' || docType === 'main') {
-      targetDoc = this.documents.mainDoc;
+    } else if (docType === 'blocksuite_doc') {
+      targetDoc = this.documents.blocksuiteDoc;
     }
 
     // Track byte size changes for form_submissions_doc
@@ -219,7 +219,7 @@ export class YjsManager {
       console.log(`⚡ Deferring large update (${(updateArray.length / 1024).toFixed(1)}KB) to next frame...`);
       return new Promise((resolve) => {
         requestAnimationFrame(() => {
-          console.log(`📥 Applying deferred update to ${docType || 'mainDoc'}...`);
+          console.log(`📥 Applying deferred update to ${docType || 'blocksuiteDoc'}...`);
           targetDoc.transact(() => {
             Y.applyUpdateV2(targetDoc, updateArray, origin);
           }, origin);
@@ -253,7 +253,7 @@ export class YjsManager {
    */
   getStateAsUpdate(): Uint8Array {
     if (!this.documents) return new Uint8Array();
-    return Y.encodeStateAsUpdateV2(this.documents.mainDoc);
+    return Y.encodeStateAsUpdateV2(this.documents.blocksuiteDoc);
   }
 
   /**
@@ -290,7 +290,7 @@ export class YjsManager {
   destroy(): void {
     if (this.documents) {
       this.documents.awareness.destroy();
-      this.documents.mainDoc.destroy();
+      this.documents.blocksuiteDoc.destroy();
 
       if (this.documents.commentsDoc) {
         this.documents.commentsDoc.destroy();

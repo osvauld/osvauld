@@ -10,8 +10,8 @@
 	let yDocs: YjsDocuments | null = null;
 
 	// NEW: Separate state for thread post and comments
-	let threadPostBlocks = $state<Map<string, any>>(new Map()); // From mainDoc
-	let commentBlocks = $state<Map<string, any>>(new Map());    // From secondaryDoc
+	let threadPostBlocks = $state<Map<string, any>>(new Map()); // From blocksuiteDoc
+	let commentBlocks = $state<Map<string, any>>(new Map());    // From commentsDoc
 
 	let autoSaveInterval: number | null = null;
 
@@ -95,11 +95,11 @@
 			yDocs = docs;
 
 			console.log("📦 Yjs documents received:", {
-				hasMainDoc: !!docs.mainDoc,
-				hasSecondaryDoc: !!docs.secondaryDoc
+				hasBlocksuiteDoc: !!docs.blocksuiteDoc,
+				hasCommentsDoc: !!docs.commentsDoc
 			});
 
-			// NEW: Subscribe to mainDoc blocks (thread post)
+			// Subscribe to blocksuiteDoc blocks (thread post)
 			const mainBlocksObserver = () => {
 				if (!yDocs) return;
 				const newBlocks = new Map();
@@ -112,24 +112,24 @@
 
 			docs.blocks.observe(mainBlocksObserver);
 
-			// NEW: Subscribe to secondaryDoc blocks (comments) if it exists
-			const secondaryBlocksObserver = () => {
-				if (!yDocs || !yDocs.secondaryBlocks) return;
+			// Subscribe to commentsDoc blocks (comments) if it exists
+			const commentsBlocksObserver = () => {
+				if (!yDocs || !yDocs.commentsBlocks) return;
 				const newBlocks = new Map();
-				yDocs.secondaryBlocks.forEach((value, key) => {
+				yDocs.commentsBlocks.forEach((value, key) => {
 					newBlocks.set(key, value);
 				});
 				commentBlocks = newBlocks;
 				console.log("📦 Comment blocks updated:", commentBlocks.size);
 			};
 
-			if (docs.secondaryBlocks) {
-				docs.secondaryBlocks.observe(secondaryBlocksObserver);
+			if (docs.commentsBlocks) {
+				docs.commentsBlocks.observe(commentsBlocksObserver);
 			}
 
 			// Initial load
 			mainBlocksObserver();
-			secondaryBlocksObserver();
+			commentsBlocksObserver();
 
 			// If no thread post exists, create one
 			if (!Array.from(threadPostBlocks.values()).some(b => b.type === 'thread-post')) {
@@ -167,7 +167,7 @@
 			timestamp: new Date().toISOString(),
 			order: 0
 		};
-		// Add to mainDoc (thread post)
+		// Add to blocksuiteDoc (thread post)
 		yDocs.blocks.set(id, newBlock);
 	}
 
@@ -175,13 +175,13 @@
 		if (!yDocs || !threadPost()) return;
 		const post = threadPost();
 		if (post) {
-			// Update in mainDoc (thread post)
+			// Update in blocksuiteDoc (thread post)
 			yDocs.blocks.set(post.id, { ...post, ...updates });
 		}
 	}
 
 	async function addComment(content: string, mode: string, css: string, parentId?: string) {
-		if (!yDocs || !yDocs.secondaryBlocks) return;
+		if (!yDocs || !yDocs.commentsBlocks) return;
 		const id = `comment-${Date.now()}`;
 		const newBlock = {
 			id,
@@ -194,8 +194,8 @@
 			parentId: parentId || null,
 			order: commentBlocks.size
 		};
-		// NEW: Add to secondaryDoc (comments)
-		yDocs.secondaryBlocks.set(id, newBlock);
+		// Add to commentsDoc (comments)
+		yDocs.commentsBlocks.set(id, newBlock);
 
 		// Trigger immediate save and sync after adding comment
 		const currentResourceId = dataState.currentResourceId;
@@ -216,18 +216,18 @@
 	}
 
 	function updateComment(commentId: string, updates: any) {
-		if (!yDocs || !yDocs.secondaryBlocks) return;
+		if (!yDocs || !yDocs.commentsBlocks) return;
 		const comment = commentBlocks.get(commentId);
 		if (comment) {
-			// NEW: Update in secondaryDoc (comments)
-			yDocs.secondaryBlocks.set(commentId, { ...comment, ...updates });
+			// Update in commentsDoc (comments)
+			yDocs.commentsBlocks.set(commentId, { ...comment, ...updates });
 		}
 	}
 
 	function deleteComment(commentId: string) {
-		if (!yDocs || !yDocs.secondaryBlocks) return;
-		// NEW: Delete from secondaryDoc (comments)
-		yDocs.secondaryBlocks.delete(commentId);
+		if (!yDocs || !yDocs.commentsBlocks) return;
+		// Delete from commentsDoc (comments)
+		yDocs.commentsBlocks.delete(commentId);
 	}
 </script>
 

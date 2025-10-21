@@ -1,0 +1,158 @@
+# Deeply Nested Containers Template
+# Tests multiple levels of container nesting with navigation
+
+name: "Nested Containers Test"
+
+screens::
+  - ::
+    id: "main"
+    name: "Main Screen"
+    isEntryPoint: true
+    css: "padding: 2rem; background: #0d0e13; min-height: 100vh;"
+    children::
+      - ::
+        type: "heading"
+        content: "Nested Containers Demo"
+        css: "font-size: 48px; color: #89b4fa; text-align: center; margin-bottom: 2rem;"
+
+      - ::
+        type: "section-container"
+        name: "Top Level Container"
+        css: "background: rgba(137, 180, 250, 0.1); border: 2px solid #89b4fa; border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem;"
+        children::
+          - ::
+            type: "heading"
+            content: "Level 1: Top Container"
+            css: "font-size: 24px; color: #89b4fa; margin-bottom: 1rem;"
+
+          - ::
+            type: "text"
+            content: "This is the first level container"
+            css: "color: #c9d1d9; margin-bottom: 1rem;"
+
+          - ::
+            type: "section-container"
+            name: "Second Level Container A"
+            css: "background: rgba(166, 227, 161, 0.1); border: 2px solid #a6e3a1; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;"
+            children::
+              - ::
+                type: "heading"
+                content: "Level 2A: Nested Container"
+                css: "font-size: 20px; color: #a6e3a1; margin-bottom: 0.5rem;"
+
+              - ::
+                type: "text"
+                content: "Second level - Branch A"
+                css: "color: #c9d1d9; margin-bottom: 0.75rem;"
+
+              - ::
+                type: "section-container"
+                name: "Third Level Container"
+                css: "background: rgba(245, 194, 231, 0.1); border: 2px solid #f5c2e7; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Level 3: Deep Nested"
+                    css: "font-size: 18px; color: #f5c2e7; margin-bottom: 0.5rem;"
+
+                  - ::
+                    type: "text"
+                    content: "Third level nesting!"
+                    css: "color: #c9d1d9; margin-bottom: 0.5rem;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Go to Details from Level 3"
+                    action: "navigate"
+                    targetScreen: "details"
+                    css: "padding: 0.5rem 1rem; background: #f5c2e7; color: #010409; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Navigate from Level 2A"
+                action: "navigate"
+                targetScreen: "details"
+                css: "padding: 0.5rem 1rem; background: #a6e3a1; color: #010409; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;"
+
+          - ::
+            type: "section-container"
+            name: "Second Level Container B"
+            css: "background: rgba(249, 226, 175, 0.1); border: 2px solid #f9e2af; border-radius: 8px; padding: 1rem; margin-bottom: 1rem;"
+            children::
+              - ::
+                type: "heading"
+                content: "Level 2B: Another Branch"
+                css: "font-size: 20px; color: #f9e2af; margin-bottom: 0.5rem;"
+
+              - ::
+                type: "text"
+                content: "Second level - Branch B"
+                css: "color: #c9d1d9; margin-bottom: 0.75rem;"
+
+              - ::
+                type: "section-container"
+                name: "Third Level Container B"
+                css: "background: rgba(203, 166, 247, 0.1); border: 2px solid #cba6f7; border-radius: 6px; padding: 0.75rem; margin-bottom: 0.75rem;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Level 3B: Another Deep Nest"
+                    css: "font-size: 18px; color: #cba6f7; margin-bottom: 0.5rem;"
+
+                  - ::
+                    type: "text"
+                    content: "This branch also goes 3 levels deep"
+                    css: "color: #c9d1d9; margin-bottom: 0.5rem;"
+
+                  - ::
+                    type: "section-container"
+                    name: "Fourth Level Container"
+                    css: "background: rgba(148, 226, 213, 0.1); border: 2px solid #94e2d5; border-radius: 4px; padding: 0.5rem; margin-bottom: 0.5rem;"
+                    children::
+                      - ::
+                        type: "text"
+                        content: "Level 4: Maximum Depth!"
+                        css: "color: #94e2d5; font-weight: 600; margin-bottom: 0.5rem;"
+
+                      - ::
+                        type: "nav-button"
+                        content: "Navigate from Level 4"
+                        action: "navigate"
+                        targetScreen: "details"
+                        css: "padding: 0.5rem 1rem; background: #94e2d5; color: #010409; border: none; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Navigate from Level 2B"
+                action: "navigate"
+                targetScreen: "details"
+                css: "padding: 0.5rem 1rem; background: #f9e2af; color: #010409; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer;"
+
+          - ::
+            type: "nav-button"
+            content: "Navigate from Level 1"
+            action: "navigate"
+            targetScreen: "details"
+            css: "padding: 0.75rem 1.5rem; background: #89b4fa; color: #010409; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+  - ::
+    id: "details"
+    name: "Details Screen"
+    css: "padding: 2rem; background: linear-gradient(135deg, #2e1e3e 0%, #0d0e13 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;"
+    children::
+      - ::
+        type: "heading"
+        content: "Details Page"
+        css: "font-size: 48px; color: #cba6f7; text-align: center; margin-bottom: 1rem;"
+
+      - ::
+        type: "text"
+        content: "You navigated from a nested container! All navigation buttons worked regardless of nesting level."
+        css: "color: #c9d1d9; text-align: center; margin-bottom: 2rem; max-width: 600px;"
+
+      - ::
+        type: "nav-button"
+        content: "Back to Main"
+        action: "navigate"
+        targetScreen: "main"
+        css: "padding: 1rem 2rem; background: #cba6f7; color: #010409; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"

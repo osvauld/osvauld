@@ -99,36 +99,32 @@ export class BlocksuiteCoordinator {
       console.log("⏱️ [LOAD] Step 3: Setting user info at", performance.now() - loadStartTime, "ms");
       this.yjsManager.setUserInfo(this.config.userInfo);
 
-      // Step 4: Load main document
-      console.log("⏱️ [LOAD] Step 4: Preparing main document at", performance.now() - loadStartTime, "ms");
-      let mainDocKey: string | null = null;
-      let mainUpdates: Uint8Array | null = null;
+      // Step 4: Load blocksuite document
+      console.log("⏱️ [LOAD] Step 4: Preparing blocksuite document at", performance.now() - loadStartTime, "ms");
+      let blocksuiteUpdates: Uint8Array | null = null;
 
       if (data.blocksuite_doc) {
-        mainDocKey = 'blocksuite_doc';
-        mainUpdates = Array.isArray(data.blocksuite_doc)
+        this.currentDocKey = 'blocksuite_doc';
+        blocksuiteUpdates = Array.isArray(data.blocksuite_doc)
           ? new Uint8Array(data.blocksuite_doc)
           : (data.blocksuite_doc.updates ? new Uint8Array(data.blocksuite_doc.updates) : null);
       } else if (data.thread_doc) {
-        mainDocKey = 'thread_doc';
-        mainUpdates = Array.isArray(data.thread_doc)
+        this.currentDocKey = 'thread_doc';
+        blocksuiteUpdates = Array.isArray(data.thread_doc)
           ? new Uint8Array(data.thread_doc)
           : (data.thread_doc.updates ? new Uint8Array(data.thread_doc.updates) : null);
       } else if (data.form_doc) {
-        mainDocKey = 'form_doc';
-        mainUpdates = Array.isArray(data.form_doc)
+        this.currentDocKey = 'form_doc';
+        blocksuiteUpdates = Array.isArray(data.form_doc)
           ? new Uint8Array(data.form_doc)
           : (data.form_doc.updates ? new Uint8Array(data.form_doc.updates) : null);
       }
 
-      if (mainDocKey) {
-        this.currentDocKey = mainDocKey;
-        if (mainUpdates && mainUpdates.length > 0) {
-          console.log(`📥 Applying ${mainDocKey} updates (${mainUpdates.length} bytes)`);
-          console.log("⏱️ [LOAD] Applying main doc updates at", performance.now() - loadStartTime, "ms");
-          await this.yjsManager.applyUpdate(mainUpdates, "loading", mainDocKey);
-          console.log("⏱️ [LOAD] Main doc updates applied at", performance.now() - loadStartTime, "ms");
-        }
+      if (blocksuiteUpdates && blocksuiteUpdates.length > 0) {
+        console.log(`📥 Applying ${this.currentDocKey} updates (${blocksuiteUpdates.length} bytes)`);
+        console.log("⏱️ [LOAD] Applying blocksuite doc updates at", performance.now() - loadStartTime, "ms");
+        await this.yjsManager.applyUpdate(blocksuiteUpdates, "loading", this.currentDocKey);
+        console.log("⏱️ [LOAD] Blocksuite doc updates applied at", performance.now() - loadStartTime, "ms");
       }
 
       // Step 5: Load comments doc (if exists and has thread blocks)
@@ -319,10 +315,10 @@ export class BlocksuiteCoordinator {
       last_modified: Date.now()
     };
 
-    // Save main document
-    const mainUpdates = Y.encodeStateAsUpdateV2(docs.mainDoc);
-    result[this.currentDocKey] = Array.from(mainUpdates);
-    console.log(`📤 Saving ${this.currentDocKey}: ${mainUpdates.length} bytes`);
+    // Save blocksuite document
+    const blocksuiteUpdates = Y.encodeStateAsUpdateV2(docs.blocksuiteDoc);
+    result[this.currentDocKey] = Array.from(blocksuiteUpdates);
+    console.log(`📤 Saving ${this.currentDocKey}: ${blocksuiteUpdates.length} bytes`);
 
     // Save comments doc if exists
     if (docs.commentsDoc) {

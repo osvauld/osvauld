@@ -7,6 +7,7 @@
 	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
 	import NavigationPanel from "../components/NavigationPanel.svelte";
 	import NavigationToggle from "../components/NavigationToggle.svelte";
+	import TemplateImportModal from "../components/TemplateImportModal.svelte";
 	import type { YjsDocuments } from "./yjsManager";
 	import type { BlocksuiteStore } from "./blocksuiteStore";
 
@@ -17,6 +18,7 @@
 	let autoSaveInterval: number | null = null;
 	let blocksuiteStore: BlocksuiteStore | null = null;
 	let blocksuiteUnsubscribe: (() => void) | null = null;
+	let showImportModal = $state(false);
 
 	const selectedBlock = $derived(
 		selectedBlockId ? blocks.get(selectedBlockId) || null : null
@@ -543,7 +545,7 @@
 				<NavigationToggle />
 			</div>
 		{/if}
-		<BlockPalette onAddBlock={addBlock} />
+		<BlockPalette onAddBlock={addBlock} onImportTemplate={() => showImportModal = true} />
 		<Canvas
 			{blocks}
 			{viewport}
@@ -564,6 +566,13 @@
 			onDeleteBlock={deleteBlock}
 		/>
 		<KeyboardShortcuts />
+
+		{#if showImportModal}
+			<TemplateImportModal
+				yjsDocuments={yDocs}
+				onClose={() => showImportModal = false}
+			/>
+		{/if}
 	</div>
 {/if}
 

@@ -1,0 +1,50 @@
+# Navigation Test Template
+# Tests navigation between multiple screens
+
+name: "Navigation Test"
+
+screens::
+  - ::
+    id: "home"
+    name: "Home Screen"
+    isEntryPoint: true
+    css: "padding: 2rem; background: linear-gradient(135deg, #1e1e2e 0%, #0d0e13 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;"
+    children::
+      - ::
+        type: "heading"
+        content: "Welcome to Navigation Test"
+        css: "font-size: 48px; color: #89b4fa; text-align: center; margin-bottom: 1rem;"
+
+      - ::
+        type: "text"
+        content: "Click the button below to navigate to the About page"
+        css: "color: #c9d1d9; text-align: center; margin-bottom: 2rem;"
+
+      - ::
+        type: "nav-button"
+        content: "Go to About"
+        action: "navigate"
+        targetScreen: "about"
+        css: "padding: 1rem 2rem; background: #89b4fa; color: #010409; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+  - ::
+    id: "about"
+    name: "About Screen"
+    css: "padding: 2rem; background: linear-gradient(135deg, #2e1e3e 0%, #0d0e13 100%); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh;"
+    children::
+      - ::
+        type: "heading"
+        content: "About Page"
+        css: "font-size: 48px; color: #cba6f7; text-align: center; margin-bottom: 1rem;"
+
+      - ::
+        type: "text"
+        content: "You successfully navigated to the About page!"
+        css: "color: #c9d1d9; text-align: center; margin-bottom: 2rem;"
+
+      - ::
+        type: "nav-button"
+        content: "Back to Home"
+        action: "navigate"
+        targetScreen: "home"
+        css: "padding: 1rem 2rem; background: #cba6f7; color: #010409; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
