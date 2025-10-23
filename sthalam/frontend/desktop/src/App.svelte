@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
 	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
-	import NoticeBoardBuilder from "./lib/NoticeBoardBuilder.svelte";
 	import ViewerMode from "./components/ViewerMode.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
 	import { uiState } from "./state/ui.svelte";
@@ -134,17 +133,10 @@
 						{@const _ = console.log("🔴 ROUTING: No resource selected, showing WebsiteBuilder")}
 						<WebsiteBuilder />
 					{:else}
+						<!-- All resource types (website, form, noticeboard) use WebsiteBuilder -->
 						{@const resourceType = currentResource.resource_type || currentResource.resourceType}
-						{@const __ = console.log("🟢 ROUTING: Resource exists, type =", resourceType, "| resource_type =", currentResource.resource_type, "| resourceType =", currentResource.resourceType)}
-						{#if resourceType === 'noticeboard'}
-							<!-- Thread Builder -->
-							{@const ___ = console.log("✅ ROUTING: Showing NoticeBoardBuilder (Thread)")}
-							<NoticeBoardBuilder />
-						{:else}
-							<!-- Both 'website' and 'form' use WebsiteBuilder -->
-							{@const ____ = console.log("⚠️ ROUTING: Showing WebsiteBuilder for type:", resourceType)}
-							<WebsiteBuilder />
-						{/if}
+						{@const __ = console.log("🟢 ROUTING: Resource exists, type =", resourceType, "| Showing WebsiteBuilder")}
+						<WebsiteBuilder />
 					{/if}
 				{:else}
 					<ViewerMode />

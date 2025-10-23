@@ -17,7 +17,6 @@
 
 	const resourceTypes = [
 		{ value: "website", label: "Website", icon: "🌐", description: "Build a full website with blocks" },
-		{ value: "noticeboard", label: "Thread", icon: "💬", description: "Create a discussion thread" },
 		{ value: "form", label: "Form", icon: "📝", description: "Build a form for data collection" }
 	];
 

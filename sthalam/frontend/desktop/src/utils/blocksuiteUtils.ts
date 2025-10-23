@@ -12,7 +12,7 @@ export interface BlocksuiteContent {
   title: string;
 }
 
-export type ResourceType = 'website' | 'noticeboard' | 'form';
+export type ResourceType = 'website' | 'form';
 
 /**
  * Create an empty BlockSuite document with initial state
@@ -141,60 +141,6 @@ export function createBlankBlocksuiteDoc(
 }
 
 /**
- * Create a thread document with split docs for post and comments
- * NEW: Returns both thread_doc (main post) and thread_comments_doc (comments)
- */
-export function createNoticeBoardDoc(
-  clientId: number,
-  title: string = "Thread"
-): BlocksuiteContent {
-  // Create thread_doc (for main post)
-  const threadDoc = new Y.Doc();
-  const threadBlocks = threadDoc.getMap("blocks");
-  const viewport = threadDoc.getMap("viewport");
-  const metadata = threadDoc.getMap("metadata");
-
-  // Set metadata with title (for preview generator)
-  metadata.set("title", title);
-
-  viewport.set("x", 0);
-  viewport.set("y", 0);
-  viewport.set("zoom", 1);
-
-  // Add initial thread post block
-  const postId = `thread-post-${Date.now()}`;
-  threadBlocks.set(postId, {
-    id: postId,
-    type: "thread-post",
-    content: "",
-    mode: "markdown",
-    css: "",
-    author: "Owner",
-    timestamp: new Date().toISOString(),
-    order: 0
-  });
-
-  const threadEncoded = Y.encodeStateAsUpdateV2(threadDoc);
-
-  // Create thread_comments_doc (for comments)
-  const commentsDoc = new Y.Doc();
-  const commentsBlocks = commentsDoc.getMap("blocks");
-  const commentsEncoded = Y.encodeStateAsUpdateV2(commentsDoc);
-
-  const content: BlocksuiteContent = {
-    thread_doc: Array.from(threadEncoded),          // Main post
-    thread_comments_doc: Array.from(commentsEncoded), // Comments (empty initially)
-    client_id: clientId.toString(),
-    last_modified: Date.now(),
-    title
-  };
-
-  threadDoc.destroy();
-  commentsDoc.destroy();
-  return content;
-}
-
-/**
  * Create a form document with split docs for definition and submissions
  * NEW: Returns both form_doc (form definition) and form_submissions_doc (submissions)
  */
@@ -258,8 +204,6 @@ export function createResourceDoc(
   switch (resourceType) {
     case 'website':
       return createEmptyBlocksuiteDoc(clientId, title);
-    case 'noticeboard':
-      return createNoticeBoardDoc(clientId, title);
     case 'form':
       return createFormDoc(clientId, title);
     default:
