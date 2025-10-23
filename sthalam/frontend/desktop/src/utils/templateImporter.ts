@@ -30,12 +30,16 @@ export interface TemplateBlock {
   action?: 'navigate' | 'show' | 'hide' | 'toggle';
   targetScreen?: string;
   targetContainer?: string;
+  targetContainerId?: string; // Direct target container ID
+  value?: any; // Field value for branching (MODE 3)
 
   // Form-specific
   formId?: string;
   fieldName?: string;
   required?: boolean;
   eventName?: string;
+  label?: string; // Form field label
+  placeholder?: string; // Form field placeholder
 
   // Thread-specific
   mode?: 'markdown' | 'html';
@@ -132,7 +136,7 @@ export class TemplateImporter {
         x: this.currentX,
         y: this.currentY,
         width: 1200,
-        height: 800,
+        // Don't set height - let it grow with content
         zIndex: 0,
         content: '',
         styles: parsedStyles,
@@ -190,7 +194,11 @@ export class TemplateImporter {
       const x = block.x ?? startX;
       const y = block.y ?? currentY;
       const width = block.width ?? this.getDefaultWidth(block.type);
-      const height = block.height ?? this.getDefaultHeight(block.type);
+
+      // Don't set height for containers - let them grow with content
+      const isContainer = block.type === 'screen-container' || block.type === 'section-container';
+      const height = isContainer ? undefined : (block.height ?? this.getDefaultHeight(block.type));
+
       const zIndex = block.zIndex ?? 1;
 
       // Parse CSS to styles
@@ -203,13 +211,17 @@ export class TemplateImporter {
         x,
         y,
         width,
-        height,
         zIndex,
         content: block.content || '',
         styles: parsedStyles,
         css: block.css || '', // Keep original CSS string for editing
         parentId: parentId,
       };
+
+      // Only set height for non-container blocks
+      if (height !== undefined) {
+        blockData.height = height;
+      }
 
       // Log CSS parsing if CSS was provided
       if (block.css) {
@@ -223,7 +235,9 @@ export class TemplateImporter {
       if (block.action) blockData.action = block.action;
 
       // Navigation target - NavButton expects targetContainerId
-      if (block.targetScreen) {
+      if (block.targetContainerId) {
+        blockData.targetContainerId = block.targetContainerId;
+      } else if (block.targetScreen) {
         blockData.targetContainerId = block.targetScreen;
       } else if (block.targetContainer) {
         blockData.targetContainerId = block.targetContainer;
@@ -231,6 +245,7 @@ export class TemplateImporter {
 
       if (block.formId) blockData.formId = block.formId;
       if (block.fieldName) blockData.fieldName = block.fieldName;
+      if (block.value !== undefined) blockData.value = block.value; // For nav-button field values
       if (block.required !== undefined) blockData.required = block.required;
       if (block.eventName) blockData.eventName = block.eventName;
       if (block.mode) blockData.mode = block.mode;
@@ -238,6 +253,10 @@ export class TemplateImporter {
       if (block.questionId) blockData.questionId = block.questionId;
       if (block.yesTargetId) blockData.yesTargetId = block.yesTargetId;
       if (block.noTargetId) blockData.noTargetId = block.noTargetId;
+
+      // Form field properties
+      if (block.label) blockData.label = block.label;
+      if (block.placeholder) blockData.placeholder = block.placeholder;
 
       // Handle children
       if (block.children && block.children.length > 0) {

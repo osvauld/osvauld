@@ -4,6 +4,7 @@
 	import Canvas from "./Canvas.svelte";
 	import BlockPalette from "./BlockPalette.svelte";
 	import PropertiesPanel from "./PropertiesPanel.svelte";
+	import ContentEditorModal from "./ContentEditorModal.svelte";
 	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
 	import NavigationPanel from "../components/NavigationPanel.svelte";
 	import NavigationToggle from "../components/NavigationToggle.svelte";
@@ -15,14 +16,28 @@
 	let blocks = $state<Map<string, any>>(new Map());
 	let viewport = $state({ x: 0, y: 0, zoom: 1 });
 	let selectedBlockId = $state<string | null>(null);
+	let selectedConnectionId = $state<string | null>(null);
 	let autoSaveInterval: number | null = null;
 	let blocksuiteStore: BlocksuiteStore | null = null;
 	let blocksuiteUnsubscribe: (() => void) | null = null;
 	let showImportModal = $state(false);
 
+	// Content editor modal state
+	let showContentEditor = $state(false);
+	let editingBlockId = $state<string>("");
+	let editingContent = $state<string>("");
+	let editingBlockType = $state<string>("");
+
 	const selectedBlock = $derived(
 		selectedBlockId ? blocks.get(selectedBlockId) || null : null
 	);
+
+	const selectedConnection = $derived(() => {
+		if (!selectedBlockId || !selectedConnectionId) return null;
+		const block = blocks.get(selectedBlockId);
+		if (!block?.manualConnections) return null;
+		return block.manualConnections.find((c: any) => c.id === selectedConnectionId) || null;
+	});
 
 	// Track if we have a resource selected
 	const hasResource = $derived(!!dataState.currentResourceId);
@@ -200,6 +215,23 @@
 		}
 	}
 
+	// Content editor handlers
+	function handleEditContent(blockId: string, content: string, type: string) {
+		editingBlockId = blockId;
+		editingContent = content;
+		editingBlockType = type;
+		showContentEditor = true;
+	}
+
+	function handleSaveContent(blockId: string, newContent: string) {
+		updateBlock(blockId, { content: newContent });
+		showContentEditor = false;
+	}
+
+	function handleCancelEdit() {
+		showContentEditor = false;
+	}
+
 	function normalizeZIndexes() {
 		if (!yDocs) return;
 		// Get all blocks sorted by current z-index
@@ -324,6 +356,23 @@
 		if (selectedBlockId === blockId) {
 			selectedBlockId = null;
 		}
+	}
+
+	function handleBlockContextMenu(blockId: string) {
+		console.log("🎯 Ctrl+Right Click on block:", blockId);
+		const block = blocks.get(blockId);
+		if (!block) return;
+
+		console.log("Block type:", block.type);
+		// TODO: Implement mode switching based on block type
+		// - Containers (screen/section) → Preview Mode
+		// - Text/Markdown/Heading → Editor Mode
+	}
+
+	function handleConnectionSelect(blockId: string, connectionId: string) {
+		selectedBlockId = blockId;
+		selectedConnectionId = connectionId;
+		console.log("📍 Connection selected - showing in properties panel");
 	}
 
 	function addBlock(type: string, x?: number, y?: number) {
@@ -552,18 +601,26 @@
 			{selectedBlockId}
 			onViewportChange={updateViewport}
 			onBlockUpdate={updateBlock}
-			onBlockSelect={(id) => (selectedBlockId = id)}
+			onBlockSelect={(id) => {
+				selectedBlockId = id;
+				selectedConnectionId = null; // Clear connection selection when block selected
+			}}
+			onConnectionSelect={handleConnectionSelect}
+			onBlockContextMenu={handleBlockContextMenu}
 			onBlockDrop={addBlock}
 		/>
 		<PropertiesPanel
 			{selectedBlock}
 			{blocks}
+			selectedConnection={selectedConnection()}
+			{selectedConnectionId}
 			onUpdateBlock={updateBlock}
 			onBringForward={bringForward}
 			onSendBackward={sendBackward}
 			onBringToFront={bringToFront}
 			onSendToBack={sendToBack}
 			onDeleteBlock={deleteBlock}
+			onEditContent={handleEditContent}
 		/>
 		<KeyboardShortcuts />
 
@@ -573,6 +630,15 @@
 				onClose={() => showImportModal = false}
 			/>
 		{/if}
+
+		<ContentEditorModal
+			isOpen={showContentEditor}
+			blockId={editingBlockId}
+			content={editingContent}
+			blockType={editingBlockType}
+			onSave={handleSaveContent}
+			onCancel={handleCancelEdit}
+		/>
 	</div>
 {/if}
 

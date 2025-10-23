@@ -1,5 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import type * as Y from 'yjs';
+	import type { SubmissionsStore } from '../submissionsStore';
+	import { dataState } from '../../state';
+	import { sendMessage } from '../../utils/helper';
 
 	interface Props {
 		blockId: string;
@@ -11,18 +15,61 @@
 
 	let { blockId, blockData, allBlocks, ydoc, onNavigate }: Props = $props();
 
-	function handleClick() {
-		const action = blockData.action || 'navigate'; // Default to navigate for backwards compatibility
-		const targetId = blockData.targetContainerId;
+	let submissionsStore: SubmissionsStore | null = null;
+	let isSubmitting = $state(false);
 
-		if (!targetId) {
-			console.warn('⚠️ Nav button has no target configured');
+	// Setup subscription to submissions store (needed for form submission modes)
+	function handleStoreReady(event: CustomEvent) {
+		const storeInstance = event.detail.submissionsStore;
+		if (storeInstance) {
+			submissionsStore = storeInstance;
+		}
+	}
+
+	onMount(() => {
+		// Check if coordinator already exists
+		const coordinator = dataState.getBlocksuiteCoordinator();
+		if (coordinator) {
+			const existingStore = coordinator.getSubmissionsStore();
+			if (existingStore) {
+				submissionsStore = existingStore;
+			}
+		}
+
+		// Listen for the event in case it fires later
+		document.addEventListener("submissions-store-ready", handleStoreReady as EventListener);
+
+		return () => {
+			document.removeEventListener("submissions-store-ready", handleStoreReady as EventListener);
+		};
+	});
+
+	async function handleClick() {
+		const action = blockData.action || 'navigate';
+		const targetId = blockData.targetContainerId;
+		const formId = blockData.formId;
+		const fieldName = blockData.fieldName;
+		const fieldValue = blockData.value;
+
+		// Determine mode based on properties
+		const hasFieldNameAndValue = fieldName && fieldValue !== undefined;
+		const hasFormId = !!formId;
+
+		if (isSubmitting) return; // Prevent double-clicks
+
+		// MODE 3: Set field value + submit + navigate (Branching choice)
+		if (hasFieldNameAndValue && hasFormId) {
+			await handleFieldValueSubmit(formId, fieldName, fieldValue, targetId);
 			return;
 		}
 
-		console.log(`🧭 Nav button clicked - Action: ${action}, Target: ${targetId}`);
+		// MODE 2: Submit entire form + navigate (Form submit button)
+		if (hasFormId && action === 'navigate') {
+			await handleFormSubmit(formId, targetId);
+			return;
+		}
 
-		// Handle different actions
+		// MODE 1: Just navigate or show/hide/toggle
 		switch (action) {
 			case 'show':
 				updateContainerVisibility(targetId, true);
@@ -37,11 +84,8 @@
 				break;
 
 			case 'navigate':
-				// Navigate to a screen
-				if (onNavigate) {
-					// Check for branching logic
-					const resolvedTargetId = resolveBranchingTarget(targetId);
-					onNavigate(resolvedTargetId);
+				if (onNavigate && targetId) {
+					onNavigate(targetId);
 				}
 				break;
 
@@ -50,26 +94,159 @@
 		}
 	}
 
-	function resolveBranchingTarget(defaultTargetId: string): string {
-		// Check if there's branching logic
-		if (blockData.questionId && blockData.yesTargetId && blockData.noTargetId) {
-			const question = allBlocks.get(blockData.questionId);
-
-			if (question) {
-				const answer = sessionStorage.getItem(`question_${blockData.questionId}`);
-
-				if (answer === 'yes') {
-					return blockData.yesTargetId;
-				} else if (answer === 'no') {
-					return blockData.noTargetId;
-				} else {
-					alert(`Please answer the question: "${question.question}"`);
-					return defaultTargetId;
-				}
-			}
+	// MODE 3: Set field value + submit + navigate (Branching choice)
+	async function handleFieldValueSubmit(formId: string, fieldName: string, value: any, targetId?: string) {
+		if (!submissionsStore) {
+			console.error('❌ SubmissionsStore not available');
+			return;
 		}
 
-		return defaultTargetId;
+		isSubmitting = true;
+
+		try {
+			// Collect ALL other form fields (if any exist)
+			const formData = collectFormFields(formId);
+
+			// Set this specific field value (overriding any existing value)
+			formData[fieldName] = value;
+
+			// Get form metadata
+			const formMetadata = allBlocks.get(formId);
+			const eventName = formMetadata?.eventName || 'form_submission';
+
+			// Submit to store
+			submissionsStore.addSubmission(formId, {
+				formId,
+				eventName,
+				data: formData
+			});
+
+			// Save and sync
+			const currentResourceId = dataState.currentResourceId;
+			if (currentResourceId) {
+				await dataState.saveCurrentResource(currentResourceId);
+				try {
+					await sendMessage('syncResource', { resourceId: currentResourceId });
+				} catch (syncError) {
+					console.error('Failed to sync:', syncError);
+				}
+			}
+
+			// Navigate
+			if (targetId && onNavigate) {
+				setTimeout(() => onNavigate(targetId), 300);
+			}
+		} catch (error) {
+			console.error('❌ Field value submit error:', error);
+		} finally {
+			isSubmitting = false;
+		}
+	}
+
+	// MODE 2: Submit entire form + navigate (Form submit button)
+	async function handleFormSubmit(formId: string, targetId?: string) {
+		if (!submissionsStore) {
+			console.error('❌ SubmissionsStore not available');
+			return;
+		}
+
+		isSubmitting = true;
+
+		try {
+			// Collect all form fields
+			const formData = collectFormFields(formId);
+
+			// Validate required fields
+			let hasErrors = false;
+			document.querySelectorAll(`[data-form-id="${formId}"]`).forEach((el) => {
+				const fieldId = (el as HTMLElement).getAttribute('data-field-id');
+				if (!fieldId) return;
+
+				const fieldBlock = allBlocks.get(fieldId);
+				if (!fieldBlock || !fieldBlock.required) return;
+
+				const fieldName = fieldBlock.fieldName || fieldBlock.label || fieldId;
+				const value = formData[fieldName];
+
+				if (fieldBlock.type === 'form-field-checkbox') {
+					if (!value) hasErrors = true;
+				} else {
+					if (!value || value.toString().trim() === '') hasErrors = true;
+				}
+			});
+
+			if (hasErrors) {
+				alert('Please fill in all required fields');
+				return;
+			}
+
+			// Get form metadata
+			const formMetadata = allBlocks.get(formId);
+			const eventName = formMetadata?.eventName || 'form_submission';
+
+			// Submit to store
+			submissionsStore.addSubmission(formId, {
+				formId,
+				eventName,
+				data: formData
+			});
+
+			// Save and sync
+			const currentResourceId = dataState.currentResourceId;
+			if (currentResourceId) {
+				await dataState.saveCurrentResource(currentResourceId);
+				try {
+					await sendMessage('syncResource', { resourceId: currentResourceId });
+				} catch (syncError) {
+					console.error('Failed to sync:', syncError);
+				}
+			}
+
+			// Clear form fields
+			setTimeout(() => {
+				document.querySelectorAll(`[data-form-id="${formId}"]`).forEach((fieldEl) => {
+					const input = fieldEl.querySelector('input:not([type="checkbox"]), textarea') as HTMLInputElement | HTMLTextAreaElement;
+					if (input) input.value = '';
+
+					const checkbox = fieldEl.querySelector('input[type="checkbox"]') as HTMLInputElement;
+					if (checkbox) checkbox.checked = false;
+				});
+			}, 500);
+
+			// Navigate
+			if (targetId && onNavigate) {
+				setTimeout(() => onNavigate(targetId), 1000);
+			}
+		} catch (error) {
+			console.error('❌ Form submit error:', error);
+		} finally {
+			isSubmitting = false;
+		}
+	}
+
+	// Helper: Collect all form field values
+	function collectFormFields(formId: string): Record<string, any> {
+		const formData: Record<string, any> = {};
+
+		document.querySelectorAll(`[data-form-id="${formId}"]`).forEach((el) => {
+			const fieldId = (el as HTMLElement).getAttribute('data-field-id');
+			if (!fieldId) return;
+
+			const fieldBlock = allBlocks.get(fieldId);
+			if (!fieldBlock) return;
+
+			const fieldName = fieldBlock.fieldName || fieldBlock.label || fieldId;
+
+			if (fieldBlock.type === 'form-field-checkbox') {
+				const checkbox = el.querySelector('input[type="checkbox"]') as HTMLInputElement;
+				formData[fieldName] = checkbox?.checked || false;
+			} else {
+				const input = el.querySelector('input, textarea') as HTMLInputElement | HTMLTextAreaElement;
+				formData[fieldName] = input?.value || '';
+			}
+		});
+
+		return formData;
 	}
 
 	function updateContainerVisibility(containerId: string, visible: boolean) {
@@ -115,8 +292,19 @@
 	}
 </script>
 
-<button class="nav-button" style={blockData.css || ""} onclick={handleClick} data-block-id={blockId}>
-	{blockData.content || 'Next'}
+<button
+	class="nav-button"
+	class:submitting={isSubmitting}
+	style={blockData.css || ""}
+	onclick={handleClick}
+	disabled={isSubmitting}
+	data-block-id={blockId}
+>
+	{#if isSubmitting}
+		⏳ {blockData.content || 'Next'}
+	{:else}
+		{blockData.content || 'Next'}
+	{/if}
 </button>
 
 <style>
@@ -133,12 +321,21 @@
 		transition: all 0.2s;
 	}
 
-	.nav-button:hover {
+	.nav-button:hover:not(:disabled) {
 		opacity: 0.9;
 		transform: translateY(-2px);
 	}
 
-	.nav-button:active {
+	.nav-button:active:not(:disabled) {
 		transform: translateY(0);
+	}
+
+	.nav-button:disabled {
+		cursor: not-allowed;
+		opacity: 0.6;
+	}
+
+	.nav-button.submitting {
+		opacity: 0.7;
 	}
 </style>

@@ -280,7 +280,12 @@ export class BlocksuiteCoordinator {
 
       blocks.forEach((block: any) => {
         if (block.type === 'thread') hasThread = true;
+
+        // Check for form-related blocks
         if (block.type === 'form-submit-button') hasForm = true;
+        if (block.type === 'form') hasForm = true; // Form metadata blocks
+        if (block.type?.startsWith('form-field-')) hasForm = true; // Form field blocks
+        if (block.type === 'nav-button' && block.formId) hasForm = true; // Nav buttons with forms (MODE 2 & 3)
       });
 
       tempDoc.destroy();

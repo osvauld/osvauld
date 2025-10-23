@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Maximize, FolderIcon } from "@osvauld/icons";
+	import ContainerPreview from "./ContainerPreview.svelte";
 
 	interface Props {
 		block: {
@@ -16,6 +17,7 @@
 		};
 		blocks: Map<string, any>;
 		isSelected: boolean;
+		selectedBlockId?: string | null;
 		readonly?: boolean;
 		noPositioning?: boolean; // Don't apply position styles (for viewer mode)
 		onUpdate: (blockId: string, updates: any) => void;
@@ -24,7 +26,7 @@
 		onNavigate?: (navButtonId: string) => void;
 	}
 
-	let { block, blocks, isSelected, readonly = false, noPositioning = false, onUpdate, onSelect, onFormSubmit, onNavigate }: Props = $props();
+	let { block, blocks, isSelected, selectedBlockId = null, readonly = false, noPositioning = false, onUpdate, onSelect, onFormSubmit, onNavigate }: Props = $props();
 
 	let isDragging = $state(false);
 	let isResizing = $state(false);
@@ -528,7 +530,7 @@
 	style:left={noPositioning ? undefined : `${block.x}px`}
 	style:top={noPositioning ? undefined : `${block.y}px`}
 	style:width={noPositioning ? "100%" : `${block.width + (isResizing ? resizeOffset.width : 0)}px`}
-	style:height={noPositioning ? "100%" : `${block.height + (isResizing ? resizeOffset.height : 0)}px`}
+	style:height={noPositioning ? "100%" : (block.type === 'screen-container' || block.type === 'section-container') ? undefined : block.height ? `${block.height + (isResizing ? resizeOffset.height : 0)}px` : undefined}
 	style:z-index={noPositioning ? undefined : block.zIndex}
 	style:cursor={blockCursor()}
 	style:transform={isDragging ? `translate(${dragOffset.x}px, ${dragOffset.y}px)` : isResizing ? `translate(${resizeOffset.x}px, ${resizeOffset.y}px)` : undefined}
@@ -605,16 +607,32 @@
 			{/if}
 		</div>
 	{:else if block.type === "screen-container"}
-		<div class="screen-container-inner" class:viewer-mode={readonly}>
-			<div class="container-badge">
-				<span class="container-name">{block.name || "Screen Container"}</span>
+		<div class="screen-container-inner" class:viewer-mode={readonly} style={block.css || ""}>
+			{#if !readonly}
+				<div class="container-badge">
+					<span class="container-name">{block.name || "Screen"}</span>
+				</div>
+			{/if}
+			<div class="container-render">
+				<ContainerPreview
+					containerId={block.id}
+					{blocks}
+					containerCss=""
+					{readonly}
+					{selectedBlockId}
+					onSelect={onSelect}
+					onUpdate={onUpdate}
+				/>
 			</div>
 		</div>
 	{:else if block.type === "section-container"}
-		<div class="section-container-inner" class:viewer-mode={readonly}>
-			<div class="container-badge">
-				<span class="container-name">{block.name || "Section Container"}</span>
-			</div>
+		<div class="section-container-inner" class:viewer-mode={readonly} style={block.css || ""}>
+			{#if !readonly}
+				<div class="container-badge">
+					<span class="container-name">{block.name || "Section"}</span>
+				</div>
+			{/if}
+			<!-- Section containers don't render children - parent screen already renders all descendants -->
 		</div>
 	{:else if block.type === "form"}
 		<div class="block-form-metadata" class:viewer-mode={readonly}>
@@ -884,7 +902,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		border: 2px dashed #ccc;
+		border: 1px solid #30363d;
 		background: rgba(0, 0, 0, 0.02);
 	}
 
@@ -901,8 +919,14 @@
 
 	/* Visual hint: show subtle outline when hovering over block */
 	.block:hover:not(.dragging):not(.resizing) {
-		outline: 1px dashed rgba(102, 126, 234, 0.3);
+		outline: 1px solid rgba(102, 126, 234, 0.4);
 		outline-offset: -1px;
+	}
+
+	/* Selection outline for containers */
+	.block.selected.block-screen-container,
+	.block.selected.block-section-container {
+		box-shadow: 0 0 0 2px #89b4fa;
 	}
 
 	/* Resize handles */
@@ -1022,58 +1046,49 @@
 		cursor: w-resize;
 	}
 
-	/* Container styles */
+	/* Container styles - minimal, CSS comes from block.css */
 	.screen-container-inner,
 	.section-container-inner {
 		width: 100%;
-		height: 100%;
-		display: flex;
-		flex-direction: column;
-		align-items: flex-start;
-		justify-content: flex-start;
-		gap: 0.5rem;
-		padding: 16px;
-		border: 3px dashed #667eea;
-		background: rgba(102, 126, 234, 0.1);
-		border-radius: 8px;
+		min-height: 200px; /* Minimum height so empty containers are visible */
 		position: relative;
+		z-index: 0;
+		overflow: visible; /* Allow content to be visible for proper sizing */
+		/* No default styling - all comes from block.css property */
 	}
 
-	.screen-container-inner {
-		border-color: #2563eb;
-		background: rgba(37, 99, 235, 0.1);
-	}
-
-	.screen-container-inner.viewer-mode,
-	.section-container-inner.viewer-mode {
-		border: none;
-		background: transparent;
-		padding: 0;
+	.container-render {
+		width: 100%;
+		min-height: 100%;
+		position: relative;
+		pointer-events: auto;
 	}
 
 	.container-badge {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
-		padding: 6px 10px;
-		background: #0d0e13;
-		border: 2px solid currentColor;
-		border-radius: 6px;
-		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-	}
-
-	.screen-container-inner .container-badge {
-		color: #58a6ff;
-	}
-
-	.section-container-inner .container-badge {
-		color: #8b949e;
+		padding: 2px 6px;
+		background: rgba(0, 0, 0, 0.8);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 3px;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+		position: absolute;
+		top: 4px;
+		left: 4px;
+		z-index: 1000;
+		pointer-events: none;
+		color: #89b4fa;
+		font-size: 0.65rem;
 	}
 
 	.container-name {
-		font-size: 0.75rem;
 		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.3px;
+		opacity: 0.8;
 	}
+
 
 	/* Form block styles */
 	.block-form-metadata {
@@ -1132,8 +1147,8 @@
 		align-items: center;
 		justify-content: center;
 		gap: 0.5rem;
-		border: 2px dashed #667eea;
-		background: rgba(102, 126, 234, 0.1);
+		border: 1px solid #667eea;
+		background: rgba(102, 126, 234, 0.05);
 	}
 
 	.form-container-label {

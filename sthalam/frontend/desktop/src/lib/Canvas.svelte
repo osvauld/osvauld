@@ -1,5 +1,15 @@
 <script lang="ts">
 	import Block from "./Block.svelte";
+	import TreeNode from "./TreeNode.svelte";
+	import TreeGuideLines from "./TreeGuideLines.svelte";
+	import ConnectionLines from "./ConnectionLines.svelte";
+	import { layoutHierarchical, type LayoutConfig } from "./layoutEngine";
+	import {
+		layoutAllScreens,
+		getScreenBlocks,
+		DEFAULT_TREE_CONFIG,
+		type TreeLayout
+	} from "./treeLayoutEngine";
 
 	interface Props {
 		blocks: Map<string, any>;
@@ -9,193 +19,12 @@
 		onViewportChange: (viewport: { x?: number; y?: number; zoom?: number }) => void;
 		onBlockUpdate: (blockId: string, updates: any) => void;
 		onBlockSelect: (blockId: string) => void;
+		onConnectionSelect?: (blockId: string, connectionId: string) => void;
+		onBlockContextMenu?: (blockId: string) => void;
 		onBlockDrop?: (blockType: string, x: number, y: number) => void;
 	}
 
-	let { blocks, viewport, selectedBlockId, readonly = false, onViewportChange, onBlockUpdate, onBlockSelect, onBlockDrop }: Props = $props();
-
-	// Local state for branching form answers (not synced to Yjs)
-	let formAnswers = $state<Map<string, string>>(new Map());
-
-	// Viewport animation state
-	let isAnimating = $state(false);
-
-	// Form submission handler
-	function handleFormSubmit(submitButtonId: string) {
-		console.log("🚀 Form submit triggered by button:", submitButtonId);
-
-		// Get the submit button block
-		const submitButton = blocks.get(submitButtonId);
-		if (!submitButton) {
-			console.error("❌ Submit button not found:", submitButtonId);
-			return;
-		}
-
-		// Get the formId from the submit button
-		const formId = submitButton.formId;
-		if (!formId) {
-			console.warn("⚠️ Submit button has no formId assigned");
-			return;
-		}
-
-		// Get the form metadata block
-		const formBlock = blocks.get(formId);
-		if (!formBlock) {
-			console.error("❌ Form metadata block not found:", formId);
-			return;
-		}
-
-		const formName = formBlock.name || formId;
-		const eventName = formBlock.eventName;
-
-		if (!eventName) {
-			console.error("❌ Form has no eventName configured");
-			return;
-		}
-
-		console.log(`📋 Submitting form: "${formName}" (ID: ${formId})`);
-		console.log(`🏷️  Event name: "${eventName}"`);
-
-		// Find all form field blocks with matching formId
-		const formData: Record<string, any> = {};
-		let fieldCount = 0;
-
-		for (const [id, block] of blocks.entries()) {
-			if (block.type && block.type.startsWith('form-field-') && block.formId === formId) {
-				// Get the field value from the DOM
-				const fieldName = block.fieldName || block.label || block.id;
-				const inputElement = document.querySelector(`[data-field-id="${id}"]`) as HTMLInputElement;
-
-				if (inputElement) {
-					if (block.type === 'form-field-checkbox') {
-						formData[fieldName] = inputElement.checked;
-					} else {
-						formData[fieldName] = inputElement.value;
-					}
-					fieldCount++;
-					console.log(`  ✓ Field "${fieldName}":`, formData[fieldName]);
-				}
-			}
-		}
-
-		// Prepare the submission payload
-		const submissionPayload = {
-			eventName: eventName,
-			formId: formId,
-			formName: formName,
-			data: formData,
-			timestamp: Date.now()
-		};
-
-		console.log(`✅ Form submission complete! Collected ${fieldCount} fields from "${formName}":`, submissionPayload);
-
-		// TODO: Emit this data to the parent or send to backend
-		// emit("form-submission", submissionPayload);
-	}
-
-	// Navigation button handler with viewport animation
-	function handleNavigation(navButtonId: string) {
-		console.log("🧭 Navigation triggered by button:", navButtonId);
-
-		const navButton = blocks.get(navButtonId);
-		if (!navButton) {
-			console.error("❌ Nav button not found:", navButtonId);
-			return;
-		}
-
-		// Get the question this button is linked to
-		const questionId = navButton.questionId;
-		if (!questionId) {
-			console.error("❌ No questionId configured for nav button");
-			return;
-		}
-
-		// Read the answer from the DOM (since Block.svelte manages local state)
-		const questionElement = document.querySelector(`[data-question-id="${questionId}"]`);
-		if (!questionElement) {
-			console.error("❌ Question not found:", questionId);
-			return;
-		}
-
-		// Get selected answer from sibling button
-		const selectedButton = questionElement.parentElement?.querySelector('.option-button.selected');
-		if (!selectedButton) {
-			console.warn("⚠️ No answer selected yet");
-			return;
-		}
-
-		const answer = selectedButton.getAttribute('data-answer');
-		console.log("📋 User answered:", answer);
-
-		// Store answer locally
-		formAnswers.set(questionId, answer!);
-
-		// Get target block ID based on answer
-		const targetBlockId = answer === 'yes' ? navButton.yesTargetId : navButton.noTargetId;
-
-		if (!targetBlockId) {
-			console.error("❌ No target block configured for answer:", answer);
-			return;
-		}
-
-		// Look up the CURRENT position of the target block
-		const targetBlock = blocks.get(targetBlockId);
-		if (!targetBlock) {
-			console.error("❌ Target block not found:", targetBlockId);
-			return;
-		}
-
-		// Calculate viewport position to center the target block
-		// Assuming ~1200px wide and ~800px tall viewport
-		const viewportX = -(targetBlock.x - 600);
-		const viewportY = -(targetBlock.y - 400);
-
-		console.log("🎯 Navigating to block at:", { x: targetBlock.x, y: targetBlock.y });
-		console.log("📍 Viewport position:", { x: viewportX, y: viewportY });
-
-		// Animate viewport to target block's CURRENT position
-		animateViewport(viewportX, viewportY, viewport.zoom);
-	}
-
-	// Smooth viewport animation
-	function animateViewport(targetX: number, targetY: number, targetZoom: number = 1) {
-		if (isAnimating) return;
-
-		isAnimating = true;
-		const duration = 500; // milliseconds
-		const startTime = performance.now();
-		const startX = localViewport.x;
-		const startY = localViewport.y;
-		const startZoom = viewport.zoom;
-
-		function easeInOutCubic(t: number): number {
-			return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-		}
-
-		function animate(currentTime: number) {
-			const elapsed = currentTime - startTime;
-			const progress = Math.min(elapsed / duration, 1);
-			const eased = easeInOutCubic(progress);
-
-			const currentX = startX + (targetX - startX) * eased;
-			const currentY = startY + (targetY - startY) * eased;
-			const currentZoom = startZoom + (targetZoom - startZoom) * eased;
-
-			// Update local viewport for smooth animation
-			localViewport = { x: currentX, y: currentY };
-
-			if (progress < 1) {
-				requestAnimationFrame(animate);
-			} else {
-				// Final update to sync with parent when done
-				onViewportChange({ x: currentX, y: currentY });
-				isAnimating = false;
-				console.log("✅ Navigation complete");
-			}
-		}
-
-		requestAnimationFrame(animate);
-	}
+	let { blocks, viewport, selectedBlockId, readonly = false, onViewportChange, onBlockUpdate, onBlockSelect, onConnectionSelect, onBlockContextMenu, onBlockDrop }: Props = $props();
 
 	let canvasContainer = $state<HTMLDivElement>();
 	let canvasElement = $state<HTMLDivElement>();
@@ -203,6 +32,15 @@
 	let panStart = $state({ x: 0, y: 0 });
 	let viewportUpdateTimeout: number | null = null;
 	let zoomUpdateTimeout: number | null = null;
+
+	function handleConnectionSelectInternal(blockId: string, connectionId: string) {
+		if (onConnectionSelect) {
+			onConnectionSelect(blockId, connectionId);
+		} else {
+			// Fallback: just select the block
+			onBlockSelect(blockId);
+		}
+	}
 
 	function handleMouseDown(e: MouseEvent) {
 		// In viewer mode (readonly), allow panning anywhere on canvas
@@ -249,7 +87,7 @@
 		}
 	}
 
-	function handleMouseUp() {
+	function handleMouseUp(e: MouseEvent) {
 		if (isPanning) {
 			// Final update when done panning
 			onViewportChange({ x: localViewport.x, y: localViewport.y });
@@ -372,9 +210,96 @@
 		onViewportChange({ x, y, zoom });
 	}
 
-	// Convert blocks Map to array for iteration
+	// View mode: 'blocks' (old) or 'tree' (new POC)
+	let viewMode = $state<'blocks' | 'tree'>('tree');
+
+	// Tree view state
+	let collapsedBlocks = $state<Set<string>>(new Set());
+
+	function toggleCollapse(blockId: string) {
+		if (collapsedBlocks.has(blockId)) {
+			collapsedBlocks.delete(blockId);
+		} else {
+			collapsedBlocks.add(blockId);
+		}
+		// Trigger reactivity
+		collapsedBlocks = new Set(collapsedBlocks);
+	}
+
+	// Calculate tree layouts when in tree mode
+	let treeLayouts = $derived.by(() => {
+		if (viewMode !== 'tree') return new Map();
+
+		const screens = getScreenBlocks(blocks);
+		return layoutAllScreens(screens, blocks, collapsedBlocks, DEFAULT_TREE_CONFIG);
+	});
+
+	// Flatten tree layouts for rendering
+	let flatTreeNodes = $derived.by(() => {
+		if (viewMode !== 'tree') return [];
+
+		const nodes: Array<{ blockId: string; layout: TreeLayout; block: any }> = [];
+
+		for (const [screenId, screenLayout] of treeLayouts.entries()) {
+			for (const [blockId, layout] of screenLayout.entries()) {
+				const block = blocks.get(blockId);
+				if (block) {
+					nodes.push({ blockId, layout, block });
+				}
+			}
+		}
+
+		return nodes;
+	});
+
+	// Auto-layout all blocks
+	let layoutMode = $state<'spacious' | 'compact'>('spacious');
+
+	function autoLayout() {
+		if (blocks.size === 0) return;
+
+		const config: Partial<LayoutConfig> = {
+			mode: layoutMode
+		};
+
+		const positions = layoutHierarchical(blocks, config);
+
+		// Apply positions only - let containers size themselves based on CSS and content
+		for (const result of positions) {
+			const block = blocks.get(result.blockId);
+			const updates: any = { x: result.x, y: result.y };
+
+			// For containers, set width but NOT height - let them grow with content
+			if (block?.type === 'screen-container' || block?.type === 'section-container') {
+				if ((result as any).width) {
+					updates.width = (result as any).width;
+				}
+				// Don't set height - let CSS and content determine it
+			} else {
+				// For non-containers, set both dimensions if calculated
+				if ((result as any).width) {
+					updates.width = (result as any).width;
+				}
+				if ((result as any).height) {
+					updates.height = (result as any).height;
+				}
+			}
+
+			onBlockUpdate(result.blockId, updates);
+		}
+
+		// After layout, fit to view
+		setTimeout(() => fitToContent(), 100);
+	}
+
+	function toggleLayoutMode() {
+		layoutMode = layoutMode === 'spacious' ? 'compact' : 'spacious';
+	}
+
+	// Convert blocks Map to array - only render TOP-LEVEL blocks (no parentId)
+	// Children are rendered by their parent container's ContainerPreview
 	$effect(() => {
-		blocksArray = Array.from(blocks.values());
+		blocksArray = Array.from(blocks.values()).filter(block => !block.parentId);
 	});
 
 	let blocksArray = $state<any[]>([]);
@@ -396,18 +321,51 @@
 		bind:this={canvasElement}
 		style:transform="translate({localViewport.x}px, {localViewport.y}px) scale({viewport.zoom})"
 	>
-		{#each blocksArray as block (block.id)}
-			<Block
-				{block}
-				{blocks}
-				isSelected={selectedBlockId === block.id}
-				{readonly}
-				onUpdate={onBlockUpdate}
-				onSelect={onBlockSelect}
-				onFormSubmit={handleFormSubmit}
-				onNavigate={handleNavigation}
-			/>
-		{/each}
+		<!-- Connection lines layer (only for navigation, not parent-child) -->
+		{#if viewMode === 'blocks'}
+			<ConnectionLines {blocks} {viewport} {selectedBlockId} onConnectionSelect={handleConnectionSelectInternal} />
+		{/if}
+
+		<!-- Canvas rendering: Tree view or Blocks view -->
+		{#if viewMode === 'tree'}
+			<!-- Tree View: Render tree nodes in a container -->
+			<div class="tree-container">
+				<!-- Tree guide lines layer -->
+				<TreeGuideLines {treeLayouts} {blocks} rowHeight={DEFAULT_TREE_CONFIG.rowHeight} indent={DEFAULT_TREE_CONFIG.indent} />
+
+				<!-- Tree nodes -->
+				{#each flatTreeNodes as { blockId, layout, block } (blockId)}
+					<div
+						class="tree-node-wrapper"
+						style:position="absolute"
+						style:left="{layout.x}px"
+						style:top="{layout.y}px"
+					>
+						<TreeNode
+							{block}
+							depth={layout.depth}
+							isExpanded={layout.isExpanded}
+							isSelected={selectedBlockId === blockId}
+							onToggle={(e) => toggleCollapse(blockId)}
+							onSelect={() => onBlockSelect(blockId)}
+						/>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<!-- Blocks View: Original rendering -->
+			{#each blocksArray as block (block.id)}
+				<Block
+					{block}
+					{blocks}
+					isSelected={selectedBlockId === block.id}
+					{selectedBlockId}
+					readonly={false}
+					onUpdate={onBlockUpdate}
+					onSelect={onBlockSelect}
+				/>
+			{/each}
+		{/if}
 	</div>
 
 	<!-- Zoom controls -->
@@ -442,6 +400,33 @@
 			⊙
 		</button>
 	</div>
+
+	<!-- Layout controls -->
+	<div class="layout-controls">
+		<button
+			class="layout-btn view-toggle"
+			onclick={() => (viewMode = viewMode === 'tree' ? 'blocks' : 'tree')}
+			title="Toggle between Tree View and Blocks View"
+		>
+			{viewMode === 'tree' ? '📁 Tree' : '📦 Blocks'}
+		</button>
+		{#if viewMode === 'blocks'}
+			<button
+				class="layout-btn auto-layout"
+				onclick={autoLayout}
+				title="Auto-arrange blocks in hierarchical layout"
+			>
+				Auto Layout
+			</button>
+			<button
+				class="layout-btn mode-toggle"
+				onclick={toggleLayoutMode}
+				title="Toggle between compact and spacious layout"
+			>
+				{layoutMode === 'spacious' ? '⊟' : '⊞'}
+			</button>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -451,8 +436,11 @@
 		overflow: hidden;
 		position: relative;
 		background: #0d0e13;
-		background-image: radial-gradient(circle, #21262d 1px, transparent 1px);
-		background-size: 20px 20px;
+		/* No grid background */
+		user-select: none;
+		-webkit-user-select: none;
+		-moz-user-select: none;
+		-ms-user-select: none;
 	}
 
 	.canvas {
@@ -460,6 +448,15 @@
 		width: 100%;
 		height: 100%;
 		transform-origin: 0 0;
+		user-select: none;
+		-webkit-user-select: none;
+		-moz-user-select: none;
+		-ms-user-select: none;
+		/* Optimize for Tauri WebView */
+		-webkit-font-smoothing: antialiased;
+		image-rendering: -webkit-optimize-contrast;
+		image-rendering: crisp-edges;
+		transform-style: preserve-3d;
 	}
 
 	/* Zoom controls */
@@ -543,5 +540,95 @@
 
 	.reset-view-btn:active {
 		transform: translateY(0);
+	}
+
+	/* Layout controls */
+	.layout-controls {
+		position: absolute;
+		bottom: 20px;
+		left: 20px;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		background: #161b22;
+		padding: 8px 12px;
+		border-radius: 8px;
+		border: 1px solid #30363d;
+		box-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+		z-index: 1000;
+	}
+
+	.layout-btn {
+		height: 32px;
+		padding: 0 12px;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		background: #0d0e13;
+		color: #c9d1d9;
+		font-size: 13px;
+		font-weight: 600;
+		cursor: pointer;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		transition: all 0.2s;
+		white-space: nowrap;
+	}
+
+	.layout-btn:hover {
+		background: #a6e3a1;
+		color: #010409;
+		border-color: #a6e3a1;
+		transform: translateY(-1px);
+		box-shadow: 0 2px 8px rgba(166, 227, 161, 0.3);
+	}
+
+	.layout-btn:active {
+		transform: translateY(0);
+	}
+
+	.layout-btn.mode-toggle {
+		width: 32px;
+		padding: 0;
+		font-size: 16px;
+	}
+
+	.layout-btn.auto-layout {
+		font-weight: 600;
+	}
+
+	.layout-btn.view-toggle {
+		font-weight: 700;
+		background: #667eea;
+		color: white;
+		border-color: #667eea;
+	}
+
+	.layout-btn.view-toggle:hover {
+		background: #89b4fa;
+		border-color: #89b4fa;
+	}
+
+	.tree-container {
+		position: relative;
+		min-height: 100%;
+		min-width: 100%;
+		pointer-events: none;
+	}
+
+	.tree-node-wrapper {
+		pointer-events: none;
+		width: fit-content;
+		max-width: 500px;
+	}
+
+	.tree-node-wrapper :global(.tree-node-container) {
+		pointer-events: auto;
+	}
+
+	.tree-node-wrapper :global(.tree-node) {
+		width: max-content;
+		max-width: 500px;
+		min-width: 300px;
 	}
 </style>

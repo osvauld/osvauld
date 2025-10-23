@@ -13,20 +13,30 @@
 		zIndex: number;
 		content: string;
 		styles: Record<string, string>;
+		name?: string;
+		css?: string;
+		targetContainerId?: string;
+		formId?: string;
+		fieldName?: string;
+		value?: any;
+		action?: string;
 	}
 
 	interface Props {
 		selectedBlock: Block | null;
 		blocks?: Map<string, any>;
+		selectedConnection?: any | null;
+		selectedConnectionId?: string | null;
 		onUpdateBlock: (blockId: string, updates: Partial<Block>) => void;
 		onBringForward: (blockId: string) => void;
 		onSendBackward: (blockId: string) => void;
 		onBringToFront?: (blockId: string) => void;
 		onSendToBack?: (blockId: string) => void;
 		onDeleteBlock?: (blockId: string) => void;
+		onEditContent?: (blockId: string, content: string, type: string) => void;
 	}
 
-	let { selectedBlock, blocks, onUpdateBlock, onBringForward, onSendBackward, onBringToFront, onSendToBack, onDeleteBlock }: Props = $props();
+	let { selectedBlock, blocks, selectedConnection, selectedConnectionId, onUpdateBlock, onBringForward, onSendBackward, onBringToFront, onSendToBack, onDeleteBlock, onEditContent }: Props = $props();
 
 	// Get all blocks as array for dropdowns
 	const allBlocks = $derived(blocks ? Array.from(blocks.entries()).map(([id, block]) => ({ id, ...block })) : []);
@@ -227,8 +237,12 @@
 		<div class="panel-header">
 			<h3>Properties</h3>
 			<div class="header-actions">
-				<span class="block-type-badge">{selectedBlock.type}</span>
-				{#if onDeleteBlock}
+				{#if selectedConnectionId}
+					<span class="block-type-badge connection-badge">Connection</span>
+				{:else}
+					<span class="block-type-badge">{selectedBlock.type}</span>
+				{/if}
+				{#if onDeleteBlock && !selectedConnectionId}
 					<button class="delete-btn" onclick={() => onDeleteBlock?.(selectedBlock.id)} title="Delete block (Delete key)">
 						<BinIcon size={16} color="white" />
 					</button>
@@ -237,6 +251,68 @@
 		</div>
 
 		<div class="panel-content">
+			<!-- Connection Properties (when connection is selected) -->
+			{#if selectedConnection && selectedConnectionId}
+				<div class="property-group">
+					<h4>Connection Properties</h4>
+					<div class="connection-info">
+						<p><strong>ID:</strong> {selectedConnectionId}</p>
+						<p><strong>From:</strong> {selectedBlock.id} ({selectedConnection.from} handle)</p>
+						<p><strong>To:</strong> {selectedConnection.to} ({selectedConnection.toSide} handle)</p>
+					</div>
+					<label>
+						<span>Color</span>
+						<input
+							type="color"
+							value={selectedConnection.color || '#89b4fa'}
+							oninput={(e) => {
+								const connections = selectedBlock.manualConnections || [];
+								const index = connections.findIndex((c: any) => c.id === selectedConnectionId);
+								if (index >= 0) {
+									connections[index].color = e.currentTarget.value;
+									onUpdateBlock(selectedBlock.id, { manualConnections: connections });
+								}
+							}}
+						/>
+					</label>
+					<label>
+						<span>Arrow Size</span>
+						<select
+							value={selectedConnection.arrowSize || 'small'}
+							onchange={(e) => {
+								const connections = selectedBlock.manualConnections || [];
+								const index = connections.findIndex((c: any) => c.id === selectedConnectionId);
+								if (index >= 0) {
+									connections[index].arrowSize = e.currentTarget.value;
+									onUpdateBlock(selectedBlock.id, { manualConnections: connections });
+								}
+							}}
+						>
+							<option value="small">Small</option>
+							<option value="medium">Medium</option>
+							<option value="large">Large</option>
+						</select>
+					</label>
+					<label>
+						<span>Style</span>
+						<select
+							value={selectedConnection.style || 'solid'}
+							onchange={(e) => {
+								const connections = selectedBlock.manualConnections || [];
+								const index = connections.findIndex((c: any) => c.id === selectedConnectionId);
+								if (index >= 0) {
+									connections[index].style = e.currentTarget.value;
+									onUpdateBlock(selectedBlock.id, { manualConnections: connections });
+								}
+							}}
+						>
+							<option value="solid">Solid</option>
+							<option value="dashed">Dashed</option>
+							<option value="dotted">Dotted</option>
+						</select>
+					</label>
+				</div>
+			{/if}
 			<!-- Parent Container & CSS (for all blocks except screen-container) -->
 			{#if selectedBlock.type !== 'screen-container'}
 				<div class="property-group">
@@ -737,6 +813,60 @@
 							</select>
 						</label>
 
+						<!-- Form Integration (MODE 2 & 3) -->
+						<label>
+							<span>Form (Optional - for submit functionality)</span>
+							<select
+								value={selectedBlock.formId || ""}
+								onchange={(e) => onUpdateBlock(selectedBlock.id, { formId: e.currentTarget.value })}
+							>
+								<option value="">-- No Form --</option>
+								{#each allForms as form}
+									<option value={form.id}>
+										{form.name || "Unnamed Form"}
+									</option>
+								{/each}
+							</select>
+						</label>
+
+						{#if selectedBlock.formId}
+							<!-- Show MODE 2 vs MODE 3 distinction -->
+							{#if !selectedBlock.fieldName}
+								<div class="info-box" style="background: #e3f2fd; color: #1565c0; border-left: 3px solid #2196f3;">
+									📝 <strong>MODE 2: Form Submit Button</strong><br/>
+									Will collect <strong>ALL</strong> form fields with formId <code>{selectedBlock.formId}</code>, validate required fields, submit data, then navigate to target screen.
+								</div>
+							{:else}
+								<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
+									🔀 <strong>MODE 3: Branching Choice Button</strong><br/>
+									Will set field <code>{selectedBlock.fieldName}</code> = <code>{selectedBlock.value || '(empty)'}</code>, collect any other form fields, submit data, then navigate to target screen.
+								</div>
+							{/if}
+
+							<!-- Branching Mode Fields (MODE 3) -->
+							<label>
+								<span>Field Name (Optional - for branching)</span>
+								<input
+									type="text"
+									value={selectedBlock.fieldName || ""}
+									oninput={(e) => onUpdateBlock(selectedBlock.id, { fieldName: e.currentTarget.value })}
+									placeholder="e.g., customer_type"
+								/>
+							</label>
+
+							{#if selectedBlock.fieldName}
+								<label>
+									<span>Field Value (for this button)</span>
+									<input
+										type="text"
+										value={selectedBlock.value || ""}
+										oninput={(e) => onUpdateBlock(selectedBlock.id, { value: e.currentTarget.value })}
+										placeholder="e.g., new_customer"
+									/>
+								</label>
+							{/if}
+						{/if}
+
 						<div class="info-box" style="font-size: 0.75rem; padding: 0.5rem;">
 							{#if selectedBlock.action === 'navigate' || !selectedBlock.action}
 								🎯 <strong>Navigate:</strong> Switch to a different screen
@@ -842,6 +972,17 @@
 									{/if}
 								</select>
 							</label>
+
+							<!-- Show what will happen when clicked -->
+							{#if selectedBlock.targetContainerId}
+								{@const targetScreen = allScreenContainers.find(s => s.id === selectedBlock.targetContainerId)}
+								{@const targetSection = allSectionContainers.find(s => s.id === selectedBlock.targetContainerId)}
+								{@const targetName = targetScreen?.name || targetSection?.name || 'Unknown'}
+
+								<div class="info-box" style="background: #e8f5e9; color: #2e7d32; border-left: 3px solid #4caf50;">
+									✓ <strong>Target configured:</strong> {targetName}
+								</div>
+							{/if}
 
 							<div class="info-box">
 								💡 Place a branching question in the same container to enable yes/no navigation paths (works with Navigate action only).
@@ -992,12 +1133,39 @@
 				</div>
 			{/if}
 
+			<!-- Text/Heading/Markdown Content -->
+			{#if selectedBlock.type === "heading" || selectedBlock.type === "text" || selectedBlock.type === "markdown-text"}
+				<div class="property-group">
+					<button class="section-header" onclick={() => toggleSection('content')}>
+						<span class="section-toggle">{expandedSections.content ? '▼' : '▶'}</span>
+						<h4>Content</h4>
+					</button>
+					{#if expandedSections.content}
+						{#if onEditContent}
+							<button
+								class="edit-content-btn"
+								onclick={() => onEditContent?.(selectedBlock.id, selectedBlock.content || "", selectedBlock.type)}
+							>
+								✏️ Edit Content
+							</button>
+						{/if}
+
+						<div class="content-preview">
+							<span class="preview-label">Preview:</span>
+							<div class="preview-text">
+								{selectedBlock.content || "(Empty)"}
+							</div>
+						</div>
+					{/if}
+				</div>
+			{/if}
+
 			<!-- Text Styles -->
 			{#if selectedBlock.type === "heading" || selectedBlock.type === "text"}
 				<div class="property-group">
 					<button class="section-header" onclick={() => toggleSection('text')}>
 						<span class="section-toggle">{expandedSections.text ? '▼' : '▶'}</span>
-						<h4>Text</h4>
+						<h4>Text Styles</h4>
 					</button>
 					{#if expandedSections.text}
 						<label>
@@ -1616,5 +1784,65 @@
 	.target-preview small {
 		font-family: monospace;
 		opacity: 0.7;
+	}
+
+	.edit-content-btn {
+		width: 100%;
+		padding: 0.75rem;
+		background: #89b4fa;
+		color: #1e1e2e;
+		border: none;
+		border-radius: 6px;
+		font-weight: 600;
+		font-size: 0.875rem;
+		cursor: pointer;
+		transition: all 0.2s;
+		margin-bottom: 0.75rem;
+	}
+
+	.edit-content-btn:hover {
+		background: #74c7ec;
+		transform: translateY(-2px);
+		box-shadow: 0 4px 12px rgba(137, 180, 250, 0.4);
+	}
+
+	.content-preview {
+		background: #161b22;
+		border: 1px solid #30363d;
+		border-radius: 6px;
+		padding: 0.75rem;
+	}
+
+	.preview-label {
+		font-size: 0.75rem;
+		color: #8b949e;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		display: block;
+		margin-bottom: 0.5rem;
+	}
+
+	.preview-text {
+		color: #c9d1d9;
+		font-size: 0.875rem;
+		line-height: 1.5;
+		max-height: 120px;
+		overflow-y: auto;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+
+	.preview-text::-webkit-scrollbar {
+		width: 4px;
+	}
+
+	.preview-text::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.preview-text::-webkit-scrollbar-thumb {
+		background: #30363d;
+		border-radius: 4px;
 	}
 </style>

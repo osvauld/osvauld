@@ -159,6 +159,17 @@
 
 	// Listen for store ready event (like livnote's pattern)
 	onMount(() => {
+		// Check if coordinator already exists (like NavButton does)
+		import('../state').then(({ dataState }) => {
+			const coordinator = dataState.getBlocksuiteCoordinator();
+			if (coordinator) {
+				const existingStore = coordinator.getSubmissionsStore();
+				if (existingStore) {
+					setupSubmissionsSubscription(existingStore);
+				}
+			}
+		});
+
 		document.addEventListener(
 			"submissions-store-ready",
 			handleStoreReady as EventListener
