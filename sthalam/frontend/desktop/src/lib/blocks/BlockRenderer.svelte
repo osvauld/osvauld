@@ -1,9 +1,7 @@
 <script lang="ts">
 	import ThreadBlock from './ThreadBlock.svelte';
 	import FormField from './FormField.svelte';
-	import FormSubmitButton from './FormSubmitButton.svelte';
 	import NavButton from './NavButton.svelte';
-	import BranchingQuestion from './BranchingQuestion.svelte';
 	import MarkdownText from './MarkdownText.svelte';
 	import type * as Y from 'yjs';
 
@@ -64,12 +62,8 @@
 	<ThreadBlock blockId={block.id} {ydoc} {commentsDoc} />
 {:else if block.type.startsWith('form-field-')}
 	<FormField blockId={block.id} blockData={block} />
-{:else if block.type === 'form-submit-button'}
-	<FormSubmitButton blockId={block.id} blockData={block} {ydoc} {submissionsDoc} {allBlocks} {onNavigate} />
 {:else if block.type === 'nav-button'}
 	<NavButton blockId={block.id} blockData={block} {allBlocks} {ydoc} {onNavigate} />
-{:else if block.type === 'branching-question'}
-	<BranchingQuestion blockId={block.id} blockData={block} />
 {:else if block.type === 'heading'}
 	<h1 style={block.css || ""} data-block-id={block.id}>{block.content || ''}</h1>
 {:else if block.type === 'text'}

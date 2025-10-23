@@ -23,7 +23,7 @@ export interface BlocksuiteContent {
 export interface Resource {
   id: string;
   title: string;
-  resourceType: 'website' | 'noticeboard' | 'form';  // Resource types
+  resourceType: 'website';  // Only website resource type (forms and threads are blocks within websites)
   websiteId: string;        // The website/folder this resource belongs to
   lastModified: number;
   favourite?: boolean;

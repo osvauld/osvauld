@@ -241,18 +241,8 @@ export class BlocksuiteCoordinator {
       return 'website';
     }
 
-    // Legacy/dedicated resource types
-    if (data.thread_doc) {
-      this.hasThreadBlocks = true;
-      return 'noticeboard';
-    }
-
-    if (data.form_doc) {
-      this.hasFormBlocks = true;
-      return 'form';
-    }
-
-    return 'website'; // Default
+    // Default to website (legacy resource types removed)
+    return 'website';
   }
 
   /**

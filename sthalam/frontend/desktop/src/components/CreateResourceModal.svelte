@@ -12,13 +12,7 @@
 
 	let dialogElement: HTMLDialogElement;
 	let title = $state("");
-	let resourceType = $state("website");
 	let isSubmitting = $state(false);
-
-	const resourceTypes = [
-		{ value: "website", label: "Website", icon: "🌐", description: "Build a full website with blocks" },
-		{ value: "form", label: "Form", icon: "📝", description: "Build a form for data collection" }
-	];
 
 	const closeModal = () => {
 		dialogElement?.close();
@@ -42,7 +36,7 @@
 
 		isSubmitting = true;
 		try {
-			await dataState.addResource(websiteId, title.trim(), resourceType);
+			await dataState.addResource(websiteId, title.trim(), "website");
 			closeModal();
 		} catch (error) {
 			console.error("Failed to create resource:", error);
@@ -147,39 +141,6 @@
 							autocomplete="off"
 							onkeydown={handleKeyDown}
 						/>
-					</div>
-
-					<!-- Resource Type Selection -->
-					<div class="space-y-2">
-						<label class="block text-sm font-light text-white">
-							Page Type
-						</label>
-						<div class="space-y-2">
-							{#each resourceTypes as type}
-								<label
-									class="flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors"
-									class:border-livnotePink={resourceType === type.value}
-									class:bg-osvauld-fieldActive={resourceType === type.value}
-									class:border-osvauld-borderColor={resourceType !== type.value}
-									class:hover:border-osvauld-activeBorder={resourceType !== type.value}
-								>
-									<input
-										type="radio"
-										name="resourceType"
-										value={type.value}
-										bind:group={resourceType}
-										class="mt-1 w-4 h-4 cursor-pointer"
-									/>
-									<div class="flex-1">
-										<div class="flex items-center gap-2 mb-1">
-											<span class="text-base">{type.icon}</span>
-											<span class="text-sm font-normal text-white">{type.label}</span>
-										</div>
-										<p class="text-xs text-textActive">{type.description}</p>
-									</div>
-								</label>
-							{/each}
-						</div>
 					</div>
 
 					<!-- Action Buttons -->

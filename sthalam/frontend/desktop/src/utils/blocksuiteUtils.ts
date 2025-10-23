@@ -12,7 +12,7 @@ export interface BlocksuiteContent {
   title: string;
 }
 
-export type ResourceType = 'website' | 'form';
+export type ResourceType = 'website';
 
 /**
  * Create an empty BlockSuite document with initial state
@@ -141,59 +141,6 @@ export function createBlankBlocksuiteDoc(
 }
 
 /**
- * Create a form document with split docs for definition and submissions
- * NEW: Returns both form_doc (form definition) and form_submissions_doc (submissions)
- */
-export function createFormDoc(
-  clientId: number,
-  title: string = "Form"
-): BlocksuiteContent {
-  // Create form_doc (for form definition/fields)
-  const formDoc = new Y.Doc();
-  const formBlocks = formDoc.getMap("blocks");
-  const metadata = formDoc.getMap("metadata");
-
-  // Set metadata with title (for preview generator)
-  metadata.set("title", title);
-
-  // Store form configuration in a special block
-  formBlocks.set("form-config", {
-    id: "form-config",
-    type: "form-config",
-    content: JSON.stringify({
-      fields: [],  // Empty form - user will add fields
-      submitButtonText: "Submit"
-    }),
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-    zIndex: 0,
-    styles: {}
-  });
-
-  const formEncoded = Y.encodeStateAsUpdateV2(formDoc);
-
-  // Create form_submissions_doc (for submissions)
-  const submissionsDoc = new Y.Doc();
-  const submissionsBlocks = submissionsDoc.getMap("blocks");
-  // Empty initially - viewers/users will append submissions
-  const submissionsEncoded = Y.encodeStateAsUpdateV2(submissionsDoc);
-
-  const content: BlocksuiteContent = {
-    form_doc: Array.from(formEncoded),                  // Form definition
-    form_submissions_doc: Array.from(submissionsEncoded), // Submissions (empty initially)
-    client_id: clientId.toString(),
-    last_modified: Date.now(),
-    title
-  };
-
-  formDoc.destroy();
-  submissionsDoc.destroy();
-  return content;
-}
-
-/**
  * Create a resource document based on type
  */
 export function createResourceDoc(
@@ -201,12 +148,6 @@ export function createResourceDoc(
   clientId: number,
   title: string
 ): BlocksuiteContent {
-  switch (resourceType) {
-    case 'website':
-      return createEmptyBlocksuiteDoc(clientId, title);
-    case 'form':
-      return createFormDoc(clientId, title);
-    default:
-      return createEmptyBlocksuiteDoc(clientId, title);
-  }
+  // Only 'website' type exists now - forms and threads are blocks within websites
+  return createEmptyBlocksuiteDoc(clientId, title);
 }

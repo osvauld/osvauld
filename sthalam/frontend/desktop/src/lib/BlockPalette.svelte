@@ -45,9 +45,7 @@
 		{ type: "form-field-text", label: "Text Input", icon: EditIcon, description: "Single-line text field" },
 		{ type: "form-field-textarea", label: "Text Area", icon: MobileNote, description: "Multi-line text field" },
 		{ type: "form-field-checkbox", label: "Checkbox", icon: Tick, description: "Checkbox field" },
-		{ type: "nav-button", label: "Navigation Button", icon: RightArrow, description: "Navigate, submit forms, or set field values (replaces Submit Button + Branching Question)" },
-		{ type: "form-submit-button", label: "Submit Button (Deprecated)", icon: RightArrow, description: "⚠️ Use Nav Button with formId instead" },
-		{ type: "branching-question", label: "Branching Question (Deprecated)", icon: CommentIcon, description: "⚠️ Use Nav Button with formId + fieldName + value instead" },
+		{ type: "nav-button", label: "Navigation Button", icon: RightArrow, description: "Navigate, submit forms, or set field values" },
 	];
 </script>
 
