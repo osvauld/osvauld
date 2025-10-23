@@ -1,112 +1,62 @@
-# HUML Template Engine Guide for LLMs
+# HUML Template Guide - Complete Reference
 
-**Version:** 1.0
+**Version:** 2.0 (Complete Rewrite)
 **Last Updated:** January 2025
-**Purpose:** Comprehensive guide for creating declarative UI templates using HUML (Hierarchical UI Markup Language)
+**Purpose:** Create complete web applications using HUML declarative syntax
 
 ---
 
-## Table of Contents
+## What You'll Learn
 
-1. [Introduction to HUML](#introduction-to-huml)
-2. [HUML Syntax Basics](#huml-syntax-basics)
-3. [Template Structure](#template-structure)
-4. [Screen Containers](#screen-containers)
-5. [Block Types Reference](#block-types-reference)
-6. [Navigation Patterns](#navigation-patterns)
-7. [Form Handling](#form-handling)
-8. [Thread Blocks (Comments)](#thread-blocks-comments)
-9. [CSS Styling](#css-styling)
-10. [Complete Examples](#complete-examples)
-11. [Best Practices](#best-practices)
-12. [Common Patterns](#common-patterns)
+This guide teaches you how to build complete web applications using HUML (Hierarchical UI Markup Language). You'll learn to create:
+
+- **Multiple screens/pages** - Build multi-page applications
+- **Navigation flows** - Connect screens with buttons
+- **Forms with validation** - Collect user input and submissions
+- **Discussion threads** - Add comment sections
+- **Custom styling** - Style everything with CSS
+- **Branching logic** - Create choose-your-own-adventure flows
 
 ---
 
-## Introduction to HUML
+## Quick Navigation
 
-### What is HUML?
-
-HUML (Hierarchical UI Markup Language) is a **declarative markup language** for defining complete web applications, including:
-- Multiple screens/pages
-- Navigation between screens
-- Form fields and submissions
-- Thread-based comments
-- Custom styling with CSS
-- Complex branching logic
-
-### Why HUML?
-
-Traditional UI development requires:
-- Writing component code in JavaScript/TypeScript
-- Managing state with hooks or stores
-- Handling routing logic
-- Styling with separate CSS files
-
-HUML lets you **declare the entire application structure** in a single file using a simple, readable syntax similar to YAML.
-
-### Key Concepts
-
-1. **Declarative** - You describe WHAT you want, not HOW to build it
-2. **Hierarchical** - Blocks can contain children, creating nested structures
-3. **Screen-based** - Applications are organized into screens (like pages)
-4. **Type-safe** - Each block has a specific type with defined properties
+**Building your first app?** → Start with [HUML Syntax Basics](#huml-syntax-basics)
+**Need forms?** → Jump to [Forms - Complete Guide](#forms---complete-guide)
+**Want examples?** → See [Complete Working Examples](#complete-working-examples)
+**Styling help?** → Check [CSS Styling Reference](#css-styling-reference)
 
 ---
 
 ## HUML Syntax Basics
 
-### Format
+### What is HUML?
 
-HUML uses a **YAML-like syntax** with specific conventions:
+HUML uses a YAML-like syntax to define your entire application structure in one file. Think of it as writing a blueprint for your app.
 
-```huml
-# Comments start with #
-
-# Simple property
-name: "My Application"
-
-# List property with ::
-screens::
-  - ::
-    property: "value"
-    children::
-      - ::
-        nested: "item"
-```
-
-### Syntax Rules
+### Basic Syntax Rules
 
 #### 1. Comments
 ```huml
 # This is a comment
-# Comments explain what sections do
+# Comments help explain what each section does
 ```
 
-#### 2. String Values
+#### 2. Properties
 ```huml
-# Simple strings (no quotes needed if no special chars)
-name: "My App"
+name: "My Application"
 content: "Hello, world!"
-
-# Multi-line strings (use \n for line breaks)
-content: "Line 1\nLine 2\nLine 3"
 ```
 
-#### 3. Boolean Values
+#### 3. Numbers and Booleans
 ```huml
+width: 800
 isEntryPoint: true
 required: false
 ```
 
-#### 4. Numeric Values
-```huml
-width: 800
-height: 600
-```
-
-#### 5. Lists (Arrays)
-Lists are denoted with `::` followed by items starting with `- ::`
+#### 4. Lists (Arrays)
+Use `::` followed by items with `- ::`
 
 ```huml
 screens::
@@ -116,45 +66,43 @@ screens::
     id: "screen2"
 ```
 
-#### 6. Nested Objects
+#### 5. Nested Structures
 ```huml
 screens::
   - ::
-    id: "main"
+    id: "home"
     children::
       - ::
         type: "heading"
-        children::
-          - ::
-            type: "text"
+        content: "Welcome"
+      - ::
+        type: "text"
+        content: "This is my app"
 ```
 
 ### Important Syntax Notes
 
-- **Indentation matters** - Use consistent spacing (2 spaces recommended)
-- **No curly braces or brackets** - Unlike JSON/JavaScript
-- **Property-value pairs** - Format is `property: "value"`
-- **Lists require `::`** - Both for declaration and items
+- **Indentation matters** - Use 2 spaces per level
+- **No curly braces** - Unlike JSON
+- **Strings** - Use quotes for safety: `"My Text"`
+- **Lists need `::`** - Both for declaration and items
 
 ---
-
+ ### ⚠️ CRITICAL: Property Names Are Case-Sensitive!
+ **Property names ** MUST use exact camelCase spelling. 
+  Lowercase will NOT work!**
 ## Template Structure
 
-### Top-Level Structure
-
-Every HUML template has this basic structure:
+Every HUML template has this structure:
 
 ```huml
-# Template metadata
 name: "Application Name"
 
-# Screen definitions
 screens::
   - ::
     id: "screen-id"
-    name: "Screen Display Name"
+    name: "Screen Name"
     isEntryPoint: true
-    css: "optional-css-styling"
     children::
       # Blocks go here
 ```
@@ -162,153 +110,69 @@ screens::
 ### Required Top-Level Properties
 
 #### `name` (required)
-The display name of your template/application.
+Your application's name
 
 ```huml
 name: "My Blog Application"
 ```
 
-**When to use:**
-- Every template must have a name
-- This appears in the UI when users load templates
-- Keep it descriptive but concise (2-5 words)
-
 #### `screens` (required)
-An array of screen definitions. Screens are like pages in your application.
+Array of screen definitions. You need at least ONE screen.
 
 ```huml
 screens::
   - ::
     id: "home"
-    # ... screen properties
-  - ::
-    id: "about"
-    # ... screen properties
+    name: "Homepage"
+    isEntryPoint: true
 ```
-
-**When to use:**
-- Every template needs at least ONE screen
-- Multi-page applications have multiple screens
-- Each screen is an independent view users can navigate to
 
 ---
 
-## Screen Containers
+## Screens - The Foundation
 
-### Screen Definition
+### What is a Screen?
 
-A **screen** is a top-level container representing a page or view in your application.
-
-```huml
-screens::
-  - ::
-    id: "unique-screen-id"
-    name: "Display Name"
-    isEntryPoint: true
-    css: "background: #f0f0f0; padding: 20px;"
-    children::
-      # Blocks that appear on this screen
-```
+A **screen** is like a page in your application. Users navigate between screens using buttons.
 
 ### Screen Properties
 
 #### `id` (required)
-**Type:** String
-**Purpose:** Unique identifier for this screen (used for navigation)
+Unique identifier for this screen. Used for navigation.
 
 ```huml
 id: "screen-home"
 ```
 
 **Rules:**
-- Must be unique across all screens in the template
-- Use kebab-case or camelCase (e.g., "screen-home", "contactPage")
-- No spaces or special characters except hyphens/underscores
-- Referenced by nav-button blocks for navigation
-
-**Example:**
-```huml
-screens::
-  - ::
-    id: "home"
-    # ... other properties
-  - ::
-    id: "about"
-    # ... other properties
-```
+- Must be unique across all screens
+- Use kebab-case or camelCase
+- No spaces or special characters (except - and _)
+- Examples: `"home"`, `"about-us"`, `"contact-page"`
 
 #### `name` (optional but recommended)
-**Type:** String
-**Purpose:** Human-readable display name for the screen
+Human-readable display name
 
 ```huml
 name: "Homepage"
 ```
 
-**When to use:**
-- Helps developers identify screens in the editor
-- May be displayed in breadcrumbs or navigation UI
-- Use descriptive names like "Contact Page", "Blog Post 1", "About Us"
-
 #### `isEntryPoint` (optional, default: false)
-**Type:** Boolean
-**Purpose:** Marks this screen as the starting point of the application
+Marks this screen as the starting point. **Exactly ONE screen** should have this set to `true`.
 
 ```huml
 isEntryPoint: true
 ```
 
-**Rules:**
-- **EXACTLY ONE screen** should have `isEntryPoint: true`
-- This is the first screen users see when they open the application
-- If no screen has this property, the first screen in the list is used
-
-**Example:**
-```huml
-screens::
-  - ::
-    id: "home"
-    name: "Homepage"
-    isEntryPoint: true  # This screen loads first
-  - ::
-    id: "about"
-    name: "About"
-    # This screen is only shown when navigated to
-```
-
 #### `css` (optional)
-**Type:** String (CSS properties)
-**Purpose:** Inline CSS styling for the entire screen
+Inline CSS styling for the entire screen
 
 ```huml
-css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px; min-height: 100vh;"
+css: "background: #f0f0f0; padding: 40px; min-height: 100vh;"
 ```
-
-**When to use:**
-- Set background colors/gradients for the screen
-- Add padding/margins around screen content
-- Control layout properties (flexbox, grid, etc.)
-
-**CSS Properties Examples:**
-```huml
-# Solid background
-css: "background: #ffffff; padding: 20px;"
-
-# Gradient background
-css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
-
-# Flexbox layout
-css: "display: flex; flex-direction: column; align-items: center; gap: 20px;"
-
-# Full viewport height
-css: "min-height: 100vh; padding: 40px;"
-```
-
-See [CSS Styling](#css-styling) section for more details.
 
 #### `children` (optional)
-**Type:** Array of blocks
-**Purpose:** The blocks/components that appear on this screen
+Array of blocks that appear on this screen
 
 ```huml
 children::
@@ -320,334 +184,163 @@ children::
     content: "This is the homepage"
 ```
 
-**When to use:**
-- Every screen should have children blocks (otherwise it's empty)
-- Children are rendered in the order they appear
-- Can include any block type (heading, text, nav-button, form fields, etc.)
+### Complete Screen Example
+
+```huml
+screens::
+  - ::
+    id: "home"
+    name: "Homepage"
+    isEntryPoint: true
+    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px; min-height: 100vh;"
+    children::
+      - ::
+        type: "heading"
+        content: "Welcome to My App"
+        css: "color: white; font-size: 48px; text-align: center;"
+
+      - ::
+        type: "text"
+        content: "This is the best app ever!"
+        css: "color: white; font-size: 20px; text-align: center;"
+```
 
 ---
 
-## Block Types Reference
-
-### Overview
-
-Blocks are the building elements of your application. Each block has a **type** that determines its behavior and appearance.
+## Block Types - Complete Reference
 
 ### Common Properties (All Blocks)
 
-These properties are available on ALL block types:
+Every block type has these properties:
 
-#### `type` (required for all blocks)
-**Type:** String
-**Purpose:** Defines what kind of block this is
-
-```huml
-type: "heading"
-```
-
-**Available types:**
-- `heading` - Large text for titles
-- `text` - Regular paragraph text
-- `markdown-text` - Rich text with markdown formatting
-- `nav-button` - Navigation and form submission button
-- `section-container` - Container for grouping blocks
-- `screen-container` - (Rarely used in templates; screens are top-level)
-- `thread` - Comments/discussion thread
-- `form` - Form metadata block
-- `form-field-text` - Single-line text input
-- `form-field-email` - Email input with validation
-- `form-field-textarea` - Multi-line text input
-- `form-field-checkbox` - Checkbox input
-- `image` - Image display (requires URL)
-
-#### `content` (optional, depends on type)
-**Type:** String
-**Purpose:** The text content of the block
-
-```huml
-content: "This is the content"
-```
-
-**Used by:** heading, text, markdown-text, nav-button
-
-#### `css` (optional)
-**Type:** String (CSS properties)
-**Purpose:** Inline styling for this specific block
-
-```huml
-css: "color: #333; font-size: 18px; margin-bottom: 20px;"
-```
-
-**When to use:**
-- Customize appearance of individual blocks
-- Override default styling
-- Apply colors, spacing, fonts, borders, etc.
-
-#### `children` (optional)
-**Type:** Array of blocks
-**Purpose:** Nested blocks inside this block
-
-```huml
-children::
-  - ::
-    type: "heading"
-  - ::
-    type: "text"
-```
-
-**Used by:** section-container, screen-container
-**NOT used by:** heading, text, nav-button, form fields (they are leaf nodes)
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `type` | String | ✅ Yes | What kind of block this is |
+| `content` | String | Depends on type | The text/data content |
+| `css` | String | ❌ No | Custom CSS styling |
+| `children` | Array | Only for containers | Nested blocks |
 
 ---
 
 ### Block Type: `heading`
 
-**Purpose:** Display large, prominent text for titles and section headers
+**Purpose:** Large, prominent text for titles
 
-#### Properties
+**Properties:**
+- `type: "heading"` (required)
+- `content` (required) - The heading text
+- `css` (optional) - Custom styling
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Must be `"heading"` |
-| `content` | String | ✅ Yes | The text to display |
-| `css` | String | ❌ No | Custom styling |
-
-#### Default Styling
-- Large font size (varies by context)
-- Bold weight
-- Margin spacing
-
-#### Example: Basic Heading
+**Example:**
 ```huml
 - ::
   type: "heading"
   content: "Welcome to My Website"
+  css: "font-size: 48px; color: #667eea; text-align: center; margin-bottom: 20px;"
 ```
 
-#### Example: Styled Heading
-```huml
-- ::
-  type: "heading"
-  content: "Featured Articles"
-  css: "font-size: 48px; color: #89b4fa; text-align: center; margin-bottom: 30px; font-weight: 800;"
-```
-
-#### CSS Properties for Headings
-
-**Common properties:**
-```huml
-# Font size
-css: "font-size: 48px;"
-
-# Color
-css: "color: #333333;"
-
-# Alignment
-css: "text-align: center;"
-
-# Weight
-css: "font-weight: 700;"
-
-# Spacing
-css: "margin-bottom: 20px; margin-top: 10px;"
-
-# Combined
-css: "font-size: 36px; color: #667eea; text-align: center; margin-bottom: 20px; font-weight: 800;"
-```
-
-#### When to Use
+**When to use:**
 - Page titles
 - Section headers
 - Article headlines
-- Category names
 
 ---
 
 ### Block Type: `text`
 
-**Purpose:** Display regular paragraph text
+**Purpose:** Regular paragraph text
 
-#### Properties
+**Properties:**
+- `type: "text"` (required)
+- `content` (required) - The paragraph text
+- `css` (optional) - Custom styling
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Must be `"text"` |
-| `content` | String | ✅ Yes | The text to display |
-| `css` | String | ❌ No | Custom styling |
-
-#### Default Styling
-- Regular font size (16px typically)
-- Normal weight
-- Line height for readability
-
-#### Example: Basic Text
+**Example:**
 ```huml
 - ::
   type: "text"
-  content: "This is a paragraph of text explaining something to the user."
+  content: "This is a paragraph explaining something to the user."
+  css: "color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 20px;"
 ```
 
-#### Example: Styled Text
+**Multi-line text:**
 ```huml
-- ::
-  type: "text"
-  content: "Subscribe to our newsletter for weekly updates"
-  css: "color: #718096; text-align: center; font-size: 14px; margin-top: 10px;"
+content: "Line 1\nLine 2\nLine 3"
 ```
 
-#### Multi-line Text
-Use `\n` for line breaks:
-
-```huml
-- ::
-  type: "text"
-  content: "Line 1\nLine 2\nLine 3"
-```
-
-#### CSS Properties for Text
-
-**Common properties:**
-```huml
-# Font size
-css: "font-size: 16px;"
-
-# Color
-css: "color: #666666;"
-
-# Line height (for readability)
-css: "line-height: 1.6;"
-
-# Alignment
-css: "text-align: left;"
-
-# Spacing
-css: "margin-bottom: 15px;"
-
-# Combined
-css: "color: #4a5568; font-size: 16px; line-height: 1.8; margin-bottom: 20px;"
-```
-
-#### When to Use
-- Body text / paragraphs
+**When to use:**
+- Body text
 - Descriptions
 - Instructions
-- Short messages
-- Metadata (dates, author names, etc.)
+- Metadata (dates, author names)
 
 ---
 
 ### Block Type: `markdown-text`
 
-**Purpose:** Display rich text with markdown formatting (headers, bold, italic, lists, code blocks, etc.)
+**Purpose:** Rich text with markdown formatting (bold, lists, code, links)
 
-#### Properties
+**Properties:**
+- `type: "markdown-text"` (required)
+- `content` (required) - Markdown-formatted text
+- `mode: "markdown"` (optional) - Rendering mode
+- `css` (optional) - Custom styling
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Must be `"markdown-text"` |
-| `content` | String | ✅ Yes | Markdown-formatted text |
-| `mode` | String | ❌ No | Rendering mode: `"markdown"` (default) or `"html"` |
-| `css` | String | ❌ No | Custom styling |
+**Markdown Support:**
 
-#### Markdown Support
-
-**Headers:**
+Headers:
 ```huml
 content: "## This is H2\n### This is H3"
 ```
 
-**Bold and Italic:**
+Bold and Italic:
 ```huml
 content: "This is **bold** and this is *italic*"
 ```
 
-**Lists:**
+Lists:
 ```huml
 content: "- Item 1\n- Item 2\n- Item 3"
 ```
 
-**Ordered Lists:**
-```huml
-content: "1. First\n2. Second\n3. Third"
-```
-
-**Code Blocks:**
+Code blocks:
 ```huml
 content: "```javascript\nfunction hello() {\n  console.log('Hello');\n}\n```"
 ```
 
-**Inline Code:**
-```huml
-content: "Use the `useState` hook for state management"
-```
-
-**Links:**
+Links:
 ```huml
 content: "[Click here](https://example.com)"
 ```
 
-**Blockquotes:**
-```huml
-content: "> This is a quote"
-```
-
-#### Example: Article Content
+**Example:**
 ```huml
 - ::
   type: "markdown-text"
-  content: "## Introduction\n\nThis is a **comprehensive guide** to building apps.\n\n### Key Features\n\n- Easy to use\n- Powerful\n- Flexible\n\n```javascript\nconst app = createApp();\n```"
+  content: "## Introduction\n\nThis is a **comprehensive guide** to building apps.\n\n### Key Features\n\n- Easy to use\n- Powerful\n- Flexible"
   mode: "markdown"
   css: "background: white; padding: 30px; border-radius: 8px; line-height: 1.8;"
 ```
 
-#### Example: Blog Post
-```huml
-- ::
-  type: "markdown-text"
-  content: "# Getting Started\n\nWelcome to our platform! Here's what you need to know:\n\n## Step 1: Sign Up\n\nCreate your account by clicking the button below.\n\n## Step 2: Explore\n\nCheck out our features:\n- Dashboard\n- Analytics\n- Reports\n\n> **Tip:** Start with the tutorial for best results!"
-  mode: "markdown"
-```
-
-#### CSS Properties for Markdown Text
-
-```huml
-# Background and padding (makes it look like a card)
-css: "background: white; padding: 30px; border-radius: 8px;"
-
-# Line height for readability
-css: "line-height: 1.8;"
-
-# Text color
-css: "color: #2d3748;"
-
-# Combined (article style)
-css: "background: white; padding: 40px; border-radius: 12px; line-height: 1.8; color: #2d3748; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-```
-
-#### When to Use
+**When to use:**
 - Blog post content
-- Article bodies
 - Documentation
+- Articles
 - Rich descriptions
-- Tutorials
-- Any content that needs formatting (bold, lists, code, etc.)
 
 ---
 
 ### Block Type: `section-container`
 
-**Purpose:** Group related blocks together with shared styling/layout
+**Purpose:** Group related blocks together with shared styling
 
-#### Properties
+**Properties:**
+- `type: "section-container"` (required)
+- `name` (optional) - Display name for editor
+- `css` (optional) - Container styling
+- `children` (optional) - Blocks inside this container
 
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Must be `"section-container"` |
-| `name` | String | ❌ No | Display name for this section (for editor) |
-| `css` | String | ❌ No | Container styling |
-| `children` | Array | ❌ No | Blocks inside this container |
-
-#### Example: Card Container
+**Example: Card Container**
 ```huml
 - ::
   type: "section-container"
@@ -657,12 +350,14 @@ css: "background: white; padding: 40px; border-radius: 12px; line-height: 1.8; c
     - ::
       type: "heading"
       content: "Feature Title"
+      css: "font-size: 24px; margin-bottom: 10px;"
     - ::
       type: "text"
       content: "Description of the feature"
+      css: "color: #666;"
 ```
 
-#### Example: Two-Column Layout
+**Example: Flexbox Layout**
 ```huml
 - ::
   type: "section-container"
@@ -677,6 +372,7 @@ css: "background: white; padding: 40px; border-radius: 12px; line-height: 1.8; c
         - ::
           type: "heading"
           content: "Left Side"
+
     - ::
       type: "section-container"
       name: "Right Column"
@@ -687,757 +383,61 @@ css: "background: white; padding: 40px; border-radius: 12px; line-height: 1.8; c
           content: "Right Side"
 ```
 
-#### Common CSS Patterns for Containers
-
-**Card style:**
-```huml
-css: "background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-```
-
-**Flexbox (vertical stack):**
-```huml
-css: "display: flex; flex-direction: column; gap: 15px;"
-```
-
-**Flexbox (horizontal row):**
-```huml
-css: "display: flex; flex-direction: row; gap: 20px;"
-```
-
-**Centered container:**
-```huml
-css: "max-width: 800px; margin: 0 auto; padding: 40px;"
-```
-
-**Border/outline:**
-```huml
-css: "border: 2px solid #667eea; border-radius: 8px; padding: 20px;"
-```
-
-#### When to Use
-- Group related content (cards, sections)
+**When to use:**
+- Group related content
+- Create cards
+- Build layouts (columns, grids)
 - Apply shared styling to multiple blocks
-- Create layout structures (columns, grids)
-- Visual separation of content areas
 
 ---
 
 ### Block Type: `nav-button`
 
-**Purpose:** Create clickable buttons for navigation and form submission
+**Purpose:** The universal button for ALL interactions
 
-This is the **most versatile block type** with 3 distinct modes:
+**This is the ONLY button type you need.** It has three modes:
 
-1. **MODE 1:** Simple navigation (just navigate to another screen)
-2. **MODE 2:** Form submission + navigation (submit entire form, then navigate)
-3. **MODE 3:** Branching with field values (set a specific field value, submit, then navigate)
+1. **MODE 1:** Simple navigation (go to another screen)
+2. **MODE 2:** Form submission (submit form + navigate)
+3. **MODE 3:** Branching choices (set value + submit + navigate)
 
-#### Properties
+#### Common Properties
 
 | Property | Type | Required | Description |
 |----------|------|----------|-------------|
 | `type` | String | ✅ Yes | Must be `"nav-button"` |
 | `content` | String | ✅ Yes | Button text |
-| `action` | String | ❌ No | Navigation action: `"navigate"`, `"show"`, `"hide"`, `"toggle"` (default: `"navigate"`) |
-| `targetContainerId` | String | ❌ No | ID of screen to navigate to |
-| `formId` | String | ❌ No | ID of form to submit (enables MODE 2 or 3) |
-| `fieldName` | String | ❌ No | Field name to set (enables MODE 3) |
-| `value` | Any | ❌ No | Value to set for the field (MODE 3) |
+| `targetContainerId` | String | ✅ Yes | Screen ID to navigate to |
+| `formId` | String | For MODE 2 & 3 | Form to submit |
+| `fieldName` | String | For MODE 3 only | Field name to set |
+| `value` | Any | For MODE 3 only | Value to set |
+| `action` | String | ❌ No | Default: `"navigate"` |
 | `css` | String | ❌ No | Button styling |
+
+---
 
 #### MODE 1: Simple Navigation
 
-**When to use:** Navigate from one screen to another without any form data.
+**Use this when:** You just want to go from one screen to another.
 
-**Required properties:**
+**Required:**
+- `type: "nav-button"`
 - `content` - Button text
-- `targetContainerId` - Screen ID to navigate to
-
-**Optional properties:**
-- `action` - Usually `"navigate"` (default)
+- `targetContainerId` - Where to go
 
 **Example:**
 ```huml
 - ::
   type: "nav-button"
   content: "Go to About Page"
-  action: "navigate"
-  targetContainerId: "screen-about"
-  css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px;"
+  targetContainerId: "about"
+  css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
 ```
 
-**Use cases:**
-- "Read More" buttons on blog cards
-- "Back to Home" buttons
-- "View Details" links
-- Navigation between pages
-
----
-
-#### MODE 2: Form Submission + Navigation
-
-**When to use:** Submit an entire form (all its fields), then navigate to another screen.
-
-This replaces the old `form-submit-button` component.
-
-**Required properties:**
-- `content` - Button text (e.g., "Submit", "Send", "Continue")
-- `formId` - ID of the form to submit
-- `targetContainerId` - Screen ID to navigate to after submission
-
-**How it works:**
-1. Collects all form fields with matching `formId`
-2. Validates required fields
-3. Creates a submission record
-4. Saves to `form_submissions_doc`
-5. Navigates to target screen
-
-**Example:**
+**Complete Two-Screen Example:**
 ```huml
-# First, define the form metadata
-- ::
-  id: "form-contact"
-  type: "form"
-  name: "Contact Form"
-  eventName: "contact_submission"
+name: "Simple Navigation Example"
 
-# Then add form fields
-- ::
-  type: "form-field-text"
-  formId: "form-contact"
-  fieldName: "name"
-  label: "Your Name"
-  required: true
-
-- ::
-  type: "form-field-email"
-  formId: "form-contact"
-  fieldName: "email"
-  label: "Email Address"
-  required: true
-
-- ::
-  type: "form-field-textarea"
-  formId: "form-contact"
-  fieldName: "message"
-  label: "Message"
-  required: true
-
-# Finally, the submit button (MODE 2)
-- ::
-  type: "nav-button"
-  content: "Submit Contact Form"
-  formId: "form-contact"
-  action: "navigate"
-  targetContainerId: "screen-thank-you"
-  css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; width: 100%;"
-```
-
-**What gets submitted:**
-```json
-{
-  "formId": "form-contact",
-  "eventName": "contact_submission",
-  "data": {
-    "name": "John Doe",
-    "email": "john@example.com",
-    "message": "Hello, I have a question..."
-  },
-  "timestamp": 1234567890
-}
-```
-
-**Validation:**
-- Checks all fields with `required: true`
-- Shows alert if any required field is empty
-- Won't submit or navigate if validation fails
-
----
-
-#### MODE 3: Branching with Field Values
-
-**When to use:** Set a specific field to a specific value, submit, then navigate.
-
-This replaces the old `branching-question` component.
-
-**Required properties:**
-- `content` - Button text (e.g., "Yes", "No", "Blue", "Option A")
-- `formId` - ID of the form
-- `fieldName` - Name of the field to set
-- `value` - The value to set
-- `targetContainerId` - Screen to navigate to
-
-**How it works:**
-1. Collects any existing form field values
-2. Sets the specified `fieldName` to the specified `value`
-3. Creates a submission with this data
-4. Navigates to the target screen
-
-**Example: Yes/No Question**
-```huml
-# Define form
-- ::
-  id: "form-survey"
-  type: "form"
-  name: "Customer Survey"
-  eventName: "survey_response"
-
-# Question
-- ::
-  type: "heading"
-  content: "Are you satisfied with our service?"
-  css: "text-align: center; margin-bottom: 20px;"
-
-# Yes button (MODE 3)
-- ::
-  type: "nav-button"
-  content: "Yes, I'm satisfied"
-  formId: "form-survey"
-  fieldName: "satisfaction"
-  value: "yes"
-  targetContainerId: "screen-thank-you"
-  css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; margin: 10px;"
-
-# No button (MODE 3)
-- ::
-  type: "nav-button"
-  content: "No, needs improvement"
-  formId: "form-survey"
-  fieldName: "satisfaction"
-  value: "no"
-  targetContainerId: "screen-feedback"
-  css: "background: #f38ba8; color: white; padding: 15px 30px; border-radius: 8px; margin: 10px;"
-```
-
-**What gets submitted when clicking "Yes":**
-```json
-{
-  "formId": "form-survey",
-  "eventName": "survey_response",
-  "data": {
-    "satisfaction": "yes"
-  },
-  "timestamp": 1234567890
-}
-```
-
-**Example: Multiple Choice Question**
-```huml
-# Form definition
-- ::
-  id: "form-quiz"
-  type: "form"
-  eventName: "quiz_answer"
-
-# Question
-- ::
-  type: "text"
-  content: "What's your favorite color?"
-  css: "font-size: 24px; text-align: center; margin-bottom: 20px;"
-
-# Option 1
-- ::
-  type: "nav-button"
-  content: "🔵 Blue"
-  formId: "form-quiz"
-  fieldName: "favorite_color"
-  value: "blue"
-  targetContainerId: "result-blue"
-  css: "background: #89b4fa; color: white; padding: 15px; width: 200px; margin: 5px;"
-
-# Option 2
-- ::
-  type: "nav-button"
-  content: "🟢 Green"
-  formId: "form-quiz"
-  fieldName: "favorite_color"
-  value: "green"
-  targetContainerId: "result-green"
-  css: "background: #a6e3a1; color: #1e1e2e; padding: 15px; width: 200px; margin: 5px;"
-
-# Option 3
-- ::
-  type: "nav-button"
-  content: "🔴 Red"
-  formId: "form-quiz"
-  fieldName: "favorite_color"
-  value: "red"
-  targetContainerId: "result-red"
-  css: "background: #f38ba8; color: white; padding: 15px; width: 200px; margin: 5px;"
-```
-
-**Advanced: Branching with Multiple Fields**
-
-You can have multiple nav-buttons that set different fields before navigating:
-
-```huml
-# Customer type form
-- ::
-  id: "form-onboarding"
-  type: "form"
-  eventName: "customer_onboarding"
-
-# Step 1: Ask customer type
-- ::
-  type: "heading"
-  content: "Are you a new customer?"
-
-- ::
-  type: "nav-button"
-  content: "Yes, I'm new"
-  formId: "form-onboarding"
-  fieldName: "customer_type"
-  value: "new"
-  targetContainerId: "screen-new-customer-flow"
-
-- ::
-  type: "nav-button"
-  content: "No, returning customer"
-  formId: "form-onboarding"
-  fieldName: "customer_type"
-  value: "returning"
-  targetContainerId: "screen-returning-customer-flow"
-```
-
----
-
-#### MODE Comparison Table
-
-| Feature | MODE 1 | MODE 2 | MODE 3 |
-|---------|--------|--------|--------|
-| Navigate | ✅ | ✅ | ✅ |
-| Submit form | ❌ | ✅ | ✅ |
-| Set field value | ❌ | ❌ | ✅ |
-| Required: `formId` | ❌ | ✅ | ✅ |
-| Required: `fieldName` | ❌ | ❌ | ✅ |
-| Required: `value` | ❌ | ❌ | ✅ |
-| Use case | Simple navigation | Form submission | Branching/choices |
-| Replaces | - | `form-submit-button` | `branching-question` |
-
----
-
-#### CSS Properties for Buttons
-
-**Primary button:**
-```huml
-css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer;"
-```
-
-**Secondary button:**
-```huml
-css: "background: #e2e8f0; color: #2d3748; padding: 12px 24px; border-radius: 8px; border: none; cursor: pointer;"
-```
-
-**Outlined button:**
-```huml
-css: "background: transparent; color: #667eea; padding: 12px 24px; border: 2px solid #667eea; border-radius: 8px; cursor: pointer;"
-```
-
-**Full-width button:**
-```huml
-css: "width: 100%; padding: 15px; background: #89b4fa; color: white; border-radius: 8px; font-size: 16px; font-weight: 600;"
-```
-
-**Success button:**
-```huml
-css: "background: #a6e3a1; color: #1e1e2e; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
-```
-
-**Danger button:**
-```huml
-css: "background: #f38ba8; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
-```
-
----
-
-### Block Type: `thread`
-
-**Purpose:** Create a comments/discussion thread where users can post messages
-
-#### Properties
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Must be `"thread"` |
-| `name` | String | ❌ No | Display name for this thread |
-| `mode` | String | ❌ No | `"markdown"` (supports rich text) or `"html"` (default: `"markdown"`) |
-| `description` | String | ❌ No | Placeholder/description text |
-| `css` | String | ❌ No | Thread container styling |
-
-#### How Threads Work
-
-1. Users can add comments in both **editor mode** and **viewer mode**
-2. Comments are stored in `thread_comments_doc` (separate from main blocks)
-3. Comments persist after reload
-4. Each thread is independent (identified by its block ID)
-5. Markdown mode allows **rich text formatting** in comments
-
-#### Example: Basic Thread
-```huml
-- ::
-  type: "thread"
-  name: "Article Comments"
-  mode: "markdown"
-  description: "Share your thoughts about this article"
-  css: "background: white; border-radius: 8px; padding: 20px; min-height: 400px;"
-```
-
-#### Example: Blog Post Comments
-```huml
-# Blog post content
-- ::
-  type: "markdown-text"
-  content: "## My Blog Post\n\nThis is the article content..."
-
-# Divider
-- ::
-  type: "heading"
-  content: "💬 Comments & Discussion"
-  css: "margin-top: 40px; padding-top: 40px; border-top: 2px solid #e2e8f0;"
-
-# Comments thread
-- ::
-  type: "thread"
-  name: "Blog Post Comments"
-  mode: "markdown"
-  description: "Join the discussion - what are your thoughts?"
-  css: "min-height: 500px;"
-```
-
-#### Example: Q&A Forum
-```huml
-- ::
-  type: "heading"
-  content: "Ask Questions"
-
-- ::
-  type: "text"
-  content: "Have a question? Post it below and our community will help!"
-
-- ::
-  type: "thread"
-  name: "Q&A Thread"
-  mode: "markdown"
-  description: "Type your question here..."
-  css: "background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; min-height: 600px;"
-```
-
-#### Thread Storage
-
-**Important:** Thread comments are stored in a **separate Yjs document** called `thread_comments_doc`.
-
-This means:
-- Comments don't clutter the main blocks document
-- Better performance for resources with many comments
-- Comments can be loaded separately if needed
-
-**Reference:** See `blocksuiteCoordinator.ts:131-142` for thread loading logic.
-
-#### When to Use
-- Blog post comments
-- Article discussions
-- Forum threads
-- Q&A sections
-- Feedback areas
-- Collaborative notes
-
----
-
-### Block Type: `form`
-
-**Purpose:** Define form metadata (event name, form ID)
-
-This is a **metadata block** - it doesn't render visually but defines the form's properties.
-
-#### Properties
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Must be `"form"` |
-| `id` | String | ✅ Yes | Unique form identifier |
-| `name` | String | ❌ No | Display name (for editor) |
-| `eventName` | String | ❌ No | Event name for submissions (default: `"form_submission"`) |
-
-#### How Forms Work
-
-1. **Define the form metadata** with a `form` block
-2. **Add form fields** (form-field-text, form-field-email, etc.) with matching `formId`
-3. **Add a submit button** (nav-button with `formId`)
-
-#### Example: Contact Form
-```huml
-# 1. Form metadata
-- ::
-  id: "form-contact"
-  type: "form"
-  name: "Contact Form"
-  eventName: "contact_submission"
-
-# 2. Form fields (see next section)
-# 3. Submit button (see nav-button MODE 2)
-```
-
-#### Event Names
-
-The `eventName` property groups submissions. This allows you to:
-- Filter submissions by event in the submissions viewer
-- Track different form types separately
-- Export submissions by event
-
-**Examples:**
-```huml
-eventName: "contact_submission"
-eventName: "newsletter_signup"
-eventName: "customer_feedback"
-eventName: "survey_response"
-eventName: "registration_form"
-```
-
----
-
-### Form Field Blocks
-
-All form fields share common properties and behavior.
-
-#### Common Form Field Properties
-
-| Property | Type | Required | Description |
-|----------|------|----------|-------------|
-| `type` | String | ✅ Yes | Field type (see below) |
-| `formId` | String | ✅ Yes | ID of the parent form |
-| `fieldName` | String | ✅ Yes | Name of this field (used in submission data) |
-| `label` | String | ❌ No | Display label shown to user |
-| `placeholder` | String | ❌ No | Placeholder text |
-| `required` | Boolean | ❌ No | Whether field is required (default: false) |
-| `css` | String | ❌ No | Field styling |
-
----
-
-#### Block Type: `form-field-text`
-
-**Purpose:** Single-line text input
-
-**Example:**
-```huml
-- ::
-  type: "form-field-text"
-  formId: "form-contact"
-  fieldName: "full_name"
-  label: "Full Name"
-  placeholder: "John Doe"
-  required: true
-  css: "margin-bottom: 15px;"
-```
-
-**Renders as:**
-```
-Full Name *
-[________________]
-```
-
-**When to use:**
-- Name fields
-- Short answers
-- Single-word inputs
-- Usernames
-
----
-
-#### Block Type: `form-field-email`
-
-**Purpose:** Email input with validation
-
-**Example:**
-```huml
-- ::
-  type: "form-field-email"
-  formId: "form-newsletter"
-  fieldName: "email"
-  label: "Email Address"
-  placeholder: "you@example.com"
-  required: true
-```
-
-**Features:**
-- Browser email validation
-- Proper keyboard on mobile (shows @ and .com keys)
-
-**When to use:**
-- Email collection
-- Newsletter signups
-- Contact forms
-- Registration
-
----
-
-#### Block Type: `form-field-textarea`
-
-**Purpose:** Multi-line text input
-
-**Example:**
-```huml
-- ::
-  type: "form-field-textarea"
-  formId: "form-feedback"
-  fieldName: "comments"
-  label: "Your Feedback"
-  placeholder: "Tell us what you think..."
-  required: false
-  css: "margin-bottom: 20px;"
-```
-
-**Renders as:**
-```
-Your Feedback
-┌─────────────────┐
-│                 │
-│                 │
-│                 │
-└─────────────────┘
-```
-
-**When to use:**
-- Comments
-- Feedback
-- Messages
-- Descriptions
-- Long-form text
-
----
-
-#### Block Type: `form-field-checkbox`
-
-**Purpose:** Checkbox for yes/no or agreement
-
-**Example:**
-```huml
-- ::
-  type: "form-field-checkbox"
-  formId: "form-signup"
-  fieldName: "agree_to_terms"
-  label: "I agree to the Terms and Conditions"
-  required: true
-```
-
-**Renders as:**
-```
-☐ I agree to the Terms and Conditions *
-```
-
-**When to use:**
-- Terms agreement
-- Newsletter opt-in
-- Preferences
-- Boolean choices
-
----
-
-#### Complete Form Example
-
-```huml
-# Screen with form
-- ::
-  id: "screen-contact"
-  name: "Contact Us"
-  css: "padding: 40px; background: #f7fafc;"
-  children::
-    - ::
-      type: "heading"
-      content: "Contact Us"
-      css: "text-align: center; margin-bottom: 30px;"
-
-    # Form metadata
-    - ::
-      id: "form-contact"
-      type: "form"
-      name: "Contact Form"
-      eventName: "contact_submission"
-
-    # Form container
-    - ::
-      type: "section-container"
-      name: "Form Container"
-      css: "max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px;"
-      children::
-        # Name field
-        - ::
-          type: "form-field-text"
-          formId: "form-contact"
-          fieldName: "name"
-          label: "Your Name"
-          placeholder: "John Doe"
-          required: true
-          css: "margin-bottom: 15px;"
-
-        # Email field
-        - ::
-          type: "form-field-email"
-          formId: "form-contact"
-          fieldName: "email"
-          label: "Email Address"
-          placeholder: "you@example.com"
-          required: true
-          css: "margin-bottom: 15px;"
-
-        # Message field
-        - ::
-          type: "form-field-textarea"
-          formId: "form-contact"
-          fieldName: "message"
-          label: "Message"
-          placeholder: "How can we help you?"
-          required: true
-          css: "margin-bottom: 20px;"
-
-        # Terms checkbox
-        - ::
-          type: "form-field-checkbox"
-          formId: "form-contact"
-          fieldName: "agree_to_contact"
-          label: "I agree to be contacted via email"
-          required: false
-          css: "margin-bottom: 20px;"
-
-        # Submit button (MODE 2)
-        - ::
-          type: "nav-button"
-          content: "Send Message"
-          formId: "form-contact"
-          targetContainerId: "screen-thank-you"
-          css: "width: 100%; background: #667eea; color: white; padding: 15px; border-radius: 8px; font-size: 16px; font-weight: 600;"
-
-# Thank you screen
-- ::
-  id: "screen-thank-you"
-  name: "Thank You"
-  css: "padding: 40px; background: #f0fdf4; text-align: center; min-height: 100vh; display: flex; flex-direction: column; justify-content: center;"
-  children::
-    - ::
-      type: "heading"
-      content: "✅ Thank You!"
-      css: "color: #16a34a; font-size: 48px; margin-bottom: 20px;"
-
-    - ::
-      type: "text"
-      content: "Your message has been sent successfully. We'll get back to you soon!"
-      css: "font-size: 18px; color: #4a5568; margin-bottom: 30px;"
-
-    - ::
-      type: "nav-button"
-      content: "← Back to Home"
-      targetContainerId: "screen-home"
-      css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px;"
-```
-
----
-
-## Navigation Patterns
-
-### Basic Navigation
-
-**Simple page navigation:**
-
-```huml
 screens::
   # Home screen
   - ::
@@ -1447,7 +447,7 @@ screens::
     children::
       - ::
         type: "heading"
-        content: "Welcome"
+        content: "Homepage"
       - ::
         type: "nav-button"
         content: "Go to About"
@@ -1467,110 +467,63 @@ screens::
         targetContainerId: "home"
 ```
 
-### Hub and Spoke Pattern
+---
 
-One central screen with links to multiple pages:
+#### MODE 2: Form Submission
 
+**Use this when:** You want to submit a form and then navigate to a thank-you page.
+
+**Required:**
+- `type: "nav-button"`
+- `content` - Button text (e.g., "Submit", "Send")
+- `formId` - ID of the form to submit
+- `targetContainerId` - Where to go after submission
+
+**How it works:**
+1. User clicks button
+2. System finds all form fields with matching `formId`
+3. Validates required fields
+4. If valid: Creates submission → Saves to database → Navigates to target screen
+5. If invalid: Shows alert with missing fields
+
+**Example:**
 ```huml
-screens::
-  # Hub screen
-  - ::
-    id: "hub"
-    name: "Main Menu"
-    isEntryPoint: true
-    children::
-      - ::
-        type: "heading"
-        content: "Main Menu"
-      - ::
-        type: "nav-button"
-        content: "Features"
-        targetContainerId: "features"
-      - ::
-        type: "nav-button"
-        content: "Pricing"
-        targetContainerId: "pricing"
-      - ::
-        type: "nav-button"
-        content: "Contact"
-        targetContainerId: "contact"
-
-  # Spoke 1
-  - ::
-    id: "features"
-    name: "Features"
-    children::
-      - ::
-        type: "heading"
-        content: "Features"
-      - ::
-        type: "nav-button"
-        content: "← Back to Menu"
-        targetContainerId: "hub"
-
-  # Spoke 2
-  - ::
-    id: "pricing"
-    # ... similar structure
-
-  # Spoke 3
-  - ::
-    id: "contact"
-    # ... similar structure
+# The submit button (MODE 2)
+- ::
+  type: "nav-button"
+  content: "Submit Form"
+  formId: "form-contact"
+  targetContainerId: "thank-you"
+  css: "background: #667eea; color: white; padding: 15px 30px; border-radius: 8px; font-weight: 600; width: 100%;"
 ```
 
-### Linear Flow Pattern
+**See [Forms - Complete Guide](#forms---complete-guide) for full form examples.**
 
-Step-by-step progression:
+---
 
+#### MODE 3: Branching Choices
+
+**Use this when:** You want to present choices (Yes/No, Option A/B/C) where each choice sets a specific value and navigates somewhere.
+
+**Required:**
+- `type: "nav-button"`
+- `content` - Button text (e.g., "Yes", "No", "Blue", "Option A")
+- `formId` - Form to submit
+- `fieldName` - Name of the field to set
+- `value` - The value to set
+- `targetContainerId` - Where to go
+
+**How it works:**
+1. User clicks button
+2. System sets `fieldName` to `value`
+3. Collects any other existing form fields
+4. Creates submission with all data
+5. Navigates to target screen
+
+**Example: Yes/No Question**
 ```huml
-screens::
-  # Step 1
-  - ::
-    id: "step1"
-    name: "Step 1: Welcome"
-    isEntryPoint: true
-    children::
-      - ::
-        type: "heading"
-        content: "Step 1: Welcome"
-      - ::
-        type: "nav-button"
-        content: "Next →"
-        targetContainerId: "step2"
+name: "Branching Example"
 
-  # Step 2
-  - ::
-    id: "step2"
-    name: "Step 2: Details"
-    children::
-      - ::
-        type: "heading"
-        content: "Step 2: Enter Details"
-      - ::
-        type: "nav-button"
-        content: "Next →"
-        targetContainerId: "step3"
-
-  # Step 3
-  - ::
-    id: "step3"
-    name: "Step 3: Confirm"
-    children::
-      - ::
-        type: "heading"
-        content: "Step 3: Confirmation"
-      - ::
-        type: "nav-button"
-        content: "Complete"
-        targetContainerId: "complete"
-```
-
-### Branching Flow Pattern
-
-Different paths based on user choices:
-
-```huml
 screens::
   # Question screen
   - ::
@@ -1578,411 +531,445 @@ screens::
     name: "Question"
     isEntryPoint: true
     children::
+      # Define form first
+      - ::
+        id: "form-survey"
+        type: "form"
+        eventName: "survey_response"
+
+      # Ask question
       - ::
         type: "heading"
-        content: "Are you a new customer?"
+        content: "Are you satisfied with our service?"
+        css: "text-align: center; margin-bottom: 30px;"
 
-      # Branch A
+      # Yes button (MODE 3)
       - ::
         type: "nav-button"
-        content: "Yes, I'm new"
-        targetContainerId: "new-customer"
+        content: "😊 Yes, very satisfied"
+        formId: "form-survey"
+        fieldName: "satisfaction"
+        value: "yes"
+        targetContainerId: "thank-you"
+        css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-weight: 600; margin: 10px;"
 
-      # Branch B
+      # No button (MODE 3)
       - ::
         type: "nav-button"
-        content: "No, returning customer"
-        targetContainerId: "returning-customer"
+        content: "😞 No, needs improvement"
+        formId: "form-survey"
+        fieldName: "satisfaction"
+        value: "no"
+        targetContainerId: "feedback"
+        css: "background: #f38ba8; color: white; padding: 15px 30px; border-radius: 8px; font-weight: 600; margin: 10px;"
 
-  # Branch A destination
+  # Thank you screen
   - ::
-    id: "new-customer"
-    name: "New Customer Flow"
+    id: "thank-you"
+    name: "Thank You"
     children::
       - ::
         type: "heading"
-        content: "Welcome, New Customer!"
+        content: "Thank you for your feedback!"
 
-  # Branch B destination
+  # Feedback screen
   - ::
-    id: "returning-customer"
-    name: "Returning Customer Flow"
+    id: "feedback"
+    name: "Feedback"
     children::
       - ::
         type: "heading"
-        content: "Welcome Back!"
+        content: "We're sorry to hear that. How can we improve?"
+```
+
+**What gets submitted when clicking "Yes":**
+```json
+{
+  "formId": "form-survey",
+  "eventName": "survey_response",
+  "data": {
+    "satisfaction": "yes"
+  },
+  "timestamp": 1234567890
+}
+```
+
+**Example: Multiple Choice (3+ options)**
+```huml
+# Question
+- ::
+  type: "heading"
+  content: "What's your favorite color?"
+  css: "text-align: center; margin-bottom: 20px;"
+
+# Form metadata
+- ::
+  id: "form-quiz"
+  type: "form"
+  eventName: "quiz_answer"
+
+# Option 1 - Blue
+- ::
+  type: "nav-button"
+  content: "🔵 Blue"
+  formId: "form-quiz"
+  fieldName: "favorite_color"
+  value: "blue"
+  targetContainerId: "result-blue"
+  css: "background: #89b4fa; color: white; padding: 15px; width: 200px; margin: 5px;"
+
+# Option 2 - Green
+- ::
+  type: "nav-button"
+  content: "🟢 Green"
+  formId: "form-quiz"
+  fieldName: "favorite_color"
+  value: "green"
+  targetContainerId: "result-green"
+  css: "background: #a6e3a1; color: #1e1e2e; padding: 15px; width: 200px; margin: 5px;"
+
+# Option 3 - Red
+- ::
+  type: "nav-button"
+  content: "🔴 Red"
+  formId: "form-quiz"
+  fieldName: "favorite_color"
+  value: "red"
+  targetContainerId: "result-red"
+  css: "background: #f38ba8; color: white; padding: 15px; width: 200px; margin: 5px;"
 ```
 
 ---
 
-## Form Handling
+#### nav-button MODE Comparison
 
-### Form Submission Flow
+| Feature | MODE 1 | MODE 2 | MODE 3 |
+|---------|--------|--------|--------|
+| Navigate | ✅ | ✅ | ✅ |
+| Submit form | ❌ | ✅ | ✅ |
+| Set field value | ❌ | ❌ | ✅ |
+| Requires `formId` | ❌ | ✅ | ✅ |
+| Requires `fieldName` | ❌ | ❌ | ✅ |
+| Requires `value` | ❌ | ❌ | ✅ |
+| Use case | Simple navigation | Form submission | Branching choices |
 
-1. **Define form metadata**
-2. **Add form fields**
-3. **Add submit button** (nav-button MODE 2)
-4. **Create success screen**
+---
 
-### Complete Form Example
+#### Button Styling Examples
 
-See [Form Field Blocks](#form-field-blocks) section for full example.
+**Primary button:**
+```huml
+css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
+```
 
-### Form Validation
+**Secondary button:**
+```huml
+css: "background: #e2e8f0; color: #2d3748; padding: 12px 24px; border-radius: 8px;"
+```
 
-**Required field validation:**
-- Set `required: true` on form fields
-- Validation happens when submit button is clicked
-- User sees alert if required fields are missing
-- Form won't submit until all required fields are filled
+**Success button (green):**
+```huml
+css: "background: #a6e3a1; color: #1e1e2e; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
+```
+
+**Danger button (red):**
+```huml
+css: "background: #f38ba8; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
+```
+
+**Full-width button:**
+```huml
+css: "width: 100%; background: #667eea; color: white; padding: 15px; border-radius: 8px; font-weight: 600;"
+```
+
+---
+
+### Block Type: `thread`
+
+**Purpose:** Create a comments/discussion section
+
+**Properties:**
+- `type: "thread"` (required)
+- `name` (optional) - Display name for this thread
+- `mode: "markdown"` (optional) - Allows markdown in comments
+- `description` (optional) - Placeholder text
+- `css` (optional) - Thread container styling
+
+**How threads work:**
+1. Users can add comments in both builder and viewer modes
+2. Comments are stored separately (in `thread_comments_doc`)
+3. Comments persist after reload
+4. Each thread is independent
+
+**Example:**
+```huml
+- ::
+  type: "thread"
+  name: "Article Comments"
+  mode: "markdown"
+  description: "Share your thoughts about this article"
+  css: "background: white; border-radius: 8px; padding: 20px; min-height: 400px;"
+```
+
+**Example: Blog with Comments**
+```huml
+# Blog post content
+- ::
+  type: "markdown-text"
+  content: "## My Blog Post\n\nThis is the article content..."
+
+# Comments section header
+- ::
+  type: "heading"
+  content: "💬 Comments & Discussion"
+  css: "margin-top: 40px; padding-top: 40px; border-top: 2px solid #e2e8f0;"
+
+# Comments thread
+- ::
+  type: "thread"
+  name: "Blog Post Comments"
+  mode: "markdown"
+  description: "Join the discussion - what are your thoughts?"
+  css: "min-height: 500px;"
+```
+
+**When to use:**
+- Blog post comments
+- Discussion forums
+- Q&A sections
+- Feedback areas
+
+---
+
+## Forms - Complete Guide
+
+### Understanding Forms
+
+Forms in HUML require **THREE components** that work together:
+
+1. **Form metadata block** (`type: "form"`) - Defines the form
+2. **Form field blocks** (various `form-field-*` types) - The input fields
+3. **Submit button** (`nav-button` with `formId`) - Submits the form
+
+All three must be present and properly connected for forms to work.
+
+---
+
+### Component 1: Form Metadata Block
+
+This is a special block that defines your form. It MUST come before any form fields.
+
+**Properties:**
+- `id` (required) - Unique form identifier
+- `type: "form"` (required)
+- `name` (optional) - Display name for editor
+- `eventName` (optional) - Groups submissions (default: "form_submission")
+
+**Example:**
+```huml
+- ::
+  id: "form-contact"
+  type: "form"
+  name: "Contact Form"
+  eventName: "contact_submission"
+```
+
+**The `id` is crucial:** Form fields reference this with their `formId` property.
+
+**The `eventName` groups submissions:** All submissions from this form will have this event name, making it easy to filter and export them later.
+
+---
+
+### Component 2: Form Field Blocks
+
+These are the actual input fields users fill out. Each field MUST have a `formId` that matches the form's `id`.
+
+#### Available Field Types
+
+##### `form-field-text`
+Single-line text input
+
+**Properties:**
+- `type: "form-field-text"` (required)
+- `formId` (required) - Must match form's `id`
+- `fieldName` (required) - Key name in submission data
+- `label` (optional) - Display label
+- `placeholder` (optional) - Placeholder text
+- `required` (optional) - Whether field is required
+- `css` (optional) - Custom styling
 
 **Example:**
 ```huml
 - ::
   type: "form-field-text"
-  formId: "form-signup"
-  fieldName: "username"
-  label: "Username"
-  required: true  # ← Validation enforced
+  formId: "form-contact"
+  fieldName: "full_name"
+  label: "Your Name"
+  placeholder: "John Doe"
+  required: true
+  css: "margin-bottom: 20px;"
 ```
-
-### Accessing Form Submissions
-
-**In the application:**
-- Switch to viewer mode
-- Open the "Submissions" panel
-- Filter by event name
-- Export as CSV or JSON
-
-**Reference:** See `SubmissionsViewer.svelte` component.
 
 ---
 
-## Thread Blocks (Comments)
+##### `form-field-email`
+Email input with validation
 
-### Basic Thread Usage
+**Properties:** Same as `form-field-text`
 
+**Features:**
+- Browser validates email format
+- Mobile keyboards show @ and .com keys
+
+**Example:**
 ```huml
 - ::
-  type: "thread"
-  name: "Discussion"
-  mode: "markdown"
-  description: "Share your thoughts"
-  css: "min-height: 400px;"
-```
-
-### Blog with Comments Pattern
-
-```huml
-screens::
-  - ::
-    id: "blog-post"
-    name: "Blog Post"
-    children::
-      # Article content
-      - ::
-        type: "markdown-text"
-        content: "## Article Title\n\nArticle content here..."
-
-      # Comments section
-      - ::
-        type: "heading"
-        content: "💬 Comments"
-        css: "margin-top: 40px; border-top: 2px solid #eee; padding-top: 40px;"
-
-      - ::
-        type: "thread"
-        name: "Article Comments"
-        mode: "markdown"
-        description: "Join the discussion"
-```
-
-### Multiple Threads
-
-You can have multiple independent threads:
-
-```huml
-screens::
-  - ::
-    id: "forum"
-    name: "Forum"
-    children::
-      # Thread 1
-      - ::
-        type: "heading"
-        content: "Topic 1: Getting Started"
-      - ::
-        type: "thread"
-        name: "Getting Started Thread"
-        mode: "markdown"
-        description: "Ask questions about getting started"
-
-      # Thread 2
-      - ::
-        type: "heading"
-        content: "Topic 2: Advanced Features"
-      - ::
-        type: "thread"
-        name: "Advanced Features Thread"
-        mode: "markdown"
-        description: "Discuss advanced topics"
+  type: "form-field-email"
+  formId: "form-newsletter"
+  fieldName: "email"
+  label: "Email Address"
+  placeholder: "you@example.com"
+  required: true
+  css: "margin-bottom: 20px;"
 ```
 
 ---
 
-## CSS Styling
+##### `form-field-textarea`
+Multi-line text input
 
-### Inline CSS Format
+**Properties:** Same as `form-field-text`
 
-CSS is provided as a string with semicolon-separated properties:
-
+**Example:**
 ```huml
-css: "property: value; property: value;"
-```
-
-### Common CSS Properties
-
-#### Colors
-
-```huml
-# Text color
-css: "color: #333333;"
-
-# Background color
-css: "background: #ffffff;"
-
-# Background gradient
-css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
-```
-
-#### Typography
-
-```huml
-# Font size
-css: "font-size: 18px;"
-
-# Font weight
-css: "font-weight: 600;"  # 400=normal, 600=semi-bold, 700=bold, 800=extra-bold
-
-# Text alignment
-css: "text-align: center;"  # left, center, right, justify
-
-# Line height
-css: "line-height: 1.6;"
-```
-
-#### Spacing
-
-```huml
-# Padding (inside)
-css: "padding: 20px;"  # All sides
-css: "padding: 20px 40px;"  # Top/bottom, Left/right
-css: "padding: 10px 20px 30px 40px;"  # Top, Right, Bottom, Left
-
-# Margin (outside)
-css: "margin: 20px;"
-css: "margin-bottom: 30px;"
-css: "margin: 0 auto;"  # Centers block horizontally
-```
-
-#### Layout
-
-```huml
-# Width
-css: "width: 800px;"
-css: "width: 100%;"
-css: "max-width: 600px;"
-css: "min-width: 300px;"
-
-# Height
-css: "height: 400px;"
-css: "min-height: 100vh;"  # Full viewport height
-
-# Flexbox (for containers)
-css: "display: flex; flex-direction: column; gap: 20px;"
-css: "display: flex; justify-content: center; align-items: center;"
-```
-
-#### Borders and Shadows
-
-```huml
-# Border
-css: "border: 1px solid #e2e8f0;"
-css: "border: 2px solid #667eea;"
-css: "border-radius: 8px;"  # Rounded corners
-
-# Box shadow
-css: "box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-css: "box-shadow: 0 4px 6px rgba(0,0,0,0.1);"
-```
-
-### Complete CSS Examples
-
-#### Card Style
-```huml
-css: "background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;"
-```
-
-#### Primary Button
-```huml
-css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s;"
-```
-
-#### Centered Container
-```huml
-css: "max-width: 800px; margin: 0 auto; padding: 40px;"
-```
-
-#### Full-Screen Hero
-```huml
-css: "min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px; text-align: center;"
-```
-
-#### Article Content
-```huml
-css: "background: white; padding: 40px; border-radius: 12px; line-height: 1.8; color: #2d3748; max-width: 800px; margin: 0 auto; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+- ::
+  type: "form-field-textarea"
+  formId: "form-feedback"
+  fieldName: "message"
+  label: "Your Message"
+  placeholder: "Tell us what you think..."
+  required: true
+  css: "margin-bottom: 20px;"
 ```
 
 ---
 
-## Complete Examples
+##### `form-field-checkbox`
+True/false checkbox
 
-### Example 1: Simple Website
+**Properties:**
+- `type: "form-field-checkbox"` (required)
+- `formId` (required)
+- `fieldName` (required)
+- `label` (required) - Checkbox label
+- `required` (optional)
+- `css` (optional)
 
-**Use case:** Basic informational website with 3 pages
+**Example:**
+```huml
+- ::
+  type: "form-field-checkbox"
+  formId: "form-signup"
+  fieldName: "agree_to_terms"
+  label: "I agree to the Terms and Conditions"
+  required: true
+  css: "margin-bottom: 20px;"
+```
+
+---
+
+##### `form-field-number`
+Numeric input
+
+**Properties:** Same as `form-field-text`
+
+**Example:**
+```huml
+- ::
+  type: "form-field-number"
+  formId: "form-order"
+  fieldName: "quantity"
+  label: "Quantity"
+  placeholder: "1"
+  required: true
+```
+
+---
+
+##### `form-field-password`
+Password input (masked text)
+
+**Properties:** Same as `form-field-text`
+
+**Example:**
+```huml
+- ::
+  type: "form-field-password"
+  formId: "form-login"
+  fieldName: "password"
+  label: "Password"
+  required: true
+```
+
+---
+
+### Component 3: Submit Button
+
+Use `nav-button` in **MODE 2** to submit the form.
+
+**Required properties:**
+- `type: "nav-button"`
+- `content` - Button text (e.g., "Submit", "Send", "Continue")
+- `formId` - Must match form's `id`
+- `targetContainerId` - Where to navigate after submission
+
+**Example:**
+```huml
+- ::
+  type: "nav-button"
+  content: "Submit Form"
+  formId: "form-contact"
+  targetContainerId: "thank-you"
+  css: "width: 100%; background: #667eea; color: white; padding: 15px; border-radius: 8px; font-weight: 600;"
+```
+
+---
+
+### Complete Working Form Example
+
+Here's a **complete, working** contact form:
 
 ```huml
-# Simple Website Template
-name: "Simple Website"
+name: "Contact Form Example"
 
 screens::
-  # Homepage
-  - ::
-    id: "home"
-    name: "Homepage"
-    isEntryPoint: true
-    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 40px; text-align: center;"
-    children::
-      - ::
-        type: "heading"
-        content: "Welcome to Our Website"
-        css: "color: white; font-size: 48px; margin-bottom: 20px;"
-
-      - ::
-        type: "text"
-        content: "We provide amazing services to help you succeed"
-        css: "color: rgba(255,255,255,0.9); font-size: 20px; margin-bottom: 40px;"
-
-      - ::
-        type: "section-container"
-        name: "Navigation"
-        css: "display: flex; gap: 20px; justify-content: center;"
-        children::
-          - ::
-            type: "nav-button"
-            content: "Our Services"
-            targetContainerId: "services"
-            css: "background: white; color: #667eea; padding: 15px 30px; border-radius: 8px; font-weight: 600;"
-
-          - ::
-            type: "nav-button"
-            content: "Contact Us"
-            targetContainerId: "contact"
-            css: "background: transparent; color: white; border: 2px solid white; padding: 15px 30px; border-radius: 8px; font-weight: 600;"
-
-  # Services page
-  - ::
-    id: "services"
-    name: "Services"
-    css: "background: #f7fafc; padding: 40px; min-height: 100vh;"
-    children::
-      - ::
-        type: "nav-button"
-        content: "← Back to Home"
-        targetContainerId: "home"
-        css: "background: #e2e8f0; color: #2d3748; padding: 10px 20px; border-radius: 6px; margin-bottom: 30px;"
-
-      - ::
-        type: "heading"
-        content: "Our Services"
-        css: "text-align: center; font-size: 36px; margin-bottom: 40px; color: #2d3748;"
-
-      - ::
-        type: "section-container"
-        name: "Service Cards"
-        css: "max-width: 1000px; margin: 0 auto; display: flex; gap: 20px; flex-wrap: wrap;"
-        children::
-          - ::
-            type: "section-container"
-            name: "Service 1"
-            css: "flex: 1; min-width: 280px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-            children::
-              - ::
-                type: "heading"
-                content: "Web Development"
-                css: "color: #667eea; font-size: 24px; margin-bottom: 15px;"
-              - ::
-                type: "text"
-                content: "Build modern, responsive websites with the latest technologies"
-                css: "color: #4a5568; line-height: 1.6;"
-
-          - ::
-            type: "section-container"
-            name: "Service 2"
-            css: "flex: 1; min-width: 280px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-            children::
-              - ::
-                type: "heading"
-                content: "Mobile Apps"
-                css: "color: #667eea; font-size: 24px; margin-bottom: 15px;"
-              - ::
-                type: "text"
-                content: "Create native mobile experiences for iOS and Android"
-                css: "color: #4a5568; line-height: 1.6;"
-
-          - ::
-            type: "section-container"
-            name: "Service 3"
-            css: "flex: 1; min-width: 280px; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-            children::
-              - ::
-                type: "heading"
-                content: "Consulting"
-                css: "color: #667eea; font-size: 24px; margin-bottom: 15px;"
-              - ::
-                type: "text"
-                content: "Expert guidance for your digital transformation journey"
-                css: "color: #4a5568; line-height: 1.6;"
-
   # Contact page
   - ::
     id: "contact"
-    name: "Contact"
-    css: "background: #f7fafc; padding: 40px; min-height: 100vh;"
+    name: "Contact Page"
+    css: "padding: 40px; background: #f7fafc; min-height: 100vh;"
     children::
-      - ::
-        type: "nav-button"
-        content: "← Back to Home"
-        targetContainerId: "home"
-        css: "background: #e2e8f0; color: #2d3748; padding: 10px 20px; border-radius: 6px; margin-bottom: 30px;"
-
       - ::
         type: "heading"
         content: "Contact Us"
-        css: "text-align: center; font-size: 36px; margin-bottom: 40px; color: #2d3748;"
+        css: "text-align: center; font-size: 36px; margin-bottom: 40px;"
 
-      # Form metadata
+      # COMPONENT 1: Form metadata (MUST COME FIRST)
       - ::
         id: "form-contact"
         type: "form"
-        eventName: "contact_inquiry"
+        name: "Contact Form"
+        eventName: "contact_submission"
 
       # Form container
       - ::
         type: "section-container"
-        name: "Contact Form"
+        name: "Form Container"
         css: "max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
         children::
+          # COMPONENT 2: Form fields (all have matching formId)
+
+          # Name field
           - ::
             type: "form-field-text"
             formId: "form-contact"
@@ -1992,6 +979,7 @@ screens::
             required: true
             css: "margin-bottom: 20px;"
 
+          # Email field
           - ::
             type: "form-field-email"
             formId: "form-contact"
@@ -2001,15 +989,26 @@ screens::
             required: true
             css: "margin-bottom: 20px;"
 
+          # Message field
           - ::
             type: "form-field-textarea"
             formId: "form-contact"
             fieldName: "message"
-            label: "Message"
+            label: "Your Message"
             placeholder: "How can we help you?"
             required: true
+            css: "margin-bottom: 20px;"
+
+          # Terms checkbox
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-contact"
+            fieldName: "agree_to_contact"
+            label: "I agree to be contacted via email"
+            required: false
             css: "margin-bottom: 30px;"
 
+          # COMPONENT 3: Submit button (nav-button MODE 2)
           - ::
             type: "nav-button"
             content: "Send Message"
@@ -2021,37 +1020,312 @@ screens::
   - ::
     id: "thank-you"
     name: "Thank You"
-    css: "background: #f0fdf4; padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"
+    css: "padding: 40px; background: #f0fdf4; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"
     children::
       - ::
         type: "heading"
-        content: "✅ Message Sent!"
+        content: "✅ Thank You!"
         css: "color: #16a34a; font-size: 48px; margin-bottom: 20px;"
 
       - ::
         type: "text"
-        content: "Thank you for reaching out. We'll get back to you soon!"
-        css: "color: #4a5568; font-size: 18px; margin-bottom: 30px;"
+        content: "Your message has been sent successfully. We'll get back to you soon!"
+        css: "font-size: 18px; color: #4a5568; margin-bottom: 30px; max-width: 600px;"
 
       - ::
         type: "nav-button"
-        content: "← Back to Home"
-        targetContainerId: "home"
+        content: "← Back to Contact"
+        targetContainerId: "contact"
         css: "background: #16a34a; color: white; padding: 12px 24px; border-radius: 8px;"
 ```
 
 ---
 
-### Example 2: Blog with Comments
+### Form Validation
 
-**Use case:** Blog with multiple posts and comment threads
+**How validation works:**
+
+1. Mark fields as required: `required: true`
+2. When user clicks submit button:
+   - System checks all fields with `required: true`
+   - If any are empty → Shows browser alert
+   - If all filled → Submits form and navigates
+
+**Example:**
+```huml
+- ::
+  type: "form-field-text"
+  formId: "form-signup"
+  fieldName: "username"
+  label: "Username"
+  required: true  # User MUST fill this
+```
+
+---
+
+### Viewing Submissions
+
+After users submit forms:
+
+1. Switch to **Viewer mode**
+2. Click the **Submissions** toggle
+3. See all submissions grouped by `eventName`
+4. Export as CSV or JSON
+
+**Submission data structure:**
+```json
+{
+  "formId": "form-contact",
+  "eventName": "contact_submission",
+  "data": {
+    "name": "John Doe",
+    "email": "john@example.com",
+    "message": "Hello!",
+    "agree_to_contact": true
+  },
+  "timestamp": 1234567890
+}
+```
+
+---
+
+### Form Checklist
+
+Before testing your form, verify:
+
+- [ ] Form metadata block exists with `id` and `type: "form"`
+- [ ] All form fields have `formId` matching the form's `id`
+- [ ] All form fields have unique `fieldName` values
+- [ ] Submit button is `type: "nav-button"`
+- [ ] Submit button has `formId` property
+- [ ] Submit button has `targetContainerId` property
+- [ ] Target success screen exists with matching `id`
+- [ ] Required fields are marked with `required: true`
+
+**If all checked:** Your form will work! ✅
+
+---
+
+## CSS Styling Reference
+
+### Inline CSS Format
+
+CSS is provided as a string with semicolon-separated properties:
 
 ```huml
-# Blog Template
+css: "property: value; property: value;"
+```
+
+---
+
+### Colors
+
+**Text color:**
+```huml
+css: "color: #333333;"
+```
+
+**Background color:**
+```huml
+css: "background: #ffffff;"
+```
+
+**Gradient background:**
+```huml
+css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);"
+```
+
+---
+
+### Typography
+
+**Font size:**
+```huml
+css: "font-size: 18px;"
+```
+
+**Font weight:**
+```huml
+css: "font-weight: 600;"  # 400=normal, 600=semi-bold, 700=bold
+```
+
+**Text alignment:**
+```huml
+css: "text-align: center;"  # left, center, right, justify
+```
+
+**Line height (for readability):**
+```huml
+css: "line-height: 1.6;"
+```
+
+---
+
+### Spacing
+
+**Padding (inside):**
+```huml
+css: "padding: 20px;"  # All sides
+css: "padding: 20px 40px;"  # Top/bottom, Left/right
+css: "padding-bottom: 30px;"  # Specific side
+```
+
+**Margin (outside):**
+```huml
+css: "margin: 20px;"
+css: "margin-bottom: 30px;"
+css: "margin: 0 auto;"  # Centers block horizontally
+```
+
+---
+
+### Layout
+
+**Width:**
+```huml
+css: "width: 800px;"
+css: "width: 100%;"
+css: "max-width: 600px;"
+```
+
+**Height:**
+```huml
+css: "height: 400px;"
+css: "min-height: 100vh;"  # Full viewport height
+```
+
+**Flexbox (for containers):**
+```huml
+# Vertical stack
+css: "display: flex; flex-direction: column; gap: 20px;"
+
+# Horizontal row
+css: "display: flex; flex-direction: row; gap: 20px;"
+
+# Centered
+css: "display: flex; justify-content: center; align-items: center;"
+```
+
+---
+
+### Borders and Shadows
+
+**Border:**
+```huml
+css: "border: 1px solid #e2e8f0;"
+css: "border: 2px solid #667eea;"
+css: "border-radius: 8px;"  # Rounded corners
+```
+
+**Box shadow:**
+```huml
+css: "box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+css: "box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+```
+
+---
+
+### Complete CSS Examples
+
+**Card style:**
+```huml
+css: "background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 20px;"
+```
+
+**Centered container:**
+```huml
+css: "max-width: 800px; margin: 0 auto; padding: 40px;"
+```
+
+**Full-screen hero:**
+```huml
+css: "min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px; text-align: center;"
+```
+
+**Primary button:**
+```huml
+css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600; transition: all 0.2s;"
+```
+
+---
+
+## Complete Working Examples
+
+### Example 1: Simple Website
+
+A basic website with homepage and about page.
+
+```huml
+name: "Simple Website"
+
+screens::
+  # Homepage
+  - ::
+    id: "home"
+    name: "Homepage"
+    isEntryPoint: true
+    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 40px; text-align: center; display: flex; flex-direction: column; justify-content: center;"
+    children::
+      - ::
+        type: "heading"
+        content: "Welcome to Our Website"
+        css: "color: white; font-size: 56px; margin-bottom: 20px; font-weight: 800;"
+
+      - ::
+        type: "text"
+        content: "We provide amazing services to help you succeed"
+        css: "color: rgba(255,255,255,0.9); font-size: 24px; margin-bottom: 40px;"
+
+      - ::
+        type: "nav-button"
+        content: "Learn More About Us →"
+        targetContainerId: "about"
+        css: "background: white; color: #667eea; padding: 20px 40px; border-radius: 12px; font-size: 20px; font-weight: 700;"
+
+  # About page
+  - ::
+    id: "about"
+    name: "About Us"
+    css: "background: #f7fafc; padding: 40px; min-height: 100vh;"
+    children::
+      - ::
+        type: "nav-button"
+        content: "← Back to Home"
+        targetContainerId: "home"
+        css: "background: #e2e8f0; color: #2d3748; padding: 10px 20px; border-radius: 6px; margin-bottom: 30px;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 800px; margin: 0 auto; background: white; padding: 60px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+        children::
+          - ::
+            type: "heading"
+            content: "About Our Company"
+            css: "font-size: 42px; margin-bottom: 30px; color: #1a202c;"
+
+          - ::
+            type: "text"
+            content: "We've been in business since 2020, helping customers achieve their goals with innovative solutions."
+            css: "font-size: 18px; line-height: 1.8; color: #4a5568; margin-bottom: 20px;"
+
+          - ::
+            type: "text"
+            content: "Our team of experts is dedicated to providing the best service possible."
+            css: "font-size: 18px; line-height: 1.8; color: #4a5568;"
+```
+
+---
+
+### Example 2: Blog with Newsletter
+
+Blog with posts and newsletter subscription form.
+
+```huml
 name: "Tech Blog"
 
 screens::
-  # Homepage - Post list
+  # Blog homepage
   - ::
     id: "home"
     name: "Blog Home"
@@ -2061,159 +1335,201 @@ screens::
       - ::
         type: "heading"
         content: "Tech Insights Blog"
-        css: "color: white; font-size: 48px; text-align: center; margin-bottom: 40px;"
+        css: "color: white; font-size: 56px; text-align: center; margin-bottom: 50px; font-weight: 800;"
 
-      # Post card 1
+      # Blog post card
       - ::
         type: "section-container"
-        name: "Post 1 Card"
-        css: "max-width: 800px; margin: 0 auto 20px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"
+        name: "Post Card"
+        css: "max-width: 800px; margin: 0 auto 30px auto; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 8px 16px rgba(0,0,0,0.15);"
         children::
           - ::
             type: "heading"
             content: "Getting Started with Svelte 5"
-            css: "color: #2d3748; font-size: 24px; margin-bottom: 10px;"
+            css: "color: #2d3748; font-size: 32px; margin-bottom: 15px; font-weight: 700;"
+
           - ::
             type: "text"
-            content: "Learn about Svelte 5's new Runes and how they improve reactivity..."
-            css: "color: #4a5568; margin-bottom: 15px; line-height: 1.6;"
+            content: "Learn about Svelte 5's revolutionary Runes system and how they improve reactivity..."
+            css: "color: #4a5568; margin-bottom: 20px; line-height: 1.8; font-size: 16px;"
+
           - ::
             type: "text"
-            content: "📅 January 15, 2025  •  5 min read"
-            css: "color: #718096; font-size: 14px; margin-bottom: 15px;"
+            content: "📅 January 20, 2025  •  8 min read"
+            css: "color: #718096; font-size: 14px; margin-bottom: 25px;"
+
           - ::
             type: "nav-button"
             content: "Read Article →"
-            targetContainerId: "post1"
-            css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
+            targetContainerId: "post"
+            css: "background: #667eea; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600;"
 
-      # Post card 2
+      # Newsletter section
       - ::
         type: "section-container"
-        name: "Post 2 Card"
-        css: "max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"
+        name: "Newsletter"
+        css: "max-width: 800px; margin: 40px auto 0 auto; background: rgba(255,255,255,0.95); padding: 50px; border-radius: 16px; text-align: center;"
         children::
           - ::
             type: "heading"
-            content: "Understanding CRDTs"
-            css: "color: #2d3748; font-size: 24px; margin-bottom: 10px;"
+            content: "📬 Subscribe to Our Newsletter"
+            css: "color: #2d3748; font-size: 32px; margin-bottom: 15px;"
+
           - ::
             type: "text"
-            content: "Dive into Conflict-free Replicated Data Types for distributed systems..."
-            css: "color: #4a5568; margin-bottom: 15px; line-height: 1.6;"
-          - ::
-            type: "text"
-            content: "📅 January 18, 2025  •  8 min read"
-            css: "color: #718096; font-size: 14px; margin-bottom: 15px;"
+            content: "Get weekly tech insights delivered to your inbox"
+            css: "color: #4a5568; font-size: 16px; margin-bottom: 30px;"
+
           - ::
             type: "nav-button"
-            content: "Read Article →"
-            targetContainerId: "post2"
-            css: "background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; font-weight: 600;"
+            content: "Subscribe Now →"
+            targetContainerId: "subscribe"
+            css: "background: #a6e3a1; color: #1e1e2e; padding: 16px 36px; border-radius: 8px; font-weight: 700;"
 
-  # Blog Post 1
+  # Blog post page
   - ::
-    id: "post1"
-    name: "Post: Svelte 5"
+    id: "post"
+    name: "Blog Post"
     css: "background: #f7fafc; padding: 40px; min-height: 100vh;"
     children::
       - ::
         type: "nav-button"
-        content: "← Back to Home"
+        content: "← Back to Blog"
         targetContainerId: "home"
-        css: "background: #e2e8f0; color: #2d3748; padding: 10px 20px; border-radius: 6px; margin-bottom: 30px;"
+        css: "background: #e2e8f0; color: #2d3748; padding: 12px 24px; border-radius: 6px; margin-bottom: 30px;"
 
       - ::
         type: "section-container"
         name: "Article"
-        css: "max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+        css: "max-width: 900px; margin: 0 auto; background: white; padding: 60px; border-radius: 12px;"
         children::
           - ::
             type: "heading"
             content: "Getting Started with Svelte 5"
-            css: "color: #1a202c; font-size: 36px; margin-bottom: 10px;"
+            css: "color: #1a202c; font-size: 42px; margin-bottom: 15px; font-weight: 800;"
 
           - ::
             type: "text"
-            content: "📅 January 15, 2025  •  By Sarah Chen"
-            css: "color: #718096; margin-bottom: 30px;"
+            content: "📅 January 20, 2025"
+            css: "color: #718096; margin-bottom: 40px;"
 
           - ::
             type: "markdown-text"
             content: "Svelte 5 introduces **Runes**, a revolutionary approach to reactivity.\n\n## What are Runes?\n\nRunes are special symbols:\n- `$state` - Reactive state\n- `$derived` - Computed values\n- `$effect` - Side effects\n\n## Example\n\n```svelte\nlet count = $state(0);\nlet doubled = $derived(count * 2);\n```\n\nTry them out today!"
             mode: "markdown"
-            css: "line-height: 1.8; margin-bottom: 40px;"
+            css: "line-height: 1.9; margin-bottom: 50px;"
 
+          # Comments section
           - ::
             type: "heading"
             content: "💬 Comments"
-            css: "margin-top: 40px; padding-top: 40px; border-top: 2px solid #e2e8f0; margin-bottom: 20px;"
+            css: "margin-top: 50px; padding-top: 50px; border-top: 3px solid #e2e8f0; margin-bottom: 25px;"
 
           - ::
             type: "thread"
-            name: "Post 1 Comments"
+            name: "Post Comments"
             mode: "markdown"
-            description: "Share your thoughts"
+            description: "Share your thoughts..."
             css: "min-height: 400px;"
 
-  # Blog Post 2
+  # Newsletter subscription page
   - ::
-    id: "post2"
-    name: "Post: CRDTs"
-    css: "background: #f7fafc; padding: 40px; min-height: 100vh;"
+    id: "subscribe"
+    name: "Subscribe"
+    css: "background: linear-gradient(135deg, #a6e3a1 0%, #89b4fa 100%); padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center;"
     children::
+      # Form metadata
       - ::
-        type: "nav-button"
-        content: "← Back to Home"
-        targetContainerId: "home"
-        css: "background: #e2e8f0; color: #2d3748; padding: 10px 20px; border-radius: 6px; margin-bottom: 30px;"
+        id: "form-newsletter"
+        type: "form"
+        name: "Newsletter Subscription"
+        eventName: "newsletter_signup"
 
+      # Form container
       - ::
         type: "section-container"
-        name: "Article"
-        css: "max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
+        name: "Form"
+        css: "max-width: 550px; margin: 0 auto; background: white; padding: 50px; border-radius: 16px;"
         children::
           - ::
             type: "heading"
-            content: "Understanding CRDTs"
-            css: "color: #1a202c; font-size: 36px; margin-bottom: 10px;"
+            content: "📬 Join Our Newsletter"
+            css: "text-align: center; font-size: 36px; margin-bottom: 15px; font-weight: 800;"
 
           - ::
             type: "text"
-            content: "📅 January 18, 2025  •  By Alex Rivera"
-            css: "color: #718096; margin-bottom: 30px;"
+            content: "Get weekly tech insights. No spam, unsubscribe anytime."
+            css: "text-align: center; color: #4a5568; margin-bottom: 35px;"
 
+          # Name field
           - ::
-            type: "markdown-text"
-            content: "**CRDTs** (Conflict-free Replicated Data Types) enable distributed systems to work seamlessly.\n\n## Key Benefits\n\n- Automatic conflict resolution\n- Offline support\n- No central authority needed\n\n## Use Cases\n\n1. Collaborative editors\n2. Distributed databases\n3. Real-time multiplayer games\n\nLearn more in our detailed guide!"
-            mode: "markdown"
-            css: "line-height: 1.8; margin-bottom: 40px;"
+            type: "form-field-text"
+            formId: "form-newsletter"
+            fieldName: "name"
+            label: "Your Name"
+            placeholder: "John Doe"
+            required: true
+            css: "margin-bottom: 20px;"
 
+          # Email field
           - ::
-            type: "heading"
-            content: "💬 Comments"
-            css: "margin-top: 40px; padding-top: 40px; border-top: 2px solid #e2e8f0; margin-bottom: 20px;"
+            type: "form-field-email"
+            formId: "form-newsletter"
+            fieldName: "email"
+            label: "Email Address"
+            placeholder: "you@example.com"
+            required: true
+            css: "margin-bottom: 30px;"
 
+          # Submit button
           - ::
-            type: "thread"
-            name: "Post 2 Comments"
-            mode: "markdown"
-            description: "Join the discussion"
-            css: "min-height: 400px;"
+            type: "nav-button"
+            content: "Subscribe →"
+            formId: "form-newsletter"
+            targetContainerId: "thank-you"
+            css: "width: 100%; background: #667eea; color: white; padding: 16px; border-radius: 8px; font-weight: 700;"
+
+          # Back button
+          - ::
+            type: "nav-button"
+            content: "← Back"
+            targetContainerId: "home"
+            css: "width: 100%; margin-top: 15px; background: transparent; color: #718096;"
+
+  # Thank you page
+  - ::
+    id: "thank-you"
+    name: "Thank You"
+    css: "background: linear-gradient(135deg, #a6e3a1 0%, #89b4fa 100%); padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"
+    children::
+      - ::
+        type: "heading"
+        content: "✅ Welcome Aboard!"
+        css: "color: white; font-size: 52px; margin-bottom: 20px; font-weight: 800;"
+
+      - ::
+        type: "text"
+        content: "Thanks for subscribing! Check your inbox for confirmation."
+        css: "color: rgba(255,255,255,0.95); font-size: 20px; margin-bottom: 40px;"
+
+      - ::
+        type: "nav-button"
+        content: "← Back to Blog"
+        targetContainerId: "home"
+        css: "background: white; color: #667eea; padding: 16px 40px; border-radius: 8px; font-weight: 700;"
 ```
 
 ---
 
 ### Example 3: Survey with Branching
 
-**Use case:** Customer survey with different paths based on responses
+Customer survey with different paths based on responses.
 
 ```huml
-# Customer Survey
 name: "Customer Survey"
 
 screens::
-  # Welcome
+  # Welcome screen
   - ::
     id: "welcome"
     name: "Welcome"
@@ -2223,7 +1539,7 @@ screens::
       - ::
         type: "heading"
         content: "Customer Satisfaction Survey"
-        css: "color: white; font-size: 48px; margin-bottom: 20px;"
+        css: "color: white; font-size: 48px; margin-bottom: 20px; font-weight: 800;"
 
       - ::
         type: "text"
@@ -2236,16 +1552,17 @@ screens::
         targetContainerId: "q1"
         css: "background: white; color: #667eea; padding: 15px 40px; border-radius: 8px; font-size: 18px; font-weight: 600;"
 
-  # Question 1: Satisfaction
+  # Question 1: Satisfaction level
   - ::
     id: "q1"
     name: "Question 1"
     css: "background: #f7fafc; padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;"
     children::
-      # Form for tracking
+      # Form metadata
       - ::
         id: "form-survey"
         type: "form"
+        name: "Customer Survey"
         eventName: "customer_survey"
 
       - ::
@@ -2253,14 +1570,14 @@ screens::
         content: "Are you satisfied with our service?"
         css: "text-align: center; font-size: 32px; margin-bottom: 40px; color: #2d3748;"
 
-      # Yes option (MODE 3)
+      # Satisfied option (MODE 3)
       - ::
         type: "nav-button"
         content: "😊 Yes, very satisfied"
         formId: "form-survey"
         fieldName: "satisfaction"
         value: "satisfied"
-        targetContainerId: "q2-satisfied"
+        targetContainerId: "feedback-positive"
         css: "background: #a6e3a1; color: #1e1e2e; padding: 20px 40px; border-radius: 8px; font-size: 18px; font-weight: 600; margin: 10px; min-width: 300px;"
 
       # Neutral option (MODE 3)
@@ -2270,23 +1587,23 @@ screens::
         formId: "form-survey"
         fieldName: "satisfaction"
         value: "neutral"
-        targetContainerId: "q2-neutral"
+        targetContainerId: "feedback-neutral"
         css: "background: #f9e2af; color: #1e1e2e; padding: 20px 40px; border-radius: 8px; font-size: 18px; font-weight: 600; margin: 10px; min-width: 300px;"
 
-      # No option (MODE 3)
+      # Unsatisfied option (MODE 3)
       - ::
         type: "nav-button"
         content: "😞 No, needs improvement"
         formId: "form-survey"
         fieldName: "satisfaction"
         value: "unsatisfied"
-        targetContainerId: "q2-unsatisfied"
+        targetContainerId: "feedback-negative"
         css: "background: #f38ba8; color: white; padding: 20px 40px; border-radius: 8px; font-size: 18px; font-weight: 600; margin: 10px; min-width: 300px;"
 
-  # Q2 for satisfied customers
+  # Feedback for satisfied customers
   - ::
-    id: "q2-satisfied"
-    name: "Q2 Satisfied"
+    id: "feedback-positive"
+    name: "Positive Feedback"
     css: "background: #f0fdf4; padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;"
     children::
       - ::
@@ -2310,10 +1627,10 @@ screens::
         targetContainerId: "thank-you"
         css: "background: #16a34a; color: white; padding: 15px 40px; border-radius: 8px; font-weight: 600;"
 
-  # Q2 for neutral customers
+  # Feedback for neutral customers
   - ::
-    id: "q2-neutral"
-    name: "Q2 Neutral"
+    id: "feedback-neutral"
+    name: "Neutral Feedback"
     css: "background: #fffbeb; padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;"
     children::
       - ::
@@ -2337,15 +1654,15 @@ screens::
         targetContainerId: "thank-you"
         css: "background: #d97706; color: white; padding: 15px 40px; border-radius: 8px; font-weight: 600;"
 
-  # Q2 for unsatisfied customers
+  # Feedback for unsatisfied customers
   - ::
-    id: "q2-unsatisfied"
-    name: "Q2 Unsatisfied"
+    id: "feedback-negative"
+    name: "Negative Feedback"
     css: "background: #fef2f2; padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;"
     children::
       - ::
         type: "heading"
-        content: "We're sorry to hear that. What went wrong?"
+        content: "We're sorry. What went wrong?"
         css: "text-align: center; font-size: 28px; margin-bottom: 30px; color: #dc2626;"
 
       - ::
@@ -2380,11 +1697,11 @@ screens::
       - ::
         type: "heading"
         content: "✅ Thank You!"
-        css: "color: white; font-size: 48px; margin-bottom: 20px;"
+        css: "color: white; font-size: 48px; margin-bottom: 20px; font-weight: 800;"
 
       - ::
         type: "text"
-        content: "Your feedback has been recorded. We appreciate you taking the time to help us improve!"
+        content: "Your feedback has been recorded. We appreciate you taking the time!"
         css: "color: rgba(255,255,255,0.9); font-size: 20px; max-width: 600px;"
 ```
 
@@ -2392,287 +1709,125 @@ screens::
 
 ## Best Practices
 
-### 1. Screen Organization
+### Screen Organization
 
 **✅ DO:**
-- Use descriptive screen IDs (`screen-home`, `blog-post-1`)
-- Set one clear entry point
-- Group related screens together in the file
-- Use consistent naming conventions
+- Use descriptive screen IDs (`"home"`, `"about"`, `"contact"`)
+- Set exactly ONE entry point
+- Ensure all screens are reachable via navigation
 
 **❌ DON'T:**
-- Use generic IDs (`s1`, `page`, `screen`)
+- Use generic IDs (`"s1"`, `"page"`)
 - Have multiple entry points
-- Create unreachable screens (no navigation to them)
+- Create orphaned screens with no way to reach them
 
-### 2. Content Structure
+---
+
+### Content Structure
 
 **✅ DO:**
-- Use section-containers to group related blocks
-- Apply consistent spacing with margins/padding
-- Use appropriate block types (heading for titles, markdown-text for rich content)
-- Keep content hierarchy clear (h2, h3 in markdown)
+- Use `section-container` to group related blocks
+- Apply consistent spacing with CSS
+- Use appropriate block types (heading for titles, markdown for rich content)
 
 **❌ DON'T:**
-- Put everything in one flat list
-- Use heading blocks for regular text
+- Put everything in a flat list
 - Nest containers more than 3-4 levels deep
+- Use heading blocks for regular text
 
-### 3. Forms
+---
+
+### Forms
 
 **✅ DO:**
 - Always define form metadata first
-- Use descriptive `fieldName` values (`email`, `full_name`)
+- Use descriptive `fieldName` values
 - Set `required: true` for essential fields
 - Provide clear labels and placeholders
-- Create a thank-you/success screen
+- Create a thank-you screen
 
 **❌ DON'T:**
 - Forget the form metadata block
-- Use generic field names (`field1`, `input`)
-- Skip labels on form fields
-- Submit without showing confirmation
+- Use generic field names (`"field1"`)
+- Skip labels on fields
+- Submit without confirmation
 
-### 4. Navigation
+---
+
+### Navigation
 
 **✅ DO:**
 - Provide "back" buttons on detail screens
 - Use consistent button styling
 - Test all navigation paths
-- Ensure no dead ends (screens with no way out)
+- Ensure no dead ends
 
 **❌ DON'T:**
-- Create circular navigation loops without escape
-- Use unclear button text ("Click here", "Go")
-- Forget to set targetContainerId
+- Create circular loops without escape
+- Use unclear button text
+- Forget to set `targetContainerId`
 
-### 5. Styling
+---
+
+### Styling
 
 **✅ DO:**
-- Use consistent color palette
-- Apply responsive max-widths (800px, 1000px)
-- Use proper spacing (20px, 40px increments)
-- Test gradient backgrounds for readability
+- Use a consistent color palette
+- Apply responsive max-widths
+- Use proper spacing
 - Use semantic colors (green for success, red for errors)
 
 **❌ DON'T:**
-- Mix too many colors (stick to 2-3 primary colors)
+- Mix too many colors
 - Use tiny font sizes (<14px)
-- Forget padding/margins (makes content cramped)
-- Use pure black (#000) - use dark grays instead (#1a202c, #2d3748)
-
-### 6. Thread Comments
-
-**✅ DO:**
-- Set `mode: "markdown"` for rich text support
-- Provide descriptive placeholders
-- Use min-height to reserve space
-- Place threads at logical endpoints (end of articles)
-
-**❌ DON'T:**
-- Create multiple threads for the same discussion
-- Forget to test comment persistence (reload after adding comments)
+- Forget padding/margins
+- Use pure black (#000) - use dark grays instead
 
 ---
 
-## Common Patterns
+## Quick Reference
 
-### Pattern: Landing Page with CTA
+### All Block Types
 
-```huml
-- ::
-  id: "landing"
-  name: "Landing Page"
-  isEntryPoint: true
-  css: "min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); text-align: center; padding: 40px;"
-  children::
-    - ::
-      type: "heading"
-      content: "Transform Your Business"
-      css: "color: white; font-size: 56px; margin-bottom: 20px; font-weight: 800;"
+| Type | Purpose |
+|------|---------|
+| `heading` | Large title text |
+| `text` | Regular paragraph text |
+| `markdown-text` | Rich text with markdown |
+| `section-container` | Group blocks together |
+| `nav-button` | Universal button (all modes) |
+| `thread` | Comments/discussion |
+| `form` | Form metadata (invisible) |
+| `form-field-text` | Single-line text input |
+| `form-field-email` | Email input |
+| `form-field-textarea` | Multi-line text |
+| `form-field-checkbox` | Checkbox |
+| `form-field-number` | Number input |
+| `form-field-password` | Password input |
+| `image` | Image display |
 
-    - ::
-      type: "text"
-      content: "Get started today with our powerful platform"
-      css: "color: rgba(255,255,255,0.9); font-size: 24px; margin-bottom: 40px;"
+### nav-button Quick Reference
 
-    - ::
-      type: "nav-button"
-      content: "Get Started →"
-      targetContainerId: "signup"
-      css: "background: white; color: #667eea; padding: 20px 50px; border-radius: 12px; font-size: 20px; font-weight: 700; box-shadow: 0 4px 12px rgba(0,0,0,0.2);"
-```
-
-### Pattern: Card Grid
-
-```huml
-- ::
-  type: "section-container"
-  name: "Card Grid"
-  css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; max-width: 1200px; margin: 0 auto;"
-  children::
-    - ::
-      type: "section-container"
-      css: "background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-      children::
-        - ::
-          type: "heading"
-          content: "Card 1"
-        - ::
-          type: "text"
-          content: "Content here"
-
-    - ::
-      type: "section-container"
-      css: "background: white; padding: 30px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);"
-      children::
-        - ::
-          type: "heading"
-          content: "Card 2"
-        - ::
-          type: "text"
-          content: "Content here"
-```
-
-### Pattern: FAQ with Expandable Sections
-
-```huml
-- ::
-  type: "section-container"
-  name: "FAQ Container"
-  css: "max-width: 800px; margin: 0 auto;"
-  children::
-    - ::
-      type: "heading"
-      content: "Frequently Asked Questions"
-      css: "text-align: center; font-size: 36px; margin-bottom: 40px;"
-
-    - ::
-      type: "section-container"
-      name: "FAQ Item"
-      css: "background: white; padding: 20px; border-radius: 8px; margin-bottom: 15px; border: 1px solid #e2e8f0;"
-      children::
-        - ::
-          type: "heading"
-          content: "Q: How does it work?"
-          css: "font-size: 20px; color: #2d3748; margin-bottom: 10px;"
-        - ::
-          type: "text"
-          content: "A: It's simple! Just follow these steps..."
-          css: "color: #4a5568; line-height: 1.6;"
-```
-
-### Pattern: Multi-step Wizard
-
-```huml
-screens::
-  # Step 1
-  - ::
-    id: "step1"
-    isEntryPoint: true
-    children::
-      - ::
-        type: "text"
-        content: "Step 1 of 3"
-        css: "color: #718096; margin-bottom: 10px;"
-      - ::
-        type: "heading"
-        content: "Personal Information"
-      # ... form fields
-      - ::
-        type: "nav-button"
-        content: "Next →"
-        targetContainerId: "step2"
-
-  # Step 2
-  - ::
-    id: "step2"
-    children::
-      - ::
-        type: "text"
-        content: "Step 2 of 3"
-        css: "color: #718096; margin-bottom: 10px;"
-      - ::
-        type: "heading"
-        content: "Preferences"
-      # ... form fields
-      - ::
-        type: "nav-button"
-        content: "Next →"
-        targetContainerId: "step3"
-
-  # Step 3
-  - ::
-    id: "step3"
-    children::
-      - ::
-        type: "text"
-        content: "Step 3 of 3"
-        css: "color: #718096; margin-bottom: 10px;"
-      - ::
-        type: "heading"
-        content: "Review & Submit"
-      # ... review + submit
-```
-
----
-
-## Reference: Implementation Files
-
-### Key Files to Reference
-
-**Template Importer:**
-- `src/utils/templateImporter.ts` - Parses HUML into Yjs blocks
-- Lines 11-51: TemplateBlock interface (all properties)
-- Lines 176-283: importBlocks() - How blocks are created
-- Lines 288-306: parseCSSToStyles() - CSS parsing
-
-**Blocksuite Coordinator:**
-- `src/lib/blocksuiteCoordinator.ts` - Manages Yjs documents
-- Lines 230-299: detectResourceType() and checkForThreadOrFormBlocks()
-- Shows how thread and form detection works
-
-**Nav Button Component:**
-- `src/lib/blocks/NavButton.svelte` - Navigation button implementation
-- Lines 47-95: handleClick() - MODE routing
-- Lines 98-144: MODE 3 (branching)
-- Lines 147-225: MODE 2 (form submission)
-
-**Form Handling:**
-- `src/lib/submissionsStore.ts` - Form submission storage
-- Shows how submissions are stored and retrieved
-
-**Thread Handling:**
-- `src/lib/threadCommentsStore.ts` - Thread comments storage
-- Shows how comments are stored separately
+| Mode | When to Use | Required Properties |
+|------|-------------|-------------------|
+| MODE 1 | Simple navigation | `content`, `targetContainerId` |
+| MODE 2 | Form submission | `content`, `formId`, `targetContainerId` |
+| MODE 3 | Branching choices | `content`, `formId`, `fieldName`, `value`, `targetContainerId` |
 
 ---
 
 ## Conclusion
 
-This guide covers all aspects of creating HUML templates. Key takeaways:
+You now have everything you need to create complete web applications using HUML!
 
-1. **HUML uses YAML-like syntax** with `::` for lists
-2. **Screens are top-level containers** - at least one required
-3. **Blocks are the building elements** - each has a specific type
-4. **Nav-button has 3 modes** - navigation, form submission, branching
-5. **Forms require metadata + fields + submit button**
-6. **Threads enable comments** stored in separate document
-7. **CSS is inline** - use for custom styling
-8. **Everything is declarative** - describe what you want, not how
+**Key Takeaways:**
+1. HUML uses YAML-like syntax
+2. Every app needs at least ONE screen with `isEntryPoint: true`
+3. Use `nav-button` for ALL button interactions (3 modes)
+4. Forms require form metadata + fields + submit button
+5. Style everything with inline CSS
+6. Test your navigation flows
 
-### Quick Checklist for Creating Templates
+**Need help?** Refer back to the [Complete Working Examples](#complete-working-examples).
 
-- [ ] Set template `name`
-- [ ] Create at least one screen
-- [ ] Mark one screen with `isEntryPoint: true`
-- [ ] Add blocks to each screen (headings, text, buttons, etc.)
-- [ ] Set up navigation between screens
-- [ ] If using forms: create form metadata, add fields, add submit button
-- [ ] If using threads: add thread blocks where needed
-- [ ] Apply CSS styling for appearance
-- [ ] Test all navigation paths
-- [ ] Verify forms submit correctly
-- [ ] Check thread comments persist after reload
-
-**Remember:** Every HUML template should tell a story - guide users through a logical flow from entry point to completion. Happy templating!
+**Happy building!** 🚀
