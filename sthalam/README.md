@@ -8,7 +8,7 @@ Sthalam is a decentralized website and content publishing platform built on the 
 
 Sthalam empowers creators to maintain full control over their digital presence. Publish websites with forms and comment threads, share micro-blog posts, distribute newsletters, and let subscribers get real-time updates—all while maintaining sovereignty over your data and distribution.
 
-When viewers connect to your content, they receive automatic updates for new posts, websites, and newsletters you publish. No platforms, no intermediaries, just direct sovereign-to-sovereign connections.
+When viewers connect to your content, they can pull updates for new posts, websites, and newsletters you publish by actively polling the node. Your sovereign node acts as a passive content hub that viewers poll for updates. No platforms, no intermediaries, just direct sovereign-to-sovereign connections.
 
 ---
 
@@ -17,21 +17,21 @@ When viewers connect to your content, they receive automatic updates for new pos
 ### Content Publishing
 - **HUML-based Website Builder**: Create websites using Human Markup Language (HUML), a declarative YAML-like syntax for building interactive web experiences
 - **Multi-page Websites**: Design complex navigation flows with branching logic and screen transitions
-- **Micro-blogs with Comments**: Twitter-like posts with real-time collaborative comment threads
+- **Micro-blogs with Comments**: Twitter-like posts with multiple independent comment threads where viewers can see and respond to each other's comments in organized discussions
 - **Newsletters & Posts**: Distribute content directly to connected subscribers
 - **Rich Content Blocks**: Text, headings, images, markdown, HTML, modals, and custom styling with CSS
 
 ### Interactive Features
-- **Forms & Submissions**: Collect user input with validation (text, textarea, email, checkbox, select fields)
-- **Real-time Comment Threads**: Collaborative discussions with CRDT-based synchronization
+- **Forms & Submissions**: Multiple independent forms per document with field metadata for parsing. Collect user input with validation (text, textarea, email, checkbox, select fields). Each form identified by `form_id` with custom field metadata
+- **Real-time Comment Threads**: Multiple independent thread blocks per document with CRDT-based synchronization where multiple viewers can see and respond to each other's comments in organized topic-specific discussions
 - **Page Navigation**: Create interactive flows with nav buttons and branching logic
-- **Live Updates**: Subscribers automatically receive notifications when you publish new content
+- **Live Updates**: Instant local-first rendering, then background polling for incremental CRDT updates
 
 ### Sovereign Infrastructure
 - **Publish to Sovereign Nodes**: Deploy content to your own always-on nodes (works on Raspberry Pi)
 - **Link-based Sharing**: Generate connection strings with UCAN token-based access control
-- **Subscription Model**: When someone connects, they automatically receive updates for all your new content
-- **End-to-End Encryption**: All data encrypted in transit and at rest
+- **Subscription Model**: When someone connects, they can poll node to receive updates for all your new content
+- **Multi-Layer Encryption**: All data encrypted at rest (AES-256-GCM) and in transit (QUIC/TLS). AES keys re-encrypted for node and viewers using PGP
 - **Offline-First Architecture**: Create and edit content without internet, sync when available
 - **Multi-device Support**: Seamless synchronization across all your devices
 
@@ -73,19 +73,24 @@ Business logic coordinating all application features:
 - **Node Service**: Sovereign node operations and viewer preparation
 
 ### 2. Network Layer
-P2P communication infrastructure via Iroh:
+P2P communication infrastructure via Iroh with pull-based architecture:
 - **P2PService**: Manages connections, handshakes, and message routing
 - **PeerConnection**: Maintains state for each connected peer
 - **ConnectionManager**: Tracks active connections and pending operations
-- **Sync Protocols**: Device, user, folder, and resource synchronization
-- **Website Handler**: Manages viewer connections and content distribution
+- **Sync Protocols**: Device, user, folder, and resource synchronization via polling
+- **Website Handler**: Responds to viewer requests for content (node never initiates)
 
 ### 3. Crypto Layer
 Security and authorization infrastructure:
 - **Key Management**: PGP keypairs, Ed25519 signing keys, AES-256-GCM encryption
 - **Digital Signatures**: PGP-based message signing and verification
 - **UCAN Operations**: Token generation, validation, delegation chains
-- **Data Encryption**: Hybrid encryption for content and multi-recipient patterns
+- **Data Encryption**:
+  - AES-256-GCM encryption for all content at rest
+  - AES key re-encryption: decrypt with publisher's PGP, re-encrypt with node's PGP
+  - AES key re-encryption for viewers: node re-encrypts with each viewer's PGP public key
+  - QUIC connection provides TLS encryption in transit
+  - Data encrypted at rest on publisher, node, and viewer devices
 
 ---
 
@@ -115,18 +120,18 @@ Resources use a three-document model with distinct permissions:
 
 1. **blocksuite_doc** (Main Content)
    - **Viewer permission**: `crud/read` (read-only)
-   - **Behavior**: One-way sync from publisher to viewer
+   - **Behavior**: **Local-first + state vector sync**. Viewer always renders from local copy first (instant load). Publisher writes to local first, syncs via state vectors. Viewer sends state vector to node, receives only missing CRDT diffs
    - **Use case**: Website structure, blog posts, newsletter content
 
 2. **thread_comments_doc** (Collaborative Comments)
    - **Viewer permission**: `crud/write` (bidirectional)
-   - **Behavior**: Both viewer and publisher sync changes
-   - **Use case**: Real-time comment threads and discussions
+   - **Behavior**: **Local-first + state vector multi-thread**. Multiple independent threads per document with `thread_id`. All participants write to local Yjs doc first (instant UI), then exchange state vectors with node. Both sides send state vectors and respond with only missing CRDT diffs. Filter by `thread_id` for display
+   - **Use case**: Real-time comment threads where multiple viewers collaborate across multiple organized discussions
 
 3. **form_submissions_doc** (Submissions)
    - **Viewer permission**: `crud/append` (append-only)
-   - **Behavior**: Viewer sends submissions, no updates back
-   - **Use case**: Form responses, feedback collection
+   - **Behavior**: **Local-first + state vector multi-form**. Multiple forms per document with `form_id` and field metadata. Publisher renders from local first. Viewer pushes incremental diffs with `form_id`. Publisher exchanges state vectors with node to receive only missing submission diffs. Filters by `form_id` for display
+   - **Use case**: Form responses across multiple forms (contact, feedback, survey), feedback collection with field metadata for parsing
 
 ### Token Validation & Extraction
 
@@ -147,6 +152,43 @@ The system validates UCAN tokens throughout the sync flow:
 This capability-based model eliminates the need for centralized permission servers—the tokens themselves encode all authorization logic, enabling fully decentralized access control.
 
 **Reference**: `crypto_utils/src/ucan_utils.rs`, `network/src/p2p/website_handler.rs`, `services/src/node_service.rs`
+
+### Local-First + State Vector Sync Architecture
+
+Sthalam uses a **local-first rendering with state vector-based CRDT sync** model for optimal performance:
+
+**Initial Sync** (First Time Only):
+- New resources send full document for all 3 docs
+- Stored locally in encrypted database
+- Viewer has complete copy
+
+**Subsequent Access** (Always):
+1. **Instant Load**: Website renders from local copy immediately (no network wait)
+2. **Write Local First**: All edits/comments written to local Yjs doc first (instant UI update)
+3. **State Vector Exchange**: Send state vector to node in background
+4. **Receive Missing Diffs**: Node responds with only CRDT diffs you don't have
+5. **Send Own Updates**: Send CRDT diffs node doesn't have (based on node's state vector)
+6. **Apply Diffs**: Merge missing updates into local copy
+7. **Seamless Experience**: User sees instant changes, sync happens in background
+
+**State Vector Protocol**:
+- **Bidirectional** (for crud/write): Both sides exchange state vectors and respond with diffs
+- **Unidirectional** (for crud/read): Viewer receives diffs via state vector exchange
+- **Only missing data**: State vectors determine exactly what diffs each side needs
+- **Never full doc**: Only state vectors and CRDT diffs transferred after first sync
+
+**Applies to All 3 Documents**:
+- **blocksuite_doc**: Content updates via state vector sync (viewer receives diffs)
+- **thread_comments_doc**: Comments via bidirectional state vector exchange (write local first, sync in background)
+- **form_submissions_doc**: Submissions via incremental append (publisher receives via state vector sync)
+
+**Benefits**:
+- Instant UI updates (write to local first, no network wait)
+- Efficient bandwidth usage (only missing diffs, not full docs)
+- Tiny state vectors (just version info, not data)
+- Offline-capable (works from local copy)
+- Smooth user experience (all changes local first, sync in background)
+- Scales efficiently (state vectors enable precise diff calculation)
 
 ---
 
@@ -227,19 +269,29 @@ The built application will be in `target/release/bundle`.
 ### Viewer Access
 
 1. **Receive Connection String**: Publisher shares base64-encoded token (via email, chat, etc.)
-2. **Connect**: Viewer pastes connection string, establishing P2P connection
-3. **Sync**: Initial sync downloads folder and all resources with appropriate permissions
+2. **Connect**: Viewer pastes connection string, establishing P2P connection with the sovereign node
+3. **Sync**: Viewer pulls initial folder and all resources with appropriate permissions
 4. **Interact**: View content, submit forms, comment on threads based on UCAN capabilities
-5. **Subscribe**: Automatically receive updates when publisher adds new content
+5. **Subscribe**: Actively poll and pull updates when publisher adds new content to the node
 
-### Real-time Updates
+### Real-time Updates (Local-First + State Vector Sync)
 
-When connected:
-- **New websites**: Viewer receives notification and can access immediately
-- **New posts**: Micro-blog posts appear in subscriber feeds
-- **Newsletters**: Direct delivery without email platforms
-- **Comments**: Real-time synchronization via Yjs CRDT
-- **Form submissions**: Sent to publisher for collection
+Viewers experience instant loads with background state vector sync:
+
+**Rendering Flow**:
+1. **Instant Load**: Always render from local copy first (no waiting)
+2. **Write Local First**: All edits/comments written to local Yjs doc first (instant UI)
+3. **Background State Vector Exchange**: Send state vector to node while viewing
+4. **Receive Missing Diffs**: Node responds with only CRDT diffs you don't have
+5. **Send Own Updates**: Send CRDT diffs node doesn't have
+6. **Apply Updates**: Seamlessly merge missing diffs into local doc
+
+**Update Types** (when viewer polls):
+- **New websites**: Viewer detects new resources via folder manifest comparison, pulls full resource first time, then state vector sync
+- **New posts**: Instant load from local, viewer exchanges state vectors with node for updates
+- **Newsletters**: Instant load from local, viewer requests diffs via state vector sync
+- **Comments**: All participants write to local first (instant UI), exchange state vectors with node. Each receives only missing CRDT diffs, filters by `thread_id` for display, enabling multi-viewer discussions
+- **Form submissions**: Viewers push diffs with `form_id` and field metadata. Publisher renders from local first, exchanges state vectors for submissions
 
 ---
 
@@ -248,9 +300,9 @@ When connected:
 - **Personal Websites**: Publish without hosting fees or platform lock-in
 - **Micro-blogging**: Twitter-like posts with sovereign ownership
 - **Newsletters**: Direct distribution to subscribers without intermediaries
-- **Community Discussions**: Comment threads without platform moderation
+- **Community Discussions**: Multiple comment threads per document where viewers can discuss with each other in organized topic-specific conversations, without platform moderation
 - **Surveys & Forms**: Collect feedback with full data sovereignty
-- **Educational Materials**: Share content with granular access control
+- **Educational Materials**: Share content with granular access control and section-specific discussion threads
 - **Decentralized Publishing**: Build audiences without algorithmic gatekeepers
 
 ---
