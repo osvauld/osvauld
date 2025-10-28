@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { marked } from 'marked';
-	import DOMPurify from 'dompurify';
 
 	interface Props {
 		blockId: string;
@@ -14,7 +13,7 @@
 		if (!blockData.content) return '';
 		try {
 			const raw = marked.parse(blockData.content);
-			return DOMPurify.sanitize(raw);
+			return raw;
 		} catch (error) {
 			console.error('Error rendering markdown:', error);
 			return '<p>Error rendering markdown</p>';

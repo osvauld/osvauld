@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { marked } from 'marked';
-	import DOMPurify from 'dompurify';
 	import type { ThreadCommentsStore } from '../threadCommentsStore';
 	import type { BlocksuiteStore } from '../blocksuiteStore';
 	import { dataState } from '../../state';
@@ -131,8 +130,8 @@
 			return;
 		}
 
-		// Parse and sanitize markdown
-		const sanitized = DOMPurify.sanitize(marked.parse(content));
+		// Parse markdown
+		const sanitized = marked.parse(content) as string;
 
 		// Get user details from dataState
 		const username = dataState.userDetails?.username || 'Anonymous';
@@ -188,7 +187,7 @@
 		const raw = mainPost.mode === 'html'
 			? mainPost.content
 			: marked.parse(mainPost.content);
-		return DOMPurify.sanitize(raw);
+		return raw;
 	});
 
 	// Listen for store ready events
