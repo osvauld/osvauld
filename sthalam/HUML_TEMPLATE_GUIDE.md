@@ -6,6 +6,60 @@
 
 ---
 
+## ⚠️ CRITICAL - FOR LLM ASSISTANTS CREATING TEMPLATES
+
+**IF YOU ARE AN AI ASSISTANT GENERATING HUML TEMPLATES, READ THIS FIRST:**
+
+### Thread Blocks Have Special CSS Requirements
+
+**Thread blocks (`type: "thread"`) ONLY accept CSS custom properties (CSS variables). Regular CSS will NOT work.**
+
+**IMPORTANT:** After you finish generating the template, you MUST re-analyze all thread block CSS variables to ensure they are correct and match the exact variable names from the available list below. Double-check for typos and invalid variable names.
+
+**✅ CORRECT - Use CSS Variables:**
+```huml
+- ::
+  type: "thread"
+  name: "Discussion"
+  mode: "markdown"
+  description: "Share your thoughts..."
+  css: "--thread-bg: #1a1a1a; --thread-title-color: #00ff88; --thread-button-bg: #00ff88; --thread-button-text: #000000; --thread-input-bg: #2a2a2a; --thread-input-border: #00ff88; --thread-comment-author-color: #00ff88;"
+```
+
+**KEY POINTS:**
+- If you use `name` property, you MUST include `--thread-title-color` or the heading will be invisible on dark backgrounds
+- Only use variable names from the official list below (see "Available CSS Custom Properties")
+- Common mistakes: `--thread-border` ❌ (should be `--thread-border-color`), `--thread-text-primary` ❌ (should be `--thread-text-color`)
+
+**❌ WRONG - Regular CSS (Will Be Ignored):**
+```huml
+- ::
+  type: "thread"
+  name: "Discussion"
+  css: "background: #1a1a1a; border-radius: 8px; padding: 20px;"
+```
+
+**❌ ALSO WRONG - Class-based CSS (Will Be Ignored):**
+```huml
+- ::
+  type: "thread"
+  name: "Discussion"
+  css: """
+    .thread-container {
+      background: #1a1a1a;
+    }
+    textarea {
+      border: 1px solid #00ff88;
+    }
+  """
+```
+
+**Why?** Thread blocks use CSS custom properties for scoping. Each thread can have its own theme without conflicts. Regular CSS properties and class selectors don't work with this system.
+
+**See the [Thread Block Styling Section](#block-type-thread) for all available CSS variables.**
+
+---
+
 ## What You'll Learn
 
 This guide teaches you how to build complete web applications using HUML (Hierarchical UI Markup Language). You'll learn to create:
@@ -16,6 +70,32 @@ This guide teaches you how to build complete web applications using HUML (Hierar
 - **Discussion threads** - Add comment sections
 - **Custom styling** - Style everything with CSS
 - **Branching logic** - Create choose-your-own-adventure flows
+
+---
+
+## 🤔 Important: When to Ask Questions
+
+**If you are an AI assistant using this guide to help users create HUML templates, ALWAYS ask clarifying questions when requirements are ambiguous or unclear!**
+
+### When to Ask Questions:
+
+- **Unclear Design Requirements**: If the user says "make it look nice" without specifying colors, layout, or style preferences
+- **Missing Content**: When you don't know what text, images, or data should go in sections
+- **Ambiguous User Flows**: When navigation paths or user journeys aren't clearly defined
+- **Styling Preferences**: If color schemes, fonts, spacing, or overall aesthetic aren't specified
+- **Form Field Requirements**: When it's unclear what fields a form needs or which should be required
+- **Feature Priorities**: If multiple approaches are possible and the user hasn't specified which they prefer
+
+### Example Questions to Ask:
+
+- "What color scheme would you like? (e.g., professional blue/white, dark mode, vibrant colors)"
+- "Should this form have a required email field, or just optional feedback?"
+- "Where should users go after submitting the form? A thank-you page, back to home, or somewhere else?"
+- "Do you want the comments section to support markdown formatting?"
+- "Should the navigation button be prominent (large, colorful) or subtle (small, minimal)?"
+- "What happens if a user clicks 'No' on this question? Different screen or different message?"
+
+**Remember**: It's better to ask 2-3 clarifying questions upfront than to build something that doesn't match the user's vision. Specific requirements lead to better results!
 
 ---
 
@@ -86,11 +166,40 @@ screens::
 - **No curly braces** - Unlike JSON
 - **Strings** - Use quotes for safety: `"My Text"`
 - **Lists need `::`** - Both for declaration and items
+- **⚠️ NO TRAILING SPACES** - Lines cannot end with spaces or whitespace (parser will reject)
+- **Empty lines must be truly empty** - Blank lines with spaces will cause errors
 
 ---
- ### ⚠️ CRITICAL: Property Names Are Case-Sensitive!
- **Property names ** MUST use exact camelCase spelling. 
-  Lowercase will NOT work!**
+
+### ⚠️ CRITICAL: Property Names Are Case-Sensitive!
+
+**Property names MUST use exact camelCase spelling. Lowercase will NOT work!**
+
+---
+
+### ⚠️ CRITICAL: No Trailing Whitespace!
+
+**The HUML parser is strict about whitespace:**
+- Lines **cannot end with spaces or tabs**
+- Blank lines **must be completely empty** (no spaces)
+- If you get an error like `trailing spaces are not allowed`, check for:
+  - Spaces at the end of lines
+  - Blank lines with invisible whitespace
+  - Use your editor's "show whitespace" feature to find them
+
+**Wrong:**
+```huml
+children::␣␣
+  - ::␣
+    type: "heading"␣␣␣
+```
+
+**Right:**
+```huml
+children::
+  - ::
+    type: "heading"
+```
 ## Template Structure
 
 Every HUML template has this structure:
@@ -388,6 +497,47 @@ content: "[Click here](https://example.com)"
 - Create cards
 - Build layouts (columns, grids)
 - Apply shared styling to multiple blocks
+
+#### Modal Overlay Mode
+
+`section-container` can also be used as a modal/popup overlay:
+
+**Additional Properties for Modals:**
+- `isModal` (optional, boolean) - Enables modal behavior with backdrop (default: false)
+- `visible` (optional, boolean) - Controls modal visibility (default: true)
+- `zIndex` (optional, number) - Stacking order for overlay (default: 1000)
+
+**Example: Modal Dialog**
+```huml
+- ::
+  type: "section-container"
+  name: "Confirmation Modal"
+  isModal: true
+  visible: true
+  zIndex: 1000
+  css: "background: white; padding: 40px; border-radius: 12px; max-width: 400px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+  children::
+    - ::
+      type: "heading"
+      content: "Are you sure?"
+      css: "margin-bottom: 20px; font-size: 24px;"
+    - ::
+      type: "text"
+      content: "This action cannot be undone."
+      css: "margin-bottom: 30px; color: #666;"
+    - ::
+      type: "nav-button"
+      content: "Confirm"
+      targetContainerId: "next-screen"
+      css: "background: #dc2626; color: white; padding: 12px 24px; border-radius: 8px;"
+```
+
+**Modal behavior:**
+- Automatically adds dark backdrop behind modal (rgba(0, 0, 0, 0.5))
+- Backdrop has blur effect (`backdrop-filter: blur(4px)`)
+- Backdrop z-index is automatically set to one less than modal
+- Use `visible: false` to hide modal initially (can be toggled programmatically)
+- Position modal with CSS (`position: fixed`, `top`, `left`, `transform`)
 
 ---
 
@@ -688,56 +838,302 @@ css: "width: 100%; background: #667eea; color: white; padding: 15px; border-radi
 
 **Purpose:** Create a comments/discussion section
 
+**⚠️ CRITICAL STYLING REQUIREMENT:**
+**Thread blocks ONLY accept CSS custom properties (variables). DO NOT use regular CSS properties like `background`, `color`, `padding`, etc. or class-based selectors. They will be ignored. You MUST use the `--thread-*` variables listed below.**
+
 **Properties:**
 - `type: "thread"` (required)
-- `name` (optional) - Display name for this thread
+- `name` (optional) - Display name for this thread. **If you use this, you MUST include `--thread-title-color` in CSS or the heading will be invisible!**
 - `mode: "markdown"` (optional) - Allows markdown in comments
-- `description` (optional) - Placeholder text
-- `css` (optional) - Thread container styling
+- `description` (optional) - Placeholder text shown in comment input
+- `css` (optional) - **MUST use CSS custom properties only** (see styling section below)
 
-**How threads work:**
+**How Threads Work:**
 1. Users can add comments in both builder and viewer modes
-2. Comments are stored separately (in `thread_comments_doc`)
-3. Comments persist after reload
-4. Each thread is independent
+2. Comments are stored separately and persist after reload
+3. Each thread is completely independent - you can have multiple threads in one template
+4. Threads have default GitHub-inspired light theme styling
 
-**Example:**
+**Styling Thread Blocks:**
+
+Thread blocks have default light theme styles. To customize them, use CSS custom properties (CSS variables) in the `css` field. Each thread's styles are scoped to that thread only - multiple threads can have completely different themes without interfering with each other.
+
+**⚠️ CRITICAL: Thread blocks ONLY accept CSS custom properties (variables).**
+
+Thread blocks have a special styling system. Unlike other blocks where you can write regular CSS like `background: #fff; color: #000;`, thread blocks ONLY accept CSS custom properties (also called CSS variables).
+
+**✅ CORRECT WAY - Use CSS Variables:**
+```huml
+css: "--thread-bg: #f6f8fa; --thread-button-bg: #0366d6; --thread-button-text: white;"
+```
+
+**❌ WRONG WAY - Regular CSS or Classes (Will Be Ignored):**
+```huml
+# This will NOT work:
+css: "background: #f6f8fa; color: #24292e;"
+
+# This will also NOT work:
+css: """
+  .thread-container {
+    background: #f6f8fa;
+  }
+  textarea {
+    border: 1px solid blue;
+  }
+"""
+```
+
+**Why?** Thread blocks use CSS custom properties for scoping - each thread can have its own theme without affecting others. Regular CSS selectors don't work with this scoping system.
+
+**Available CSS Custom Properties:**
+
+| Property | Default | Description |
+|----------|---------|-------------|
+| `--thread-bg` | `#f6f8fa` | Main container background |
+| `--thread-border-color` | `#e1e4e8` | Container border color |
+| `--thread-border-radius` | `8px` | Container border radius |
+| `--thread-text-color` | `#24292e` | Main text color |
+| `--thread-title-color` | `#24292e` | Thread title color |
+| `--thread-description-color` | `#6e7681` | Description text color |
+| `--thread-content-color` | `#24292e` | Content text color |
+| `--thread-content-heading-color` | `#24292e` | Content headings color |
+| `--thread-link-color` | `#0366d6` | Link color |
+| `--thread-code-bg` | `#f6f8fa` | Code block background |
+| `--thread-code-color` | `inherit` | Code text color |
+| `--thread-input-bg` | `white` | Textarea background |
+| `--thread-input-border` | `#d1d5da` | Textarea border |
+| `--thread-input-text` | `#24292e` | Textarea text color |
+| `--thread-input-placeholder` | `#6e7681` | Placeholder text color |
+| `--thread-input-focus-border` | `#0366d6` | Textarea focus border |
+| `--thread-input-focus-shadow` | `rgba(3,102,214,0.1)` | Focus shadow color |
+| `--thread-button-bg` | `#0366d6` | Submit button background |
+| `--thread-button-text` | `white` | Submit button text |
+| `--thread-button-hover-bg` | `#0256c7` | Button hover background |
+| `--thread-button-disabled-bg` | `#94a3b8` | Disabled button background |
+| `--thread-button-disabled-text` | `#cbd5e0` | Disabled button text |
+| `--thread-comment-bg` | `white` | Comment box background |
+| `--thread-comment-border` | `#e1e4e8` | Comment box border |
+| `--thread-comment-text` | `#24292e` | Comment text color |
+| `--thread-comment-author-color` | `#24292e` | Author name color |
+| `--thread-comment-time-color` | `#586069` | Timestamp color |
+| `--thread-comment-content-color` | `#24292e` | Comment content color |
+| `--thread-toggle-bg` | `white` | Toggle button background |
+| `--thread-toggle-border` | `#d1d5da` | Toggle button border |
+| `--thread-toggle-color` | `#586069` | Toggle button text |
+| `--thread-toggle-hover-bg` | `#f6f8fa` | Toggle hover background |
+| `--thread-toggle-hover-border` | `#0366d6` | Toggle hover border |
+| `--thread-toggle-hover-color` | `#0366d6` | Toggle hover text |
+| `--thread-toggle-icon-color` | `#6a737d` | Toggle icon color |
+| `--thread-no-comments-color` | `#6e7681` | "No comments" label color |
+| `--thread-form-bg` | `transparent` | Comment form background |
+| `--thread-scrollbar-track` | `#f1f3f5` | Scrollbar track background |
+| `--thread-scrollbar-thumb` | `#adb5bd` | Scrollbar thumb |
+| `--thread-scrollbar-thumb-hover` | `#868e96` | Scrollbar thumb hover |
+| `--thread-error-bg` | `#f8d7da` | Error message background |
+| `--thread-error-text` | `#721c24` | Error message text |
+| `--thread-error-border` | `#f5c6cb` | Error message border |
+
+**Example: Dark Theme Thread (Complete with Title)**
 ```huml
 - ::
   type: "thread"
-  name: "Article Comments"
+  name: "Community Discussion"
   mode: "markdown"
-  description: "Share your thoughts about this article"
-  css: "background: white; border-radius: 8px; padding: 20px; min-height: 400px;"
+  description: "Share your thoughts..."
+  css: "--thread-bg: #0a0a0a; --thread-border-color: #2a2a2a; --thread-text-color: #e0e0e0; --thread-title-color: #00ff88; --thread-description-color: #808080; --thread-no-comments-color: #808080; --thread-input-bg: #1a1a1a; --thread-input-border: #00ff88; --thread-input-text: #e0e0e0; --thread-input-focus-border: #00ff88; --thread-input-focus-shadow: rgba(0, 255, 136, 0.15); --thread-button-bg: #00ff88; --thread-button-text: #0a0a0a; --thread-button-hover-bg: #00dd77; --thread-button-disabled-bg: #2a2a2a; --thread-button-disabled-text: #606060; --thread-comment-bg: #1a1a1a; --thread-comment-border: #2a2a2a; --thread-comment-text: #e0e0e0; --thread-comment-author-color: #00ff88; --thread-comment-time-color: #808080;"
 ```
 
-**Example: Blog with Comments**
+**⚠️ NOTICE:** The above includes `--thread-title-color: #00ff88;` because it uses `name: "Community Discussion"`. Without this variable, the heading would be invisible on the dark background!
+
+**Example: Light Theme Thread (Custom Colors)**
 ```huml
-# Blog post content
+- ::
+  type: "thread"
+  name: "Comments"
+  mode: "markdown"
+  description: "Join the discussion"
+  css: "--thread-bg: white; --thread-border-color: #e2e8f0; --thread-title-color: #667eea; --thread-input-bg: #f7fafc; --thread-input-border: #cbd5e0; --thread-button-bg: #667eea; --thread-button-text: white; --thread-button-hover-bg: #5568d3;"
+```
+
+**Example: Multiple Independent Threads (Each with Different Styling)**
+```huml
+# Article 1 with blue-themed comments
 - ::
   type: "markdown-text"
-  content: "## My Blog Post\n\nThis is the article content..."
+  content: "## Article 1: Introduction to HUML"
 
-# Comments section header
-- ::
-  type: "heading"
-  content: "💬 Comments & Discussion"
-  css: "margin-top: 40px; padding-top: 40px; border-top: 2px solid #e2e8f0;"
-
-# Comments thread
 - ::
   type: "thread"
-  name: "Blog Post Comments"
+  name: "Article 1 Discussion"
   mode: "markdown"
-  description: "Join the discussion - what are your thoughts?"
-  css: "min-height: 500px;"
+  description: "Discuss Article 1..."
+  css: "--thread-bg: #f7fafc; --thread-button-bg: #667eea; --thread-button-text: white; --thread-title-color: #667eea;"
+
+# Article 2 with red-themed comments (completely independent)
+- ::
+  type: "markdown-text"
+  content: "## Article 2: Advanced Features"
+
+- ::
+  type: "thread"
+  name: "Article 2 Discussion"
+  mode: "markdown"
+  description: "Discuss Article 2..."
+  css: "--thread-bg: #fff5f5; --thread-button-bg: #e53e3e; --thread-button-text: white; --thread-title-color: #e53e3e; --thread-border-color: #feb2b2;"
+
+# Article 3 with green-themed comments (also independent)
+- ::
+  type: "markdown-text"
+  content: "## Article 3: Best Practices"
+
+- ::
+  type: "thread"
+  name: "Article 3 Discussion"
+  mode: "markdown"
+  description: "Discuss Article 3..."
+  css: "--thread-bg: #f0fdf4; --thread-button-bg: #10b981; --thread-button-text: white; --thread-title-color: #10b981;"
 ```
 
-**When to use:**
+**Note:** Each thread has its own independent styling. The CSS variables are scoped to each thread, so they don't interfere with each other.
+
+---
+
+### Thread CSS Validation Checklist
+
+**Before finalizing your template, validate ALL thread blocks:**
+
+✅ **Variable Names:**
+- All variables start with `--thread-`
+- Variable names match EXACTLY from the available list above
+- No typos (e.g., `--thread-border` ❌ should be `--thread-border-color` ✅)
+
+✅ **Required Variables:**
+- If using `name` property → `--thread-title-color` is included
+- If using dark background → all text colors are light (e.g., `#e0e0e0`)
+- If using light background → all text colors are dark (e.g., `#24292e`)
+
+✅ **Common Mistakes to Avoid:**
+- ❌ `--thread-border` → ✅ `--thread-border-color`
+- ❌ `--thread-text-primary` → ✅ `--thread-text-color`
+- ❌ `--thread-padding` → Not a valid variable
+- ❌ `--thread-reply-bg` → Not a valid variable
+- ❌ `background: #1a1a1a;` → ✅ `--thread-bg: #1a1a1a;`
+
+✅ **Format Check:**
+- No regular CSS properties (like `background:`, `padding:`, `color:`)
+- No class selectors (like `.thread-container` or `textarea`)
+- Only semicolon-separated CSS variable declarations
+
+---
+
+**When to use threads:**
 - Blog post comments
 - Discussion forums
 - Q&A sections
 - Feedback areas
+- Multiple independent discussion topics in one template
+
+---
+
+### Block Type: `image`
+
+**Purpose:** Display images in your application
+
+**Properties:**
+- `type: "image"` (required)
+- `content` (required) - URL or path to image file
+- `css` (optional) - Custom styling
+
+**Example:**
+```huml
+- ::
+  type: "image"
+  content: "https://example.com/hero-image.jpg"
+  css: "width: 100%; max-width: 800px; border-radius: 12px; margin: 20px 0;"
+```
+
+**Example: Profile Photo**
+```huml
+- ::
+  type: "image"
+  content: "https://example.com/avatar.jpg"
+  css: "width: 120px; height: 120px; border-radius: 50%; object-fit: cover; border: 3px solid #667eea;"
+```
+
+**Example: Responsive Hero Image**
+```huml
+- ::
+  type: "image"
+  content: "https://example.com/hero.jpg"
+  css: "width: 100%; max-width: 100%; height: auto; display: block; margin-bottom: 40px;"
+```
+
+**When to use:**
+- Hero images for landing pages
+- Blog post illustrations
+- Product photos
+- Diagrams and infographics
+- Profile pictures
+- Logos
+
+**Styling tips:**
+- Always include `max-width: 100%` for responsiveness
+- Use `object-fit: cover` for fixed dimensions
+- Add `border-radius` for rounded corners
+- Use `display: block` to remove bottom spacing
+- Add `margin` for spacing around images
+
+---
+
+### Block Type: `html`
+
+**Purpose:** Embed custom HTML for advanced layouts or third-party widgets
+
+**⚠️ Security Note:** HTML content is rendered without sanitization. Only use HTML blocks with trusted content you create yourself. Since publishers create all content in Sthalam, this is safe in your sovereign publishing model.
+
+**Properties:**
+- `type: "html"` (required)
+- `content` (required) - Raw HTML string
+- `css` (optional) - Container styling
+
+**Example: Custom Widget**
+```huml
+- ::
+  type: "html"
+  content: "<div class='custom-widget'><h3>Custom Component</h3><p>Advanced HTML with custom classes</p></div>"
+  css: "padding: 20px; background: #f0f0f0; border-radius: 8px;"
+```
+
+**Example: SVG Graphic**
+```huml
+- ::
+  type: "html"
+  content: "<svg width='100' height='100'><circle cx='50' cy='50' r='40' stroke='#667eea' stroke-width='3' fill='none' /></svg>"
+  css: "text-align: center; margin: 20px 0;"
+```
+
+**Example: Embedded Video**
+```huml
+- ::
+  type: "html"
+  content: "<iframe width='560' height='315' src='https://www.youtube.com/embed/dQw4w9WgXcQ' frameborder='0' allowfullscreen></iframe>"
+  css: "width: 100%; max-width: 800px; aspect-ratio: 16/9;"
+```
+
+**When to use:**
+- Complex custom layouts not possible with other blocks
+- Embedding third-party widgets (Twitter, YouTube, etc.)
+- Custom interactive elements
+- SVG graphics and animations
+- Specialized HTML structures
+
+**When NOT to use:**
+- Regular content (use `text` or `markdown-text` instead)
+- Simple images (use `image` block)
+- Forms (use form field blocks)
+- Buttons (use `nav-button`)
+
+**Security reminder:** Never use HTML blocks with user-generated or untrusted content as it could execute malicious scripts.
 
 ---
 
@@ -762,8 +1158,8 @@ This is a special block that defines your form. It MUST come before any form fie
 **Properties:**
 - `id` (required) - Unique form identifier
 - `type: "form"` (required)
-- `name` (optional) - Display name for editor
-- `eventName` (optional) - Groups submissions (default: "form_submission")
+- `name` required - Display name for editor
+- `eventName` required - Groups submissions (default: "form_submission")
 
 **Example:**
 ```huml
@@ -1776,27 +2172,32 @@ screens::
 - Apply responsive max-widths
 - Use proper spacing
 - Use semantic colors (green for success, red for errors)
+- **For thread blocks: ALWAYS use CSS custom properties (`--thread-*` variables)**
 
 **❌ DON'T:**
 - Mix too many colors
 - Use tiny font sizes (<14px)
 - Forget padding/margins
 - Use pure black (#000) - use dark grays instead
+- **Use regular CSS or class selectors in thread blocks (they won't work!)**
 
 ---
 
 ## Quick Reference
+refer : https://huml.io/specifications/v0-1-0/ for guide on huml, this is your bible for huml ref
+
+**⚠️ IMPORTANT: Thread blocks require CSS custom properties (variables), not regular CSS!**
 
 ### All Block Types
 
-| Type | Purpose |
-|------|---------|
-| `heading` | Large title text |
-| `text` | Regular paragraph text |
-| `markdown-text` | Rich text with markdown |
-| `section-container` | Group blocks together |
-| `nav-button` | Universal button (all modes) |
-| `thread` | Comments/discussion |
+| Type | Purpose | CSS Note |
+|------|---------|----------|
+| `heading` | Large title text | Regular CSS |
+| `text` | Regular paragraph text | Regular CSS |
+| `markdown-text` | Rich text with markdown | Regular CSS |
+| `section-container` | Group blocks together | Regular CSS |
+| `nav-button` | Universal button (all modes) | Regular CSS |
+| `thread` | Comments/discussion | **CSS variables ONLY** |
 | `form` | Form metadata (invisible) |
 | `form-field-text` | Single-line text input |
 | `form-field-email` | Email input |
@@ -1805,6 +2206,7 @@ screens::
 | `form-field-number` | Number input |
 | `form-field-password` | Password input |
 | `image` | Image display |
+| `html` | Custom HTML content |
 
 ### nav-button Quick Reference
 

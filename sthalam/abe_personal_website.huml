@@ -1,0 +1,648 @@
+name: "Abe - Building Digital Sovereignty"
+
+screens::
+  - ::
+    id: "home"
+    name: "Homepage"
+    isEntryPoint: true
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Abe"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+      # Main Content Container
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          # Hero Section with SpongeBob Photo
+          - ::
+            type: "section-container"
+            css: "text-align: center; margin-bottom: 60px;"
+            children::
+              - ::
+                type: "image"
+                content: "https://i.imgur.com/pKLHGb6.png"
+                css: "width: 150px; height: 150px; border-radius: 50%; margin: 0 auto 25px auto; display: block; border: 3px solid #e0e0e0; object-fit: cover;"
+
+              - ::
+                type: "heading"
+                content: "Hi, I'm Abe 👋"
+                css: "font-size: 36px; font-weight: 700; color: #2c3e50; margin: 0 0 20px 0; line-height: 1.2;"
+
+              - ::
+                type: "text"
+                content: "Building digital sovereignty from Idukki. Arch user, hardware tinkerer, P2P enthusiast."
+                css: "font-size: 20px; color: #7f8c8d; line-height: 1.6; margin: 0;"
+
+          # Excited GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/nDSlfqf0gn5g4/giphy.gif"
+            css: "width: 100px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # About Section
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "About"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "I'm the founder of **Osvauld**, building peer-to-peer, end-to-end encrypted applications for people who value digital sovereignty.\n\nI believe the internet should work without intermediaries. No platforms controlling your identity. No servers deciding who sees your content. Just direct connections between people.\n\n**What I'm working on:**\n- 🔐 **Livnote** - P2P collaborative notes and documents\n- 🌐 **Sthalam** - Sovereign publishing without platforms\n- 🏠 **Sovereign Nodes** - Run your own internet infrastructure\n\n**Background:**\n- Built fully decentralized applications from scratch\n- Passionate about cryptography, CRDT synchronization, and P2P networks\n- Funded by Kerala Startup Mission (Productization Grant 2024-25)\n- Open source everything - MIT licensed\n\n**Tech & Hobbies:**\n- 🐧 Daily driver: Arch Linux (btw)\n- 🔌 Hardware prototyping and embedded systems\n- 🏔️ Based in Idukki, Kerala\n- ☕ Powered by filter coffee\n\nWhen I'm not coding, I'm probably tinkering with hardware, thinking about how to make self-hosting easier for everyone, or exploring the hills of Idukki."
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0;"
+
+          # Coding GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/LmNwrBhejkK9EFP504/giphy.gif"
+            css: "width: 120px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Projects Teaser
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "Current Projects"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "section-container"
+                css: "background: white; border-radius: 12px; padding: 30px; margin-bottom: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "📝 Livnote"
+                    css: "font-size: 22px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Real-time collaborative notes that work peer-to-peer. No servers, no accounts, just you and your collaborators."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0 0 15px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "🔧 Tech: Rust, Svelte, CRDT, P2P networking"
+                    css: "color: #95a5a6; font-size: 14px; margin: 0;"
+
+              - ::
+                type: "section-container"
+                css: "background: white; border-radius: 12px; padding: 30px; margin-bottom: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "🌐 Sthalam"
+                    css: "font-size: 22px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Sovereign publishing platform. Create websites, newsletters, and blogs without platforms. Your content, your sovereign node, your rules."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0 0 15px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "🔧 Tech: Tauri, UCAN tokens, CRDT sync, AES-256-GCM"
+                    css: "color: #95a5a6; font-size: 14px; margin: 0;"
+
+              - ::
+                type: "nav-button"
+                content: "View All Projects →"
+                targetContainerId: "projects"
+                css: "background: #3498db; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 16px; margin-top: 10px;"
+
+          # Rocket GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/kyLYXonQYYfwYDIeZl/giphy.gif"
+            css: "width: 100px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Manifesto Preview
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "Why Digital Sovereignty?"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "section-container"
+                css: "border-left: 4px solid #3498db; padding-left: 20px; margin-bottom: 25px;"
+                children::
+                  - ::
+                    type: "text"
+                    content: "Today, almost everything we do online requires surrendering sovereignty over our digital identity. Your photos, messages, and files are accessible only through accounts you must maintain with specific services."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0 0 15px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "We've traded digital sovereignty for convenience. Osvauld is changing that."
+                    css: "color: #34495e; font-size: 16px; line-height: 1.7; font-weight: 600; margin: 0;"
+
+              - ::
+                type: "nav-button"
+                content: "Read the Full Manifesto →"
+                targetContainerId: "writing"
+                css: "background: #3498db; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 16px; margin-top: 10px;"
+
+          # Thinking GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/a5viI92PAF89q/giphy.gif"
+            css: "width: 100px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Quick Links
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; border: 1px solid #e0e0e0; margin-bottom: 60px; text-align: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Connect"
+                css: "font-size: 24px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "🐙 [GitHub](https://github.com/osvauld/osvauld) • 📱 [Telegram Community](https://t.me/+tjZLZK8JV8g0NTVl) • 📧 [Email](mailto:abe@osvauld.com) • 🌐 [Osvauld Website](https://osvauld.com)"
+                css: "color: #3498db; font-size: 16px; line-height: 2;"
+
+          # Footer
+          - ::
+            type: "section-container"
+            css: "border-top: 1px solid #e0e0e0; padding-top: 30px; text-align: center;"
+            children::
+              - ::
+                type: "text"
+                content: "Built with Sthalam - No platform, no intermediaries"
+                css: "color: #95a5a6; font-size: 14px; margin: 0 0 8px 0;"
+
+              - ::
+                type: "text"
+                content: "© 2025 Abe. MIT Licensed and Open Source."
+                css: "color: #bdc3c7; font-size: 13px; margin: 0;"
+
+  # Projects Page
+  - ::
+    id: "projects"
+    name: "Projects"
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Abe"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #3498db; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0; border-bottom: 2px solid #3498db;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+      # Projects Content
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Projects"
+            css: "font-size: 42px; font-weight: 700; color: #2c3e50; margin: 0 0 15px 0;"
+
+          - ::
+            type: "text"
+            content: "Building the infrastructure for digital sovereignty."
+            css: "color: #7f8c8d; font-size: 18px; margin: 0 0 50px 0;"
+
+          # Project 1 - Sthalam
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "🌐 Sthalam - Sovereign Publishing"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "**Sthalam** (Malayalam: സ്ഥലം, meaning \"place\") is a sovereign publishing platform that lets you create and distribute content without intermediaries.\n\n**What makes it sovereign:**\n\n- **Your content, your node** - Publish websites, blogs, and newsletters from your own infrastructure\n- **No deplatforming** - Nobody can take down your content or censor you\n- **UCAN-based permissions** - Cryptographic access control without centralized servers\n- **CRDT synchronization** - Real-time comments and form submissions with conflict-free replication\n- **End-to-end encrypted** - Content encrypted at rest and in transit (AES-256-GCM)\n\n**Tech Stack:**\n- **Frontend:** Svelte 5, TypeScript, Yjs CRDT\n- **Backend:** Rust with Tauri 2, Iroh P2P networking\n- **Crypto:** Sequoia OpenPGP, AES-GCM, Ed25519, UCAN tokens\n- **Storage:** SQLite with encrypted blobs\n\n**Status:** POC with core functionality working. Can publish websites with forms and comment threads.\n\n[GitHub Repository](https://github.com/osvauld/osvauld) • [Documentation](https://docs.osvauld.com/sthalam/introduction)"
+                css: "color: #34495e; font-size: 16px; line-height: 1.8; margin: 0;"
+
+              - ::
+                type: "image"
+                content: "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif"
+                css: "width: 80px; margin: 20px 0 0 0; border-radius: 6px;"
+
+          # Project 2 - Livnote
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "📝 Livnote - P2P Collaborative Docs"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "Real-time collaborative documents that work peer-to-peer. No servers, no accounts, no platform lock-in.\n\n**Key Features:**\n\n- **Direct connections** - Your devices talk to collaborators' devices directly\n- **Self-sovereign identity** - Your cryptographic keys are your identity\n- **Live synchronization** - See edits in real-time with CRDT conflict resolution\n- **Offline-first** - Work offline, sync when reconnected\n- **End-to-end encrypted** - Nobody can read your docs except authorized collaborators\n\n**Use Cases:**\n- Shared notes between friends without Google Docs\n- Team collaboration without Notion's surveillance\n- Personal knowledge base that you actually own\n- Writing projects with real-time co-editing\n\n**Tech:** Rust backend, Svelte frontend, Yjs CRDT, Iroh P2P networking, PGP encryption\n\n[Try Livnote](https://osvauld.com/livnote) • [Documentation](https://docs.osvauld.com/livnote/creating-your-identity)"
+                css: "color: #34495e; font-size: 16px; line-height: 1.8; margin: 0;"
+
+              - ::
+                type: "image"
+                content: "https://media.giphy.com/media/26tn33aiTi1jkl6H6/giphy.gif"
+                css: "width: 80px; margin: 20px 0 0 0; border-radius: 6px;"
+
+          # Project 3 - Sovereign Nodes
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "🏠 Sovereign Nodes - Own Your Infrastructure"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "Your personal server that stores and distributes your content. Think of it as your own piece of internet infrastructure.\n\n**Why run a sovereign node:**\n\n- **True ownership** - The hardware is yours, in your house\n- **No cloud costs** - Run on a Raspberry Pi for ~$5/month electricity\n- **Physical control** - Nobody can access your node remotely\n- **Privacy** - Your data never touches third-party servers\n- **Censorship-resistant** - Can't be deplatformed or shut down\n\n**Hardware Options:**\n- Raspberry Pi 4 or 5 (recommended)\n- Old Android phone repurposed as server\n- Old laptop or desktop\n- Any Linux-capable device on your home network\n\n**What it does:**\n1. Stores encrypted copies of your content\n2. Validates UCAN tokens for access control\n3. Serves content to authorized viewers\n4. Handles CRDT synchronization for real-time features\n5. Collects form submissions and comment threads\n\n[Setup Guide](https://docs.osvauld.com/sovereign-node/setting-up)"
+                css: "color: #34495e; font-size: 16px; line-height: 1.8; margin: 0;"
+
+              - ::
+                type: "image"
+                content: "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif"
+                css: "width: 80px; margin: 20px 0 0 0; border-radius: 6px;"
+
+          # Philosophy Section
+          - ::
+            type: "section-container"
+            css: "margin-top: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "Design Principles"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "**Open source by default** - Every line of code is transparent, auditable, and modifiable. MIT licensed.\n\n**Free to use** - P2P architecture means no server costs, no subscriptions, no hidden fees.\n\n**You own your keys** - Your identity and access are secured by cryptography, not controlled by third parties.\n\n**Privacy by design** - End-to-end encryption, local-first architecture, zero knowledge systems.\n\n**Sovereignty first** - You control the hardware, the software, and the data. No compromises."
+                css: "color: #34495e; font-size: 16px; line-height: 2; margin: 0;"
+
+  # Writing Page
+  - ::
+    id: "writing"
+    name: "Writing"
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Abe"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #3498db; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0; border-bottom: 2px solid #3498db;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+      # Writing Content
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Manifesto"
+            css: "font-size: 42px; font-weight: 700; color: #2c3e50; margin: 0 0 15px 0;"
+
+          - ::
+            type: "text"
+            content: "Why we need digital sovereignty."
+            css: "color: #7f8c8d; font-size: 18px; margin: 0 0 50px 0;"
+
+          # Main Manifesto
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "The Problem"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "Today, almost everything we do online requires surrendering sovereignty over our digital identity.\n\n- To message friends persistently, you need at least an email account tied to a platform's identity system.\n- Your photos and files are accessible only through accounts you must maintain with specific services.\n- Even your home devices - cameras, lights, locks - need permission from remote servers to function, despite being physically in your house.\n\nThese systems work well functionally, but require you to give up control over your digital identity and relationships:\n\n- **Identity dependence** - Your ability to communicate depends on maintaining accounts with third parties.\n- **Permission-based access** - You need ongoing authorization from platforms to use services and access your own devices.\n- **No true ownership** - Even with encryption, your digital relationships exist only within systems you don't control.\n\nThe result: we've traded digital sovereignty for convenience. For those who want complete control over their digital life, current solutions aren't enough."
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0 0 30px 0;"
+
+              - ::
+                type: "heading"
+                content: "Our Solution: Direct Digital Collaboration"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "We're building everyday applications that connect people **directly** - without servers, subscriptions, or intermediaries.\n\n- **Messaging & calls** that work peer-to-peer, without accounts or platform lock-in.\n- **File sharing & backup** that never touches a third-party cloud.\n- **Password and identity management** that lives with you, not in a company's vault.\n- **Device access** that doesn't depend on remote servers to function.\n\nWith Osvauld apps, you get the convenience of modern connected tools - instant sync, global reach, seamless sharing - but without surrendering your identity, data, or relationships to anyone else."
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0 0 30px 0;"
+
+              - ::
+                type: "heading"
+                content: "Principles We Build On"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "**Open source by default** - Every line of code is transparent, auditable, and modifiable. No black boxes.\n\n**Free to use** - Peer-to-peer architecture means no server costs, no subscriptions, no hidden fees.\n\n**You own your keys** - Your identity and access are secured by cryptography, not controlled by third parties. Nobody can revoke your permissions but you."
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0 0 30px 0;"
+
+              - ::
+                type: "thread"
+                name: "Discussion"
+                mode: "markdown"
+                description: "What are your thoughts on digital sovereignty?"
+                css: "--thread-bg: #f8f9fa; --thread-border-color: #dee2e6; --thread-title-color: #2c3e50; --thread-text-color: #34495e; --thread-description-color: #7f8c8d; --thread-no-comments-color: #95a5a6; --thread-input-bg: white; --thread-input-border: #ced4da; --thread-input-text: #2c3e50; --thread-input-placeholder: #adb5bd; --thread-input-focus-border: #3498db; --thread-input-focus-shadow: rgba(52, 152, 219, 0.1); --thread-button-bg: #3498db; --thread-button-text: white; --thread-button-hover-bg: #2980b9; --thread-button-disabled-bg: #bdc3c7; --thread-comment-bg: white; --thread-comment-border: #e0e0e0; --thread-comment-author-color: #3498db; --thread-comment-time-color: #95a5a6;"
+
+          # Fist Pump GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/g9582DNuQppxC/giphy.gif"
+            css: "width: 100px; margin: 0 auto 40px auto; display: block; border-radius: 8px;"
+
+  # Contact Page
+  - ::
+    id: "contact"
+    name: "Contact"
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Abe"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #3498db; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0; border-bottom: 2px solid #3498db;"
+
+      # Contact Content
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Get in Touch"
+            css: "font-size: 42px; font-weight: 700; color: #2c3e50; margin: 0 0 15px 0;"
+
+          - ::
+            type: "text"
+            content: "Interested in digital sovereignty? Want to collaborate? Let's talk."
+            css: "color: #7f8c8d; font-size: 18px; margin: 0 0 50px 0;"
+
+          # Waving SpongeBob GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif"
+            css: "width: 120px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Form metadata
+          - ::
+            id: "form-contact"
+            type: "form"
+            name: "Contact Form"
+            eventName: "contact_message"
+
+          # Contact Form
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 40px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "form-field-text"
+                formId: "form-contact"
+                fieldName: "name"
+                label: "Your Name"
+                placeholder: "Jane Doe"
+                required: true
+                css: "margin-bottom: 25px;"
+
+              - ::
+                type: "form-field-email"
+                formId: "form-contact"
+                fieldName: "email"
+                label: "Email Address"
+                placeholder: "jane@example.com"
+                required: true
+                css: "margin-bottom: 25px;"
+
+              - ::
+                type: "form-field-textarea"
+                formId: "form-contact"
+                fieldName: "message"
+                label: "Message"
+                placeholder: "Hey Abe! I wanted to reach out about..."
+                required: true
+                css: "margin-bottom: 30px;"
+
+              - ::
+                type: "nav-button"
+                content: "Send Message"
+                formId: "form-contact"
+                targetContainerId: "thank-you"
+                css: "width: 100%; background: #3498db; color: white; padding: 16px; border-radius: 8px; font-size: 16px; font-weight: 600;"
+
+          # Alternative Contact Methods
+          - ::
+            type: "section-container"
+            css: "margin-top: 60px; text-align: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Or Find Me Here"
+                css: "font-size: 24px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "🐙 [GitHub](https://github.com/osvauld/osvauld)\n\n📱 [Telegram Community](https://t.me/+tjZLZK8JV8g0NTVl)\n\n📧 [abe@osvauld.com](mailto:abe@osvauld.com)\n\n🌐 [Osvauld Website](https://osvauld.com)"
+                css: "color: #3498db; font-size: 18px; line-height: 2.5;"
+
+  # Thank You Page
+  - ::
+    id: "thank-you"
+    name: "Thank You"
+    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; display: flex; align-items: center; justify-content: center;"
+    children::
+      - ::
+        type: "section-container"
+        css: "text-align: center; padding: 60px 40px; max-width: 600px;"
+        children::
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/l0MYGb8HkEPwn6V8c/giphy.gif"
+            css: "width: 150px; margin: 0 auto 40px auto; display: block; border-radius: 12px;"
+
+          - ::
+            type: "heading"
+            content: "Message Received!"
+            css: "color: white; font-size: 48px; font-weight: 700; margin: 0 0 20px 0;"
+
+          - ::
+            type: "text"
+            content: "Thanks for reaching out! I'll get back to you soon. In the meantime, check out the Telegram community or star the project on GitHub."
+            css: "color: rgba(255,255,255,0.9); font-size: 20px; line-height: 1.6; margin: 0 0 40px 0;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back to Home"
+            targetContainerId: "home"
+            css: "background: white; color: #667eea; padding: 16px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;"

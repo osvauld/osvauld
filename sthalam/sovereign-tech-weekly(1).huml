@@ -1,0 +1,311 @@
+name: "Sovereign Tech Weekly - Issue #47"
+
+screens::
+  - ::
+    id: "newsletter"
+    name: "Sovereign Tech Weekly #47"
+    isEntryPoint: true
+    css: "background: #0a0a0a; min-height: 100vh; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;"
+    children::
+
+      # Newsletter Container
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto;"
+        children::
+
+          # ============================================
+          # HEADER SECTION
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%); border: 2px solid #00ff88; border-radius: 12px; padding: 48px 40px; margin-bottom: 40px; text-align: center; box-shadow: 0 0 30px rgba(0, 255, 136, 0.1);"
+            children::
+
+              - ::
+                type: "heading"
+                content: "⚡ SOVEREIGN TECH WEEKLY"
+                css: "color: #00ff88; font-size: 48px; font-weight: 900; letter-spacing: -1px; margin: 0 0 16px 0; text-transform: uppercase; text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);"
+
+              - ::
+                type: "text"
+                content: "Issue #47 • October 28, 2025"
+                css: "color: #808080; font-size: 16px; margin: 0 0 20px 0; font-weight: 500; letter-spacing: 1px;"
+
+              - ::
+                type: "text"
+                content: "Your weekly dose of self-hosted, decentralized, and privacy-focused tech"
+                css: "color: #e0e0e0; font-size: 20px; margin: 0; line-height: 1.5; font-weight: 400;"
+
+          # ============================================
+          # EDITOR'S NOTE
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "background: #1a1a1a; border-radius: 12px; padding: 32px; margin-bottom: 40px; border-left: 4px solid #00ff88;"
+            children::
+
+              - ::
+                type: "text"
+                content: "Hey sovereign friends! This week has been absolutely wild in our corner of the tech world. We're seeing a massive surge in self-hosting adoption—apparently, people are finally getting tired of their data being someone else's business model. In this issue, we're diving into Umbrel's game-changing v1.5 update, some exciting developments in the Nostr ecosystem, and a deep dive on Syncthing that'll make you question why you ever trusted cloud sync services. Let's get into it!"
+                css: "color: #e0e0e0; font-size: 17px; line-height: 1.8; margin: 0; font-style: italic; font-weight: 400;"
+
+          # ============================================
+          # DECENTRALIZATION NEWS SECTION
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 40px;"
+            children::
+
+              - ::
+                type: "heading"
+                content: "🔓 Decentralization News"
+                css: "color: #00ff88; font-size: 32px; font-weight: 800; margin: 0 0 28px 0;"
+
+              # News Story 1
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; border-radius: 12px; padding: 28px 32px; margin-bottom: 24px; border: 1px solid #2a2a2a; transition: all 0.3s ease;"
+                children::
+
+                  - ::
+                    type: "text"
+                    content: "Umbrel 1.5 Transforms Home Servers into Personal Cloud Empires"
+                    css: "color: #ffffff; font-size: 22px; font-weight: 700; margin: 0 0 12px 0; line-height: 1.3;"
+
+                  - ::
+                    type: "text"
+                    content: "Umbrel just dropped version 1.5, and it's a monster update. The new App Marketplace now features over 250 self-hosted applications, including full Nextcloud integration, Immich for photo management, and even Home Assistant for the IoT enthusiasts. The killer feature? One-click deployments with automatic SSL certificates and domain management. This is what personal sovereignty looks like in 2025."
+                    css: "color: #c0c0c0; font-size: 16px; line-height: 1.7; margin: 0;"
+
+              # News Story 2
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; border-radius: 12px; padding: 28px 32px; margin-bottom: 24px; border: 1px solid #2a2a2a;"
+                children::
+
+                  - ::
+                    type: "text"
+                    content: "Nostr Client 'Primal' Hits 1 Million Users Without Touching VC Money"
+                    css: "color: #ffffff; font-size: 22px; font-weight: 700; margin: 0 0 12px 0; line-height: 1.3;"
+
+                  - ::
+                    type: "text"
+                    content: "The censorship-resistant social protocol Nostr is having a moment. Its flagship client Primal crossed the 1M user milestone this week, all while remaining completely bootstrapped. No venture capital, no user tracking, no algorithm feeding you rage-bait. Just pure, cryptographically-signed notes being relayed across a decentralized network. The exodus from traditional social media continues to accelerate."
+                    css: "color: #c0c0c0; font-size: 16px; line-height: 1.7; margin: 0;"
+
+              # News Story 3
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; border-radius: 12px; padding: 28px 32px; margin-bottom: 0; border: 1px solid #2a2a2a;"
+                children::
+
+                  - ::
+                    type: "text"
+                    content: "Proton Launches Encrypted Password Manager with Hardware Key Support"
+                    css: "color: #ffffff; font-size: 22px; font-weight: 700; margin: 0 0 12px 0; line-height: 1.3;"
+
+                  - ::
+                    type: "text"
+                    content: "Proton is expanding its privacy-first ecosystem with Proton Pass 2.0, now featuring full hardware security key support (YubiKey, FIDO2) and an innovative 'identity breach monitoring' system that doesn't compromise your privacy. Unlike competitors who share your email with data brokers to 'monitor' it, Proton uses zero-knowledge architecture to check breached databases without exposing your data. The Swiss privacy company continues to set the standard."
+                    css: "color: #c0c0c0; font-size: 16px; line-height: 1.7; margin: 0;"
+
+          # ============================================
+          # TOOL OF THE WEEK
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "background: linear-gradient(135deg, #1a1a1a 0%, #0f2f1f 100%); border: 2px solid #00ff88; border-radius: 12px; padding: 40px; margin-bottom: 40px; box-shadow: 0 0 20px rgba(0, 255, 136, 0.15);"
+            children::
+
+              - ::
+                type: "heading"
+                content: "🛠️ Tool of the Week: Syncthing"
+                css: "color: #00ff88; font-size: 32px; font-weight: 800; margin: 0 0 20px 0;"
+
+              - ::
+                type: "text"
+                content: "This week's spotlight shines on Syncthing—the open-source, peer-to-peer file synchronization tool that makes Dropbox look like a privacy nightmare from 2010."
+                css: "color: #e0e0e0; font-size: 18px; line-height: 1.7; margin: 0 0 24px 0; font-weight: 500;"
+
+              - ::
+                type: "text"
+                content: "What It Does"
+                css: "color: #ffffff; font-size: 20px; font-weight: 700; margin: 0 0 12px 0;"
+
+              - ::
+                type: "text"
+                content: "Syncthing synchronizes files between your devices without any central server, cloud storage, or corporate middleman. Your data goes directly from device to device, encrypted end-to-end, using your own network or the internet. Think of it as BitTorrent for your personal files, but secure, automatic, and actually designed for this purpose."
+                css: "color: #d0d0d0; font-size: 16px; line-height: 1.7; margin: 0 0 24px 0;"
+
+              - ::
+                type: "text"
+                content: "Why It Matters for Sovereignty"
+                css: "color: #ffffff; font-size: 20px; font-weight: 700; margin: 0 0 12px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "- **Zero Trust Required**: You don't need to trust a cloud provider, a corporation, or anyone else. Your files never touch a third-party server.\n- **Complete Control**: You decide what syncs, when it syncs, and where it syncs. No storage limits, no subscription fees, no surveillance.\n- **Privacy by Default**: All transfers are encrypted with TLS, and the protocol is designed to be surveillance-resistant. Even your file metadata stays private.\n- **Works Offline**: Local network sync is blazingly fast. No internet? No problem. Your devices sync directly over LAN.\n- **Platform Agnostic**: Runs on literally everything—Linux, Windows, Mac, Android, BSD, ARM devices, your toaster (probably)."
+                css: "color: #d0d0d0; font-size: 16px; line-height: 1.8; margin: 0 0 24px 0;"
+
+              - ::
+                type: "text"
+                content: "Quick Setup"
+                css: "color: #ffffff; font-size: 20px; font-weight: 700; margin: 0 0 12px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "```bash\n# Ubuntu/Debian\nsudo apt install syncthing\nsyncthing\n\n# macOS\nbrew install syncthing\nsyncthing\n\n# Then open http://localhost:8384 in your browser\n```"
+                css: "color: #d0d0d0; font-size: 15px; line-height: 1.6; margin: 0 0 24px 0; font-family: 'Courier New', monospace;"
+
+              - ::
+                type: "text"
+                content: "Real-World Use Cases"
+                css: "color: #ffffff; font-size: 20px; font-weight: 700; margin: 0 0 12px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "- **Photo Backup**: Auto-sync your phone photos to your home server without touching Google Photos\n- **Document Sync**: Keep your work files synchronized across laptop, desktop, and tablet without OneDrive\n- **Media Library**: Share your music/video collection across all your devices at LAN speeds\n- **Code Projects**: Sync development folders between machines without pushing every tiny change to Git\n- **Encrypted Backup**: Create a selective backup of critical files to a remote VPS or friend's server"
+                css: "color: #d0d0d0; font-size: 16px; line-height: 1.8; margin: 0;"
+
+          # ============================================
+          # RESOURCES & LINKS
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "background: #1a1a1a; border-radius: 12px; padding: 32px; margin-bottom: 40px;"
+            children::
+
+              - ::
+                type: "heading"
+                content: "📚 Resources & Links"
+                css: "color: #00ff88; font-size: 32px; font-weight: 800; margin: 0 0 24px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "**awesome-selfhosted/awesome-selfhosted** - The definitive list of self-hosted software with over 2,000 applications categorized and curated by the community.\n\n**Sovereign Computing Guide 2025** - A comprehensive 50-page guide covering everything from choosing hardware to securing your home server infrastructure.\n\n**Privacy Tools** - An actively maintained directory of privacy-respecting alternatives to popular services, from email to cloud storage.\n\n**Learn Self-Hosting Subreddit** - A welcoming community of 150K+ members helping newcomers get started with self-hosting, from basic Raspberry Pi setups to advanced Kubernetes clusters."
+                css: "color: #d0d0d0; font-size: 16px; line-height: 1.9; margin: 0;"
+
+          # ============================================
+          # COMMUNITY DISCUSSION
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "background: #1a1a1a; border-radius: 12px; padding: 32px; margin-bottom: 40px;"
+            children::
+
+              - ::
+                type: "heading"
+                content: "💬 Community Discussion"
+                css: "color: #00ff88; font-size: 32px; font-weight: 800; margin: 0 0 16px 0;"
+
+              - ::
+                type: "text"
+                content: "What tools are you using to reclaim your digital sovereignty? Share your self-hosting setup, ask questions, or discuss this week's stories below. This is your community—let's learn from each other!"
+                css: "color: #d0d0d0; font-size: 16px; line-height: 1.7; margin: 0 0 24px 0;"
+
+              - ::
+                type: "thread"
+                name: "Issue Discussion"
+                mode: "markdown"
+                description: "Share your thoughts..."
+                css: """
+                  .thread-container {
+                    background: #0a0a0a !important;
+                    border: 1px solid #2a2a2a !important;
+                    color: #e0e0e0 !important;
+                    padding: 20px !important;
+                  }
+                  .thread-container .thread-title {
+                    color: #00ff88 !important;
+                    font-size: 1.75rem !important;
+                    margin-bottom: 12px !important;
+                  }
+                  .thread-container .thread-description {
+                    color: #808080 !important;
+                  }
+                  .thread-container .no-comments-label {
+                    color: #808080 !important;
+                  }
+                  .thread-container .comment-form {
+                    background: transparent !important;
+                  }
+                  .thread-container textarea {
+                    background: #1a1a1a !important;
+                    border: 1px solid #00ff88 !important;
+                    color: #e0e0e0 !important;
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+                  }
+                  .thread-container textarea::placeholder {
+                    color: #606060 !important;
+                  }
+                  .thread-container textarea:focus {
+                    border-color: #00ff88 !important;
+                    box-shadow: 0 0 0 3px rgba(0, 255, 136, 0.15) !important;
+                  }
+                  .thread-container button {
+                    background: #00ff88 !important;
+                    color: #0a0a0a !important;
+                    font-weight: 700 !important;
+                    padding: 0.75rem 1.5rem !important;
+                  }
+                  .thread-container button:hover:not(:disabled) {
+                    background: #00dd77 !important;
+                  }
+                  .thread-container button:disabled {
+                    background: #2a2a2a !important;
+                    color: #606060 !important;
+                  }
+                  .thread-container .comment {
+                    background: #1a1a1a !important;
+                    border: 1px solid #2a2a2a !important;
+                    color: #e0e0e0 !important;
+                  }
+                  .thread-container .comment-author {
+                    color: #00ff88 !important;
+                    font-weight: 700 !important;
+                  }
+                  .thread-container .comment-time {
+                    color: #808080 !important;
+                  }
+                  .thread-container .comment-content {
+                    color: #d0d0d0 !important;
+                  }
+                  .thread-container .comments-toggle {
+                    background: transparent !important;
+                    color: #00ff88 !important;
+                    border: none !important;
+                    padding: 0.5rem 0 !important;
+                  }
+                  .thread-container .comments-toggle:hover {
+                    color: #00dd77 !important;
+                  }
+                """
+
+          # ============================================
+          # FOOTER
+          # ============================================
+          - ::
+            type: "section-container"
+            css: "text-align: center; padding: 32px 0 0 0; border-top: 1px solid #2a2a2a; margin-top: 20px;"
+            children::
+
+              - ::
+                type: "text"
+                content: "────────────────────────────────────────"
+                css: "color: #2a2a2a; font-size: 12px; margin: 0 0 16px 0; letter-spacing: 2px;"
+
+              - ::
+                type: "text"
+                content: "Published on your sovereign node"
+                css: "color: #606060; font-size: 14px; margin: 0 0 8px 0; font-weight: 500;"
+
+              - ::
+                type: "text"
+                content: "No platform. No gatekeepers."
+                css: "color: #606060; font-size: 14px; margin: 0; font-weight: 500;"

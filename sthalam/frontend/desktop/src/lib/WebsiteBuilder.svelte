@@ -5,7 +5,6 @@
 	import BlockPalette from "./BlockPalette.svelte";
 	import PropertiesPanel from "./PropertiesPanel.svelte";
 	import ContentEditorModal from "./ContentEditorModal.svelte";
-	import KeyboardShortcuts from "./KeyboardShortcuts.svelte";
 	import NavigationPanel from "../components/NavigationPanel.svelte";
 	import NavigationToggle from "../components/NavigationToggle.svelte";
 	import TemplateImportModal from "../components/TemplateImportModal.svelte";
@@ -210,9 +209,36 @@
 	function updateBlock(blockId: string, updates: Partial<any>) {
 		if (!yDocs) return;
 		const block = yDocs.blocks.get(blockId);
-		if (block) {
-			yDocs.blocks.set(blockId, { ...block, ...updates });
+		if (!block) return;
+
+		// Handle parent-child relationship updates
+		if ('parentId' in updates) {
+			const oldParentId = block.parentId;
+			const newParentId = updates.parentId;
+
+			// Remove from old parent's children array
+			if (oldParentId) {
+				const oldParent = yDocs.blocks.get(oldParentId);
+				if (oldParent && Array.isArray(oldParent.children)) {
+					const updatedChildren = oldParent.children.filter((id: string) => id !== blockId);
+					yDocs.blocks.set(oldParentId, { ...oldParent, children: updatedChildren });
+				}
+			}
+
+			// Add to new parent's children array
+			if (newParentId) {
+				const newParent = yDocs.blocks.get(newParentId);
+				if (newParent) {
+					const children = Array.isArray(newParent.children) ? newParent.children : [];
+					if (!children.includes(blockId)) {
+						yDocs.blocks.set(newParentId, { ...newParent, children: [...children, blockId] });
+					}
+				}
+			}
 		}
+
+		// Update the block itself
+		yDocs.blocks.set(blockId, { ...block, ...updates });
 	}
 
 	// Content editor handlers
@@ -537,6 +563,7 @@
 				newBlock.name = "New Screen";
 				newBlock.isEntryPoint = false;
 				newBlock.css = "padding: 2rem; background: #f5f5f5;";
+				newBlock.children = [];
 				break;
 			case "section-container":
 				newBlock.width = 600;
@@ -545,6 +572,7 @@
 				newBlock.css = "padding: 1rem; background: #ffffff; border: 1px solid #e0e0e0;";
 				newBlock.visible = true;
 				newBlock.isModal = false;
+				newBlock.children = [];
 				break;
 			case "markdown-text":
 				newBlock.width = 500;
@@ -622,7 +650,6 @@
 			onDeleteBlock={deleteBlock}
 			onEditContent={handleEditContent}
 		/>
-		<KeyboardShortcuts />
 
 		{#if showImportModal}
 			<TemplateImportModal

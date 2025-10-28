@@ -186,6 +186,26 @@
 
 		return nodes;
 	});
+
+	// Get all blocks that are in the tree (to exclude them from orphaned list)
+	let blocksInTree = $derived(new Set(flatTreeNodes.map(n => n.blockId)));
+
+	// Get orphaned blocks (blocks without parents that aren't screens)
+	let orphanedBlocks = $derived.by(() => {
+		const orphaned: Array<{ blockId: string; block: any }> = [];
+
+		for (const [blockId, block] of blocks.entries()) {
+			// Skip if already in tree
+			if (blocksInTree.has(blockId)) continue;
+
+			// Add blocks that don't have a parent and aren't screen containers
+			if (!block.parentId) {
+				orphaned.push({ blockId, block });
+			}
+		}
+
+		return orphaned;
+	});
 </script>
 
 <svelte:window onmousemove={handleMouseMove} onmouseup={handleMouseUp} />
@@ -205,7 +225,11 @@
 		style:transform="translate({localViewport.x}px, {localViewport.y}px) scale({viewport.zoom})"
 	>
 		<!-- Tree View -->
-		<div class="tree-container">
+		<div
+			class="tree-container"
+			ondragover={handleDragOver}
+			ondrop={handleDrop}
+		>
 			<!-- Tree guide lines layer -->
 			<TreeGuideLines {treeLayouts} {blocks} rowHeight={DEFAULT_TREE_CONFIG.rowHeight} indent={DEFAULT_TREE_CONFIG.indent} />
 
@@ -225,6 +249,27 @@
 						onToggle={(e) => toggleCollapse(blockId)}
 						onSelect={() => onBlockSelect(blockId)}
 					/>
+				</div>
+			{/each}
+
+			<!-- Orphaned blocks (blocks without parents) -->
+			{#each orphanedBlocks as { blockId, block } (blockId)}
+				<div
+					class="orphaned-block"
+					style:position="absolute"
+					style:left="{block.x}px"
+					style:top="{block.y}px"
+					style:width="{block.width}px"
+					style:height="{block.height}px"
+					onclick={() => onBlockSelect(blockId)}
+				>
+					<div class="orphaned-block-content" class:selected={selectedBlockId === blockId}>
+						<div class="orphaned-block-header">
+							<span class="orphaned-icon">{block.type === 'screen-container' ? '🖥️' : block.type === 'section-container' ? '📦' : '📄'}</span>
+							<span class="orphaned-label">{block.name || block.content || block.type}</span>
+						</div>
+						<div class="orphaned-hint">No parent - use Properties to assign</div>
+					</div>
 				</div>
 			{/each}
 		</div>
@@ -268,6 +313,9 @@
 		-webkit-user-select: none;
 		-moz-user-select: none;
 		-ms-user-select: none;
+		/* Force GPU acceleration */
+		transform: translateZ(0);
+		will-change: contents;
 	}
 
 	.canvas {
@@ -279,10 +327,16 @@
 		-webkit-user-select: none;
 		-moz-user-select: none;
 		-ms-user-select: none;
-		-webkit-font-smoothing: antialiased;
-		image-rendering: -webkit-optimize-contrast;
-		image-rendering: crisp-edges;
+		/* Better text rendering when scaled */
+		-webkit-font-smoothing: subpixel-antialiased;
+		-moz-osx-font-smoothing: auto;
+		font-smooth: always;
+		text-rendering: geometricPrecision;
+		/* Force hardware acceleration for smoother transforms */
+		will-change: transform;
+		backface-visibility: hidden;
 		transform-style: preserve-3d;
+		/* Remove image rendering that affects text */
 	}
 
 	/* Zoom controls */
@@ -340,9 +394,11 @@
 	}
 
 	.tree-container {
-		position: relative;
-		min-height: 100%;
-		min-width: 100%;
+		position: absolute;
+		top: 0;
+		left: 0;
+		width: 100%;
+		height: 100%;
 		pointer-events: none;
 	}
 
@@ -350,6 +406,9 @@
 		pointer-events: none;
 		width: fit-content;
 		max-width: 500px;
+		/* Better text rendering */
+		-webkit-font-smoothing: subpixel-antialiased;
+		-moz-osx-font-smoothing: auto;
 	}
 
 	.tree-node-wrapper :global(.tree-node-container) {
@@ -360,5 +419,66 @@
 		width: max-content;
 		max-width: 500px;
 		min-width: 300px;
+	}
+
+	/* Orphaned blocks */
+	.orphaned-block {
+		pointer-events: auto;
+		cursor: pointer;
+		/* Better text rendering */
+		-webkit-font-smoothing: subpixel-antialiased;
+		-moz-osx-font-smoothing: auto;
+		text-rendering: geometricPrecision;
+	}
+
+	.orphaned-block-content {
+		width: 100%;
+		height: 100%;
+		background: #161b22;
+		border: 2px dashed #f9e2af;
+		border-radius: 8px;
+		padding: 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		transition: all 0.2s;
+	}
+
+	.orphaned-block-content:hover {
+		background: #21262d;
+		border-color: #f9e2af;
+		box-shadow: 0 4px 12px rgba(249, 226, 175, 0.3);
+	}
+
+	.orphaned-block-content.selected {
+		background: #30363d;
+		border-color: #89b4fa;
+		border-style: solid;
+		box-shadow: 0 4px 16px rgba(137, 180, 250, 0.4);
+	}
+
+	.orphaned-block-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-weight: 600;
+		color: #c9d1d9;
+	}
+
+	.orphaned-icon {
+		font-size: 16px;
+	}
+
+	.orphaned-label {
+		font-size: 13px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.orphaned-hint {
+		font-size: 11px;
+		color: #f9e2af;
+		font-style: italic;
 	}
 </style>

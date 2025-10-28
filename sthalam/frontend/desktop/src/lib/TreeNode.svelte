@@ -96,6 +96,9 @@
 		transition: background 0.1s ease;
 		position: relative;
 		border-radius: 4px;
+		/* Better rendering when scaled */
+		transform: translateZ(0);
+		backface-visibility: hidden;
 	}
 
 	.tree-node:hover {
@@ -148,9 +151,10 @@
 		text-overflow: ellipsis;
 		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial,
 			sans-serif;
-		/* Optimize text for Tauri WebView */
-		-webkit-font-smoothing: antialiased;
-		text-rendering: optimizeLegibility;
+		/* Better text rendering when scaled */
+		-webkit-font-smoothing: subpixel-antialiased;
+		-moz-osx-font-smoothing: auto;
+		text-rendering: geometricPrecision;
 	}
 
 	.badge {

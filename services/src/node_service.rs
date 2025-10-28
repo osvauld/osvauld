@@ -170,7 +170,8 @@ pub async fn prepare_resource_for_viewer(
         .find_by_resource_and_user(resource_id, &local_user.id)
         .await?;
 
-    // Re-encrypt the key for the viewer's public key
+    // TODO: Generate new AES key, encrypt content with new key, encrypt new AES key with viewer's public key
+    // Currently: Re-encrypt existing key for the viewer's public key
     let viewer_encrypted_key = {
         let crypto = crypto_utils.read().await;
         crypto.encrypt_key_with_new_pub_key(

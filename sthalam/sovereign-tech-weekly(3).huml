@@ -1,0 +1,242 @@
+name: "Sovereign Tech Weekly"
+
+screens::
+  - ::
+    id: "newsletter"
+    name: "Sovereign Tech Weekly - Newsletter"
+    isEntryPoint: true
+    css: "background: #0a0a0a; color: #e0e0e0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 0; margin: 0; min-height: 100vh;"
+    children::
+      # Header with glowing green border
+      - ::
+        type: "section-container"
+        css: "background: linear-gradient(135deg, #0f0f0f 0%, #1a1a1a 100%); border: 2px solid #00ff88; box-shadow: 0 0 20px rgba(0, 255, 136, 0.3), inset 0 0 20px rgba(0, 255, 136, 0.1); padding: 40px; margin: 20px; border-radius: 8px; text-align: center;"
+        children::
+          - ::
+            type: "heading"
+            content: "SOVEREIGN TECH WEEKLY"
+            css: "color: #00ff88; font-size: 48px; font-weight: 900; letter-spacing: 3px; margin: 0; text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);"
+
+          - ::
+            type: "text"
+            content: "Issue #42 | January 28, 2025"
+            css: "color: #888; font-size: 16px; margin-top: 10px; letter-spacing: 1px;"
+
+      # Main content wrapper
+      - ::
+        type: "section-container"
+        css: "max-width: 900px; margin: 0 auto; padding: 0 20px 40px 20px;"
+        children::
+          # Editor's Note
+          - ::
+            type: "section-container"
+            css: "background: #1a1a1a; padding: 30px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #00ff88;"
+            children::
+              - ::
+                type: "heading"
+                content: "📝 Editor's Note"
+                css: "color: #00ff88; font-size: 28px; font-weight: 700; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                content: "Welcome to another week of sovereign technology! This week we're diving deep into the latest developments in decentralization, exploring powerful self-hosting tools, and celebrating the community that's building a truly open internet.\n\nThe shift toward digital sovereignty continues to accelerate. More people are taking control of their data, running their own infrastructure, and choosing privacy-first alternatives. Let's explore what's new this week."
+                css: "color: #cccccc; line-height: 1.8; font-size: 16px;"
+
+          # Decentralization News Section
+          - ::
+            type: "section-container"
+            css: "margin: 40px 0;"
+            children::
+              - ::
+                type: "heading"
+                content: "🌐 Decentralization News"
+                css: "color: #00ff88; font-size: 32px; font-weight: 700; margin: 0 0 25px 0; text-shadow: 0 0 5px rgba(0, 255, 136, 0.3);"
+
+              # News Story 1
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; padding: 25px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #2a2a2a; transition: all 0.3s ease;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Nostr Reaches 2 Million Users"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 10px 0;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "The decentralized social protocol Nostr has crossed a major milestone with over 2 million registered public keys. The protocol, which enables censorship-resistant social networking, has seen explosive growth thanks to new clients like **Damus** and **Amethyst**.\n\nKey highlights:\n- Lightning Network integration for micropayments\n- Zero platform risk - your identity, your keys\n- Growing ecosystem of relays and apps"
+                    css: "color: #cccccc; line-height: 1.7; font-size: 15px;"
+
+              # News Story 2
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; padding: 25px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #2a2a2a;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Umbrel Launches App Store 2.0"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 10px 0;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "Umbrel has unveiled a completely redesigned app store with over 200 self-hosted applications. The new interface makes it easier than ever to spin up your own cloud services, from file storage to password managers.\n\nNew features include:\n- One-click installation for complex apps\n- Automatic updates and backups\n- Enhanced security sandboxing"
+                    css: "color: #cccccc; line-height: 1.7; font-size: 15px;"
+
+              # News Story 3
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; padding: 25px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #2a2a2a;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Proton Announces E2E Encrypted Calendar"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 10px 0;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "Proton has expanded its privacy-first ecosystem with the launch of an end-to-end encrypted calendar service. Built on zero-knowledge architecture, even Proton cannot access your calendar events.\n\nThis complements their existing suite:\n- ProtonMail (encrypted email)\n- ProtonVPN (secure networking)\n- ProtonDrive (encrypted storage)"
+                    css: "color: #cccccc; line-height: 1.7; font-size: 15px;"
+
+              # News Story 4
+              - ::
+                type: "section-container"
+                css: "background: #1a1a1a; padding: 25px; margin-bottom: 20px; border-radius: 8px; border: 1px solid #2a2a2a;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Matrix Protocol Achieves IETF Standardization"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 10px 0;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "The Matrix decentralized communication protocol has officially been recognized by the Internet Engineering Task Force (IETF), marking a huge win for open communication standards. This puts Matrix on par with protocols like HTTP and SMTP.\n\nWhat this means:\n- Increased adoption by governments and enterprises\n- Interoperability between different messaging platforms\n- A path forward for truly decentralized communication"
+                    css: "color: #cccccc; line-height: 1.7; font-size: 15px;"
+
+          # Tool of the Week - Special Section with Gradient
+          - ::
+            type: "section-container"
+            css: "background: linear-gradient(135deg, #1a1a1a 0%, #0f2f1f 50%, #1a1a1a 100%); padding: 35px; margin: 40px 0; border-radius: 12px; border: 2px solid #00ff88; box-shadow: 0 0 30px rgba(0, 255, 136, 0.2);"
+            children::
+              - ::
+                type: "heading"
+                content: "🔧 Tool of the Week: Nextcloud"
+                css: "color: #00ff88; font-size: 36px; font-weight: 700; margin: 0 0 25px 0; text-shadow: 0 0 10px rgba(0, 255, 136, 0.4);"
+
+              # What It Does
+              - ::
+                type: "section-container"
+                css: "margin-bottom: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "What It Does"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 12px 0; border-bottom: 2px solid #00ff88; padding-bottom: 8px; display: inline-block;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "Nextcloud is a self-hosted productivity platform that replaces services like Google Drive, Dropbox, Google Calendar, and Google Docs. It's your personal cloud that you completely control.\n\n**Core Features:**\n- File sync and share across all devices\n- Calendar and contacts management\n- Collaborative document editing\n- Video conferencing (Nextcloud Talk)\n- Task management and notes\n- Photo gallery with facial recognition\n- End-to-end encryption support"
+                    css: "color: #cccccc; line-height: 1.8; font-size: 15px;"
+
+              # Why It Matters
+              - ::
+                type: "section-container"
+                css: "margin-bottom: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Why It Matters"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 12px 0; border-bottom: 2px solid #00ff88; padding-bottom: 8px; display: inline-block;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "In an era where tech giants monetize your data and can arbitrarily shut down your account, Nextcloud represents true digital sovereignty. You own the hardware, control the software, and decide who has access.\n\n**Privacy Benefits:**\n- Zero data mining or behavioral tracking\n- No third-party access to your files\n- Server location under your control\n- Compliant with GDPR and other regulations\n\n**Cost Savings:**\n- No monthly subscription fees\n- Unlimited storage (based on your hardware)\n- Support for multiple users/family\n- One-time setup, lifetime use"
+                    css: "color: #cccccc; line-height: 1.8; font-size: 15px;"
+
+              # Setup Instructions
+              - ::
+                type: "section-container"
+                css: "margin-bottom: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Setup Instructions"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 12px 0; border-bottom: 2px solid #00ff88; padding-bottom: 8px; display: inline-block;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "**Prerequisites:**\n- A server or Raspberry Pi\n- Domain name (optional but recommended)\n- Basic command line knowledge\n\n**Quick Install (Ubuntu/Debian):**\n\n```bash\n# Install snap (if not already installed)\nsudo apt update\nsudo apt install snapd\n\n# Install Nextcloud\nsudo snap install nextcloud\n\n# Create admin account\nsudo nextcloud.manual-install admin password\n\n# Configure trusted domains\nsudo nextcloud.occ config:system:set trusted_domains 1 --value=yourdomain.com\n```\n\n**Alternative: Docker Install:**\n\n```bash\ndocker run -d -p 8080:80 \\\n  -v nextcloud:/var/www/html \\\n  --name nextcloud \\\n  nextcloud\n```\n\n**Post-Installation:**\n1. Set up SSL/TLS with Let's Encrypt\n2. Configure external storage (optional)\n3. Install desired apps from the app store\n4. Set up automated backups\n5. Configure mobile apps for sync"
+                    css: "color: #cccccc; line-height: 1.8; font-size: 15px; background: #0a0a0a; padding: 15px; border-radius: 6px; border-left: 3px solid #00ff88;"
+
+              # Use Cases
+              - ::
+                type: "section-container"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Use Cases"
+                    css: "color: #00ff88; font-size: 22px; font-weight: 600; margin: 0 0 12px 0; border-bottom: 2px solid #00ff88; padding-bottom: 8px; display: inline-block;"
+
+                  - ::
+                    type: "markdown-text"
+                    content: "**Personal/Family:**\n- Centralized photo backup from all family devices\n- Shared calendar for family events\n- Document storage without subscription fees\n- Private video calls without Zoom\n\n**Small Business:**\n- Team collaboration on documents\n- Client file sharing with granular permissions\n- Project management with tasks and deadlines\n- Replace Google Workspace at fraction of cost\n\n**Creative Professionals:**\n- Large file transfers to clients\n- Version control for creative projects\n- Portfolio hosting\n- Secure client galleries\n\n**Developers:**\n- Git repository hosting\n- Team documentation wiki\n- Code review and collaboration\n- CI/CD integration capabilities"
+                    css: "color: #cccccc; line-height: 1.8; font-size: 15px;"
+
+          # Resources & Links
+          - ::
+            type: "section-container"
+            css: "background: #1a1a1a; padding: 30px; margin: 30px 0; border-radius: 8px; border: 1px solid #2a2a2a;"
+            children::
+              - ::
+                type: "heading"
+                content: "📚 Resources & Links"
+                css: "color: #00ff88; font-size: 28px; font-weight: 700; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                content: "**Getting Started Guides:**\n- [Self-Hosting 101](https://example.com) - Complete beginner's guide to running your own services\n- [Docker for Self-Hosters](https://example.com) - Master containerization for easy deployments\n- [Home Server Security](https://example.com) - Essential security practices\n\n**Community Resources:**\n- [r/selfhosted](https://reddit.com/r/selfhosted) - Active Reddit community with 500k+ members\n- [Awesome Self-Hosted](https://github.com/awesome-selfhosted/awesome-selfhosted) - Curated list of services\n- [Self-Hosted Podcast](https://selfhosted.show) - Weekly podcast on self-hosting\n\n**Privacy Tools:**\n- [Privacy Guides](https://privacyguides.org) - Comprehensive privacy tool recommendations\n- [EFF Surveillance Self-Defense](https://ssd.eff.org) - Digital security guide\n\n**Hardware Recommendations:**\n- [Umbrel Home](https://umbrel.com) - Plug-and-play home server\n- [Raspberry Pi](https://raspberrypi.org) - Affordable self-hosting hardware\n- [Used Enterprise Servers](https://example.com) - Budget-friendly powerful hardware"
+                css: "color: #cccccc; line-height: 1.8; font-size: 15px;"
+
+          # Community Discussion Section
+          - ::
+            type: "section-container"
+            css: "margin: 40px 0;"
+            children::
+              - ::
+                type: "heading"
+                content: "💬 Community Discussion"
+                css: "color: #00ff88; font-size: 28px; font-weight: 700; margin: 0 0 15px 0;"
+
+              - ::
+                type: "text"
+                content: "Share your self-hosting setup, ask questions, and discuss this week's topics. This is our space to learn from each other and build the sovereign tech community."
+                css: "color: #cccccc; line-height: 1.7; font-size: 16px; margin-bottom: 25px;"
+
+              - ::
+                type: "thread"
+                id: "newsletter-discussion"
+                eventName: "sovereign_tech_discussion"
+                supportsMarkdown: true
+                css: "background: #1a1a1a; padding: 25px; border-radius: 8px; border: 1px solid #2a2a2a;"
+                buttonCss: "background: #00ff88; color: #0a0a0a; padding: 12px 30px; border-radius: 6px; font-weight: 600; font-size: 16px; border: none; cursor: pointer; transition: all 0.3s ease; box-shadow: 0 0 15px rgba(0, 255, 136, 0.3);"
+                textareaCss: "background: #0f0f0f; color: #e0e0e0; border: 1px solid #00ff88; padding: 15px; border-radius: 6px; font-size: 15px; font-family: 'Fira Code', monospace; min-height: 120px; width: 100%; box-sizing: border-box;"
+                commentCss: "background: #0f0f0f; padding: 20px; margin: 15px 0; border-radius: 6px; border-left: 3px solid #00ff88;"
+
+      # Footer
+      - ::
+        type: "section-container"
+        css: "max-width: 900px; margin: 40px auto 0 auto; padding: 30px 20px; text-align: center; border-top: 2px solid #00ff88; background: linear-gradient(135deg, #0a0a0a 0%, #0f0f0f 100%);"
+        children::
+          - ::
+            type: "text"
+            content: "Published on your sovereign node"
+            css: "color: #00ff88; font-size: 18px; font-weight: 600; margin: 0 0 8px 0; letter-spacing: 1px;"
+
+          - ::
+            type: "text"
+            content: "No platform. No gatekeepers."
+            css: "color: #888; font-size: 14px; font-style: italic; margin: 0;"
+
+          - ::
+            type: "markdown-text"
+            content: "---\n\n*Sovereign Tech Weekly is published independently. All content is freely available.*\n\n*Stay sovereign. Stay free.*"
+            css: "color: #666; font-size: 13px; margin-top: 20px; line-height: 1.6;"

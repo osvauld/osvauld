@@ -1,0 +1,722 @@
+name: "Personal Website - Minimalist & Lighthearted"
+
+screens::
+  - ::
+    id: "home"
+    name: "Homepage"
+    isEntryPoint: true
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Your Name"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+      # Main Content Container
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          # Hero Section with Photo
+          - ::
+            type: "section-container"
+            css: "text-align: center; margin-bottom: 60px;"
+            children::
+              - ::
+                type: "image"
+                content: "https://via.placeholder.com/150/2c3e50/ffffff?text=Photo"
+                css: "width: 150px; height: 150px; border-radius: 50%; margin: 0 auto 25px auto; display: block; border: 3px solid #e0e0e0;"
+
+              - ::
+                type: "heading"
+                content: "Hi, I'm [Your Name] 👋"
+                css: "font-size: 36px; font-weight: 700; color: #2c3e50; margin: 0 0 20px 0; line-height: 1.2;"
+
+              - ::
+                type: "text"
+                content: "Builder, tinkerer, coffee enthusiast. I make things on the internet."
+                css: "font-size: 20px; color: #7f8c8d; line-height: 1.6; margin: 0;"
+
+          # Fun GIF Divider
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/13HgwGsXF0aiGY/giphy.gif"
+            css: "width: 100px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # About Section
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "About"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "I'm a **software developer** and **open-source enthusiast** who loves building things that matter. When I'm not coding, you'll find me:\n\n- 📸 Taking photos of random things\n- ☕ Perfecting my pour-over technique\n- 🎮 Speedrunning indie games\n- 📚 Reading sci-fi novels\n\nCurrently working on making the internet a little less boring, one project at a time."
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0;"
+
+          # Typing GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/LmNwrBhejkK9EFP504/giphy.gif"
+            css: "width: 120px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Projects Teaser
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "Recent Projects"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "section-container"
+                css: "background: white; border-radius: 12px; padding: 30px; margin-bottom: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "🚀 Project Alpha"
+                    css: "font-size: 22px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "A cool thing that does stuff. Built with modern tech stack and lots of coffee."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0 0 15px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "🔧 Tech: React, Node.js, PostgreSQL"
+                    css: "color: #95a5a6; font-size: 14px; margin: 0;"
+
+              - ::
+                type: "section-container"
+                css: "background: white; border-radius: 12px; padding: 30px; margin-bottom: 20px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "🎨 Design Playground"
+                    css: "font-size: 22px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Experiments with UI/UX and interaction design. Sometimes it works, sometimes it's art."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0 0 15px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "🔧 Tech: Figma, CSS, Vibes"
+                    css: "color: #95a5a6; font-size: 14px; margin: 0;"
+
+              - ::
+                type: "nav-button"
+                content: "View All Projects →"
+                targetContainerId: "projects"
+                css: "background: #3498db; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 16px; margin-top: 10px;"
+
+          # Celebration GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/kyLYXonQYYfwYDIeZl/giphy.gif"
+            css: "width: 100px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Blog Teaser
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "Recent Writing"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "section-container"
+                css: "border-left: 4px solid #3498db; padding-left: 20px; margin-bottom: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Why I Still Use RSS in 2025"
+                    css: "font-size: 20px; font-weight: 600; color: #2c3e50; margin: 0 0 8px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Feb 15, 2025 • 5 min read"
+                    css: "color: #95a5a6; font-size: 14px; margin: 0 0 10px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Social media algorithms are exhausting. Here's why I still curate my own information diet like it's 2008."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0;"
+
+              - ::
+                type: "section-container"
+                css: "border-left: 4px solid #3498db; padding-left: 20px; margin-bottom: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Building in Public: Month 3"
+                    css: "font-size: 20px; font-weight: 600; color: #2c3e50; margin: 0 0 8px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Jan 28, 2025 • 8 min read"
+                    css: "color: #95a5a6; font-size: 14px; margin: 0 0 10px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "Reflections on sharing the journey, dealing with impostor syndrome, and finding my tribe."
+                    css: "color: #7f8c8d; font-size: 16px; line-height: 1.7; margin: 0;"
+
+              - ::
+                type: "nav-button"
+                content: "Read More →"
+                targetContainerId: "writing"
+                css: "background: #3498db; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; font-size: 16px; margin-top: 10px;"
+
+          # Coffee GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/Zw3oBUuOlDJ3W/giphy.gif"
+            css: "width: 100px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Quick Links
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; border: 1px solid #e0e0e0; margin-bottom: 60px; text-align: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Find Me Online"
+                css: "font-size: 24px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "🐙 [GitHub](https://github.com/yourusername) • 🐦 [Twitter](https://twitter.com/yourusername) • 💼 [LinkedIn](https://linkedin.com/in/yourusername) • 📧 [Email](mailto:you@example.com)"
+                css: "color: #3498db; font-size: 16px; line-height: 2;"
+
+          # Footer
+          - ::
+            type: "section-container"
+            css: "border-top: 1px solid #e0e0e0; padding-top: 30px; text-align: center;"
+            children::
+              - ::
+                type: "text"
+                content: "Made with ☕ and curiosity"
+                css: "color: #95a5a6; font-size: 14px; margin: 0 0 8px 0;"
+
+              - ::
+                type: "text"
+                content: "© 2025 Your Name. Built with Sthalam."
+                css: "color: #bdc3c7; font-size: 13px; margin: 0;"
+
+  # Projects Page
+  - ::
+    id: "projects"
+    name: "Projects"
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Your Name"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #3498db; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0; border-bottom: 2px solid #3498db;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+      # Projects Content
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Projects"
+            css: "font-size: 42px; font-weight: 700; color: #2c3e50; margin: 0 0 15px 0;"
+
+          - ::
+            type: "text"
+            content: "Things I've built, shipped, and am proud of (mostly)."
+            css: "color: #7f8c8d; font-size: 18px; margin: 0 0 50px 0;"
+
+          # Project 1
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "🚀 Project Alpha"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "A full-stack application that solves [problem] for [audience]. Built from scratch with:\n\n- **Frontend:** React, TypeScript, TailwindCSS\n- **Backend:** Node.js, Express, PostgreSQL\n- **Infrastructure:** Docker, AWS\n\nStarted as a weekend project, now has 10K+ users across 30 countries.\n\n[View Live Demo](https://example.com) • [Source Code](https://github.com/yourusername/project)"
+                css: "color: #34495e; font-size: 16px; line-height: 1.8; margin: 0;"
+
+              - ::
+                type: "image"
+                content: "https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif"
+                css: "width: 80px; margin: 20px 0 0 0; border-radius: 6px;"
+
+          # Project 2
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "🎨 Design Playground"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "A collection of UI experiments and interaction design prototypes. Each piece explores a different concept:\n\n- Micro-interactions that don't suck\n- Animation timing that feels right\n- Accessibility-first components\n\nBuilt with **pure CSS** and **vanilla JavaScript** because sometimes less is more.\n\n[View Collection](https://example.com)"
+                css: "color: #34495e; font-size: 16px; line-height: 1.8; margin: 0;"
+
+              - ::
+                type: "image"
+                content: "https://media.giphy.com/media/26tn33aiTi1jkl6H6/giphy.gif"
+                css: "width: 80px; margin: 20px 0 0 0; border-radius: 6px;"
+
+          # Project 3
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "🔧 CLI Tool for Developers"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 15px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "A command-line tool that automates the boring stuff. Because life's too short for repetitive tasks.\n\n```bash\n$ npm install -g awesome-cli\n$ awesome-cli magic\n✨ Done in 0.5s\n```\n\n**Features:**\n- Lightning fast\n- Zero config needed\n- Actually works\n\n[Install from NPM](https://npmjs.com/package/awesome-cli) • [GitHub](https://github.com/yourusername/cli)"
+                css: "color: #34495e; font-size: 16px; line-height: 1.8; margin: 0;"
+
+              - ::
+                type: "image"
+                content: "https://media.giphy.com/media/3oKIPnAiaMCws8nOsE/giphy.gif"
+                css: "width: 80px; margin: 20px 0 0 0; border-radius: 6px;"
+
+          # Side Projects Section
+          - ::
+            type: "section-container"
+            css: "margin-top: 60px;"
+            children::
+              - ::
+                type: "heading"
+                content: "Side Quests"
+                css: "font-size: 28px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0; border-bottom: 2px solid #3498db; padding-bottom: 10px;"
+
+              - ::
+                type: "text"
+                content: "Smaller experiments that were fun to build:"
+                css: "color: #7f8c8d; font-size: 16px; margin: 0 0 25px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "- 🎮 **Retro Game in JS** - Snake, but with better graphics\n- 📊 **Data Viz Library** - Because D3 is overkill for pie charts\n- 🤖 **Slack Bot** - Tells terrible jokes on demand\n- 🎵 **Music Player** - Winamp nostalgia, browser edition\n- 📝 **Markdown Editor** - Distraction-free writing tool"
+                css: "color: #34495e; font-size: 16px; line-height: 2; margin: 0;"
+
+  # Writing Page
+  - ::
+    id: "writing"
+    name: "Writing"
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Your Name"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #3498db; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0; border-bottom: 2px solid #3498db;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+      # Writing Content
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Writing"
+            css: "font-size: 42px; font-weight: 700; color: #2c3e50; margin: 0 0 15px 0;"
+
+          - ::
+            type: "text"
+            content: "Thoughts on tech, life, and everything in between."
+            css: "color: #7f8c8d; font-size: 18px; margin: 0 0 50px 0;"
+
+          # Blog Post 1
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "Why I Still Use RSS in 2025"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+              - ::
+                type: "text"
+                content: "February 15, 2025 • 5 min read • #productivity #web"
+                css: "color: #95a5a6; font-size: 14px; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "Social media algorithms are exhausting. They decide what I see, when I see it, and—let's be honest—they're optimizing for engagement, not my mental health.\n\nThat's why I still use RSS in 2025. Here's what my setup looks like:\n\n### My RSS Workflow\n\n1. **Curated sources** - I follow ~50 blogs and news sites I trust\n2. **No algorithm** - Chronological feed, like the old days\n3. **Read at my pace** - Not dictated by \"FOMO\" notifications\n4. **Tools I use** - NetNewsWire on Mac, Reeder on iOS\n\n### Why This Matters\n\nInformation diet is real. What you consume shapes how you think. RSS gives me back control over my information sources.\n\nPlus, there's something deeply satisfying about marking all as read. Try that with Twitter.\n\n---\n\n*Have thoughts on this? I'd love to hear them in the comments below.*"
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0 0 30px 0;"
+
+              - ::
+                type: "thread"
+                name: "Discussion"
+                mode: "markdown"
+                description: "What's your take on RSS vs social media feeds?"
+                css: "--thread-bg: #f8f9fa; --thread-border-color: #dee2e6; --thread-title-color: #2c3e50; --thread-text-color: #34495e; --thread-description-color: #7f8c8d; --thread-no-comments-color: #95a5a6; --thread-input-bg: white; --thread-input-border: #ced4da; --thread-input-text: #2c3e50; --thread-input-placeholder: #adb5bd; --thread-input-focus-border: #3498db; --thread-input-focus-shadow: rgba(52, 152, 219, 0.1); --thread-button-bg: #3498db; --thread-button-text: white; --thread-button-hover-bg: #2980b9; --thread-button-disabled-bg: #bdc3c7; --thread-comment-bg: white; --thread-comment-border: #e0e0e0; --thread-comment-author-color: #3498db; --thread-comment-time-color: #95a5a6;"
+
+          # Thinking GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/a5viI92PAF89q/giphy.gif"
+            css: "width: 100px; margin: 0 auto 40px auto; display: block; border-radius: 8px;"
+
+          # Blog Post 2
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "Building in Public: Month 3"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+              - ::
+                type: "text"
+                content: "January 28, 2025 • 8 min read • #entrepreneurship #lessons"
+                css: "color: #95a5a6; font-size: 14px; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "Three months ago, I decided to build my project in public. Here's what I've learned.\n\n### The Good\n\n- **Accountability** - Tweeting progress keeps me honest\n- **Community** - Made friends with other builders\n- **Feedback** - Early users found bugs I'd never catch\n\n### The Awkward\n\n- **Impostor syndrome** - Sharing half-baked ideas feels weird\n- **Comparison trap** - Everyone's revenue tweets haunt me\n- **Vulnerability** - Admitting failures publicly is hard\n\n### Numbers Check\n\n- 📈 Users: 847 → 1,203 (+42%)\n- 💰 Revenue: $120 → $380 MRR\n- 🐦 Twitter: 150 → 630 followers\n- 😅 Stress level: Moderate to high\n\n### What's Next\n\nDoubling down on what's working. Adding the features users actually want, not what I think is cool.\n\nAlso: Taking weekends off. Burnout is real.\n\n---\n\n*Building in public? Let's connect in the comments.*"
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0 0 30px 0;"
+
+              - ::
+                type: "thread"
+                name: "Discussion"
+                mode: "markdown"
+                description: "Are you building in public? How's it going?"
+                css: "--thread-bg: #f8f9fa; --thread-border-color: #dee2e6; --thread-title-color: #2c3e50; --thread-text-color: #34495e; --thread-description-color: #7f8c8d; --thread-no-comments-color: #95a5a6; --thread-input-bg: white; --thread-input-border: #ced4da; --thread-input-text: #2c3e50; --thread-input-placeholder: #adb5bd; --thread-input-focus-border: #3498db; --thread-input-focus-shadow: rgba(52, 152, 219, 0.1); --thread-button-bg: #3498db; --thread-button-text: white; --thread-button-hover-bg: #2980b9; --thread-button-disabled-bg: #bdc3c7; --thread-comment-bg: white; --thread-comment-border: #e0e0e0; --thread-comment-author-color: #3498db; --thread-comment-time-color: #95a5a6;"
+
+          # High Five GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/g9582DNuQppxC/giphy.gif"
+            css: "width: 100px; margin: 0 auto 40px auto; display: block; border-radius: 8px;"
+
+          # Blog Post 3
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 35px; margin-bottom: 30px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "heading"
+                content: "The Tools I Use Every Day"
+                css: "font-size: 26px; font-weight: 600; color: #2c3e50; margin: 0 0 12px 0;"
+
+              - ::
+                type: "text"
+                content: "January 10, 2025 • 4 min read • #tools #setup"
+                css: "color: #95a5a6; font-size: 14px; margin: 0 0 20px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "People keep asking about my setup. Here's the honest answer:\n\n### Hardware\n\n- **Laptop:** M2 MacBook Air (the fanless wonder)\n- **Monitor:** Whatever was cheap on Amazon\n- **Keyboard:** Mechanical one that annoys roommates\n- **Mouse:** Logitech MX Master (overpriced but worth it)\n\n### Software\n\n- **Editor:** VS Code with Dracula theme\n- **Terminal:** iTerm2 + oh-my-zsh\n- **Browser:** Arc (I drank the Kool-Aid)\n- **Notes:** Obsidian for everything\n- **Music:** Lofi hip hop radio - beats to relax/study to\n\n### The Secret Weapon\n\n☕ **Good coffee.** Not joking. A proper setup is useless without good beans.\n\nAlso: Taking walks. Best debugging tool ever invented.\n\n---\n\n*What's in your toolkit? Share below!*"
+                css: "color: #34495e; font-size: 17px; line-height: 1.8; margin: 0 0 30px 0;"
+
+              - ::
+                type: "thread"
+                name: "Discussion"
+                mode: "markdown"
+                description: "What tools do you swear by?"
+                css: "--thread-bg: #f8f9fa; --thread-border-color: #dee2e6; --thread-title-color: #2c3e50; --thread-text-color: #34495e; --thread-description-color: #7f8c8d; --thread-no-comments-color: #95a5a6; --thread-input-bg: white; --thread-input-border: #ced4da; --thread-input-text: #2c3e50; --thread-input-placeholder: #adb5bd; --thread-input-focus-border: #3498db; --thread-input-focus-shadow: rgba(52, 152, 219, 0.1); --thread-button-bg: #3498db; --thread-button-text: white; --thread-button-hover-bg: #2980b9; --thread-button-disabled-bg: #bdc3c7; --thread-comment-bg: white; --thread-comment-border: #e0e0e0; --thread-comment-author-color: #3498db; --thread-comment-time-color: #95a5a6;"
+
+  # Contact Page
+  - ::
+    id: "contact"
+    name: "Contact"
+    css: "background: #fafafa; min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;"
+    children::
+      # Navigation Header
+      - ::
+        type: "section-container"
+        css: "background: white; border-bottom: 1px solid #e0e0e0; padding: 20px 0; margin-bottom: 40px;"
+        children::
+          - ::
+            type: "section-container"
+            css: "max-width: 800px; margin: 0 auto; padding: 0 20px; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Your Name"
+                css: "font-size: 24px; font-weight: 700; margin: 0; color: #2c3e50;"
+
+              - ::
+                type: "section-container"
+                css: "display: flex; gap: 30px;"
+                children::
+                  - ::
+                    type: "nav-button"
+                    content: "About"
+                    targetContainerId: "home"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Projects"
+                    targetContainerId: "projects"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Writing"
+                    targetContainerId: "writing"
+                    css: "color: #2c3e50; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Contact"
+                    targetContainerId: "contact"
+                    css: "color: #3498db; font-size: 16px; font-weight: 500; background: transparent; padding: 8px 0; border-bottom: 2px solid #3498db;"
+
+      # Contact Content
+      - ::
+        type: "section-container"
+        css: "max-width: 800px; margin: 0 auto; padding: 0 20px 60px 20px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Let's Chat"
+            css: "font-size: 42px; font-weight: 700; color: #2c3e50; margin: 0 0 15px 0;"
+
+          - ::
+            type: "text"
+            content: "Got a question, idea, or just want to say hi? Drop me a message below."
+            css: "color: #7f8c8d; font-size: 18px; margin: 0 0 50px 0;"
+
+          # Waving GIF
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/dzaUX7CAG0Ihi/giphy.gif"
+            css: "width: 120px; margin: 0 auto 50px auto; display: block; border-radius: 8px;"
+
+          # Form metadata
+          - ::
+            id: "form-contact"
+            type: "form"
+            name: "Contact Form"
+            eventName: "contact_message"
+
+          # Contact Form
+          - ::
+            type: "section-container"
+            css: "background: white; border-radius: 12px; padding: 40px; border: 1px solid #e0e0e0; box-shadow: 0 2px 4px rgba(0,0,0,0.05);"
+            children::
+              - ::
+                type: "form-field-text"
+                formId: "form-contact"
+                fieldName: "name"
+                label: "Your Name"
+                placeholder: "Jane Doe"
+                required: true
+                css: "margin-bottom: 25px;"
+
+              - ::
+                type: "form-field-email"
+                formId: "form-contact"
+                fieldName: "email"
+                label: "Email Address"
+                placeholder: "jane@example.com"
+                required: true
+                css: "margin-bottom: 25px;"
+
+              - ::
+                type: "form-field-textarea"
+                formId: "form-contact"
+                fieldName: "message"
+                label: "Message"
+                placeholder: "Hey! I wanted to reach out about..."
+                required: true
+                css: "margin-bottom: 30px;"
+
+              - ::
+                type: "nav-button"
+                content: "Send Message"
+                formId: "form-contact"
+                targetContainerId: "thank-you"
+                css: "width: 100%; background: #3498db; color: white; padding: 16px; border-radius: 8px; font-size: 16px; font-weight: 600;"
+
+          # Alternative Contact Methods
+          - ::
+            type: "section-container"
+            css: "margin-top: 60px; text-align: center;"
+            children::
+              - ::
+                type: "heading"
+                content: "Or Find Me Here"
+                css: "font-size: 24px; font-weight: 700; color: #2c3e50; margin: 0 0 25px 0;"
+
+              - ::
+                type: "markdown-text"
+                mode: "markdown"
+                content: "🐙 [GitHub](https://github.com/yourusername)\n\n🐦 [Twitter](https://twitter.com/yourusername)\n\n💼 [LinkedIn](https://linkedin.com/in/yourusername)\n\n📧 [you@example.com](mailto:you@example.com)"
+                css: "color: #3498db; font-size: 18px; line-height: 2.5;"
+
+  # Thank You Page
+  - ::
+    id: "thank-you"
+    name: "Thank You"
+    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 0; margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; display: flex; align-items: center; justify-content: center;"
+    children::
+      - ::
+        type: "section-container"
+        css: "text-align: center; padding: 60px 40px; max-width: 600px;"
+        children::
+          - ::
+            type: "image"
+            content: "https://media.giphy.com/media/111ebonMs90YLu/giphy.gif"
+            css: "width: 150px; margin: 0 auto 40px auto; display: block; border-radius: 12px;"
+
+          - ::
+            type: "heading"
+            content: "Message Received!"
+            css: "color: white; font-size: 48px; font-weight: 700; margin: 0 0 20px 0;"
+
+          - ::
+            type: "text"
+            content: "Thanks for reaching out! I'll get back to you within 24-48 hours. Usually sooner if I'm caffeinated."
+            css: "color: rgba(255,255,255,0.9); font-size: 20px; line-height: 1.6; margin: 0 0 40px 0;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back to Home"
+            targetContainerId: "home"
+            css: "background: white; color: #667eea; padding: 16px 32px; border-radius: 8px; font-weight: 600; font-size: 16px;"

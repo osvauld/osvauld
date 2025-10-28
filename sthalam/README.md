@@ -88,7 +88,7 @@ Security and authorization infrastructure:
 - **Data Encryption**:
   - AES-256-GCM encryption for all content at rest
   - AES key re-encryption: decrypt with publisher's PGP, re-encrypt with node's PGP
-  - AES key re-encryption for viewers: node re-encrypts with each viewer's PGP public key
+  - AES key re-encryption for viewers: node re-encrypts with each viewer's PGP public key (in later releases, will generate new AES key per viewer, encrypt content with new key, and encrypt new key with viewer's PGP)
   - QUIC connection provides TLS encryption in transit
   - Data encrypted at rest on publisher, node, and viewer devices
 

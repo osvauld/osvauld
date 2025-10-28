@@ -279,7 +279,7 @@ export class TemplateImporter {
       console.log(`    ✓ Created ${block.type}: ${block.name || blockId}`);
 
       // Move down for next block
-      currentY += height + 20;
+      currentY += height || 0 + 20;
       this.blockCounter++;
     }
 

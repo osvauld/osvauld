@@ -1,0 +1,118 @@
+# Simple Contact Form
+name: "Simple Contact Form"
+
+screens::
+  # Contact form page
+  - ::
+    id: "contact"
+    name: "Contact Form"
+    isEntryPoint: true
+    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center;"
+    children::
+      # Form metadata - MUST come first
+      - ::
+        id: "form-contact"
+        type: "form"
+        name: "Contact Form"
+        eventName: "contact_submission"
+
+      # Form container
+      - ::
+        type: "section-container"
+        name: "Form Container"
+        css: "max-width: 600px; margin: 0 auto; background: white; padding: 50px; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);"
+        children::
+          # Form header
+          - ::
+            type: "heading"
+            content: "Get In Touch"
+            css: "text-align: center; font-size: 36px; color: #1a202c; margin-bottom: 15px; font-weight: 800;"
+
+          - ::
+            type: "text"
+            content: "Fill out the form below and we'll get back to you as soon as possible."
+            css: "text-align: center; color: #4a5568; font-size: 16px; line-height: 1.7; margin-bottom: 35px;"
+
+          # Name field
+          - ::
+            type: "form-field-text"
+            formId: "form-contact"
+            fieldName: "full_name"
+            label: "Your Name"
+            placeholder: "John Doe"
+            required: true
+            css: "margin-bottom: 20px;"
+
+          # Email field
+          - ::
+            type: "form-field-email"
+            formId: "form-contact"
+            fieldName: "email"
+            label: "Email Address"
+            placeholder: "you@example.com"
+            required: true
+            css: "margin-bottom: 20px;"
+
+          # Subject field
+          - ::
+            type: "form-field-text"
+            formId: "form-contact"
+            fieldName: "subject"
+            label: "Subject"
+            placeholder: "What's this about?"
+            required: true
+            css: "margin-bottom: 20px;"
+
+          # Message field
+          - ::
+            type: "form-field-textarea"
+            formId: "form-contact"
+            fieldName: "message"
+            label: "Your Message"
+            placeholder: "Tell us what's on your mind..."
+            required: true
+            css: "margin-bottom: 20px;"
+
+          # Terms checkbox
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-contact"
+            fieldName: "agree_to_terms"
+            label: "I agree to the Terms and Conditions"
+            required: true
+            css: "margin-bottom: 30px;"
+
+          # Submit button (MODE 2 - form submission + navigation)
+          - ::
+            type: "nav-button"
+            content: "Send Message"
+            formId: "form-contact"
+            targetContainerId: "success"
+            css: "width: 100%; background: #667eea; color: white; padding: 16px; border-radius: 8px; font-size: 17px; font-weight: 700; text-align: center;"
+
+  # Success/Thank you page
+  - ::
+    id: "success"
+    name: "Success"
+    css: "background: linear-gradient(135deg, #a6e3a1 0%, #89b4fa 100%); padding: 40px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"
+    children::
+      - ::
+        type: "heading"
+        content: "✅ Message Sent!"
+        css: "color: white; font-size: 52px; margin-bottom: 20px; font-weight: 800;"
+
+      - ::
+        type: "text"
+        content: "Thank you for reaching out! We've received your message and will get back to you within 24 hours."
+        css: "color: rgba(255,255,255,0.95); font-size: 20px; margin-bottom: 15px; max-width: 600px; line-height: 1.7;"
+
+      - ::
+        type: "text"
+        content: "Check your email for a confirmation."
+        css: "color: rgba(255,255,255,0.85); font-size: 16px; margin-bottom: 40px; max-width: 500px; line-height: 1.6;"
+
+      - ::
+        type: "nav-button"
+        content: "← Back to Contact Form"
+        targetContainerId: "contact"
+        css: "background: white; color: #667eea; padding: 16px 40px; border-radius: 8px; font-weight: 700; font-size: 17px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"

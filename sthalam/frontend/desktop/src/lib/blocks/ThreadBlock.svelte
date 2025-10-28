@@ -242,24 +242,20 @@
 	});
 </script>
 
-{#if mainPost.css}
-	<style>
-		{mainPost.css}
-	</style>
-{/if}
-
-<div class="thread-container" data-block-id={blockId}>
-	<div class="thread-main">
-		{#if mainPost.name}
-			<h2 class="thread-title">{mainPost.name}</h2>
-		{/if}
-		{#if mainPost.description}
-			<p class="thread-description">{mainPost.description}</p>
-		{/if}
-		<div class="thread-content">
-			{@html postHtml()}
+<div class="thread-container" data-block-id={blockId} style={mainPost.css}>
+	{#if mainPost.name || mainPost.description || mainPost.content}
+		<div class="thread-main">
+			{#if mainPost.name}
+				<h2 class="thread-title">{mainPost.name}</h2>
+			{/if}
+			{#if mainPost.description}
+				<p class="thread-description">{mainPost.description}</p>
+			{/if}
+			<div class="thread-content">
+				{@html postHtml()}
+			</div>
 		</div>
-	</div>
+	{/if}
 
 	<div class="thread-comments">
 		{#if comments.length > 0}
@@ -322,33 +318,34 @@
 	.thread-container {
 		width: 100%;
 		padding: 1.5rem;
-		background: #f6f8fa;
-		border-radius: 8px;
-		border: 1px solid #e1e4e8;
+		background: var(--thread-bg, #f6f8fa);
+		border-radius: var(--thread-border-radius, 8px);
+		border: 1px solid var(--thread-border-color, #e1e4e8);
 		margin: 1rem 0;
+		color: var(--thread-text-color, #24292e);
 	}
 
 	.thread-main {
 		margin-bottom: 2rem;
 		padding-bottom: 1.5rem;
-		border-bottom: 2px solid #e1e4e8;
+		border-bottom: 2px solid var(--thread-border-color, #e1e4e8);
 	}
 
 	.thread-title {
 		font-size: 1.75rem;
 		font-weight: 700;
-		color: #24292e;
+		color: var(--thread-title-color, #24292e);
 		margin: 0 0 0.5rem 0;
 	}
 
 	.thread-description {
 		font-size: 1rem;
-		color: #586069;
+		color: var(--thread-description-color, #6e7681);
 		margin: 0 0 1rem 0;
 	}
 
 	.thread-content {
-		color: #24292e;
+		color: var(--thread-content-color, #24292e);
 		line-height: 1.6;
 		max-height: 500px;
 		overflow-y: auto;
@@ -360,23 +357,23 @@
 	}
 
 	.thread-content::-webkit-scrollbar-track {
-		background: #f1f3f5;
+		background: var(--thread-scrollbar-track, #f1f3f5);
 		border-radius: 3px;
 	}
 
 	.thread-content::-webkit-scrollbar-thumb {
-		background: #adb5bd;
+		background: var(--thread-scrollbar-thumb, #adb5bd);
 		border-radius: 3px;
 	}
 
 	.thread-content::-webkit-scrollbar-thumb:hover {
-		background: #868e96;
+		background: var(--thread-scrollbar-thumb-hover, #868e96);
 	}
 
 	.thread-content :global(h1),
 	.thread-content :global(h2),
 	.thread-content :global(h3) {
-		color: #24292e;
+		color: var(--thread-content-heading-color, #24292e);
 		margin-bottom: 0.75rem;
 		margin-top: 1.5rem;
 	}
@@ -386,7 +383,7 @@
 	}
 
 	.thread-content :global(a) {
-		color: #0366d6;
+		color: var(--thread-link-color, #0366d6);
 		text-decoration: none;
 	}
 
@@ -395,7 +392,8 @@
 	}
 
 	.thread-content :global(code) {
-		background: #f6f8fa;
+		background: var(--thread-code-bg, #f6f8fa);
+		color: var(--thread-code-color, inherit);
 		padding: 0.2em 0.4em;
 		border-radius: 3px;
 		font-family: monospace;
@@ -403,7 +401,7 @@
 	}
 
 	.thread-content :global(pre) {
-		background: #f6f8fa;
+		background: var(--thread-code-bg, #f6f8fa);
 		padding: 1rem;
 		border-radius: 6px;
 		overflow-x: auto;
@@ -419,8 +417,8 @@
 		align-items: center;
 		gap: 0.5rem;
 		padding: 0.75rem 1rem;
-		background: white;
-		border: 1px solid #d1d5da;
+		background: var(--thread-toggle-bg, white);
+		border: 1px solid var(--thread-toggle-border, #d1d5da);
 		border-radius: 6px;
 		width: 100%;
 		text-align: left;
@@ -428,18 +426,18 @@
 		transition: all 0.2s;
 		font-size: 0.9375rem;
 		font-weight: 600;
-		color: #586069;
+		color: var(--thread-toggle-color, #586069);
 	}
 
 	.comments-toggle:hover {
-		background: #f6f8fa;
-		border-color: #0366d6;
-		color: #0366d6;
+		background: var(--thread-toggle-hover-bg, #f6f8fa);
+		border-color: var(--thread-toggle-hover-border, #0366d6);
+		color: var(--thread-toggle-hover-color, #0366d6);
 	}
 
 	.toggle-icon {
 		font-size: 0.75rem;
-		color: #6a737d;
+		color: var(--thread-toggle-icon-color, #6a737d);
 		transition: transform 0.2s;
 	}
 
@@ -478,24 +476,25 @@
 	}
 
 	.comments-list::-webkit-scrollbar-track {
-		background: #f1f3f5;
+		background: var(--thread-scrollbar-track, #f1f3f5);
 		border-radius: 3px;
 	}
 
 	.comments-list::-webkit-scrollbar-thumb {
-		background: #adb5bd;
+		background: var(--thread-scrollbar-thumb, #adb5bd);
 		border-radius: 3px;
 	}
 
 	.comments-list::-webkit-scrollbar-thumb:hover {
-		background: #868e96;
+		background: var(--thread-scrollbar-thumb-hover, #868e96);
 	}
 
 	.comment {
-		background: white;
+		background: var(--thread-comment-bg, white);
 		padding: 1rem;
 		border-radius: 6px;
-		border: 1px solid #e1e4e8;
+		border: 1px solid var(--thread-comment-border, #e1e4e8);
+		color: var(--thread-comment-text, #24292e);
 	}
 
 	.comment-header {
@@ -507,16 +506,16 @@
 
 	.comment-author {
 		font-weight: 600;
-		color: #24292e;
+		color: var(--thread-comment-author-color, #24292e);
 	}
 
 	.comment-time {
 		font-size: 0.875rem;
-		color: #586069;
+		color: var(--thread-comment-time-color, #586069);
 	}
 
 	.comment-content {
-		color: #24292e;
+		color: var(--thread-comment-content-color, #24292e);
 		line-height: 1.5;
 	}
 
@@ -529,7 +528,7 @@
 	}
 
 	.no-comments {
-		color: #586069;
+		color: var(--thread-no-comments-color, #586069);
 		font-style: italic;
 		margin: 1rem 0;
 	}
@@ -539,6 +538,7 @@
 		flex-direction: column;
 		gap: 0.75rem;
 		margin-top: 1rem;
+		background: var(--thread-form-bg, transparent);
 	}
 
 	.comment-form.first-comment {
@@ -546,7 +546,7 @@
 	}
 
 	.no-comments-label {
-		color: #586069;
+		color: var(--thread-no-comments-color, #6e7681);
 		font-size: 0.875rem;
 		margin: 0 0 0.75rem 0;
 		font-style: italic;
@@ -555,8 +555,10 @@
 	textarea {
 		width: 100%;
 		padding: 0.75rem;
-		border: 1px solid #d1d5da;
+		border: 1px solid var(--thread-input-border, #d1d5da);
 		border-radius: 6px;
+		background: var(--thread-input-bg, white);
+		color: var(--thread-input-text, #24292e);
 		font-family: inherit;
 		font-size: 0.875rem;
 		line-height: 1.5;
@@ -566,19 +568,19 @@
 
 	textarea:focus {
 		outline: none;
-		border-color: #0366d6;
-		box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+		border-color: var(--thread-input-focus-border, #0366d6);
+		box-shadow: 0 0 0 3px var(--thread-input-focus-shadow, rgba(3, 102, 214, 0.1));
 	}
 
 	textarea::placeholder {
-		color: #6a737d;
+		color: var(--thread-input-placeholder, #6e7681);
 	}
 
 	button {
 		align-self: flex-end;
 		padding: 0.75rem 1.5rem;
-		background: #0366d6;
-		color: white;
+		background: var(--thread-button-bg, #0366d6);
+		color: var(--thread-button-text, white);
 		border: none;
 		border-radius: 6px;
 		font-weight: 600;
@@ -587,19 +589,20 @@
 	}
 
 	button:hover:not(:disabled) {
-		background: #0256c7;
+		background: var(--thread-button-hover-bg, #0256c7);
 	}
 
 	button:disabled {
-		background: #94a3b8;
+		background: var(--thread-button-disabled-bg, #94a3b8);
+		color: var(--thread-button-disabled-text, #cbd5e0);
 		cursor: not-allowed;
 	}
 
 	.comment-error {
 		padding: 0.75rem;
-		background: #f8d7da;
-		color: #721c24;
-		border: 1px solid #f5c6cb;
+		background: var(--thread-error-bg, #f8d7da);
+		color: var(--thread-error-text, #721c24);
+		border: 1px solid var(--thread-error-border, #f5c6cb);
 		border-radius: 6px;
 		font-size: 0.875rem;
 		margin-bottom: 0.75rem;
