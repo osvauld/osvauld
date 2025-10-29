@@ -298,7 +298,7 @@ impl P2PService {
         Ok(())
     }
 
-    async fn connect_with_users(&self, user_ids: &[String]) -> P2PResult<()> {
+    async fn get_devices_by_user_ids(&self, user_ids: &[String]) -> P2PResult<Vec<Device>> {
         let current_user = self.get_current_user().await?;
         let user_ids: Vec<String> = user_ids
             .iter()
@@ -310,7 +310,11 @@ impl P2PService {
             .device_repo
             .get_devices_by_user_ids(&user_ids)
             .await?;
+        Ok(user_devices)
+    }
 
+    async fn connect_with_users(&self, user_ids: &[String]) -> P2PResult<()> {
+        let user_devices = self.get_devices_by_user_ids(user_ids).await?;
         for device in user_devices {
             let self_clone = self.clone();
             tokio::spawn(async move {
@@ -334,24 +338,189 @@ impl P2PService {
         Ok(())
     }
 
+    pub async fn send_resource(&self, resource_id: &str) -> P2PResult<()> {
+        info!("Starting resource send for resource {}", resource_id);
+
+        // Get users who have this resource shared with them
+        let resource_share_records = self
+            .repo_ctx
+            .share_repo
+            .find_by_resource_and_operation(resource_id, &ShareOperation::Share.to_string())
+            .await?;
+
+        let user_ids: Vec<String> = resource_share_records
+            .into_iter()
+            .map(|record| record.recipient_user_id)
+            .collect();
+
+        info!("Found {} users with access to resource {}", user_ids.len(), resource_id);
+
+        // Get current user to filter them out
+        let current_user = self.get_current_user().await?;
+        let user_ids: Vec<String> = user_ids
+            .into_iter()
+            .filter(|user_id| *user_id != current_user.id)
+            .collect();
+
+        if user_ids.is_empty() {
+            info!("No other users to send resource {} to", resource_id);
+            return Ok(());
+        }
+
+        // Get devices for these users
+        let user_devices = self
+            .repo_ctx
+            .device_repo
+            .get_devices_by_user_ids(&user_ids)
+            .await?;
+
+        info!("Found {} devices to send resource to", user_devices.len());
+
+        // Convert device IDs to node IDs
+        let connection_ids: Vec<String> = user_devices
+            .iter()
+            .filter_map(|device| {
+                crypto_utils::derive_node_id_from_public_key(&device.id)
+                    .ok()
+                    .and_then(|bytes| NodeId::try_from(&bytes).ok())
+                    .map(|node_id| node_id.to_string())
+            })
+            .collect();
+
+        info!("Converted to {} connection IDs", connection_ids.len());
+
+        // Get all connections at once
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+
+        if connections.is_empty() {
+            info!("No existing connections found for resource send of {}", resource_id);
+            return Ok(());
+        }
+
+        info!("Found {} existing connections for resource {}", connections.len(), resource_id);
+
+        // Send resource to each connection (only User/Device connections for now)
+        for connection in connections {
+            let conn_type = connection.get_connection_type().await;
+
+            match conn_type {
+                ConnectionType::User | ConnectionType::Device => {
+                    info!(
+                        "Sending resource {} to User/Device connection {}",
+                        resource_id,
+                        connection.get_id()
+                    );
+
+                    if let Err(e) = connection.send_single_resource(resource_id).await {
+                        error!(
+                            "Failed to send resource {} to connection {}: {}",
+                            resource_id,
+                            connection.get_id(),
+                            e
+                        );
+                    }
+                }
+                ConnectionType::Website => {
+                    info!(
+                        "Skipping Website connection {} (not implemented yet)",
+                        connection.get_id()
+                    );
+                }
+            }
+        }
+
+        info!("Resource send completed for resource {}", resource_id);
+        Ok(())
+    }
+
     pub async fn sync_resource(&self, resource_id: &str) -> P2PResult<()> {
         let resource_share_records = self
             .repo_ctx
             .share_repo
             .find_by_resource_and_operation(resource_id, &ShareOperation::Share.to_string())
             .await?;
-        let user_ids: Vec<String> = resource_share_records
-            .into_iter()
-            .map(|record| record.recipient_user_id)
-            .collect();
-        info!("found ids  {:?}", user_ids);
-        //TODO: implmeneted only for poc.
-        if user_ids.len() > 1 {
-            self.connect_with_users(&user_ids).await?;
+        let mut user_ids = Vec::new();
+        //TODO: ductape for poc
+        if resource_share_records.len() > 1 {
+            user_ids = resource_share_records
+                .into_iter()
+                .map(|record| record.recipient_user_id)
+                .collect();
         } else {
-            self.sync_website(resource_id).await?;
+            user_ids = resource_share_records
+                .into_iter()
+                .map(|record| record.shared_by_user_id)
+                .collect();
+        }
+        info!("user_ids {:?}", user_ids);
+        let user_devices = self.get_devices_by_user_ids(&user_ids).await?;
+        info!("user_devices {:?}", user_devices);
+        let connection_ids: Vec<String> = user_devices
+            .iter()
+            .filter_map(|device| {
+                crypto_utils::derive_node_id_from_public_key(&device.id)
+                    .ok()
+                    .and_then(|bytes| NodeId::try_from(&bytes).ok())
+                    .map(|node_id| node_id.to_string())
+            })
+            .collect();
+
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+
+        if connections.is_empty() {
+            info!(
+                "No existing connections found for resource sync of {}",
+                resource_id
+            );
+            return Ok(());
         }
 
+        info!(
+            "Found {} existing connections for resource {}",
+            connections.len(),
+            resource_id
+        );
+
+        let current_user = self.get_current_user().await?;
+
+        // Sync resource to each connection based on connection type
+        for connection in connections {
+            let conn_type = connection.get_connection_type().await;
+
+            let result = match conn_type {
+                ConnectionType::User | ConnectionType::Device => {
+                    info!(
+                        "Syncing resource {} to User/Device connection {}",
+                        resource_id,
+                        connection.get_id()
+                    );
+                    connection
+                        .sync_single_resource(resource_id, &current_user.id)
+                        .await
+                }
+                ConnectionType::Website => {
+                    info!(
+                        "Syncing resource {} to Website connection {}",
+                        resource_id,
+                        connection.get_id()
+                    );
+                    connection
+                        .sync_single_resource_incremental(resource_id, &current_user.id)
+                        .await
+                }
+            };
+
+            if let Err(e) = result {
+                error!(
+                    "Failed to sync resource {} to connection {}: {}",
+                    resource_id,
+                    connection.get_id(),
+                    e
+                );
+            }
+        }
+
+        info!("Resource sync completed for resource {}", resource_id);
         Ok(())
     }
     pub async fn sync_website(&self, resource_id: &str) -> P2PResult<()> {

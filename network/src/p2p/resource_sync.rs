@@ -18,6 +18,82 @@ use services::{
 use tracing::{debug, error, info, instrument};
 
 impl PeerConnection {
+    /// Sync a single resource by sending StateVectorRequest
+    /// This initiates the resource update flow for one specific resource
+    #[instrument(skip(self), fields(
+        connection_id = %self.get_id(),
+        resource_id = %resource_id
+    ), level = "info")]
+    pub async fn sync_single_resource(&self, resource_id: &str, user_id: &str) -> P2PResult<()> {
+        info!("Starting sync for resource {}", resource_id);
+
+        // Get state vectors for this resource
+        let state_vectors = get_resource_state_vector(
+            resource_id,
+            user_id,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await?;
+
+        debug!(
+            resource_id = %resource_id,
+            "State vector retrieved successfully"
+        );
+
+        // Get UCAN token for this resource
+        let ucan_token = get_resource_ucan_key(resource_id, user_id, self.repo_ctx.clone()).await?;
+
+        // Send StateVectorRequest message
+        let message = ResourceUpdateMsg::StateVectorRequest {
+            resource_id: resource_id.to_string(),
+            state_vectors,
+            ucan_token,
+        };
+
+        self.send_message(Message::MergeUpdate(message)).await?;
+
+        info!(
+            resource_id = %resource_id,
+            "State vector request sent successfully"
+        );
+
+        Ok(())
+    }
+
+    /// Send a single resource to peer by preparing payload and sending ResourceAdditionRequest
+    /// This is used for initial resource transmission (not sync)
+    #[instrument(skip(self), fields(
+        connection_id = %self.get_id(),
+        resource_id = %resource_id
+    ), level = "info")]
+    pub async fn send_single_resource(&self, resource_id: &str) -> P2PResult<()> {
+        info!("Preparing to send resource {}", resource_id);
+
+        let peer_device = self.get_peer_device().await;
+
+        // Get resource payload for remote addition
+        let resource_payload =
+            get_resource_for_remote_addition(resource_id, &peer_device, self.repo_ctx.clone())
+                .await?;
+
+        debug!(
+            resource_id = %resource_id,
+            "Resource payload prepared for transmission"
+        );
+
+        // Send ResourceAdditionRequest message
+        self.send_message(Message::ResourceAdditionRequest(resource_payload))
+            .await?;
+
+        info!(
+            resource_id = %resource_id,
+            "Resource addition request sent successfully"
+        );
+
+        Ok(())
+    }
+
     #[instrument(skip(self), fields(
         connection_id = %self.get_id(),
     ), level = "info")]
@@ -81,26 +157,13 @@ impl PeerConnection {
                 "Processing resource for transmission"
             );
 
-            let peer_device = self.get_peer_device().await;
-
-            // Service error automatically propagates
-            let resource_payload =
-                get_resource_for_remote_addition(resource_id, &peer_device, self.repo_ctx.clone())
-                    .await?;
-
-            debug!(
-                resource_id = %resource_id,
-                "Resource payload prepared for transmission"
-            );
-
-            // Message send error automatically propagates
-            self.send_message(Message::ResourceAdditionRequest(resource_payload))
-                .await?;
+            // Use the new send_single_resource method
+            self.send_single_resource(resource_id).await?;
 
             info!(
                 resource_id = %resource_id,
                 progress = format!("{}/{}", index + 1, resource_ids.len()),
-                "Resource addition request sent successfully"
+                "Resource sent successfully"
             );
         }
 
@@ -188,6 +251,7 @@ impl PeerConnection {
             if !resource_ids.is_empty() {
                 debug!("Starting state vector exchange for sync-required resources");
 
+                let local_user = self.get_local_user().await?;
                 for (index, resource_id) in resource_ids.iter().enumerate() {
                     debug!(
                         resource_index = index + 1,
@@ -196,32 +260,9 @@ impl PeerConnection {
                         "Requesting state vector for resource"
                     );
 
-                    let user = self.get_local_user().await?;
-
-                    // Service errors automatically propagate
-                    let state_vectors = get_resource_state_vector(
-                        resource_id,
-                        &user.id,
-                        self.repo_ctx.clone(),
-                        &self.crypto_utils,
-                    )
-                    .await?;
-
-                    debug!(
-                        resource_id = %resource_id,
-                        "State vector retrieved successfully"
-                    );
-
-                    let ucan_token =
-                        get_resource_ucan_key(resource_id, &user.id, self.repo_ctx.clone()).await?;
-
-                    let message = ResourceUpdateMsg::StateVectorRequest {
-                        resource_id: resource_id.to_string(),
-                        state_vectors,
-                        ucan_token,
-                    };
-
-                    self.send_message(Message::MergeUpdate(message)).await?;
+                    // Use the new sync_single_resource method
+                    self.sync_single_resource(resource_id, &local_user.id)
+                        .await?;
 
                     info!(
                         resource_id = %resource_id,

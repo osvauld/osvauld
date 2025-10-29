@@ -6,6 +6,50 @@ use services::{add_resource_sync, generate_folder_token};
 use tracing::{error, info, instrument};
 
 impl PeerConnection {
+    /// Send incremental sync request for a single resource
+    /// Gets sync info and sends IncrementalSyncRequest message
+    #[instrument(skip(self), fields(
+        connection_id = %self.get_id(),
+        resource_id = %resource_id
+    ), level = "info")]
+    pub async fn sync_single_resource_incremental(
+        &self,
+        resource_id: &str,
+        user_id: &str,
+    ) -> P2PResult<()> {
+        info!("Getting sync info for resource {}", resource_id);
+
+        let sync_info = services::get_resource_sync_info(
+            resource_id,
+            user_id,
+            self.repo_ctx.clone(),
+            &self.crypto_utils,
+        )
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to get sync info for resource {}: {}",
+                resource_id, e
+            );
+            crate::p2p::errors::P2PError::Custom(format!(
+                "Failed to get resource sync info: {}",
+                e
+            ))
+        })?;
+
+        // Send incremental sync request with sync_data string
+        let sync_message = Message::Website(WebsiteMessage::IncrementalSyncRequest {
+            resource_id: sync_info.resource_id,
+            resource_ucan: sync_info.resource_ucan,
+            sync_data: sync_info.sync_data,
+        });
+
+        self.send_message(sync_message).await?;
+        info!("Sent incremental sync request for resource {}", resource_id);
+
+        Ok(())
+    }
+
     /// Handle a folder token request from another peer
     /// This is called on the sovereign node side when a request is received
     #[instrument(skip(self), fields(connection_id = %self.get_id(), folder_id = %folder_id), level = "info")]
@@ -471,37 +515,11 @@ impl PeerConnection {
                 folder_info.resource_ids.len()
             );
 
-            // For each resource, get state vectors and send incremental sync request
+            // For each resource, send incremental sync request
             for resource_id in &folder_info.resource_ids {
-                info!("Getting sync info for resource {}", resource_id);
-
-                let sync_info = services::get_resource_sync_info(
-                    resource_id,
-                    &local_user.id,
-                    self.repo_ctx.clone(),
-                    &self.crypto_utils,
-                )
-                .await
-                .map_err(|e| {
-                    error!(
-                        "Failed to get sync info for resource {}: {}",
-                        resource_id, e
-                    );
-                    crate::p2p::errors::P2PError::Custom(format!(
-                        "Failed to get resource sync info: {}",
-                        e
-                    ))
-                })?;
-
-                // Send incremental sync request with sync_data string
-                let sync_message = Message::Website(WebsiteMessage::IncrementalSyncRequest {
-                    resource_id: sync_info.resource_id,
-                    resource_ucan: sync_info.resource_ucan,
-                    sync_data: sync_info.sync_data,
-                });
-
-                self.send_message(sync_message).await?;
-                info!("Sent incremental sync request for resource {}", resource_id);
+                // Use the new sync_single_resource_incremental method
+                self.sync_single_resource_incremental(resource_id, &local_user.id)
+                    .await?;
             }
 
             info!("Folder {} processing complete", folder_info.folder_id);

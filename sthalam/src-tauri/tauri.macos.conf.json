@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0-rc",
-  "productName": "livnote",
+  "productName": "sthalam",
   "version": "0.1.0",
-  "identifier": "com.livnote.app",
+  "identifier": "com.sthalam.app",
   "build": {
     "beforeDevCommand": "cd ./frontend/desktop && pnpm dev",
     "beforeBuildCommand": "cd ./frontend/desktop && pnpm build",
-    "devUrl": "http://localhost:1421",
+    "devUrl": "http://localhost:1422",
     "frontendDist": "../frontend/desktop/dist"
   },
   "app": {
