@@ -251,3 +251,27 @@ pub async fn handle_sync_resource(
 
     Ok(CryptoResponse::Success)
 }
+
+#[tauri::command]
+pub async fn handle_folder_sync_viewer(
+    folder_id: String,
+    p2p_service: State<'_, Arc<P2PService>>,
+) -> Result<CryptoResponse, String> {
+    info!("Received folder sync viewer request for: {}", folder_id);
+
+    // Spawn async task to sync folder in viewer mode
+    let p2p_clone = p2p_service.inner().clone();
+    let folder_id_clone = folder_id.clone();
+
+    tokio::spawn(async move {
+        info!("Syncing folder in viewer mode: {}", folder_id_clone);
+
+        if let Err(e) = p2p_clone.folder_sync_viewer(&folder_id_clone).await {
+            error!("Failed to sync folder in viewer mode: {}", e);
+        } else {
+            info!("Successfully synced folder in viewer mode: {}", folder_id_clone);
+        }
+    });
+
+    Ok(CryptoResponse::Success)
+}

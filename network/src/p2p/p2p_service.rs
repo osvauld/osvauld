@@ -298,6 +298,89 @@ impl P2PService {
         Ok(())
     }
 
+    /// Sync folder in viewer mode - sync back to the sovereign nodes who shared the folder
+    pub async fn folder_sync_viewer(&self, folder_id: &str) -> P2PResult<()> {
+        info!(
+            "Starting folder sync in viewer mode for folder {}",
+            folder_id
+        );
+
+        // Get folder share records
+        let share_records = self
+            .repo_ctx
+            .folder_share_repo
+            .get_records_by_folder_id(folder_id)
+            .await?;
+
+        // Get all users who shared this folder (shared_by_user_ids)
+        let user_ids: Vec<String> = share_records
+            .into_iter()
+            .map(|record| record.shared_by_user_id)
+            .collect();
+
+        info!(
+            "Found {} users who shared folder {}",
+            user_ids.len(),
+            folder_id
+        );
+
+        // Get devices for these users (filters out current user)
+        let user_devices = self.get_devices_by_user_ids(&user_ids).await?;
+
+        info!("Found {} devices for sovereign nodes", user_devices.len());
+
+        // Convert device IDs to node IDs
+        let connection_ids: Vec<String> = user_devices
+            .iter()
+            .filter_map(|device| {
+                crypto_utils::derive_node_id_from_public_key(&device.id)
+                    .ok()
+                    .and_then(|bytes| NodeId::try_from(&bytes).ok())
+                    .map(|node_id| node_id.to_string())
+            })
+            .collect();
+
+        // Get existing connections
+        let connections = self.get_connections_by_ids(&connection_ids).await;
+
+        if connections.is_empty() {
+            info!(
+                "No existing connections found for folder sync in viewer mode of {}",
+                folder_id
+            );
+            return Ok(());
+        }
+
+        info!(
+            "Found {} existing connections for folder sync",
+            connections.len()
+        );
+
+        // Start website sync with first_sync = false for each connection
+        for connection in connections {
+            info!(
+                "Starting website sync for folder {} on connection {}",
+                folder_id,
+                connection.get_id()
+            );
+
+            if let Err(e) = connection.start_website_sync(true).await {
+                error!(
+                    "Failed to start website sync for folder {} on connection {}: {}",
+                    folder_id,
+                    connection.get_id(),
+                    e
+                );
+            }
+        }
+
+        info!(
+            "Folder sync completed in viewer mode for folder {}",
+            folder_id
+        );
+        Ok(())
+    }
+
     async fn get_devices_by_user_ids(&self, user_ids: &[String]) -> P2PResult<Vec<Device>> {
         let current_user = self.get_current_user().await?;
         let user_ids: Vec<String> = user_ids
@@ -353,26 +436,14 @@ impl P2PService {
             .map(|record| record.recipient_user_id)
             .collect();
 
-        info!("Found {} users with access to resource {}", user_ids.len(), resource_id);
+        info!(
+            "Found {} users with access to resource {}",
+            user_ids.len(),
+            resource_id
+        );
 
-        // Get current user to filter them out
-        let current_user = self.get_current_user().await?;
-        let user_ids: Vec<String> = user_ids
-            .into_iter()
-            .filter(|user_id| *user_id != current_user.id)
-            .collect();
-
-        if user_ids.is_empty() {
-            info!("No other users to send resource {} to", resource_id);
-            return Ok(());
-        }
-
-        // Get devices for these users
-        let user_devices = self
-            .repo_ctx
-            .device_repo
-            .get_devices_by_user_ids(&user_ids)
-            .await?;
+        // Get devices for these users (filters out current user)
+        let user_devices = self.get_devices_by_user_ids(&user_ids).await?;
 
         info!("Found {} devices to send resource to", user_devices.len());
 
@@ -393,11 +464,18 @@ impl P2PService {
         let connections = self.get_connections_by_ids(&connection_ids).await;
 
         if connections.is_empty() {
-            info!("No existing connections found for resource send of {}", resource_id);
+            info!(
+                "No existing connections found for resource send of {}",
+                resource_id
+            );
             return Ok(());
         }
 
-        info!("Found {} existing connections for resource {}", connections.len(), resource_id);
+        info!(
+            "Found {} existing connections for resource {}",
+            connections.len(),
+            resource_id
+        );
 
         // Send resource to each connection (only User/Device connections for now)
         for connection in connections {

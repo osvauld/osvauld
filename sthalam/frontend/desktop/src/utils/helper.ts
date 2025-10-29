@@ -58,6 +58,8 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       connectToWebsite: (data: any) => invoke("handle_connect_to_website", { input: data }),
       publishResource: (data: any) => invoke("handle_publish_resource", { resourceId: data.resourceId }),
       syncResource: (data: any) => invoke("handle_sync_resource", { resourceId: data.resourceId }),
+      folderSyncViewer: (data: any) => invoke("handle_folder_sync_viewer",
+        { folderId: data.folderId }),
     };
     //@ts-ignore
     const handler = handlerMap[action];
