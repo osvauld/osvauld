@@ -1,0 +1,728 @@
+name: "Osvauld Documentation"
+
+screens::
+  - ::
+    id: "home"
+    name: "Home"
+    isEntryPoint: true
+    css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; padding: 0; margin: 0; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      # Navigation Bar
+      - ::
+        type: "section-container"
+        name: "Navigation Bar"
+        css: "background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100;"
+        children::
+          - ::
+            type: "heading"
+            content: "Osvauld"
+            css: "color: white; font-size: 28px; font-weight: 700; margin: 0;"
+          - ::
+            type: "section-container"
+            name: "Nav Links"
+            css: "display: flex; gap: 20px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Docs"
+                targetContainerId: "home"
+                css: "background: transparent; color: white; padding: 8px 16px; border: 1px solid rgba(255,255,255,0.3); border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.3s;"
+              - ::
+                type: "nav-button"
+                content: "GitHub"
+                targetContainerId: "home"
+                css: "background: rgba(255,255,255,0.2); color: white; padding: 8px 16px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer; transition: all 0.3s;"
+
+      # Hero Section
+      - ::
+        type: "section-container"
+        name: "Hero Section"
+        css: "max-width: 1200px; margin: 0 auto; padding: 80px 40px; text-align: center;"
+        children::
+          - ::
+            type: "heading"
+            content: "Osvauld"
+            css: "color: white; font-size: 64px; font-weight: 800; margin-bottom: 20px; letter-spacing: -1px;"
+          - ::
+            type: "text"
+            content: "Guides, resources, and API references to help you build with osvauld."
+            css: "color: rgba(255,255,255,0.95); font-size: 22px; margin-bottom: 50px; line-height: 1.6; max-width: 700px; margin-left: auto; margin-right: auto;"
+
+          # Action Buttons Grid
+          - ::
+            type: "section-container"
+            name: "Action Buttons"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; max-width: 900px; margin: 0 auto 60px auto;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "📖 Manifesto"
+                targetContainerId: "manifesto"
+                css: "background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; padding: 20px 30px; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; text-align: center;"
+              - ::
+                type: "nav-button"
+                content: "🔍 What Makes This Possible"
+                targetContainerId: "what-makes-possible"
+                css: "background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; padding: 20px 30px; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; text-align: center;"
+              - ::
+                type: "nav-button"
+                content: "🌐 Website"
+                targetContainerId: "home"
+                css: "background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; padding: 20px 30px; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; text-align: center;"
+              - ::
+                type: "nav-button"
+                content: "📱 Community"
+                targetContainerId: "home"
+                css: "background: rgba(255,255,255,0.15); backdrop-filter: blur(10px); color: white; padding: 20px 30px; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; transition: all 0.3s; text-align: center;"
+
+          # Main Documentation Sections
+          - ::
+            type: "section-container"
+            name: "Documentation Sections"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 25px; margin-top: 60px;"
+            children::
+              - ::
+                type: "section-container"
+                name: "Sthalam Card"
+                css: "background: white; border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); transition: transform 0.3s; cursor: pointer;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Project Sthalam"
+                    css: "color: #667eea; font-size: 28px; font-weight: 700; margin-bottom: 15px;"
+                  - ::
+                    type: "text"
+                    content: "A sovereign publishing platform for creating and distributing content without intermediaries. Build websites, micro-blogs, and newsletters."
+                    css: "color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 25px;"
+                  - ::
+                    type: "nav-button"
+                    content: "Learn More →"
+                    targetContainerId: "sthalam-intro"
+                    css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%;"
+
+              - ::
+                type: "section-container"
+                name: "Livnote Card"
+                css: "background: white; border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); transition: transform 0.3s; cursor: pointer;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Livnote"
+                    css: "color: #667eea; font-size: 28px; font-weight: 700; margin-bottom: 15px;"
+                  - ::
+                    type: "text"
+                    content: "Peer-to-peer collaborative note-taking with real-time synchronization. Create your identity and connect with peers securely."
+                    css: "color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 25px;"
+                  - ::
+                    type: "nav-button"
+                    content: "Learn More →"
+                    targetContainerId: "livnote-intro"
+                    css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%;"
+
+              - ::
+                type: "section-container"
+                name: "Sovereign Node Card"
+                css: "background: white; border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); transition: transform 0.3s; cursor: pointer;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "Sovereign Node"
+                    css: "color: #667eea; font-size: 28px; font-weight: 700; margin-bottom: 15px;"
+                  - ::
+                    type: "text"
+                    content: "Your personal server that stores and distributes your content. Take full control of your digital infrastructure."
+                    css: "color: #4a5568; font-size: 16px; line-height: 1.6; margin-bottom: 25px;"
+                  - ::
+                    type: "nav-button"
+                    content: "Setup Guide →"
+                    targetContainerId: "sovereign-node"
+                    css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; width: 100%;"
+
+      # Footer
+      - ::
+        type: "section-container"
+        name: "Footer"
+        css: "background: rgba(0,0,0,0.2); padding: 40px 20px; text-align: center; margin-top: 80px;"
+        children::
+          - ::
+            type: "text"
+            content: "This project has received funding from Kerala Startup Mission under productization grant 2024-25"
+            css: "color: rgba(255,255,255,0.8); font-size: 14px; font-style: italic;"
+
+  # Manifesto Screen
+  - ::
+    id: "manifesto"
+    name: "Manifesto"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Osvauld"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Our Manifesto"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 20px;"
+          - ::
+            type: "text"
+            content: "An ecosystem of fully self-sovereign apps"
+            css: "color: #718096; font-size: 20px; margin-bottom: 50px; font-style: italic;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## The Problem\n\nToday, almost everything we do online requires surrendering sovereignty over our digital identity.\n\n- To message friends persistently, you need at least an email account tied to a platform's identity system.\n- Your photos and files are accessible only through accounts you must maintain with specific services.\n- Even your home devices - cameras, lights, locks - need permission from remote servers to function, despite being physically in your house.\n\nThese systems work well functionally, but require you to give up control over your digital identity and relationships:\n\n- **Identity dependence** - Your ability to communicate depends on maintaining accounts with third parties.\n- **Permission-based access** - You need ongoing authorization from platforms to use services and access your own devices.\n- **No true ownership** - Even with encryption, your digital relationships exist only within systems you don't control.\n\nThe result: we've traded digital sovereignty for convenience. For those who want complete control over their digital life, current solutions aren't enough.\n\n## Our Solution: Direct Digital Collaboration\n\nWe're building everyday applications that connect people **directly** - without servers, subscriptions, or intermediaries.\n\n- **Messaging & calls** that work peer-to-peer, without accounts or platform lock-in.\n- **File sharing & backup** that never touches a third-party cloud.\n- **Password and identity management** that lives with you, not in a company's vault.\n- **Device access** that doesn't depend on remote servers to function.\n\nWith Osvauld apps, you get the convenience of modern connected tools - instant sync, global reach, seamless sharing - but without surrendering your identity, data, or relationships to anyone else.\n\n## Principles We Build On\n\n**Open source by default** - Every line of code is transparent, auditable, and modifiable. No black boxes.\n\n**Free to use** - Peer-to-peer architecture means no server costs, no subscriptions, no hidden fees.\n\n**You own your keys** - Your identity and access are secured by cryptography, not controlled by third parties. Nobody can revoke your permissions but you.\n\n## Building Your Personal Internet\n\nThis isn't just about privacy - it's about independence. A digital life where:\n\n- Your conversations and files are always available because they live with you.\n- Your devices respond to you, not a distant company's server.\n- Collaboration happens directly between people, without gatekeepers.\n\nWe believe the internet should have worked this way from the start. That's why we're building it now - one application at a time.\n\n**Join us in creating tools that put you back in control of your digital world.**"
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 20px; margin-top: 50px; justify-content: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+              - ::
+                type: "nav-button"
+                content: "What Makes This Possible →"
+                targetContainerId: "what-makes-possible"
+                css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+
+  # What Makes This Possible Screen
+  - ::
+    id: "what-makes-possible"
+    name: "What Makes This Possible"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Osvauld"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "What Makes This Possible"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 50px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## Core Technologies\n\nOsvauld is built on a foundation of modern peer-to-peer technologies and cryptographic protocols:\n\n### Self-Sovereign Identity\nYour identity is controlled by cryptographic keys (PGP keypair, Ed25519 signing keys, UCAN public key) that prove your identity without relying on centralized authorities.\n\n### UCAN Authorization\nUser Controlled Authorization Networks (UCAN) provide token-based permissions that let you share content with specific capabilities (view, comment, submit forms) without requiring a central authority.\n\n### CRDT Synchronization\nConflict-free Replicated Data Types (CRDTs) enable real-time collaboration and updates without requiring a central server to coordinate changes.\n\n### Local-First Architecture\nContent renders from local copies first, with incremental sync in the background. This means instant performance and offline capability.\n\n### End-to-End Encryption\nAll content is encrypted at rest and in transit using AES-256-GCM, only accessible to authorized parties with the correct cryptographic keys.\n\n### QUIC Protocol\nModern transport protocol providing fast, secure connections with built-in TLS encryption and multiplexing.\n\n## The Stack\n\n- **Rust** - High-performance, memory-safe networking layer\n- **Yjs** - CRDT implementation for collaborative editing\n- **libp2p** - Peer-to-peer networking framework\n- **PGP** - Asymmetric encryption for secure key exchange\n- **AES-256-GCM** - Symmetric encryption for content\n- **UCAN** - Decentralized authorization tokens\n\n## Why It Works\n\nBy combining these technologies, Osvauld creates a new paradigm:\n\n1. **No central servers** - Direct peer-to-peer connections\n2. **Cryptographic ownership** - Mathematical proof of control\n3. **Privacy by default** - Encryption at every layer\n4. **Offline-first** - Works without connectivity\n5. **Real-time sync** - CRDT-based conflict resolution\n\nThis isn't just theoretical - it's working code you can run today."
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 20px; margin-top: 50px; justify-content: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Manifesto"
+                targetContainerId: "manifesto"
+                css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+              - ::
+                type: "nav-button"
+                content: "Home"
+                targetContainerId: "home"
+                css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+
+  # Sthalam Introduction Screen
+  - ::
+    id: "sthalam-intro"
+    name: "Sthalam Introduction"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Project Sthalam"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Status Badge"
+            css: "background: #fef3c7; border: 1px solid #f59e0b; border-radius: 8px; padding: 20px; margin-bottom: 30px;"
+            children::
+              - ::
+                type: "text"
+                content: "⚠️ POC Status: Sthalam is currently a proof-of-concept. This documentation describes both implemented core functionality and planned features."
+                css: "color: #92400e; font-size: 14px; line-height: 1.6;"
+
+          - ::
+            type: "heading"
+            content: "Introduction to Project Sthalam"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 20px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## What is Sthalam?\n\n**Sthalam** (Malayalam: സ്ഥലം, meaning \"place\") is a sovereign publishing platform that enables individuals to create and distribute content on their own terms—without platforms, algorithms, or intermediaries.\n\nWith Sthalam, you get complete control over your content and how it's distributed. You create websites, micro-blog posts, and newsletters, then share them directly with your viewers through your sovereign node—no middlemen, no terms of service changes, no deplatforming risk.\n\n**Your Data, Your Control**: Everything you create—the blogs you host, the surveys submitted by viewers, the comments on your posts—exists only between you and your viewers. Nobody else has access to it. You decide if it's private or public, who can see it, and under what terms.\n\n## Core Principles\n\n### Sovereignty\nYou own your content, your identity, and your distribution. No platform can deplatform you, censor your content, or change the rules.\n\n### Direct Distribution\nContent flows directly from your sovereign node to your viewers. No intermediaries, no algorithms deciding who sees your content.\n\n### Cryptographic Ownership\nYour content is protected by cryptographic keys and UCAN tokens. You have provable ownership and control.\n\n### Privacy by Design\nViewers connect directly to your node. Their data isn't harvested by platforms or sold to advertisers.\n\n## What Can You Build?\n\n### Websites\nBuild interactive multi-page websites with visual builders, custom styling, forms, and comment threads.\n\n### Micro-blogs\nPublish Twitter-like posts with real-time collaborative discussions, distributed directly to subscribers.\n\n### Newsletters\nSend rich content directly to subscribers without relying on email platforms or their restrictions.\n\n### Surveys & Forms\nCollect feedback, conduct polls, and gather data from your viewers with complete privacy—only you have access to the results."
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          # Feature Navigation Grid
+          - ::
+            type: "section-container"
+            name: "Feature Navigation"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 50px;"
+            children::
+              - ::
+                type: "section-container"
+                name: "Publishing Card"
+                css: "background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.3s;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "📝 Publishing"
+                    css: "color: #667eea; font-size: 20px; margin-bottom: 10px;"
+                  - ::
+                    type: "text"
+                    content: "Learn how to create and publish content"
+                    css: "color: #718096; font-size: 14px; margin-bottom: 20px;"
+                  - ::
+                    type: "nav-button"
+                    content: "Read More →"
+                    targetContainerId: "sthalam-publishing"
+                    css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; width: 100%;"
+
+              - ::
+                type: "section-container"
+                name: "Forms Card"
+                css: "background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.3s;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "📋 Forms"
+                    css: "color: #667eea; font-size: 20px; margin-bottom: 10px;"
+                  - ::
+                    type: "text"
+                    content: "Collect data with privacy-preserving forms"
+                    css: "color: #718096; font-size: 14px; margin-bottom: 20px;"
+                  - ::
+                    type: "nav-button"
+                    content: "Read More →"
+                    targetContainerId: "sthalam-forms"
+                    css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; width: 100%;"
+
+              - ::
+                type: "section-container"
+                name: "Comments Card"
+                css: "background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 30px; cursor: pointer; transition: all 0.3s;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "💬 Comments"
+                    css: "color: #667eea; font-size: 20px; margin-bottom: 10px;"
+                  - ::
+                    type: "text"
+                    content: "Enable real-time discussions"
+                    css: "color: #718096; font-size: 14px; margin-bottom: 20px;"
+                  - ::
+                    type: "nav-button"
+                    content: "Read More →"
+                    targetContainerId: "sthalam-comments"
+                    css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; width: 100%;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back to Home"
+            targetContainerId: "home"
+            css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 50px; display: block; width: fit-content; margin-left: auto; margin-right: auto;"
+
+  # Sthalam Publishing Screen
+  - ::
+    id: "sthalam-publishing"
+    name: "Publishing Content"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Sthalam"
+                targetContainerId: "sthalam-intro"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Publishing Content"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Publishing Content with Sthalam"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 30px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## Overview\n\nSthalam enables sovereign individuals to publish and distribute content on their own terms—without platforms, algorithms, or intermediaries.\n\n## Content Types\n\n### Websites\nBuild interactive multi-page websites using HUML (Human Markup Language):\n- **Visual Builder**: Design websites with blocks (text, headings, images, markdown, HTML)\n- **Navigation Flows**: Create page transitions and branching logic\n- **Custom Styling**: Apply CSS for complete design control\n- **Interactive Elements**: Add forms, comment threads, and navigation buttons\n\n### Micro-blogs\nPublish Twitter-like posts with discussions:\n- **Short-form Content**: Quick updates and thoughts\n- **Comment Threads**: Real-time collaborative discussions\n- **Subscriber Distribution**: Viewers poll node to receive updates\n\n### Newsletters\nDirect distribution without email platforms:\n- **Rich Content**: Formatted text, images, and markdown\n- **Subscriber Delivery**: Sent directly to all connected viewers\n- **Pull-Based Updates**: Viewers poll node to receive new content\n\n## Publishing Flow\n\n### Step 1: Content Creation\n1. **Generate HUML Template**: Use an LLM to generate HUML templates\n2. **Edit Content**: Use the properties panel to customize\n3. **Add Interactivity**: Insert forms and comment threads\n4. **Preview**: Review before publishing\n\n### Step 2: Publishing to Sovereign Node\n- **Cryptographic Ownership**: Root UCAN establishes ownership\n- **Encryption**: AES-256-GCM encryption at rest\n- **Node Storage**: Content stored on your sovereign node\n\n### Step 3: Generating Share Tokens\n- **Folder-Level Sharing**: Share entire content folders\n- **UCAN Tokens**: Generate time-limited access tokens\n- **Connection Strings**: Base64-encoded access credentials\n\n### Step 4: Distribution\nShare connection strings via:\n- Email, chat, social media\n- QR codes\n- Website embeds\n- Out-of-band communication\n\n## Security Properties\n\n- **Cryptographic Ownership**: Root UCAN provides mathematical proof\n- **Multi-Layer Encryption**: At rest and in transit\n- **Access Control**: UCAN tokens define viewer permissions\n- **Data Sovereignty**: You control your node and content"
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 20px; margin-top: 50px; justify-content: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Sthalam"
+                targetContainerId: "sthalam-intro"
+                css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+              - ::
+                type: "nav-button"
+                content: "Forms & Submissions →"
+                targetContainerId: "sthalam-forms"
+                css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+
+  # Sthalam Forms Screen
+  - ::
+    id: "sthalam-forms"
+    name: "Forms & Submissions"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Sthalam"
+                targetContainerId: "sthalam-intro"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Forms & Submissions"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Forms & Submissions"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 30px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## Overview\n\nSthalam enables publishers to collect viewer feedback through multiple independent forms embedded in websites. Using the append-only permission model (`crud/append`), viewers can submit form data without seeing other viewers' submissions, preserving privacy.\n\n## How It Works\n\n### Viewer Experience\n\n1. **Opening Website**: Forms render instantly from local copy\n2. **Filling Form**: Interactive fields with validation\n3. **Submitting**: Data sent to sovereign node with append-only permission\n\n### Permission Model: `crud/append`\n\nThe viewer's UCAN token contains append-only access:\n- ✅ **Can append** new records to the document\n- ❌ **Cannot read** existing submissions\n- ❌ **Cannot update** existing submissions\n- ❌ **Cannot delete** submissions\n\n### Privacy Benefits\n\n**Viewers Cannot See Other Submissions**:\n- Each viewer only knows their own submission\n- No cross-viewer data leakage\n- Privacy preserved by permission model\n\n**Publisher Access**:\n- Publisher has full `crud/read` permission\n- Can view all submissions\n- Can export and analyze data\n- Full ownership and control\n\n## Data Structure\n\nForms are organized by `form_id`:\n\n```javascript\n{\n  forms: {\n    \"contact_form\": [\n      { id: \"s1\", fields: {...}, timestamp: ... },\n      { id: \"s2\", fields: {...}, timestamp: ... }\n    ],\n    \"feedback_form\": [\n      { id: \"s3\", fields: {...}, timestamp: ... }\n    ]\n  }\n}\n```\n\n## Use Cases\n\n### Contact Forms\nCollect messages from website visitors with privacy preservation.\n\n### Surveys & Polls\nGather feedback without exposing individual responses to other viewers.\n\n### Event Registration\nCollect RSVPs and attendee information privately.\n\n### Bug Reports\nOrganized feedback collection from users.\n\n## Security\n\n- **Encryption**: AES-256-GCM at rest and in transit\n- **Spam Prevention**: Rate limiting on node side\n- **Data Validation**: UCAN token validation\n- **Privacy Compliance**: Viewers cannot access others' data"
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 20px; margin-top: 50px; justify-content: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Publishing"
+                targetContainerId: "sthalam-publishing"
+                css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+              - ::
+                type: "nav-button"
+                content: "Comment Threads →"
+                targetContainerId: "sthalam-comments"
+                css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+
+  # Sthalam Comments Screen
+  - ::
+    id: "sthalam-comments"
+    name: "Comment Threads"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Sthalam"
+                targetContainerId: "sthalam-intro"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Comment Threads"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Comment Threads"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 30px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## Overview\n\nComment threads in Sthalam enable real-time conversations between publishers and viewers, as well as between viewers themselves. A single document can have **multiple independent comment threads** in different locations.\n\n## How It Works\n\n### Local-First Architecture\n\n1. **Local Write First**: Comments written to local Yjs doc first (instant UI update)\n2. **State Vector Sync**: Participants exchange state vectors with node\n3. **Bidirectional**: Both viewer and node send state vectors and respond with diffs\n4. **Never Full Doc**: Only CRDT diffs transferred after initial sync\n\n### Permission Model: `crud/write`\n\nThe viewer's UCAN token contains write access:\n- ✅ **Can read** existing comments via state vector sync\n- ✅ **Can write** new comments\n- ✅ **Can update** own comments\n- ✅ **Bidirectional flow**: All participants exchange state vectors\n- ✅ **Multi-viewer support**: Viewers see each other's comments\n\n## Real-time Synchronization\n\n### Active Connections\n\n1. Viewer A writes comment to local → instant UI update\n2. Viewer A exchanges state vectors with node → node receives comment\n3. Publisher sends state vector to node → receives Viewer A's comment\n4. Publisher writes reply to local → instant UI update\n5. Other viewers poll and receive updates\n\n**Sub-Second Latency**:\n- Instant local writes (no network wait)\n- Frequent state vector exchanges\n- QUIC provides fast transport\n- Only missing updates transferred\n\n### Offline Resilience\n\n- Comments stored locally when offline\n- Synced to node when reconnected\n- CRDT ensures conflict-free merging\n\n## Multiple Threads Per Document\n\nAll threads stored in single `thread_comments_doc`:\n\n```javascript\n{\n  threads: {\n    \"section1_thread\": [\n      { author: \"viewer_a\", text: \"Great post!\", ... },\n      { author: \"publisher\", text: \"Thanks!\", ... }\n    ],\n    \"section2_thread\": [\n      { author: \"viewer_b\", text: \"Question...\", ... }\n    ]\n  }\n}\n```\n\n## Use Cases\n\n### Blog Post Discussions\n- Multiple threads for different sections\n- Focused conversations by topic\n- Community discussions between viewers\n\n### Newsletter Feedback\n- Readers share thoughts\n- Other readers respond\n- Publisher acknowledges feedback\n\n### Q&A Sections\n- Viewers post questions\n- Publisher provides answers\n- Knowledge base builds over time\n\n### Community Building\n- Viewer-to-viewer discussions\n- Publisher moderation\n- Sovereign community without platform control\n\n## Technical Features\n\n- **CRDT Properties**: Conflict-free merging across multiple threads\n- **Awareness**: Optional presence indicators\n- **Moderation**: Publisher control over content\n- **Spam Prevention**: Rate limiting and token expiration\n- **Encryption**: AES-256-GCM for all comments"
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "section-container"
+            name: "Try It Out"
+            css: "background: #edf2f7; border-radius: 12px; padding: 30px; margin-top: 40px;"
+            children::
+              - ::
+                type: "heading"
+                content: "💬 Example Comment Thread"
+                css: "color: #2d3748; font-size: 24px; margin-bottom: 20px;"
+              - ::
+                type: "text"
+                content: "This is a live comment thread. Try posting a comment below to see real-time collaboration in action!"
+                css: "color: #4a5568; font-size: 16px; margin-bottom: 20px;"
+              - ::
+                type: "thread"
+                name: "Documentation Discussion"
+                mode: "markdown"
+                description: "Share your thoughts about Sthalam's documentation..."
+                css: "--thread-bg: #ffffff; --thread-border-color: #e2e8f0; --thread-text-color: #2d3748; --thread-title-color: #667eea; --thread-description-color: #718096; --thread-input-bg: #f7fafc; --thread-input-border: #cbd5e0; --thread-input-text: #2d3748; --thread-input-placeholder: #a0aec0; --thread-input-focus-border: #667eea; --thread-input-focus-shadow: rgba(102,126,234,0.2); --thread-button-bg: #667eea; --thread-button-text: #ffffff; --thread-button-hover-bg: #5568d3; --thread-button-disabled-bg: #cbd5e0; --thread-button-disabled-text: #718096; --thread-comment-bg: #f7fafc; --thread-comment-border: #e2e8f0; --thread-comment-author-color: #667eea; --thread-comment-time-color: #a0aec0; --thread-comment-content-color: #2d3748; --thread-toggle-bg: #edf2f7; --thread-toggle-border: #cbd5e0; --thread-toggle-color: #2d3748; --thread-toggle-hover-bg: #e2e8f0; --thread-no-comments-color: #718096; --thread-scrollbar-track: #f7fafc; --thread-scrollbar-thumb: #cbd5e0; --thread-scrollbar-thumb-hover: #a0aec0;"
+
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 20px; margin-top: 50px; justify-content: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Forms"
+                targetContainerId: "sthalam-forms"
+                css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+              - ::
+                type: "nav-button"
+                content: "Back to Sthalam"
+                targetContainerId: "sthalam-intro"
+                css: "background: #667eea; color: white; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer;"
+
+  # Livnote Introduction Screen
+  - ::
+    id: "livnote-intro"
+    name: "Livnote"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Livnote"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Livnote"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 30px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## What is Livnote?\n\nLivnote is a peer-to-peer collaborative note-taking application that enables real-time synchronization between peers without requiring a central server.\n\n## Key Features\n\n### Self-Sovereign Identity\nCreate and manage your cryptographic identity:\n- **PGP Keypair**: For encryption and authentication\n- **Ed25519 Keys**: For signing and verification\n- **UCAN Keys**: For authorization and permissions\n\n### Peer-to-Peer Collaboration\nConnect directly with other users:\n- **Direct Connections**: No central server required\n- **Real-time Sync**: CRDT-based synchronization\n- **Offline-First**: Works without internet connectivity\n\n### Resource Management\nOrganize your notes and documents:\n- **Folders**: Hierarchical organization\n- **Sharing**: Selective sharing with peers\n- **Permissions**: Fine-grained access control\n\n### Live Editing\nCollaborate in real-time:\n- **Simultaneous Editing**: Multiple users editing together\n- **Conflict Resolution**: Automatic CRDT-based merging\n- **Presence Awareness**: See who's currently editing\n\n## Getting Started\n\n1. **Create Your Identity**: Generate your cryptographic keys\n2. **Connect to Peers**: Exchange connection credentials\n3. **Create Resources**: Start taking notes and creating documents\n4. **Share**: Distribute content with peers securely\n\n## Technical Foundation\n\n- **CRDTs**: Conflict-free Replicated Data Types for synchronization\n- **End-to-End Encryption**: All content encrypted with AES-256-GCM\n- **P2P Networking**: Direct peer connections via libp2p/QUIC\n- **Local-First**: Instant performance with background sync"
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "section-container"
+            name: "Guide Cards"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-top: 50px;"
+            children::
+              - ::
+                type: "section-container"
+                name: "Identity Card"
+                css: "background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "🔑 Creating Identity"
+                    css: "color: #667eea; font-size: 18px; margin-bottom: 10px;"
+                  - ::
+                    type: "text"
+                    content: "Learn how to create your self-sovereign identity"
+                    css: "color: #718096; font-size: 14px; margin-bottom: 15px;"
+
+              - ::
+                type: "section-container"
+                name: "Peers Card"
+                css: "background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "👥 Connecting to Peers"
+                    css: "color: #667eea; font-size: 18px; margin-bottom: 10px;"
+                  - ::
+                    type: "text"
+                    content: "Establish peer-to-peer connections"
+                    css: "color: #718096; font-size: 14px; margin-bottom: 15px;"
+
+              - ::
+                type: "section-container"
+                name: "Sync Card"
+                css: "background: white; border: 2px solid #e2e8f0; border-radius: 12px; padding: 25px;"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "🔄 Synchronization"
+                    css: "color: #667eea; font-size: 18px; margin-bottom: 10px;"
+                  - ::
+                    type: "text"
+                    content: "Understand real-time sync mechanisms"
+                    css: "color: #718096; font-size: 14px; margin-bottom: 15px;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back to Home"
+            targetContainerId: "home"
+            css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 50px; display: block; width: fit-content; margin-left: auto; margin-right: auto;"
+
+  # Sovereign Node Screen
+  - ::
+    id: "sovereign-node"
+    name: "Sovereign Node"
+    css: "background: #f7fafc; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Top Navigation"
+        css: "background: white; padding: 20px 40px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 0;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Nav Container"
+            css: "max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; cursor: pointer;"
+              - ::
+                type: "heading"
+                content: "Sovereign Node"
+                css: "color: #667eea; font-size: 24px; font-weight: 700; margin: 0;"
+
+      - ::
+        type: "section-container"
+        name: "Content Container"
+        css: "max-width: 900px; margin: 0 auto; padding: 60px 40px;"
+        children::
+          - ::
+            type: "heading"
+            content: "Setting Up a Sovereign Node"
+            css: "color: #1a202c; font-size: 48px; font-weight: 800; margin-bottom: 30px;"
+
+          - ::
+            type: "markdown-text"
+            mode: "markdown"
+            content: "## What is a Sovereign Node?\n\nA **sovereign node** is your personal server that stores and distributes your content. Think of it as your own piece of internet infrastructure that you control completely.\n\n## Why Run Your Own Node?\n\n### True Sovereignty\n- **Physical Control**: The node runs on hardware you own\n- **No Intermediaries**: Direct control over your data\n- **Cannot Be Deplatformed**: No one can take your node away\n- **Your Rules**: You decide access, distribution, and terms\n\n### Privacy & Security\n- **Home Network**: Stays on your local network\n- **Encrypted Storage**: All data encrypted at rest\n- **Cryptographic Access**: UCAN-based authorization\n- **Physical Security**: Device stays in your house\n\n## Hardware Options\n\n### Raspberry Pi (Recommended)\n- **Low Cost**: $35-100\n- **Energy Efficient**: Runs 24/7 with minimal power\n- **Compact**: Small form factor\n- **Perfect for Home Server**: Designed for always-on operation\n\n### Old Smartphone\n- **Repurpose Hardware**: Use an old Android device\n- **WiFi Connected**: Keep connected to home network\n- **Low Cost**: Free if you have an old device\n- **Portable**: Can move locations easily\n\n### Old Laptop or Desktop\n- **More Power**: Better for heavy workloads\n- **Existing Hardware**: Repurpose what you have\n- **More Storage**: Larger drives available\n- **Good for Development**: Can run additional services\n\n### Mini PC\n- **Dedicated Device**: Purpose-built for server use\n- **Energy Efficient**: Modern low-power processors\n- **Compact**: Small form factor\n- **Professional**: Reliable 24/7 operation\n\n## Node Functions\n\nYour sovereign node handles:\n\n1. **Content Storage**: Encrypted copies of your websites, blogs, newsletters\n2. **Access Control**: Validates UCAN tokens to grant/deny access\n3. **Synchronization**: Manages CRDT updates for real-time collaboration\n4. **Distribution**: Serves content directly to authorized viewers\n5. **Data Collection**: Receives and stores form submissions\n\n## Installation Steps\n\n### 1. Prepare Hardware\n- Choose your device (Raspberry Pi, old phone, laptop, mini PC)\n- Ensure stable power supply\n- Connect to home network (Ethernet preferred for stability)\n\n### 2. Install Operating System\n- For Raspberry Pi: Install Raspberry Pi OS\n- For Android: Use Termux for Linux environment\n- For Laptop/Desktop: Use Linux (Ubuntu recommended)\n\n### 3. Install Node Software\n```bash\n# Download and install Osvauld node\ncurl -sSL https://install.osvauld.com | bash\n\n# Configure node\nosvauld-node init\n\n# Start node service\nosvauld-node start\n```\n\n### 4. Configure Network\n- Set static IP on local network\n- Configure port forwarding (if exposing to internet)\n- Set up dynamic DNS (optional for remote access)\n\n### 5. Generate Node Identity\n- Create PGP keypair for node\n- Generate UCAN keys\n- Secure private keys\n\n### 6. Connect Desktop App\n- Open Osvauld desktop application\n- Add node connection\n- Verify connection established\n\n## Security Best Practices\n\n### Physical Security\n- **Keep at Home**: Node should be on your home network\n- **Secure Location**: Place in secure area of your house\n- **Backup Keys**: Store encryption keys securely\n\n### Network Security\n- **Firewall**: Enable firewall on node\n- **Limited Exposure**: Only open necessary ports\n- **VPN Access**: Consider VPN for remote access\n- **Regular Updates**: Keep software updated\n\n### Operational Security\n- **Monitor Logs**: Check for unusual activity\n- **Regular Backups**: Backup encrypted content\n- **Key Rotation**: Periodically rotate keys\n- **Access Audits**: Review who has access\n\n## Next Steps\n\nOnce your node is running:\n\n1. **Publish Content**: Start creating and publishing\n2. **Generate Share Tokens**: Create viewer access tokens\n3. **Monitor Performance**: Check node health and logs\n4. **Scale Resources**: Add storage as needed\n\n## Troubleshooting\n\n### Node Won't Start\n- Check logs: `osvauld-node logs`\n- Verify network connectivity\n- Ensure ports are open\n- Check disk space\n\n### Connection Issues\n- Verify firewall rules\n- Check port forwarding\n- Test local connectivity first\n- Review UCAN tokens\n\n### Performance Problems\n- Monitor resource usage\n- Check network bandwidth\n- Review concurrent connections\n- Consider hardware upgrade\n\n## Community Support\n\nNeed help? Join our community:\n- GitHub Issues: Report bugs and request features\n- Telegram: Real-time community support\n- Documentation: Comprehensive guides\n- Forums: Discussion and troubleshooting"
+            css: "background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); line-height: 1.8; color: #2d3748; font-size: 16px;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back to Home"
+            targetContainerId: "home"
+            css: "background: #e2e8f0; color: #2d3748; padding: 12px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 50px; display: block; width: fit-content; margin-left: auto; margin-right: auto;"
