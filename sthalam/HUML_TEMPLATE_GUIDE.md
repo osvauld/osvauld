@@ -10,11 +10,40 @@
 
 **IF YOU ARE AN AI ASSISTANT GENERATING HUML TEMPLATES, READ THIS FIRST:**
 
+### Container Naming Requirement
+
+**ALL `section-container` blocks MUST have a descriptive `name` property.**
+
+This is mandatory for template maintainability and organization. Every container needs a clear, meaningful name that describes its purpose.
+
+**Examples of good names:**
+- "Header Navigation"
+- "Hero Section"
+- "Blog Post Card"
+- "Comment Thread Area"
+- "Footer Links"
+
+**❌ NEVER create unnamed containers!** Always include the `name` property.
+
 ### Thread Blocks Have Special CSS Requirements
 
 **Thread blocks (`type: "thread"`) ONLY accept CSS custom properties (CSS variables). Regular CSS will NOT work.**
 
+**CRITICAL FOR DARK THEMES:** You MUST include these variables or the theme will break:
+- `--thread-comment-content-color` - Comment text (or comments will be invisible!)
+- `--thread-toggle-bg` - Toggle button background (or it will be white!)
+- `--thread-toggle-color` - Toggle button text
+- `--thread-scrollbar-track` - Scrollbar background (or it will be white!)
+- `--thread-scrollbar-thumb` - Scrollbar thumb (or it will be white!)
+- `--thread-no-comments-color` - Comment count label
+- `--thread-description-color` - Description text
+
 **IMPORTANT:** After you finish generating the template, you MUST re-analyze all thread block CSS variables to ensure they are correct and match the exact variable names from the available list below. Double-check for typos and invalid variable names.
+
+**COMMON MISTAKES:**
+- Using `--thread-padding`, `--thread-border-width`, `--thread-reply-bg` (these don't exist!)
+- Using `--thread-comment-date-color` instead of `--thread-comment-time-color`
+- Forgetting scrollbar and toggle variables (causes white elements on dark backgrounds!)
 
 **✅ CORRECT - Use CSS Variables:**
 ```huml
@@ -443,9 +472,17 @@ content: "[Click here](https://example.com)"
 
 **Purpose:** Group related blocks together with shared styling
 
+**⚠️ IMPORTANT: Always Use Meaningful Names!**
+
+**Container blocks MUST have a descriptive `name` property.** This is critical for:
+- Identifying containers in the builder/editor
+- Making templates maintainable
+- Understanding structure at a glance
+- Debugging and organizing complex layouts
+
 **Properties:**
 - `type: "section-container"` (required)
-- `name` (optional) - Display name for editor
+- `name` (required for best practices) - Descriptive display name (e.g., "Header Section", "Feature Card", "Blog Post Container")
 - `css` (optional) - Container styling
 - `children` (optional) - Blocks inside this container
 
@@ -545,11 +582,30 @@ content: "[Click here](https://example.com)"
 
 **Purpose:** The universal button for ALL interactions
 
-**This is the ONLY button type you need.** It has three modes:
+**This is the ONLY button type you need.** It has five modes:
 
 1. **MODE 1:** Simple navigation (go to another screen)
-2. **MODE 2:** Form submission (submit form + navigate)
-3. **MODE 3:** Branching choices (set value + submit + navigate)
+2. **MODE 2:** Form submission (submit all collected data + navigate)
+3. **MODE 3A:** Set single value without submitting (for branching choices)
+4. **MODE 3B:** Branching with immediate submission (set value + submit + navigate)
+5. **MODE 4:** Cache and continue (save visible fields and navigate, for multi-screen forms)
+
+#### ⚡ Quick Reference: Which Properties to Use
+
+| Property | MODE 1<br>Navigate | MODE 2<br>Submit | MODE 3A<br>Choice | MODE 3B<br>Choice+Submit | MODE 4<br>Continue |
+|----------|:------------------:|:----------------:|:-----------------:|:------------------------:|:------------------:|
+| `type: "nav-button"` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `content` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `targetContainerId` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `formId` | ❌ | ✅ | ✅ | ✅ | ✅ |
+| `fieldName` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| `value` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| `action: "setValueOnly"` | ❌ | ❌ | ✅ **REQUIRED** | ❌ | ❌ |
+| `action: "continue"` | ❌ | ❌ | ❌ | ❌ | ✅ **REQUIRED** |
+
+**⚠️ Most common mistakes:**
+- MODE 3A: Forgetting `action: "setValueOnly"` (button navigates but doesn't save the choice)
+- MODE 4: Forgetting `formId` or `action: "continue"` (button navigates but doesn't save form fields)
 
 #### Common Properties
 
@@ -558,10 +614,10 @@ content: "[Click here](https://example.com)"
 | `type` | String | ✅ Yes | Must be `"nav-button"` |
 | `content` | String | ✅ Yes | Button text |
 | `targetContainerId` | String | ✅ Yes | Screen ID to navigate to |
-| `formId` | String | For MODE 2 & 3 | Form to submit |
+| `formId` | String | For MODE 2, 3, 4 | Form to interact with |
 | `fieldName` | String | For MODE 3 only | Field name to set |
 | `value` | Any | For MODE 3 only | Value to set |
-| `action` | String | ❌ No | Default: `"navigate"` |
+| `action` | String | ❌ No | `"continue"`, `"setValueOnly"`, or default `"navigate"` |
 | `css` | String | ❌ No | Button styling |
 
 ---
@@ -623,11 +679,16 @@ screens::
 
 **Use this when:** You want to submit a form and then navigate to a thank-you page.
 
+**⚠️ CRITICAL: This is the DEFAULT mode when you have `formId` but NO `action` property!**
+
+If you add `formId` to a button but forget `action: "continue"` or `action: "setValueOnly"`, the button will SUBMIT the form instead of caching data. This creates MULTIPLE submissions instead of ONE final submission!
+
 **Required:**
 - `type: "nav-button"`
 - `content` - Button text (e.g., "Submit", "Send")
 - `formId` - ID of the form to submit
 - `targetContainerId` - Where to go after submission
+- **NO `action` property** - If you add `action`, it becomes MODE 3 or 4!
 
 **How it works:**
 1. User clicks button
@@ -651,7 +712,193 @@ screens::
 
 ---
 
-#### MODE 3: Branching Choices
+#### MODE 3A: Set Value Without Submitting (Multi-Screen Forms)
+
+**Use this when:** You want to collect data across multiple screens and submit everything together at the end.
+
+**⚠️ CRITICAL: ALL 7 properties below are REQUIRED. Missing `action: "setValueOnly"` is the #1 mistake!**
+
+**Required Properties (ALL 7 are mandatory):**
+- ✅ `type: "nav-button"`
+- ✅ `content` - Button text
+- ✅ `formId` - Form to associate with
+- ✅ `fieldName` - Name of the field to set
+- ✅ `value` - The value to set
+- ✅ `targetContainerId` - Where to go
+- ✅ `action: "setValueOnly"` - **CRITICAL:** Tells the system NOT to submit yet (NEVER omit this!)
+
+**Common mistake:** Forgetting `action: "setValueOnly"` - this will cause the button to navigate without saving the choice!
+
+**How it works:**
+1. User clicks button
+2. System stores `fieldName` = `value` in temporary storage
+3. Navigates to target screen (NO submission happens)
+4. User continues filling more fields on other screens
+5. When final submit button (MODE 2) is clicked, ALL accumulated data is submitted together
+
+**Example: Initial Registration Type Selection**
+```huml
+# This button stores the choice but doesn't submit
+- ::
+  type: "nav-button"
+  content: "🎤 Speaker Registration"
+  formId: "form-registration"
+  fieldName: "registration_type"
+  value: "speaker"
+  targetContainerId: "speaker-info"
+  action: "setValueOnly"
+  css: "background: #667eea; color: white; padding: 20px; border-radius: 12px; font-weight: 600;"
+```
+
+**Complete Multi-Screen Example:**
+```huml
+name: "Multi-Screen Registration"
+
+screens::
+  # Screen 1: Choose registration type
+  - ::
+    id: "welcome"
+    name: "Welcome"
+    isEntryPoint: true
+    children::
+      # Form metadata
+      - ::
+        id: "form-registration"
+        type: "form"
+        name: "Registration Form"
+        eventName: "registration_submission"
+
+      - ::
+        type: "heading"
+        content: "Select Registration Type"
+
+      # MODE 3A button - stores value but doesn't submit
+      - ::
+        type: "nav-button"
+        content: "Speaker"
+        formId: "form-registration"
+        fieldName: "registration_type"
+        value: "speaker"
+        targetContainerId: "speaker-form"
+        action: "setValueOnly"
+        css: "background: #667eea; color: white; padding: 15px 30px; border-radius: 8px;"
+
+  # Screen 2: Collect speaker details
+  - ::
+    id: "speaker-form"
+    name: "Speaker Form"
+    children::
+      - ::
+        type: "heading"
+        content: "Speaker Information"
+
+      # Regular form fields
+      - ::
+        type: "form-field-text"
+        formId: "form-registration"
+        fieldName: "full_name"
+        label: "Full Name"
+        required: true
+
+      - ::
+        type: "form-field-email"
+        formId: "form-registration"
+        fieldName: "email"
+        label: "Email"
+        required: true
+
+      - ::
+        type: "form-field-text"
+        formId: "form-registration"
+        fieldName: "talk_title"
+        label: "Talk Title"
+        required: true
+
+      # MODE 4: Continue button - caches fields without submitting
+      - ::
+        type: "nav-button"
+        content: "Continue"
+        formId: "form-registration"
+        action: "continue"
+        targetContainerId: "speaker-preferences"
+        css: "background: #667eea; color: white; padding: 15px 30px; border-radius: 8px;"
+
+  # Screen 3: More preferences
+  - ::
+    id: "speaker-preferences"
+    name: "Speaker Preferences"
+    children::
+      - ::
+        type: "heading"
+        content: "Select Your Topic"
+
+      # Another MODE 3A button - adds to accumulated data
+      - ::
+        type: "nav-button"
+        content: "AI & Machine Learning"
+        formId: "form-registration"
+        fieldName: "topic"
+        value: "ai_ml"
+        targetContainerId: "final-review"
+        action: "setValueOnly"
+        css: "background: #667eea; color: white; padding: 15px 30px; border-radius: 8px;"
+
+  # Screen 4: Final submission
+  - ::
+    id: "final-review"
+    name: "Review & Submit"
+    children::
+      - ::
+        type: "heading"
+        content: "Review Your Information"
+
+      - ::
+        type: "text"
+        content: "Click submit to complete your registration"
+
+      # MODE 2 button - submits ALL accumulated data
+      - ::
+        type: "nav-button"
+        content: "Submit Registration"
+        formId: "form-registration"
+        targetContainerId: "thank-you"
+        css: "background: #00ff88; color: #000; padding: 15px 30px; border-radius: 8px; font-weight: 600;"
+
+  # Success screen
+  - ::
+    id: "thank-you"
+    name: "Thank You"
+    children::
+      - ::
+        type: "heading"
+        content: "✅ Registration Complete!"
+```
+
+**What gets submitted:**
+```json
+{
+  "formId": "form-registration",
+  "eventName": "registration_submission",
+  "data": {
+    "registration_type": "speaker",
+    "full_name": "John Doe",
+    "email": "john@example.com",
+    "talk_title": "The Future of AI",
+    "topic": "ai_ml"
+  }
+}
+```
+
+**Key Points:**
+- `action: "setValueOnly"` prevents immediate submission
+- All values are accumulated across screens
+- Final MODE 2 button submits everything together
+- User can navigate back/forth without losing data
+- Perfect for complex multi-step forms
+
+---
+
+#### MODE 3B: Branching Choices (With Immediate Submission)
 
 **Use this when:** You want to present choices (Yes/No, Option A/B/C) where each choice sets a specific value and navigates somewhere.
 
@@ -791,17 +1038,197 @@ screens::
 
 ---
 
+#### MODE 4: Cache and Continue (Multi-Screen Forms)
+
+**Use this when:** You have a form spread across multiple screens and want to save visible fields before navigating to the next screen.
+
+**⚠️ CRITICAL: ALL 5 properties below are REQUIRED. Missing `formId` or `action: "continue"` is the #1 mistake!**
+
+**Required Properties (ALL 5 are mandatory):**
+- ✅ `type: "nav-button"`
+- ✅ `content` - Button text (usually "Continue" or "Next")
+- ✅ `formId` - Form to cache data for (MUST match the form id!)
+- ✅ `action: "continue"` - **CRITICAL:** Tells the system to cache fields without submitting (NEVER omit this!)
+- ✅ `targetContainerId` - Next screen to go to
+
+**Common mistakes:**
+1. Forgetting `action: "continue"` - button will navigate but NOT save the field data
+2. Forgetting `formId` - system won't know which form to cache data for
+
+**How it works:**
+1. User fills form fields on current screen
+2. User clicks Continue button (`action: "continue"`)
+3. System caches all visible field values in memory
+4. Navigates to next screen (NO submission happens)
+5. Process repeats across screens
+6. Final Submit button (MODE 2) collects ALL cached data + visible fields and submits ONCE
+
+**Complete Multi-Screen Form Pattern:**
+```huml
+name: "Event Registration - Multi-Screen Pattern"
+
+screens::
+  # Screen 1: Welcome - Choose registration type
+  - ::
+    id: "welcome"
+    name: "Welcome"
+    isEntryPoint: true
+    children::
+      - ::
+        type: "heading"
+        content: "Select Registration Type"
+
+      # Simple MODE 1 navigation - no formId needed
+      - ::
+        type: "nav-button"
+        content: "Speaker Registration"
+        targetContainerId: "speaker-form"
+        css: "background: #667eea; color: white; padding: 20px;"
+
+  # Screen 2: Speaker form fields
+  - ::
+    id: "speaker-form"
+    name: "Speaker Details"
+    children::
+      # Define the form
+      - ::
+        id: "form-speaker"
+        type: "form"
+        eventName: "speaker_registration"
+
+      - ::
+        type: "form-field-text"
+        formId: "form-speaker"
+        fieldName: "full_name"
+        label: "Full Name"
+        required: true
+
+      - ::
+        type: "form-field-email"
+        formId: "form-speaker"
+        fieldName: "email"
+        label: "Email"
+        required: true
+
+      - ::
+        type: "form-field-text"
+        formId: "form-speaker"
+        fieldName: "talk_title"
+        label: "Talk Title"
+        required: true
+
+      # MODE 4: Cache and Continue button
+      - ::
+        type: "nav-button"
+        content: "Continue →"
+        formId: "form-speaker"
+        action: "continue"
+        targetContainerId: "speaker-topic"
+        css: "background: #667eea; color: white; padding: 15px 30px;"
+
+  # Screen 3: Topic selection
+  - ::
+    id: "speaker-topic"
+    name: "Select Topic"
+    children::
+      - ::
+        type: "heading"
+        content: "What will you speak about?"
+
+      # MODE 3A: Set value without submitting
+      - ::
+        type: "nav-button"
+        content: "AI & Machine Learning"
+        formId: "form-speaker"
+        fieldName: "topic_area"
+        value: "ai_ml"
+        action: "setValueOnly"
+        targetContainerId: "speaker-review"
+        css: "background: #3d4571; color: white; padding: 15px;"
+
+      - ::
+        type: "nav-button"
+        content: "Web Development"
+        formId: "form-speaker"
+        fieldName: "topic_area"
+        value: "web_dev"
+        action: "setValueOnly"
+        targetContainerId: "speaker-review"
+        css: "background: #3d4571; color: white; padding: 15px;"
+
+  # Screen 4: Review and submit
+  - ::
+    id: "speaker-review"
+    name: "Review & Submit"
+    children::
+      - ::
+        type: "heading"
+        content: "Review Your Information"
+
+      - ::
+        type: "form-field-textarea"
+        formId: "form-speaker"
+        fieldName: "additional_notes"
+        label: "Additional Notes"
+        required: false
+
+      # MODE 2: Submit button (no action property)
+      # This collects ALL cached data + visible fields and submits ONCE
+      - ::
+        type: "nav-button"
+        content: "Submit Registration"
+        formId: "form-speaker"
+        targetContainerId: "confirmation"
+        css: "background: #00ff88; color: #000; padding: 15px 30px; font-weight: 600;"
+
+  # Screen 5: Confirmation
+  - ::
+    id: "confirmation"
+    name: "Success"
+    children::
+      - ::
+        type: "heading"
+        content: "✅ Registration Complete!"
+```
+
+**What gets submitted when clicking final Submit button:**
+```json
+{
+  "formId": "form-speaker",
+  "eventName": "speaker_registration",
+  "data": {
+    "full_name": "John Doe",         // Cached from screen 2
+    "email": "john@example.com",     // Cached from screen 2
+    "talk_title": "The Future of AI", // Cached from screen 2
+    "topic_area": "ai_ml",           // Cached from screen 3
+    "additional_notes": "Looking forward to it!" // Visible on screen 4
+  }
+}
+```
+
+**Key Points:**
+- `action: "continue"` caches visible fields without submitting
+- `action: "setValueOnly"` caches single choice values without submitting
+- Submit button (no `action` property) submits ALL accumulated data in ONE event
+- Cache is automatically cleared after successful submission
+- User can navigate back/forth without losing data (cache persists)
+
+---
+
 #### nav-button MODE Comparison
 
-| Feature | MODE 1 | MODE 2 | MODE 3 |
-|---------|--------|--------|--------|
-| Navigate | ✅ | ✅ | ✅ |
-| Submit form | ❌ | ✅ | ✅ |
-| Set field value | ❌ | ❌ | ✅ |
-| Requires `formId` | ❌ | ✅ | ✅ |
-| Requires `fieldName` | ❌ | ❌ | ✅ |
-| Requires `value` | ❌ | ❌ | ✅ |
-| Use case | Simple navigation | Form submission | Branching choices |
+| Feature | MODE 1 | MODE 2 | MODE 3A | MODE 3B | MODE 4 |
+|---------|--------|--------|---------|---------|--------|
+| Navigate | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Submit form | ❌ | ✅ | ❌ | ✅ | ❌ |
+| Cache single value | ❌ | ❌ | ✅ | ✅ | ❌ |
+| Cache all visible fields | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Requires `formId` | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Requires `fieldName` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| Requires `value` | ❌ | ❌ | ✅ | ✅ | ❌ |
+| Requires `action: "setValueOnly"` | ❌ | ❌ | ✅ | ❌ | ❌ |
+| Requires `action: "continue"` | ❌ | ❌ | ❌ | ❌ | ✅ |
+| Use case | Simple navigation | Final submission | Branching choices | Branching with submit | Continue between form screens |
 
 ---
 
@@ -887,63 +1314,93 @@ css: """
 
 **Available CSS Custom Properties:**
 
-| Property | Default | Description |
-|----------|---------|-------------|
-| `--thread-bg` | `#f6f8fa` | Main container background |
-| `--thread-border-color` | `#e1e4e8` | Container border color |
-| `--thread-border-radius` | `8px` | Container border radius |
-| `--thread-text-color` | `#24292e` | Main text color |
-| `--thread-title-color` | `#24292e` | Thread title color |
-| `--thread-description-color` | `#6e7681` | Description text color |
-| `--thread-content-color` | `#24292e` | Content text color |
-| `--thread-content-heading-color` | `#24292e` | Content headings color |
-| `--thread-link-color` | `#0366d6` | Link color |
-| `--thread-code-bg` | `#f6f8fa` | Code block background |
-| `--thread-code-color` | `inherit` | Code text color |
-| `--thread-input-bg` | `white` | Textarea background |
-| `--thread-input-border` | `#d1d5da` | Textarea border |
-| `--thread-input-text` | `#24292e` | Textarea text color |
-| `--thread-input-placeholder` | `#6e7681` | Placeholder text color |
-| `--thread-input-focus-border` | `#0366d6` | Textarea focus border |
-| `--thread-input-focus-shadow` | `rgba(3,102,214,0.1)` | Focus shadow color |
-| `--thread-button-bg` | `#0366d6` | Submit button background |
-| `--thread-button-text` | `white` | Submit button text |
-| `--thread-button-hover-bg` | `#0256c7` | Button hover background |
-| `--thread-button-disabled-bg` | `#94a3b8` | Disabled button background |
-| `--thread-button-disabled-text` | `#cbd5e0` | Disabled button text |
-| `--thread-comment-bg` | `white` | Comment box background |
-| `--thread-comment-border` | `#e1e4e8` | Comment box border |
-| `--thread-comment-text` | `#24292e` | Comment text color |
-| `--thread-comment-author-color` | `#24292e` | Author name color |
-| `--thread-comment-time-color` | `#586069` | Timestamp color |
-| `--thread-comment-content-color` | `#24292e` | Comment content color |
-| `--thread-toggle-bg` | `white` | Toggle button background |
-| `--thread-toggle-border` | `#d1d5da` | Toggle button border |
-| `--thread-toggle-color` | `#586069` | Toggle button text |
-| `--thread-toggle-hover-bg` | `#f6f8fa` | Toggle hover background |
-| `--thread-toggle-hover-border` | `#0366d6` | Toggle hover border |
-| `--thread-toggle-hover-color` | `#0366d6` | Toggle hover text |
-| `--thread-toggle-icon-color` | `#6a737d` | Toggle icon color |
-| `--thread-no-comments-color` | `#6e7681` | "No comments" label color |
-| `--thread-form-bg` | `transparent` | Comment form background |
-| `--thread-scrollbar-track` | `#f1f3f5` | Scrollbar track background |
-| `--thread-scrollbar-thumb` | `#adb5bd` | Scrollbar thumb |
-| `--thread-scrollbar-thumb-hover` | `#868e96` | Scrollbar thumb hover |
-| `--thread-error-bg` | `#f8d7da` | Error message background |
-| `--thread-error-text` | `#721c24` | Error message text |
-| `--thread-error-border` | `#f5c6cb` | Error message border |
+**⚠️ THESE ARE THE ONLY VALID VARIABLE NAMES. Using any other variable names will NOT work!**
 
-**Example: Dark Theme Thread (Complete with Title)**
+| Property | Default | Description | Required for Dark Theme? |
+|----------|---------|-------------|-------------------------|
+| `--thread-bg` | `#f6f8fa` | Main container background | ✅ YES |
+| `--thread-border-color` | `#e1e4e8` | Container border color | ✅ YES |
+| `--thread-border-radius` | `8px` | Container border radius | Optional |
+| `--thread-text-color` | `#24292e` | Main text color | ✅ YES |
+| `--thread-title-color` | `#24292e` | Thread title color | ✅ YES (if using `name`) |
+| `--thread-description-color` | `#6e7681` | Description text color | ✅ YES |
+| `--thread-content-color` | `#24292e` | Content text color | Optional |
+| `--thread-content-heading-color` | `#24292e` | Content headings color | Optional |
+| `--thread-link-color` | `#0366d6` | Link color | Optional |
+| `--thread-code-bg` | `#f6f8fa` | Code block background | Optional |
+| `--thread-code-color` | `inherit` | Code text color | Optional |
+| `--thread-input-bg` | `white` | Textarea background | ✅ YES |
+| `--thread-input-border` | `#d1d5da` | Textarea border | ✅ YES |
+| `--thread-input-text` | `#24292e` | Textarea text color | ✅ YES |
+| `--thread-input-placeholder` | `#6e7681` | Placeholder text color | ✅ YES |
+| `--thread-input-focus-border` | `#0366d6` | Textarea focus border | ✅ YES |
+| `--thread-input-focus-shadow` | `rgba(3,102,214,0.1)` | Focus shadow color | ✅ YES |
+| `--thread-button-bg` | `#0366d6` | Submit button background | ✅ YES |
+| `--thread-button-text` | `white` | Submit button text | ✅ YES |
+| `--thread-button-hover-bg` | `#0256c7` | Button hover background | ✅ YES |
+| `--thread-button-disabled-bg` | `#94a3b8` | Disabled button background | ✅ YES |
+| `--thread-button-disabled-text` | `#cbd5e0` | Disabled button text | ✅ YES |
+| `--thread-comment-bg` | `white` | Comment box background | ✅ YES |
+| `--thread-comment-border` | `#e1e4e8` | Comment box border | ✅ YES |
+| `--thread-comment-text` | `#24292e` | Comment text color | Optional |
+| `--thread-comment-author-color` | `#24292e` | Author name color | ✅ YES |
+| `--thread-comment-time-color` | `#586069` | Timestamp color | ✅ YES |
+| `--thread-comment-content-color` | `#24292e` | **Comment content text color** | ✅ **CRITICAL** |
+| `--thread-toggle-bg` | `white` | **Toggle button background** | ✅ **CRITICAL** |
+| `--thread-toggle-border` | `#d1d5da` | **Toggle button border** | ✅ **CRITICAL** |
+| `--thread-toggle-color` | `#586069` | **Toggle button text** | ✅ **CRITICAL** |
+| `--thread-toggle-hover-bg` | `#f6f8fa` | Toggle hover background | ✅ YES |
+| `--thread-toggle-hover-border` | `#0366d6` | Toggle hover border | Optional |
+| `--thread-toggle-hover-color` | `#0366d6` | Toggle hover text | Optional |
+| `--thread-toggle-icon-color` | `#6a737d` | Toggle icon color | Optional |
+| `--thread-no-comments-color` | `#6e7681` | **"X comments" label color** | ✅ **CRITICAL** |
+| `--thread-form-bg` | `transparent` | Comment form background | Optional |
+| `--thread-scrollbar-track` | `#f1f3f5` | **Scrollbar track background** | ✅ **CRITICAL** |
+| `--thread-scrollbar-thumb` | `#adb5bd` | **Scrollbar thumb** | ✅ **CRITICAL** |
+| `--thread-scrollbar-thumb-hover` | `#868e96` | **Scrollbar thumb hover** | ✅ **CRITICAL** |
+| `--thread-error-bg` | `#f8d7da` | Error message background | Optional |
+| `--thread-error-text` | `#721c24` | Error message text | Optional |
+| `--thread-error-border` | `#f5c6cb` | Error message border | Optional |
+
+**❌ INVALID VARIABLE NAMES (These will NOT work):**
+- `--thread-padding` ❌
+- `--thread-border-width` ❌
+- `--thread-button-border-radius` ❌
+- `--thread-input-border-width` ❌
+- `--thread-input-border-radius` ❌
+- `--thread-reply-bg` ❌
+- `--thread-reply-border-color` ❌
+- `--thread-comment-border-width` ❌
+- `--thread-comment-border-radius` ❌
+- `--thread-comment-date-color` ❌ (use `--thread-comment-time-color` instead)
+- `--thread-link-hover-color` ❌
+- Any variable not listed in the table above ❌
+
+**Example: Complete Dark Theme Thread (ALL Required Variables)**
 ```huml
 - ::
   type: "thread"
   name: "Community Discussion"
   mode: "markdown"
   description: "Share your thoughts..."
-  css: "--thread-bg: #0a0a0a; --thread-border-color: #2a2a2a; --thread-text-color: #e0e0e0; --thread-title-color: #00ff88; --thread-description-color: #808080; --thread-no-comments-color: #808080; --thread-input-bg: #1a1a1a; --thread-input-border: #00ff88; --thread-input-text: #e0e0e0; --thread-input-focus-border: #00ff88; --thread-input-focus-shadow: rgba(0, 255, 136, 0.15); --thread-button-bg: #00ff88; --thread-button-text: #0a0a0a; --thread-button-hover-bg: #00dd77; --thread-button-disabled-bg: #2a2a2a; --thread-button-disabled-text: #606060; --thread-comment-bg: #1a1a1a; --thread-comment-border: #2a2a2a; --thread-comment-text: #e0e0e0; --thread-comment-author-color: #00ff88; --thread-comment-time-color: #808080;"
+  css: "--thread-bg: #0a0a0a; --thread-border-color: #2a2a2a; --thread-text-color: #e0e0e0; --thread-title-color: #00ff88; --thread-description-color: #808080; --thread-no-comments-color: #808080; --thread-input-bg: #1a1a1a; --thread-input-border: #00ff88; --thread-input-text: #e0e0e0; --thread-input-placeholder: #606060; --thread-input-focus-border: #00ff88; --thread-input-focus-shadow: rgba(0, 255, 136, 0.15); --thread-button-bg: #00ff88; --thread-button-text: #0a0a0a; --thread-button-hover-bg: #00dd77; --thread-button-disabled-bg: #2a2a2a; --thread-button-disabled-text: #606060; --thread-comment-bg: #1a1a1a; --thread-comment-border: #2a2a2a; --thread-comment-author-color: #00ff88; --thread-comment-time-color: #808080; --thread-comment-content-color: #d0d0d0; --thread-toggle-bg: #1a1a1a; --thread-toggle-border: #2a2a2a; --thread-toggle-color: #808080; --thread-toggle-hover-bg: #2a2a2a; --thread-scrollbar-track: #1a1a1a; --thread-scrollbar-thumb: #404040; --thread-scrollbar-thumb-hover: #505050;"
 ```
 
-**⚠️ NOTICE:** The above includes `--thread-title-color: #00ff88;` because it uses `name: "Community Discussion"`. Without this variable, the heading would be invisible on the dark background!
+**⚠️ CRITICAL VARIABLES INCLUDED:**
+- `--thread-title-color` - Title text (required when using `name`)
+- `--thread-comment-content-color` - Comment text content (MUST be set for dark themes!)
+- `--thread-toggle-bg` - Toggle button background (fixes white toggle button!)
+- `--thread-toggle-border` - Toggle button border
+- `--thread-toggle-color` - Toggle button text color
+- `--thread-no-comments-color` - "X comments" label color
+- `--thread-scrollbar-track` - Scrollbar background (fixes white scrollbar!)
+- `--thread-scrollbar-thumb` - Scrollbar thumb color (fixes white scrollbar!)
+- `--thread-scrollbar-thumb-hover` - Scrollbar thumb hover state
+
+**Without these variables, you'll get:**
+- ❌ White toggle button on dark background
+- ❌ White scrollbar on dark background
+- ❌ Invisible comment text on dark background
 
 **Example: Light Theme Thread (Custom Colors)**
 ```huml
@@ -1007,22 +1464,40 @@ css: """
 - Variable names match EXACTLY from the available list above
 - No typos (e.g., `--thread-border` ❌ should be `--thread-border-color` ✅)
 
-✅ **Required Variables:**
-- If using `name` property → `--thread-title-color` is included
-- If using dark background → all text colors are light (e.g., `#e0e0e0`)
-- If using light background → all text colors are dark (e.g., `#24292e`)
+✅ **CRITICAL Variables for Dark Themes (MUST be included):**
+- `--thread-comment-content-color` - Comment text (or it will be invisible!)
+- `--thread-toggle-bg` - Toggle button background (or it will be white!)
+- `--thread-toggle-border` - Toggle button border
+- `--thread-toggle-color` - Toggle button text
+- `--thread-no-comments-color` - Comment count label color
+- `--thread-scrollbar-track` - Scrollbar background (or it will be white!)
+- `--thread-scrollbar-thumb` - Scrollbar thumb (or it will be white!)
+- `--thread-title-color` - Title text (if using `name` property)
+- `--thread-description-color` - Description text color
+- `--thread-input-placeholder` - Input placeholder text
+
+✅ **Color Contrast Requirements:**
+- If using dark background → all text colors must be light (e.g., `#e0e0e0`, `#d0d0d0`)
+- If using light background → all text colors must be dark (e.g., `#24292e`, `#34495e`)
+- Toggle button background should contrast with screen background
+- Scrollbar should be visible against background
 
 ✅ **Common Mistakes to Avoid:**
 - ❌ `--thread-border` → ✅ `--thread-border-color`
 - ❌ `--thread-text-primary` → ✅ `--thread-text-color`
 - ❌ `--thread-padding` → Not a valid variable
 - ❌ `--thread-reply-bg` → Not a valid variable
+- ❌ `--thread-comment-date-color` → ✅ `--thread-comment-time-color`
 - ❌ `background: #1a1a1a;` → ✅ `--thread-bg: #1a1a1a;`
+- ❌ Forgetting scrollbar variables → White scrollbar on dark theme!
+- ❌ Forgetting toggle variables → White toggle button on dark theme!
+- ❌ Forgetting comment content color → Invisible comment text!
 
 ✅ **Format Check:**
 - No regular CSS properties (like `background:`, `padding:`, `color:`)
 - No class selectors (like `.thread-container` or `textarea`)
 - Only semicolon-separated CSS variable declarations
+- All variable names from the valid list only
 
 ---
 
@@ -1151,23 +1626,53 @@ All three must be present and properly connected for forms to work.
 
 ---
 
+### ⚠️ CRITICAL: Multi-Screen Form Requirements
+
+**If your form spans multiple screens, you MUST use these button patterns correctly:**
+
+| Button Type | Required Properties | What It Does |
+|------------|---------------------|--------------|
+| **Continue button**<br>(between screens) | `formId` + `action: "continue"` | Saves visible fields, navigates to next screen |
+| **Choice button**<br>(T-shirt size, topic, etc.) | `formId` + `fieldName` + `value` + `action: "setValueOnly"` | Saves single choice, navigates to next screen |
+| **Submit button**<br>(final screen only) | `formId` + NO `action` property | Submits ALL cached data + visible fields |
+
+**⚠️ Missing `action: "continue"` or `action: "setValueOnly"` will cause data loss!**
+
+The button will navigate but won't save the data. Only the last screen's data will be submitted.
+
+**See [🚫 WRONG vs ✅ RIGHT Examples](#-wrong-vs--right-multi-screen-form-button-examples) for visual examples.**
+
+---
+
 ### Component 1: Form Metadata Block
 
 This is a special block that defines your form. It MUST come before any form fields.
 
-**Properties:**
-- `id` (required) - Unique form identifier
-- `type: "form"` (required)
-- `name` required - Display name for editor
-- `eventName` required - Groups submissions (default: "form_submission")
+**⚠️ CRITICAL: Use `id` not `formId`, and use `eventName` not `thankYouMessage`!**
 
-**Example:**
+**Required Properties (ALL 4 are mandatory):**
+- ✅ `id` - Unique form identifier (⚠️ NOT `formId`!)
+- ✅ `type: "form"` - Must be exactly "form"
+- ✅ `name` - Display name for editor
+- ✅ `eventName` - Groups submissions (⚠️ NOT `thankYouMessage`!)
+
+**✅ CORRECT Example:**
 ```huml
 - ::
-  id: "form-contact"
+  id: "form-contact"           # ✅ Use "id" not "formId"
   type: "form"
   name: "Contact Form"
-  eventName: "contact_submission"
+  eventName: "contact_submission"  # ✅ Use "eventName" not "thankYouMessage"
+```
+
+**❌ COMMON MISTAKES:**
+```huml
+# ❌ WRONG - Will break the entire form!
+- ::
+  formId: "form-contact"       # ❌ Should be "id"
+  type: "form"
+  name: "Contact Form"
+  thankYouMessage: "Thanks!"   # ❌ Should be "eventName"
 ```
 
 **The `id` is crucial:** Form fields reference this with their `formId` property.
@@ -1489,16 +1994,426 @@ After users submit forms:
 
 Before testing your form, verify:
 
-- [ ] Form metadata block exists with `id` and `type: "form"`
+**Form Metadata (CRITICAL - check these first!):**
+- [ ] **Form metadata uses `id` NOT `formId`** ⚠️ (Will break entire form!)
+- [ ] **Form metadata uses `eventName` NOT `thankYouMessage`** ⚠️ (Will break entire form!)
+- [ ] Form metadata block has `type: "form"`
+
+**Form Fields and Buttons:**
 - [ ] All form fields have `formId` matching the form's `id`
 - [ ] All form fields have unique `fieldName` values
 - [ ] Submit button is `type: "nav-button"`
-- [ ] Submit button has `formId` property
+- [ ] **Submit button `formId` EXACTLY matches the form's `id`** ⚠️ (Most common mistake!)
 - [ ] Submit button has `targetContainerId` property
 - [ ] Target success screen exists with matching `id`
 - [ ] Required fields are marked with `required: true`
 
+**For multi-screen forms, also verify:**
+- [ ] All "Continue" buttons have `action: "continue"`
+- [ ] All choice/topic buttons have `action: "setValueOnly"` + `fieldName` + `value`
+- [ ] **ALL screens use the SAME `formId` value** ⚠️ (Second most common mistake!)
+- [ ] Only the FINAL submit button has NO `action` property
+
 **If all checked:** Your form will work! ✅
+
+---
+
+### 🚫 WRONG vs ✅ RIGHT: Multi-Screen Form Button Examples
+
+**These examples show the MOST COMMON mistakes when creating multi-screen forms:**
+
+#### ❌ WRONG: Choice Button Missing `action: "setValueOnly"`
+```huml
+# This button will navigate but WON'T save the choice!
+- ::
+  type: "nav-button"
+  content: "Small"
+  formId: "form-registration"
+  fieldName: "tshirt_size"
+  value: "S"
+  targetContainerId: "next-screen"
+  # ❌ MISSING: action: "setValueOnly"
+```
+
+#### ✅ RIGHT: Choice Button With All Required Properties
+```huml
+# This button saves the choice AND navigates
+- ::
+  type: "nav-button"
+  content: "Small"
+  formId: "form-registration"
+  fieldName: "tshirt_size"
+  value: "S"
+  action: "setValueOnly"  # ✅ MUST HAVE THIS!
+  targetContainerId: "next-screen"
+```
+
+---
+
+#### ❌ WRONG: Continue Button Missing `formId` and `action: "continue"`
+```huml
+# This button will navigate but WON'T save form fields!
+- ::
+  type: "nav-button"
+  content: "Continue →"
+  targetContainerId: "next-screen"
+  # ❌ MISSING: formId
+  # ❌ MISSING: action: "continue"
+```
+
+#### ✅ RIGHT: Continue Button With All Required Properties
+```huml
+# This button saves all visible form fields AND navigates
+- ::
+  type: "nav-button"
+  content: "Continue →"
+  formId: "form-registration"  # ✅ MUST HAVE THIS!
+  action: "continue"            # ✅ MUST HAVE THIS!
+  targetContainerId: "next-screen"
+```
+
+---
+
+#### ❌ WRONG: Submit Button With `action` Property
+```huml
+# This button won't submit! It will just navigate
+- ::
+  type: "nav-button"
+  content: "Submit"
+  formId: "form-registration"
+  action: "continue"  # ❌ WRONG! Submit buttons should NOT have action property
+  targetContainerId: "thank-you"
+```
+
+#### ✅ RIGHT: Submit Button (NO `action` property)
+```huml
+# This button submits ALL cached data + visible fields
+- ::
+  type: "nav-button"
+  content: "Submit"
+  formId: "form-registration"
+  # ✅ CORRECT: NO action property for submit buttons!
+  targetContainerId: "thank-you"
+```
+
+---
+
+### ⚠️ Common Form Mistakes & Troubleshooting
+
+**❌ MISTAKE #1: Invalid Form Metadata Properties (CRITICAL - Breaks ALL Forms!)**
+
+**Problem:** Form doesn't work at all - NO submissions happen, fields don't validate, nothing works.
+
+**Cause:** Using wrong property names in form metadata block (`formId` instead of `id`, or `thankYouMessage` instead of `eventName`).
+
+**Example of the bug:**
+```huml
+# ❌ WRONG - This will break the ENTIRE form!
+- ::
+  formId: "form-registration"     # ❌ Should be "id"
+  type: "form"
+  name: "Registration Form"
+  thankYouMessage: "Thanks!"      # ❌ Should be "eventName"
+```
+
+**Fix:**
+```huml
+# ✅ CORRECT
+- ::
+  id: "form-registration"         # ✅ Use "id"
+  type: "form"
+  name: "Registration Form"
+  eventName: "registration_submission"  # ✅ Use "eventName"
+```
+
+**Why this happens:** The system can't find the form because it has no valid `id`. All form fields, continue buttons, and submit buttons reference `formId`, but if the form doesn't have an `id`, nothing can connect to it.
+
+---
+
+**❌ MISTAKE #2: Wrong `formId` on Submit Button**
+
+**Problem:** Multi-screen form only submits data from the last screen, missing all previous screens' data.
+
+**Example of the bug:**
+```huml
+screens::
+  - ::
+    id: "attendee-info"
+    children::
+      - ::
+        id: "form-attendee"  # ✅ Correct form ID
+        type: "form"
+        eventName: "attendee_registration"
+
+      # Form fields...
+      - ::
+        type: "form-field-text"
+        formId: "form-attendee"  # ✅ Correct
+        fieldName: "full_name"
+
+      # Continue button
+      - ::
+        type: "nav-button"
+        content: "Continue →"
+        formId: "form-attendee"  # ✅ Correct
+        action: "continue"
+        targetContainerId: "attendee-preferences"
+
+  - ::
+    id: "attendee-preferences"
+    children::
+      # More form fields...
+
+      # Submit button with WRONG formId
+      - ::
+        type: "nav-button"
+        content: "Submit Registration"
+        formId: "form-sponsor"  # ❌ WRONG! Should be "form-attendee"
+        targetContainerId: "confirmation"
+```
+
+**Result:** Form submits nothing or only partial data because it's looking for `form-sponsor` fields that don't exist!
+
+**Fix:** Ensure submit button `formId` matches the form's `id`:
+```huml
+- ::
+  type: "nav-button"
+  content: "Submit Registration"
+  formId: "form-attendee"  # ✅ Now matches the form ID
+  targetContainerId: "confirmation"
+```
+
+---
+
+**❌ MISTAKE #3: Missing `action: "continue"` on Multi-Screen Forms**
+
+**Problem:** Form submits prematurely on first screen instead of collecting all data.
+
+**Wrong:**
+```huml
+- ::
+  type: "nav-button"
+  content: "Continue →"
+  formId: "form-registration"
+  targetContainerId: "next-screen"  # Missing action: "continue"
+```
+
+**Correct:**
+```huml
+- ::
+  type: "nav-button"
+  content: "Continue →"
+  formId: "form-registration"
+  action: "continue"  # ✅ Caches data without submitting
+  targetContainerId: "next-screen"
+```
+
+---
+
+**❌ MISTAKE #4: Missing `action: "setValueOnly"` on Choice Buttons**
+
+**Problem:** Form submits immediately on topic/choice selection instead of continuing to next screen.
+
+**Wrong:**
+```huml
+- ::
+  type: "nav-button"
+  content: "Web Development"
+  formId: "form-speaker"
+  fieldName: "topic"
+  value: "web_dev"
+  targetContainerId: "next-screen"  # Missing action: "setValueOnly"
+```
+
+**Correct:**
+```huml
+- ::
+  type: "nav-button"
+  content: "Web Development"
+  formId: "form-speaker"
+  fieldName: "topic"
+  value: "web_dev"
+  action: "setValueOnly"  # ✅ Caches choice without submitting
+  targetContainerId: "next-screen"
+```
+
+---
+
+**❌ MISTAKE #5: Inconsistent `formId` Across Screens**
+
+**Problem:** Different screens use different `formId` values for the same logical form.
+
+**Wrong:**
+```huml
+# Screen 1
+- ::
+  type: "form-field-text"
+  formId: "form-registration"  # ❌ Inconsistent
+  fieldName: "name"
+
+# Screen 2
+- ::
+  type: "form-field-email"
+  formId: "registration-form"  # ❌ Different ID!
+  fieldName: "email"
+
+# Submit
+- ::
+  type: "nav-button"
+  formId: "form-submit"  # ❌ Yet another ID!
+```
+
+**Correct:**
+```huml
+# ALL use the same formId
+# Screen 1
+- ::
+  type: "form-field-text"
+  formId: "form-registration"  # ✅ Consistent
+  fieldName: "name"
+
+# Screen 2
+- ::
+  type: "form-field-email"
+  formId: "form-registration"  # ✅ Same ID
+  fieldName: "email"
+
+# Submit
+- ::
+  type: "nav-button"
+  formId: "form-registration"  # ✅ Same ID
+```
+
+---
+
+**❌ MISTAKE #6: Missing Form Metadata Block**
+
+**Problem:** Form fields exist but no `type: "form"` metadata block to define the form.
+
+**Wrong:**
+```huml
+# No form metadata!
+- ::
+  type: "form-field-text"
+  formId: "form-contact"  # ❌ No matching form metadata
+  fieldName: "name"
+```
+
+**Correct:**
+```huml
+# Define form metadata first
+- ::
+  id: "form-contact"  # ✅ Form metadata exists
+  type: "form"
+  eventName: "contact_submission"
+
+# Then add form fields
+- ::
+  type: "form-field-text"
+  formId: "form-contact"  # ✅ Now has matching form
+  fieldName: "name"
+```
+
+---
+
+**❌ MISTAKE #7: Multiple Submissions (Forgetting `action` Property)**
+
+**Problem:** Form submits 3-4 times instead of once because continue/choice buttons are missing `action` property.
+
+**Cause:** When a `nav-button` has `formId` but NO `action` property, it defaults to MODE 2 (submit). Every screen transition creates a submission!
+
+**Example of the bug:**
+```huml
+# Student Registration - Creates 3 SUBMISSIONS instead of 1!
+
+# Screen 1: Continue button WITHOUT action
+- ::
+  type: "nav-button"
+  content: "Next →"
+  formId: "form-student"  # ❌ Has formId but NO action property
+  targetContainerId: "student-screen2"  # Will SUBMIT instead of caching!
+
+# Screen 2: T-shirt buttons WITHOUT action
+- ::
+  type: "nav-button"
+  content: "M"
+  formId: "form-student"
+  fieldName: "tshirt_size"
+  value: "M"
+  targetContainerId: "student-screen3"  # ❌ Missing action: "setValueOnly" - Will SUBMIT!
+
+# Screen 3: Final submit
+- ::
+  type: "nav-button"
+  content: "Submit"
+  formId: "form-student"
+  targetContainerId: "confirmation"  # ✅ This one is correct, but 2 submissions already happened!
+```
+
+**Result:** You get 3 submissions in the database instead of 1 final submission with all data!
+
+**Fix:**
+```huml
+# Screen 1: Continue button WITH action
+- ::
+  type: "nav-button"
+  content: "Next →"
+  formId: "form-student"
+  action: "continue"  # ✅ MUST HAVE THIS!
+  targetContainerId: "student-screen2"
+
+# Screen 2: T-shirt buttons WITH action
+- ::
+  type: "nav-button"
+  content: "M"
+  formId: "form-student"
+  fieldName: "tshirt_size"
+  value: "M"
+  action: "setValueOnly"  # ✅ MUST HAVE THIS!
+  targetContainerId: "student-screen3"
+
+# Screen 3: Final submit (NO action)
+- ::
+  type: "nav-button"
+  content: "Submit"
+  formId: "form-student"
+  # ✅ NO action property - this is MODE 2
+  targetContainerId: "confirmation"
+```
+
+**Key Rule:** If a button has `formId`, it MUST have either:
+- `action: "continue"` (cache fields, go to next screen)
+- `action: "setValueOnly"` (cache single value, go to next screen)
+- NO action property (submit form - only for FINAL submit button!)
+
+---
+
+**🔍 Troubleshooting Checklist:**
+
+**If your form isn't submitting:**
+1. ✅ **Check form metadata uses `id` NOT `formId`** (Most critical!)
+2. ✅ **Check form metadata uses `eventName` NOT `thankYouMessage`** (Most critical!)
+3. Check browser console for `formId` not found errors
+4. Verify ALL buttons/fields use the SAME `formId` value
+5. Ensure form metadata block (`type: "form"`) exists with matching `id`
+6. Confirm submit button has `formId` property (no `action` property)
+
+**If only partial data is submitting (multi-screen forms):**
+1. ✅ Verify submit button `formId` matches the form's `id` (not a different form!)
+2. ✅ Check all "Continue" buttons have `action: "continue"`
+3. ✅ Check all choice buttons have `action: "setValueOnly"` AND `fieldName` + `value`
+4. ✅ Ensure consistent `formId` across ALL screens
+
+**If form submits prematurely (before reaching last screen):**
+1. Check "Continue" buttons have `action: "continue"`
+2. Check choice buttons have `action: "setValueOnly"`
+3. Ensure intermediate buttons DON'T have default navigation action
+
+**If you're getting MULTIPLE submissions (3-4 submissions instead of 1):**
+1. ✅ **Check ALL continue buttons have `action: "continue"`** (Most common!)
+2. ✅ **Check ALL choice buttons have `action: "setValueOnly"`** (Most common!)
+3. ✅ Remember: `formId` without `action` = SUBMIT (MODE 2)
+4. ✅ Only the FINAL submit button should have NO `action` property
 
 ---
 
@@ -2123,11 +3038,13 @@ screens::
 
 **✅ DO:**
 - Use `section-container` to group related blocks
+- **ALWAYS give containers meaningful names** (e.g., "Hero Section", "Blog Post Card", "Comment Area")
 - Apply consistent spacing with CSS
 - Use appropriate block types (heading for titles, markdown for rich content)
 
 **❌ DON'T:**
 - Put everything in a flat list
+- Create unnamed containers (always use the `name` property!)
 - Nest containers more than 3-4 levels deep
 - Use heading blocks for regular text
 

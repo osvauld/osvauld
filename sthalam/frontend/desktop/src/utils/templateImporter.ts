@@ -36,6 +36,7 @@ export interface TemplateBlock {
   // Form-specific
   formId?: string;
   fieldName?: string;
+  submit?: boolean; // Mark button as form submit button
   required?: boolean;
   eventName?: string;
   label?: string; // Form field label
@@ -246,6 +247,7 @@ export class TemplateImporter {
       if (block.formId) blockData.formId = block.formId;
       if (block.fieldName) blockData.fieldName = block.fieldName;
       if (block.value !== undefined) blockData.value = block.value; // For nav-button field values
+      if (block.submit !== undefined) blockData.submit = block.submit; // For nav-button submit
       if (block.required !== undefined) blockData.required = block.required;
       if (block.eventName) blockData.eventName = block.eventName;
       if (block.mode) blockData.mode = block.mode;

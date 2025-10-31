@@ -9,10 +9,12 @@ screens::
     children::
       - ::
         type: "section-container"
+        name: "Newsletter Container"
         css: "max-width: 800px; margin: 0 auto; padding: 40px 20px;"
         children::
           - ::
             type: "section-container"
+            name: "Header Section"
             css: "background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%); border: 2px solid #00ff88; border-radius: 12px; padding: 50px 40px; margin-bottom: 40px; text-align: center;"
             children::
               - ::
@@ -29,6 +31,7 @@ screens::
                 css: "color: #b0b0b0; font-size: 20px; margin: 0; line-height: 1.6; font-style: italic;"
           - ::
             type: "section-container"
+            name: "Editor's Note"
             css: "background: #1a1a1a; border-radius: 12px; padding: 35px 40px; margin-bottom: 35px; border-left: 4px solid #00ff88;"
             children::
               - ::
@@ -37,6 +40,7 @@ screens::
                 css: "color: #e0e0e0; font-size: 17px; line-height: 1.8; margin: 0; font-style: italic;"
           - ::
             type: "section-container"
+            name: "Decentralization News Section"
             css: "margin-bottom: 35px;"
             children::
               - ::
@@ -45,6 +49,7 @@ screens::
                 css: "color: #00ff88; font-size: 32px; font-weight: 700; margin: 0 0 25px 0;"
               - ::
                 type: "section-container"
+                name: "News Story 1"
                 css: "background: #1a1a1a; border-radius: 12px; padding: 30px 35px; margin-bottom: 20px; border: 1px solid #2a2a2a; transition: border-color 0.3s;"
                 children::
                   - ::
@@ -57,6 +62,7 @@ screens::
                     css: "color: #c0c0c0; font-size: 16px; line-height: 1.8; margin: 0;"
               - ::
                 type: "section-container"
+                name: "News Story 2"
                 css: "background: #1a1a1a; border-radius: 12px; padding: 30px 35px; margin-bottom: 20px; border: 1px solid #2a2a2a;"
                 children::
                   - ::
@@ -69,6 +75,7 @@ screens::
                     css: "color: #c0c0c0; font-size: 16px; line-height: 1.8; margin: 0;"
               - ::
                 type: "section-container"
+                name: "News Story 3"
                 css: "background: #1a1a1a; border-radius: 12px; padding: 30px 35px; margin-bottom: 0; border: 1px solid #2a2a2a;"
                 children::
                   - ::
@@ -81,6 +88,7 @@ screens::
                     css: "color: #c0c0c0; font-size: 16px; line-height: 1.8; margin: 0;"
           - ::
             type: "section-container"
+            name: "Tool of the Week Section"
             css: "margin-bottom: 35px;"
             children::
               - ::
@@ -89,6 +97,7 @@ screens::
                 css: "color: #00ff88; font-size: 32px; font-weight: 700; margin: 0 0 25px 0;"
               - ::
                 type: "section-container"
+                name: "Tool of the Week Content"
                 css: "background: #1a1a1a; border-radius: 12px; padding: 35px 40px; border: 1px solid #2a2a2a;"
                 children::
                   - ::
@@ -124,6 +133,7 @@ screens::
                     css: "color: #c0c0c0; font-size: 16px; line-height: 1.9; margin: 0;"
           - ::
             type: "section-container"
+            name: "Resources Section"
             css: "margin-bottom: 35px;"
             children::
               - ::
@@ -132,6 +142,7 @@ screens::
                 css: "color: #00ff88; font-size: 32px; font-weight: 700; margin: 0 0 25px 0;"
               - ::
                 type: "section-container"
+                name: "Resources Content"
                 css: "background: #1a1a1a; border-radius: 12px; padding: 30px 35px; border: 1px solid #2a2a2a;"
                 children::
                   - ::
@@ -141,6 +152,7 @@ screens::
                     css: "color: #c0c0c0; font-size: 16px; line-height: 1.9; margin: 0;"
           - ::
             type: "section-container"
+            name: "Community Discussion Section"
             css: "margin-bottom: 35px;"
             children::
               - ::
@@ -156,9 +168,10 @@ screens::
                 name: "Issue Discussion"
                 mode: "markdown"
                 description: "Join the conversation about this week's issue"
-                css: "--thread-bg: #1a1a1a; --thread-border-color: #2a2a2a; --thread-border-width: 1px; --thread-border-radius: 12px; --thread-padding: 30px; --thread-title-color: #00ff88; --thread-button-bg: #00ff88; --thread-button-text: #000000; --thread-button-hover-bg: #00dd77; --thread-button-border-radius: 8px; --thread-input-bg: #2a2a2a; --thread-input-text: #e0e0e0; --thread-input-border-color: #00ff88; --thread-input-border-width: 2px; --thread-input-border-radius: 8px; --thread-input-focus-border-color: #00ff88; --thread-reply-bg: #151515; --thread-reply-border-color: #2a2a2a; --thread-comment-bg: #1f1f1f; --thread-comment-border-color: #2a2a2a; --thread-comment-border-width: 1px; --thread-comment-border-radius: 8px; --thread-text-color: #e0e0e0; --thread-comment-author-color: #00ff88; --thread-comment-date-color: #808080; --thread-link-color: #00ff88; --thread-link-hover-color: #00dd77;"
+                css: "--thread-bg: #1a1a1a; --thread-border-color: #2a2a2a; --thread-text-color: #e0e0e0; --thread-title-color: #00ff88; --thread-description-color: #808080; --thread-no-comments-color: #808080; --thread-input-bg: #2a2a2a; --thread-input-border: #00ff88; --thread-input-text: #e0e0e0; --thread-input-placeholder: #606060; --thread-input-focus-border: #00ff88; --thread-input-focus-shadow: rgba(0, 255, 136, 0.15); --thread-button-bg: #00ff88; --thread-button-text: #0a0a0a; --thread-button-hover-bg: #00dd77; --thread-button-disabled-bg: #2a2a2a; --thread-button-disabled-text: #606060; --thread-comment-bg: #1f1f1f; --thread-comment-border: #2a2a2a; --thread-comment-author-color: #00ff88; --thread-comment-time-color: #808080; --thread-comment-content-color: #d0d0d0; --thread-toggle-bg: #1a1a1a; --thread-toggle-border: #2a2a2a; --thread-toggle-color: #808080; --thread-toggle-hover-bg: #2a2a2a; --thread-scrollbar-track: #1a1a1a; --thread-scrollbar-thumb: #404040; --thread-scrollbar-thumb-hover: #505050; --thread-link-color: #00ff88;"
           - ::
             type: "section-container"
+            name: "Footer Section"
             css: "text-align: center; margin-top: 50px; padding-top: 35px; border-top: 2px solid #2a2a2a;"
             children::
               - ::

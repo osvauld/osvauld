@@ -1,0 +1,769 @@
+name: "Customer Support Ticket System"
+
+screens::
+  - ::
+    id: "home"
+    name: "Home Screen"
+    isEntryPoint: true
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Hero Section"
+        css: "max-width: 900px; margin: 0 auto; text-align: center;"
+        children::
+          - ::
+            type: "heading"
+            content: "Customer Support Portal"
+            css: "color: #00ff88; font-size: 56px; font-weight: 800; margin-bottom: 20px; text-shadow: 0 0 20px rgba(0, 255, 136, 0.3);"
+
+          - ::
+            type: "text"
+            content: "We're here to help! Select the category that best describes your inquiry to get started."
+            css: "color: rgba(255, 255, 255, 0.9); font-size: 20px; margin-bottom: 50px; line-height: 1.6;"
+
+      - ::
+        type: "section-container"
+        name: "Form Metadata"
+        css: "display: none;"
+        children::
+          - ::
+            type: "form"
+            id: "form-technical"
+            eventName: "technical_ticket_submission"
+            submitEndpoint: "https://formspree.io/f/technical-form-id"
+
+          - ::
+            type: "form"
+            id: "form-billing"
+            eventName: "billing_ticket_submission"
+            submitEndpoint: "https://formspree.io/f/billing-form-id"
+
+          - ::
+            type: "form"
+            id: "form-feature"
+            eventName: "feature_request_submission"
+            submitEndpoint: "https://formspree.io/f/feature-form-id"
+
+      - ::
+        type: "section-container"
+        name: "Category Selection Cards"
+        css: "max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 30px; padding: 20px;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Technical Issue Card"
+            css: "background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); transition: transform 0.3s ease; cursor: pointer;"
+            children::
+              - ::
+                type: "heading"
+                content: "🔧 Technical Issue"
+                css: "color: white; font-size: 28px; margin-bottom: 15px; font-weight: 700;"
+
+              - ::
+                type: "text"
+                content: "Having trouble with our product? Report bugs, errors, or technical difficulties."
+                css: "color: rgba(255, 255, 255, 0.95); font-size: 16px; margin-bottom: 25px; line-height: 1.5;"
+
+              - ::
+                type: "nav-button"
+                content: "Start Technical Support"
+                formId: "form-technical"
+                fieldName: "ticket_category"
+                value: "technical"
+                action: "setValueOnly"
+                targetContainerId: "technical-details"
+                css: "background: white; color: #ff6b6b; padding: 14px 28px; border-radius: 8px; font-weight: 600; width: 100%; font-size: 16px; border: none; cursor: pointer; transition: all 0.3s ease;"
+
+          - ::
+            type: "section-container"
+            name: "Billing Question Card"
+            css: "background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); transition: transform 0.3s ease; cursor: pointer;"
+            children::
+              - ::
+                type: "heading"
+                content: "💳 Billing Question"
+                css: "color: white; font-size: 28px; margin-bottom: 15px; font-weight: 700;"
+
+              - ::
+                type: "text"
+                content: "Questions about payments, invoices, subscriptions, or account billing."
+                css: "color: rgba(255, 255, 255, 0.95); font-size: 16px; margin-bottom: 25px; line-height: 1.5;"
+
+              - ::
+                type: "nav-button"
+                content: "Start Billing Inquiry"
+                formId: "form-billing"
+                fieldName: "ticket_category"
+                value: "billing"
+                action: "setValueOnly"
+                targetContainerId: "billing-details"
+                css: "background: white; color: #4facfe; padding: 14px 28px; border-radius: 8px; font-weight: 600; width: 100%; font-size: 16px; border: none; cursor: pointer; transition: all 0.3s ease;"
+
+          - ::
+            type: "section-container"
+            name: "Feature Request Card"
+            css: "background: linear-gradient(135deg, #a8e063 0%, #56ab2f 100%); border-radius: 16px; padding: 40px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); transition: transform 0.3s ease; cursor: pointer;"
+            children::
+              - ::
+                type: "heading"
+                content: "✨ Feature Request"
+                css: "color: white; font-size: 28px; margin-bottom: 15px; font-weight: 700;"
+
+              - ::
+                type: "text"
+                content: "Share your ideas for new features or improvements to our product."
+                css: "color: rgba(255, 255, 255, 0.95); font-size: 16px; margin-bottom: 25px; line-height: 1.5;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Feature Request"
+                formId: "form-feature"
+                fieldName: "ticket_category"
+                value: "feature"
+                action: "setValueOnly"
+                targetContainerId: "feature-details"
+                css: "background: white; color: #56ab2f; padding: 14px 28px; border-radius: 8px; font-weight: 600; width: 100%; font-size: 16px; border: none; cursor: pointer; transition: all 0.3s ease;"
+
+  - ::
+    id: "technical-details"
+    name: "Technical Issue Details"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Technical Form Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Technical Issue Report"
+            css: "color: #ff6b6b; font-size: 36px; margin-bottom: 10px; font-weight: 700;"
+
+          - ::
+            type: "text"
+            content: "Please provide details about the technical issue you're experiencing."
+            css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; margin-bottom: 30px; line-height: 1.5;"
+
+          - ::
+            type: "text"
+            content: "What type of device are you using?"
+            css: "color: #00ff88; font-size: 18px; margin-bottom: 15px; font-weight: 600;"
+
+          - ::
+            type: "section-container"
+            name: "Device Type Buttons"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 30px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Desktop"
+                formId: "form-technical"
+                fieldName: "device_type"
+                value: "desktop"
+                action: "setValueOnly"
+                targetContainerId: "technical-form-fields"
+                css: "background: rgba(255, 107, 107, 0.2); color: #ff6b6b; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ff6b6b; cursor: pointer; transition: all 0.3s ease;"
+
+              - ::
+                type: "nav-button"
+                content: "Mobile"
+                formId: "form-technical"
+                fieldName: "device_type"
+                value: "mobile"
+                action: "setValueOnly"
+                targetContainerId: "technical-form-fields"
+                css: "background: rgba(255, 107, 107, 0.2); color: #ff6b6b; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ff6b6b; cursor: pointer; transition: all 0.3s ease;"
+
+              - ::
+                type: "nav-button"
+                content: "Tablet"
+                formId: "form-technical"
+                fieldName: "device_type"
+                value: "tablet"
+                action: "setValueOnly"
+                targetContainerId: "technical-form-fields"
+                css: "background: rgba(255, 107, 107, 0.2); color: #ff6b6b; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ff6b6b; cursor: pointer; transition: all 0.3s ease;"
+
+              - ::
+                type: "nav-button"
+                content: "Other"
+                formId: "form-technical"
+                fieldName: "device_type"
+                value: "other"
+                action: "setValueOnly"
+                targetContainerId: "technical-form-fields"
+                css: "background: rgba(255, 107, 107, 0.2); color: #ff6b6b; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ff6b6b; cursor: pointer; transition: all 0.3s ease;"
+
+  - ::
+    id: "technical-form-fields"
+    name: "Technical Form Fields"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Technical Form Details Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Tell Us More"
+            css: "color: #ff6b6b; font-size: 32px; margin-bottom: 30px; font-weight: 700;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-technical"
+            fieldName: "contact_name"
+            label: "Your Name"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-email"
+            formId: "form-technical"
+            fieldName: "contact_email"
+            label: "Email Address"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-technical"
+            fieldName: "error_message"
+            label: "Error Message (if any)"
+            placeholder: "Copy and paste any error messages you see"
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-technical"
+            fieldName: "issue_description"
+            label: "Describe the Issue"
+            placeholder: "Please provide as much detail as possible about what happened..."
+            required: true
+            css: "margin-bottom: 30px; width: 100%; min-height: 150px;"
+
+          - ::
+            type: "text"
+            content: "How urgent is this issue?"
+            css: "color: #00ff88; font-size: 18px; margin-bottom: 15px; font-weight: 600;"
+
+          - ::
+            type: "section-container"
+            name: "Priority Level Buttons"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin-bottom: 30px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Low"
+                formId: "form-technical"
+                fieldName: "priority_level"
+                value: "low"
+                action: "setValueOnly"
+                targetContainerId: "technical-confirmation"
+                css: "background: rgba(168, 224, 99, 0.2); color: #a8e063; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #a8e063; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Medium"
+                formId: "form-technical"
+                fieldName: "priority_level"
+                value: "medium"
+                action: "setValueOnly"
+                targetContainerId: "technical-confirmation"
+                css: "background: rgba(255, 193, 7, 0.2); color: #ffc107; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ffc107; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "High"
+                formId: "form-technical"
+                fieldName: "priority_level"
+                value: "high"
+                action: "setValueOnly"
+                targetContainerId: "technical-confirmation"
+                css: "background: rgba(255, 107, 107, 0.2); color: #ff6b6b; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ff6b6b; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Critical"
+                formId: "form-technical"
+                fieldName: "priority_level"
+                value: "critical"
+                action: "setValueOnly"
+                targetContainerId: "technical-confirmation"
+                css: "background: rgba(220, 20, 60, 0.3); color: #dc143c; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #dc143c; cursor: pointer;"
+
+  - ::
+    id: "technical-confirmation"
+    name: "Technical Confirmation Screen"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Technical Confirmation Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Review Your Ticket"
+            css: "color: #ff6b6b; font-size: 32px; margin-bottom: 20px; font-weight: 700;"
+
+          - ::
+            type: "text"
+            content: "Please review your technical support ticket before submitting. Our team will respond within 24 hours for most issues."
+            css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; margin-bottom: 30px; line-height: 1.5;"
+
+          - ::
+            type: "section-container"
+            name: "Action Buttons"
+            css: "display: flex; gap: 20px; flex-wrap: wrap;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Edit"
+                formId: "form-technical"
+                targetContainerId: "technical-form-fields"
+                css: "background: rgba(255, 255, 255, 0.1); color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; border: 2px solid rgba(255, 255, 255, 0.3); cursor: pointer; flex: 1; min-width: 200px;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Ticket →"
+                formId: "form-technical"
+                submit: true
+                targetContainerId: "confirmation"
+                css: "background: #ff6b6b; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; flex: 1; min-width: 200px; box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);"
+
+  - ::
+    id: "billing-details"
+    name: "Billing Question Details"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Billing Form Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Billing Inquiry"
+            css: "color: #4facfe; font-size: 36px; margin-bottom: 10px; font-weight: 700;"
+
+          - ::
+            type: "text"
+            content: "Let us help you with your billing question. Please select the type of inquiry."
+            css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; margin-bottom: 30px; line-height: 1.5;"
+
+          - ::
+            type: "text"
+            content: "What is your billing question about?"
+            css: "color: #00ff88; font-size: 18px; margin-bottom: 15px; font-weight: 600;"
+
+          - ::
+            type: "section-container"
+            name: "Billing Type Buttons"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 30px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Invoice Question"
+                formId: "form-billing"
+                fieldName: "billing_type"
+                value: "invoice"
+                action: "setValueOnly"
+                targetContainerId: "billing-form-fields"
+                css: "background: rgba(79, 172, 254, 0.2); color: #4facfe; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #4facfe; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Payment Issue"
+                formId: "form-billing"
+                fieldName: "billing_type"
+                value: "payment"
+                action: "setValueOnly"
+                targetContainerId: "billing-form-fields"
+                css: "background: rgba(79, 172, 254, 0.2); color: #4facfe; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #4facfe; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Subscription"
+                formId: "form-billing"
+                fieldName: "billing_type"
+                value: "subscription"
+                action: "setValueOnly"
+                targetContainerId: "billing-form-fields"
+                css: "background: rgba(79, 172, 254, 0.2); color: #4facfe; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #4facfe; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Refund Request"
+                formId: "form-billing"
+                fieldName: "billing_type"
+                value: "refund"
+                action: "setValueOnly"
+                targetContainerId: "billing-form-fields"
+                css: "background: rgba(79, 172, 254, 0.2); color: #4facfe; padding: 16px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #4facfe; cursor: pointer;"
+
+  - ::
+    id: "billing-form-fields"
+    name: "Billing Form Fields"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Billing Form Details Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Billing Information"
+            css: "color: #4facfe; font-size: 32px; margin-bottom: 30px; font-weight: 700;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-billing"
+            fieldName: "contact_name"
+            label: "Your Name"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-email"
+            formId: "form-billing"
+            fieldName: "contact_email"
+            label: "Email Address"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-billing"
+            fieldName: "account_number"
+            label: "Account Number"
+            placeholder: "e.g., ACC-12345"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-billing"
+            fieldName: "invoice_number"
+            label: "Invoice Number (if applicable)"
+            placeholder: "e.g., INV-2025-001"
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-billing"
+            fieldName: "billing_details"
+            label: "Please Describe Your Billing Question"
+            placeholder: "Provide details about your billing inquiry..."
+            required: true
+            css: "margin-bottom: 30px; width: 100%; min-height: 150px;"
+
+          - ::
+            type: "section-container"
+            name: "Billing Navigation Buttons"
+            css: "display: flex; gap: 20px; flex-wrap: wrap;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                formId: "form-billing"
+                targetContainerId: "billing-details"
+                css: "background: rgba(255, 255, 255, 0.1); color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; border: 2px solid rgba(255, 255, 255, 0.3); cursor: pointer; flex: 1; min-width: 200px;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Ticket →"
+                formId: "form-billing"
+                submit: true
+                targetContainerId: "confirmation"
+                css: "background: #4facfe; color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; flex: 1; min-width: 200px; box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);"
+
+  - ::
+    id: "feature-details"
+    name: "Feature Request Details"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Feature Form Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Feature Request"
+            css: "color: #a8e063; font-size: 36px; margin-bottom: 10px; font-weight: 700;"
+
+          - ::
+            type: "text"
+            content: "We love hearing your ideas! Tell us about the feature you'd like to see."
+            css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; margin-bottom: 30px; line-height: 1.5;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-feature"
+            fieldName: "contact_name"
+            label: "Your Name"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-email"
+            formId: "form-feature"
+            fieldName: "contact_email"
+            label: "Email Address"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-feature"
+            fieldName: "feature_title"
+            label: "Feature Title"
+            placeholder: "Give your feature idea a short, descriptive title"
+            required: true
+            css: "margin-bottom: 20px; width: 100%;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-feature"
+            fieldName: "feature_description"
+            label: "Feature Description"
+            placeholder: "Describe the feature in detail. What problem does it solve?"
+            required: true
+            css: "margin-bottom: 20px; width: 100%; min-height: 150px;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-feature"
+            fieldName: "use_case"
+            label: "Use Case"
+            placeholder: "How would you use this feature? Provide a specific example."
+            required: true
+            css: "margin-bottom: 30px; width: 100%; min-height: 100px;"
+
+          - ::
+            type: "text"
+            content: "How important is this feature to you?"
+            css: "color: #00ff88; font-size: 18px; margin-bottom: 15px; font-weight: 600;"
+
+          - ::
+            type: "section-container"
+            name: "Feature Priority Buttons"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-bottom: 30px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Nice to Have"
+                formId: "form-feature"
+                fieldName: "feature_priority"
+                value: "nice_to_have"
+                action: "setValueOnly"
+                targetContainerId: "feature-confirmation"
+                css: "background: rgba(168, 224, 99, 0.2); color: #a8e063; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #a8e063; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Important"
+                formId: "form-feature"
+                fieldName: "feature_priority"
+                value: "important"
+                action: "setValueOnly"
+                targetContainerId: "feature-confirmation"
+                css: "background: rgba(255, 193, 7, 0.2); color: #ffc107; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ffc107; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Critical"
+                formId: "form-feature"
+                fieldName: "feature_priority"
+                value: "critical"
+                action: "setValueOnly"
+                targetContainerId: "feature-confirmation"
+                css: "background: rgba(255, 107, 107, 0.2); color: #ff6b6b; padding: 14px 20px; border-radius: 8px; font-weight: 600; border: 2px solid #ff6b6b; cursor: pointer;"
+
+  - ::
+    id: "feature-confirmation"
+    name: "Feature Confirmation Screen"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Feature Confirmation Container"
+        css: "max-width: 800px; margin: 0 auto; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "Review Your Feature Request"
+            css: "color: #a8e063; font-size: 32px; margin-bottom: 20px; font-weight: 700;"
+
+          - ::
+            type: "text"
+            content: "Thank you for sharing your idea! Please review your feature request before submitting. We review all submissions and prioritize based on user feedback."
+            css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; margin-bottom: 30px; line-height: 1.5;"
+
+          - ::
+            type: "section-container"
+            name: "Feature Action Buttons"
+            css: "display: flex; gap: 20px; flex-wrap: wrap;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Edit"
+                formId: "form-feature"
+                targetContainerId: "feature-details"
+                css: "background: rgba(255, 255, 255, 0.1); color: white; padding: 14px 28px; border-radius: 8px; font-weight: 600; border: 2px solid rgba(255, 255, 255, 0.3); cursor: pointer; flex: 1; min-width: 200px;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Request →"
+                formId: "form-feature"
+                submit: true
+                targetContainerId: "confirmation"
+                css: "background: #a8e063; color: #1a1a2e; padding: 14px 28px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; flex: 1; min-width: 200px; box-shadow: 0 4px 15px rgba(168, 224, 99, 0.4);"
+
+  - ::
+    id: "confirmation"
+    name: "Confirmation Screen"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Confirmation Container"
+        css: "max-width: 800px; margin: 0 auto; text-align: center; background: rgba(255, 255, 255, 0.05); border-radius: 16px; padding: 60px 40px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3); backdrop-filter: blur(10px);"
+        children::
+          - ::
+            type: "heading"
+            content: "✓ Ticket Submitted Successfully!"
+            css: "color: #00ff88; font-size: 42px; margin-bottom: 20px; font-weight: 800;"
+
+          - ::
+            type: "text"
+            content: "Thank you for contacting our support team. We've received your ticket and will respond as quickly as possible."
+            css: "color: rgba(255, 255, 255, 0.9); font-size: 18px; margin-bottom: 40px; line-height: 1.6;"
+
+          - ::
+            type: "section-container"
+            name: "Confirmation Details"
+            css: "background: rgba(0, 255, 136, 0.1); border: 2px solid #00ff88; border-radius: 12px; padding: 30px; margin-bottom: 40px; text-align: left;"
+            children::
+              - ::
+                type: "text"
+                content: "What happens next?"
+                css: "color: #00ff88; font-size: 20px; font-weight: 700; margin-bottom: 15px;"
+
+              - ::
+                type: "text"
+                content: "• You'll receive a confirmation email with your ticket number\n• Our support team will review your submission\n• We typically respond within 24 hours for technical and billing issues\n• Feature requests are reviewed monthly by our product team"
+                css: "color: rgba(255, 255, 255, 0.9); font-size: 16px; line-height: 1.8; white-space: pre-line;"
+
+          - ::
+            type: "section-container"
+            name: "Confirmation Actions"
+            css: "display: flex; gap: 20px; justify-content: center; flex-wrap: wrap;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Submit Another Ticket"
+                targetContainerId: "home"
+                css: "background: #00ff88; color: #1a1a2e; padding: 15px 32px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer; font-size: 16px; box-shadow: 0 4px 15px rgba(0, 255, 136, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "View Support Portal"
+                targetContainerId: "support-portal"
+                css: "background: rgba(255, 255, 255, 0.1); color: white; padding: 15px 32px; border-radius: 8px; font-weight: 600; border: 2px solid rgba(255, 255, 255, 0.3); cursor: pointer; font-size: 16px;"
+
+      - ::
+        type: "section-container"
+        name: "Community Discussion"
+        css: "max-width: 800px; margin: 40px auto 0 auto;"
+        children::
+          - ::
+            type: "thread"
+            name: "Community Discussion"
+            mode: "markdown"
+            description: "Share your experience or ask questions to the community..."
+            css: "--thread-bg: rgba(255, 255, 255, 0.05); --thread-border-color: #00ff88; --thread-title-color: #00ff88; --thread-description-color: rgba(255, 255, 255, 0.6); --thread-text-color: #ffffff; --thread-input-bg: rgba(255, 255, 255, 0.08); --thread-input-border: #00ff88; --thread-input-text: #ffffff; --thread-input-placeholder: rgba(255, 255, 255, 0.5); --thread-input-focus-border: #00ff88; --thread-button-bg: #00ff88; --thread-button-text: #1a1a2e; --thread-button-hover-bg: #56ab2f; --thread-comment-bg: rgba(255, 255, 255, 0.08); --thread-comment-border: rgba(0, 255, 136, 0.2); --thread-comment-author-color: #00ff88; --thread-comment-time-color: rgba(255, 255, 255, 0.6); --thread-comment-content-color: rgba(255, 255, 255, 0.9); --thread-toggle-bg: rgba(255, 255, 255, 0.1); --thread-toggle-border: rgba(0, 255, 136, 0.3); --thread-toggle-color: #00ff88; --thread-no-comments-color: rgba(255, 255, 255, 0.6); --thread-scrollbar-track: rgba(255, 255, 255, 0.05); --thread-scrollbar-thumb: #00ff88;"
+
+  - ::
+    id: "support-portal"
+    name: "Support Portal"
+    css: "background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; padding: 40px 20px;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Support Portal Container"
+        css: "max-width: 1200px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "Support Resources"
+            css: "color: #00ff88; font-size: 42px; text-align: center; margin-bottom: 20px; font-weight: 800;"
+
+          - ::
+            type: "text"
+            content: "Find answers to common questions and explore our help resources."
+            css: "color: rgba(255, 255, 255, 0.8); font-size: 18px; text-align: center; margin-bottom: 50px;"
+
+          - ::
+            type: "section-container"
+            name: "Resource Cards"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 30px; margin-bottom: 40px;"
+            children::
+              - ::
+                type: "section-container"
+                name: "Documentation Card"
+                css: "background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 30px; border: 2px solid rgba(79, 172, 254, 0.3);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "📚 Documentation"
+                    css: "color: #4facfe; font-size: 24px; margin-bottom: 15px;"
+
+                  - ::
+                    type: "text"
+                    content: "Browse our comprehensive guides, tutorials, and API documentation."
+                    css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; line-height: 1.6;"
+
+              - ::
+                type: "section-container"
+                name: "FAQ Card"
+                css: "background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 30px; border: 2px solid rgba(168, 224, 99, 0.3);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "❓ FAQs"
+                    css: "color: #a8e063; font-size: 24px; margin-bottom: 15px;"
+
+                  - ::
+                    type: "text"
+                    content: "Quick answers to the most frequently asked questions by our users."
+                    css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; line-height: 1.6;"
+
+              - ::
+                type: "section-container"
+                name: "Status Card"
+                css: "background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 30px; border: 2px solid rgba(0, 255, 136, 0.3);"
+                children::
+                  - ::
+                    type: "heading"
+                    content: "🟢 System Status"
+                    css: "color: #00ff88; font-size: 24px; margin-bottom: 15px;"
+
+                  - ::
+                    type: "text"
+                    content: "Check the current status of our services and planned maintenance."
+                    css: "color: rgba(255, 255, 255, 0.8); font-size: 16px; line-height: 1.6;"
+
+          - ::
+            type: "section-container"
+            name: "Return Button Container"
+            css: "text-align: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back to Home"
+                targetContainerId: "home"
+                css: "background: rgba(255, 255, 255, 0.1); color: white; padding: 15px 32px; border-radius: 8px; font-weight: 600; border: 2px solid rgba(255, 255, 255, 0.3); cursor: pointer; font-size: 16px;"

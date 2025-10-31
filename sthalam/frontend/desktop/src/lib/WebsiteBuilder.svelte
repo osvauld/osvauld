@@ -274,107 +274,6 @@
 		});
 	}
 
-	function bringForward(blockId: string) {
-		if (!yDocs) return;
-		const block = yDocs.blocks.get(blockId);
-		if (!block) return;
-
-		// Get all blocks sorted by z-index
-		const allBlocks = Array.from(yDocs.blocks.entries()).map(([id, b]) => ({
-			id,
-			zIndex: b.zIndex,
-		}));
-		allBlocks.sort((a, b) => a.zIndex - b.zIndex);
-
-		// Find current position
-		const currentIndex = allBlocks.findIndex((b) => b.id === blockId);
-		if (currentIndex === -1 || currentIndex === allBlocks.length - 1) return; // Already at front
-
-		// Swap z-index with block above
-		const aboveBlock = allBlocks[currentIndex + 1];
-		const currentZIndex = block.zIndex;
-		const aboveZIndex = yDocs.blocks.get(aboveBlock.id)?.zIndex || 0;
-
-		yDocs.blocks.set(blockId, { ...block, zIndex: aboveZIndex });
-		yDocs.blocks.set(aboveBlock.id, {
-			...yDocs.blocks.get(aboveBlock.id)!,
-			zIndex: currentZIndex
-		});
-
-		// Normalize to clean up gaps
-		setTimeout(() => normalizeZIndexes(), 0);
-	}
-
-	function sendBackward(blockId: string) {
-		if (!yDocs) return;
-		const block = yDocs.blocks.get(blockId);
-		if (!block) return;
-
-		// Get all blocks sorted by z-index
-		const allBlocks = Array.from(yDocs.blocks.entries()).map(([id, b]) => ({
-			id,
-			zIndex: b.zIndex,
-		}));
-		allBlocks.sort((a, b) => a.zIndex - b.zIndex);
-
-		// Find current position
-		const currentIndex = allBlocks.findIndex((b) => b.id === blockId);
-		if (currentIndex === -1 || currentIndex === 0) return; // Already at back
-
-		// Swap z-index with block below
-		const belowBlock = allBlocks[currentIndex - 1];
-		const currentZIndex = block.zIndex;
-		const belowZIndex = yDocs.blocks.get(belowBlock.id)?.zIndex || 0;
-
-		yDocs.blocks.set(blockId, { ...block, zIndex: belowZIndex });
-		yDocs.blocks.set(belowBlock.id, {
-			...yDocs.blocks.get(belowBlock.id)!,
-			zIndex: currentZIndex
-		});
-
-		// Normalize to clean up gaps
-		setTimeout(() => normalizeZIndexes(), 0);
-	}
-
-	function bringToFront(blockId: string) {
-		if (!yDocs) return;
-		const block = yDocs.blocks.get(blockId);
-		if (!block) return;
-
-		// Find the highest zIndex
-		let maxZIndex = 0;
-		yDocs.blocks.forEach((b) => {
-			if (b.zIndex > maxZIndex) {
-				maxZIndex = b.zIndex;
-			}
-		});
-
-		yDocs.blocks.set(blockId, { ...block, zIndex: maxZIndex + 1 });
-
-		// Normalize to clean up gaps
-		setTimeout(() => normalizeZIndexes(), 0);
-	}
-
-	function sendToBack(blockId: string) {
-		if (!yDocs) return;
-		const block = yDocs.blocks.get(blockId);
-		if (!block) return;
-
-		// Find the lowest zIndex
-		let minZIndex = Infinity;
-		yDocs.blocks.forEach((b) => {
-			if (b.zIndex < minZIndex) {
-				minZIndex = b.zIndex;
-			}
-		});
-
-		// Set to below minimum (will be normalized to 1)
-		yDocs.blocks.set(blockId, { ...block, zIndex: minZIndex - 1 });
-
-		// Normalize to clean up gaps
-		setTimeout(() => normalizeZIndexes(), 0);
-	}
-
 	function deleteBlock(blockId: string) {
 		if (!yDocs) return;
 		yDocs.blocks.delete(blockId);
@@ -643,10 +542,6 @@
 			selectedConnection={selectedConnection()}
 			{selectedConnectionId}
 			onUpdateBlock={updateBlock}
-			onBringForward={bringForward}
-			onSendBackward={sendBackward}
-			onBringToFront={bringToFront}
-			onSendToBack={sendToBack}
 			onDeleteBlock={deleteBlock}
 			onEditContent={handleEditContent}
 		/>

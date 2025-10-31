@@ -28,15 +28,11 @@
 		selectedConnection?: any | null;
 		selectedConnectionId?: string | null;
 		onUpdateBlock: (blockId: string, updates: Partial<Block>) => void;
-		onBringForward: (blockId: string) => void;
-		onSendBackward: (blockId: string) => void;
-		onBringToFront?: (blockId: string) => void;
-		onSendToBack?: (blockId: string) => void;
 		onDeleteBlock?: (blockId: string) => void;
 		onEditContent?: (blockId: string, content: string, type: string) => void;
 	}
 
-	let { selectedBlock, blocks, selectedConnection, selectedConnectionId, onUpdateBlock, onBringForward, onSendBackward, onBringToFront, onSendToBack, onDeleteBlock, onEditContent }: Props = $props();
+	let { selectedBlock, blocks, selectedConnection, selectedConnectionId, onUpdateBlock, onDeleteBlock, onEditContent }: Props = $props();
 
 	// Get all blocks as array for dropdowns
 	const allBlocks = $derived(blocks ? Array.from(blocks.entries()).map(([id, block]) => ({ id, ...block })) : []);
@@ -81,11 +77,7 @@
 	// Collapsible sections state
 	let expandedSections = $state({
 		hierarchy: true,
-		dimensions: true,
 		content: true,
-		text: false,
-		appearance: false,
-		layering: false,
 	});
 
 	function toggleSection(section: keyof typeof expandedSections) {
@@ -122,12 +114,6 @@
 			onUpdateBlock(selectedBlock.id, {
 				styles: { ...selectedBlock.styles, [key]: value },
 			});
-		}
-	}
-
-	function updateDimension(key: "width" | "height", value: number) {
-		if (selectedBlock) {
-			onUpdateBlock(selectedBlock.id, { [key]: value });
 		}
 	}
 
@@ -345,19 +331,6 @@
 							</select>
 						</label>
 
-						<label>
-							<span>Render Order (in parent)</span>
-							<input
-								type="number"
-								value={selectedBlock.order ?? 0}
-								oninput={(e) => onUpdateBlock(selectedBlock.id, { order: parseInt(e.currentTarget.value) || 0 })}
-								min="0"
-								max="9999"
-								placeholder="0"
-							/>
-							<small style="color: #8b949e; font-size: 0.75rem;">Lower numbers appear first</small>
-						</label>
-
 						{#if !selectedBlock.parentId}
 							<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
 								⚠️ This block has no parent container. It won't be part of the responsive layout in viewer mode.
@@ -381,37 +354,6 @@
 					{/if}
 				</div>
 			{/if}
-
-			<!-- Position & Size (Builder Mode Only) -->
-			<div class="property-group">
-				<button class="section-header" onclick={() => toggleSection('dimensions')}>
-					<span class="section-toggle">{expandedSections.dimensions ? '▼' : '▶'}</span>
-					<h4>Dimensions (Builder Mode)</h4>
-				</button>
-				{#if expandedSections.dimensions}
-					<div class="property-row">
-						<label>
-							<span>Width</span>
-							<input
-								type="number"
-								value={selectedBlock.width}
-								oninput={(e) => updateDimension("width", parseInt(e.currentTarget.value))}
-							/>
-						</label>
-						<label>
-							<span>Height</span>
-							<input
-								type="number"
-								value={selectedBlock.height}
-								oninput={(e) => updateDimension("height", parseInt(e.currentTarget.value))}
-							/>
-						</label>
-					</div>
-					<div class="info-box">
-						📐 These dimensions are for visual editing in builder mode only. In viewer mode, CSS controls the layout.
-					</div>
-				{/if}
-			</div>
 
 			<!-- Content Section (Image or HTML) -->
 			{#if selectedBlock.type === "image" || selectedBlock.type === "html"}
@@ -813,9 +755,9 @@
 							</select>
 						</label>
 
-						<!-- Form Integration (MODE 2 & 3) -->
+						<!-- Form Integration -->
 						<label>
-							<span>Form (Optional - for submit functionality)</span>
+							<span>Form (Optional)</span>
 							<select
 								value={selectedBlock.formId || ""}
 								onchange={(e) => onUpdateBlock(selectedBlock.id, { formId: e.currentTarget.value })}
@@ -830,38 +772,45 @@
 						</label>
 
 						{#if selectedBlock.formId}
-							<!-- Show MODE 2 vs MODE 3 distinction -->
-							{#if !selectedBlock.fieldName}
-								<div class="info-box" style="background: #e3f2fd; color: #1565c0; border-left: 3px solid #2196f3;">
-									📝 <strong>MODE 2: Form Submit Button</strong><br/>
-									Will collect <strong>ALL</strong> form fields with formId <code>{selectedBlock.formId}</code>, validate required fields, submit data, then navigate to target screen.
-								</div>
-							{:else}
-								<div class="info-box" style="background: #fff3cd; color: #856404; border-left: 3px solid #ffc107;">
-									🔀 <strong>MODE 3: Branching Choice Button</strong><br/>
-									Will set field <code>{selectedBlock.fieldName}</code> = <code>{selectedBlock.value || '(empty)'}</code>, collect any other form fields, submit data, then navigate to target screen.
-								</div>
-							{/if}
+							<div class="info-box" style="background: #e3f2fd; color: #1565c0; border-left: 3px solid #2196f3; padding: 0.75rem; margin-bottom: 0.75rem;">
+								📋 <strong>Form Button</strong><br/>
+								This button will automatically cache all form data when clicked.
+								{#if selectedBlock.submit}
+									<br/>✅ <strong>Will submit form</strong> {selectedBlock.targetContainerId ? 'then navigate' : '(stays on same screen)'}
+								{:else}
+									<br/>➡️  <strong>Will navigate only</strong> (form data cached, not submitted)
+								{/if}
+							</div>
 
-							<!-- Branching Mode Fields (MODE 3) -->
+							<!-- Submit Checkbox -->
+							<label style="display: flex; align-items: center; gap: 0.5rem;">
+								<input
+									type="checkbox"
+									checked={selectedBlock.submit || false}
+									onchange={(e) => onUpdateBlock(selectedBlock.id, { submit: e.currentTarget.checked })}
+								/>
+								<span>Submit Form (check this for final submit button)</span>
+							</label>
+
+							<!-- Choice Field -->
 							<label>
-								<span>Field Name (Optional - for branching)</span>
+								<span>Field Name (Optional - for choice buttons)</span>
 								<input
 									type="text"
 									value={selectedBlock.fieldName || ""}
 									oninput={(e) => onUpdateBlock(selectedBlock.id, { fieldName: e.currentTarget.value })}
-									placeholder="e.g., customer_type"
+									placeholder="e.g., tshirt_size"
 								/>
 							</label>
 
 							{#if selectedBlock.fieldName}
 								<label>
-									<span>Field Value (for this button)</span>
+									<span>Field Value</span>
 									<input
 										type="text"
 										value={selectedBlock.value || ""}
 										oninput={(e) => onUpdateBlock(selectedBlock.id, { value: e.currentTarget.value })}
-										placeholder="e.g., new_customer"
+										placeholder="e.g., large"
 									/>
 								</label>
 							{/if}
@@ -1160,132 +1109,6 @@
 				</div>
 			{/if}
 
-			<!-- Text Styles -->
-			{#if selectedBlock.type === "heading" || selectedBlock.type === "text"}
-				<div class="property-group">
-					<button class="section-header" onclick={() => toggleSection('text')}>
-						<span class="section-toggle">{expandedSections.text ? '▼' : '▶'}</span>
-						<h4>Text Styles</h4>
-					</button>
-					{#if expandedSections.text}
-						<label>
-							<span>Font Size</span>
-							<input
-								type="text"
-								value={selectedBlock.styles.fontSize || "16px"}
-								oninput={(e) => updateStyle("fontSize", e.currentTarget.value)}
-								placeholder="16px"
-							/>
-						</label>
-						<label>
-							<span>Font Weight</span>
-							<select
-								value={selectedBlock.styles.fontWeight || "400"}
-								onchange={(e) => updateStyle("fontWeight", e.currentTarget.value)}
-							>
-								<option value="300">Light</option>
-								<option value="400">Normal</option>
-								<option value="600">Semi-bold</option>
-								<option value="700">Bold</option>
-							</select>
-						</label>
-						<label>
-							<span>Color</span>
-							<input
-								type="color"
-								value={selectedBlock.styles.color || "#333333"}
-								oninput={(e) => updateStyle("color", e.currentTarget.value)}
-							/>
-						</label>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- Background & Border -->
-			<div class="property-group">
-				<button class="section-header" onclick={() => toggleSection('appearance')}>
-					<span class="section-toggle">{expandedSections.appearance ? '▼' : '▶'}</span>
-					<h4>Appearance</h4>
-				</button>
-				{#if expandedSections.appearance}
-					<label>
-						<span>Background</span>
-						<input
-							type="color"
-							value={selectedBlock.styles.backgroundColor || "#ffffff"}
-							oninput={(e) => updateStyle("backgroundColor", e.currentTarget.value)}
-						/>
-					</label>
-					<label>
-						<span>Border</span>
-						<input
-							type="text"
-							value={selectedBlock.styles.border || "2px solid #ddd"}
-							oninput={(e) => updateStyle("border", e.currentTarget.value)}
-							placeholder="2px solid #ddd"
-						/>
-					</label>
-					<label>
-						<span>Border Radius</span>
-						<input
-							type="text"
-							value={selectedBlock.styles.borderRadius || "4px"}
-							oninput={(e) => updateStyle("borderRadius", e.currentTarget.value)}
-							placeholder="4px"
-						/>
-					</label>
-					<label>
-						<span>Padding</span>
-						<input
-							type="text"
-							value={selectedBlock.styles.padding || "12px"}
-							oninput={(e) => updateStyle("padding", e.currentTarget.value)}
-							placeholder="12px"
-						/>
-					</label>
-				{/if}
-			</div>
-
-			<!-- Layering -->
-			<div class="property-group">
-				<button class="section-header" onclick={() => toggleSection('layering')}>
-					<span class="section-toggle">{expandedSections.layering ? '▼' : '▶'}</span>
-					<h4>Layering</h4>
-				</button>
-				{#if expandedSections.layering}
-					<div class="layer-indicator">
-						<div class="z-index-badge">
-							Layer {selectedBlock.zIndex}
-						</div>
-						<div class="layer-type">
-							{selectedBlock.type}
-						</div>
-					</div>
-					<div class="button-grid">
-						{#if onBringToFront}
-							<button class="primary-btn" onclick={() => onBringToFront?.(selectedBlock.id)}>
-								⬆️ To Front
-							</button>
-						{/if}
-						<button onclick={() => onBringForward(selectedBlock.id)}>
-							↑ Forward
-						</button>
-						<button onclick={() => onSendBackward(selectedBlock.id)}>
-							↓ Backward
-						</button>
-						{#if onSendToBack}
-							<button class="primary-btn" onclick={() => onSendToBack?.(selectedBlock.id)}>
-								⬇️ To Back
-							</button>
-						{/if}
-					</div>
-					{#if selectedBlock.type === "container"}
-						<div class="layer-hint">
-							💡 Use "⬇️ To Back" for containers
-						</div>
-					{/if}
-				{/if}
-			</div>
 		</div>
 	{:else}
 		<div class="panel-empty">

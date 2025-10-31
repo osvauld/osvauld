@@ -1,0 +1,825 @@
+name: "Tech Conference 2025 Registration System"
+
+screens::
+  - ::
+    id: "home"
+    name: "Registration Home"
+    isEntryPoint: true
+    children::
+      - ::
+        type: "section-container"
+        name: "Hero Section"
+        css: "background: #1e1e2e; padding: 60px 20px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;"
+        children::
+          - ::
+            type: "heading"
+            content: "🚀 Tech Conference 2025"
+            css: "color: #cdd6f4; font-size: 48px; font-weight: 800; margin-bottom: 20px; text-align: center;"
+
+          - ::
+            type: "text"
+            content: "March 15-17, 2025 • San Francisco"
+            css: "color: #89b4fa; font-size: 24px; margin-bottom: 10px; text-align: center;"
+
+          - ::
+            type: "text"
+            content: "Join us for three days of innovation, learning, and networking"
+            css: "color: #a6adc8; font-size: 18px; margin-bottom: 60px; text-align: center; max-width: 600px;"
+
+          - ::
+            type: "heading"
+            content: "Choose Your Registration Type"
+            css: "color: #f5e0dc; font-size: 32px; font-weight: 700; margin-bottom: 40px; text-align: center;"
+
+          - ::
+            type: "section-container"
+            name: "Registration Type Buttons"
+            css: "display: flex; flex-direction: column; gap: 20px; max-width: 600px; width: 100%;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "🎓 Student Registration - $50"
+                targetContainerId: "student-screen1"
+                css: "background: linear-gradient(135deg, #89b4fa 0%, #b4befe 100%); color: #1e1e2e; padding: 30px 40px; border-radius: 12px; font-size: 22px; font-weight: 700; border: none; cursor: pointer; transition: transform 0.2s; box-shadow: 0 4px 15px rgba(137, 180, 250, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "💼 Professional Registration - $299"
+                targetContainerId: "professional-screen1"
+                css: "background: linear-gradient(135deg, #f5c2e7 0%, #cba6f7 100%); color: #1e1e2e; padding: 30px 40px; border-radius: 12px; font-size: 22px; font-weight: 700; border: none; cursor: pointer; transition: transform 0.2s; box-shadow: 0 4px 15px rgba(245, 194, 231, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "🎤 Workshop Leader Registration - FREE"
+                targetContainerId: "workshop-screen1"
+                css: "background: linear-gradient(135deg, #a6e3a1 0%, #94e2d5 100%); color: #1e1e2e; padding: 30px 40px; border-radius: 12px; font-size: 22px; font-weight: 700; border: none; cursor: pointer; transition: transform 0.2s; box-shadow: 0 4px 15px rgba(166, 227, 161, 0.3);"
+
+  # ==================== STUDENT REGISTRATION FLOW ====================
+
+  # Form metadata for student registration
+  - ::
+    id: "form-student-metadata"
+    name: "Student Form Metadata"
+    children::
+      - ::
+        type: "form"
+        formId: "form-student"
+        thankYouMessage: "Thank you for registering!"
+
+  # Student Screen 1: Basic Info
+  - ::
+    id: "student-screen1"
+    name: "Student Basic Info"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Student Registration Header"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎓 Student Registration (1/3)"
+            css: "color: #89b4fa; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Basic Information"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-student"
+            fieldName: "name"
+            label: "Full Name"
+            placeholder: "Enter your full name"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-email"
+            formId: "form-student"
+            fieldName: "email"
+            label: "Email Address"
+            placeholder: "your.email@university.edu"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-student"
+            fieldName: "university"
+            label: "University"
+            placeholder: "Name of your university"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-student"
+            fieldName: "student_id"
+            label: "Student ID"
+            placeholder: "Your student ID number"
+            required: true
+            css: "margin-bottom: 40px; width: 100%;"
+
+          - ::
+            type: "section-container"
+            name: "Student Navigation Buttons"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "home"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                targetContainerId: "student-screen2"
+                css: "background: #89b4fa; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+  # Student Screen 2: T-Shirt Size
+  - ::
+    id: "student-screen2"
+    name: "Student T-Shirt Selection"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "T-Shirt Selection Container"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎓 Student Registration (2/3)"
+            css: "color: #89b4fa; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Choose Your Conference T-Shirt Size"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "section-container"
+            name: "T-Shirt Size Buttons"
+            css: "display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin-bottom: 40px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "S"
+                formId: "form-student"
+                fieldName: "tshirt_size"
+                value: "S"
+                targetContainerId: "student-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 25px 20px; border-radius: 8px; font-size: 24px; font-weight: 700; border: 2px solid #45475a;"
+
+              - ::
+                type: "nav-button"
+                content: "M"
+                formId: "form-student"
+                fieldName: "tshirt_size"
+                value: "M"
+                targetContainerId: "student-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 25px 20px; border-radius: 8px; font-size: 24px; font-weight: 700; border: 2px solid #45475a;"
+
+              - ::
+                type: "nav-button"
+                content: "L"
+                formId: "form-student"
+                fieldName: "tshirt_size"
+                value: "L"
+                targetContainerId: "student-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 25px 20px; border-radius: 8px; font-size: 24px; font-weight: 700; border: 2px solid #45475a;"
+
+              - ::
+                type: "nav-button"
+                content: "XL"
+                formId: "form-student"
+                fieldName: "tshirt_size"
+                value: "XL"
+                targetContainerId: "student-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 25px 20px; border-radius: 8px; font-size: 24px; font-weight: 700; border: 2px solid #45475a;"
+
+              - ::
+                type: "nav-button"
+                content: "2XL"
+                formId: "form-student"
+                fieldName: "tshirt_size"
+                value: "2XL"
+                targetContainerId: "student-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 25px 20px; border-radius: 8px; font-size: 24px; font-weight: 700; border: 2px solid #45475a;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back"
+            targetContainerId: "student-screen1"
+            css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; width: 100%;"
+
+  # Student Screen 3: Dietary Restrictions & Submit
+  - ::
+    id: "student-screen3"
+    name: "Student Final Screen"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Student Final Form"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎓 Student Registration (3/3)"
+            css: "color: #89b4fa; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Final Details"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-student"
+            fieldName: "dietary_restrictions"
+            label: "Dietary Restrictions or Preferences"
+            placeholder: "Let us know if you have any dietary restrictions (vegetarian, vegan, allergies, etc.)"
+            required: false
+            css: "margin-bottom: 40px; width: 100%; min-height: 120px;"
+
+          - ::
+            type: "section-container"
+            name: "Student Final Buttons"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "student-screen2"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Registration"
+                formId: "form-student"
+                targetContainerId: "confirmation"
+                css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 700; flex: 2;"
+
+  # ==================== PROFESSIONAL REGISTRATION FLOW ====================
+
+  # Form metadata for professional registration
+  - ::
+    id: "form-professional-metadata"
+    name: "Professional Form Metadata"
+    children::
+      - ::
+        type: "form"
+        formId: "form-professional"
+        thankYouMessage: "Thank you for registering!"
+
+  # Professional Screen 1: Basic Info
+  - ::
+    id: "professional-screen1"
+    name: "Professional Basic Info"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Professional Registration Header"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "💼 Professional Registration (1/3)"
+            css: "color: #f5c2e7; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Professional Information"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-professional"
+            fieldName: "name"
+            label: "Full Name"
+            placeholder: "Enter your full name"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-email"
+            formId: "form-professional"
+            fieldName: "email"
+            label: "Email Address"
+            placeholder: "your.email@company.com"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-professional"
+            fieldName: "company"
+            label: "Company"
+            placeholder: "Your company name"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-professional"
+            fieldName: "job_title"
+            label: "Job Title"
+            placeholder: "Your role or position"
+            required: true
+            css: "margin-bottom: 40px; width: 100%;"
+
+          - ::
+            type: "section-container"
+            name: "Professional Navigation Buttons"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "home"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                targetContainerId: "professional-screen2"
+                css: "background: #f5c2e7; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+  # Professional Screen 2: Interest Areas
+  - ::
+    id: "professional-screen2"
+    name: "Professional Interest Areas"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Interest Areas Container"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "💼 Professional Registration (2/3)"
+            css: "color: #f5c2e7; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Select Your Interest Areas"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-professional"
+            fieldName: "interest_ai"
+            label: "🤖 Artificial Intelligence & Machine Learning"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-professional"
+            fieldName: "interest_webdev"
+            label: "🌐 Web Development & Frontend Technologies"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-professional"
+            fieldName: "interest_cloud"
+            label: "☁️ Cloud Computing & DevOps"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-professional"
+            fieldName: "interest_security"
+            label: "🔒 Cybersecurity & Privacy"
+            css: "margin-bottom: 40px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "section-container"
+            name: "Professional Interest Navigation"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "professional-screen1"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                targetContainerId: "professional-screen3"
+                css: "background: #f5c2e7; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+  # Professional Screen 3: Networking Preferences & Submit
+  - ::
+    id: "professional-screen3"
+    name: "Professional Final Screen"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Professional Final Form"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "💼 Professional Registration (3/3)"
+            css: "color: #f5c2e7; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Networking Preferences"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "text"
+            content: "Would you like to be included in our networking directory for attendees to connect with you?"
+            css: "color: #cdd6f4; font-size: 18px; margin-bottom: 30px;"
+
+          - ::
+            type: "section-container"
+            name: "Networking Choice Buttons"
+            css: "display: flex; gap: 15px; margin-bottom: 40px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "✅ Yes, I'm open to networking"
+                formId: "form-professional"
+                fieldName: "networking"
+                value: "yes"
+                targetContainerId: "professional-screen3"
+                css: "background: #a6e3a1; color: #1e1e2e; padding: 20px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "❌ No, keep my profile private"
+                formId: "form-professional"
+                fieldName: "networking"
+                value: "no"
+                targetContainerId: "professional-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 20px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+          - ::
+            type: "section-container"
+            name: "Professional Final Buttons"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "professional-screen2"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Registration"
+                formId: "form-professional"
+                targetContainerId: "confirmation"
+                css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 700; flex: 2;"
+
+  # ==================== WORKSHOP LEADER REGISTRATION FLOW ====================
+
+  # Form metadata for workshop leader registration
+  - ::
+    id: "form-workshop-metadata"
+    name: "Workshop Form Metadata"
+    children::
+      - ::
+        type: "form"
+        formId: "form-workshop"
+        thankYouMessage: "Thank you for registering!"
+
+  # Workshop Screen 1: Basic Info
+  - ::
+    id: "workshop-screen1"
+    name: "Workshop Leader Basic Info"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Workshop Registration Header"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎤 Workshop Leader Registration (1/4)"
+            css: "color: #a6e3a1; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Speaker Information"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-workshop"
+            fieldName: "name"
+            label: "Full Name"
+            placeholder: "Enter your full name"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-email"
+            formId: "form-workshop"
+            fieldName: "email"
+            label: "Email Address"
+            placeholder: "your.email@example.com"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-workshop"
+            fieldName: "phone"
+            label: "Phone Number"
+            placeholder: "Your contact number"
+            required: true
+            css: "margin-bottom: 40px; width: 100%;"
+
+          - ::
+            type: "section-container"
+            name: "Workshop Navigation Buttons"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "home"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                targetContainerId: "workshop-screen2"
+                css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+  # Workshop Screen 2: Workshop Details
+  - ::
+    id: "workshop-screen2"
+    name: "Workshop Details"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Workshop Details Container"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎤 Workshop Leader Registration (2/4)"
+            css: "color: #a6e3a1; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Workshop Details"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-text"
+            formId: "form-workshop"
+            fieldName: "workshop_title"
+            label: "Workshop Title"
+            placeholder: "Give your workshop an engaging title"
+            required: true
+            css: "margin-bottom: 25px; width: 100%;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-workshop"
+            fieldName: "workshop_description"
+            label: "Workshop Description"
+            placeholder: "Describe what attendees will learn (include target audience, key takeaways, and any prerequisites)"
+            required: true
+            css: "margin-bottom: 40px; width: 100%; min-height: 150px;"
+
+          - ::
+            type: "section-container"
+            name: "Workshop Details Navigation"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "workshop-screen1"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                targetContainerId: "workshop-screen3"
+                css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+  # Workshop Screen 3: Topic Category
+  - ::
+    id: "workshop-screen3"
+    name: "Workshop Topic Category"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Topic Category Container"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎤 Workshop Leader Registration (3/4)"
+            css: "color: #a6e3a1; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Choose Your Workshop Topic Category"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "section-container"
+            name: "Topic Category Buttons"
+            css: "display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 40px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "🤖 Artificial Intelligence"
+                formId: "form-workshop"
+                fieldName: "topic_category"
+                value: "AI"
+                targetContainerId: "workshop-screen4"
+                css: "background: #313244; color: #cdd6f4; padding: 30px 20px; border-radius: 8px; font-size: 18px; font-weight: 600; border: 2px solid #89b4fa; text-align: center;"
+
+              - ::
+                type: "nav-button"
+                content: "🌐 Web Development"
+                formId: "form-workshop"
+                fieldName: "topic_category"
+                value: "Web Dev"
+                targetContainerId: "workshop-screen4"
+                css: "background: #313244; color: #cdd6f4; padding: 30px 20px; border-radius: 8px; font-size: 18px; font-weight: 600; border: 2px solid #f5c2e7; text-align: center;"
+
+              - ::
+                type: "nav-button"
+                content: "☁️ Cloud Computing"
+                formId: "form-workshop"
+                fieldName: "topic_category"
+                value: "Cloud"
+                targetContainerId: "workshop-screen4"
+                css: "background: #313244; color: #cdd6f4; padding: 30px 20px; border-radius: 8px; font-size: 18px; font-weight: 600; border: 2px solid #94e2d5; text-align: center;"
+
+              - ::
+                type: "nav-button"
+                content: "🔒 Cybersecurity"
+                formId: "form-workshop"
+                fieldName: "topic_category"
+                value: "Security"
+                targetContainerId: "workshop-screen4"
+                css: "background: #313244; color: #cdd6f4; padding: 30px 20px; border-radius: 8px; font-size: 18px; font-weight: 600; border: 2px solid #f38ba8; text-align: center;"
+
+          - ::
+            type: "nav-button"
+            content: "← Back"
+            targetContainerId: "workshop-screen2"
+            css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; width: 100%;"
+
+  # Workshop Screen 4: Equipment Needs & Submit
+  - ::
+    id: "workshop-screen4"
+    name: "Workshop Equipment Needs"
+    css: "background: #1e1e2e; padding: 40px 20px; min-height: 100vh;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Workshop Final Form"
+        css: "max-width: 700px; margin: 0 auto;"
+        children::
+          - ::
+            type: "heading"
+            content: "🎤 Workshop Leader Registration (4/4)"
+            css: "color: #a6e3a1; font-size: 36px; font-weight: 700; margin-bottom: 10px;"
+
+          - ::
+            type: "text"
+            content: "Equipment & Technical Requirements"
+            css: "color: #a6adc8; font-size: 20px; margin-bottom: 40px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-workshop"
+            fieldName: "equipment_projector"
+            label: "📽️ Projector / Display Screen"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-workshop"
+            fieldName: "equipment_microphone"
+            label: "🎤 Microphone & Audio System"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-workshop"
+            fieldName: "equipment_whiteboard"
+            label: "📋 Whiteboard / Flip Chart"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-checkbox"
+            formId: "form-workshop"
+            fieldName: "equipment_internet"
+            label: "🌐 High-Speed Internet Connection"
+            css: "margin-bottom: 20px; color: #cdd6f4; font-size: 18px;"
+
+          - ::
+            type: "form-field-textarea"
+            formId: "form-workshop"
+            fieldName: "equipment_other"
+            label: "Other Equipment or Special Requirements"
+            placeholder: "List any additional equipment or setup needs"
+            required: false
+            css: "margin-bottom: 40px; width: 100%; min-height: 100px;"
+
+          - ::
+            type: "section-container"
+            name: "Workshop Final Buttons"
+            css: "display: flex; gap: 15px; justify-content: space-between;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                targetContainerId: "workshop-screen3"
+                css: "background: #313244; color: #cdd6f4; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 600; flex: 1;"
+
+              - ::
+                type: "nav-button"
+                content: "Submit Registration"
+                formId: "form-workshop"
+                targetContainerId: "confirmation"
+                css: "background: #a6e3a1; color: #1e1e2e; padding: 15px 30px; border-radius: 8px; font-size: 16px; font-weight: 700; flex: 2;"
+
+  # ==================== CONFIRMATION SCREEN ====================
+
+  - ::
+    id: "confirmation"
+    name: "Registration Confirmation"
+    css: "background: linear-gradient(135deg, #1e1e2e 0%, #313244 100%); padding: 60px 20px; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Confirmation Content"
+        css: "background: #181825; border-radius: 20px; padding: 60px 40px; max-width: 700px; text-align: center; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);"
+        children::
+          - ::
+            type: "heading"
+            content: "✅ Registration Complete!"
+            css: "color: #a6e3a1; font-size: 48px; font-weight: 800; margin-bottom: 30px;"
+
+          - ::
+            type: "text"
+            content: "Thank you for registering for Tech Conference 2025!"
+            css: "color: #cdd6f4; font-size: 24px; margin-bottom: 40px;"
+
+          - ::
+            type: "section-container"
+            name: "Event Details Card"
+            css: "background: #1e1e2e; border-radius: 12px; padding: 30px; margin-bottom: 40px; border: 2px solid #45475a;"
+            children::
+              - ::
+                type: "heading"
+                content: "📅 Event Details"
+                css: "color: #89b4fa; font-size: 28px; font-weight: 700; margin-bottom: 20px;"
+
+              - ::
+                type: "text"
+                content: "📆 Dates: March 15-17, 2025"
+                css: "color: #cdd6f4; font-size: 20px; margin-bottom: 15px;"
+
+              - ::
+                type: "text"
+                content: "📍 Location: San Francisco, California"
+                css: "color: #cdd6f4; font-size: 20px; margin-bottom: 15px;"
+
+              - ::
+                type: "text"
+                content: "🏨 Venue: Moscone Convention Center"
+                css: "color: #cdd6f4; font-size: 20px;"
+
+          - ::
+            type: "text"
+            content: "A confirmation email has been sent to your registered email address with your ticket and event details."
+            css: "color: #a6adc8; font-size: 18px; margin-bottom: 30px; line-height: 1.6;"
+
+          - ::
+            type: "text"
+            content: "We look forward to seeing you at the conference!"
+            css: "color: #89b4fa; font-size: 20px; font-weight: 600; margin-bottom: 40px;"
+
+          - ::
+            type: "nav-button"
+            content: "← Return to Home"
+            targetContainerId: "home"
+            css: "background: #89b4fa; color: #1e1e2e; padding: 15px 40px; border-radius: 8px; font-size: 18px; font-weight: 700;"
