@@ -1,5 +1,6 @@
 import { parse } from '@huml-lang/huml';
 import type { YjsDocuments } from '../lib/yjsManager';
+import { initializeState, initializeComputed, observeYjsDocuments } from '../lib/templateState.svelte';
 
 /**
  * HUML Template Schema for Sthalam
@@ -15,6 +16,7 @@ export interface TemplateBlock {
   css?: string; // Custom CSS
   name?: string; // Block name/label
   parentId?: string; // Parent block ID (auto-set for children)
+  visible?: boolean | string; // Visibility (can be JEXL expression)
 
   // Positioning (auto-calculated if not provided)
   x?: number;
@@ -27,11 +29,16 @@ export interface TemplateBlock {
   isEntryPoint?: boolean; // For screen-container
 
   // Navigation-specific
-  action?: 'navigate' | 'show' | 'hide' | 'toggle';
+  action?: 'navigate' | 'setState';
   targetScreen?: string;
   targetContainer?: string;
   targetContainerId?: string; // Direct target container ID
   value?: any; // Field value for branching (MODE 3)
+
+  // setState action properties
+  stateKey?: string; // For single state updates
+  stateValue?: any; // For single state updates
+  stateUpdates?: Record<string, any>; // For bulk state updates
 
   // Form-specific
   formId?: string;
@@ -51,6 +58,10 @@ export interface TemplateBlock {
   yesTargetId?: string;
   noTargetId?: string;
 
+  // forEach loop rendering
+  forEach?: string; // Array name from state to loop over
+  forEachAs?: string; // Custom variable name (default: 'item')
+
   // Children blocks (nested hierarchy)
   children?: TemplateBlock[];
 }
@@ -66,6 +77,11 @@ export interface TemplateScreen {
 export interface SthalaTemplate {
   name: string;
   resourceType?: 'website' | 'noticeboard' | 'form';
+  state?: Record<string, any>; // Template state for JEXL expressions
+  computed?: Record<string, string>; // Computed/derived state properties
+  content?: Record<string, any>; // Publisher content (shared, read-only for users)
+  user_content?: Record<string, any>; // Per-user state (mutable)
+  theme?: Record<string, any>; // Theme configuration
   screens?: TemplateScreen[];
   blocks?: TemplateBlock[]; // Flat list alternative to screens
 }
@@ -95,11 +111,62 @@ export class TemplateImporter {
       // Clear existing blocks
       yjsDocuments.blocks.clear();
 
+      // Clear content and user_content docs
+      if (yjsDocuments.content) {
+        yjsDocuments.content.clear();
+      }
+      if (yjsDocuments.userContent) {
+        yjsDocuments.userContent.clear();
+      }
+
       // Reset counters
       this.blockCounter = 0;
       this.screenCounter = 0;
       this.currentX = 100;
       this.currentY = 100;
+
+      // Import content data (publisher-owned)
+      if (template.content && yjsDocuments.content) {
+        console.log('📦 Importing content data:', template.content);
+        for (const [key, value] of Object.entries(template.content)) {
+          yjsDocuments.content.set(key, value);
+        }
+      }
+
+      // Import user_content data (per-user state)
+      if (template.user_content && yjsDocuments.userContent) {
+        console.log('👤 Importing user_content data:', template.user_content);
+        for (const [key, value] of Object.entries(template.user_content)) {
+          yjsDocuments.userContent.set(key, value);
+        }
+      }
+
+      // IMPORTANT: Set up observation FIRST, before initializing state
+      // This allows initializeState to persist to the Yjs documents
+      observeYjsDocuments(yjsDocuments.content, yjsDocuments.userContent);
+      console.log('🔗 Template state observing content and user_content docs');
+
+      // Initialize template state if provided (backward compatibility)
+      // Merge all three data sources: state, content, user_content
+      const mergedState = {
+        ...(template.state || {}),
+        ...(template.content || {}),
+        ...(template.user_content || {})
+      };
+
+      if (Object.keys(mergedState).length > 0) {
+        console.log('📊 Initializing merged state:', mergedState);
+        initializeState(mergedState);
+      } else {
+        // Reset to default state if no state provided
+        initializeState();
+      }
+
+      // Initialize computed properties if provided
+      if (template.computed && Object.keys(template.computed).length > 0) {
+        console.log('🧮 Initializing computed properties:', template.computed);
+        initializeComputed(template.computed);
+      }
 
       // Import screens if present
       if (template.screens && template.screens.length > 0) {
@@ -154,10 +221,11 @@ export class TemplateImporter {
       yjsDocuments.blocks.set(screenId, screenBlock);
       console.log(`  📄 Created screen: ${screenBlock.name} at (${this.currentX}, ${this.currentY})`);
 
-      // Import children blocks within this screen
-      if (screen.children && screen.children.length > 0) {
+      // Import children blocks within this screen (HUML uses 'blocks', legacy uses 'children')
+      const childBlocks = (screen as any).blocks || screen.children;
+      if (childBlocks && childBlocks.length > 0) {
         const childIds = this.importBlocks(
-          screen.children,
+          childBlocks,
           yjsDocuments,
           screenId,
           this.currentX + 50,
@@ -232,6 +300,7 @@ export class TemplateImporter {
 
       // Add type-specific fields
       if (block.name) blockData.name = block.name;
+      if (block.visible !== undefined) blockData.visible = block.visible; // Support JEXL visibility
       if (block.isEntryPoint !== undefined) blockData.isEntryPoint = block.isEntryPoint;
       if (block.action) blockData.action = block.action;
 
@@ -256,14 +325,24 @@ export class TemplateImporter {
       if (block.yesTargetId) blockData.yesTargetId = block.yesTargetId;
       if (block.noTargetId) blockData.noTargetId = block.noTargetId;
 
+      // setState action properties
+      if (block.stateKey) blockData.stateKey = block.stateKey;
+      if (block.stateValue !== undefined) blockData.stateValue = block.stateValue;
+      if (block.stateUpdates) blockData.stateUpdates = block.stateUpdates;
+
       // Form field properties
       if (block.label) blockData.label = block.label;
       if (block.placeholder) blockData.placeholder = block.placeholder;
 
-      // Handle children
-      if (block.children && block.children.length > 0) {
+      // forEach loop rendering
+      if (block.forEach) blockData.forEach = block.forEach;
+      if (block.forEachAs) blockData.forEachAs = block.forEachAs;
+
+      // Handle children (HUML uses 'blocks', legacy uses 'children')
+      const childBlocks = (block as any).blocks || block.children;
+      if (childBlocks && childBlocks.length > 0) {
         const childIds = this.importBlocks(
-          block.children,
+          childBlocks,
           yjsDocuments,
           blockId,
           x + 20,

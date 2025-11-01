@@ -74,15 +74,22 @@ export function createEmptyBlocksuiteDoc(
   // Encode to byte array (V2 format for better compression)
   const encoded = Y.encodeStateAsUpdateV2(tempDoc);
 
-  // Create empty documents for thread_comments and form_submissions
+  // Create empty documents for content, user_content, thread_comments, and form_submissions
+  const contentDoc = new Y.Doc();
+  const userContentDoc = new Y.Doc();
   const commentsDoc = new Y.Doc();
   const formsDoc = new Y.Doc();
+
+  const encodedContent = Y.encodeStateAsUpdateV2(contentDoc);
+  const encodedUserContent = Y.encodeStateAsUpdateV2(userContentDoc);
   const encodedComments = Y.encodeStateAsUpdateV2(commentsDoc);
   const encodedForms = Y.encodeStateAsUpdateV2(formsDoc);
 
-  // Create content structure matching backend expectations with all 3 docs
+  // Create content structure matching backend expectations with all docs
   const content: BlocksuiteContent = {
     blocksuite_doc: Array.from(encoded),  // Main website content
+    content_doc: Array.from(encodedContent),  // Publisher content (empty initially)
+    user_content_doc: Array.from(encodedUserContent),  // User state (empty initially)
     thread_comments_doc: Array.from(encodedComments),  // Comments document (empty initially)
     form_submissions_doc: Array.from(encodedForms),  // Form submissions (empty initially)
     client_id: clientId.toString(),
@@ -92,6 +99,8 @@ export function createEmptyBlocksuiteDoc(
 
   // Cleanup temporary documents
   tempDoc.destroy();
+  contentDoc.destroy();
+  userContentDoc.destroy();
   commentsDoc.destroy();
   formsDoc.destroy();
 

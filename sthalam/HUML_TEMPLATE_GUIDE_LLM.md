@@ -1,7 +1,133 @@
 # HUML Template Guide - LLM Optimized
 
-**Version:** 2.1 LLM Edition
+**Version:** 3.2 Synchronous JEXL with Fine-Grained Reactivity
 **Purpose:** Compressed reference for AI assistants creating HUML templates
+
+---
+
+## 📖 HUML Specification
+
+**ALWAYS refer to the official HUML specification first:**
+- **Spec URL:** https://huml.io/specifications/v0-1-0/
+- **Key points:**
+  - Strings use double quotes: `"text"`
+  - JEXL expressions inside strings: `"{{expression}}"`
+  - Inside JEXL, use single quotes: `"{{condition ? 'yes' : 'no'}}"`
+  - Indentation: Strictly 2 spaces per level
+  - Spacing: Exactly one space after `:` or `::`
+  - Scalar keys: Single colon `:`
+  - Vector keys: Double colon `::`
+  - No trailing spaces allowed
+
+---
+
+## ⚡ PERFORMANCE & REACTIVITY
+
+**HUML uses fine-grained Preact signals for optimal performance.**
+
+### How It Works
+
+- Each state property is a **separate signal** (not one big state object)
+- Blocks **automatically track** which properties they use
+- Blocks **only re-render** when properties they ACCESS actually change
+- **Zero unnecessary re-renders** - maximum performance
+
+### What This Means For You
+
+```huml
+state::
+  totalItems: 0
+  totalPrice: 0
+  products::
+    - name: "Item 1"
+      price: 10.00
+```
+
+**Example behavior:**
+- Text showing `{{totalItems}}` - only re-renders when `totalItems` changes
+- Text showing `{{totalPrice}}` - only re-renders when `totalPrice` changes
+- Product grid showing `{{products}}` - only re-renders when `products` changes
+- **Updating `totalItems` does NOT re-render blocks using only `totalPrice` or `products`**
+
+**You don't need to do anything special - this is automatic!** 🎉
+
+---
+
+## 🆕 JEXL SUPPORT - STATE-DRIVEN TEMPLATES
+
+### ⚡ Quick Start: JEXL in 3 Steps
+
+1. **Define state** in template root:
+```huml
+state::
+  currentSection: "home"
+```
+
+2. **Use `setState` action** on buttons:
+```huml
+- ::
+  type: "nav-button"
+  content: "Go to About"
+  action: "setState"
+  stateKey: "currentSection"
+  stateValue: "about"
+```
+
+3. **Control visibility** with JEXL expressions:
+```huml
+- ::
+  type: "section-container"
+  visible: "{{currentSection == 'about'}}"
+```
+
+### 🔄 Breaking Changes
+- **❌ REMOVED**: `action: "show"`, `"hide"`, `"toggle"`
+- **✅ USE INSTEAD**: `action: "setState"` + JEXL `visible` expressions
+
+### ⚡ JEXL Evaluation: Synchronous & Sandboxed
+
+**All JEXL expressions are evaluated synchronously in a secure sandbox:**
+
+**Architecture Benefits:**
+- ✅ Enables true fine-grained reactivity with Preact signals
+- ✅ Predictable execution order - no race conditions
+- ✅ Better performance - no promise overhead
+- ✅ Works perfectly with dependency tracking
+
+**Security: Whitelist-Only Approach**
+JEXL runs in a sandboxed environment with ONLY these whitelisted functions:
+
+**Available Operations:**
+- ✅ **Transforms:** `uppercase`, `lowercase`, `capitalize`, `toNumber`, `toFixed`
+- ✅ **Safe JS:** `Number()`, `String()`, `Boolean()`, `parseInt()`, `parseFloat()`, `isNaN()`
+- ✅ **Math:** `Math.round()`, `Math.floor()`, `Math.ceil()`, `Math.abs()`, `Math.min()`, `Math.max()`, `Math.pow()`, `Math.sqrt()`, `Math.random()`
+- ✅ **Operators:** `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`, `?:`
+- ✅ **Template state:** All state properties defined in `state::`
+- ✅ **Loop variables:** `item`, `index`, `first`, `last` (inside forEach)
+
+**NOT Available (Sandboxed Out):**
+- ❌ `fetch`, `XMLHttpRequest` - No network access
+- ❌ `eval`, `Function` - No dynamic code execution
+- ❌ `window`, `document`, `global` - No global object access
+- ❌ `require`, `import` - No module loading
+- ❌ File system, DOM APIs, timers, etc.
+
+**Example:**
+```huml
+# ✅ GOOD - Whitelisted operations
+display: "{{String(previousValue + Number(display))}}"
+expression: "{{display + ' ÷ ' + operand}}"
+visible: "{{operation != '' && !isLoading}}"
+rounded: "{{Math.round(price * 100) / 100}}"
+upperName: "{{name | uppercase}}"
+
+# ❌ NOT AVAILABLE - Not in whitelist
+data: "{{fetch('/api/data')}}"  # fetch not exposed
+code: "{{eval('malicious')}}"    # eval not exposed
+elem: "{{document.createElement('div')}}"  # DOM not exposed
+```
+
+**For dynamic/async data:** Load data into state first (via Yjs sync, initial data, backend) → Then display with JEXL
 
 ---
 
@@ -89,6 +215,440 @@ Thread blocks ONLY accept CSS custom properties. Regular CSS and classes DON'T w
 ```
 
 **Critical for dark themes:** Must include `--thread-comment-content-color`, `--thread-toggle-bg`, `--thread-toggle-color`, `--thread-scrollbar-track`, `--thread-scrollbar-thumb` or text/elements will be invisible!
+
+---
+
+## JEXL Expressions - Complete Guide
+
+### State Definition
+
+Add state at template root level:
+```huml
+name: "My Website"
+
+state::
+  currentSection: "home"
+  theme: "dark"
+  formSubmitted: false
+  user::
+    name: "Guest"
+    role: "viewer"
+
+screens::
+  # ... your screens
+```
+
+### Multi-Document Architecture - Separating Content & State
+
+**NEW**: For complex apps (e-commerce, content-heavy sites), separate publisher content from user state.
+
+#### Three Data Sources
+
+1. **`state::`** - In-memory state (backward compatible)
+2. **`content::`** - Publisher-owned data (products, articles) - **shared across users**
+3. **`user_content::`** - Per-user state (cart, progress) - **isolated per user**
+
+**Merge Priority**: `state` < `content` < `user_content` (user state wins)
+
+#### E-commerce Example
+
+```huml
+name: "Product Store"
+
+# Publisher content (products catalog - shared)
+content::
+  products::
+    - ::
+      name: "Running Shoes"
+      price: 89.99
+      image: "https://example.com/shoes.jpg"
+      description: "Comfortable running shoes"
+    - ::
+      name: "T-Shirt"
+      price: 24.99
+      image: "https://example.com/shirt.jpg"
+      description: "Cotton t-shirt"
+
+# Per-user state (cart - isolated)
+user_content::
+  totalItems: 0
+  totalPrice: 0
+
+screens::
+  - ::
+    children::
+      # Loop over products (from content::)
+      - ::
+        forEach: "products"
+        type: "section-container"
+        children::
+          - ::
+            type: "heading"
+            content: "{{item.name}}"
+
+          - ::
+            type: "text"
+            content: "${{item.price}}"
+
+          # Update user state
+          - ::
+            type: "nav-button"
+            content: "Add to Cart"
+            action: "setState"
+            stateUpdates::
+              totalItems: "{{Number(totalItems) + 1}}"
+              totalPrice: "{{Number(totalPrice) + Number(item.price)}}"
+
+      # Display cart (from user_content::)
+      - ::
+        type: "text"
+        content: "Cart: {{totalItems}} items (${{totalPrice | toFixed(2)}})"
+```
+
+**When to Use Multi-Document**:
+- ✅ E-commerce (products in `content::`, cart in `user_content::`)
+- ✅ Courses (lessons in `content::`, progress in `user_content::`)
+- ✅ CMS (articles in `content::`, bookmarks in `user_content::`)
+- ❌ Simple sites (just use `state::`)
+
+**Backend Storage**:
+- `content::` → `content_doc` (Yjs document, synced)
+- `user_content::` → `user_content_doc` (Yjs document, per-user)
+- All three are merged in JEXL expressions
+
+**⚡ Performance Note**:
+Each property (from any source) gets its own fine-grained signal. Updating `totalItems` in `user_content::` only re-renders blocks that USE `totalItems` - blocks displaying `products` from `content::` won't re-render. Maximum performance!
+
+### JEXL Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `==` | Equality **(NOT ===!)** | `{{section == 'home'}}` |
+| `!=` | Inequality | `{{role != 'admin'}}` |
+| `&&` | Logical AND | `{{isAdmin && isActive}}` |
+| `\|\|` | Logical OR | `{{isAdmin \|\| isModerator}}` |
+| `!` | Logical NOT | `{{!isHidden}}` |
+| `>`, `<`, `>=`, `<=` | Comparison | `{{count > 5}}` |
+| `? :` | Ternary | `{{theme == 'dark' ? '#000' : '#fff'}}` |
+
+**⚠️ CRITICAL**: JEXL uses `==` not `===`!
+
+### Common Patterns
+
+#### Pattern 1: Single-Screen with Sections
+
+```huml
+state::
+  currentSection: "home"
+
+screens::
+  - ::
+    id: "main"
+    isEntryPoint: true
+    children::
+      # Navigation sidebar
+      - ::
+        type: "nav-button"
+        content: "Home"
+        action: "setState"
+        stateKey: "currentSection"
+        stateValue: "home"
+
+      - ::
+        type: "nav-button"
+        content: "About"
+        action: "setState"
+        stateKey: "currentSection"
+        stateValue: "about"
+
+      # Content sections (conditionally visible)
+      - ::
+        type: "section-container"
+        name: "Home Section"
+        visible: "{{currentSection == 'home'}}"
+        children::
+          # Home content
+
+      - ::
+        type: "section-container"
+        name: "About Section"
+        visible: "{{currentSection == 'about'}}"
+        children::
+          # About content
+```
+
+#### Pattern 2: Multi-Step Form with JEXL
+
+```huml
+state::
+  currentStep: 1
+  formSubmitted: false
+
+screens::
+  - ::
+    id: "form"
+    isEntryPoint: true
+    children::
+      - ::
+        type: "form"
+        id: "my-form"
+
+      # Step 1
+      - ::
+        type: "section-container"
+        name: "Step 1"
+        visible: "{{currentStep == 1 && !formSubmitted}}"
+        children::
+          - ::
+            type: "form-field-text"
+            fieldName: "name"
+            formId: "my-form"
+
+          - ::
+            type: "nav-button"
+            content: "Next"
+            action: "setState"
+            stateKey: "currentStep"
+            stateValue: 2
+            formId: "my-form"  # Caches data
+
+      # Step 2
+      - ::
+        type: "section-container"
+        name: "Step 2"
+        visible: "{{currentStep == 2 && !formSubmitted}}"
+        children::
+          - ::
+            type: "form-field-email"
+            fieldName: "email"
+            formId: "my-form"
+
+          - ::
+            type: "nav-button"
+            content: "Submit"
+            action: "setState"
+            stateKey: "formSubmitted"
+            stateValue: true
+            formId: "my-form"
+            submit: true  # ← Submits!
+
+      # Success
+      - ::
+        type: "section-container"
+        name: "Success"
+        visible: "{{formSubmitted}}"
+        children::
+          - ::
+            type: "heading"
+            content: "Thank you!"
+```
+
+**Key Points:**
+- `formId` on buttons → caches form data
+- `submit: true` on final button → actually submits
+- JEXL `visible` → controls what shows
+- State updates → sections reactively show/hide
+
+#### Pattern 3: Dynamic Styling
+
+```huml
+state::
+  theme: "dark"
+
+- ::
+  type: "section-container"
+  name: "Themed Container"
+  css: "background: {{theme == 'dark' ? '#1a1a1a' : '#ffffff'}}; color: {{theme == 'dark' ? '#ffffff' : '#000000'}};"
+  children::
+    - ::
+      type: "nav-button"
+      content: "Toggle Theme"
+      action: "setState"
+      stateKey: "theme"
+      stateValue: "{{theme == 'dark' ? 'light' : 'dark'}}"
+```
+
+#### Pattern 4: Content Interpolation
+
+```huml
+state::
+  user::
+    name: "John Doe"
+
+- ::
+  type: "heading"
+  content: "Welcome, {{user.name}}!"
+```
+
+### setState Actions
+
+#### Single Property Update
+```huml
+- ::
+  type: "nav-button"
+  content: "Show About"
+  action: "setState"
+  stateKey: "currentSection"
+  stateValue: "about"
+```
+
+#### Bulk Update (Multiple Properties)
+```huml
+- ::
+  type: "nav-button"
+  content: "Reset"
+  action: "setState"
+  stateUpdates::
+    currentSection: "home"
+    formSubmitted: false
+    currentStep: 1
+```
+
+#### Toggle Boolean
+```huml
+- ::
+  type: "nav-button"
+  content: "Toggle Menu"
+  action: "setState"
+  stateKey: "isMenuOpen"
+  stateValue: "{{!isMenuOpen}}"
+```
+
+### Conditional Visibility
+
+**Any block type** can use `visible` property:
+
+```huml
+# Boolean
+visible: true
+visible: false
+
+# JEXL expression (evaluate to boolean)
+visible: "{{currentSection == 'home'}}"
+visible: "{{isAdmin || isModerator}}"
+visible: "{{count > 0}}"
+visible: "{{user.role == 'admin' && isActive}}"
+```
+
+### Types and Data Handling
+
+#### Type Coercion
+
+JEXL expressions should explicitly coerce types to avoid NaN errors:
+
+```huml
+# ✅ GOOD - Explicit type coercion
+stateUpdates::
+  count: "{{Number(count) + 1}}"
+  total: "{{Number(total) + Number(item.price)}}"
+  percentage: "{{(Number(completed) / Number(total)) * 100}}"
+
+# ❌ BAD - Can result in NaN or string concatenation
+stateUpdates::
+  count: "{{count + 1}}"  # Might do "01" instead of 1
+  total: "{{total + item.price}}"  # Might do "089.99" instead of 89.99
+```
+
+#### Number Formatting
+
+Use JEXL transforms (with pipe `|`) for formatting:
+
+```huml
+# Format currency with 2 decimals (use | transform)
+content: "Total: ${{totalPrice | toFixed(2)}}"
+
+# Round to integer (use Math functions)
+content: "Score: {{Math.round(score)}}"
+
+# Percentage
+content: "Progress: {{((Number(completed) / Number(total)) * 100) | toFixed(1)}}%"
+
+# ❌ WRONG - Cannot use JavaScript methods directly
+content: "Total: ${{totalPrice.toFixed(2)}}"  # Error: toFixed not defined
+
+# ✅ RIGHT - Use transform with pipe
+content: "Total: ${{totalPrice | toFixed(2)}}"
+```
+
+#### Array Operations - Why No `push()`?
+
+JEXL is a **pure expression language** - it doesn't support mutations like `push()`, `pop()`, `splice()`.
+
+**Why?** Pure expressions:
+- Have no side effects
+- Always return new values
+- Are easier to reason about and debug
+- Enable time-travel debugging and undo/redo
+
+**Solution:** Use spread operator to create new arrays:
+
+```huml
+state::
+  cart::
+    - ::
+      name: "Item 1"
+      price: 10.00
+
+# ❌ DOESN'T WORK - Cannot mutate arrays
+stateUpdates::
+  cart: "{{cart.push(newItem)}}"  # Error!
+
+# ✅ WORKS - Create new array with spread
+stateUpdates::
+  cart: "{{[...cart, newItem]}}"  # Adds to end
+  cart: "{{[newItem, ...cart]}}"  # Adds to start
+
+# Remove item at index
+stateUpdates::
+  cart: "{{cart.filter((item, i) => i !== indexToRemove)}}"
+
+# Update item property
+stateUpdates::
+  cart: "{{cart.map(item => item.id === targetId ? {...item, quantity: item.quantity + 1} : item)}}"
+```
+
+#### Available JEXL Functions & Transforms
+
+**Functions** (called like `func(arg)`):
+
+```huml
+# Type conversion
+Number(value)           # Convert to number
+String(value)           # Convert to string
+Boolean(value)          # Convert to boolean
+parseInt(str, radix)    # Parse integer
+parseFloat(str)         # Parse float
+isNaN(value)            # Check if not a number
+
+# Math operations
+Math.round(num)         # Round to nearest integer
+Math.floor(num)         # Round down
+Math.ceil(num)          # Round up
+Math.abs(num)           # Absolute value
+Math.max(a, b, ...)     # Maximum value
+Math.min(a, b, ...)     # Minimum value
+Math.pow(base, exp)     # Power operation
+Math.sqrt(num)          # Square root
+Math.random()           # Random 0-1
+```
+
+**Transforms** (used with pipe `| transform`):
+
+```huml
+# String transforms
+"{{name | uppercase}}"       # Convert to UPPERCASE
+"{{name | lowercase}}"       # Convert to lowercase
+"{{name | capitalize}}"      # Capitalize First Letter
+
+# Number transforms
+"{{price | toFixed(2)}}"     # Format with 2 decimals (e.g., "19.99")
+"{{value | toNumber}}"       # Convert to number safely (NaN → 0)
+```
+
+**Key Difference:**
+- Functions: `{{Math.round(price)}}`
+- Transforms: `{{price | toFixed(2)}}`
+- ❌ Cannot use: `{{price.toFixed(2)}}` (no JavaScript methods)
 
 ---
 
@@ -289,6 +849,26 @@ Creating a form button?
 3. **Choice buttons:** Add `fieldName` + `value`
 4. **Everything else:** Automatic!
 
+### Form Metadata Properties
+
+**Required:**
+- `type: "form"` - Identifies this as a form definition
+- `id` - Unique form identifier (referenced by all fields/buttons)
+
+**Optional:**
+- `name` - Display name for the form
+- `eventName` - Custom event name for tracking/analytics
+- `submitEndpoint` - URL where form data will be submitted (e.g., Formspree)
+
+```huml
+- ::
+  type: "form"
+  id: "form-contact"
+  name: "Contact Form"
+  eventName: "contact_submission"
+  submitEndpoint: "https://formspree.io/f/YOUR_FORM_ID"
+```
+
 ### Single-Screen Form (Simple)
 
 ```huml
@@ -302,6 +882,8 @@ screens::
       - ::
         type: "form"
         id: "form-contact"
+        name: "Contact Form"
+        eventName: "contact_submission"
         submitEndpoint: "https://formspree.io/f/YOUR_FORM_ID"
 
       # 2. Form container
@@ -576,6 +1158,34 @@ screens::
   css: "margin-bottom: 15px;"
 ```
 
+#### `form-field-tel`
+```huml
+- ::
+  type: "form-field-tel"
+  formId: "form-contact"
+  fieldName: "phone"
+  label: "Phone Number"
+  placeholder: "+1 (555) 123-4567"
+  required: false
+```
+
+#### `form-field-select`
+```huml
+- ::
+  type: "form-field-select"
+  formId: "form-survey"
+  fieldName: "subject"
+  label: "Subject"
+  required: true
+  options::
+    - "General Inquiry"
+    - "Technical Support"
+    - "Sales Question"
+    - "Partnership Opportunity"
+    - "Other"
+  css: "margin-bottom: 20px;"
+```
+
 **All form fields require:**
 - `type` - Field type
 - `formId` - Must match form `id`
@@ -677,6 +1287,305 @@ screens::
   formId: "form-registration"  # ← Matches form id
   fieldName: "name"
 ```
+
+---
+
+## forEach - Loop Rendering
+
+### **NEW: Data-Driven Component Rendering**
+
+The `forEach` property allows you to render multiple instances of a block from an array in state.
+
+**Why use forEach:**
+- Define component ONCE, render multiple times
+- Data-driven UI (separation of data and presentation)
+- Cleaner, more maintainable templates
+- Easy to add/remove items (just update state array)
+
+### Basic Usage
+
+```huml
+state::
+  items::
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+
+- ::
+  type: "nav-button"
+  forEach: "items"        # Array name from state
+  content: "{{item}}"     # {{item}} = current element
+  action: "setState"
+  stateKey: "selected"
+  stateValue: "{{item}}"
+```
+
+**Result:** Creates 5 buttons displaying "1", "2", "3", "4", "5"
+
+### Loop Context Variables
+
+Inside forEach blocks, you have access to:
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `{{item}}` | Current array element | `{{item}}` |
+| `{{index}}` | Current index (0-based) | `{{index}}` |
+| `{{first}}` | Boolean, true if first item | `{{first}}` |
+| `{{last}}` | Boolean, true if last item | `{{last}}` |
+
+### With Object Arrays
+
+```huml
+state::
+  products::
+    - ::
+      name: "Laptop"
+      price: 999
+    - ::
+      name: "Mouse"
+      price: 29
+    - ::
+      name: "Keyboard"
+      price: 79
+
+- ::
+  type: "section-container"
+  forEach: "products"
+  name: "Product {{index + 1}}"
+  css: "background: white; padding: 20px; margin: 10px; border-radius: 8px;"
+  children::
+    - ::
+      type: "heading"
+      content: "{{item.name}}"
+    - ::
+      type: "text"
+      content: "Price: ${{item.price}}"
+    - ::
+      type: "nav-button"
+      content: "Buy Now"
+      action: "setState"
+      stateKey: "selectedProduct"
+      stateValue: "{{item.name}}"
+```
+
+### Custom Variable Name
+
+```huml
+state::
+  colors::
+    - "red"
+    - "green"
+    - "blue"
+
+- ::
+  type: "nav-button"
+  forEach: "colors"
+  forEachAs: "color"      # Use {{color}} instead of {{item}}
+  content: "{{color}}"
+  css: "background: {{color}}; color: white; padding: 10px; margin: 5px;"
+```
+
+### 🔥 Buttons Inside forEach - Automatic Loop Context Access
+
+**IMPORTANT**: Buttons (and their children) inside forEach loops automatically have access to loop variables (`item`, `index`, etc.) in ALL JEXL expressions, including `stateUpdates`.
+
+#### E-commerce Example: Add to Cart
+
+```huml
+state::
+  totalItems: 0
+  totalPrice: 0
+
+content::
+  products::
+    - ::
+      name: "Laptop"
+      price: 999.99
+    - ::
+      name: "Mouse"
+      price: 29.99
+    - ::
+      name: "Keyboard"
+      price: 79.99
+
+- ::
+  type: "section-container"
+  forEach: "products"
+  name: "Product Card"
+  children::
+    - ::
+      type: "heading"
+      content: "{{item.name}}"
+
+    - ::
+      type: "text"
+      content: "${{item.price}}"
+
+    - ::
+      type: "nav-button"
+      content: "Add to Cart"
+      action: "setState"
+      stateUpdates::
+        totalItems: "{{Number(totalItems) + 1}}"
+        totalPrice: "{{Number(totalPrice) + Number(item.price)}}"  # ✅ item.price available!
+```
+
+**How it works:**
+1. The forEach loop creates one button per product
+2. Each button instance has its own `item` (current product)
+3. When button is clicked, `item.price` refers to THAT product's price
+4. **Loop context is automatically passed to button's JEXL evaluations**
+
+**Key Point**: You don't need to do anything special - just reference `{{item}}`, `{{item.propertyName}}`, or `{{index}}` in your button's JEXL expressions and they will work correctly!
+
+### Dynamic Styling Based on Index
+
+```huml
+- ::
+  type: "text"
+  forEach: "items"
+  content: "Item {{item}}"
+  css: "background: {{index % 2 == 0 ? '#f0f0f0' : '#ffffff'}}; padding: 10px;"
+```
+
+### Conditional Rendering in Loops
+
+```huml
+- ::
+  type: "nav-button"
+  forEach: "numbers"
+  content: "{{item}}"
+  visible: "{{item > 5}}"  # Only show if item > 5
+```
+
+### 🧮 Complete Calculator Example
+
+**Full working calculator with expression display, demonstrating:**
+- State management with JEXL
+- forEach loops for buttons
+- Expression tracking
+- Multiple state updates
+
+```huml
+name: "Calculator App"
+resourceType: "website"
+
+state::
+  display: "0"
+  previousValue: 0
+  operation: ""
+  waitingForNewValue: false
+  expression: ""  # Track the full expression like "5 ÷ 7 ="
+  digits::
+    - 7
+    - 8
+    - 9
+    - 4
+    - 5
+    - 6
+    - 1
+    - 2
+    - 3
+    - 0
+
+screens::
+  - ::
+    id: "calculator"
+    isEntryPoint: true
+    children::
+      - ::
+        type: "section-container"
+        css: "background: #1f2937; border-radius: 24px; padding: 24px;"
+        children::
+          # Display with expression tracking
+          - ::
+            type: "section-container"
+            css: "background: #111827; border-radius: 16px; padding: 24px; display: flex; flex-direction: column;"
+            children::
+              # Expression display (shows "5 ÷ 7 =")
+              - ::
+                type: "text"
+                content: "{{expression}}"
+                visible: "{{expression != ''}}"
+                css: "color: #9ca3af; font-size: 20px; margin-bottom: 8px;"
+
+              # Result display
+              - ::
+                type: "text"
+                content: "{{display}}"
+                css: "color: #f3f4f6; font-size: 48px; font-weight: 300;"
+
+          # Button Grid
+          - ::
+            type: "section-container"
+            css: "display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"
+            children::
+              # Clear button
+              - ::
+                type: "nav-button"
+                content: "C"
+                action: "setState"
+                stateUpdates::
+                  display: "0"
+                  previousValue: 0
+                  operation: ""
+                  expression: ""
+                  waitingForNewValue: false
+                css: "grid-column: span 2; padding: 24px; background: #ef4444;"
+
+              # Number buttons (using forEach - creates 10 buttons from 1 definition!)
+              - ::
+                type: "nav-button"
+                forEach: "digits"
+                content: "{{item}}"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? String(item) : (display == '0' ? String(item) : display + String(item))}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; {{index == 9 ? 'grid-column: span 2;' : ''}}"
+
+              # Operation buttons (÷, ×, -, +)
+              - ::
+                type: "nav-button"
+                content: "÷"
+                action: "setState"
+                stateUpdates::
+                  previousValue: "{{Number(display)}}"
+                  operation: "divide"
+                  expression: "{{display + ' ÷'}}"
+                  waitingForNewValue: true
+                css: "padding: 24px; background: #f59e0b;"
+
+              # Equals button
+              - ::
+                type: "nav-button"
+                content: "="
+                action: "setState"
+                stateUpdates::
+                  display: "{{operation == 'add' ? String(Number(previousValue) + Number(display)) : (operation == 'subtract' ? String(Number(previousValue) - Number(display)) : (operation == 'multiply' ? String(Number(previousValue) * Number(display)) : (operation == 'divide' ? String(Number(previousValue) / Number(display)) : display)))}}"
+                  expression: "{{operation != '' ? expression + ' ' + display + ' =' : ''}}"
+                  operation: ""
+                  waitingForNewValue: true
+                css: "grid-column: span 4; padding: 24px; background: #10b981;"
+```
+
+**What this demonstrates:**
+1. **Expression tracking:** Shows "5 ÷ 7 =" above the result
+2. **forEach loops:** Single definition creates all 10 digit buttons
+3. **Conditional CSS:** Zero button spans 2 columns using `{{index == 9 ? ... : ...}}`
+4. **Complex JEXL:** Nested ternary operations for calculations
+5. **Multiple state updates:** Each button updates multiple state properties at once
+
+### Important Notes
+
+1. **Array must exist in state** - `forEach: "myArray"` requires array defined in state using YAML list syntax
+2. **Works with any block type** - buttons, text, containers, images, etc.
+3. **Children are NOT repeated** - forEach only applies to the block itself, not its children
+4. **JEXL expressions evaluated per item** - Each instance gets its own evaluated values
+5. **Array syntax** - Use YAML list format with `::` and `-` items (not bracket notation)
+6. **🔥 Buttons automatically inherit loop context** - `nav-button` inside forEach can access `{{item}}`, `{{index}}`, etc. in ALL properties including `stateUpdates`, `stateValue`, `content`, `css`, and `visible`
 
 ---
 
@@ -903,20 +1812,42 @@ screens::
 1. ✅ All `section-container` blocks have `name` property?
 2. ✅ Children properly nested under `children::`?
 
+### Getting NaN in calculations (forEach loops):
+1. ✅ Using `Number()` to coerce values? Example: `{{Number(totalPrice) + Number(item.price)}}`
+2. ✅ Button is inside a forEach loop and trying to access `{{item.property}}`? This should work automatically!
+3. ✅ Check that property exists on the item object in your state/content definition
+4. ✅ Verify the forEach container has a `name` property (required for all section-containers)
+
+### Performance issues (too many re-renders):
+1. ✅ Check console - blocks should only log re-evaluation when properties THEY USE change
+2. ✅ If all blocks re-render on every state change, there may be a system issue (report it!)
+3. ✅ Fine-grained signals should handle this automatically - no manual optimization needed
+
 ---
 
 ## End of Guide
 
 **Key Takeaways:**
-1. **Form buttons:** Add `formId` to ALL buttons in the form flow
-2. **Final submit:** Add `submit: true` ONLY on the final submit button
-3. **Auto-caching:** All form data is automatically cached across screens
-4. **Container names:** ALWAYS include descriptive `name` property
-5. **Thread blocks:** Use CSS variables ONLY (regular CSS ignored)
+1. **⚡ Performance:** Fine-grained signals = automatic optimal performance. Blocks only re-render when properties THEY USE change.
+2. **🔥 forEach + Buttons:** Buttons inside forEach loops automatically have access to `{{item}}`, `{{index}}`, etc. in ALL JEXL expressions including `stateUpdates`.
+3. **Form buttons:** Add `formId` to ALL buttons in the form flow
+4. **Final submit:** Add `submit: true` ONLY on the final submit button
+5. **Auto-caching:** All form data is automatically cached across screens
+6. **Container names:** ALWAYS include descriptive `name` property
+7. **Thread blocks:** Use CSS variables ONLY (regular CSS ignored)
+8. **Type coercion:** Always use `Number()` in arithmetic operations to avoid NaN
+
+**Performance Best Practices:**
+- ✅ Each state property gets its own signal
+- ✅ No manual optimization needed - it's automatic!
+- ✅ Updating `totalItems` won't re-render blocks that only use `products`
+- ✅ Perfect for e-commerce, dashboards, and complex apps
 
 **When in doubt:**
-- Read the critical rules at the top
+- Read the Performance & Reactivity section at the top
+- Read the critical rules
 - Check the multi-screen form complete example
+- Check the forEach + buttons e-commerce example
 - Verify against the debugging checklist
 
 **The new simple model:**
@@ -924,3 +1855,4 @@ screens::
 - Just add `formId` to all buttons
 - Add `submit: true` only on final button
 - Everything else is automatic!
+- Performance is automatic - fine-grained signals handle it!

@@ -9,6 +9,7 @@
     "android"
   ],
   "permissions": [
-    "barcode-scanner:default"
+    "barcode-scanner:default",
+    "dialog:allow-message"
   ]
 }

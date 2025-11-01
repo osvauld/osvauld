@@ -15,6 +15,9 @@
 	import type { SubmissionsStore } from '../submissionsStore';
 	import { dataState } from '../../state';
 	import { sendMessage } from '../../utils/helper';
+	import { setState, updateState } from '../templateState.svelte';
+	import { message } from '@tauri-apps/plugin-dialog';
+	import { evaluateValue, hasJEXL } from '../../utils/jexlEvaluator';
 
 	interface Props {
 		blockId: string;
@@ -22,9 +25,10 @@
 		allBlocks: Map<string, any>;
 		ydoc?: Y.Doc;
 		onNavigate?: (screenId: string) => void;
+		loopContext?: Record<string, any>; // Loop context for forEach variables (item, index, etc.)
 	}
 
-	let { blockId, blockData, allBlocks, ydoc, onNavigate }: Props = $props();
+	let { blockId, blockData, allBlocks, ydoc, onNavigate, loopContext }: Props = $props();
 
 	let submissionsStore: SubmissionsStore | null = null;
 	let isSubmitting = $state(false);
@@ -55,7 +59,7 @@
 		};
 	});
 
-	async function handleClick() {
+	function handleClick() {
 		const action = blockData.action || 'navigate';
 		const targetId = blockData.targetContainerId;
 		const formId = blockData.formId;
@@ -90,38 +94,80 @@
 			console.log(`📦 [NavButton] Collecting and caching visible form fields`);
 			collectAndStoreFormFields(formId);
 
-			// STEP 2: Submit or just Navigate?
+			// STEP 2: Submit or just Cache?
 
-			const shouldSubmit = blockData.submit === true || !targetId;
+			const shouldSubmit = blockData.submit === true;
 
 			if (shouldSubmit) {
-				// Submit form (and navigate to targetId after if provided)
-				console.log(`✅ [NavButton] Submitting form ${formId}` + (targetId ? ` then navigating to ${targetId}` : ''));
-				await submitForm(formId, targetId);
-			} else {
-				// Just navigate (data already cached above)
-				console.log(`➡️  [NavButton] Navigating to ${targetId} (data cached, not submitting)`);
-				if (onNavigate) {
-					onNavigate(targetId);
-				}
+				// Submit form (async)
+				console.log(`✅ [NavButton] Submitting form ${formId}`);
+				submitForm(formId, targetId).then(() => {
+					// After submission, execute setState action if present
+					if (action === 'setState') {
+						if (blockData.stateKey && blockData.stateValue !== undefined) {
+							let evaluatedValue = blockData.stateValue;
+							if (typeof blockData.stateValue === 'string' && hasJEXL(blockData.stateValue)) {
+								evaluatedValue = evaluateValue(blockData.stateValue, loopContext);
+								console.log(`📊 [NavButton] Post-submit setState: ${blockData.stateKey} = ${evaluatedValue} (evaluated from JEXL)`);
+							} else {
+								console.log(`📊 [NavButton] Post-submit setState: ${blockData.stateKey} = ${blockData.stateValue}`);
+							}
+							setState(blockData.stateKey, evaluatedValue);
+						} else if (blockData.stateUpdates) {
+							const evaluatedUpdates: Record<string, any> = {};
+							for (const [key, value] of Object.entries(blockData.stateUpdates)) {
+								if (typeof value === 'string' && hasJEXL(value as string)) {
+									evaluatedUpdates[key] = evaluateValue(value as string, loopContext);
+								} else {
+									evaluatedUpdates[key] = value;
+								}
+							}
+							console.log(`📊 [NavButton] Post-submit setState (bulk):`, evaluatedUpdates);
+							updateState(evaluatedUpdates);
+						}
+					}
+				});
+				return; // Exit after submission
 			}
 
-			return;
+			// If not submitting, data is cached and we continue to setState/navigate actions below
+			console.log(`📦 [NavButton] Form data cached, continuing to action handler`);
 		}
 
-		// ===== NON-FORM BUTTONS (show/hide/toggle/navigate) =====
+		// ===== NON-FORM BUTTONS or FORM BUTTONS THAT DON'T SUBMIT (setState/navigate) =====
 
 		switch (action) {
-			case 'show':
-				updateContainerVisibility(targetId, true);
-				break;
-
-			case 'hide':
-				updateContainerVisibility(targetId, false);
-				break;
-
-			case 'toggle':
-				toggleContainerVisibility(targetId);
+			case 'setState':
+				// Update template state (for JEXL expressions)
+				if (blockData.stateKey && blockData.stateValue !== undefined) {
+					// Evaluate JEXL if present
+					let evaluatedValue = blockData.stateValue;
+					if (typeof blockData.stateValue === 'string' && hasJEXL(blockData.stateValue)) {
+						evaluatedValue = evaluateValue(blockData.stateValue, loopContext);
+						console.log(`📊 [NavButton] setState: ${blockData.stateKey} = ${evaluatedValue} (evaluated from JEXL)`);
+					} else {
+						console.log(`📊 [NavButton] setState: ${blockData.stateKey} = ${blockData.stateValue}`);
+					}
+					setState(blockData.stateKey, evaluatedValue);
+				} else if (blockData.stateUpdates) {
+					// Evaluate JEXL in bulk updates
+					const evaluatedUpdates: Record<string, any> = {};
+					for (const [key, value] of Object.entries(blockData.stateUpdates)) {
+						if (typeof value === 'string' && hasJEXL(value as string)) {
+							evaluatedUpdates[key] = evaluateValue(value as string, loopContext);
+						} else {
+							evaluatedUpdates[key] = value;
+						}
+					}
+					console.log(`📊 [NavButton] setState (bulk):`, evaluatedUpdates);
+					updateState(evaluatedUpdates);
+				} else {
+					console.warn(`⚠️ [NavButton] setState action but no stateKey/stateValue or stateUpdates provided`);
+				}
+				// Optionally navigate after state update
+				if (targetId && onNavigate) {
+					onNavigate(targetId);
+				}
 				break;
 
 			case 'navigate':
@@ -224,7 +270,7 @@
 			});
 
 			if (hasErrors) {
-				alert('Please fill in all required fields');
+				await message('Please fill in all required fields', { title: 'Validation Error', kind: 'error' });
 				return;
 			}
 
@@ -326,48 +372,6 @@
 		console.log(`📤 [collectFormFields] Final formData:`, JSON.stringify(formData, null, 2));
 
 		return formData;
-	}
-
-	function updateContainerVisibility(containerId: string, visible: boolean) {
-		if (!ydoc) {
-			console.error('❌ No Yjs document available');
-			return;
-		}
-
-		const blocks = ydoc.getMap('blocks');
-		const container = blocks.get(containerId);
-
-		if (!container) {
-			console.error(`❌ Container not found: ${containerId}`);
-			return;
-		}
-
-		// Update visibility in Yjs
-		ydoc.transact(() => {
-			container.visible = visible;
-			blocks.set(containerId, container);
-		});
-
-		console.log(`✅ Container ${containerId} visibility set to: ${visible}`);
-	}
-
-	function toggleContainerVisibility(containerId: string) {
-		if (!ydoc) {
-			console.error('❌ No Yjs document available');
-			return;
-		}
-
-		const blocks = ydoc.getMap('blocks');
-		const container = blocks.get(containerId);
-
-		if (!container) {
-			console.error(`❌ Container not found: ${containerId}`);
-			return;
-		}
-
-		// Toggle visibility
-		const newVisibility = !container.visible;
-		updateContainerVisibility(containerId, newVisibility);
 	}
 </script>
 

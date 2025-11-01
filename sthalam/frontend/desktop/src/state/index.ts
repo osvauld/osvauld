@@ -1,5 +1,5 @@
 /**
  * Centralized state exports
  */
-export { dataState } from './data.svelte.ts';
-export { uiState } from './ui.svelte.ts';
+export { dataState } from './data.svelte';
+export { uiState } from './ui.svelte';

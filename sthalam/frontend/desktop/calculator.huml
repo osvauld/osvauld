@@ -1,0 +1,205 @@
+name: "Calculator"
+resourceType: "website"
+
+state::
+  displayValue: "0"
+  storedValue: "0"
+  currentOperation: ""
+  shouldResetDisplay: false
+
+screens::
+  - ::
+    id: "calculator"
+    name: "Calculator Screen"
+    isEntryPoint: true
+    css: "min-height: 100vh; background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); display: flex; justify-content: center; align-items: center; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Calculator Container"
+        css: "background: #1f2937; border-radius: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); width: 100%; max-width: 380px; padding: 24px;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Display Container"
+            css: "background: #111827; border-radius: 16px; padding: 32px 24px; margin-bottom: 24px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);"
+            children::
+              - ::
+                type: "text"
+                content: "{{displayValue}}"
+                css: "font-size: 48px; font-weight: 700; color: #ffffff; text-align: right; margin: 0; font-family: 'Courier New', monospace; word-break: break-all;"
+
+          - ::
+            type: "section-container"
+            name: "Button Grid"
+            css: "display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "C"
+                action: "setState"
+                stateUpdates::
+                  display: "0"
+                  previousValue: 0
+                  operation: ""
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "÷"
+                action: "setState"
+                stateUpdates::
+                  previousValue: "{{display}}"
+                  operation: "/"
+                  waitingForNewValue: true
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "×"
+                action: "setState"
+                stateUpdates::
+                  previousValue: "{{display}}"
+                  operation: "*"
+                  waitingForNewValue: true
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "−"
+                action: "setState"
+                stateUpdates::
+                  previousValue: "{{display}}"
+                  operation: "-"
+                  waitingForNewValue: true
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "7"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '7' : (display == '0' ? '7' : (display + '7'))}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "8"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '8' : (display == '0' ? '8' : (display + '8'))}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "9"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '9' : (display == '0' ? '9' : (display + '9'))}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "+"
+                action: "setState"
+                stateUpdates::
+                  previousValue: "{{display}}"
+                  operation: "+"
+                  waitingForNewValue: true
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "4"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '4' : (display == '0' || display == 0 ? '4' : '' + display + '4')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "5"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '5' : (display == '0' || display == 0 ? '5' : '' + display + '5')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "6"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '6' : (display == '0' || display == 0 ? '6' : '' + display + '6')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "section-container"
+                name: "Empty Grid Space"
+                css: "background: transparent;"
+
+              - ::
+                type: "nav-button"
+                content: "1"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '1' : (display == '0' || display == 0 ? '1' : '' + display + '1')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "2"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '2' : (display == '0' || display == 0 ? '2' : '' + display + '2')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "3"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '3' : (display == '0' || display == 0 ? '3' : '' + display + '3')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "section-container"
+                name: "Empty Grid Space 2"
+                css: "background: transparent;"
+
+              - ::
+                type: "nav-button"
+                content: "0"
+                action: "setState"
+                stateUpdates::
+                  display: "{{waitingForNewValue ? '0' : (display == '0' || display == 0 ? '0' : '' + display + '0')}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); grid-column: span 2;"
+
+              - ::
+                type: "nav-button"
+                content: "."
+                action: "setState"
+                stateUpdates::
+                  display: "{{'' + display + '.'}}"
+                  waitingForNewValue: false
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "="
+                action: "setState"
+                stateUpdates::
+                  display: "{{operation == '+' ? (previousValue + display) : (operation == '-' ? (previousValue - display) : (operation == '*' ? (previousValue * display) : (operation == '/' ? (previousValue / display) : display)))}}"
+                  operation: ""
+                  waitingForNewValue: true
+                css: "padding: 24px; background: #10b981; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);"

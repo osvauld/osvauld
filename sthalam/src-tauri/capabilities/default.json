@@ -16,6 +16,7 @@
     "clipboard-manager:allow-write-text",
     "store:default",
     "dialog:allow-open",
+    "dialog:allow-message",
     "fs:allow-read-file",
     "fs:read-files",
     "fs:read-all",

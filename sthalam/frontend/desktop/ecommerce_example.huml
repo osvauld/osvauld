@@ -1,0 +1,198 @@
+name: "E-commerce Product Catalog"
+resourceType: "website"
+
+# Publisher content (shared, read-only for users)
+content::
+  products::
+    - ::
+      name: "Running Shoes"
+      price: 89.99
+      color: "#3b82f6"
+      description: "Comfortable running shoes for everyday use"
+      category: "Footwear"
+    - ::
+      name: "T-Shirt"
+      price: 24.99
+      color: "#10b981"
+      description: "Cotton t-shirt in various colors"
+      category: "Clothing"
+    - ::
+      name: "Water Bottle"
+      price: 14.99
+      color: "#f59e0b"
+      description: "Insulated water bottle, 32oz"
+      category: "Accessories"
+    - ::
+      name: "Backpack"
+      price: 59.99
+      color: "#8b5cf6"
+      description: "Durable backpack with laptop compartment"
+      category: "Accessories"
+    - ::
+      name: "Yoga Mat"
+      price: 34.99
+      color: "#ec4899"
+      description: "Non-slip yoga mat with carrying strap"
+      category: "Fitness"
+    - ::
+      name: "Wireless Headphones"
+      price: 129.99
+      color: "#06b6d4"
+      description: "Bluetooth headphones with noise cancellation"
+      category: "Electronics"
+    - ::
+      name: "Sunglasses"
+      price: 79.99
+      color: "#f97316"
+      description: "UV protection polarized sunglasses"
+      category: "Accessories"
+    - ::
+      name: "Laptop Sleeve"
+      price: 29.99
+      color: "#14b8a6"
+      description: "Padded laptop sleeve, fits 13-15 inch"
+      category: "Electronics"
+
+# Per-user state (mutable)
+user_content::
+  totalItems: 0
+  totalPrice: 0
+
+screens::
+  - ::
+    id: "store"
+    name: "Store Screen"
+    isEntryPoint: true
+    css: "min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Store Container"
+        css: "max-width: 1200px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          - ::
+            type: "heading"
+            content: "Product Catalog"
+            css: "font-size: 48px; font-weight: 800; color: #1f2937; margin: 0 0 16px 0; text-align: center;"
+
+          - ::
+            type: "text"
+            content: "Cart: {{totalItems}} items (${{totalPrice | toFixed(2)}})"
+            css: "font-size: 20px; color: #6b7280; text-align: center; margin-bottom: 40px;"
+
+          - ::
+            type: "section-container"
+            name: "Products Grid"
+            css: "display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 24px; margin-bottom: 32px;"
+            children::
+              - ::
+                type: "section-container"
+                forEach: "products"
+                name: "Product Card {{index + 1}}"
+                css: "background: #f9fafb; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s;"
+                children::
+                  - ::
+                    type: "section-container"
+                    name: "Product Image Placeholder"
+                    css: "width: 100%; height: 200px; background: {{item.color}}; border-radius: 8px; margin-bottom: 16px; display: flex; align-items: center; justify-content: center; color: white; font-size: 48px; font-weight: 700; text-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+                    children::
+                      - ::
+                        type: "text"
+                        content: "{{item.category | uppercase}}"
+                        css: "color: rgba(255,255,255,0.9); font-size: 14px; font-weight: 600; letter-spacing: 1px;"
+
+                  - ::
+                    type: "heading"
+                    content: "{{item.name}}"
+                    css: "font-size: 24px; font-weight: 700; color: #1f2937; margin: 0 0 8px 0;"
+
+                  - ::
+                    type: "text"
+                    content: "{{item.description}}"
+                    css: "font-size: 14px; color: #6b7280; margin-bottom: 12px; line-height: 1.5;"
+
+                  - ::
+                    type: "text"
+                    content: "${{item.price}}"
+                    css: "font-size: 20px; font-weight: 700; color: #10b981; margin-bottom: 16px;"
+
+                  - ::
+                    type: "nav-button"
+                    content: "Add to Cart"
+                    action: "setState"
+                    stateUpdates::
+                      totalItems: "{{Number(totalItems) + 1}}"
+                      totalPrice: "{{Number(totalPrice) + Number(item.price)}}"
+                    css: "width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s;"
+
+          - ::
+            type: "section-container"
+            name: "Action Buttons"
+            css: "display: flex; gap: 16px; justify-content: center; align-items: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "View Cart"
+                action: "navigate"
+                targetContainerId: "cart"
+                css: "padding: 16px 32px; background: #667eea; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 18px; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Clear Cart"
+                action: "setState"
+                stateUpdates::
+                  totalItems: 0
+                  totalPrice: 0
+                css: "padding: 16px 32px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 18px; cursor: pointer;"
+
+  - ::
+    id: "cart"
+    name: "Cart Screen"
+    css: "min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 40px 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Cart Container"
+        css: "max-width: 800px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          - ::
+            type: "heading"
+            content: "Shopping Cart"
+            css: "font-size: 48px; font-weight: 800; color: #1f2937; margin: 0 0 32px 0; text-align: center;"
+
+          - ::
+            type: "section-container"
+            name: "Cart Summary"
+            css: "background: #f9fafb; border-radius: 12px; padding: 32px; margin-bottom: 32px;"
+            children::
+              - ::
+                type: "text"
+                content: "Total Items: {{totalItems}}"
+                css: "font-size: 24px; color: #1f2937; margin-bottom: 16px; font-weight: 600;"
+
+              - ::
+                type: "text"
+                content: "Total Price: ${{totalPrice | toFixed(2)}}"
+                css: "font-size: 32px; color: #10b981; font-weight: 700;"
+
+          - ::
+            type: "section-container"
+            name: "Cart Actions"
+            css: "display: flex; gap: 16px; justify-content: center;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "Continue Shopping"
+                action: "navigate"
+                targetContainerId: "store"
+                css: "padding: 16px 32px; background: #667eea; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 18px; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Checkout"
+                action: "setState"
+                stateUpdates::
+                  totalItems: 0
+                  totalPrice: 0
+                css: "padding: 16px 32px; background: #10b981; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 18px; cursor: pointer;"

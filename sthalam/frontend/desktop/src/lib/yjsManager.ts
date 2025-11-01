@@ -8,6 +8,14 @@ export interface YjsDocuments {
   viewport: Y.Map<any>;
   awareness: Awareness;
 
+  // Content document (publisher-owned, shared across users)
+  contentDoc?: Y.Doc;
+  content?: Y.Map<any>;
+
+  // User content document (per-user state, mutable)
+  userContentDoc?: Y.Doc;
+  userContent?: Y.Map<any>;
+
   // Thread comments document (collaborative - all participants can read/write)
   commentsDoc?: Y.Doc;
   commentsBlocks?: Y.Map<any>;
@@ -87,6 +95,43 @@ export class YjsManager {
       });
     }
 
+    // Create content doc (publisher-owned data)
+    console.log('🔧 Creating contentDoc for publisher content');
+    const contentDoc = new Y.Doc({
+      gc: true,
+      gcFilter: () => false,
+    });
+    const content = contentDoc.getMap("content");
+
+    // Set up update listener for content doc
+    if (this.config.onUpdate) {
+      contentDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+        if (origin !== "sync" && origin !== "loading") {
+          console.log(`📤 [content_doc] Update triggered, size: ${update.byteLength} bytes, origin:`, origin);
+          this.config.onUpdate!(update, origin, "content_doc");
+        }
+      });
+    }
+    console.log('✅ contentDoc created');
+
+    // Create user content doc (per-user state)
+    console.log('🔧 Creating userContentDoc for user state');
+    const userContentDoc = new Y.Doc({
+      gc: true,
+      gcFilter: () => false,
+    });
+    const userContent = userContentDoc.getMap("user_content");
+
+    // Set up update listener for user content doc
+    if (this.config.onUpdate) {
+      userContentDoc.on("updateV2", (update: Uint8Array, origin: any) => {
+        if (origin !== "sync" && origin !== "loading") {
+          this.config.onUpdate!(update, origin, "user_content_doc");
+        }
+      });
+    }
+    console.log('✅ userContentDoc created');
+
     // Create comments doc if needed (for thread blocks)
     let commentsDoc: Y.Doc | undefined;
     let commentsBlocks: Y.Map<any> | undefined;
@@ -142,6 +187,10 @@ export class YjsManager {
       blocks,
       viewport,
       awareness,
+      contentDoc,
+      content,
+      userContentDoc,
+      userContent,
       commentsDoc,
       commentsBlocks,
       submissionsDoc,
@@ -198,7 +247,11 @@ export class YjsManager {
     // Route to correct document based on docType
     let targetDoc: Y.Doc = this.documents.blocksuiteDoc;
 
-    if (docType === 'thread_comments_doc' && this.documents.commentsDoc) {
+    if (docType === 'content_doc' && this.documents.contentDoc) {
+      targetDoc = this.documents.contentDoc;
+    } else if (docType === 'user_content_doc' && this.documents.userContentDoc) {
+      targetDoc = this.documents.userContentDoc;
+    } else if (docType === 'thread_comments_doc' && this.documents.commentsDoc) {
       targetDoc = this.documents.commentsDoc;
     } else if (docType === 'form_submissions_doc' && this.documents.submissionsDoc) {
       targetDoc = this.documents.submissionsDoc;
@@ -291,6 +344,14 @@ export class YjsManager {
     if (this.documents) {
       this.documents.awareness.destroy();
       this.documents.blocksuiteDoc.destroy();
+
+      if (this.documents.contentDoc) {
+        this.documents.contentDoc.destroy();
+      }
+
+      if (this.documents.userContentDoc) {
+        this.documents.userContentDoc.destroy();
+      }
 
       if (this.documents.commentsDoc) {
         this.documents.commentsDoc.destroy();

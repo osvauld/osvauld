@@ -4,6 +4,7 @@ import * as Y from "yjs";
 import { SubmissionsStore } from "./submissionsStore";
 import { ThreadCommentsStore } from "./threadCommentsStore";
 import { BlocksuiteStore } from "./blocksuiteStore";
+import { observeYjsDocuments } from "./templateState.svelte";
 
 export interface BlocksuiteCoordinatorConfig {
   onCollaborationUpdate: (update: Uint8Array) => Promise<void>;
@@ -162,6 +163,34 @@ export class BlocksuiteCoordinator {
         }
       }
 
+      // Step 6.5: Load content doc (template state - publisher content)
+      if (data.content_doc) {
+        console.log("⏱️ [LOAD] Step 6.5: Loading content doc at", performance.now() - loadStartTime, "ms");
+        const contentUpdates = Array.isArray(data.content_doc)
+          ? new Uint8Array(data.content_doc)
+          : (data.content_doc.updates ? new Uint8Array(data.content_doc.updates) : null);
+
+        if (contentUpdates && contentUpdates.length > 0) {
+          console.log(`📥 [LOAD] Applying content_doc updates from backend: ${contentUpdates.length} bytes`);
+          await this.yjsManager.applyUpdate(contentUpdates, "loading", "content_doc");
+          console.log("⏱️ [LOAD] Content doc updates applied at", performance.now() - loadStartTime, "ms");
+        }
+      }
+
+      // Step 6.6: Load user_content doc (user-specific state)
+      if (data.user_content_doc) {
+        console.log("⏱️ [LOAD] Step 6.6: Loading user_content doc at", performance.now() - loadStartTime, "ms");
+        const userContentUpdates = Array.isArray(data.user_content_doc)
+          ? new Uint8Array(data.user_content_doc)
+          : (data.user_content_doc.updates ? new Uint8Array(data.user_content_doc.updates) : null);
+
+        if (userContentUpdates && userContentUpdates.length > 0) {
+          console.log(`📥 [LOAD] Applying user_content_doc updates from backend: ${userContentUpdates.length} bytes`);
+          await this.yjsManager.applyUpdate(userContentUpdates, "loading", "user_content_doc");
+          console.log("⏱️ [LOAD] User content doc updates applied at", performance.now() - loadStartTime, "ms");
+        }
+      }
+
       // Step 7: Set up stores with Yjs maps
       console.log("⏱️ [LOAD] Step 7: Setting up stores at", performance.now() - loadStartTime, "ms");
       const docs = this.yjsManager.getDocuments();
@@ -197,6 +226,11 @@ export class BlocksuiteCoordinator {
       document.dispatchEvent(new CustomEvent('thread-comments-store-ready', {
         detail: { threadCommentsStore: this.threadCommentsStore }
       }));
+
+      // Step 8.5: Set up template state observation of content and user_content docs
+      console.log("⏱️ [LOAD] Step 8.5: Setting up template state observation at", performance.now() - loadStartTime, "ms");
+      observeYjsDocuments(docs?.content, docs?.userContent);
+      console.log("🔗 Template state observing content and user_content docs");
 
       // Step 9: Dispatch blocksuite-ready event after all loading is complete
       // This ensures the event fires even if there were no updates or they completed instantly
@@ -314,6 +348,20 @@ export class BlocksuiteCoordinator {
     const blocksuiteUpdates = Y.encodeStateAsUpdateV2(docs.blocksuiteDoc);
     result[this.currentDocKey] = Array.from(blocksuiteUpdates);
     console.log(`📤 Saving ${this.currentDocKey}: ${blocksuiteUpdates.length} bytes`);
+
+    // Save content doc (template state - publisher content)
+    if (docs.content) {
+      const contentUpdates = Y.encodeStateAsUpdateV2(docs.contentDoc!);
+      result.content_doc = Array.from(contentUpdates);
+      console.log(`📤 Saving content_doc: ${contentUpdates.length} bytes`);
+    }
+
+    // Save user_content doc (user-specific state)
+    if (docs.userContent) {
+      const userContentUpdates = Y.encodeStateAsUpdateV2(docs.userContentDoc!);
+      result.user_content_doc = Array.from(userContentUpdates);
+      console.log(`📤 Saving user_content_doc: ${userContentUpdates.length} bytes`);
+    }
 
     // Save comments doc if exists
     if (docs.commentsDoc) {

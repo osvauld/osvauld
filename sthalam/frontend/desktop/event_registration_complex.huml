@@ -1,0 +1,592 @@
+name: "Tech Conference 2025 Registration"
+resourceType: "website"
+
+state::
+  currentScreen: "welcome"
+  ticketType: ""
+  ticketPrice: 0
+  attendingDinner: false
+  needsAccommodation: false
+  dietaryRestrictions: ""
+  totalPrice: 0
+  ticketOptions::
+    - ::
+      id: "early-bird"
+      name: "Early Bird"
+      price: 299
+      description: "Full conference access"
+      available: true
+    - ::
+      id: "regular"
+      name: "Regular Admission"
+      price: 399
+      description: "Full conference access"
+      available: true
+    - ::
+      id: "vip"
+      name: "VIP Pass"
+      price: 599
+      description: "Full access + VIP lounge + networking dinner"
+      available: true
+    - ::
+      id: "student"
+      name: "Student Discount"
+      price: 199
+      description: "Full access (valid student ID required)"
+      available: true
+
+screens::
+  - ::
+    id: "welcome"
+    name: "Welcome Screen"
+    isEntryPoint: true
+    css: "min-height: 100vh; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; align-items: center; justify-content: center; padding: 40px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Welcome Card"
+        visible: "{{currentScreen == 'welcome'}}"
+        css: "background: white; border-radius: 24px; padding: 48px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          # Logo/Title
+          - ::
+            type: "heading"
+            content: "🚀 Tech Conference 2025"
+            css: "color: #1f2937; font-size: 36px; font-weight: 700; margin: 0 0 16px 0; text-align: center;"
+
+          # Subtitle
+          - ::
+            type: "text"
+            content: "Join us for 3 days of innovation, learning, and networking"
+            css: "color: #6b7280; font-size: 18px; text-align: center; margin: 0 0 32px 0;"
+
+          # Event Details
+          - ::
+            type: "section-container"
+            name: "Event Details"
+            css: "background: #f9fafb; border-radius: 16px; padding: 24px; margin-bottom: 32px;"
+            children::
+              - ::
+                type: "text"
+                content: "📅 March 15-17, 2025"
+                css: "color: #374151; font-size: 16px; margin: 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "📍 San Francisco Convention Center"
+                css: "color: #374151; font-size: 16px; margin: 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "👥 2000+ attendees expected"
+                css: "color: #374151; font-size: 16px; margin: 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "🎤 50+ expert speakers"
+                css: "color: #374151; font-size: 16px; margin: 8px 0; display: block;"
+
+          # Start Registration Button
+          - ::
+            type: "nav-button"
+            content: "Start Registration →"
+            action: "setState"
+            stateKey: "currentScreen"
+            stateValue: "personal-info"
+            css: "width: 100%; padding: 18px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 12px; font-size: 18px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);"
+
+      # Personal Information Screen
+      - ::
+        type: "section-container"
+        name: "Personal Information Screen"
+        visible: "{{currentScreen == 'personal-info'}}"
+        css: "background: white; border-radius: 24px; padding: 48px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          # Progress Indicator
+          - ::
+            type: "text"
+            content: "Step 1 of 4: Personal Information"
+            css: "color: #667eea; font-size: 14px; font-weight: 600; margin: 0 0 24px 0; text-transform: uppercase; letter-spacing: 0.5px;"
+
+          # Title
+          - ::
+            type: "heading"
+            content: "Tell us about yourself"
+            css: "color: #1f2937; font-size: 28px; font-weight: 700; margin: 0 0 32px 0;"
+
+          # Form metadata (invisible)
+          - ::
+            type: "form"
+            id: "form-registration"
+            eventName: "tech_conference_registration"
+
+          # Form Fields
+          - ::
+            type: "form-field-text"
+            id: "field-full-name"
+            formId: "form-registration"
+            fieldName: "full_name"
+            label: "Full Name"
+            placeholder: "John Doe"
+            required: true
+            css: "margin-bottom: 20px;"
+
+          - ::
+            type: "form-field-email"
+            id: "field-email"
+            formId: "form-registration"
+            fieldName: "email"
+            label: "Email Address"
+            placeholder: "john@example.com"
+            required: true
+            css: "margin-bottom: 20px;"
+
+          - ::
+            type: "form-field-text"
+            id: "field-phone"
+            formId: "form-registration"
+            fieldName: "phone"
+            label: "Phone Number"
+            placeholder: "+1 (555) 123-4567"
+            required: true
+            css: "margin-bottom: 20px;"
+
+          - ::
+            type: "form-field-text"
+            id: "field-company"
+            formId: "form-registration"
+            fieldName: "company"
+            label: "Company/Organization"
+            placeholder: "Acme Corp"
+            required: false
+            css: "margin-bottom: 20px;"
+
+          - ::
+            type: "form-field-text"
+            id: "field-job-title"
+            formId: "form-registration"
+            fieldName: "job_title"
+            label: "Job Title"
+            placeholder: "Software Engineer"
+            required: false
+            css: "margin-bottom: 32px;"
+
+          # Navigation Buttons
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 12px; margin-top: 32px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "welcome"
+                css: "flex: 1; padding: 16px; background: #e5e7eb; color: #374151; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                formId: "form-registration"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "ticket-selection"
+                css: "flex: 2; padding: 16px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);"
+
+      # Ticket Selection Screen
+      - ::
+        type: "section-container"
+        name: "Ticket Selection Screen"
+        visible: "{{currentScreen == 'ticket-selection'}}"
+        css: "background: white; border-radius: 24px; padding: 48px; max-width: 700px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          # Progress Indicator
+          - ::
+            type: "text"
+            content: "Step 2 of 4: Select Your Ticket"
+            css: "color: #667eea; font-size: 14px; font-weight: 600; margin: 0 0 24px 0; text-transform: uppercase; letter-spacing: 0.5px;"
+
+          # Title
+          - ::
+            type: "heading"
+            content: "Choose your ticket type"
+            css: "color: #1f2937; font-size: 28px; font-weight: 700; margin: 0 0 32px 0;"
+
+          # Ticket Options (using forEach)
+          - ::
+            type: "section-container"
+            name: "Ticket Options Grid"
+            css: "display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 32px;"
+            children::
+              - ::
+                type: "section-container"
+                forEach: "ticketOptions"
+                name: "Ticket Card {{index}}"
+                css: "background: {{ticketType == item.id ? '#ede9fe' : '#f9fafb'}}; border: 2px solid {{ticketType == item.id ? '#8b5cf6' : '#e5e7eb'}}; border-radius: 16px; padding: 24px; cursor: pointer; transition: all 0.3s;"
+                children::
+                  # Ticket Name
+                  - ::
+                    type: "text"
+                    content: "{{item.name}}"
+                    css: "color: #1f2937; font-size: 18px; font-weight: 700; margin: 0 0 8px 0; display: block;"
+
+                  # Price
+                  - ::
+                    type: "text"
+                    content: "${{item.price}}"
+                    css: "color: #8b5cf6; font-size: 32px; font-weight: 700; margin: 0 0 8px 0; display: block;"
+
+                  # Description
+                  - ::
+                    type: "text"
+                    content: "{{item.description}}"
+                    css: "color: #6b7280; font-size: 14px; margin: 0 0 16px 0; display: block; line-height: 1.5;"
+
+                  # Select Button
+                  - ::
+                    type: "nav-button"
+                    content: "Select {{item.name}}"
+                    formId: "form-registration"
+                    fieldName: "ticket_type"
+                    value: "{{item.id}}"
+                    action: "setState"
+                    stateUpdates::
+                      ticketType: "{{item.id}}"
+                      ticketPrice: "{{item.price}}"
+                    css: "width: 100%; padding: 12px; background: {{ticketType == item.id ? '#8b5cf6' : 'white'}}; color: {{ticketType == item.id ? 'white' : '#8b5cf6'}}; border: 2px solid #8b5cf6; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;"
+
+          # Navigation Buttons
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 12px; margin-top: 32px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                formId: "form-registration"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "personal-info"
+                css: "flex: 1; padding: 16px; background: #e5e7eb; color: #374151; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Next →"
+                formId: "form-registration"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "additional-options"
+                visible: "{{ticketType != ''}}"
+                css: "flex: 2; padding: 16px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);"
+
+      # Additional Options Screen
+      - ::
+        type: "section-container"
+        name: "Additional Options Screen"
+        visible: "{{currentScreen == 'additional-options'}}"
+        css: "background: white; border-radius: 24px; padding: 48px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          # Progress Indicator
+          - ::
+            type: "text"
+            content: "Step 3 of 4: Additional Options"
+            css: "color: #667eea; font-size: 14px; font-weight: 600; margin: 0 0 24px 0; text-transform: uppercase; letter-spacing: 0.5px;"
+
+          # Title
+          - ::
+            type: "heading"
+            content: "Enhance your experience"
+            css: "color: #1f2937; font-size: 28px; font-weight: 700; margin: 0 0 32px 0;"
+
+          # Networking Dinner Option (hidden for VIP - already included)
+          - ::
+            type: "section-container"
+            name: "Dinner Option Container"
+            visible: "{{ticketType != 'vip'}}"
+            css: "background: #f9fafb; border-radius: 16px; padding: 24px; margin-bottom: 20px;"
+            children::
+              - ::
+                type: "text"
+                content: "🍽️ Networking Dinner (March 16)"
+                css: "color: #1f2937; font-size: 18px; font-weight: 600; margin: 0 0 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "Join fellow attendees for an exclusive networking dinner. $75/person"
+                css: "color: #6b7280; font-size: 14px; margin: 0 0 16px 0; display: block; line-height: 1.5;"
+
+              - ::
+                type: "nav-button"
+                content: "{{attendingDinner ? 'Yes, I will attend (+$75)' : 'Yes, I would like to attend (+$75)'}}"
+                formId: "form-registration"
+                fieldName: "attending_dinner"
+                value: true
+                action: "setState"
+                stateKey: "attendingDinner"
+                stateValue: "{{!attendingDinner}}"
+                css: "width: 100%; padding: 16px; background: {{attendingDinner ? '#dcfce7' : 'white'}}; color: #1f2937; border: 2px solid {{attendingDinner ? '#10b981' : '#d1d5db'}}; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: left; transition: all 0.2s;"
+
+          # VIP Dinner Notice
+          - ::
+            type: "section-container"
+            name: "VIP Dinner Notice"
+            visible: "{{ticketType == 'vip'}}"
+            css: "background: #ede9fe; border: 2px solid #8b5cf6; border-radius: 16px; padding: 20px; margin-bottom: 20px;"
+            children::
+              - ::
+                type: "text"
+                content: "✨ Networking dinner included with your VIP pass!"
+                css: "color: #6b21a8; font-size: 16px; font-weight: 600; margin: 0;"
+
+          # Accommodation Option
+          - ::
+            type: "section-container"
+            name: "Accommodation Container"
+            css: "background: #f9fafb; border-radius: 16px; padding: 24px; margin-bottom: 20px;"
+            children::
+              - ::
+                type: "text"
+                content: "🏨 Hotel Accommodation"
+                css: "color: #1f2937; font-size: 18px; font-weight: 600; margin: 0 0 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "Stay at our partner hotel with special conference rates. $150/night (3 nights)"
+                css: "color: #6b7280; font-size: 14px; margin: 0 0 16px 0; display: block; line-height: 1.5;"
+
+              - ::
+                type: "nav-button"
+                content: "{{needsAccommodation ? 'Yes, book my stay (+$450)' : 'Yes, book accommodation (+$450)'}}"
+                formId: "form-registration"
+                fieldName: "needs_accommodation"
+                value: true
+                action: "setState"
+                stateKey: "needsAccommodation"
+                stateValue: "{{!needsAccommodation}}"
+                css: "width: 100%; padding: 16px; background: {{needsAccommodation ? '#dcfce7' : 'white'}}; color: #1f2937; border: 2px solid {{needsAccommodation ? '#10b981' : '#d1d5db'}}; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; text-align: left; transition: all 0.2s;"
+
+          # Dietary Restrictions (textarea)
+          - ::
+            type: "form-field-textarea"
+            id: "field-dietary"
+            formId: "form-registration"
+            fieldName: "dietary_restrictions"
+            label: "Dietary Restrictions or Special Requirements"
+            placeholder: "Please list any dietary restrictions, allergies, or accessibility needs..."
+            required: false
+            css: "margin-bottom: 32px;"
+
+          # Navigation Buttons
+          - ::
+            type: "section-container"
+            name: "Navigation Buttons"
+            css: "display: flex; gap: 12px; margin-top: 32px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                formId: "form-registration"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "ticket-selection"
+                css: "flex: 1; padding: 16px; background: #e5e7eb; color: #374151; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Review & Submit →"
+                formId: "form-registration"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "review"
+                css: "flex: 2; padding: 16px; background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);"
+
+      # Review & Submit Screen
+      - ::
+        type: "section-container"
+        name: "Review Screen"
+        visible: "{{currentScreen == 'review'}}"
+        css: "background: white; border-radius: 24px; padding: 48px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);"
+        children::
+          # Progress Indicator
+          - ::
+            type: "text"
+            content: "Step 4 of 4: Review & Submit"
+            css: "color: #667eea; font-size: 14px; font-weight: 600; margin: 0 0 24px 0; text-transform: uppercase; letter-spacing: 0.5px;"
+
+          # Title
+          - ::
+            type: "heading"
+            content: "Review your registration"
+            css: "color: #1f2937; font-size: 28px; font-weight: 700; margin: 0 0 32px 0;"
+
+          # Summary Box
+          - ::
+            type: "section-container"
+            name: "Registration Summary"
+            css: "background: #f9fafb; border-radius: 16px; padding: 24px; margin-bottom: 24px;"
+            children::
+              # Ticket Summary
+              - ::
+                type: "section-container"
+                name: "Ticket Summary Line"
+                css: "display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e7eb;"
+                children::
+                  - ::
+                    type: "text"
+                    content: "Ticket: {{ticketType | uppercase}}"
+                    css: "color: #374151; font-size: 16px; font-weight: 600;"
+
+                  - ::
+                    type: "text"
+                    content: "${{ticketPrice}}"
+                    css: "color: #374151; font-size: 16px; font-weight: 600;"
+
+              # Dinner Add-on (conditional - visible if attending OR if VIP)
+              - ::
+                type: "section-container"
+                name: "Dinner Line"
+                visible: "{{attendingDinner || ticketType == 'vip'}}"
+                css: "display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e7eb;"
+                children::
+                  - ::
+                    type: "text"
+                    content: "Networking Dinner"
+                    css: "color: #6b7280; font-size: 14px;"
+
+                  - ::
+                    type: "text"
+                    content: "{{ticketType == 'vip' ? 'Included' : '+$75'}}"
+                    css: "color: #6b7280; font-size: 14px;"
+
+              # Accommodation Add-on (only show if selected)
+              - ::
+                type: "section-container"
+                name: "Accommodation Line"
+                visible: "{{needsAccommodation}}"
+                css: "display: flex; justify-content: space-between; align-items: center; padding: 12px 0; border-bottom: 1px solid #e5e7eb;"
+                children::
+                  - ::
+                    type: "text"
+                    content: "Hotel Accommodation (3 nights)"
+                    css: "color: #6b7280; font-size: 14px;"
+
+                  - ::
+                    type: "text"
+                    content: "+$450"
+                    css: "color: #6b7280; font-size: 14px;"
+
+              # Total (with dynamic calculation)
+              - ::
+                type: "section-container"
+                name: "Total Line"
+                css: "display: flex; justify-content: space-between; align-items: center; padding: 16px 0 0 0; margin-top: 8px;"
+                children::
+                  - ::
+                    type: "text"
+                    content: "Total Amount"
+                    css: "color: #1f2937; font-size: 20px; font-weight: 700;"
+
+                  - ::
+                    type: "text"
+                    content: "${{ticketPrice + (attendingDinner && ticketType != 'vip' ? 75 : 0) + (needsAccommodation ? 450 : 0)}}"
+                    css: "color: #8b5cf6; font-size: 24px; font-weight: 700;"
+
+          # Important Notice
+          - ::
+            type: "section-container"
+            name: "Important Notice"
+            css: "background: #fef3c7; border: 2px solid #f59e0b; border-radius: 12px; padding: 16px; margin-bottom: 24px;"
+            children::
+              - ::
+                type: "text"
+                content: "⚠️ Please review your information carefully. You will receive a confirmation email after submission."
+                css: "color: #92400e; font-size: 14px; margin: 0; line-height: 1.5;"
+
+          # Navigation Buttons
+          - ::
+            type: "section-container"
+            name: "Final Navigation"
+            css: "display: flex; gap: 12px; margin-top: 32px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "← Edit"
+                formId: "form-registration"
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "additional-options"
+                css: "flex: 1; padding: 16px; background: #e5e7eb; color: #374151; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+              - ::
+                type: "nav-button"
+                content: "Complete Registration ✓"
+                formId: "form-registration"
+                submit: true
+                action: "setState"
+                stateKey: "currentScreen"
+                stateValue: "confirmation"
+                css: "flex: 2; padding: 16px; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);"
+
+      # Confirmation Screen
+      - ::
+        type: "section-container"
+        name: "Confirmation Screen"
+        visible: "{{currentScreen == 'confirmation'}}"
+        css: "background: white; border-radius: 24px; padding: 48px; max-width: 600px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;"
+        children::
+          # Success Icon
+          - ::
+            type: "text"
+            content: "✅"
+            css: "font-size: 80px; margin: 0 0 24px 0; display: block;"
+
+          # Title
+          - ::
+            type: "heading"
+            content: "Registration Complete!"
+            css: "color: #10b981; font-size: 32px; font-weight: 700; margin: 0 0 16px 0;"
+
+          # Message
+          - ::
+            type: "text"
+            content: "Thank you for registering for Tech Conference 2025. You will receive a confirmation email shortly with your ticket and event details."
+            css: "color: #6b7280; font-size: 16px; line-height: 1.6; margin: 0 0 32px 0; display: block;"
+
+          # Next Steps Box
+          - ::
+            type: "section-container"
+            name: "Next Steps"
+            css: "background: #f0fdf4; border: 2px solid #10b981; border-radius: 16px; padding: 24px; margin-bottom: 32px; text-align: left;"
+            children::
+              - ::
+                type: "text"
+                content: "What's Next?"
+                css: "color: #065f46; font-size: 18px; font-weight: 700; margin: 0 0 16px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "📧 Check your email for confirmation and ticket"
+                css: "color: #065f46; font-size: 14px; margin: 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "📅 Add the event to your calendar"
+                css: "color: #065f46; font-size: 14px; margin: 8px 0; display: block;"
+
+              - ::
+                type: "text"
+                content: "💬 Join our Slack community for updates"
+                css: "color: #065f46; font-size: 14px; margin: 8px 0; display: block;"
+
+          # Done Button
+          - ::
+            type: "nav-button"
+            content: "Done"
+            action: "setState"
+            stateUpdates::
+              currentScreen: "welcome"
+              ticketType: ""
+              ticketPrice: 0
+            css: "padding: 16px 48px; background: #667eea; color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: 600; cursor: pointer;"

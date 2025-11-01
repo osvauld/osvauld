@@ -1,0 +1,122 @@
+name: "Calculator with forEach"
+resourceType: "website"
+
+state::
+  display: "0"
+  storedValue: "0"
+  operation: ""
+  digits::
+    - 7
+    - 8
+    - 9
+    - 4
+    - 5
+    - 6
+    - 1
+    - 2
+    - 3
+    - 0
+
+screens::
+  - ::
+    id: "calculator"
+    name: "Calculator Screen"
+    isEntryPoint: true
+    css: "min-height: 100vh; background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); display: flex; justify-content: center; align-items: center; padding: 20px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;"
+    children::
+      - ::
+        type: "section-container"
+        name: "Calculator Container"
+        css: "background: #1f2937; border-radius: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); width: 100%; max-width: 380px; padding: 24px;"
+        children::
+          - ::
+            type: "section-container"
+            name: "Display Container"
+            css: "background: #111827; border-radius: 16px; padding: 32px 24px; margin-bottom: 24px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.5);"
+            children::
+              - ::
+                type: "text"
+                content: "{{operation && display ? storedValue + ' ' + (operation == '+' ? '+' : (operation == '-' ? '−' : (operation == '*' ? '×' : (operation == '/' ? '÷' : operation)))) + ' ' + display : (display || '0')}}"
+                css: "font-size: 48px; font-weight: 700; color: #ffffff; text-align: right; margin: 0; font-family: 'Courier New', monospace; word-break: break-all;"
+
+          - ::
+            type: "section-container"
+            name: "Button Grid"
+            css: "display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;"
+            children::
+              - ::
+                type: "nav-button"
+                content: "C"
+                action: "setState"
+                stateUpdates::
+                  display: "0"
+                  storedValue: "0"
+                  operation: ""
+                css: "padding: 24px; background: #ef4444; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "÷"
+                action: "setState"
+                stateUpdates::
+                  storedValue: "{{operation && display ? (operation == '+' ? '' + (Number(storedValue) + Number(display)) : (operation == '-' ? '' + (Number(storedValue) - Number(display)) : (operation == '*' ? '' + (Number(storedValue) * Number(display)) : (operation == '/' ? '' + (Number(storedValue) / Number(display)) : display)))) : display}}"
+                  operation: "/"
+                  display: ""
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "×"
+                action: "setState"
+                stateUpdates::
+                  storedValue: "{{operation && display ? (operation == '+' ? '' + (Number(storedValue) + Number(display)) : (operation == '-' ? '' + (Number(storedValue) - Number(display)) : (operation == '*' ? '' + (Number(storedValue) * Number(display)) : (operation == '/' ? '' + (Number(storedValue) / Number(display)) : display)))) : display}}"
+                  operation: "*"
+                  display: ""
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "−"
+                action: "setState"
+                stateUpdates::
+                  storedValue: "{{operation && display ? (operation == '+' ? '' + (Number(storedValue) + Number(display)) : (operation == '-' ? '' + (Number(storedValue) - Number(display)) : (operation == '*' ? '' + (Number(storedValue) * Number(display)) : (operation == '/' ? '' + (Number(storedValue) / Number(display)) : display)))) : display}}"
+                  operation: "-"
+                  display: ""
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                forEach: "digits"
+                content: "{{String(item)}}"
+                action: "setState"
+                stateUpdates::
+                  display: "{{!display || display == '0' ? '' + item : display + item}}"
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3); {{index == 9 ? 'grid-column: span 2;' : ''}}"
+
+              - ::
+                type: "nav-button"
+                content: "+"
+                action: "setState"
+                stateUpdates::
+                  storedValue: "{{operation && display ? (operation == '+' ? '' + (Number(storedValue) + Number(display)) : (operation == '-' ? '' + (Number(storedValue) - Number(display)) : (operation == '*' ? '' + (Number(storedValue) * Number(display)) : (operation == '/' ? '' + (Number(storedValue) / Number(display)) : display)))) : display}}"
+                  operation: "+"
+                  display: ""
+                css: "padding: 24px; background: #f59e0b; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "."
+                action: "setState"
+                stateUpdates::
+                  display: "{{display + '.'}}"
+                css: "padding: 24px; background: #374151; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 8px rgba(0,0,0,0.3);"
+
+              - ::
+                type: "nav-button"
+                content: "="
+                action: "setState"
+                stateUpdates::
+                  display: "{{operation == '+' ? '' + (Number(storedValue) + Number(display)) : (operation == '-' ? '' + (Number(storedValue) - Number(display)) : (operation == '*' ? '' + (Number(storedValue) * Number(display)) : (operation == '/' ? '' + (Number(storedValue) / Number(display)) : display)))}}"
+                  operation: ""
+                  storedValue: "0"
+                css: "padding: 24px; background: #10b981; color: white; border: none; border-radius: 12px; font-weight: 700; font-size: 20px; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);"

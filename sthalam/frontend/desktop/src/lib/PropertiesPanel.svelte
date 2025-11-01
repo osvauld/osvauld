@@ -745,13 +745,11 @@
 						<label>
 							<span>Action</span>
 							<select
-								value={selectedBlock.action || "navigate"}
+								value={selectedBlock.action || "setState"}
 								onchange={(e) => onUpdateBlock(selectedBlock.id, { action: e.currentTarget.value })}
 							>
+								<option value="setState">Set State (JEXL)</option>
 								<option value="navigate">Navigate to Screen</option>
-								<option value="show">Show Container</option>
-								<option value="hide">Hide Container</option>
-								<option value="toggle">Toggle Container</option>
 							</select>
 						</label>
 
@@ -817,14 +815,10 @@
 						{/if}
 
 						<div class="info-box" style="font-size: 0.75rem; padding: 0.5rem;">
-							{#if selectedBlock.action === 'navigate' || !selectedBlock.action}
+							{#if selectedBlock.action === 'setState'}
+								📊 <strong>Set State:</strong> Update template state for JEXL-driven visibility
+							{:else if selectedBlock.action === 'navigate'}
 								🎯 <strong>Navigate:</strong> Switch to a different screen
-							{:else if selectedBlock.action === 'show'}
-								👁️ <strong>Show:</strong> Make a hidden container visible (like opening a modal)
-							{:else if selectedBlock.action === 'hide'}
-								🚫 <strong>Hide:</strong> Hide a visible container (like closing a modal)
-							{:else if selectedBlock.action === 'toggle'}
-								🔄 <strong>Toggle:</strong> Show if hidden, hide if visible
 							{/if}
 						</div>
 
@@ -912,7 +906,7 @@
 											</option>
 										{/each}
 									{:else}
-										<!-- Show section containers for show/hide/toggle -->
+										<!-- setState doesn't use target containers -->
 										{#each allSectionContainers as container}
 											<option value={container.id}>
 												📦 {container.name || "Unnamed Section"}
