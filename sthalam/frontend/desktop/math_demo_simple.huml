@@ -1,0 +1,87 @@
+name: "Math Pattern Demo"
+
+publisher:
+  state:
+    time: 0
+    gridSize: 40
+    selectedPattern: "waves"
+
+  computed:
+    totalCells: "{{ gridSize * gridSize }}"
+    expressionsPerSecond: "{{ totalCells * 60 }}"
+
+  screens:
+    - id: "demo"
+      name: "Pattern Demo"
+      isEntryPoint: true
+      css: "display: flex; flex-direction: column; height: 100vh; background: #0a0a0a; color: white; padding: 20px; font-family: monospace;"
+      blocks:
+        - type: "heading"
+          content: "🧮 HUML Math Pattern Demo"
+          css: "font-size: 32px; margin: 0 0 20px 0; color: #60a5fa;"
+
+        - type: "text"
+          content: "{{ totalCells }} cells computed per frame"
+          css: "font-size: 24px; color: #22c55e; margin: 0 0 10px 0;"
+
+        - type: "text"
+          content: "{{ expressionsPerSecond }} expressions per second @ 60 FPS"
+          css: "font-size: 18px; opacity: 0.8; margin: 0 0 20px 0;"
+
+        - type: "text"
+          content: "Selected pattern:"
+          css: "font-size: 16px; margin: 0 0 10px 0;"
+
+        - type: "text"
+          content: "{{ selectedPattern }}"
+          css: "font-size: 20px; color: #a78bfa; margin: 0 0 20px 0;"
+
+        - type: "section-container"
+          css: "display: flex; gap: 10px;"
+          blocks:
+            - type: "nav-button"
+              content: "Waves"
+              action: "setState"
+              stateUpdates:
+                selectedPattern: "waves"
+              css: "padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+            - type: "nav-button"
+              content: "Ripple"
+              action: "setState"
+              stateUpdates:
+                selectedPattern: "ripple"
+              css: "padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+            - type: "nav-button"
+              content: "Spiral"
+              action: "setState"
+              stateUpdates:
+                selectedPattern: "spiral"
+              css: "padding: 12px 24px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+        - type: "section-container"
+          css: "margin-top: 30px; padding: 20px; background: #1e293b; border-radius: 8px;"
+          blocks:
+            - type: "text"
+              content: "ℹ️ Demonstration"
+              css: "font-size: 20px; margin: 0 0 10px 0; color: #60a5fa;"
+
+            - type: "text"
+              content: "This demo shows the OCaml-powered HUML evaluator computing expressions in real-time."
+              css: "font-size: 14px; line-height: 1.6; opacity: 0.8; margin: 0 0 10px 0;"
+
+            - type: "text"
+              content: "Click the buttons above to change the selected pattern. The stats update instantly using compiled WebAssembly!"
+              css: "font-size: 14px; line-height: 1.6; color: #22c55e;"
+
+viewer:
+  screens:
+    - id: "viewer"
+      name: "Viewer"
+      isEntryPoint: true
+      css: "display: flex; align-items: center; justify-content: center; height: 100vh; background: #0a0a0a; color: white;"
+      blocks:
+        - type: "text"
+          content: "Switch to Publisher Mode"
+          css: "font-size: 24px; opacity: 0.6;"

@@ -57,6 +57,104 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
 
     builder
+        .register_asynchronous_uri_scheme_protocol("asset", |app, request, responder| {
+            use tauri::http::Response;
+
+            let uri = request.uri();
+            let path = uri.path();
+
+            // Convert path to file path - remove leading slash
+            let path_str = if path.starts_with('/') {
+                path[1..].to_string()
+            } else {
+                path.to_string()
+            };
+
+            // Log every request
+            log::info!("[Asset Protocol] Request for: {}", path_str);
+
+            // Get app handle for resource resolution
+            let app_handle = app.app_handle().clone();
+
+            tauri::async_runtime::spawn(async move {
+                // Determine file path based on mode
+                let file_path = if cfg!(debug_assertions) {
+                    // Dev mode: Navigate from src-tauri directory up to workspace root
+                    let current_dir = std::env::current_dir().ok();
+
+                    if let Some(src_tauri_dir) = current_dir {
+                        // Go up one level from src-tauri to workspace root
+                        let workspace = src_tauri_dir.parent().unwrap_or(&src_tauri_dir);
+                        let dev_path = workspace.join("frontend/desktop/public").join(&path_str);
+                        log::info!("[Asset Protocol] Dev mode - workspace: {}, trying path: {}",
+                            workspace.display(), dev_path.display());
+                        Some(dev_path)
+                    } else {
+                        log::error!("[Asset Protocol] Could not determine current directory");
+                        None
+                    }
+                } else {
+                    // Production: serve from Tauri's resource directory
+                    let prod_path = app_handle.path().resource_dir()
+                        .ok()
+                        .map(|dir| dir.join(&path_str));
+
+                    if let Some(ref p) = prod_path {
+                        log::info!("[Asset Protocol] Production mode - trying path: {}", p.display());
+                    }
+                    prod_path
+                };
+
+                if let Some(file_path) = file_path {
+                    match std::fs::read(&file_path) {
+                        Ok(content) => {
+                            let mime_type = if path_str.ends_with(".wasm") {
+                                "application/wasm".to_string()
+                            } else {
+                                mime_guess::from_path(&file_path).first_or_octet_stream().to_string()
+                            };
+
+                            log::info!("[Asset Protocol] ✓ Successfully serving {} ({} bytes) with MIME: {}",
+                                path_str, content.len(), mime_type);
+
+                            responder.respond(
+                                Response::builder()
+                                    .status(200)
+                                    .header("Content-Type", mime_type)
+                                    .header("Access-Control-Allow-Origin", "*")
+                                    .header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                                    .header("Access-Control-Allow-Headers", "*")
+                                    .body(content)
+                                    .unwrap()
+                            );
+                        }
+                        Err(e) => {
+                            log::error!("[Asset Protocol] ✗ File not found: {} - {}", file_path.display(), e);
+                            responder.respond(
+                                Response::builder()
+                                    .status(404)
+                                    .header("Access-Control-Allow-Origin", "*")
+                                    .header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                                    .header("Access-Control-Allow-Headers", "*")
+                                    .body(Vec::new())
+                                    .unwrap()
+                            );
+                        }
+                    }
+                } else {
+                    log::error!("[Asset Protocol] ✗ Could not resolve file path for: {}", path_str);
+                    responder.respond(
+                        Response::builder()
+                            .status(404)
+                            .header("Access-Control-Allow-Origin", "*")
+                            .header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                            .header("Access-Control-Allow-Headers", "*")
+                            .body(Vec::new())
+                            .unwrap()
+                    );
+                }
+            });
+        })
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(

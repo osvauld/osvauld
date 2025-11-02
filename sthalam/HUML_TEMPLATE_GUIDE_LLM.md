@@ -1,6 +1,6 @@
 # HUML Template Guide - LLM Optimized
 
-**Version:** 3.2 Synchronous JEXL with Fine-Grained Reactivity
+**Version:** 4.0 CEL Expression Language with Fine-Grained Reactivity
 **Purpose:** Compressed reference for AI assistants creating HUML templates
 
 ---
@@ -11,13 +11,77 @@
 - **Spec URL:** https://huml.io/specifications/v0-1-0/
 - **Key points:**
   - Strings use double quotes: `"text"`
-  - JEXL expressions inside strings: `"{{expression}}"`
-  - Inside JEXL, use single quotes: `"{{condition ? 'yes' : 'no'}}"`
+  - CEL expressions inside strings: `"{{expression}}"`
+  - Inside CEL, use single quotes for strings: `"{{condition ? 'yes' : 'no'}}"`
+  - **Library**: Uses `@marcbachmann/cel-js` which supports method syntax: `items.size()`, `str.contains()`, etc.
   - Indentation: Strictly 2 spaces per level
   - Spacing: Exactly one space after `:` or `::`
   - Scalar keys: Single colon `:`
   - Vector keys: Double colon `::`
   - No trailing spaces allowed
+
+### 🎯 HUML Syntax TL;DR
+
+**Quick reference for common patterns:**
+
+```huml
+# Scalars (single values) - use single colon
+name: "Tech Summit"
+count: 42
+active: true
+
+# Vectors (collections) - use double colon
+colors:: "red", "green", "blue"    # Inline list
+items:: []                          # Empty array
+config:: {}                         # Empty object
+
+# Multi-line arrays
+products::
+  - ::
+    name: "Product A"
+    price: 99.99
+  - ::
+    name: "Product B"
+    price: 149.99
+
+# Strings
+text: "Double quotes for strings"
+multi: """
+  Multi-line text
+  Stripped whitespace
+  """
+preserved: ```
+  Preserved
+    spacing
+  ```
+
+# CEL expressions (always in double-quoted strings)
+content: "{{firstName + ' ' + lastName}}"
+visible: "{{count > 5 && isActive}}"
+css: "{{isSelected ? 'bg-blue' : 'bg-gray'}}"
+
+# Nested blocks (use blocks:: for children)
+screens::
+  - ::
+    id: "main"
+    name: "Main Screen"
+    blocks::
+      - ::
+        type: "section-container"
+        blocks::
+          - ::
+            type: "heading"
+            content: "Hello World"
+```
+
+**Common gotchas:**
+- ✅ `items:: []` (empty array - double colon + space + brackets)
+- ❌ `items: []` (wrong - scalars can't be arrays)
+- ❌ `items::[]` (wrong - missing space after ::)
+- ✅ Exactly 2 spaces per indent level (not tabs!)
+- ✅ One space after `:` and `::`
+- ✅ No trailing spaces on any line
+- ✅ Use `blocks::` to nest child blocks
 
 ---
 
@@ -53,9 +117,9 @@ state::
 
 ---
 
-## 🆕 JEXL SUPPORT - STATE-DRIVEN TEMPLATES
+## 🆕 CEL SUPPORT - STATE-DRIVEN TEMPLATES
 
-### ⚡ Quick Start: JEXL in 3 Steps
+### ⚡ Quick Start: CEL in 3 Steps
 
 1. **Define state** in template root:
 ```huml
@@ -73,7 +137,7 @@ state::
   stateValue: "about"
 ```
 
-3. **Control visibility** with JEXL expressions:
+3. **Control visibility** with CEL expressions:
 ```huml
 - ::
   type: "section-container"
@@ -82,11 +146,11 @@ state::
 
 ### 🔄 Breaking Changes
 - **❌ REMOVED**: `action: "show"`, `"hide"`, `"toggle"`
-- **✅ USE INSTEAD**: `action: "setState"` + JEXL `visible` expressions
+- **✅ USE INSTEAD**: `action: "setState"` + CEL `visible` expressions
 
-### ⚡ JEXL Evaluation: Synchronous & Sandboxed
+### ⚡ CEL Evaluation: Synchronous & Sandboxed
 
-**All JEXL expressions are evaluated synchronously in a secure sandbox:**
+**All CEL expressions are evaluated synchronously in a secure sandbox:**
 
 **Architecture Benefits:**
 - ✅ Enables true fine-grained reactivity with Preact signals
@@ -94,12 +158,14 @@ state::
 - ✅ Better performance - no promise overhead
 - ✅ Works perfectly with dependency tracking
 
-**Security: Whitelist-Only Approach**
-JEXL runs in a sandboxed environment with ONLY these whitelisted functions:
+**Security: Safe Expression Language**
+CEL (Common Expression Language) is a non-Turing complete language designed for safe expression evaluation:
 
 **Available Operations:**
-- ✅ **Transforms:** `uppercase`, `lowercase`, `capitalize`, `toNumber`, `toFixed`
-- ✅ **Safe JS:** `Number()`, `String()`, `Boolean()`, `parseInt()`, `parseFloat()`, `isNaN()`
+- ✅ **Native Array Methods:** `.size()`, `.filter()`, `.map()`, `.all()`, `.exists()`
+- ✅ **String Methods:** `.contains()`, `.startsWith()`, `.endsWith()`, `.matches()`
+- ✅ **Helper Functions:** `sum()`, `avg()`, `toFixed()`, `uppercase()`, `lowercase()`, `capitalize()`
+- ✅ **Type Conversion:** `Number()`, `String()`, `Boolean()`, `parseInt()`, `parseFloat()`, `isNaN()`
 - ✅ **Math:** `Math.round()`, `Math.floor()`, `Math.ceil()`, `Math.abs()`, `Math.min()`, `Math.max()`, `Math.pow()`, `Math.sqrt()`, `Math.random()`
 - ✅ **Operators:** `+`, `-`, `*`, `/`, `%`, `==`, `!=`, `>`, `<`, `>=`, `<=`, `&&`, `||`, `!`, `?:`
 - ✅ **Template state:** All state properties defined in `state::`
@@ -127,7 +193,7 @@ code: "{{eval('malicious')}}"    # eval not exposed
 elem: "{{document.createElement('div')}}"  # DOM not exposed
 ```
 
-**For dynamic/async data:** Load data into state first (via Yjs sync, initial data, backend) → Then display with JEXL
+**For dynamic/async data:** Load data into state first (via Yjs sync, initial data, backend) → Then display with CEL
 
 ---
 
@@ -218,7 +284,7 @@ Thread blocks ONLY accept CSS custom properties. Regular CSS and classes DON'T w
 
 ---
 
-## JEXL Expressions - Complete Guide
+## CEL Expressions - Complete Guide
 
 ### State Definition
 
@@ -314,12 +380,12 @@ screens::
 **Backend Storage**:
 - `content::` → `content_doc` (Yjs document, synced)
 - `user_content::` → `user_content_doc` (Yjs document, per-user)
-- All three are merged in JEXL expressions
+- All three are merged in CEL expressions
 
 **⚡ Performance Note**:
 Each property (from any source) gets its own fine-grained signal. Updating `totalItems` in `user_content::` only re-renders blocks that USE `totalItems` - blocks displaying `products` from `content::` won't re-render. Maximum performance!
 
-### JEXL Operators
+### CEL Operators
 
 | Operator | Description | Example |
 |----------|-------------|---------|
@@ -331,7 +397,7 @@ Each property (from any source) gets its own fine-grained signal. Updating `tota
 | `>`, `<`, `>=`, `<=` | Comparison | `{{count > 5}}` |
 | `? :` | Ternary | `{{theme == 'dark' ? '#000' : '#fff'}}` |
 
-**⚠️ CRITICAL**: JEXL uses `==` not `===`!
+**⚠️ CRITICAL**: CEL uses `==` not `===`!
 
 ### Common Patterns
 
@@ -377,7 +443,7 @@ screens::
           # About content
 ```
 
-#### Pattern 2: Multi-Step Form with JEXL
+#### Pattern 2: Multi-Step Form with CEL
 
 ```huml
 state::
@@ -446,7 +512,7 @@ screens::
 **Key Points:**
 - `formId` on buttons → caches form data
 - `submit: true` on final button → actually submits
-- JEXL `visible` → controls what shows
+- CEL `visible` → controls what shows
 - State updates → sections reactively show/hide
 
 #### Pattern 3: Dynamic Styling
@@ -523,7 +589,7 @@ state::
 visible: true
 visible: false
 
-# JEXL expression (evaluate to boolean)
+# CEL expression (evaluate to boolean)
 visible: "{{currentSection == 'home'}}"
 visible: "{{isAdmin || isModerator}}"
 visible: "{{count > 0}}"
@@ -534,7 +600,7 @@ visible: "{{user.role == 'admin' && isActive}}"
 
 #### Type Coercion
 
-JEXL expressions should explicitly coerce types to avoid NaN errors:
+CEL expressions should explicitly coerce types to avoid NaN errors:
 
 ```huml
 # ✅ GOOD - Explicit type coercion
@@ -551,7 +617,7 @@ stateUpdates::
 
 #### Number Formatting
 
-Use JEXL transforms (with pipe `|`) for formatting:
+Use CEL transforms (with pipe `|`) for formatting:
 
 ```huml
 # Format currency with 2 decimals (use | transform)
@@ -572,7 +638,7 @@ content: "Total: ${{totalPrice | toFixed(2)}}"
 
 #### Array Operations - Why No `push()`?
 
-JEXL is a **pure expression language** - it doesn't support mutations like `push()`, `pop()`, `splice()`.
+CEL is a **pure expression language** - it doesn't support mutations like `push()`, `pop()`, `splice()`.
 
 **Why?** Pure expressions:
 - Have no side effects
@@ -607,48 +673,60 @@ stateUpdates::
   cart: "{{cart.map(item => item.id === targetId ? {...item, quantity: item.quantity + 1} : item)}}"
 ```
 
-#### Available JEXL Functions & Transforms
+#### Available CEL Functions & Methods
 
-**Functions** (called like `func(arg)`):
-
-```huml
-# Type conversion
-Number(value)           # Convert to number
-String(value)           # Convert to string
-Boolean(value)          # Convert to boolean
-parseInt(str, radix)    # Parse integer
-parseFloat(str)         # Parse float
-isNaN(value)            # Check if not a number
-
-# Math operations
-Math.round(num)         # Round to nearest integer
-Math.floor(num)         # Round down
-Math.ceil(num)          # Round up
-Math.abs(num)           # Absolute value
-Math.max(a, b, ...)     # Maximum value
-Math.min(a, b, ...)     # Minimum value
-Math.pow(base, exp)     # Power operation
-Math.sqrt(num)          # Square root
-Math.random()           # Random 0-1
-```
-
-**Transforms** (used with pipe `| transform`):
+**Using @marcbachmann/cel-js** - Supports both method syntax AND function syntax!
 
 ```huml
-# String transforms
-"{{name | uppercase}}"       # Convert to UPPERCASE
-"{{name | lowercase}}"       # Convert to lowercase
-"{{name | capitalize}}"      # Capitalize First Letter
+# Native CEL Methods (use these!)
+items.size()            # Get array/string length
+str.contains("text")    # Check if string contains substring
+str.startsWith("pre")   # Check if starts with prefix
+str.endsWith("suf")     # Check if ends with suffix
+str.matches("regex")    # Match against regex pattern
+items.filter(x, x > 5)  # Filter array elements
+items.map(x, x * 2)     # Transform array elements
+items.all(x, x > 0)     # Check if all elements match condition
+items.exists(x, x > 5)  # Check if any element matches condition
 
-# Number transforms
-"{{price | toFixed(2)}}"     # Format with 2 decimals (e.g., "19.99")
-"{{value | toNumber}}"       # Convert to number safely (NaN → 0)
+# Built-in Type Conversion
+string(value)           # Convert to string: string(123) → "123"
+int(value)              # Convert to integer: int("42") → 42
+double(value)           # Convert to double: double("3.14") → 3.14
+type(value)             # Get type name: type(42) → "int"
+
+# Custom Helper Functions (registered in celEvaluator.ts)
+toFixed(num, decimals)  # Format number with decimals: toFixed(19.99, 2) → "19.99"
+uppercase(str)          # Convert to UPPERCASE
+lowercase(str)          # Convert to lowercase
+capitalize(str)         # Capitalize First Letter
+sum(array, prop)        # Sum array values: sum(items, 'price')
+avg(array, prop)        # Average array values: avg(items, 'quantity')
+keys(object)            # Get object keys
+values(object)          # Get object values
 ```
 
-**Key Difference:**
-- Functions: `{{Math.round(price)}}`
-- Transforms: `{{price | toFixed(2)}}`
-- ❌ Cannot use: `{{price.toFixed(2)}}` (no JavaScript methods)
+**Examples:**
+```huml
+# ✅ Correct (native CEL method syntax)
+content: "{{items.size()}}"
+content: "{{name.contains('John')}}"
+visible: "{{selectedWorkshops.exists(w, w == 'ws1')}}"
+items: "{{products.filter(p, p.price > 100)}}"
+
+# ✅ Correct (built-in function syntax)
+content: "{{string(count) + ' items'}}"
+content: "{{int('42') + 10}}"
+
+# ✅ Correct (custom helper functions)
+content: "{{uppercase(name)}}"
+content: "{{toFixed(price, 2)}}"
+total: "{{sum(items, 'quantity')}}"
+
+# ❌ Wrong (JavaScript methods - not supported)
+content: "{{name.toUpperCase()}}"      # NO! Use uppercase(name)
+content: "{{items.length}}"             # NO! Use items.size()
+```
 
 ---
 
@@ -1188,10 +1266,118 @@ screens::
 
 **All form fields require:**
 - `type` - Field type
-- `formId` - Must match form `id`
-- `fieldName` - Unique identifier for this field
+- `formId` - Must match form `id` (for traditional submission pattern)
+- `fieldName` - Unique identifier for this field (for traditional submission pattern)
 - `label` - Display label
 - `required` - true/false (optional, defaults to false)
+
+### 🆕 Real-Time State Synchronization with `stateKey`
+
+**NEW**: Form fields can sync directly with template state in real-time using `stateKey` instead of `formId`.
+
+#### Two Form Field Patterns
+
+**Pattern 1: Traditional Submission** (for backend forms)
+- Use `formId` + `fieldName`
+- Data cached and submitted on button click
+- Good for: Contact forms, registrations that POST to backend
+
+**Pattern 2: Real-Time State Sync** (for reactive UIs)
+- Use `stateKey` instead of `formId`
+- Field value updates state instantly on input
+- Enables reactive computed properties and visibility
+- Good for: Calculators, filters, search, conditional forms
+
+#### Real-Time State Sync Example
+
+```huml
+name: "Event Registration"
+
+state::
+  firstName: ""
+  lastName: ""
+  email: ""
+
+computed::
+  fullName: "{{firstName + ' ' + lastName}}"
+  personalInfoComplete: "{{firstName != '' && lastName != '' && email != ''}}"
+
+screens::
+  - ::
+    id: "registration"
+    isEntryPoint: true
+    children::
+      # Form fields with stateKey - update state on every keystroke
+      - ::
+        type: "form-field-text"
+        stateKey: "firstName"  # ← Links to state.firstName
+        label: "First Name"
+        placeholder: "John"
+
+      - ::
+        type: "form-field-text"
+        stateKey: "lastName"   # ← Links to state.lastName
+        label: "Last Name"
+        placeholder: "Doe"
+
+      - ::
+        type: "form-field-email"
+        stateKey: "email"      # ← Links to state.email
+        label: "Email"
+        placeholder: "john@example.com"
+
+      # Display computed property (updates in real-time!)
+      - ::
+        type: "text"
+        content: "Welcome, {{fullName}}!"
+        visible: "{{fullName != ' '}}"
+
+      # Button visibility controlled by computed property
+      - ::
+        type: "nav-button"
+        content: "Continue"
+        visible: "{{personalInfoComplete}}"
+        targetContainerId: "next-step"
+
+      # Disabled message when form incomplete
+      - ::
+        type: "text"
+        content: "Please fill all required fields"
+        visible: "{{!personalInfoComplete}}"
+        css: "color: #999;"
+```
+
+#### Key Points for `stateKey`
+
+1. **Instant Updates**: Field value updates state on every keystroke (`oninput` event)
+2. **Computed Properties**: Combine with `computed::` for reactive calculations
+3. **Conditional Visibility**: Use computed properties in `visible` expressions
+4. **No form metadata needed**: Don't need `type: "form"` block when using `stateKey`
+5. **Initialization**: Field initializes with state value if it exists
+
+#### Choosing the Right Pattern
+
+**Use `stateKey` when:**
+- ✅ Building reactive UIs (search, filters, calculators)
+- ✅ Need conditional visibility based on field values
+- ✅ Want computed properties that update in real-time
+- ✅ Form doesn't submit to backend (single-page app logic)
+
+**Use `formId` when:**
+- ✅ Submitting to external service (Formspree, backend API)
+- ✅ Multi-step forms with final submission
+- ✅ Need all data collected at once (not continuously)
+
+**Can combine both!** Use `stateKey` for reactive UI + `formId` for final submission:
+
+```huml
+- ::
+  type: "form-field-text"
+  stateKey: "email"           # Updates state in real-time
+  formId: "form-contact"      # Also included in form submission
+  fieldName: "email"
+  label: "Email"
+```
 
 ---
 
@@ -1389,7 +1575,7 @@ state::
 
 ### 🔥 Buttons Inside forEach - Automatic Loop Context Access
 
-**IMPORTANT**: Buttons (and their children) inside forEach loops automatically have access to loop variables (`item`, `index`, etc.) in ALL JEXL expressions, including `stateUpdates`.
+**IMPORTANT**: Buttons (and their children) inside forEach loops automatically have access to loop variables (`item`, `index`, etc.) in ALL CEL expressions, including `stateUpdates`.
 
 #### E-commerce Example: Add to Cart
 
@@ -1436,9 +1622,9 @@ content::
 1. The forEach loop creates one button per product
 2. Each button instance has its own `item` (current product)
 3. When button is clicked, `item.price` refers to THAT product's price
-4. **Loop context is automatically passed to button's JEXL evaluations**
+4. **Loop context is automatically passed to button's CEL evaluations**
 
-**Key Point**: You don't need to do anything special - just reference `{{item}}`, `{{item.propertyName}}`, or `{{index}}` in your button's JEXL expressions and they will work correctly!
+**Key Point**: You don't need to do anything special - just reference `{{item}}`, `{{item.propertyName}}`, or `{{index}}` in your button's CEL expressions and they will work correctly!
 
 ### Dynamic Styling Based on Index
 
@@ -1463,7 +1649,7 @@ content::
 ### 🧮 Complete Calculator Example
 
 **Full working calculator with expression display, demonstrating:**
-- State management with JEXL
+- State management with CEL
 - forEach loops for buttons
 - Expression tracking
 - Multiple state updates
@@ -1575,7 +1761,7 @@ screens::
 1. **Expression tracking:** Shows "5 ÷ 7 =" above the result
 2. **forEach loops:** Single definition creates all 10 digit buttons
 3. **Conditional CSS:** Zero button spans 2 columns using `{{index == 9 ? ... : ...}}`
-4. **Complex JEXL:** Nested ternary operations for calculations
+4. **Complex CEL:** Nested ternary operations for calculations
 5. **Multiple state updates:** Each button updates multiple state properties at once
 
 ### Important Notes
@@ -1583,7 +1769,7 @@ screens::
 1. **Array must exist in state** - `forEach: "myArray"` requires array defined in state using YAML list syntax
 2. **Works with any block type** - buttons, text, containers, images, etc.
 3. **Children are NOT repeated** - forEach only applies to the block itself, not its children
-4. **JEXL expressions evaluated per item** - Each instance gets its own evaluated values
+4. **CEL expressions evaluated per item** - Each instance gets its own evaluated values
 5. **Array syntax** - Use YAML list format with `::` and `-` items (not bracket notation)
 6. **🔥 Buttons automatically inherit loop context** - `nav-button` inside forEach can access `{{item}}`, `{{index}}`, etc. in ALL properties including `stateUpdates`, `stateValue`, `content`, `css`, and `visible`
 
@@ -1829,7 +2015,7 @@ screens::
 
 **Key Takeaways:**
 1. **⚡ Performance:** Fine-grained signals = automatic optimal performance. Blocks only re-render when properties THEY USE change.
-2. **🔥 forEach + Buttons:** Buttons inside forEach loops automatically have access to `{{item}}`, `{{index}}`, etc. in ALL JEXL expressions including `stateUpdates`.
+2. **🔥 forEach + Buttons:** Buttons inside forEach loops automatically have access to `{{item}}`, `{{index}}`, etc. in ALL CEL expressions including `stateUpdates`.
 3. **Form buttons:** Add `formId` to ALL buttons in the form flow
 4. **Final submit:** Add `submit: true` ONLY on the final submit button
 5. **Auto-caching:** All form data is automatically cached across screens

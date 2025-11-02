@@ -18,6 +18,7 @@
     "dialog:allow-open",
     "dialog:allow-message",
     "fs:allow-read-file",
+    "fs:allow-write-text-file",
     "fs:read-files",
     "fs:read-all",
     {
@@ -31,6 +32,12 @@
     {
       "identifier": "fs:allow-create",
       "allow": [{ "path": "$DOCUMENT/*" }]
+    },
+    {
+      "identifier": "fs:allow-write-text-file",
+      "allow": [
+        { "path": "$HOME/**" }
+      ]
     }
   ]
 }

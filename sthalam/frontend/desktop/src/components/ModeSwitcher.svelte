@@ -5,6 +5,10 @@
 		uiState.setMode('builder');
 	}
 
+	function switchToPublisher() {
+		uiState.setMode('publisher');
+	}
+
 	function switchToViewer() {
 		uiState.setMode('viewer');
 	}
@@ -51,6 +55,12 @@
 		onclick={switchToBuilder}
 	>
 		Builder
+	</button>
+	<button
+		class:active={uiState.mode === 'publisher'}
+		onclick={switchToPublisher}
+	>
+		Publisher
 	</button>
 	<button
 		class:active={uiState.mode === 'viewer'}

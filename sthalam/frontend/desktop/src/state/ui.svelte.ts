@@ -3,8 +3,8 @@
  * Handles UI-related state like expanded folders, modals, etc.
  */
 class UIState {
-  // App mode: 'builder' or 'viewer'
-  mode = $state<'builder' | 'viewer'>('builder');
+  // App mode: 'builder', 'publisher', or 'viewer'
+  mode: 'builder' | 'publisher' | 'viewer' = $state('builder');
 
   // Navigation panel
   showNavigationPanel = $state(true);
@@ -25,9 +25,9 @@ class UIState {
   showSovereignNodeModal = $state(false);
 
   /**
-   * Switch between builder and viewer modes
+   * Switch between builder, publisher, and viewer modes
    */
-  setMode(mode: 'builder' | 'viewer') {
+  setMode(mode: 'builder' | 'publisher' | 'viewer') {
     this.mode = mode;
   }
 

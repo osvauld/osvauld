@@ -10,14 +10,14 @@
 	import type { YjsDocuments } from "../lib/yjsManager";
 	import type { Website } from "../types";
 	import { sendMessage } from "../utils/helper";
-	import type { BlocksuiteStore } from "../lib/blocksuiteStore";
+	import type { TemplateStructureStore } from "../lib/templateStructureStore";
 
 	let yDocs: YjsDocuments | null = null;
 	let blocks = $state<Map<string, any>>(new Map());
 	let showAddWebsiteModal = $state(false);
 	let isSyncing = $state(false);
 	let viewMode = $state<'content' | 'submissions'>('content');
-	let blocksuiteStore: BlocksuiteStore | null = null;
+	let templateStructureStore: TemplateStructureStore | null = null;
 	let blocksuiteUnsubscribe: (() => void) | null = null;
 
 	// Get synced resources
@@ -99,30 +99,30 @@
 				blocks: docs.blocks.size
 			});
 
-			// Get BlocksuiteStore and subscribe to it
-			const store = coordinator.getBlocksuiteStore();
+			// Get TemplateStructureStore and subscribe to it
+			const store = coordinator.getTemplateStructureStore();
 			if (store) {
 				// Clean up previous subscription
 				if (blocksuiteUnsubscribe) {
 					blocksuiteUnsubscribe();
 				}
 
-				blocksuiteStore = store;
+				templateStructureStore = store;
 
 				// Subscribe to blocks changes via store
-				blocksuiteUnsubscribe = blocksuiteStore.subscribe(() => {
-					blocks = blocksuiteStore!.getAllBlocks();
+				blocksuiteUnsubscribe = templateStructureStore.subscribe(() => {
+					blocks = templateStructureStore!.getAllBlocks();
 				});
 
 				// Initial load from store
-				blocks = blocksuiteStore.getAllBlocks();
-				console.log("✅ [ViewerMode] Subscribed to BlocksuiteStore, got", blocks.size, "blocks");
+				blocks = templateStructureStore.getAllBlocks();
+				console.log("✅ [ViewerMode] Subscribed to TemplateStructureStore, got", blocks.size, "blocks");
 			}
 		});
 
 		// Cleanup function for this effect
 		return () => {
-			// Unsubscribe from BlocksuiteStore
+			// Unsubscribe from TemplateStructureStore
 			if (blocksuiteUnsubscribe) {
 				blocksuiteUnsubscribe();
 				blocksuiteUnsubscribe = null;
@@ -131,7 +131,7 @@
 	});
 
 	onDestroy(() => {
-		// Unsubscribe from BlocksuiteStore
+		// Unsubscribe from TemplateStructureStore
 		if (blocksuiteUnsubscribe) {
 			blocksuiteUnsubscribe();
 		}

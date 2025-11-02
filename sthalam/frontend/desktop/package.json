@@ -29,7 +29,16 @@
     "vite-plugin-wasm": "^3.5.0"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.10.0",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-yaml": "^6.1.2",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
     "@huml-lang/huml": "^0.1.0",
+    "@lezer/highlight": "^1.2.3",
+    "@marcbachmann/cel-js": "^3.0.1",
     "@osvauld/fonts": "workspace:*",
     "@osvauld/icons": "workspace:*",
     "@tauri-apps/api": "^2.6.0",
@@ -38,8 +47,10 @@
     "@tauri-apps/plugin-fs": "^2.4.0",
     "@vanilla-extract/css": "^1.17.4",
     "@vanilla-extract/dynamic": "^2.1.5",
-    "jexl": "^2.3.0",
+    "codemirror": "^6.0.2",
+    "loro-crdt": "^1.8.8",
     "marked": "^16.4.0",
+    "svelte-codemirror-editor": "^2.1.0",
     "y-protocols": "^1.0.6",
     "yjs": "^13.6.27"
   }

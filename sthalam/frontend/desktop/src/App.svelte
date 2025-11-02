@@ -1,35 +1,14 @@
 <script lang="ts">
 	import { onMount, onDestroy } from "svelte";
-	import WebsiteBuilder from "./lib/WebsiteBuilder.svelte";
-	import ViewerMode from "./components/ViewerMode.svelte";
+	import BuilderApp from "./builder/BuilderApp.svelte";
+	import ViewerApp from "./viewer/ViewerApp.svelte";
+	import PublisherApp from "./publisher/PublisherApp.svelte";
 	import { dataState as authDataState } from "./state/data.svelte";
 	import { uiState } from "./state/ui.svelte";
 	import Signup from "./common/Signup.svelte";
 	import Welcome from "./common/Welcome.svelte";
 	import Loader from "./common/Loader.svelte";
 	import { sendMessage } from "./utils/helper";
-
-	// Get current resource to determine which builder to show
-	const currentResource = $derived(
-		authDataState.currentResourceData ||
-		(authDataState.currentResourceId
-			? authDataState.resources.find(r => r.id === authDataState.currentResourceId)
-			: null)
-	);
-
-	// Debug: Log current resource and type
-	$effect(() => {
-		console.log("🎨🎨🎨 App.svelte - currentResource EFFECT FIRED:", {
-			hasResource: !!currentResource,
-			resourceId: currentResource?.id,
-			resource_type_field: currentResource?.resource_type,
-			resourceType_field: currentResource?.resourceType,
-			derivedResourceType: currentResource?.resource_type || currentResource?.resourceType,
-			fullCurrentResource: currentResource,
-			currentResourceData: authDataState.currentResourceData,
-			currentResourceId: authDataState.currentResourceId
-		});
-	});
 
 	let signedUp = $state(false);
 	let isLoading = $state(true);
@@ -50,6 +29,9 @@
 
 	onMount(async () => {
 		try {
+			// Test Loro CRDT compatibility with Tauri + Vite + WASM
+			console.log("🧪 Testing Loro CRDT...");
+
 			const response = await sendMessage("isSignedUp");
 			const checkPvtLoad = await sendMessage("checkPvtLoaded");
 			signedUp = response.isSignedUp;
@@ -115,31 +97,31 @@
 
 <main>
 	{#if isLoading}
-		<div class="h-screen w-screen flex items-center justify-center bg-mobile-bgPrimary">
+		<div
+			class="h-screen w-screen flex items-center justify-center bg-mobile-bgPrimary"
+		>
 			<Loader size={24} color="#F472B6" duration={1} />
 		</div>
 	{:else if !signedUp}
 		<Signup onSignedUp={handleSignedUp} />
 	{:else if showWelcome}
-		<div class="h-screen w-screen flex items-center justify-center bg-mobile-bgPrimary overflow-hidden">
+		<div
+			class="h-screen w-screen flex items-center justify-center bg-mobile-bgPrimary overflow-hidden"
+		>
 			<Welcome authenticated={handleAuthenticated} />
 		</div>
 	{:else}
 		<div class="app-container">
 			<div class="content">
-				{#if uiState.mode === 'builder'}
-					{#if !currentResource}
-						<!-- No resource selected -->
-						{@const _ = console.log("🔴 ROUTING: No resource selected, showing WebsiteBuilder")}
-						<WebsiteBuilder />
-					{:else}
-						<!-- All resource types (website, form, noticeboard) use WebsiteBuilder -->
-						{@const resourceType = currentResource.resource_type || currentResource.resourceType}
-						{@const __ = console.log("🟢 ROUTING: Resource exists, type =", resourceType, "| Showing WebsiteBuilder")}
-						<WebsiteBuilder />
-					{/if}
+				{#if uiState.mode === "builder"}
+					<BuilderApp />
+				{:else if uiState.mode === "publisher"}
+					<PublisherApp />
+				{:else if uiState.mode === "viewer"}
+					<ViewerApp />
 				{:else}
-					<ViewerMode />
+					<!-- Default to builder -->
+					<BuilderApp />
 				{/if}
 			</div>
 		</div>

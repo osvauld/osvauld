@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.sthalam.app",
   "build": {
-    "beforeDevCommand": "cd ./frontend/desktop && pnpm dev",
+    "beforeDevCommand": "",
     "beforeBuildCommand": "cd ./frontend/desktop && pnpm build",
     "devUrl": "http://localhost:1422",
     "frontendDist": "../frontend/desktop/dist"
@@ -19,7 +19,13 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self' http://localhost:1422; script-src 'self' 'wasm-unsafe-eval' http://localhost:1422; style-src 'self' 'unsafe-inline' http://localhost:1422; img-src 'self' data: asset: https://asset.localhost http://localhost:1422; connect-src 'self' asset: https://asset.localhost http://localhost:1422 ws://localhost:1422",
+      "assetProtocol": {
+        "scope": {
+          "allow": ["**"]
+        },
+        "enable": true
+      }
     }
   },
   "bundle": {

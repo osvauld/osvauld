@@ -23,7 +23,7 @@ export interface BlocksuiteContent {
 export interface Resource {
   id: string;
   title: string;
-  resourceType: 'website';  // Only website resource type (forms and threads are blocks within websites)
+  resourceType: 'website';  // Only website resource type (HUML templates stored in contentDoc)
   websiteId: string;        // The website/folder this resource belongs to
   lastModified: number;
   favourite?: boolean;

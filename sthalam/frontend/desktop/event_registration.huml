@@ -1,0 +1,263 @@
+name: "Tech Summit 2025 Registration"
+resourceType: "form"
+
+state::
+  currentStep: "welcome"
+  eventName: "Tech Summit 2025"
+  eventDate: "March 15-17, 2025"
+  eventLocation: "San Francisco Convention Center"
+  firstName: ""
+  lastName: ""
+  email: ""
+  phone: ""
+  company: ""
+  jobTitle: ""
+  ticketType: "early-bird"
+  ticketQuantity: 1
+  selectedWorkshops:: []
+  dietaryPreference: "none"
+  dietaryNotes: ""
+  marketingConsent: false
+  emailValid: true
+  phoneValid: true
+
+computed::
+  fullName: "{{firstName + ' ' + lastName}}"
+  personalInfoComplete: "{{firstName != '' && lastName != '' && email != ''}}"
+  progressPercent: "{{currentStep == 'welcome' ? 0 : (currentStep == 'personal-info' ? 20 : (currentStep == 'confirmation' ? 100 : 50))}}"
+
+content::
+  workshops::
+    - ::
+      id: "ws1"
+      name: "Advanced React Patterns"
+      time: "Day 1, 2:00 PM"
+      capacity: 50
+      enrolled: 32
+    - ::
+      id: "ws2"
+      name: "Cloud Architecture Deep Dive"
+      time: "Day 1, 4:00 PM"
+      capacity: 40
+      enrolled: 38
+    - ::
+      id: "ws3"
+      name: "AI/ML for Developers"
+      time: "Day 2, 10:00 AM"
+      capacity: 60
+      enrolled: 45
+    - ::
+      id: "ws4"
+      name: "Security Best Practices"
+      time: "Day 2, 2:00 PM"
+      capacity: 50
+      enrolled: 28
+    - ::
+      id: "ws5"
+      name: "Microservices at Scale"
+      time: "Day 3, 10:00 AM"
+      capacity: 45
+      enrolled: 40
+
+screens::
+  - ::
+    id: "main"
+    name: "Event Registration"
+    isEntryPoint: true
+    blocks::
+      - ::
+        type: "form"
+        id: "form-registration"
+        name: "Event Registration Form"
+        submitEndpoint: "https://formspree.io/f/YOUR_FORM_ID"
+      - ::
+        type: "section-container"
+        id: "welcome-screen"
+        visible: "{{currentStep == 'welcome'}}"
+        css: "width: 100%; max-width: 800px; margin: 0 auto; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;"
+        blocks::
+          - ::
+            type: "heading"
+            content: "{{eventName}}"
+            css: "font-size: 48px; font-weight: 700; color: #1a1a1a; margin-bottom: 10px; text-align: center;"
+          - ::
+            type: "text"
+            content: "{{eventDate + ' • ' + eventLocation}}"
+            css: "font-size: 20px; color: #666; text-align: center; margin-bottom: 40px;"
+          - ::
+            type: "section-container"
+            css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 16px; padding: 40px; color: white; margin-bottom: 40px;"
+            blocks::
+              - ::
+                type: "heading"
+                content: "Join 500+ Tech Leaders"
+                css: "font-size: 32px; font-weight: 600; margin-bottom: 20px; color: white;"
+              - ::
+                type: "text"
+                content: "Three days of cutting-edge talks, hands-on workshops, and networking with industry experts. Early bird pricing ends soon!"
+                css: "font-size: 18px; line-height: 1.6; margin-bottom: 30px; color: rgba(255,255,255,0.95);"
+          - ::
+            type: "nav-button"
+            content: "Start Registration →"
+            action: "setState"
+            stateUpdates::
+              currentStep: "personal-info"
+            css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 16px 48px; border-radius: 12px; font-size: 18px; font-weight: 600; cursor: pointer; width: 100%; transition: transform 0.2s; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);"
+      - ::
+        type: "section-container"
+        id: "personal-info-screen"
+        visible: "{{currentStep == 'personal-info'}}"
+        css: "width: 100%; max-width: 800px; margin: 0 auto; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;"
+        blocks::
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 40px;"
+            blocks::
+              - ::
+                type: "text"
+                content: "Step 1 of 5: Personal Information"
+                css: "font-size: 14px; color: #666; margin-bottom: 8px;"
+              - ::
+                type: "section-container"
+                css: "width: 100%; height: 4px; background: #e0e0e0; border-radius: 2px; overflow: hidden;"
+                blocks::
+                  - ::
+                    type: "section-container"
+                    css: "{{\"height: 100%; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: \" + string(progressPercent) + \"%; transition: width 0.3s;\"}}"
+          - ::
+            type: "heading"
+            content: "Your Information"
+            css: "font-size: 32px; font-weight: 700; color: #1a1a1a; margin-bottom: 10px;"
+          - ::
+            type: "text"
+            content: "Please provide your details to complete registration"
+            css: "font-size: 16px; color: #666; margin-bottom: 32px;"
+          - ::
+            type: "section-container"
+            css: "display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px;"
+            blocks::
+              - ::
+                type: "section-container"
+                blocks::
+                  - ::
+                    type: "text"
+                    content: "First Name *"
+                    css: "display: block; font-size: 14px; font-weight: 600; color: #333; margin-bottom: 6px;"
+                  - ::
+                    type: "form-field-text"
+                    name: "firstName"
+                    placeholder: "John"
+                    stateKey: "firstName"
+                    formId: "form-registration"
+                    fieldName: "firstName"
+                    css: "width: 100%; padding: 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;"
+              - ::
+                type: "section-container"
+                blocks::
+                  - ::
+                    type: "text"
+                    content: "Last Name *"
+                    css: "display: block; font-size: 14px; font-weight: 600; color: #333; margin-bottom: 6px;"
+                  - ::
+                    type: "form-field-text"
+                    name: "lastName"
+                    placeholder: "Doe"
+                    stateKey: "lastName"
+                    formId: "form-registration"
+                    fieldName: "lastName"
+                    css: "width: 100%; padding: 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;"
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 16px;"
+            blocks::
+              - ::
+                type: "text"
+                content: "Email Address *"
+                css: "display: block; font-size: 14px; font-weight: 600; color: #333; margin-bottom: 6px;"
+              - ::
+                type: "form-field-text"
+                name: "email"
+                placeholder: "john.doe@company.com"
+                stateKey: "email"
+                formId: "form-registration"
+                fieldName: "email"
+                css: "width: 100%; padding: 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;"
+          - ::
+            type: "section-container"
+            css: "margin-bottom: 16px;"
+            blocks::
+              - ::
+                type: "text"
+                content: "Company"
+                css: "display: block; font-size: 14px; font-weight: 600; color: #333; margin-bottom: 6px;"
+              - ::
+                type: "form-field-text"
+                name: "company"
+                placeholder: "Acme Inc."
+                stateKey: "company"
+                formId: "form-registration"
+                fieldName: "company"
+                css: "width: 100%; padding: 14px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 16px;"
+          - ::
+            type: "section-container"
+            css: "display: flex; gap: 16px; justify-content: space-between; margin-top: 32px;"
+            blocks::
+              - ::
+                type: "nav-button"
+                content: "← Back"
+                action: "setState"
+                stateUpdates::
+                  currentStep: "welcome"
+                css: "background: #f8f9fa; color: #333; border: 2px solid #e0e0e0; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; flex: 1;"
+              - ::
+                type: "nav-button"
+                content: "Complete Registration →"
+                action: "setState"
+                visible: "{{personalInfoComplete}}"
+                formId: "form-registration"
+                submit: true
+                stateUpdates::
+                  currentStep: "confirmation"
+                css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; flex: 1;"
+              - ::
+                type: "section-container"
+                visible: "{{!personalInfoComplete}}"
+                css: "background: #e0e0e0; color: #999; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; text-align: center; flex: 1; cursor: not-allowed;"
+                blocks::
+                  - ::
+                    type: "text"
+                    content: "Complete Registration →"
+                    css: "color: #999;"
+      - ::
+        type: "section-container"
+        id: "confirmation-screen"
+        visible: "{{currentStep == 'confirmation'}}"
+        css: "width: 100%; max-width: 800px; margin: 0 auto; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; text-align: center;"
+        blocks::
+          - ::
+            type: "text"
+            content: "✓"
+            css: "font-size: 80px; color: #00b894; margin-bottom: 20px; display: block;"
+          - ::
+            type: "heading"
+            content: "Registration Complete!"
+            css: "font-size: 40px; font-weight: 700; color: #1a1a1a; margin-bottom: 16px;"
+          - ::
+            type: "text"
+            content: "{{\"Thank you, \" + firstName + \"! Your registration has been confirmed.\"}}"
+            css: "font-size: 20px; color: #666; margin-bottom: 40px; display: block;"
+          - ::
+            type: "section-container"
+            css: "background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 24px; margin-bottom: 32px;"
+            blocks::
+              - ::
+                type: "text"
+                content: "Registration Confirmed!"
+                css: "font-size: 28px; font-weight: 700; color: white; display: block;"
+          - ::
+            type: "nav-button"
+            content: "← Back to Home"
+            action: "setState"
+            stateUpdates::
+              currentStep: "welcome"
+            css: "background: #f8f9fa; color: #333; border: 2px solid #e0e0e0; padding: 14px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; display: inline-block;"
