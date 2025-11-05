@@ -22,8 +22,14 @@ let canvasElement: HTMLCanvasElement;
 let gl: WebGL2RenderingContext | null = null;
 let ctx2d: CanvasRenderingContext2D | null = null;
 
-// Store WASM function reference outside reactive context
+// Store WASM function references outside reactive context
 let evaluateGridFn: ((expr: string, gridSize: number, time: number) => any) | null = null;
+let compileToGLSLFn: ((expr: string, gridSize: number) => any) | null = null;
+
+// GPU shader mode state
+let gpuMode = false;
+let uniformLocations: Map<string, WebGLUniformLocation> = new Map();
+let shaderUniforms: Array<{name: string, celVar: string, glslType: string}> = [];
 
 // Animation state
 let animationId: number | null = null;
@@ -104,8 +110,8 @@ const FRAGMENT_SHADER = `#version 300 es
   }
 `;
 
-// Initialize WebGL for pattern mode
-function initWebGL(): boolean {
+// Initialize WebGL for CPU pattern mode (texture upload)
+function initWebGLCPU(): boolean {
   gl = canvasElement.getContext('webgl2');
   if (!gl) {
     console.error('[CanvasBlock] WebGL2 not supported');
@@ -146,8 +152,92 @@ function initWebGL(): boolean {
   return true;
 }
 
-// Render pattern using OCaml WASM
-async function renderPattern() {
+// Initialize WebGL for GPU shader mode (dynamic shader)
+function initWebGLGPU(): boolean {
+  if (!patternExpr || !compileToGLSLFn) {
+    console.error('[CanvasBlock] GPU mode requires pattern and compileToGLSL');
+    return false;
+  }
+
+  gl = canvasElement.getContext('webgl2');
+  if (!gl) {
+    console.error('[CanvasBlock] WebGL2 not supported');
+    return false;
+  }
+
+  try {
+    // Compile CEL expression to GLSL shader
+    const compilation = compileToGLSLFn(patternExpr, gridSize);
+
+    if (!compilation.success) {
+      console.error('[CanvasBlock] GLSL compilation failed:', compilation.error);
+      console.log('[CanvasBlock] Falling back to CPU mode');
+      return false;
+    }
+
+    console.log('[CanvasBlock] GPU shader compiled successfully');
+    console.log('[CanvasBlock] GLSL expression:', compilation.glslExpr);
+    console.log('[CanvasBlock] Uniforms:', compilation.uniforms);
+
+    // Store uniforms for later updates
+    shaderUniforms = compilation.uniforms;
+
+    // Create vertex shader
+    const vs = gl.createShader(gl.VERTEX_SHADER)!;
+    gl.shaderSource(vs, VERTEX_SHADER);
+    gl.compileShader(vs);
+
+    if (!gl.getShaderParameter(vs, gl.COMPILE_STATUS)) {
+      console.error('[CanvasBlock] Vertex shader error:', gl.getShaderInfoLog(vs));
+      return false;
+    }
+
+    // Create dynamic fragment shader from OCaml
+    const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+    gl.shaderSource(fs, compilation.shaderCode);
+    gl.compileShader(fs);
+
+    if (!gl.getShaderParameter(fs, gl.COMPILE_STATUS)) {
+      console.error('[CanvasBlock] Fragment shader error:', gl.getShaderInfoLog(fs));
+      console.error('[CanvasBlock] Shader code:', compilation.shaderCode);
+      return false;
+    }
+
+    // Create program
+    program = gl.createProgram()!;
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error('[CanvasBlock] Program link error:', gl.getProgramInfoLog(program));
+      return false;
+    }
+
+    // Create quad buffer
+    positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+
+    // Get uniform locations
+    uniformLocations.clear();
+    for (const uniform of shaderUniforms) {
+      const location = gl.getUniformLocation(program, uniform.name);
+      if (location) {
+        uniformLocations.set(uniform.celVar, location);
+      }
+    }
+
+    gpuMode = true;
+    return true;
+  } catch (error) {
+    console.error('[CanvasBlock] GPU initialization error:', error);
+    return false;
+  }
+}
+
+// Render pattern using OCaml WASM (CPU mode)
+async function renderPatternCPU() {
   if (!gl || !program || !texture || !patternExpr || !evaluateGridFn) return;
 
   try {
@@ -183,6 +273,57 @@ async function renderPattern() {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   } catch (error) {
     console.error('[CanvasBlock] Render error:', error);
+  }
+}
+
+// Render pattern using GPU shader (GPU mode)
+function renderPatternGPU() {
+  if (!gl || !program || !positionBuffer) return;
+
+  try {
+    // Bind shader program FIRST (required before setting uniforms)
+    gl.useProgram(program);
+
+    // Update uniforms from context
+    for (const uniform of shaderUniforms) {
+      const location = uniformLocations.get(uniform.celVar);
+      if (!location) continue;
+
+      // Get value from context or built-in variables
+      let value: number;
+      switch (uniform.celVar) {
+        case 'time':
+          value = time;
+          break;
+        case 'gridSize':
+          value = gridSize;
+          break;
+        case 'mouseX':
+          value = mouseX;
+          break;
+        case 'mouseY':
+          value = mouseY;
+          break;
+        default:
+          // Try to get from context
+          value = context[uniform.celVar] ?? 0;
+      }
+
+      // Set uniform value
+      gl.uniform1f(location, value);
+    }
+
+    // Setup and render quad
+    const posLoc = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(posLoc);
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+    gl.viewport(0, 0, width, height);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  } catch (error) {
+    console.error('[CanvasBlock] GPU render error:', error);
   }
 }
 
@@ -234,9 +375,13 @@ function animate(timestamp: number) {
   time = (timestamp - startTime) / 1000;
   frameCount++;
 
-  // Render based on what's provided
+  // Render based on mode
   if (patternExpr) {
-    renderPattern();
+    if (gpuMode) {
+      renderPatternGPU();
+    } else {
+      renderPatternCPU();
+    }
   } else if (entities) {
     renderEntities();
   }
@@ -284,15 +429,32 @@ function handleKeyUp(event: KeyboardEvent) {
 
 // Lifecycle
 onMount(() => {
-  // Capture WASM function reference outside reactive context
+  // Capture WASM function references outside reactive context
   if ((window as any).CELEvaluator?.evaluateGrid) {
     evaluateGridFn = (window as any).CELEvaluator.evaluateGrid.bind((window as any).CELEvaluator);
   }
+  if ((window as any).CELEvaluator?.compileToGLSL) {
+    compileToGLSLFn = (window as any).CELEvaluator.compileToGLSL.bind((window as any).CELEvaluator);
+  }
 
-  // Initialize rendering context
+  // Initialize rendering context based on mode
   if (patternExpr) {
-    initWebGL();
-  } else {
+    // Try GPU mode if requested
+    if (block.renderMode === 'gpu' && compileToGLSLFn) {
+      const gpuSuccess = initWebGLGPU();
+      if (!gpuSuccess) {
+        // GPU failed, fall back to CPU
+        console.log('[CanvasBlock] Falling back to CPU mode');
+        gpuMode = false;
+        initWebGLCPU();
+      }
+    } else {
+      // CPU mode
+      gpuMode = false;
+      initWebGLCPU();
+    }
+  } else if (entities) {
+    // Entity rendering uses 2D canvas
     ctx2d = canvasElement.getContext('2d');
   }
 

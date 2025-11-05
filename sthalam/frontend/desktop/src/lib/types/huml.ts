@@ -220,15 +220,16 @@ export interface FormBlock extends BaseBlock {
 
 export interface CanvasBlock extends BaseBlock {
   type: 'canvas';
+  renderMode: 'cpu' | 'gpu';  // Required: cpu (evaluateGrid) or gpu (GLSL shader)
 
   /** Canvas dimensions */
   width?: number;  // Default: 600
   height?: number; // Default: 400
 
   /** Rendering data (from state via CEL) */
-  entities?: string;   // CEL expression returning array of objects to render
-  pattern?: string;    // CEL expression for pattern mode: "${sin(x * 0.1 + time)}"
-  gridSize?: number;   // Grid resolution for pattern evaluation
+  entities?: string;   // CEL expression returning array of objects to render (cpu mode only)
+  pattern?: string;    // Math expression: "sin(x * 0.1 + time)" or CEL: "${ storedPattern }"
+  gridSize?: number;   // Grid resolution for pattern evaluation (default: 100)
   gridData?: string;   // CEL expression returning grid data array
   chartData?: string;  // CEL expression returning chart data
 

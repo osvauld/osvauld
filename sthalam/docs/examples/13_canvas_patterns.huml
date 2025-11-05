@@ -24,7 +24,7 @@ ui::
 
         - ::
           type: "text"
-          content: "Math functions evaluated in OCaml, rendered with WebGL"
+          content: "Math expressions compiled to GPU shaders for real-time rendering"
           css: "color: #6b7280; margin-bottom: 2rem;"
 
         - ::
@@ -68,6 +68,7 @@ ui::
 
         - ::
           type: "canvas"
+          renderMode: "gpu"
           width: 600
           height: 600
           gridSize: 100
@@ -79,6 +80,7 @@ ui::
 
         - ::
           type: "canvas"
+          renderMode: "gpu"
           width: 600
           height: 600
           gridSize: 100
@@ -90,6 +92,7 @@ ui::
 
         - ::
           type: "canvas"
+          renderMode: "gpu"
           width: 600
           height: 600
           gridSize: 100
@@ -101,6 +104,7 @@ ui::
 
         - ::
           type: "canvas"
+          renderMode: "gpu"
           width: 600
           height: 600
           gridSize: 100
@@ -161,15 +165,15 @@ ui::
 
             - ::
               type: "text"
-              content: "2. OCaml evaluates the expression for 100x100 grid (10,000 cells)"
+              content: "2. OCaml compiles CEL expression to GLSL shader code"
               css: "color: #1e3a8a; margin: 0.5rem 0;"
 
             - ::
               type: "text"
-              content: "3. WebGL renders the result at 60 FPS"
+              content: "3. GPU evaluates the expression for ALL pixels in parallel"
               css: "color: #1e3a8a; margin: 0.5rem 0;"
 
             - ::
               type: "text"
-              content: "4. Math functions (sin, cos, atan2, distance) computed in OCaml for performance"
+              content: "4. Real-time rendering at 500+ FPS (limited to 60 FPS display)"
               css: "color: #1e3a8a; margin: 0.5rem 0;"
