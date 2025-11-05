@@ -1,0 +1,325 @@
+name: "Form Blocks Test"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    username::
+      type: "string"
+      initial: ""
+    email::
+      type: "string"
+      initial: ""
+    message::
+      type: "string"
+      initial: ""
+    agreeToTerms::
+      type: "boolean"
+      initial: false
+    newsletter::
+      type: "boolean"
+      initial: false
+    country::
+      type: "string"
+      initial: ""
+    favoriteColor::
+      type: "string"
+      initial: ""
+
+  publisherComputed::
+    hasUsername: "${ size(username) > 0 }"
+    messageLength: "${ size(message) }"
+    isValidEmail: "${ contains(email, '@') }"
+    canSubmit: "${ hasUsername && isValidEmail && agreeToTerms }"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "form_test"
+      name: "form_test"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 800px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Form Blocks Test"
+          css: "color: #2563eb; margin-bottom: 2rem;"
+
+        - ::
+          type: "section"
+          css: "background: #f9fafb; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #e5e7eb;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Text Inputs"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #374151;"
+
+            - ::
+              type: "label"
+              for: "username"
+              content: "Username"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #374151;"
+
+            - ::
+              type: "input"
+              name: "username"
+              inputType: "text"
+              placeholder: "Enter your username"
+              css: "padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; margin-bottom: 1rem;"
+
+            - ::
+              type: "text"
+              content: "✅ Username entered!"
+              when: "${ hasUsername }"
+              css: "color: #10b981; font-weight: 500; margin-bottom: 1rem;"
+
+            - ::
+              type: "label"
+              for: "email"
+              content: "Email"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #374151;"
+
+            - ::
+              type: "input"
+              name: "email"
+              inputType: "email"
+              placeholder: "you@example.com"
+              css: "padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "✅ Valid email format"
+              when: "${ isValidEmail }"
+              css: "color: #10b981; font-weight: 500;"
+
+            - ::
+              type: "text"
+              content: "⚠️ Email must contain @"
+              when: "${ !isValidEmail && size(email) > 0 }"
+              css: "color: #f59e0b; font-weight: 500;"
+
+        - ::
+          type: "section"
+          css: "background: #fef3c7; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #fbbf24;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Textarea"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #78350f;"
+
+            - ::
+              type: "label"
+              for: "message"
+              content: "Message"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #78350f;"
+
+            - ::
+              type: "textarea"
+              name: "message"
+              placeholder: "Write your message here..."
+              rows: 5
+              css: "padding: 0.5rem; border: 1px solid #fbbf24; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; font-family: inherit; resize: vertical; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Character count: {{messageLength}}"
+              css: "color: #78350f; font-size: 0.875rem;"
+
+        - ::
+          type: "section"
+          css: "background: #f0fdf4; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #86efac;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Checkboxes"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #14532d;"
+
+            - ::
+              type: "checkbox"
+              name: "agreeToTerms"
+              label: "I agree to the terms and conditions"
+              css: "display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; cursor: pointer;"
+
+            - ::
+              type: "checkbox"
+              name: "newsletter"
+              label: "Subscribe to newsletter"
+              css: "display: flex; align-items: center; gap: 0.5rem; cursor: pointer;"
+
+            - ::
+              type: "text"
+              content: "✅ Terms accepted"
+              when: "${ agreeToTerms }"
+              css: "color: #059669; font-weight: 500; margin-top: 0.5rem;"
+
+        - ::
+          type: "section"
+          css: "background: #ede9fe; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #c4b5fd;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Select Dropdown"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #5b21b6;"
+
+            - ::
+              type: "label"
+              for: "country"
+              content: "Country"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #5b21b6;"
+
+            - ::
+              type: "select"
+              name: "country"
+              options::
+                - ::
+                  value: ""
+                  label: "Select a country"
+                - ::
+                  value: "us"
+                  label: "United States"
+                - ::
+                  value: "uk"
+                  label: "United Kingdom"
+                - ::
+                  value: "ca"
+                  label: "Canada"
+                - ::
+                  value: "au"
+                  label: "Australia"
+              css: "padding: 0.5rem; border: 1px solid #c4b5fd; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Selected: {{country}}"
+              when: "${ size(country) > 0 }"
+              css: "color: #5b21b6; font-size: 0.875rem;"
+
+        - ::
+          type: "section"
+          css: "background: #fce7f3; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #f9a8d4;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Radio Buttons"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #831843;"
+
+            - ::
+              type: "label"
+              content: "Favorite Color"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #831843;"
+
+            - ::
+              type: "radio"
+              name: "favoriteColor"
+              options::
+                - ::
+                  value: "red"
+                  label: "Red"
+                - ::
+                  value: "blue"
+                  label: "Blue"
+                - ::
+                  value: "green"
+                  label: "Green"
+                - ::
+                  value: "yellow"
+                  label: "Yellow"
+              css: "display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "You chose: {{favoriteColor}}"
+              when: "${ size(favoriteColor) > 0 }"
+              css: "color: #831843; font-weight: 500;"
+
+        - ::
+          type: "section"
+          css: "background: #dbeafe; padding: 1.5rem; border-radius: 8px; border: 1px solid #93c5fd;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Form Summary"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #1e3a8a;"
+
+            - ::
+              type: "text"
+              content: "Username: {{username}}"
+              css: "margin-bottom: 0.5rem; color: #1e40af;"
+
+            - ::
+              type: "text"
+              content: "Email: {{email}}"
+              css: "margin-bottom: 0.5rem; color: #1e40af;"
+
+            - ::
+              type: "text"
+              content: "Message ({{messageLength}} chars): {{message}}"
+              css: "margin-bottom: 0.5rem; color: #1e40af; white-space: pre-wrap;"
+
+            - ::
+              type: "text"
+              content: "Terms: {{agreeToTerms}}"
+              css: "margin-bottom: 0.5rem; color: #1e40af;"
+
+            - ::
+              type: "text"
+              content: "Newsletter: {{newsletter}}"
+              css: "margin-bottom: 0.5rem; color: #1e40af;"
+
+            - ::
+              type: "text"
+              content: "Country: {{country}}"
+              css: "margin-bottom: 0.5rem; color: #1e40af;"
+
+            - ::
+              type: "text"
+              content: "Favorite Color: {{favoriteColor}}"
+              css: "margin-bottom: 1.5rem; color: #1e40af;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "row"
+              gap: "1rem"
+              blocks::
+                - ::
+                  type: "button"
+                  content: "Submit"
+                  action: "setState"
+                  disabled: "${ !canSubmit }"
+                  stateUpdates::
+                    username: "${ username }"
+                  css: "padding: 0.75rem 1.5rem; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; opacity: 1;"
+
+                - ::
+                  type: "button"
+                  content: "Clear All"
+                  action: "setState"
+                  stateUpdates::
+                    username: ""
+                    email: ""
+                    message: ""
+                    agreeToTerms: false
+                    newsletter: false
+                    country: ""
+                    favoriteColor: ""
+                  css: "padding: 0.75rem 1.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "⚠️ Please fill required fields and accept terms"
+              when: "${ !canSubmit }"
+              css: "color: #dc2626; font-size: 0.875rem; margin-top: 1rem;"
+
+            - ::
+              type: "text"
+              content: "✅ Form is ready to submit!"
+              when: "${ canSubmit }"
+              css: "color: #059669; font-size: 0.875rem; margin-top: 1rem; font-weight: 600;"

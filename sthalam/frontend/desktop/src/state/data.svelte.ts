@@ -188,6 +188,7 @@ class DataState {
         user_content_doc: Array.from(snapshots.userContent),
         collaborative_doc: Array.from(snapshots.collaborative),
         submissions_doc: Array.from(snapshots.submissions),
+        static_assets: [], // Empty for new resources
         client_id: this.clientId.toString(),
         last_modified: Date.now(),
         title
@@ -234,6 +235,15 @@ class DataState {
         const contentMap = loroCoordinator.getContentMap();
         const title = contentMap.get('title') as string || 'Untitled';
 
+        // Convert staticAssets to serializable format
+        const staticAssetsArray: any[] = [];
+        for (const [key, value] of Object.entries(snapshots.staticAssets || {})) {
+          staticAssetsArray.push({
+            id: key,
+            data: Array.from(value)
+          });
+        }
+
         // Create Loro content structure
         const loroContent = {
           template_doc: Array.from(snapshots.template),
@@ -241,6 +251,7 @@ class DataState {
           user_content_doc: Array.from(snapshots.userContent),
           collaborative_doc: Array.from(snapshots.collaborative),
           submissions_doc: Array.from(snapshots.submissions),
+          static_assets: staticAssetsArray,
           client_id: this.clientId.toString(),
           last_modified: Date.now(),
           title
@@ -273,13 +284,23 @@ class DataState {
 
       const loroData = resource.data;
 
+      // Convert staticAssets array back to object
+      const staticAssetsObj: Record<string, Uint8Array> = {};
+      if (loroData.static_assets && Array.isArray(loroData.static_assets)) {
+        for (const asset of loroData.static_assets) {
+          staticAssetsObj[asset.id] = new Uint8Array(asset.data);
+        }
+        console.log('📦 [DataState] Loaded', loroData.static_assets.length, 'static assets');
+      }
+
       // Load Loro documents from snapshots
       const snapshots = {
         template: new Uint8Array(loroData.template_doc),
         content: new Uint8Array(loroData.content_doc),
         userContent: new Uint8Array(loroData.user_content_doc),
         collaborative: new Uint8Array(loroData.collaborative_doc),
-        submissions: new Uint8Array(loroData.submissions_doc)
+        submissions: new Uint8Array(loroData.submissions_doc),
+        staticAssets: staticAssetsObj
       };
 
       loroCoordinator.loadDocument(snapshots);
@@ -347,6 +368,15 @@ class DataState {
       const contentMap = loroCoordinator.getContentMap();
       const title = contentMap.get('title') as string || 'Untitled';
 
+      // Convert staticAssets to serializable format
+      const staticAssetsArray: any[] = [];
+      for (const [key, value] of Object.entries(snapshots.staticAssets || {})) {
+        staticAssetsArray.push({
+          id: key,
+          data: Array.from(value)
+        });
+      }
+
       // Create Loro content structure for backend
       const loroContent = {
         template_doc: Array.from(snapshots.template),
@@ -354,6 +384,7 @@ class DataState {
         user_content_doc: Array.from(snapshots.userContent),
         collaborative_doc: Array.from(snapshots.collaborative),
         submissions_doc: Array.from(snapshots.submissions),
+        static_assets: staticAssetsArray,
         client_id: this.clientId.toString(),
         last_modified: Date.now(),
         title
@@ -408,6 +439,13 @@ class DataState {
    */
   destroy() {
     this.cleanupReactiveUpdates();
+  }
+
+  /**
+   * Get the Loro coordinator (alias for compatibility with SubmissionsViewer)
+   */
+  getBlocksuiteCoordinator() {
+    return loroCoordinator;
   }
 }
 

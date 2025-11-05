@@ -1,0 +1,291 @@
+name: "Content Blocks Test"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    imageUrl::
+      type: "string"
+      initial: "https://picsum.photos/400/300"
+    imageWidth::
+      type: "number"
+      initial: 400
+    imageHeight::
+      type: "number"
+      initial: 300
+    showLargeImage::
+      type: "boolean"
+      initial: false
+
+  publisherComputed::
+    currentImageSize: "${ string(imageWidth) + 'x' + string(imageHeight) }"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "content_test"
+      name: "content_test"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 1200px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Content Blocks Test"
+          css: "color: #2563eb; margin-bottom: 2rem;"
+
+        # Links section
+        - ::
+          type: "section"
+          css: "background: #f0f9ff; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #bae6fd;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Links"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #0c4a6e;"
+
+            - ::
+              type: "text"
+              content: "External link:"
+              css: "font-weight: 600; margin-bottom: 0.5rem; color: #374151;"
+
+            - ::
+              type: "link"
+              content: "Visit Example.com"
+              href: "https://example.com"
+              css: "color: #2563eb; text-decoration: underline; display: block; margin-bottom: 1rem;"
+
+            - ::
+              type: "link"
+              content: "GitHub Repository"
+              href: "https://github.com"
+              css: "color: #2563eb; text-decoration: underline; display: block; margin-bottom: 1.5rem;"
+
+            - ::
+              type: "text"
+              content: "Internal navigation link (to second screen):"
+              css: "font-weight: 600; margin-bottom: 0.5rem; color: #374151;"
+
+            - ::
+              type: "link"
+              content: "Go to Image Gallery →"
+              action: "navigate"
+              params::
+                screen: "gallery"
+              css: "display: inline-block; padding: 0.75rem 1.5rem; background: #2563eb; color: white; text-decoration: none; border-radius: 6px; font-weight: 600; cursor: pointer;"
+
+        # Images section
+        - ::
+          type: "section"
+          css: "background: #fef3c7; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #fbbf24;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Images"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #78350f;"
+
+            - ::
+              type: "text"
+              content: "Static image:"
+              css: "font-weight: 600; margin-bottom: 0.5rem; color: #78350f;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/400/300"
+              alt: "Random placeholder image"
+              css: "border-radius: 8px; margin-bottom: 1.5rem; box-shadow: 0 4px 6px rgba(0,0,0,0.1);"
+
+            - ::
+              type: "text"
+              content: "Image with dynamic src and size:"
+              css: "font-weight: 600; margin-bottom: 0.5rem; color: #78350f;"
+
+            - ::
+              type: "text"
+              content: "Current size: {{currentImageSize}}"
+              css: "font-size: 0.875rem; color: #92400e; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "image"
+              src: "{{imageUrl}}"
+              alt: "Dynamic size image - {{currentImageSize}}"
+              width: "{{imageWidth}}"
+              height: "{{imageHeight}}"
+              css: "border-radius: 8px; border: 3px solid #fbbf24; margin-bottom: 1rem;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "row"
+              gap: "1rem"
+              blocks::
+                - ::
+                  type: "button"
+                  content: "Smaller"
+                  action: "setState"
+                  stateUpdates::
+                    imageWidth: "${ imageWidth - 50 }"
+                    imageHeight: "${ imageHeight - 50 }"
+                  css: "padding: 0.5rem 1rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
+                - ::
+                  type: "button"
+                  content: "Larger"
+                  action: "setState"
+                  stateUpdates::
+                    imageWidth: "${ imageWidth + 50 }"
+                    imageHeight: "${ imageHeight + 50 }"
+                  css: "padding: 0.5rem 1rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
+                - ::
+                  type: "button"
+                  content: "Reset"
+                  action: "setState"
+                  stateUpdates::
+                    imageWidth: 400
+                    imageHeight: 300
+                  css: "padding: 0.5rem 1rem; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "Image with conditional display:"
+              css: "font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; color: #78350f;"
+
+            - ::
+              type: "checkbox"
+              name: "showLargeImage"
+              label: "Show large panorama image"
+              css: "margin-bottom: 1rem;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/800/300"
+              alt: "Wide panorama image"
+              when: "${ showLargeImage }"
+              css: "border-radius: 8px; width: 100%; margin-bottom: 1rem;"
+
+        # Combined section
+        - ::
+          type: "section"
+          css: "background: #f0fdf4; padding: 1.5rem; border-radius: 8px; border: 1px solid #86efac;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Combined Example"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem; color: #14532d;"
+
+            - ::
+              type: "text"
+              content: "Clickable image (link wrapping will be added in future):"
+              css: "font-weight: 600; margin-bottom: 0.5rem; color: #166534;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "row"
+              gap: "2rem"
+              alignItems: "center"
+              blocks::
+                - ::
+                  type: "image"
+                  src: "https://picsum.photos/200/200"
+                  alt: "Small thumbnail"
+                  css: "border-radius: 50%; border: 4px solid #22c55e;"
+
+                - ::
+                  type: "container"
+                  layout: "flex"
+                  direction: "column"
+                  gap: "0.5rem"
+                  blocks::
+                    - ::
+                      type: "heading"
+                      level: 3
+                      content: "Image Gallery"
+                      css: "margin: 0; color: #14532d;"
+
+                    - ::
+                      type: "text"
+                      content: "Browse our collection of beautiful images"
+                      css: "color: #166534; margin: 0;"
+
+                    - ::
+                      type: "link"
+                      content: "View Gallery →"
+                      action: "navigate"
+                      params::
+                        screen: "gallery"
+                      css: "color: #22c55e; font-weight: 600; text-decoration: none; margin-top: 0.5rem;"
+
+    # Second screen - Gallery
+    - ::
+      type: "screen"
+      id: "gallery"
+      name: "gallery"
+      isEntryPoint: false
+      css: "padding: 2rem; max-width: 1200px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Image Gallery"
+          css: "color: #2563eb; margin-bottom: 2rem;"
+
+        - ::
+          type: "text"
+          content: "This is a demo gallery screen showing navigation working."
+          css: "margin-bottom: 2rem; color: #6b7280;"
+
+        - ::
+          type: "container"
+          layout: "grid"
+          columns: 3
+          gap: "1rem"
+          css: "margin-bottom: 2rem;"
+          blocks::
+            - ::
+              type: "image"
+              src: "https://picsum.photos/300/200?random=1"
+              alt: "Gallery image 1"
+              css: "border-radius: 8px; width: 100%;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/300/200?random=2"
+              alt: "Gallery image 2"
+              css: "border-radius: 8px; width: 100%;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/300/200?random=3"
+              alt: "Gallery image 3"
+              css: "border-radius: 8px; width: 100%;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/300/200?random=4"
+              alt: "Gallery image 4"
+              css: "border-radius: 8px; width: 100%;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/300/200?random=5"
+              alt: "Gallery image 5"
+              css: "border-radius: 8px; width: 100%;"
+
+            - ::
+              type: "image"
+              src: "https://picsum.photos/300/200?random=6"
+              alt: "Gallery image 6"
+              css: "border-radius: 8px; width: 100%;"
+
+        - ::
+          type: "link"
+          content: "← Back to Content Test"
+          action: "navigate"
+          params::
+            screen: "content_test"
+          css: "display: inline-block; padding: 0.75rem 1.5rem; background: #6b7280; color: white; text-decoration: none; border-radius: 6px; font-weight: 600;"

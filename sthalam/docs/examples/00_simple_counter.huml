@@ -1,0 +1,68 @@
+name: "Simple Counter"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    counter::
+      type: "number"
+      initial: 0
+
+  publisherComputed::
+    counterDouble: "${ counter * 2 }"
+    isPositive: "${ counter > 0 }"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "home"
+      name: "home"
+      isEntryPoint: true
+      css: "padding: 2rem; font-family: system-ui; max-width: 600px; margin: 0 auto;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Counter: {{counter}}"
+          css: "color: #2563eb; font-size: 2.5rem;"
+
+        - ::
+          type: "text"
+          content: "Double: {{counterDouble}}"
+          css: "color: #6b7280; margin-bottom: 1.5rem;"
+
+        - ::
+          type: "container"
+          layout: "flex"
+          direction: "row"
+          gap: "1rem"
+          blocks::
+            - ::
+              type: "button"
+              content: "Increment"
+              action: "setState"
+              stateUpdates::
+                counter: "${ counter + 1 }"
+              css: "padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer;"
+
+            - ::
+              type: "button"
+              content: "Decrement"
+              action: "setState"
+              stateUpdates::
+                counter: "${ counter - 1 }"
+              css: "padding: 0.75rem 1.5rem; background: #ef4444; color: white; border: none; border-radius: 8px; cursor: pointer;"
+
+            - ::
+              type: "button"
+              content: "Reset"
+              action: "setState"
+              stateUpdates::
+                counter: 0
+              css: "padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 8px; cursor: pointer;"
+
+        - ::
+          type: "text"
+          content: "✅ Counter is positive!"
+          when: "${ isPositive }"
+          css: "color: #10b981; margin-top: 2rem; font-weight: 500;"

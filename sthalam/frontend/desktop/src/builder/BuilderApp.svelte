@@ -7,7 +7,7 @@
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
   import { open } from '@tauri-apps/plugin-dialog';
   import { readTextFile } from '@tauri-apps/plugin-fs';
-  import { parse as parseHUML } from '@huml-lang/huml';
+  import { parseHUML } from '../lib/services/humlParser';
   import { templateImporter } from '../shared/loro/templateImporter';
 
   let humlContent = $state<string>('');
@@ -42,9 +42,9 @@
       return;
     }
 
-    // Get content from Loro
-    const contentMap = loroCoordinator.getContentMap();
-    const humlSource = contentMap.get('huml_source');
+    // Get HUML source from template doc
+    const templateMap = loroCoordinator.getTemplateMap();
+    const humlSource = templateMap.get('huml_source');
 
     const content = typeof humlSource === 'string' ? humlSource : '';
 
@@ -97,9 +97,9 @@
         // Continue to save the source even if parsing fails
       }
 
-      // Update Loro content with raw HUML source
-      const contentMap = loroCoordinator.getContentMap();
-      contentMap.set('huml_source', humlContent);
+      // Update template doc with raw HUML source
+      const templateMap = loroCoordinator.getTemplateMap();
+      templateMap.set('huml_source', humlContent);
 
       // Commit all documents
       loroCoordinator.getDocuments().contentDoc.commit();
@@ -133,8 +133,8 @@
       if (!confirmed) return;
     }
 
-    const contentMap = loroCoordinator.getContentMap();
-    const humlSource = contentMap.get('huml_source');
+    const templateMap = loroCoordinator.getTemplateMap();
+    const humlSource = templateMap.get('huml_source');
     const content = typeof humlSource === 'string' ? humlSource : '';
 
     humlContent = content;
@@ -175,14 +175,9 @@
       const parsed = parseHUML(fileContent);
       console.log('📥 [BuilderApp] Parsed HUML:', parsed);
 
-      // Convert HUML to Loro tree structure using templateImporter
-      // This clears documents and imports template structure
+      // Import HUML template
+      // This stores raw HUML in templateDoc and extracts state to contentDoc
       await templateImporter.importFromHUML(fileContent);
-
-      // Store raw HUML in contentDoc AFTER templateImporter
-      // (templateImporter clears contentMap, so we must do this after)
-      const contentMap = loroCoordinator.getContentMap();
-      contentMap.set('huml_source', fileContent);
 
       // Commit all document changes
       loroCoordinator.getDocuments().contentDoc.commit();

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "identifier": "com.sthalam.app",
   "build": {
-    "beforeDevCommand": "",
+    "beforeDevCommand": "cd ./frontend/desktop && pnpm dev",
     "beforeBuildCommand": "cd ./frontend/desktop && pnpm build",
     "devUrl": "http://localhost:1422",
     "frontendDist": "../frontend/desktop/dist"
@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http://localhost:1422; script-src 'self' 'wasm-unsafe-eval' http://localhost:1422; style-src 'self' 'unsafe-inline' http://localhost:1422; img-src 'self' data: asset: https://asset.localhost http://localhost:1422; connect-src 'self' asset: https://asset.localhost http://localhost:1422 ws://localhost:1422",
+      "csp": "default-src 'self' http://localhost:1422; script-src 'self' 'wasm-unsafe-eval' http://localhost:1422; style-src 'self' 'unsafe-inline' http://localhost:1422; img-src 'self' data: blob: asset: https://asset.localhost http://localhost:1422; media-src * blob: data: 'self' 'unsafe-inline'; connect-src 'self' asset: https://asset.localhost http://localhost:1422 ws://localhost:1422",
       "assetProtocol": {
         "scope": {
           "allow": ["**"]
@@ -37,6 +37,32 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "gstreamer1.0-plugins-base",
+          "gstreamer1.0-plugins-good",
+          "gstreamer1.0-plugins-bad",
+          "gstreamer1.0-libav"
+        ]
+      },
+      "rpm": {
+        "depends": [
+          "gstreamer1-plugins-base",
+          "gstreamer1-plugins-good",
+          "gstreamer1-plugins-bad-free",
+          "gstreamer1-libav"
+        ]
+      },
+      "appimage": {
+        "bundleMediaFramework": true
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
   }
 }

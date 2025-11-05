@@ -1,0 +1,156 @@
+name: "Input Blocks Test"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    username::
+      type: "string"
+      initial: ""
+    email::
+      type: "string"
+      initial: ""
+    message::
+      type: "string"
+      initial: ""
+    charCount::
+      type: "number"
+      initial: 0
+
+  publisherComputed::
+    hasUsername: "${ size(username) > 0 }"
+    messageLength: "${ size(message) }"
+    isValidEmail: "${ contains(email, '@') }"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "form_test"
+      name: "form_test"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 600px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Input Blocks Test"
+          css: "color: #2563eb; margin-bottom: 2rem;"
+
+        - ::
+          type: "section"
+          css: "background: #f9fafb; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Text Input"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem;"
+
+            - ::
+              type: "input"
+              name: "username"
+              inputType: "text"
+              placeholder: "Enter your username"
+              css: "padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Username: {{username}}"
+              css: "color: #6b7280; font-size: 0.875rem; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "✅ Username entered!"
+              when: "${ hasUsername }"
+              css: "color: #10b981; font-weight: 500;"
+
+        - ::
+          type: "section"
+          css: "background: #fef3c7; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Email Input"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem;"
+
+            - ::
+              type: "input"
+              name: "email"
+              inputType: "email"
+              placeholder: "you@example.com"
+              css: "padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Email: {{email}}"
+              css: "color: #6b7280; font-size: 0.875rem; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "✅ Valid email format"
+              when: "${ isValidEmail }"
+              css: "color: #10b981; font-weight: 500;"
+
+            - ::
+              type: "text"
+              content: "⚠️ Email must contain @"
+              when: "${ !isValidEmail && size(email) > 0 }"
+              css: "color: #f59e0b; font-weight: 500;"
+
+        - ::
+          type: "section"
+          css: "background: #f0f9ff; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Textarea"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem;"
+
+            - ::
+              type: "textarea"
+              name: "message"
+              placeholder: "Write your message here..."
+              rows: 5
+              css: "padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; font-size: 1rem; width: 100%; box-sizing: border-box; font-family: inherit; resize: vertical; margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Character count: {{messageLength}}"
+              css: "color: #6b7280; font-size: 0.875rem;"
+
+        - ::
+          type: "section"
+          css: "background: #ede9fe; padding: 1.5rem; border-radius: 8px;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "Form Summary"
+              css: "margin: 0 0 1rem 0; font-size: 1.25rem;"
+
+            - ::
+              type: "text"
+              content: "Username: {{username}}"
+              css: "margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Email: {{email}}"
+              css: "margin-bottom: 0.5rem;"
+
+            - ::
+              type: "text"
+              content: "Message ({{messageLength}} chars): {{message}}"
+              css: "margin-bottom: 1rem; white-space: pre-wrap;"
+
+            - ::
+              type: "button"
+              content: "Clear All"
+              action: "setState"
+              stateUpdates::
+                username: ""
+                email: ""
+                message: ""
+              css: "padding: 0.75rem 1.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"

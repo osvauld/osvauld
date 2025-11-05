@@ -9,6 +9,8 @@
 	import Welcome from "./common/Welcome.svelte";
 	import Loader from "./common/Loader.svelte";
 	import { sendMessage } from "./utils/helper";
+	import { loadCELEvaluator } from "./lib/services/celEvaluator";
+	import { loadHUMLParser } from "./lib/services/humlParser";
 
 	let signedUp = $state(false);
 	let isLoading = $state(true);
@@ -29,6 +31,14 @@
 
 	onMount(async () => {
 		try {
+			// Load WASM modules (CEL evaluator & HUML parser)
+			console.log("📦 Loading WASM modules...");
+			await Promise.all([
+				loadCELEvaluator(),
+				loadHUMLParser()
+			]);
+			console.log("✅ WASM modules loaded");
+
 			// Test Loro CRDT compatibility with Tauri + Vite + WASM
 			console.log("🧪 Testing Loro CRDT...");
 

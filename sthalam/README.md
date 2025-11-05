@@ -199,7 +199,7 @@ Sthalam uses a **local-first rendering with state vector-based CRDT sync** model
 Sthalam uses HUML (Human Markup Language) to define websites. The easiest way to get started is to use any LLM to generate HUML templates:
 
 1. **Upload the HUML Template Guide** to your preferred LLM (ChatGPT, Claude, etc.)
-   - File: `HUML_TEMPLATE_GUIDE.md` (in this repository)
+   - File: `/docs/specs/HUML_TEMPLATE_GUIDE_ACCURATE.md` (✅ validated against actual implementation)
 
 2. **Describe what you want to build**
    ```
@@ -309,7 +309,11 @@ Viewers experience instant loads with background state vector sync:
 
 ## Documentation
 
-- **HUML Template Guide**: See `HUML_TEMPLATE_GUIDE.md` for complete syntax reference
+- **📚 All Documentation**: See `/docs/` folder for organized documentation
+- **HUML Template Guide**: See `/docs/specs/HUML_TEMPLATE_GUIDE_ACCURATE.md` for complete syntax reference (✅ validated against actual code)
+- **Implementation Status**: See `/docs/VALIDATION_REPORT.md` for what's actually working
+- **Architecture**: See `/docs/architecture/` for system design documents
+- **Integration Guides**: See `/docs/guides/` for WASM integration, Loro architecture, and more
 - **Osvauld Documentation**: [docs.osvauld.com](https://docs.osvauld.com)
 - **Main Repository**: [github.com/osvauld/osvauld](https://github.com/osvauld/osvauld)
 

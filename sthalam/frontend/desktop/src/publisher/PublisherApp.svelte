@@ -1,66 +1,53 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { loroCoordinator } from '../shared/loro/loroCoordinator';
-  import { contentStore } from '../shared/loro/contentStore';
-  import { evaluateExpression } from '../lib/humlEvaluator';
-  import type { TreeNode } from 'loro-crdt';
-  import BlockRenderer from '../shared/blocks/BlockRenderer.svelte';
+  import { evaluateCEL as evaluateExpression } from '../lib/services/celEvaluator';
+  import { parseHUML } from '../lib/services/humlParser';
+  import BlockRenderer from '../renderer/BlockRenderer.svelte';
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
+  import { uploadVideo } from '../lib/services/videoService';
 
   // Publisher UI State - Local snapshots of CRDT state for reactive UI
   let publisherUIState = $state<Record<string, any>>({});
-  let computedValues = $state<Record<string, any>>({});
-  let content = $state<Record<string, any>>({});
   let screens = $state<any[]>([]);
   let currentScreenId = $state<string>('');
 
   // Computed expressions from template
   let computedExpressions = $state<Record<string, string>>({});
 
-  // CRDT subscriptions
-  let contentUnsubscribe: (() => void) | null = null;
-  let templateUnsubscribe: (() => void) | null = null;
-  let animationFrameId: number | null = null;
+  // Computed values - derived synchronously (no infinite loop since we removed time/fps/mouse)
+  let computedValues = $derived(evaluateComputedValues());
 
-  // FPS tracking
-  let lastFrameTime = 0;
-  let frameCount = 0;
-  let fps = 0;
-  let fpsHistory: number[] = [];
+  // CRDT subscriptions
+  let templateUnsubscribe: (() => void) | null = null;
 
   onMount(() => {
     initializePublisher();
-
-    // Start animation loop for time-based expressions
-    function animate(timestamp: number) {
-      // Calculate FPS more frequently (every 250ms)
-      frameCount++;
-      if (timestamp - lastFrameTime >= 250) {
-        const currentFps = Math.round((frameCount * 1000) / (timestamp - lastFrameTime));
-        fpsHistory.push(currentFps);
-        if (fpsHistory.length > 4) fpsHistory.shift();
-
-        // Average last 4 readings for smoother display
-        fps = Math.round(fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length);
-
-        frameCount = 0;
-        lastFrameTime = timestamp;
-      }
-
-      publisherUIState = {
-        ...publisherUIState,
-        time: (publisherUIState.time || 0) + 0.05, // Increment time each frame
-        fps
-      };
-      animationFrameId = requestAnimationFrame(animate);
-    }
-    animationFrameId = requestAnimationFrame(animate);
   });
 
   onDestroy(() => {
-    if (contentUnsubscribe) contentUnsubscribe();
     if (templateUnsubscribe) templateUnsubscribe();
-    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+  });
+
+  /**
+   * Persist state changes to contentDoc automatically
+   */
+  $effect(() => {
+    // Watch for changes to publisherUIState
+    const stateToSave = publisherUIState;
+
+    // Only save if we have state to persist
+    if (Object.keys(stateToSave).length === 0) return;
+
+    // Save to contentDoc (automatically debounced by Svelte)
+    const stateMap = loroCoordinator.getStateMap();
+    for (const [key, value] of Object.entries(stateToSave)) {
+      // Only persist non-temporary fields (exclude _uploading, _error)
+      if (!key.endsWith('_uploading') && !key.endsWith('_error')) {
+        stateMap.set(key, value);
+      }
+    }
+    loroCoordinator.getDocuments().contentDoc.commit();
   });
 
   /**
@@ -69,157 +56,121 @@
   function initializePublisher() {
     console.log('🚀 [PublisherApp] Initializing publisher mode...');
 
-    const docs = loroCoordinator.getDocuments();
-    const templateDoc = docs.templateDoc;
+    // Get HUML source and parse it
+    const templateMap = loroCoordinator.getTemplateMap();
+    const humlSource = templateMap.get('huml_source');
 
-    // 1. Load publisher state definition
-    const publisherStateMap = templateDoc.getMap('publisherState');
-    const stateDefinition: Record<string, any> = {};
-    for (const [key, value] of publisherStateMap.entries()) {
-      stateDefinition[key] = value;
+    if (!humlSource || typeof humlSource !== 'string') {
+      console.warn('⚠️ [PublisherApp] No HUML source found');
+      return;
     }
-    publisherUIState = { ...stateDefinition };
-    console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
 
-    // 2. Load computed expressions into state
-    const publisherComputedMap = templateDoc.getMap('publisherComputed');
-    const expressions: Record<string, string> = {};
-    for (const [key, value] of publisherComputedMap.entries()) {
-      expressions[key] = value as string;
+    try {
+      const template = parseHUML(humlSource);
+
+      // 1. Load publisher state definition from template
+      const stateDefinition = template.documents?.publisherState || {};
+
+      // Extract initial values from state schema
+      const initialState: Record<string, any> = {};
+      for (const [key, schema] of Object.entries(stateDefinition)) {
+        if (typeof schema === 'object' && schema !== null && 'initial' in schema) {
+          initialState[key] = (schema as any).initial;
+        } else {
+          initialState[key] = schema;
+        }
+      }
+
+      // Load persisted state from contentDoc if exists
+      const stateMap = loroCoordinator.getStateMap();
+      const persistedState = stateMap.toJSON();
+
+      // Merge persisted state with initial state (persisted takes precedence)
+      publisherUIState = { ...initialState, ...persistedState };
+
+      // Initialize videos as empty array if not defined (for list-based templates)
+      if (!publisherUIState.videos) {
+        publisherUIState.videos = [];
+      }
+
+      console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
+      console.log('💾 [PublisherApp] Loaded persisted state from contentDoc:', persistedState);
+
+      // 2. Load computed expressions from template
+      const expressions = template.documents?.publisherComputed || {};
+      computedExpressions = expressions;
+      console.log('🧮 [PublisherApp] Loaded computed expressions:', Object.keys(computedExpressions));
+    } catch (error) {
+      console.error('❌ [PublisherApp] Failed to parse HUML:', error);
     }
-    computedExpressions = expressions;
 
     // 3. Load publisher screens
     loadPublisherScreens();
 
-    // 4. Subscribe to content changes
-    contentUnsubscribe = contentStore.subscribe(() => {
-      content = contentStore.getContent();
-      // Ensure posts and comments arrays exist
-      if (!content.posts) {
-        content.posts = [];
-      }
-      if (!content.comments) {
-        content.comments = [];
-      }
-      evaluateComputed();
-    });
-
-    // 5. Subscribe to template changes
+    // 4. Subscribe to template changes (when HUML source changes)
+    const templateDoc = loroCoordinator.getDocuments().templateDoc;
     templateUnsubscribe = templateDoc.subscribe(() => {
+      // Re-initialize when template changes
       loadPublisherScreens();
     });
-
-    // 6. Initial content load
-    content = contentStore.getContent();
-
-    // 7. Initialize posts and comments arrays if they don't exist
-    if (!content.posts) {
-      content.posts = [];
-      console.log('📦 [PublisherApp] Initialized empty posts array');
-    }
-    if (!content.comments) {
-      content.comments = [];
-      console.log('📦 [PublisherApp] Initialized empty comments array');
-    }
-
-    // 8. Initial computed evaluation
-    evaluateComputed();
   }
 
   /**
    * Load publisher screens from template
    */
   function loadPublisherScreens() {
-    const docs = loroCoordinator.getDocuments();
-    const publisherTree = docs.templateDoc.getTree('publisherScreens');
+    // Get raw HUML from templateDoc
+    const templateMap = loroCoordinator.getTemplateMap();
+    const humlSource = templateMap.get('huml_source');
 
-    if (!publisherTree) {
-      console.warn('⚠️ [PublisherApp] No publisher screens found');
+    if (!humlSource || typeof humlSource !== 'string') {
+      console.warn('⚠️ [PublisherApp] No HUML source found in template');
+      screens = [];
       return;
     }
 
-    const screenNodes = publisherTree.roots();
-    screens = [];
+    try {
+      // Parse HUML in memory
+      const template = parseHUML(humlSource);
+      console.log('✅ [PublisherApp] Parsed template:', template);
 
-    for (const node of screenNodes) {
-      const screen = nodeToScreen(node);
-      screens.push(screen);
+      // Extract publisher screens from ui.publisher
+      const publisherScreens = template.ui?.publisher || [];
+      screens = publisherScreens;
 
       // Set entry point as current screen
-      if (screen.isEntryPoint || screens.length === 1) {
-        currentScreenId = screen.id;
+      if (screens.length > 0) {
+        const entryScreen = screens.find(s => s.isEntryPoint) || screens[0];
+        currentScreenId = entryScreen.id || entryScreen.name || 'home';
       }
-    }
 
-    console.log('📺 [PublisherApp] Loaded screens:', screens.length);
-    if (screens.length > 0) {
-      console.log('📋 [PublisherApp] First screen:', screens[0]);
-      console.log('📦 [PublisherApp] First screen blocks:', screens[0]?.blocks?.length);
-      if (screens[0]?.blocks?.[0]) {
-        const firstBlock = screens[0].blocks[0];
-        console.log('🔍 [PublisherApp] First block type:', firstBlock.type);
-        console.log('🔍 [PublisherApp] First block has nested blocks:', firstBlock.blocks?.length || 0);
-        if (firstBlock.blocks && firstBlock.blocks.length > 0) {
-          console.log('🎯 [PublisherApp] Nested block types:', firstBlock.blocks.map((b: any) => b.type));
+      console.log('📺 [PublisherApp] Loaded screens:', screens.length);
+      if (screens.length > 0) {
+        console.log('📋 [PublisherApp] First screen:', screens[0]);
+        console.log('📦 [PublisherApp] First screen blocks:', screens[0]?.blocks?.length);
+        if (screens[0]?.blocks?.[0]) {
+          const firstBlock = screens[0].blocks[0];
+          console.log('🔍 [PublisherApp] First block type:', firstBlock.type);
+          console.log('🔍 [PublisherApp] First block has nested blocks:', firstBlock.blocks?.length || 0);
+          if (firstBlock.blocks && firstBlock.blocks.length > 0) {
+            console.log('🎯 [PublisherApp] Nested block types:', firstBlock.blocks.map((b: any) => b.type));
+          }
         }
       }
+    } catch (error) {
+      console.error('❌ [PublisherApp] Failed to parse HUML:', error);
+      screens = [];
     }
-  }
-
-  /**
-   * Convert TreeNode to screen object
-   */
-  function nodeToScreen(node: TreeNode): any {
-    const screen: any = {
-      id: node.data.get('id') || `screen-${node.id}`,
-      type: node.data.get('type'),
-      name: node.data.get('name'),
-      isEntryPoint: node.data.get('isEntryPoint'),
-      css: node.data.get('css'),
-      blocks: []
-    };
-
-    // Load child blocks
-    const children = node.children() || [];
-    for (const child of children) {
-      screen.blocks.push(nodeToBlock(child));
-    }
-
-    return screen;
-  }
-
-  /**
-   * Convert TreeNode to block object
-   */
-  function nodeToBlock(node: TreeNode): any {
-    const block: any = {};
-
-    // Copy all properties from node data
-    for (const [key, value] of node.data.entries()) {
-      block[key] = value;
-    }
-
-    // Debug: Log button blocks
-    if (block.type === 'nav-button' && block.action === 'deletePost') {
-      console.log('🔍 [PublisherApp] Delete button properties:', Object.keys(block));
-      console.log('🔍 [PublisherApp] Delete button full:', block);
-    }
-
-    // Process children
-    const children = node.children() || [];
-    if (children.length > 0) {
-      block.blocks = children.map(child => nodeToBlock(child));
-    }
-
-    return block;
   }
 
   /**
    * Evaluate computed expressions (with dependency resolution via multiple passes)
+   * Returns computed values based on current publisherUIState
    */
-  function evaluateComputed() {
-    console.log('🧮 [PublisherApp] Evaluating computed expressions:', computedExpressions);
+  function evaluateComputedValues(): Record<string, any> {
+    if (Object.keys(computedExpressions).length === 0) {
+      return {};
+    }
 
     let newComputed: Record<string, any> = {};
     let prevComputed: Record<string, any> = {};
@@ -236,35 +187,15 @@
           // Build context with previously computed values
           const context = {
             ...publisherUIState,
-            content,
             ...newComputed,  // Include already-computed values!
             size: (arr: any[]) => arr?.length || 0,
             length: (str: string) => str?.length || 0
           };
 
-          // Strip {{}} if present, then evaluate
-          let cleanExpression = expression;
-          if (typeof expression === 'string') {
-            const trimmed = expression.trim();
-            if (trimmed.startsWith('{{') && trimmed.endsWith('}}')) {
-              cleanExpression = trimmed.slice(2, -2).trim();
-            }
-          }
-
-          if (pass === 1) {
-            console.log(`🧮 [PublisherApp] Computing ${key}:`, cleanExpression);
-          }
-
-          const result = evaluateExpression(cleanExpression, context);
+          // Expressions are pure CEL (no {{}} markers in template)
+          const result = evaluateExpression(expression, context);
           newComputed[key] = result;
-
-          if (pass === 1) {
-            console.log(`✅ [PublisherApp] ${key} =`, result);
-          }
         } catch (error) {
-          if (pass === 1) {
-            console.error(`❌ [PublisherApp] Failed to evaluate computed.${key}:`, error);
-          }
           newComputed[key] = undefined;
         }
       }
@@ -275,38 +206,16 @@
 
     } while (pass < maxPasses);
 
-    console.log('📊 [PublisherApp] Final computed values:', newComputed, `(${pass} passes)`);
-    computedValues = newComputed;
+    return newComputed;
   }
 
   /**
-   * Handle publisher actions
+   * Handle publisher actions (generic)
    */
-  function handleAction(action: string, params: any = {}) {
+  async function handleAction(action: string, params: any = {}) {
     console.log('🎯 [PublisherApp] Handling action:', action, params);
-    console.log('🔍 [PublisherApp] Current state:', publisherUIState);
 
     switch (action) {
-      case 'publishPost':
-        handlePublishPost(params);
-        break;
-
-      case 'updatePost':
-        handleUpdatePost(params);
-        break;
-
-      case 'deletePost':
-        handleDeletePost(params);
-        break;
-
-      case 'addComment':
-        handleAddComment(params);
-        break;
-
-      case 'deleteComment':
-        handleDeleteComment(params);
-        break;
-
       case 'setState':
         handleSetState(params);
         break;
@@ -315,234 +224,81 @@
         handleNavigate(params);
         break;
 
+      case 'uploadVideo':
+        await handleUploadVideo(params);
+        break;
+
       default:
-        console.warn('⚠️ [PublisherApp] Unknown action:', action);
+        console.warn('⚠️ [PublisherApp] Unknown action:', action, 'Use setState for state updates');
     }
   }
 
   /**
-   * Publish a new post
+   * Handle video upload action
    */
-  async function handlePublishPost(params: any) {
-    console.log('📝 [PublisherApp] handlePublishPost called with:', params);
+  async function handleUploadVideo(params: any) {
+    const { stateField = 'uploadedVideo' } = params;
 
-    const { formData } = params;
-    const postContent = formData?.content || publisherUIState.newPostContent;
-
-    console.log('📝 [PublisherApp] Post content:', postContent);
-
-    if (!postContent) {
-      console.warn('⚠️ [PublisherApp] No content to publish');
-      return;
-    }
-
-    // Set publishing state
-    publisherUIState = { ...publisherUIState, isPublishing: true };
-
-    // Publish the post
-    console.log('📝 [PublisherApp] Calling contentStore.publishPost...');
-    const postId = contentStore.publishPost(postContent);
-    console.log('✅ [PublisherApp] Published post:', postId);
-
-    // Update content from store to get the new post
-    content = contentStore.getContent();
-    console.log('📦 [PublisherApp] Updated content, posts count:', content.posts?.length);
-
-    // Save to backend (persist the change)
-    await saveToBackend();
-
-    // Clear form and reset state
-    publisherUIState = {
-      ...publisherUIState,
-      newPostContent: '',
-      isPublishing: false
-    };
-
-    // Trigger re-evaluation of computed values
-    evaluateComputed();
-
-    console.log('✅ [PublisherApp] Post published and state cleared');
-  }
-
-  /**
-   * Save current state to backend
-   */
-  async function saveToBackend() {
     try {
-      // First, check what's in the contentMap
-      const contentMap = loroCoordinator.getContentMap();
-      const postsInLoro = contentMap.get('posts');
-      console.log('🔍 [PublisherApp] Posts in Loro before commit:', postsInLoro);
+      console.log('🎬 [PublisherApp] Starting video upload...');
 
-      // Commit all Loro documents
-      const docs = loroCoordinator.getDocuments();
-      docs.contentDoc.commit();
-      docs.templateDoc.commit();
-      docs.userContentDoc.commit();
-      docs.uiStateDoc.commit();
+      // Set uploading state
+      publisherUIState = {
+        ...publisherUIState,
+        [`${stateField}_uploading`]: true,
+        [`${stateField}_error`]: null
+      };
 
-      console.log('💾 [PublisherApp] Documents committed, saving to backend...');
+      const result = await uploadVideo();
 
-      // Then save to backend
-      const { dataState } = await import('../state/data.svelte');
-      if (dataState.currentResourceId) {
-        await dataState.saveCurrentResource(dataState.currentResourceId);
-        console.log('✅ [PublisherApp] Saved to backend successfully');
+      if (result) {
+        // Store video ID in state
+        publisherUIState = {
+          ...publisherUIState,
+          [stateField]: result.id,
+          [`${stateField}_filename`]: result.filename,
+          [`${stateField}_size`]: result.size,
+          [`${stateField}_uploading`]: false
+        };
+
+        console.log('✅ [PublisherApp] Video uploaded and stored in contentDoc:', result);
+        console.log('📦 [PublisherApp] Video is now in contentDoc.videos map with ID:', result.id);
+      } else {
+        // User cancelled
+        publisherUIState = {
+          ...publisherUIState,
+          [`${stateField}_uploading`]: false
+        };
+        console.log('ℹ️ [PublisherApp] Video upload cancelled by user');
       }
     } catch (error) {
-      console.error('❌ [PublisherApp] Failed to save:', error);
-    }
-  }
-
-  /**
-   * Update an existing post
-   */
-  function handleUpdatePost(params: any) {
-    const { postId, content } = params;
-
-    if (!postId) {
-      console.warn('⚠️ [PublisherApp] No post ID provided');
-      return;
-    }
-
-    const success = contentStore.updatePost(postId, { content });
-
-    if (success) {
-      // Clear editing state
+      console.error('❌ [PublisherApp] Video upload failed:', error);
       publisherUIState = {
         ...publisherUIState,
-        editingPostId: ''
+        [`${stateField}_uploading`]: false,
+        [`${stateField}_error`]: String(error)
       };
+      alert(`Video upload failed: ${error}`);
     }
   }
 
-  /**
-   * Delete a post
-   */
-  async function handleDeletePost(params: any) {
-    const { postId } = params;
-
-    if (!postId) {
-      console.warn('⚠️ [PublisherApp] No post ID provided');
-      return;
-    }
-
-    const success = contentStore.deletePost(postId);
-
-    if (success) {
-      console.log('✅ [PublisherApp] Deleted post:', postId);
-
-      // Update content and save
-      content = contentStore.getContent();
-      await saveToBackend();
-      evaluateComputed();
-    }
-  }
 
   /**
-   * Add a comment (top-level or reply)
-   */
-  async function handleAddComment(params: any) {
-    console.log('💬 [PublisherApp] handleAddComment params:', params);
-
-    // Extract parameters - content might come from formData or directly
-    const postId = params.postId;
-    const parentCommentId = params.parentCommentId;
-    const commentContent = params.formData?.content || params.content;
-
-    console.log('💬 [PublisherApp] Extracted:', { postId, parentCommentId, commentContent });
-
-    if (!postId || !commentContent) {
-      console.warn('⚠️ [PublisherApp] Missing postId or content', { postId, commentContent });
-      return;
-    }
-
-    const commentId = contentStore.addComment(postId, commentContent, parentCommentId || null);
-    console.log('✅ [PublisherApp] Added comment:', commentId);
-
-    // Clear the appropriate form field
-    if (parentCommentId) {
-      // Was a reply
-      publisherUIState = {
-        ...publisherUIState,
-        replyContent: '',
-        replyingTo: ''
-      };
-    } else {
-      // Was a top-level comment
-      publisherUIState = {
-        ...publisherUIState,
-        commentContent: ''
-      };
-    }
-
-    // Update content and save
-    content = contentStore.getContent();
-    await saveToBackend();
-    evaluateComputed();
-  }
-
-  /**
-   * Delete a comment (and all its replies)
-   */
-  async function handleDeleteComment(params: any) {
-    const { commentId } = params;
-
-    if (!commentId) {
-      console.warn('⚠️ [PublisherApp] No comment ID provided');
-      return;
-    }
-
-    const success = contentStore.deleteComment(commentId);
-
-    if (success) {
-      console.log('✅ [PublisherApp] Deleted comment:', commentId);
-
-      // Update content and save
-      content = contentStore.getContent();
-      await saveToBackend();
-      evaluateComputed();
-    }
-  }
-
-  /**
-   * Update UI state
+   * Update UI state (generic)
    */
   function handleSetState(params: any) {
     const { stateUpdates } = params;
 
     if (!stateUpdates) return;
 
-    // Evaluate state updates (might contain expressions)
-    const context = {
-      ...publisherUIState,
-      content,
-      ...computedValues
-    };
-
-    const updates: Record<string, any> = {};
-
-    for (const [key, value] of Object.entries(stateUpdates)) {
-      if (typeof value === 'string' && value.startsWith('{{') && value.endsWith('}}')) {
-        // Evaluate expression
-        const expression = value.slice(2, -2);
-        try {
-          updates[key] = evaluateExpression(expression, context);
-        } catch (error) {
-          console.error(`❌ [PublisherApp] Failed to evaluate state update for ${key}:`, error);
-          updates[key] = value;
-        }
-      } else {
-        updates[key] = value;
-      }
-    }
-
+    // Evaluate state updates (expressions are already evaluated by ButtonBlock)
+    // stateUpdates contains the final values to set
     publisherUIState = {
       ...publisherUIState,
-      ...updates
+      ...stateUpdates
     };
 
-    console.log('📝 [PublisherApp] State updated:', updates);
+    console.log('📝 [PublisherApp] State updated:', stateUpdates);
   }
 
   /**
@@ -563,25 +319,13 @@
   let currentScreen = $derived(screens.find(s => s.id === currentScreenId) || screens[0]);
 
   /**
-   * Prepare context for expression evaluation
+   * Prepare context for expression evaluation (generic)
    */
-  let expressionContext = $derived((() => {
-    // Pre-compute comments trees for all posts (CEL can't call JS functions)
-    const commentsTrees: Record<string, any[]> = {};
-    const posts = content.posts || [];
-
-    for (const post of posts) {
-      commentsTrees[post.id] = contentStore.getCommentsTree(post.id);
-    }
-
-    return {
-      ...publisherUIState,
-      content,
-      ...computedValues,
-      mode: 'publisher',
-      commentsTrees
-    };
-  })());
+  let expressionContext = $derived({
+    ...publisherUIState,
+    ...computedValues,
+    mode: 'publisher'
+  });
 </script>
 
 <div class="publisher-app">
