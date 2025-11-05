@@ -19,9 +19,9 @@ export interface AssetMetadata {
 }
 
 /**
- * File filters for different asset types
+ * Default file filters for different asset types
  */
-const ASSET_FILTERS = {
+const DEFAULT_ASSET_FILTERS = {
   video: {
     name: 'Video (Browser Supported)',
     extensions: ['mp4', 'webm', 'ogg']
@@ -35,6 +35,26 @@ const ASSET_FILTERS = {
     extensions: ['pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx', 'csv']
   }
 };
+
+/**
+ * Get current file type filters (configurable for 'file' type)
+ */
+function getAssetFilters() {
+  const filters = { ...DEFAULT_ASSET_FILTERS };
+
+  // Check if custom file types are configured
+  const stateMap = loroCoordinator.getStateMap();
+  const customFileTypes = stateMap.get('allowedFileTypes');
+
+  if (customFileTypes && Array.isArray(customFileTypes) && customFileTypes.length > 0) {
+    filters.file = {
+      name: 'Documents',
+      extensions: customFileTypes
+    };
+  }
+
+  return filters;
+}
 
 /**
  * MIME type detection from filename extension
@@ -91,10 +111,13 @@ export function generateAssetId(assetType: AssetType): string {
  */
 export async function uploadAsset(assetType: AssetType): Promise<AssetMetadata | null> {
   try {
+    // Get current filters (may be customized for 'file' type)
+    const filters = getAssetFilters();
+
     // Open file dialog
     const selected = await open({
       multiple: false,
-      filters: [ASSET_FILTERS[assetType]]
+      filters: [filters[assetType]]
     });
 
     if (!selected || typeof selected !== 'string') {
@@ -115,6 +138,11 @@ export async function uploadAsset(assetType: AssetType): Promise<AssetMetadata |
     // Store in staticAssets (non-CRDT)
     loroCoordinator.setStaticAsset(assetId, fileData);
     console.log(`📦 [AssetService] Stored ${assetType} in staticAssets:`, assetId);
+
+    // Store filename in contentDoc for later retrieval (MIME type detection)
+    const contentMap = loroCoordinator.getContentMap();
+    contentMap.set(`${assetId}_filename`, filename);
+    loroCoordinator.getDocuments().contentDoc.commit();
 
     const metadata: AssetMetadata = {
       id: assetId,
@@ -197,4 +225,31 @@ export function deleteAsset(assetId: string): void {
  */
 export function listAssets(): string[] {
   return loroCoordinator.listStaticAssets();
+}
+
+/**
+ * Set allowed file types for 'file' asset uploads
+ * @param types Array of file extensions (e.g., ['pdf', 'txt', 'zip'])
+ */
+export function setAllowedFileTypes(types: string[]): void {
+  const stateMap = loroCoordinator.getStateMap();
+  stateMap.set('allowedFileTypes', types);
+  loroCoordinator.getDocuments().contentDoc.commit();
+  console.log('📝 [AssetService] Allowed file types updated:', types);
+}
+
+/**
+ * Get currently allowed file types for 'file' asset uploads
+ * @returns Array of file extensions
+ */
+export function getAllowedFileTypes(): string[] {
+  const stateMap = loroCoordinator.getStateMap();
+  const customFileTypes = stateMap.get('allowedFileTypes');
+
+  if (customFileTypes && Array.isArray(customFileTypes)) {
+    return customFileTypes;
+  }
+
+  // Return default if not configured
+  return DEFAULT_ASSET_FILTERS.file.extensions;
 }

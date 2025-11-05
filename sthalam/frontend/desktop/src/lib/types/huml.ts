@@ -93,6 +93,11 @@ export interface VideoBlock extends BaseBlock {
   height?: string | number;
 }
 
+export interface FileBlock extends BaseBlock {
+  type: 'file';
+  src: string;  // Asset ID (asset_file_*)
+}
+
 /**
  * Input Blocks
  */
@@ -262,6 +267,7 @@ export type Block =
   | LabelBlock
   | ImageBlock
   | VideoBlock
+  | FileBlock
   | InputBlock
   | TextareaBlock
   | CheckboxBlock
@@ -371,7 +377,7 @@ export interface ModalState {
 /**
  * Action types (built-in)
  */
-export type BuiltInAction = 'navigate' | 'openModal' | 'closeModal' | 'setState';
+export type BuiltInAction = 'navigate' | 'openModal' | 'closeModal' | 'setState' | 'uploadImage' | 'uploadFile' | 'uploadVideo' | 'setFileTypes';
 
 /**
  * Action parameters for built-in actions

@@ -6,6 +6,9 @@
   import BlockRenderer from '../renderer/BlockRenderer.svelte';
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
   import { uploadVideo } from '../lib/services/videoService';
+  import { uploadImage } from '../lib/services/imageService';
+  import { uploadFile } from '../lib/services/fileService';
+  import { setAllowedFileTypes } from '../lib/services/assetService';
 
   // Publisher UI State - Local snapshots of CRDT state for reactive UI
   let publisherUIState = $state<Record<string, any>>({});
@@ -85,12 +88,24 @@
       const stateMap = loroCoordinator.getStateMap();
       const persistedState = stateMap.toJSON();
 
-      // Merge persisted state with initial state (persisted takes precedence)
-      publisherUIState = { ...initialState, ...persistedState };
+      // Also load collections from contentDoc (videos, images, files, etc.)
+      const contentMap = loroCoordinator.getContentMap();
+      const contentDocData = contentMap.toJSON();
 
-      // Initialize videos as empty array if not defined (for list-based templates)
+      // Merge: initial state < persisted state < contentDoc collections
+      publisherUIState = { ...initialState, ...persistedState, ...contentDocData };
+
+      // Initialize arrays as empty if not defined (for list-based templates)
       if (!publisherUIState.videos) {
         publisherUIState.videos = [];
+      }
+
+      if (!publisherUIState.images) {
+        publisherUIState.images = [];
+      }
+
+      if (!publisherUIState.files) {
+        publisherUIState.files = [];
       }
 
       console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
@@ -228,6 +243,18 @@
         await handleUploadVideo(params);
         break;
 
+      case 'uploadImage':
+        await handleUploadImage(params);
+        break;
+
+      case 'uploadFile':
+        await handleUploadFile(params);
+        break;
+
+      case 'setFileTypes':
+        handleSetFileTypes(params);
+        break;
+
       default:
         console.warn('⚠️ [PublisherApp] Unknown action:', action, 'Use setState for state updates');
     }
@@ -279,6 +306,121 @@
         [`${stateField}_error`]: String(error)
       };
       alert(`Video upload failed: ${error}`);
+    }
+  }
+
+  /**
+   * Handle image upload action
+   */
+  async function handleUploadImage(params: any) {
+    const { stateField = 'uploadedImage' } = params;
+
+    try {
+      console.log('🖼️ [PublisherApp] Starting image upload...');
+
+      // Set uploading state
+      publisherUIState = {
+        ...publisherUIState,
+        [`${stateField}_uploading`]: true,
+        [`${stateField}_error`]: null
+      };
+
+      const result = await uploadImage();
+
+      if (result) {
+        // Store image ID in state
+        publisherUIState = {
+          ...publisherUIState,
+          [stateField]: result.id,
+          [`${stateField}_filename`]: result.filename,
+          [`${stateField}_size`]: result.size,
+          [`${stateField}_uploading`]: false
+        };
+
+        console.log('✅ [PublisherApp] Image uploaded:', result);
+      } else {
+        // User cancelled
+        publisherUIState = {
+          ...publisherUIState,
+          [`${stateField}_uploading`]: false
+        };
+        console.log('ℹ️ [PublisherApp] Image upload cancelled by user');
+      }
+    } catch (error) {
+      console.error('❌ [PublisherApp] Image upload failed:', error);
+      publisherUIState = {
+        ...publisherUIState,
+        [`${stateField}_uploading`]: false,
+        [`${stateField}_error`]: String(error)
+      };
+      alert(`Image upload failed: ${error}`);
+    }
+  }
+
+  /**
+   * Handle file upload action
+   */
+  async function handleUploadFile(params: any) {
+    const { stateField = 'uploadedFile' } = params;
+
+    try {
+      console.log('📄 [PublisherApp] Starting file upload...');
+
+      // Set uploading state
+      publisherUIState = {
+        ...publisherUIState,
+        [`${stateField}_uploading`]: true,
+        [`${stateField}_error`]: null
+      };
+
+      const result = await uploadFile();
+
+      if (result) {
+        // Store file ID in state
+        publisherUIState = {
+          ...publisherUIState,
+          [stateField]: result.id,
+          [`${stateField}_filename`]: result.filename,
+          [`${stateField}_size`]: result.size,
+          [`${stateField}_uploading`]: false
+        };
+
+        console.log('✅ [PublisherApp] File uploaded:', result);
+      } else {
+        // User cancelled
+        publisherUIState = {
+          ...publisherUIState,
+          [`${stateField}_uploading`]: false
+        };
+        console.log('ℹ️ [PublisherApp] File upload cancelled by user');
+      }
+    } catch (error) {
+      console.error('❌ [PublisherApp] File upload failed:', error);
+      publisherUIState = {
+        ...publisherUIState,
+        [`${stateField}_uploading`]: false,
+        [`${stateField}_error`]: String(error)
+      };
+      alert(`File upload failed: ${error}`);
+    }
+  }
+
+  /**
+   * Handle set file types action
+   */
+  function handleSetFileTypes(params: any) {
+    const { types = [] } = params;
+
+    if (!Array.isArray(types)) {
+      console.error('❌ [PublisherApp] setFileTypes requires an array of file extensions');
+      return;
+    }
+
+    try {
+      setAllowedFileTypes(types);
+      console.log('✅ [PublisherApp] Allowed file types configured:', types);
+    } catch (error) {
+      console.error('❌ [PublisherApp] Failed to set file types:', error);
     }
   }
 

@@ -22,6 +22,7 @@ import HeadingBlock from './blocks/HeadingBlock.svelte';
 import LabelBlock from './blocks/LabelBlock.svelte';
 import ImageBlock from './blocks/ImageBlock.svelte';
 import VideoBlock from './blocks/VideoBlock.svelte';
+import FileBlock from './blocks/FileBlock.svelte';
 import InputBlock from './blocks/InputBlock.svelte';
 import TextareaBlock from './blocks/TextareaBlock.svelte';
 import CheckboxBlock from './blocks/CheckboxBlock.svelte';
@@ -181,6 +182,9 @@ const hasForEach = $derived('forEach' in block && block.forEach);
 
   {:else if block.type === 'video'}
     <VideoBlock {block} {context} {onAction} {onStateChange} />
+
+  {:else if block.type === 'file'}
+    <FileBlock {block} {context} {onAction} {onStateChange} />
 
   {:else if block.type === 'input'}
     <InputBlock {block} {context} {onAction} {onStateChange} />
