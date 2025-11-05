@@ -1,0 +1,175 @@
+name: "Canvas Patterns"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    selectedPattern::
+      type: "string"
+      initial: "wave"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "patterns"
+      name: "patterns"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 1200px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Canvas Patterns - Generative Art"
+          css: "color: #2563eb; margin-bottom: 1rem;"
+
+        - ::
+          type: "text"
+          content: "Math functions evaluated in OCaml, rendered with WebGL"
+          css: "color: #6b7280; margin-bottom: 2rem;"
+
+        - ::
+          type: "container"
+          layout: "flex"
+          direction: "row"
+          gap: "1rem"
+          css: "margin-bottom: 2rem;"
+          blocks::
+            - ::
+              type: "button"
+              content: "Wave"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "wave"
+              css: "padding: 0.75rem 1.5rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+            - ::
+              type: "button"
+              content: "Ripple"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "ripple"
+              css: "padding: 0.75rem 1.5rem; background: #8b5cf6; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+            - ::
+              type: "button"
+              content: "Spiral"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "spiral"
+              css: "padding: 0.75rem 1.5rem; background: #ec4899; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+            - ::
+              type: "button"
+              content: "Plasma"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "plasma"
+              css: "padding: 0.75rem 1.5rem; background: #f59e0b; color: white; border: none; border-radius: 6px; cursor: pointer;"
+
+        - ::
+          type: "canvas"
+          width: 600
+          height: 600
+          gridSize: 100
+          pattern: "sin(x * 0.1 + time)"
+          when: "${ selectedPattern == 'wave' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 10px 25px rgba(0,0,0,0.2);"
+
+        - ::
+          type: "canvas"
+          width: 600
+          height: 600
+          gridSize: 100
+          pattern: "sin(distance(x, y, 50, 50) * 0.3 - time * 2)"
+          when: "${ selectedPattern == 'ripple' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 10px 25px rgba(0,0,0,0.2);"
+
+        - ::
+          type: "canvas"
+          width: 600
+          height: 600
+          gridSize: 100
+          pattern: "sin(atan2(y - 50, x - 50) * 5 + distance(x, y, 50, 50) * 0.2 - time)"
+          when: "${ selectedPattern == 'spiral' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 10px 25px rgba(0,0,0,0.2);"
+
+        - ::
+          type: "canvas"
+          width: 600
+          height: 600
+          gridSize: 100
+          pattern: "sin(x * 0.1) * cos(y * 0.1) + sin(time)"
+          when: "${ selectedPattern == 'plasma' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 10px 25px rgba(0,0,0,0.2);"
+
+        - ::
+          type: "section"
+          css: "margin-top: 2rem; padding: 1.5rem; background: #f9fafb; border-radius: 8px;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "Current Pattern: {{selectedPattern}}"
+              css: "margin: 0 0 1rem 0; color: #374151;"
+
+            - ::
+              type: "text"
+              content: "Wave: Simple sine wave - sin(x * 0.1 + time)"
+              when: "${ selectedPattern == 'wave' }"
+              css: "color: #6b7280; font-family: monospace; font-size: 0.875rem;"
+
+            - ::
+              type: "text"
+              content: "Ripple: Circular ripple from center - sin(distance(x, y, 50, 50) * 0.3 - time * 2)"
+              when: "${ selectedPattern == 'ripple' }"
+              css: "color: #6b7280; font-family: monospace; font-size: 0.875rem;"
+
+            - ::
+              type: "text"
+              content: "Spiral: Rotating spiral - sin(atan2(y-50, x-50) * 5 + distance(...) * 0.2 - time)"
+              when: "${ selectedPattern == 'spiral' }"
+              css: "color: #6b7280; font-family: monospace; font-size: 0.875rem;"
+
+            - ::
+              type: "text"
+              content: "Plasma: Combined waves - sin(x * 0.1) * cos(y * 0.1) + sin(time)"
+              when: "${ selectedPattern == 'plasma' }"
+              css: "color: #6b7280; font-family: monospace; font-size: 0.875rem;"
+
+        - ::
+          type: "section"
+          css: "margin-top: 2rem; padding: 1.5rem; background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "✨ How it works"
+              css: "margin: 0 0 1rem 0; color: #1e40af;"
+
+            - ::
+              type: "text"
+              content: "1. HUML defines the pattern as a CEL expression"
+              css: "color: #1e3a8a; margin: 0.5rem 0;"
+
+            - ::
+              type: "text"
+              content: "2. OCaml evaluates the expression for 100x100 grid (10,000 cells)"
+              css: "color: #1e3a8a; margin: 0.5rem 0;"
+
+            - ::
+              type: "text"
+              content: "3. WebGL renders the result at 60 FPS"
+              css: "color: #1e3a8a; margin: 0.5rem 0;"
+
+            - ::
+              type: "text"
+              content: "4. Math functions (sin, cos, atan2, distance) computed in OCaml for performance"
+              css: "color: #1e3a8a; margin: 0.5rem 0;"

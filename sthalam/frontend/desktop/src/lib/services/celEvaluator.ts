@@ -136,7 +136,12 @@ function ensureLoaded(): CELEvaluator {
  * Uses direct JavaScript object access - no JSON serialization!
  * Supports Loro maps, plain objects, and any JavaScript value.
  *
- * @param expr CEL expression string
+ * **NOTE on ${ } syntax:**
+ * The OCaml WASM layer automatically strips `${ }` markers before parsing.
+ * Blocks should pass expressions as-is without checking for `${ }`.
+ * Both `"${ user.name }"` and `"user.name"` work identically.
+ *
+ * @param expr CEL expression string (with or without ${ } markers)
  * @param context JavaScript object (Loro map, plain object, etc.)
  * @returns Evaluation result
  *
@@ -152,6 +157,13 @@ function ensureLoaded(): CELEvaluator {
  * const context = { count: 5, items: [1, 2, 3] };
  * const result = evaluateCEL("count * items.size()", context);
  * console.log(result); // 15
+ * ```
+ *
+ * @example
+ * ```typescript
+ * // Both syntaxes work identically:
+ * evaluateCEL("${ user.name }", context);  // Strips ${ } → evaluates "user.name"
+ * evaluateCEL("user.name", context);       // Evaluates "user.name" directly
  * ```
  */
 export function evaluateCEL(expr: string, context: any): any {

@@ -220,20 +220,28 @@ export interface FormBlock extends BaseBlock {
 
 export interface CanvasBlock extends BaseBlock {
   type: 'canvas';
-  mode?: 'pattern' | 'chart' | 'interactive' | 'custom';
-  width?: number;
-  height?: number;
 
-  /** Pattern mode (current implementation) */
-  gridSize?: number;
-  cellSize?: number;
-  pattern?: string;  // CEL expression for selected pattern
-  expressions?: Record<string, string>;  // Pattern name → CEL expression
+  /** Canvas dimensions */
+  width?: number;  // Default: 600
+  height?: number; // Default: 400
+
+  /** Rendering data (from state via CEL) */
+  entities?: string;   // CEL expression returning array of objects to render
+  pattern?: string;    // CEL expression for pattern mode: "${sin(x * 0.1 + time)}"
+  gridSize?: number;   // Grid resolution for pattern evaluation
+  gridData?: string;   // CEL expression returning grid data array
+  chartData?: string;  // CEL expression returning chart data
 
   /** Animation */
-  autoplay?: boolean;
-  fps?: number;
-  onRender?: string;  // Action called after each frame
+  autoplay?: boolean;  // Default: true
+  fps?: number;        // Target FPS, default: 60
+
+  /** Event actions */
+  onRender?: string;      // Action called each frame
+  onMouseMove?: string;   // Action with {mouseX, mouseY}
+  onClick?: string;       // Action with {x, y}
+  onKeyDown?: string;     // Action with {key}
+  onKeyUp?: string;       // Action with {key}
 }
 
 export interface ModalBlock extends BaseBlock {
@@ -243,6 +251,23 @@ export interface ModalBlock extends BaseBlock {
   size?: 'small' | 'medium' | 'large' | 'fullscreen';
   closable?: boolean;  // Show close button (default: true)
   blocks?: Block[];
+
+  /** Multi-purpose modal configuration */
+  modalType?: 'dialog' | 'drawer' | 'popover';  // Default: 'dialog'
+  position?: 'left' | 'right' | 'top' | 'bottom';  // For drawer positioning
+  backdrop?: boolean;  // Show overlay backdrop (default: true)
+  closeOnBackdropClick?: boolean;  // Allow closing by clicking backdrop (default: true)
+  closeOnEscape?: boolean;  // Allow closing with Escape key (default: true)
+  onClose?: string;  // Action to dispatch when modal closes
+  closeParams?: Record<string, any>;  // Parameters for close action
+
+  /** Popover positioning */
+  anchorId?: string;  // ID of element to anchor popover to
+  placement?: 'top' | 'bottom' | 'left' | 'right';  // Popover placement
+
+  /** Custom dimensions */
+  width?: string;  // Custom width (e.g., "400px", "50%")
+  height?: string;  // Custom height (e.g., "600px", "80vh")
 }
 
 /**

@@ -105,6 +105,45 @@ stateUpdates::
 - Creating new objects in expressions: `{\"field\": "value", \"count\": 1}`
 - Nested quotes in string values: `message + \"Quote: \\\"hello\\\"\"`
 
+#### ⚠️ CRITICAL: Ternary Operators with String Literals
+
+When using ternary operators (`? :`) in interpolations (`{{ }}`), you **MUST use escaped double quotes** (`\"`), **NOT single quotes** (`'`):
+
+```yaml
+# ✅ CORRECT - Use escaped double quotes \" for string literals
+content: "Status: {{confirmed ? \"Confirmed ✓\" : \"Not confirmed\"}}"
+css: "{{isValid ? \"color: green;\" : \"color: red;\"}}"
+content: "{{showAdvanced ? \"Hide Advanced\" : \"Show Advanced\"}}"
+```
+
+```yaml
+# ❌ WRONG - Single quotes will NOT work
+content: "Status: {{confirmed ? 'Confirmed ✓' : 'Not confirmed'}}"
+# Result: Displays the literal text "Status: {{confirmed ? 'Confirmed ✓' : 'Not confirmed'}}"
+# The expression is not evaluated!
+```
+
+**Why this matters:**
+- CEL (Common Expression Language) requires double quotes for string literals
+- Single quotes are not recognized as valid string delimiters in CEL
+- Using single quotes causes the entire expression to fail silently
+- The raw template string is displayed instead of the evaluated result
+
+**Common patterns:**
+```yaml
+# Status messages
+content: "{{isLoggedIn ? \"Welcome back!\" : \"Please log in\"}}"
+
+# Button labels
+content: "{{expanded ? \"Collapse\" : \"Expand\"}}"
+
+# Dynamic styling
+css: "background: {{isDark ? \"#1f2937\" : \"#ffffff\"}}; color: {{isDark ? \"white\" : \"black\"}};"
+
+# Conditional icons/emojis
+content: "{{completed ? \"✓ Done\" : \"○ Pending\"}}"
+```
+
 **Examples:**
 ```yaml
 # Adding image to gallery
@@ -1354,6 +1393,180 @@ ui::
 
 ---
 
+### ✅ `modal` - Multi-purpose modal component
+
+The `modal` block supports three display modes: dialog (default), drawer, and popover.
+
+#### Dialog Mode (Default)
+
+Centered modal with backdrop overlay:
+
+```yaml
+- ::
+  type: "modal"
+  name: "confirmDialog"
+  visible: "${ publisherState.showConfirm }"
+  modalType: "dialog"
+  size: "medium"
+  backdrop: true
+  closeOnBackdropClick: true
+  closeOnEscape: true
+  closable: true
+  onClose: "setState"
+  closeParams::
+    stateUpdates::
+      showConfirm: "${ false }"
+  blocks::
+    - ::
+      type: "heading"
+      level: 2
+      content: "Are you sure?"
+    - ::
+      type: "text"
+      content: "This action cannot be undone."
+    - ::
+      type: "container"
+      layout: "flex"
+      direction: "row"
+      gap: "1rem"
+      css: "margin-top: 1.5rem;"
+      blocks::
+        - ::
+          type: "button"
+          content: "Cancel"
+          action: "setState"
+          stateUpdates::
+            showConfirm: "${ false }"
+        - ::
+          type: "button"
+          content: "Confirm"
+          action: "setState"
+          stateUpdates::
+            showConfirm: "${ false }"
+            confirmed: "${ true }"
+```
+
+#### Drawer Mode
+
+Side panel that slides in from left/right/top/bottom:
+
+```yaml
+- ::
+  type: "modal"
+  name: "settingsDrawer"
+  visible: "${ publisherState.showSettings }"
+  modalType: "drawer"
+  position: "right"
+  width: "400px"
+  backdrop: true
+  closeOnBackdropClick: true
+  closeOnEscape: true
+  onClose: "setState"
+  closeParams::
+    stateUpdates::
+      showSettings: "${ false }"
+  blocks::
+    - ::
+      type: "heading"
+      level: 2
+      content: "Settings"
+    - ::
+      type: "text"
+      content: "Configure your preferences here."
+```
+
+#### Popover Mode
+
+Small tooltip-style popup anchored to an element:
+
+```yaml
+# First, create a button with an ID
+- ::
+  type: "button"
+  id: "helpButton"
+  content: "?"
+  action: "setState"
+  stateUpdates::
+    showHelp: "${ !publisherState.showHelp }"
+
+# Then, create a popover anchored to it
+- ::
+  type: "modal"
+  name: "helpPopover"
+  visible: "${ publisherState.showHelp }"
+  modalType: "popover"
+  anchorId: "helpButton"
+  placement: "top"
+  closable: true
+  onClose: "setState"
+  closeParams::
+    stateUpdates::
+      showHelp: "${ false }"
+  blocks::
+    - ::
+      type: "text"
+      content: "Click here to get help with this feature."
+```
+
+**Properties:**
+
+**Core Properties:**
+- `name` - Modal identifier (string)
+- `visible` - CEL expression controlling visibility (string, e.g., `"${ publisherState.showModal }"`)
+- `blocks` - Child blocks to render inside modal (array)
+- `css` - Custom CSS styles (string)
+
+**Modal Type:**
+- `modalType` - `"dialog"` | `"drawer"` | `"popover"` (default: `"dialog"`)
+
+**Dialog/Drawer Sizing:**
+- `size` - `"small"` (400px) | `"medium"` (600px) | `"large"` (800px) | `"fullscreen"` (100vw)
+- `width` - Custom width (e.g., `"500px"`, `"80%"`) - overrides `size`
+- `height` - Custom height (e.g., `"400px"`, `"60vh"`)
+
+**Drawer Position:**
+- `position` - `"left"` | `"right"` | `"top"` | `"bottom"` (default: `"right"`)
+
+**Popover Position:**
+- `anchorId` - ID of element to anchor popover to (string)
+- `placement` - `"top"` | `"bottom"` | `"left"` | `"right"` (default: `"top"`)
+
+**Interaction:**
+- `backdrop` - Show overlay backdrop (boolean, default: `true`)
+- `closeOnBackdropClick` - Allow closing by clicking backdrop (boolean, default: `true`)
+- `closeOnEscape` - Allow closing with Escape key (boolean, default: `true`)
+- `closable` - Show close button (boolean, default: `true`)
+- `onClose` - Action name to dispatch when modal closes (string)
+- `closeParams` - Parameters for close action (object)
+
+**How it works:**
+- Modal visibility controlled by `visible` CEL expression
+- Renders with high z-index (1000 for backdrop, 1001 for content)
+- CSS transitions for smooth animations:
+  - Dialog: fade + scale
+  - Drawer: slide from edge
+  - Popover: fade + subtle scale
+- Escape key closes modal if `closeOnEscape` is `true`
+- Backdrop click closes modal if `closeOnBackdropClick` is `true`
+- Close button dispatches `onClose` action with `closeParams`
+- Popover automatically positions itself relative to anchor element
+- Supports nested blocks via BlockRenderer
+
+**CSS Customization:**
+
+All modal styles can be customized via the `css` property:
+
+```yaml
+- ::
+  type: "modal"
+  visible: "${ publisherState.showCustom }"
+  css: "background: linear-gradient(to bottom, #667eea, #764ba2); color: white; border-radius: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.4);"
+```
+
+**See:** `/docs/examples/12_modal_demo.huml` for complete modal examples
+
+---
+
 ## 6. Actions
 
 ### ✅ `setState` - Update State
@@ -1474,7 +1687,7 @@ css: "padding: 2rem; margin-bottom: 1rem;"
 
 ## 10. Implementation Status
 
-### ✅ FULLY WORKING (17 blocks)
+### ✅ FULLY WORKING (19 blocks)
 - `screen` - Top-level screen container
 - `container` - Flex/grid layout
 - `section` - Semantic section wrapper
@@ -1490,8 +1703,10 @@ css: "padding: 2rem; margin-bottom: 1rem;"
 - `link` - Hyperlinks with navigation support
 - `image` - Image display with staticAssets storage (asset IDs only, no external URLs)
 - `video` - HTML5 video player with staticAssets storage and OCaml asset IDs
+- `audio` - HTML5 audio player with staticAssets storage and OCaml asset IDs
 - `file` - File display with download button, metadata, and configurable types
 - `form` - Form container with submission handling
+- `modal` - Multi-purpose modal component (dialog, drawer, popover modes)
 
 ### ✅ FULLY WORKING (Features)
 - CEL expression evaluation (WASM)
@@ -1511,10 +1726,9 @@ css: "padding: 2rem; margin-bottom: 1rem;"
 - Configurable file types via `setFileTypes` action
 - Built-in CEL functions: `timestamp()`, `generateId()`, `size()`, `contains()`
 
-### 🚧 STUB/TODO (2 blocks)
+### 🚧 STUB/TODO (1 block)
 These show orange TODO placeholders:
 - `canvas` - Canvas graphics
-- `modal` - Modal dialogs
 
 ### 🚧 NOT IMPLEMENTED (Actions)
 These are not registered in actionDispatcher:
