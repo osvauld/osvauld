@@ -6,7 +6,7 @@
 
 import type { ImageBlock, Context, ActionHandler, StateChangeHandler } from '../../lib/types/huml';
 import { interpolateCEL } from '../../lib/services/celEvaluator';
-import { getImage, getImageFilename, createImageBlobUrl } from '../../lib/services/imageService';
+import { getAssetData, getAssetFilename, createAssetBlobUrl } from '../../lib/services/assetService';
 
 interface Props {
   block: ImageBlock;
@@ -35,16 +35,16 @@ const imageBlobUrl = $derived.by(() => {
   }
 
   // Look up in staticAssets
-  const imageData = getImage(imageId);
+  const imageData = getAssetData(imageId, 'image');
   if (!imageData) {
     console.warn('[ImageBlock] Image not found:', imageId);
     return null;
   }
 
   // Get filename for MIME type detection
-  const filename = getImageFilename(imageId);
+  const filename = getAssetFilename(imageId);
 
-  const blobUrl = createImageBlobUrl(imageData, filename);
+  const blobUrl = createAssetBlobUrl(imageData, imageId, filename);
 
   // Cache it
   blobUrlCache.set(imageId, blobUrl);

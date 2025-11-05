@@ -6,7 +6,7 @@
 
 import type { FileBlock, Context, ActionHandler, StateChangeHandler } from '../../lib/types/huml';
 import { interpolateCEL } from '../../lib/services/celEvaluator';
-import { getFile, getFileFilename, downloadFile, formatFileSize, getFileIcon } from '../../lib/services/fileService';
+import { getAssetData, getAssetFilename, downloadAsset, formatFileSize, getAssetIcon } from '../../lib/services/assetService';
 
 interface Props {
   block: FileBlock;
@@ -23,24 +23,24 @@ const fileId = $derived(interpolateCEL(block.src, context));
 // Check if file exists and get metadata
 const fileExists = $derived.by(() => {
   if (!fileId) return false;
-  const fileData = getFile(fileId);
+  const fileData = getAssetData(fileId, 'file');
   return fileData !== null;
 });
 
 const filename = $derived.by(() => {
   if (!fileId) return '';
-  return getFileFilename(fileId) || fileId;
+  return getAssetFilename(fileId) || fileId;
 });
 
 const fileSize = $derived.by(() => {
   if (!fileId) return '';
-  const fileData = getFile(fileId);
+  const fileData = getAssetData(fileId, 'file');
   if (!fileData) return '';
   return formatFileSize(fileData.length);
 });
 
 const fileIcon = $derived.by(() => {
-  return getFileIcon(filename);
+  return getAssetIcon(filename, 'file');
 });
 
 // Interpolate other properties
@@ -49,7 +49,7 @@ const styles = $derived(block.css ? interpolateCEL(block.css, context) : undefin
 // Handle download button click
 function handleDownload() {
   if (fileId && filename) {
-    downloadFile(fileId, filename);
+    downloadAsset(fileId, filename);
   }
 }
 </script>

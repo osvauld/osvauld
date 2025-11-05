@@ -5,7 +5,7 @@
 
 import type { VideoBlock, Context, ActionHandler, StateChangeHandler } from '../../lib/types/huml';
 import { interpolateCEL } from '../../lib/services/celEvaluator';
-import { getVideo, getVideoFilename, createVideoBlobUrl } from '../../lib/services/videoService';
+import { getAssetData, getAssetFilename, createAssetBlobUrl } from '../../lib/services/assetService';
 import { onDestroy } from 'svelte';
 
 interface Props {
@@ -39,17 +39,17 @@ const videoBlobUrl = $derived.by(() => {
     return blobUrlCache.get(videoId)!;
   }
 
-  // Otherwise, look up in contentDoc
-  const videoData = getVideo(videoId);
+  // Otherwise, look up in staticAssets
+  const videoData = getAssetData(videoId, 'video');
   if (!videoData) {
     console.warn('[VideoBlock] Video not found:', videoId);
     return null;
   }
 
   // Get filename for MIME type detection
-  const filename = getVideoFilename(videoId);
+  const filename = getAssetFilename(videoId);
 
-  const blobUrl = createVideoBlobUrl(videoData, filename);
+  const blobUrl = createAssetBlobUrl(videoData, videoId, filename);
 
   // Cache it
   blobUrlCache.set(videoId, blobUrl);

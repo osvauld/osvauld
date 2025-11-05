@@ -8,7 +8,7 @@ import { readFile } from '@tauri-apps/plugin-fs';
 import { loroCoordinator } from '../../shared/loro/loroCoordinator';
 import { generateAssetIdCEL } from './celEvaluator';
 
-export type AssetType = 'video' | 'image' | 'file';
+export type AssetType = 'video' | 'image' | 'file' | 'audio';
 
 export interface AssetMetadata {
   id: string;
@@ -21,7 +21,7 @@ export interface AssetMetadata {
 /**
  * Default file filters for different asset types
  */
-const DEFAULT_ASSET_FILTERS = {
+const DEFAULT_ASSET_FILTERS: Record<AssetType, { name: string; extensions: string[] }> = {
   video: {
     name: 'Video (Browser Supported)',
     extensions: ['mp4', 'webm', 'ogg']
@@ -33,6 +33,10 @@ const DEFAULT_ASSET_FILTERS = {
   file: {
     name: 'Documents',
     extensions: ['pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx', 'csv']
+  },
+  audio: {
+    name: 'Audio Files',
+    extensions: ['mp3', 'ogg', 'aac', 'flac', 'm4a']
   }
 };
 
@@ -90,6 +94,17 @@ function getMimeType(filename: string, assetType: AssetType): string {
       case 'xls': case 'xlsx': return 'application/vnd.ms-excel';
       case 'csv': return 'text/csv';
       default: return 'application/octet-stream';
+    }
+  }
+
+  if (assetType === 'audio') {
+    switch (ext) {
+      case 'mp3': return 'audio/mpeg';
+      case 'ogg': return 'audio/ogg';
+      case 'aac': return 'audio/aac';
+      case 'flac': return 'audio/flac';
+      case 'm4a': return 'audio/mp4';
+      default: return 'audio/mpeg';
     }
   }
 
@@ -185,24 +200,26 @@ export function getAsset(assetId: string): Uint8Array | null {
 /**
  * Create blob URL from asset data
  * @param data Asset binary data
- * @param assetId Asset ID (for filename/MIME type detection)
+ * @param assetId Asset ID (for asset type detection)
+ * @param filename Optional filename for better MIME type detection
  * @returns Blob URL
  */
-export function createAssetBlobUrl(data: Uint8Array, assetId: string): string {
+export function createAssetBlobUrl(data: Uint8Array, assetId: string, filename?: string): string {
   try {
     // Extract asset type from ID (format: asset_{type}_{timestamp}_{random})
     const parts = assetId.split('_');
     const assetType = (parts[1] || 'file') as AssetType;
 
-    // Detect MIME type (would ideally also use filename, but we don't store it)
-    const mimeType = getMimeType('', assetType);
+    // Detect MIME type using filename if provided, otherwise use asset type
+    const mimeType = getMimeType(filename || '', assetType);
 
     // Create blob with proper MIME type
-    const buffer = Uint8Array.from(data);
+    // Use data directly if it's already a Uint8Array, otherwise convert
+    const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
     const blob = new Blob([buffer], { type: mimeType });
+
     const url = URL.createObjectURL(blob);
 
-    console.log(`🔗 [AssetService] Blob URL created for ${assetType}:`, url);
     return url;
   } catch (error) {
     console.error('❌ [AssetService] Error creating blob URL:', error);
@@ -252,4 +269,178 @@ export function getAllowedFileTypes(): string[] {
 
   // Return default if not configured
   return DEFAULT_ASSET_FILTERS.file.extensions;
+}
+
+/**
+ * Get asset data with legacy CRDT fallback
+ * Priority: 1. Static assets (new), 2. Legacy CRDT storage
+ * @param assetId Asset ID to retrieve
+ * @param assetType Optional asset type for legacy fallback
+ * @returns Asset data as Uint8Array, or null if not found
+ */
+export function getAssetData(assetId: string, assetType?: AssetType): Uint8Array | null {
+  try {
+    // First check static assets (new non-CRDT storage)
+    const staticAsset = loroCoordinator.getStaticAsset(assetId);
+    if (staticAsset) {
+      return Uint8Array.from(staticAsset);
+    }
+
+    // Fallback to legacy CRDT storage
+    // Auto-detect type from ID if not provided
+    const detectedType = assetType || (assetId.split('_')[1] as AssetType);
+
+    if (detectedType === 'video') {
+      // Videos were stored in a separate map
+      const videosMap = loroCoordinator.getVideosMap();
+      const videoData = videosMap.get(assetId);
+      if (videoData instanceof Uint8Array) {
+        return Uint8Array.from(videoData);
+      }
+    } else {
+      // Images and files were stored in contentDoc
+      const contentMap = loroCoordinator.getContentMap();
+      const assetData = contentMap.get(assetId);
+      if (assetData instanceof Uint8Array) {
+        return Uint8Array.from(assetData);
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error('❌ [AssetService] Error getting asset data:', error);
+    return null;
+  }
+}
+
+/**
+ * Get asset filename from contentDoc
+ * @param assetId Asset ID
+ * @returns Filename or empty string
+ */
+export function getAssetFilename(assetId: string): string {
+  try {
+    // Check contentDoc for filename (works for all asset types)
+    const contentMap = loroCoordinator.getContentMap();
+    const filename = contentMap.get(`${assetId}_filename`);
+    if (typeof filename === 'string') {
+      return filename;
+    }
+
+    // Fallback: check videos map for legacy video filenames
+    const videosMap = loroCoordinator.getVideosMap();
+    const videoFilename = videosMap.get(`${assetId}_filename`);
+    if (typeof videoFilename === 'string') {
+      return videoFilename;
+    }
+
+    return '';
+  } catch (error) {
+    console.error('❌ [AssetService] Error getting asset filename:', error);
+    return '';
+  }
+}
+
+/**
+ * Download asset to user's computer
+ * @param assetId Asset ID to download
+ * @param filename Filename for the download
+ */
+export function downloadAsset(assetId: string, filename: string): void {
+  try {
+    // Get asset data
+    const assetData = getAssetData(assetId);
+    if (!assetData) {
+      console.error('❌ [AssetService] Asset not found for download:', assetId);
+      return;
+    }
+
+    // Extract asset type from ID
+    const parts = assetId.split('_');
+    const assetType = (parts[1] || 'file') as AssetType;
+
+    // Detect MIME type
+    const mimeType = getMimeType(filename, assetType);
+
+    // Create blob and blob URL
+    // Convert to standard Uint8Array for compatibility
+    const buffer = Uint8Array.from(assetData);
+    const blob = new Blob([buffer], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+
+    // Create temporary anchor element and trigger download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+
+    // Cleanup
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    console.log('✅ [AssetService] Asset downloaded:', filename);
+  } catch (error) {
+    console.error('❌ [AssetService] Download failed:', error);
+  }
+}
+
+/**
+ * Format file size in human-readable format
+ * @param bytes File size in bytes
+ * @returns Formatted string (e.g., "1.5 MB")
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '0 B';
+
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const k = 1024;
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+  return `${(bytes / Math.pow(k, i)).toFixed(1)} ${units[i]}`;
+}
+
+/**
+ * Get emoji icon for asset type
+ * @param filename Filename to detect type
+ * @param assetType Optional asset type override
+ * @returns Emoji icon
+ */
+export function getAssetIcon(filename: string, assetType?: AssetType): string {
+  // If asset type is provided, use it
+  if (assetType) {
+    switch (assetType) {
+      case 'image': return '🖼️';
+      case 'video': return '🎬';
+      case 'file': return '📄';
+    }
+  }
+
+  // Otherwise detect from filename extension
+  const ext = filename.toLowerCase().split('.').pop() || '';
+
+  // Image extensions
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
+    return '🖼️';
+  }
+
+  // Video extensions
+  if (['mp4', 'webm', 'ogg', 'ogv', 'm4v'].includes(ext)) {
+    return '🎬';
+  }
+
+  // Audio extensions
+  if (['mp3', 'wav', 'ogg', 'aac', 'flac'].includes(ext)) {
+    return '🎵';
+  }
+
+  // Document types
+  if (['pdf'].includes(ext)) return '📕';
+  if (['doc', 'docx'].includes(ext)) return '📘';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return '📊';
+  if (['txt', 'md'].includes(ext)) return '📝';
+  if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) return '📦';
+
+  // Default file icon
+  return '📄';
 }

@@ -83,6 +83,43 @@ css: "opacity: {{isValid ? 1 : 0.5}}; color: {{theme.color}}"
 - `${ expr }` → Returns typed value (true, 42, "result")
 - `{{ expr }}` → Returns string (interpolated into text)
 
+#### Quote Escaping in CEL Expressions
+
+When you need to include **string literals with quotes** inside CEL expressions (especially in `stateUpdates`), use a **single backslash** to escape quotes:
+
+```yaml
+# ✅ CORRECT - Use \" to escape quotes in object literals
+stateUpdates::
+  items: "${ items + [{\"id\": string(now()), \"name\": itemName, \"createdAt\": now()}] }"
+```
+
+```yaml
+# ❌ WRONG - Triple backslash (\\") causes CEL lexer error
+stateUpdates::
+  items: "${ items + [{\\\"id\\\": string(now())}] }"
+  # Error: Cel.Cel_lexer.Lexer_error("Unexpected character: '\\'")
+```
+
+**Common use cases:**
+- Array concatenation with object literals: `items + [{\"key\": value}]`
+- Creating new objects in expressions: `{\"field\": "value", \"count\": 1}`
+- Nested quotes in string values: `message + \"Quote: \\\"hello\\\"\"`
+
+**Examples:**
+```yaml
+# Adding image to gallery
+stateUpdates::
+  images: "${ images + [{\"id\": string(now()), \"imageId\": uploadedImageId, \"title\": currentTitle, \"uploadedAt\": now()}] }"
+
+# Adding video with metadata
+stateUpdates::
+  videos: "${ videos + [{\"id\": string(timestamp()), \"videoId\": uploadedVideoId, \"title\": currentTitle, \"uploadedAt\": timestamp()}] }"
+
+# Adding audio track
+stateUpdates::
+  audios: "${ audios + [{\"id\": string(now()), \"audioId\": uploadedAudioId, \"title\": audioTitle, \"artist\": audioArtist, \"uploadedAt\": now()}] }"
+```
+
 ---
 
 ## Template Structure

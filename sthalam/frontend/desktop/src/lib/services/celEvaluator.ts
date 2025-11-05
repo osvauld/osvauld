@@ -267,7 +267,7 @@ export function isCELLoaded(): boolean {
  * console.log(imageId); // "asset_image_1762338443250_b2vt9pblk5"
  * ```
  */
-export function generateAssetIdCEL(assetType: 'video' | 'image' | 'file'): string {
+export function generateAssetIdCEL(assetType: 'video' | 'image' | 'file' | 'audio'): string {
   const evaluator = ensureLoaded();
   return evaluator.generateAssetId(assetType);
 }

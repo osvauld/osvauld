@@ -5,10 +5,7 @@
   import { parseHUML } from '../lib/services/humlParser';
   import BlockRenderer from '../renderer/BlockRenderer.svelte';
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
-  import { uploadVideo } from '../lib/services/videoService';
-  import { uploadImage } from '../lib/services/imageService';
-  import { uploadFile } from '../lib/services/fileService';
-  import { setAllowedFileTypes } from '../lib/services/assetService';
+  import { uploadAsset, setAllowedFileTypes } from '../lib/services/assetService';
 
   // Publisher UI State - Local snapshots of CRDT state for reactive UI
   let publisherUIState = $state<Record<string, any>>({});
@@ -20,6 +17,14 @@
 
   // Computed values - derived synchronously (no infinite loop since we removed time/fps/mouse)
   let computedValues = $derived(evaluateComputedValues());
+
+  // Asset type configuration for unified upload handler
+  const ASSET_CONFIG = {
+    image: { emoji: '🖼️', label: 'Image', defaultField: 'uploadedImage' },
+    video: { emoji: '🎬', label: 'Video', defaultField: 'uploadedVideo' },
+    file: { emoji: '📄', label: 'File', defaultField: 'uploadedFile' },
+    audio: { emoji: '🎵', label: 'Audio', defaultField: 'uploadedAudio' }
+  };
 
   // CRDT subscriptions
   let templateUnsubscribe: (() => void) | null = null;
@@ -106,6 +111,10 @@
 
       if (!publisherUIState.files) {
         publisherUIState.files = [];
+      }
+
+      if (!publisherUIState.audios) {
+        publisherUIState.audios = [];
       }
 
       console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
@@ -240,15 +249,19 @@
         break;
 
       case 'uploadVideo':
-        await handleUploadVideo(params);
+        await handleUploadAsset({ assetType: 'video', ...params });
         break;
 
       case 'uploadImage':
-        await handleUploadImage(params);
+        await handleUploadAsset({ assetType: 'image', ...params });
         break;
 
       case 'uploadFile':
-        await handleUploadFile(params);
+        await handleUploadAsset({ assetType: 'file', ...params });
+        break;
+
+      case 'uploadAudio':
+        await handleUploadAsset({ assetType: 'audio', ...params });
         break;
 
       case 'setFileTypes':
@@ -261,147 +274,60 @@
   }
 
   /**
-   * Handle video upload action
+   * Unified asset upload handler (images, videos, files, etc.)
+   * Extensible: add new asset types to ASSET_CONFIG
    */
-  async function handleUploadVideo(params: any) {
-    const { stateField = 'uploadedVideo' } = params;
+  async function handleUploadAsset(params: any) {
+    const { assetType, stateField } = params;
 
-    try {
-      console.log('🎬 [PublisherApp] Starting video upload...');
-
-      // Set uploading state
-      publisherUIState = {
-        ...publisherUIState,
-        [`${stateField}_uploading`]: true,
-        [`${stateField}_error`]: null
-      };
-
-      const result = await uploadVideo();
-
-      if (result) {
-        // Store video ID in state
-        publisherUIState = {
-          ...publisherUIState,
-          [stateField]: result.id,
-          [`${stateField}_filename`]: result.filename,
-          [`${stateField}_size`]: result.size,
-          [`${stateField}_uploading`]: false
-        };
-
-        console.log('✅ [PublisherApp] Video uploaded and stored in contentDoc:', result);
-        console.log('📦 [PublisherApp] Video is now in contentDoc.videos map with ID:', result.id);
-      } else {
-        // User cancelled
-        publisherUIState = {
-          ...publisherUIState,
-          [`${stateField}_uploading`]: false
-        };
-        console.log('ℹ️ [PublisherApp] Video upload cancelled by user');
-      }
-    } catch (error) {
-      console.error('❌ [PublisherApp] Video upload failed:', error);
-      publisherUIState = {
-        ...publisherUIState,
-        [`${stateField}_uploading`]: false,
-        [`${stateField}_error`]: String(error)
-      };
-      alert(`Video upload failed: ${error}`);
+    // Validate asset type
+    if (!assetType || !ASSET_CONFIG[assetType]) {
+      console.error('❌ [PublisherApp] Invalid asset type:', assetType);
+      return;
     }
-  }
 
-  /**
-   * Handle image upload action
-   */
-  async function handleUploadImage(params: any) {
-    const { stateField = 'uploadedImage' } = params;
+    const config = ASSET_CONFIG[assetType];
+    const field = stateField || config.defaultField;
 
     try {
-      console.log('🖼️ [PublisherApp] Starting image upload...');
+      console.log(`${config.emoji} [PublisherApp] Starting ${config.label.toLowerCase()} upload...`);
 
       // Set uploading state
       publisherUIState = {
         ...publisherUIState,
-        [`${stateField}_uploading`]: true,
-        [`${stateField}_error`]: null
+        [`${field}_uploading`]: true,
+        [`${field}_error`]: null
       };
 
-      const result = await uploadImage();
+      const result = await uploadAsset(assetType);
 
       if (result) {
-        // Store image ID in state
+        // Store asset ID in state
         publisherUIState = {
           ...publisherUIState,
-          [stateField]: result.id,
-          [`${stateField}_filename`]: result.filename,
-          [`${stateField}_size`]: result.size,
-          [`${stateField}_uploading`]: false
+          [field]: result.id,
+          [`${field}_filename`]: result.filename,
+          [`${field}_size`]: result.size,
+          [`${field}_uploading`]: false
         };
 
-        console.log('✅ [PublisherApp] Image uploaded:', result);
+        console.log(`✅ [PublisherApp] ${config.label} uploaded:`, result);
       } else {
         // User cancelled
         publisherUIState = {
           ...publisherUIState,
-          [`${stateField}_uploading`]: false
+          [`${field}_uploading`]: false
         };
-        console.log('ℹ️ [PublisherApp] Image upload cancelled by user');
+        console.log(`ℹ️ [PublisherApp] ${config.label} upload cancelled by user`);
       }
     } catch (error) {
-      console.error('❌ [PublisherApp] Image upload failed:', error);
+      console.error(`❌ [PublisherApp] ${config.label} upload failed:`, error);
       publisherUIState = {
         ...publisherUIState,
-        [`${stateField}_uploading`]: false,
-        [`${stateField}_error`]: String(error)
+        [`${field}_uploading`]: false,
+        [`${field}_error`]: String(error)
       };
-      alert(`Image upload failed: ${error}`);
-    }
-  }
-
-  /**
-   * Handle file upload action
-   */
-  async function handleUploadFile(params: any) {
-    const { stateField = 'uploadedFile' } = params;
-
-    try {
-      console.log('📄 [PublisherApp] Starting file upload...');
-
-      // Set uploading state
-      publisherUIState = {
-        ...publisherUIState,
-        [`${stateField}_uploading`]: true,
-        [`${stateField}_error`]: null
-      };
-
-      const result = await uploadFile();
-
-      if (result) {
-        // Store file ID in state
-        publisherUIState = {
-          ...publisherUIState,
-          [stateField]: result.id,
-          [`${stateField}_filename`]: result.filename,
-          [`${stateField}_size`]: result.size,
-          [`${stateField}_uploading`]: false
-        };
-
-        console.log('✅ [PublisherApp] File uploaded:', result);
-      } else {
-        // User cancelled
-        publisherUIState = {
-          ...publisherUIState,
-          [`${stateField}_uploading`]: false
-        };
-        console.log('ℹ️ [PublisherApp] File upload cancelled by user');
-      }
-    } catch (error) {
-      console.error('❌ [PublisherApp] File upload failed:', error);
-      publisherUIState = {
-        ...publisherUIState,
-        [`${stateField}_uploading`]: false,
-        [`${stateField}_error`]: String(error)
-      };
-      alert(`File upload failed: ${error}`);
+      alert(`${config.label} upload failed: ${error}`);
     }
   }
 

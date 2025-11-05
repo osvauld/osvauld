@@ -98,6 +98,15 @@ export interface FileBlock extends BaseBlock {
   src: string;  // Asset ID (asset_file_*)
 }
 
+export interface AudioBlock extends BaseBlock {
+  type: 'audio';
+  src: string;  // Asset ID (asset_audio_*)
+  controls?: boolean;
+  autoplay?: boolean;
+  loop?: boolean;
+  muted?: boolean;
+}
+
 /**
  * Input Blocks
  */
@@ -268,6 +277,7 @@ export type Block =
   | ImageBlock
   | VideoBlock
   | FileBlock
+  | AudioBlock
   | InputBlock
   | TextareaBlock
   | CheckboxBlock
