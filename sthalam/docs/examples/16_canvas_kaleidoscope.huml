@@ -1,0 +1,359 @@
+name: "Kaleidoscope Visualizer"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    symmetry::
+      type: "number"
+      initial: 6
+
+    rotationSpeed::
+      type: "number"
+      initial: 1.0
+
+    complexity::
+      type: "string"
+      initial: "medium"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "kaleidoscope"
+      name: "kaleidoscope"
+      isEntryPoint: true
+      css: "padding: 0; margin: 0; background: #000; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; font-family: system-ui;"
+      blocks::
+        # Title overlay
+        - ::
+          type: "container"
+          layout: "flex"
+          direction: "column"
+          gap: "0"
+          css: "position: absolute; top: 2rem; left: 50%; transform: translateX(-50%); z-index: 10; text-align: center;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 1
+              content: "✨ Kaleidoscope"
+              css: "color: white; margin: 0; font-size: 3rem; text-shadow: 0 0 20px rgba(255,255,255,0.5), 0 0 40px rgba(139,92,246,0.3);"
+
+            - ::
+              type: "text"
+              content: "Infinite symmetry in real-time"
+              css: "color: rgba(255,255,255,0.7); margin: 0.5rem 0 0 0; font-size: 1.1rem; text-shadow: 0 2px 10px rgba(0,0,0,0.5);"
+
+        # 6-fold symmetry (default)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 800
+          height: 800
+          gridSize: 100
+          pattern: "sin(abs(sin(atan2(y - 50, x - 50) * 6 + time * {{rotationSpeed}})) * distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ symmetry == 6 }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 0 60px rgba(139, 92, 246, 0.5), 0 0 100px rgba(59, 130, 246, 0.3); border-radius: 50%; border: 4px solid rgba(255,255,255,0.1);"
+
+        # 4-fold symmetry (square)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 800
+          height: 800
+          gridSize: 100
+          pattern: "sin(abs(sin(atan2(y - 50, x - 50) * 4 + time * {{rotationSpeed}})) * distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ symmetry == 4 }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 0 60px rgba(139, 92, 246, 0.5), 0 0 100px rgba(59, 130, 246, 0.3); border-radius: 50%; border: 4px solid rgba(255,255,255,0.1);"
+
+        # 8-fold symmetry (octagon)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 800
+          height: 800
+          gridSize: 100
+          pattern: "sin(abs(sin(atan2(y - 50, x - 50) * 8 + time * {{rotationSpeed}})) * distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ symmetry == 8 }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 0 60px rgba(139, 92, 246, 0.5), 0 0 100px rgba(59, 130, 246, 0.3); border-radius: 50%; border: 4px solid rgba(255,255,255,0.1);"
+
+        # 12-fold symmetry (dodecagon)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 800
+          height: 800
+          gridSize: 100
+          pattern: "sin(abs(sin(atan2(y - 50, x - 50) * 12 + time * {{rotationSpeed}})) * distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ symmetry == 12 }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 0 60px rgba(139, 92, 246, 0.5), 0 0 100px rgba(59, 130, 246, 0.3); border-radius: 50%; border: 4px solid rgba(255,255,255,0.1);"
+
+        # 3-fold symmetry (triangle)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 800
+          height: 800
+          gridSize: 100
+          pattern: "sin(abs(sin(atan2(y - 50, x - 50) * 3 + time * {{rotationSpeed}})) * distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ symmetry == 3 }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 0 60px rgba(139, 92, 246, 0.5), 0 0 100px rgba(59, 130, 246, 0.3); border-radius: 50%; border: 4px solid rgba(255,255,255,0.1);"
+
+        # 5-fold symmetry (pentagon)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 800
+          height: 800
+          gridSize: 100
+          pattern: "sin(abs(sin(atan2(y - 50, x - 50) * 5 + time * {{rotationSpeed}})) * distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ symmetry == 5 }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 0 60px rgba(139, 92, 246, 0.5), 0 0 100px rgba(59, 130, 246, 0.3); border-radius: 50%; border: 4px solid rgba(255,255,255,0.1);"
+
+        # Control panel overlay
+        - ::
+          type: "container"
+          layout: "flex"
+          direction: "column"
+          gap: "1.5rem"
+          css: "position: absolute; bottom: 2rem; left: 50%; transform: translateX(-50%); background: rgba(15, 23, 42, 0.9); padding: 2rem; border-radius: 16px; backdrop-filter: blur(10px); border: 2px solid rgba(255,255,255,0.1); box-shadow: 0 10px 40px rgba(0,0,0,0.5); z-index: 10; min-width: 500px;"
+          blocks::
+            # Symmetry controls
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "column"
+              gap: "0.75rem"
+              css: "border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 1.5rem;"
+              blocks::
+                - ::
+                  type: "heading"
+                  level: 4
+                  content: "🔷 Symmetry Order"
+                  css: "margin: 0; color: #60a5fa; font-size: 1rem;"
+
+                - ::
+                  type: "container"
+                  layout: "flex"
+                  direction: "row"
+                  gap: "0.5rem"
+                  css: "flex-wrap: wrap;"
+                  blocks::
+                    - ::
+                      type: "button"
+                      content: "3"
+                      action: "setState"
+                      stateUpdates::
+                        symmetry: 3
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; min-width: 50px;"
+
+                    - ::
+                      type: "button"
+                      content: "4"
+                      action: "setState"
+                      stateUpdates::
+                        symmetry: 4
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; min-width: 50px;"
+
+                    - ::
+                      type: "button"
+                      content: "5"
+                      action: "setState"
+                      stateUpdates::
+                        symmetry: 5
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; min-width: 50px;"
+
+                    - ::
+                      type: "button"
+                      content: "6"
+                      action: "setState"
+                      stateUpdates::
+                        symmetry: 6
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; min-width: 50px;"
+
+                    - ::
+                      type: "button"
+                      content: "8"
+                      action: "setState"
+                      stateUpdates::
+                        symmetry: 8
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; min-width: 50px;"
+
+                    - ::
+                      type: "button"
+                      content: "12"
+                      action: "setState"
+                      stateUpdates::
+                        symmetry: 12
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #8b5cf6, #6366f1); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; min-width: 50px;"
+
+            # Rotation speed controls
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "column"
+              gap: "0.75rem"
+              blocks::
+                - ::
+                  type: "heading"
+                  level: 4
+                  content: "⚡ Rotation Speed"
+                  css: "margin: 0; color: #60a5fa; font-size: 1rem;"
+
+                - ::
+                  type: "container"
+                  layout: "flex"
+                  direction: "row"
+                  gap: "0.5rem"
+                  blocks::
+                    - ::
+                      type: "button"
+                      content: "0.5×"
+                      action: "setState"
+                      stateUpdates::
+                        rotationSpeed: 0.5
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; flex: 1;"
+
+                    - ::
+                      type: "button"
+                      content: "1.0×"
+                      action: "setState"
+                      stateUpdates::
+                        rotationSpeed: 1.0
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; flex: 1;"
+
+                    - ::
+                      type: "button"
+                      content: "2.0×"
+                      action: "setState"
+                      stateUpdates::
+                        rotationSpeed: 2.0
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; flex: 1;"
+
+                    - ::
+                      type: "button"
+                      content: "3.0×"
+                      action: "setState"
+                      stateUpdates::
+                        rotationSpeed: 3.0
+                      css: "padding: 0.5rem 1rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; flex: 1;"
+
+            # Info
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "column"
+              gap: "0.5rem"
+              css: "padding-top: 1rem; border-top: 1px solid rgba(255,255,255,0.1);"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "Current: {{symmetry}}-fold symmetry at {{rotationSpeed}}× speed"
+                  css: "color: #cbd5e1; font-size: 0.9rem; font-family: monospace; margin: 0;"
+
+                - ::
+                  type: "text"
+                  content: "💫 Formula: |sin(θ × n + t × speed)| × distance × 3 - t × 2"
+                  css: "color: #94a3b8; font-size: 0.85rem; font-family: monospace; margin: 0;"
+
+                - ::
+                  type: "text"
+                  content: "⚡ Rendering: 640,000 pixels at 60 FPS on GPU"
+                  css: "color: #22c55e; font-size: 0.85rem; font-weight: 600; margin: 0.5rem 0 0 0;"
+
+        # Information panel
+        - ::
+          type: "section"
+          css: "margin-top: 2rem; padding: 2rem; background: rgba(15, 23, 42, 0.95); border-radius: 16px; max-width: 900px; border: 2px solid rgba(139, 92, 246, 0.3);"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "🎨 About Kaleidoscopes"
+              css: "margin: 0 0 1rem 0; color: #a78bfa;"
+
+            - ::
+              type: "text"
+              content: "A kaleidoscope creates beautiful symmetrical patterns through rotational symmetry. Our GPU-powered implementation generates infinite variations in real-time."
+              css: "color: #cbd5e1; margin: 0.5rem 0; line-height: 1.6;"
+
+            - ::
+              type: "text"
+              content: "🔢 Mathematical Basis:"
+              css: "color: #60a5fa; margin: 1.5rem 0 0.5rem 0; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "• Polar coordinates (r, θ) transformed to Cartesian (x, y)"
+              css: "color: #94a3b8; margin: 0.25rem 0; font-family: monospace; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "• n-fold symmetry: Pattern repeats every 360°/n"
+              css: "color: #94a3b8; margin: 0.25rem 0; font-family: monospace; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "• Absolute value creates mirror symmetry"
+              css: "color: #94a3b8; margin: 0.25rem 0; font-family: monospace; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "• Distance function adds radial depth"
+              css: "color: #94a3b8; margin: 0.25rem 0; font-family: monospace; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "✨ Try different symmetry orders:"
+              css: "color: #60a5fa; margin: 1.5rem 0 0.5rem 0; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "3-fold (triangle) → Found in nature: trillium flowers, some starfish"
+              css: "color: #94a3b8; margin: 0.25rem 0; line-height: 1.5;"
+
+            - ::
+              type: "text"
+              content: "4-fold (square) → Crystals, snowflakes, architectural designs"
+              css: "color: #94a3b8; margin: 0.25rem 0; line-height: 1.5;"
+
+            - ::
+              type: "text"
+              content: "5-fold (pentagon) → Flowers (rose, buttercup), starfish"
+              css: "color: #94a3b8; margin: 0.25rem 0; line-height: 1.5;"
+
+            - ::
+              type: "text"
+              content: "6-fold (hexagon) → Snowflakes, honeycombs, benzene rings"
+              css: "color: #94a3b8; margin: 0.25rem 0; line-height: 1.5;"
+
+            - ::
+              type: "text"
+              content: "8-fold (octagon) → Islamic art, mandala designs"
+              css: "color: #94a3b8; margin: 0.25rem 0; line-height: 1.5;"
+
+            - ::
+              type: "text"
+              content: "12-fold (dodecagon) → Clock faces, zodiac, rare crystals"
+              css: "color: #94a3b8; margin: 0.25rem 0; line-height: 1.5;"
+
+            - ::
+              type: "text"
+              content: "🚀 Performance:"
+              css: "color: #22c55e; margin: 1.5rem 0 0.5rem 0; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "This kaleidoscope evaluates complex mathematical functions for 640,000 pixels, 60 times per second. That's 38.4 million evaluations per second, all running in parallel on your GPU!"
+              css: "color: #cbd5e1; margin: 0.5rem 0; line-height: 1.6;"

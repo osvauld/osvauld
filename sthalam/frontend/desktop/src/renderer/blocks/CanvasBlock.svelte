@@ -55,10 +55,9 @@ const gridSize = $derived(block.gridSize || 100);
 const autoplay = $derived(block.autoplay !== false);
 const targetFps = $derived(block.fps || 60);
 
-// Pattern can be either:
-// 1. A literal string: "sin(x * 0.1 + time)"
-// 2. A CEL expression: "${ patternFromState }" that evaluates to a string
-const patternExpr = $derived.by(() => {
+// Pattern for GPU mode: strips {{ }} to get raw identifiers
+// Pattern for CPU mode: interpolates {{ }} with actual values
+const patternExprGPU = $derived.by(() => {
   if (!block.pattern) return null;
 
   // If it's a CEL expression (${ }), evaluate it to get the actual pattern string
@@ -71,8 +70,32 @@ const patternExpr = $derived.by(() => {
     }
   }
 
-  // Otherwise it's a literal pattern expression string
-  return block.pattern;
+  // Strip {{ }} markers to get raw identifiers for GPU uniforms
+  // Example: "sin(x * {{speed}})" becomes "sin(x * speed)"
+  return block.pattern.replace(/\{\{([^}]+)\}\}/g, (_, varName) => varName.trim());
+});
+
+const patternExprCPU = $derived.by(() => {
+  if (!block.pattern) return null;
+
+  // If it's a CEL expression (${ }), evaluate it to get the actual pattern string
+  if (block.pattern.startsWith('${') && block.pattern.endsWith('}')) {
+    try {
+      return evaluateCEL(block.pattern, context);
+    } catch (error) {
+      console.error('[CanvasBlock] Failed to evaluate pattern:', error);
+      return null;
+    }
+  }
+
+  // Interpolate any {{ }} template variables with context values
+  // This allows patterns like "sin(x * {{speed}})" to work
+  try {
+    return interpolateCEL(block.pattern, context);
+  } catch (error) {
+    console.error('[CanvasBlock] Failed to interpolate pattern:', error);
+    return null;
+  }
 });
 
 const entities = $derived.by(() => {
@@ -154,7 +177,7 @@ function initWebGLCPU(): boolean {
 
 // Initialize WebGL for GPU shader mode (dynamic shader)
 function initWebGLGPU(): boolean {
-  if (!patternExpr || !compileToGLSLFn) {
+  if (!patternExprGPU || !compileToGLSLFn) {
     console.error('[CanvasBlock] GPU mode requires pattern and compileToGLSL');
     return false;
   }
@@ -166,8 +189,8 @@ function initWebGLGPU(): boolean {
   }
 
   try {
-    // Compile CEL expression to GLSL shader
-    const compilation = compileToGLSLFn(patternExpr, gridSize);
+    // Compile CEL expression to GLSL shader (with stripped {{ }} markers)
+    const compilation = compileToGLSLFn(patternExprGPU, gridSize);
 
     if (!compilation.success) {
       console.error('[CanvasBlock] GLSL compilation failed:', compilation.error);
@@ -238,12 +261,12 @@ function initWebGLGPU(): boolean {
 
 // Render pattern using OCaml WASM (CPU mode)
 async function renderPatternCPU() {
-  if (!gl || !program || !texture || !patternExpr || !evaluateGridFn) return;
+  if (!gl || !program || !texture || !patternExprCPU || !evaluateGridFn) return;
 
   try {
     // Absolutely guarantee plain JS values by JSON round-trip
     const params = JSON.parse(JSON.stringify({
-      pattern: String(patternExpr),
+      pattern: String(patternExprCPU),
       size: Number(gridSize),
       currentTime: Number(time)
     }));
@@ -307,6 +330,10 @@ function renderPatternGPU() {
         default:
           // Try to get from context
           value = context[uniform.celVar] ?? 0;
+          // Debug log for custom uniforms
+          if (frameCount % 60 === 0) {
+            console.log(`[CanvasBlock] Uniform ${uniform.celVar} = ${value} from context`, context);
+          }
       }
 
       // Set uniform value
@@ -376,7 +403,7 @@ function animate(timestamp: number) {
   frameCount++;
 
   // Render based on mode
-  if (patternExpr) {
+  if (block.pattern) {
     if (gpuMode) {
       renderPatternGPU();
     } else {
@@ -438,7 +465,7 @@ onMount(() => {
   }
 
   // Initialize rendering context based on mode
-  if (patternExpr) {
+  if (block.pattern) {
     // Try GPU mode if requested
     if (block.renderMode === 'gpu' && compileToGLSLFn) {
       const gpuSuccess = initWebGLGPU();

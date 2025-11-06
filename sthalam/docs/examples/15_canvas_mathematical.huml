@@ -1,0 +1,406 @@
+name: "Mathematical Pattern Gallery"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    selectedPattern::
+      type: "string"
+      initial: "interference"
+
+    animationSpeed::
+      type: "number"
+      initial: 1.0
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "mathematical"
+      name: "mathematical"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 1400px; margin: 0 auto; font-family: system-ui; background: #0f172a; min-height: 100vh;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "🔢 Mathematical Pattern Gallery"
+          css: "color: white; margin-bottom: 0.5rem; background: linear-gradient(to right, #60a5fa, #a78bfa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-size: 3rem;"
+
+        - ::
+          type: "text"
+          content: "Pure mathematics rendered in real-time on your GPU"
+          css: "color: #94a3b8; margin-bottom: 2rem; font-size: 1.1rem;"
+
+        # Pattern selector
+        - ::
+          type: "container"
+          layout: "flex"
+          direction: "row"
+          gap: "0.75rem"
+          css: "margin-bottom: 2rem; flex-wrap: wrap;"
+          blocks::
+            - ::
+              type: "button"
+              content: "Interference"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "interference"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Mandelbrot"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "mandelbrot"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Moiré"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "moire"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Polar Grid"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "polarGrid"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Fibonacci"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "fibonacci"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Voronoi"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "voronoi"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Hyperbolic"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "hyperbolic"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #a8edea 0%, #fed6e3 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+            - ::
+              type: "button"
+              content: "Crystal"
+              action: "setState"
+              stateUpdates::
+                selectedPattern: "crystal"
+              css: "padding: 0.75rem 1.5rem; background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 500;"
+
+        # Interference Pattern - wave interference from multiple sources
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "sin(distance(x, y, 25, 25) * 4 - time * 2) + sin(distance(x, y, 75, 25) * 4 - time * 2) + sin(distance(x, y, 50, 75) * 4 - time * 2)"
+          when: "${ selectedPattern == 'interference' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(96, 165, 250, 0.3);"
+
+        # Mandelbrot-inspired pattern (simplified approximation)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "sin(sqrt(pow(x - 50, 2) + pow(y - 50, 2)) * 0.5 + atan2(y - 50, x - 50) * 5 + time) * cos(sqrt(pow(x - 50, 2) + pow(y - 50, 2)) * 0.3)"
+          when: "${ selectedPattern == 'mandelbrot' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(245, 87, 108, 0.3);"
+
+        # Moiré Pattern - overlapping grids create interference
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "sin(x * 1.5 + time * 0.5) * sin(y * 1.5 - time * 0.5) + sin(distance(x, y, 50, 50) * 2 + time)"
+          when: "${ selectedPattern == 'moire' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(0, 242, 254, 0.3);"
+
+        # Polar Grid - coordinates transformed to polar
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "sin(atan2(y - 50, x - 50) * 12 + time) * sin(distance(x, y, 50, 50) * 3 - time * 2)"
+          when: "${ selectedPattern == 'polarGrid' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(56, 249, 215, 0.3);"
+
+        # Fibonacci Spiral approximation
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "sin(atan2(y - 50, x - 50) * 8 + log(distance(x, y, 50, 50) + 1) * 10 - time * 3)"
+          when: "${ selectedPattern == 'fibonacci' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(254, 225, 64, 0.3);"
+
+        # Voronoi-like pattern (distance field approximation)
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "min(min(distance(x, y, 20 + sin(time) * 10, 20), distance(x, y, 80 + cos(time) * 10, 20)), min(distance(x, y, 50, 80 + sin(time * 1.5) * 10), distance(x, y, 20, 50))) * 0.3"
+          when: "${ selectedPattern == 'voronoi' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(51, 8, 103, 0.5);"
+
+        # Hyperbolic functions - sinh/cosh approximation using exponentials
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "sin(x * 0.3) * cos(y * 0.3) * exp(sin(time * 0.5) * 0.5)"
+          when: "${ selectedPattern == 'hyperbolic' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(168, 237, 234, 0.3);"
+
+        # Crystal/Diamond pattern - symmetrical angular divisions
+        - ::
+          type: "canvas"
+          renderMode: "gpu"
+          width: 900
+          height: 700
+          gridSize: 100
+          pattern: "abs(sin(atan2(y - 50, x - 50) * 6 + time)) * sin(distance(x, y, 50, 50) * 2 - time)"
+          when: "${ selectedPattern == 'crystal' }"
+          autoplay: true
+          fps: 60
+          css: "box-shadow: 0 25px 70px rgba(0,0,0,0.5); border-radius: 16px; border: 3px solid rgba(255, 154, 158, 0.3);"
+
+        # Pattern information
+        - ::
+          type: "section"
+          css: "margin-top: 2rem; padding: 2rem; background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 16px; border: 2px solid rgba(148, 163, 184, 0.2);"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Interference"
+              when: "${ selectedPattern == 'interference' }"
+              css: "margin: 0 0 1rem 0; color: #60a5fa;"
+
+            - ::
+              type: "text"
+              content: "Formula: sin(d₁ × 4 - t × 2) + sin(d₂ × 4 - t × 2) + sin(d₃ × 4 - t × 2)"
+              when: "${ selectedPattern == 'interference' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Three wave sources creating beautiful interference patterns. Notice how the waves constructively and destructively interfere!"
+              when: "${ selectedPattern == 'interference' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Mandelbrot Approximation"
+              when: "${ selectedPattern == 'mandelbrot' }"
+              css: "margin: 0 0 1rem 0; color: #f5576c;"
+
+            - ::
+              type: "text"
+              content: "Formula: sin(√(r²) × 0.5 + θ × 5 + t) × cos(√(r²) × 0.3)"
+              when: "${ selectedPattern == 'mandelbrot' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "A simplified fractal-like pattern inspired by the Mandelbrot set. Combines polar coordinates with sinusoidal oscillations."
+              when: "${ selectedPattern == 'mandelbrot' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Moiré Effect"
+              when: "${ selectedPattern == 'moire' }"
+              css: "margin: 0 0 1rem 0; color: #00f2fe;"
+
+            - ::
+              type: "text"
+              content: "Formula: sin(x × 1.5 + t × 0.5) × sin(y × 1.5 - t × 0.5) + sin(distance × 2 + t)"
+              when: "${ selectedPattern == 'moire' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Overlapping grids create mesmerizing moiré interference patterns. A classic optical phenomenon!"
+              when: "${ selectedPattern == 'moire' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Polar Grid"
+              when: "${ selectedPattern == 'polarGrid' }"
+              css: "margin: 0 0 1rem 0; color: #38f9d7;"
+
+            - ::
+              type: "text"
+              content: "Formula: sin(atan2(y, x) × 12 + t) × sin(distance × 3 - t × 2)"
+              when: "${ selectedPattern == 'polarGrid' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Cartesian coordinates transformed to polar space, creating radial symmetry with angular divisions."
+              when: "${ selectedPattern == 'polarGrid' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Fibonacci Spiral"
+              when: "${ selectedPattern == 'fibonacci' }"
+              css: "margin: 0 0 1rem 0; color: #fee140;"
+
+            - ::
+              type: "text"
+              content: "Formula: sin(θ × 8 + log(r + 1) × 10 - t × 3)"
+              when: "${ selectedPattern == 'fibonacci' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Logarithmic spiral approximating the golden ratio found in nature - from galaxies to seashells!"
+              when: "${ selectedPattern == 'fibonacci' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Voronoi Diagram"
+              when: "${ selectedPattern == 'voronoi' }"
+              css: "margin: 0 0 1rem 0; color: #30cfd0;"
+
+            - ::
+              type: "text"
+              content: "Formula: min(d₁, d₂, d₃, d₄) × 0.3 where d = distance to animated points"
+              when: "${ selectedPattern == 'voronoi' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Distance field creating cellular patterns. Each pixel colored by nearest point - nature's space-filling algorithm!"
+              when: "${ selectedPattern == 'voronoi' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Hyperbolic Functions"
+              when: "${ selectedPattern == 'hyperbolic' }"
+              css: "margin: 0 0 1rem 0; color: #a8edea;"
+
+            - ::
+              type: "text"
+              content: "Formula: sin(x × 0.3) × cos(y × 0.3) × eˢⁱⁿ⁽ᵗ⁾"
+              when: "${ selectedPattern == 'hyperbolic' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Product of trigonometric and exponential functions creating smooth, flowing waves with varying amplitude."
+              when: "${ selectedPattern == 'hyperbolic' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+            - ::
+              type: "heading"
+              level: 3
+              content: "📐 Pattern: Crystal Structure"
+              when: "${ selectedPattern == 'crystal' }"
+              css: "margin: 0 0 1rem 0; color: #ff9a9e;"
+
+            - ::
+              type: "text"
+              content: "Formula: |sin(θ × 6 + t)| × sin(distance × 2 - t)"
+              when: "${ selectedPattern == 'crystal' }"
+              css: "color: #cbd5e1; font-family: 'Courier New', monospace; margin: 0.5rem 0; font-size: 0.9rem;"
+
+            - ::
+              type: "text"
+              content: "Six-fold symmetry mimicking crystalline structures. The absolute value creates sharp facets like a diamond!"
+              when: "${ selectedPattern == 'crystal' }"
+              css: "color: #94a3b8; margin-top: 1rem; line-height: 1.6;"
+
+        # Performance stats
+        - ::
+          type: "section"
+          css: "margin-top: 2rem; padding: 2rem; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px; border: 2px solid rgba(34, 197, 94, 0.3);"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "⚡ Real-Time Mathematics"
+              css: "margin: 0 0 1rem 0; color: #22c55e;"
+
+            - ::
+              type: "text"
+              content: "• Canvas Resolution: 900×700 = 630,000 pixels"
+              css: "color: #cbd5e1; margin: 0.5rem 0; font-family: monospace;"
+
+            - ::
+              type: "text"
+              content: "• Rendering: 60 frames per second"
+              css: "color: #cbd5e1; margin: 0.5rem 0; font-family: monospace;"
+
+            - ::
+              type: "text"
+              content: "• Operations: 37.8 million evaluations/second"
+              css: "color: #22c55e; margin: 0.5rem 0; font-family: monospace; font-weight: 600;"
+
+            - ::
+              type: "text"
+              content: "• GPU: All pixels computed in parallel"
+              css: "color: #cbd5e1; margin: 0.5rem 0; font-family: monospace;"
+
+            - ::
+              type: "text"
+              content: "• Latency: < 16ms per frame (60 FPS)"
+              css: "color: #cbd5e1; margin: 0.5rem 0; font-family: monospace;"
+
+            - ::
+              type: "text"
+              content: "🚀 Pure mathematics executed at GPU speed - complexity doesn't slow us down!"
+              css: "color: #fbbf24; margin-top: 1rem; font-weight: 600;"
