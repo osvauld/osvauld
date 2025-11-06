@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' http://localhost:1422; script-src 'self' 'wasm-unsafe-eval' http://localhost:1422; style-src 'self' 'unsafe-inline' http://localhost:1422; img-src 'self' data: blob: asset: https://asset.localhost http://localhost:1422; media-src * blob: data: 'self' 'unsafe-inline'; connect-src 'self' asset: https://asset.localhost http://localhost:1422 ws://localhost:1422",
+      "csp": "default-src 'self' asset: https://asset.localhost http://localhost:1422; script-src 'self' 'wasm-unsafe-eval' asset: https://asset.localhost http://localhost:1422; style-src 'self' 'unsafe-inline' http://localhost:1422; img-src 'self' data: blob: asset: https://asset.localhost http://localhost:1422; media-src * blob: data: 'self' 'unsafe-inline'; connect-src 'self' asset: https://asset.localhost http://localhost:1422 ws://localhost:1422",
       "assetProtocol": {
         "scope": {
           "allow": ["**"]
@@ -31,6 +31,16 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "../frontend/desktop/dist/cel_eval.js",
+      "../frontend/desktop/dist/cel_wasm.bc.wasm.js",
+      "../frontend/desktop/dist/cel_wasm.bc.wasm.assets",
+      "../frontend/desktop/dist/huml_parser.js",
+      "../frontend/desktop/dist/parser_wasm.bc.wasm.js",
+      "../frontend/desktop/dist/parser_wasm.bc.wasm.assets",
+      "../frontend/desktop/dist/pixelated-tree.svg",
+      "../frontend/desktop/dist/vite.svg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

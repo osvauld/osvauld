@@ -214,9 +214,12 @@ export function createAssetBlobUrl(data: Uint8Array, assetId: string, filename?:
     const mimeType = getMimeType(filename || '', assetType);
 
     // Create blob with proper MIME type
-    // Use data directly if it's already a Uint8Array, otherwise convert
+    // Ensure we have a standard Uint8Array (not SharedArrayBuffer)
     const buffer = data instanceof Uint8Array ? data : new Uint8Array(data);
-    const blob = new Blob([buffer], { type: mimeType });
+    // Create a new ArrayBuffer to ensure proper type (not SharedArrayBuffer)
+    const arrayBuffer = new ArrayBuffer(buffer.byteLength);
+    new Uint8Array(arrayBuffer).set(buffer);
+    const blob = new Blob([arrayBuffer], { type: mimeType });
 
     const url = URL.createObjectURL(blob);
 
