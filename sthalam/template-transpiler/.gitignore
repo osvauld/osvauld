@@ -1,0 +1,12 @@
+# Dune build directory
+_build
+
+# Auto-generated opam files
+*.opam
+
+# Merlin editor support
+.merlin
+.merlin-conf
+
+# Install files
+*.install

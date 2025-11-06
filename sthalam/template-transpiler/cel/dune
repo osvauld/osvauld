@@ -1,0 +1,32 @@
+(library
+ (name cel)
+ (public_name template-transpiler.cel)
+ (libraries yojson str unix)
+ (modules
+   cel_types
+   cel_eval
+   cel_lexer
+   cel_parser
+   string_funcs
+   collection_funcs
+   type_funcs
+   time_funcs
+   math_funcs
+   geometry_funcs
+   stdlib_registry
+   glsl_translator))
+
+(ocamllex cel_lexer)
+
+(menhir
+ (modules cel_parser))
+
+(executable
+ (name test_cel)
+ (modules test_cel)
+ (libraries cel))
+
+(executable
+ (name test_new_funcs)
+ (modules test_new_funcs)
+ (libraries cel))

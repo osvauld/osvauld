@@ -1,0 +1,7 @@
+(executable
+ (name cel_wasm)
+ (modules cel_wasm)
+ (libraries cel js_of_ocaml js_of_ocaml-ppx)
+ (preprocess
+  (pps js_of_ocaml-ppx))
+ (modes wasm))

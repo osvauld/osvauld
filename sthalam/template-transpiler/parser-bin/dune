@@ -1,0 +1,7 @@
+(executable
+ (name parser_wasm)
+ (modules parser_wasm)
+ (libraries huml js_of_ocaml js_of_ocaml-ppx)
+ (preprocess
+  (pps js_of_ocaml-ppx))
+ (modes wasm))

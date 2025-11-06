@@ -1,0 +1,22 @@
+(lang dune 3.18)
+(using menhir 3.0)
+
+(name template-transpiler)
+(version 0.1.0)
+
+(generate_opam_files true)
+
+(license MIT)
+
+(package
+  (name template-transpiler)
+  (synopsis "HUML Template Transpiler - CEL Evaluator and GLSL Translator")
+  (description "Template engine that processes HUML templates and transpiles CEL expressions to GLSL shaders")
+  (depends
+    ocaml
+    huml
+    (menhir (>= 20180523))
+    js_of_ocaml
+    js_of_ocaml-ppx
+    yojson
+    (alcotest :with-test)))

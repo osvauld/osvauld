@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>HUML Evaluator Test</title>
+</head>
+<body>
+    <h1>HUML Expression Evaluator Test</h1>
+
+    <div>
+        <h2>Test 1: Simple Expression</h2>
+        <p>Expression: <code>5 + 3</code></p>
+        <p>Result: <span id="test1"></span></p>
+    </div>
+
+    <div>
+        <h2>Test 2: Size of Array</h2>
+        <p>Expression: <code>size of posts</code></p>
+        <p>Context: <code>{ posts: [1,2,3,4,5] }</code></p>
+        <p>Result: <span id="test2"></span></p>
+    </div>
+
+    <div>
+        <h2>Test 3: Complex Expression</h2>
+        <p>Expression: <code>size of posts > 3 and title is not empty</code></p>
+        <p>Context: <code>{ posts: [1,2,3,4,5], title: "Hello" }</code></p>
+        <p>Result: <span id="test3"></span></p>
+    </div>
+
+    <div>
+        <h2>Test 4: Ternary</h2>
+        <p>Expression: <code>count > 10 ? "many" : "few"</code></p>
+        <p>Context: <code>{ count: 15 }</code></p>
+        <p>Result: <span id="test4"></span></p>
+    </div>
+
+    <script src="_build/default/eval-bin/huml_eval_js.bc.js"></script>
+    <script>
+        // Test 1: Simple arithmetic
+        const test1 = humlEval.evaluate("5 + 3", "{}");
+        document.getElementById('test1').textContent = test1.success
+            ? test1.output
+            : `Error: ${test1.error}`;
+        document.getElementById('test1').style.color = test1.success ? 'green' : 'red';
+
+        // Test 2: Size of array
+        const test2 = humlEval.evaluate(
+            "size of posts",
+            JSON.stringify({ posts: [1, 2, 3, 4, 5] })
+        );
+        document.getElementById('test2').textContent = test2.success
+            ? test2.output
+            : `Error: ${test2.error}`;
+        document.getElementById('test2').style.color = test2.success ? 'green' : 'red';
+
+        // Test 3: Complex expression
+        const test3 = humlEval.evaluate(
+            "size of posts > 3 and title is not empty",
+            JSON.stringify({ posts: [1, 2, 3, 4, 5], title: "Hello" })
+        );
+        document.getElementById('test3').textContent = test3.success
+            ? test3.output
+            : `Error: ${test3.error}`;
+        document.getElementById('test3').style.color = test3.success ? 'green' : 'red';
+
+        // Test 4: Ternary
+        const test4 = humlEval.evaluate(
+            'count > 10 ? "many" : "few"',
+            JSON.stringify({ count: 15 })
+        );
+        document.getElementById('test4').textContent = test4.success
+            ? test4.output
+            : `Error: ${test4.error}`;
+        document.getElementById('test4').style.color = test4.success ? 'green' : 'red';
+
+        console.log('All tests completed!');
+    </script>
+</body>
+</html>

@@ -1,0 +1,596 @@
+(** CEL Evaluator - Basic expression evaluation
+
+    This is a minimal evaluator for CEL expressions.
+    Custom extensions (Loro integration, etc.) will be in separate files.
+*)
+
+open Cel_types
+
+(** Evaluation context - maps identifiers to values *)
+type context = (string * value) list
+
+(** Helper: Check if string contains substring *)
+let string_contains (str : string) (sub : string) : bool =
+  try
+    let _ = Str.search_forward (Str.regexp_string sub) str 0 in
+    true
+  with Not_found -> false
+
+(** Look up identifier in context *)
+let lookup_ident (ctx : context) (name : string) : value =
+  match List.assoc_opt name ctx with
+  | Some v -> v
+  | None -> raise (Unknown_identifier name)
+
+(** Evaluate binary operator *)
+let eval_binary_op (op : binary_op) (left : value) (right : value) : value =
+  match op with
+  (* Relational operators *)
+  | OpLt -> VBool (compare_values left right < 0)
+  | OpLe -> VBool (compare_values left right <= 0)
+  | OpGt -> VBool (compare_values left right > 0)
+  | OpGe -> VBool (compare_values left right >= 0)
+  | OpEq -> VBool (values_equal left right)
+  | OpNe -> VBool (not (values_equal left right))
+
+  | OpIn -> (
+      (* Check if left is in right (right must be list or map) *)
+      match right with
+      | VList items -> VBool (List.exists (values_equal left) items)
+      | VMap entries ->
+          VBool (List.exists (fun (k, _) -> values_equal left k) entries)
+      | VString s -> (
+          match left with
+          | VString sub -> VBool (string_contains s sub)
+          | _ -> raise (Type_error "in operator requires string substring"))
+      | _ -> raise (Type_error "in operator requires list, map, or string"))
+
+  (* Arithmetic operators *)
+  | OpAdd -> (
+      match (left, right) with
+      | VInt a, VInt b -> VInt (Int64.add a b)
+      | VUint a, VUint b -> VUint (Int64.add a b)
+      | VFloat a, VFloat b -> VFloat (a +. b)
+      | VInt a, VFloat b -> VFloat (Int64.to_float a +. b)
+      | VFloat a, VInt b -> VFloat (a +. Int64.to_float b)
+      | VString a, VString b -> VString (a ^ b)
+      | VList a, VList b -> VList (a @ b)
+      | _ ->
+          raise
+            (Type_error
+               (Printf.sprintf "Cannot add %s and %s" (type_name left)
+                  (type_name right))))
+
+  | OpSub -> (
+      match (left, right) with
+      | VInt a, VInt b -> VInt (Int64.sub a b)
+      | VUint a, VUint b -> VUint (Int64.sub a b)
+      | VFloat a, VFloat b -> VFloat (a -. b)
+      | VInt a, VFloat b -> VFloat (Int64.to_float a -. b)
+      | VFloat a, VInt b -> VFloat (a -. Int64.to_float b)
+      | _ ->
+          raise
+            (Type_error
+               (Printf.sprintf "Cannot subtract %s and %s" (type_name left)
+                  (type_name right))))
+
+  | OpMul -> (
+      match (left, right) with
+      | VInt a, VInt b -> VInt (Int64.mul a b)
+      | VUint a, VUint b -> VUint (Int64.mul a b)
+      | VFloat a, VFloat b -> VFloat (a *. b)
+      | VInt a, VFloat b -> VFloat (Int64.to_float a *. b)
+      | VFloat a, VInt b -> VFloat (a *. Int64.to_float b)
+      | _ ->
+          raise
+            (Type_error
+               (Printf.sprintf "Cannot multiply %s and %s" (type_name left)
+                  (type_name right))))
+
+  | OpDiv -> (
+      match (left, right) with
+      | VInt a, VInt b when b <> 0L -> VInt (Int64.div a b)
+      | VUint a, VUint b when b <> 0L -> VUint (Int64.div a b)
+      | VFloat a, VFloat b -> VFloat (a /. b)
+      | VInt a, VFloat b -> VFloat (Int64.to_float a /. b)
+      | VFloat a, VInt b -> VFloat (a /. Int64.to_float b)
+      | _, _ when (match right with VInt 0L | VUint 0L -> true | _ -> false) ->
+          raise (Eval_error "Division by zero")
+      | _ ->
+          raise
+            (Type_error
+               (Printf.sprintf "Cannot divide %s by %s" (type_name left)
+                  (type_name right))))
+
+  | OpMod -> (
+      match (left, right) with
+      | VInt a, VInt b when b <> 0L -> VInt (Int64.rem a b)
+      | VUint a, VUint b when b <> 0L -> VUint (Int64.rem a b)
+      | _, _ when (match right with VInt 0L | VUint 0L -> true | _ -> false) ->
+          raise (Eval_error "Modulo by zero")
+      | _ ->
+          raise
+            (Type_error
+               (Printf.sprintf "Cannot modulo %s by %s" (type_name left)
+                  (type_name right))))
+
+  (* Logical operators *)
+  | OpAnd -> VBool (is_truthy left && is_truthy right)
+  | OpOr -> VBool (is_truthy left || is_truthy right)
+
+(** Evaluate unary operator *)
+let eval_unary_op (op : unary_op) (operand : value) : value =
+  match op with
+  | OpNot -> VBool (not (is_truthy operand))
+  | OpNeg -> (
+      match operand with
+      | VInt i -> VInt (Int64.neg i)
+      | VFloat f -> VFloat (-.f)
+      | _ ->
+          raise
+            (Type_error (Printf.sprintf "Cannot negate %s" (type_name operand))))
+
+(** Get member field from object *)
+let get_member (obj : value) (field : string) : value =
+  match obj with
+  | VMap entries -> (
+      match
+        List.find_opt (fun (k, _) -> values_equal k (VString field)) entries
+      with
+      | Some (_, v) -> v
+      | None -> VNull (* Field not found returns null *))
+  | VString s -> (
+      (* String properties *)
+      match field with
+      | "size" -> VInt (Int64.of_int (String.length s))
+      | _ -> raise (Eval_error (Printf.sprintf "Unknown string property: %s" field)))
+  | VList lst -> (
+      (* List properties *)
+      match field with
+      | "size" -> VInt (Int64.of_int (List.length lst))
+      | _ -> raise (Eval_error (Printf.sprintf "Unknown list property: %s" field)))
+  | _ ->
+      raise
+        (Type_error
+           (Printf.sprintf "Cannot access field '%s' on %s" field
+              (type_name obj)))
+
+(** Get index from collection *)
+let get_index (obj : value) (index : value) : value =
+  match (obj, index) with
+  | VList items, VInt i -> (
+      let idx = Int64.to_int i in
+      if idx >= 0 && idx < List.length items then List.nth items idx
+      else raise (Eval_error "List index out of bounds"))
+  | VMap entries, key -> (
+      match List.find_opt (fun (k, _) -> values_equal k key) entries with
+      | Some (_, v) -> v
+      | None -> VNull)
+  | VString s, VInt i -> (
+      let idx = Int64.to_int i in
+      if idx >= 0 && idx < String.length s then
+        VString (String.make 1 s.[idx])
+      else raise (Eval_error "String index out of bounds"))
+  | _ ->
+      raise
+        (Type_error
+           (Printf.sprintf "Cannot index %s with %s" (type_name obj)
+              (type_name index)))
+
+(** Main evaluation function *)
+let rec eval (ctx : context) (expr : expr) : value =
+  match expr with
+  (* Literals *)
+  | Literal v -> v
+
+  (* Identifiers *)
+  | Ident name -> lookup_ident ctx name
+
+  (* Binary operations *)
+  | Binary { op; left; right } ->
+      let left_val = eval ctx left in
+      (* Short-circuit evaluation for logical operators *)
+      (match op with
+      | OpAnd when not (is_truthy left_val) -> VBool false
+      | OpOr when is_truthy left_val -> VBool true
+      | _ ->
+          let right_val = eval ctx right in
+          eval_binary_op op left_val right_val)
+
+  (* Unary operations *)
+  | Unary { op; operand } ->
+      let operand_val = eval ctx operand in
+      eval_unary_op op operand_val
+
+  (* Member access *)
+  | Member { object_; field } ->
+      let obj_val = eval ctx object_ in
+      get_member obj_val field
+
+  (* Index access *)
+  | Index { object_; index } ->
+      let obj_val = eval ctx object_ in
+      let index_val = eval ctx index in
+      get_index obj_val index_val
+
+  (* Function call *)
+  | Call { function_; args } ->
+      let arg_values = List.map (eval ctx) args in
+      Cel_stdlib.call_function function_ arg_values ctx eval_lambda
+
+  (* Method call: obj.method(args) → method(obj, ...args) *)
+  | MethodCall { object_; method_; args } ->
+      let obj_val = eval ctx object_ in
+      let arg_values = List.map (eval ctx) args in
+      (* Call method as function with object as first argument *)
+      Cel_stdlib.call_function method_ (obj_val :: arg_values) ctx eval_lambda
+
+  (* List literal *)
+  | ListLit items -> VList (List.map (eval ctx) items)
+
+  (* Map literal *)
+  | MapLit entries ->
+      let eval_entry (k, v) = (eval ctx k, eval ctx v) in
+      VMap (List.map eval_entry entries)
+
+  (* Ternary conditional *)
+  | Ternary { condition; if_true; if_false } ->
+      let cond_val = eval ctx condition in
+      if is_truthy cond_val then eval ctx if_true else eval ctx if_false
+
+  (* Lambda - stored as value for use in higher-order functions *)
+  | Lambda { param = _; body = _ } ->
+      (* For now, lambdas can't be evaluated directly *)
+      (* They will be used by filter/map functions *)
+      raise (Eval_error "Lambda cannot be evaluated directly")
+
+(** Evaluate lambda with parameter binding *)
+and eval_lambda (lambda : expr) (param_value : value) (ctx : context) : value =
+  match lambda with
+  | Lambda { param; body } ->
+      (* Add parameter to context *)
+      let ctx' = (param, param_value) :: ctx in
+      eval ctx' body
+  | _ -> raise (Type_error "Expected lambda expression")
+
+(** Evaluate with JSON context (for JavaScript interop) *)
+let eval_with_json_context (expr : expr) (json_context : string) : string =
+  try
+    (* Parse JSON context *)
+    let json = Yojson.Basic.from_string json_context in
+    let ctx_value = json_to_value json in
+
+    (* Extract key-value pairs from context *)
+    let ctx =
+      match ctx_value with
+      | VMap entries ->
+          List.map
+            (fun (k, v) ->
+              match k with
+              | VString key -> (key, v)
+              | _ -> raise (Type_error "Context keys must be strings"))
+            entries
+      | _ -> raise (Type_error "Context must be an object")
+    in
+
+    (* Evaluate *)
+    let result = eval ctx expr in
+
+    (* Convert result to JSON *)
+    Yojson.Basic.to_string (value_to_json result)
+  with
+  | Type_error msg | Eval_error msg | Unknown_identifier msg | Unknown_function msg ->
+      (* Return error as JSON *)
+      Yojson.Basic.to_string (`Assoc [ ("error", `String msg) ])
+  | exn ->
+      Yojson.Basic.to_string
+        (`Assoc [ ("error", `String (Printexc.to_string exn)) ])
+
+(* ============================================================================ *)
+(* CEL Standard Library *)
+(* ============================================================================ *)
+
+(** Type for evaluating lambdas *)
+type lambda_eval = expr -> value -> context -> value
+
+(** String functions *)
+module String_funcs = struct
+  let contains args _ctx =
+    match args with
+    | [VString s; VString sub] ->
+        VBool (string_contains s sub)
+    | _ -> raise (Type_error "contains(string, string)")
+
+  let starts_with args _ctx =
+    match args with
+    | [VString s; VString prefix] ->
+        VBool (String.starts_with ~prefix s)
+    | _ -> raise (Type_error "startsWith(string, string)")
+
+  let ends_with args _ctx =
+    match args with
+    | [VString s; VString suffix] ->
+        VBool (String.ends_with ~suffix s)
+    | _ -> raise (Type_error "endsWith(string, string)")
+
+  let trim args _ctx =
+    match args with
+    | [VString s] -> VString (String.trim s)
+    | _ -> raise (Type_error "trim(string)")
+
+  let to_lower_case args _ctx =
+    match args with
+    | [VString s] -> VString (String.lowercase_ascii s)
+    | _ -> raise (Type_error "toLowerCase(string)")
+
+  let to_upper_case args _ctx =
+    match args with
+    | [VString s] -> VString (String.uppercase_ascii s)
+    | _ -> raise (Type_error "toUpperCase(string)")
+
+  let split args _ctx =
+    match args with
+    | [VString s; VString delim] ->
+        if String.length delim = 0 then
+          raise (Eval_error "split delimiter cannot be empty")
+        else
+          let parts = String.split_on_char delim.[0] s in
+          VList (List.map (fun p -> VString p) parts)
+    | _ -> raise (Type_error "split(string, string)")
+
+  let replace args _ctx =
+    match args with
+    | [VString s; VString old_str; VString new_str] ->
+        let regex = Str.regexp_string old_str in
+        VString (Str.global_replace regex new_str s)
+    | _ -> raise (Type_error "replace(string, string, string)")
+
+  let substring args _ctx =
+    match args with
+    | [VString s; VInt start; VInt length] ->
+        let start_idx = Int64.to_int start in
+        let len = Int64.to_int length in
+        if start_idx < 0 || start_idx >= String.length s then
+          raise (Eval_error "substring start index out of bounds")
+        else if len < 0 then
+          raise (Eval_error "substring length must be non-negative")
+        else
+          let actual_len = min len (String.length s - start_idx) in
+          VString (String.sub s start_idx actual_len)
+    | _ -> raise (Type_error "substring(string, int, int)")
+end
+
+(** Collection functions *)
+module Collection_funcs = struct
+  let size args _ctx _eval_lambda =
+    match args with
+    | [VString s] -> VInt (Int64.of_int (String.length s))
+    | [VList items] -> VInt (Int64.of_int (List.length items))
+    | [VMap entries] -> VInt (Int64.of_int (List.length entries))
+    | [VBytes b] -> VInt (Int64.of_int (Bytes.length b))
+    | _ -> raise (Type_error "size(string|list|map|bytes)")
+
+  let filter args ctx eval_lambda =
+    match args with
+    | [VList items; lambda] ->
+        let filtered = List.filter (fun item ->
+          let result = eval_lambda lambda item ctx in
+          is_truthy result
+        ) items in
+        VList filtered
+    | _ -> raise (Type_error "filter(list, lambda)")
+
+  let map args ctx eval_lambda =
+    match args with
+    | [VList items; lambda] ->
+        let mapped = List.map (fun item ->
+          eval_lambda lambda item ctx
+        ) items in
+        VList mapped
+    | _ -> raise (Type_error "map(list, lambda)")
+
+  let exists args ctx eval_lambda =
+    match args with
+    | [VList items; lambda] ->
+        let result = List.exists (fun item ->
+          let result = eval_lambda lambda item ctx in
+          is_truthy result
+        ) items in
+        VBool result
+    | _ -> raise (Type_error "exists(list, lambda)")
+
+  let all args ctx eval_lambda =
+    match args with
+    | [VList items; lambda] ->
+        let result = List.for_all (fun item ->
+          let result = eval_lambda lambda item ctx in
+          is_truthy result
+        ) items in
+        VBool result
+    | _ -> raise (Type_error "all(list, lambda)")
+
+  let flatten args _ctx _eval_lambda =
+    match args with
+    | [VList lists] ->
+        let rec flatten_list = function
+          | VList items -> List.concat_map flatten_list items
+          | other -> [other]
+        in
+        VList (List.concat_map flatten_list lists)
+    | _ -> raise (Type_error "flatten(list)")
+
+  let unique args _ctx _eval_lambda =
+    match args with
+    | [VList items] ->
+        let rec unique_list acc = function
+          | [] -> List.rev acc
+          | x :: xs ->
+              if List.exists (values_equal x) acc then
+                unique_list acc xs
+              else
+                unique_list (x :: acc) xs
+        in
+        VList (unique_list [] items)
+    | _ -> raise (Type_error "unique(list)")
+
+  let slice args _ctx _eval_lambda =
+    match args with
+    | [VList items; VInt start; VInt end_] ->
+        let start_idx = Int64.to_int start in
+        let end_idx = Int64.to_int end_ in
+        let len = List.length items in
+        if start_idx < 0 || start_idx > len then
+          raise (Eval_error "slice start index out of bounds")
+        else if end_idx < start_idx || end_idx > len then
+          raise (Eval_error "slice end index out of bounds")
+        else
+          let rec take n lst = match (n, lst) with
+            | 0, _ | _, [] -> []
+            | n, x :: xs -> x :: take (n - 1) xs
+          in
+          let rec drop n lst = match (n, lst) with
+            | 0, _ -> lst
+            | _, [] -> []
+            | n, _ :: xs -> drop (n - 1) xs
+          in
+          VList (take (end_idx - start_idx) (drop start_idx items))
+    | _ -> raise (Type_error "slice(list, int, int)")
+end
+
+(** Type conversion functions *)
+module Type_funcs = struct
+  let to_int args _ctx =
+    match args with
+    | [VInt i] -> VInt i
+    | [VFloat f] -> VInt (Int64.of_float f)
+    | [VString s] -> (
+        try VInt (Int64.of_string s)
+        with Failure _ -> raise (Eval_error ("Cannot convert string to int: " ^ s)))
+    | [VBool true] -> VInt 1L
+    | [VBool false] -> VInt 0L
+    | _ -> raise (Type_error "int(int|float|string|bool)")
+
+  let to_double args _ctx =
+    match args with
+    | [VInt i] -> VFloat (Int64.to_float i)
+    | [VFloat f] -> VFloat f
+    | [VString s] -> (
+        try VFloat (float_of_string s)
+        with Failure _ -> raise (Eval_error ("Cannot convert string to double: " ^ s)))
+    | _ -> raise (Type_error "double(int|float|string)")
+
+  let to_string args _ctx =
+    match args with
+    | [v] -> VString (value_to_string v)
+    | _ -> raise (Type_error "string(any)")
+end
+
+(** Date/time functions *)
+module Time_funcs = struct
+  let now args _ctx =
+    match args with
+    | [] -> VTimestamp (Unix.gettimeofday ())
+    | _ -> raise (Type_error "now()")
+
+  let timestamp args _ctx =
+    match args with
+    | [VString s] ->
+        (* Simple ISO 8601 parsing - can be enhanced *)
+        (try
+          (* Try parsing as Unix timestamp *)
+          VTimestamp (float_of_string s)
+        with Failure _ ->
+          raise (Eval_error ("Cannot parse timestamp: " ^ s)))
+    | _ -> raise (Type_error "timestamp(string)")
+
+  let duration args _ctx =
+    match args with
+    | [VString s] ->
+        (* Parse duration strings like "1h", "30m", "45s" *)
+        let len = String.length s in
+        if len < 2 then
+          raise (Eval_error "Invalid duration format")
+        else
+          let num_str = String.sub s 0 (len - 1) in
+          let unit = s.[len - 1] in
+          (try
+            let num = float_of_string num_str in
+            let seconds = match unit with
+              | 's' -> num
+              | 'm' -> num *. 60.0
+              | 'h' -> num *. 3600.0
+              | 'd' -> num *. 86400.0
+              | _ -> raise (Eval_error ("Unknown duration unit: " ^ String.make 1 unit))
+            in
+            VDuration seconds
+          with Failure _ ->
+            raise (Eval_error ("Invalid duration number: " ^ num_str)))
+    | _ -> raise (Type_error "duration(string)")
+
+  let format args _ctx =
+    match args with
+    | [VTimestamp t; VString _format] ->
+        (* Simple formatting - just return ISO 8601 for now *)
+        (* TODO: Implement proper date formatting *)
+        let tm = Unix.gmtime t in
+        let iso = Printf.sprintf "%04d-%02d-%02dT%02d:%02d:%02dZ"
+          (tm.Unix.tm_year + 1900)
+          (tm.Unix.tm_mon + 1)
+          tm.Unix.tm_mday
+          tm.Unix.tm_hour
+          tm.Unix.tm_min
+          tm.Unix.tm_sec
+        in
+        VString iso
+    | _ -> raise (Type_error "format(timestamp, string)")
+end
+
+(** Function registry - maps function name to implementation *)
+type func = {
+  name: string;
+  impl: value list -> (string * value) list -> lambda_eval -> value;
+}
+
+let stdlib_functions : func list = [
+  (* String functions - don't need lambda eval *)
+  { name = "contains"; impl = fun args ctx _ -> String_funcs.contains args ctx };
+  { name = "startsWith"; impl = fun args ctx _ -> String_funcs.starts_with args ctx };
+  { name = "endsWith"; impl = fun args ctx _ -> String_funcs.ends_with args ctx };
+  { name = "trim"; impl = fun args ctx _ -> String_funcs.trim args ctx };
+  { name = "toLowerCase"; impl = fun args ctx _ -> String_funcs.to_lower_case args ctx };
+  { name = "toUpperCase"; impl = fun args ctx _ -> String_funcs.to_upper_case args ctx };
+  { name = "split"; impl = fun args ctx _ -> String_funcs.split args ctx };
+  { name = "replace"; impl = fun args ctx _ -> String_funcs.replace args ctx };
+  { name = "substring"; impl = fun args ctx _ -> String_funcs.substring args ctx };
+
+  (* Collection functions *)
+  { name = "size"; impl = Collection_funcs.size };
+  { name = "filter"; impl = Collection_funcs.filter };
+  { name = "map"; impl = Collection_funcs.map };
+  { name = "exists"; impl = Collection_funcs.exists };
+  { name = "all"; impl = Collection_funcs.all };
+  { name = "flatten"; impl = Collection_funcs.flatten };
+  { name = "unique"; impl = Collection_funcs.unique };
+  { name = "slice"; impl = Collection_funcs.slice };
+
+  (* Type conversions *)
+  { name = "int"; impl = fun args ctx _ -> Type_funcs.to_int args ctx };
+  { name = "double"; impl = fun args ctx _ -> Type_funcs.to_double args ctx };
+  { name = "string"; impl = fun args ctx _ -> Type_funcs.to_string args ctx };
+
+  (* Date/time *)
+  { name = "now"; impl = fun args ctx _ -> Time_funcs.now args ctx };
+  { name = "timestamp"; impl = fun args ctx _ -> Time_funcs.timestamp args ctx };
+  { name = "duration"; impl = fun args ctx _ -> Time_funcs.duration args ctx };
+  { name = "format"; impl = fun args ctx _ -> Time_funcs.format args ctx };
+]
+
+(** Look up function by name *)
+let lookup_function (name : string) : func option =
+  List.find_opt (fun f -> f.name = name) stdlib_functions
+
+(** Call function with arguments *)
+let call_function (name : string) (args : value list) (ctx : (string * value) list) (eval_lambda : lambda_eval) : value =
+  match lookup_function name with
+  | Some func -> func.impl args ctx eval_lambda
+  | None -> raise (Unknown_function name)
