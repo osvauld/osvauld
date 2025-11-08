@@ -69,14 +69,14 @@ class DataState {
     const favFilter = this.favoriteSelected
       ? this.notes.filter(note => note.favourite)
       : this.notes;
-    
+
     const result = this.currentVault.id === "all"
       ? favFilter
       : favFilter.filter(note => note.folderId === this.currentVault.id);
-    
+
     // Debug: Uncomment for troubleshooting folder filtering
     // console.log(`Filtering notes for vault: ${this.currentVault.id}, total notes: ${this.notes.length}, filtered: ${result.length}`);
-    
+
     return result;
   });
 
@@ -169,7 +169,7 @@ class DataState {
     // Reset favorite selection when switching vaults
     this.favoriteSelected = false;
     this.fetchSharedFolderUsers(vault.id);
-    
+
     // Ensure notes are available when switching vaults
     // Only refetch if we have no notes or if we're not currently loading
     if (this.notes.length === 0 && !this.isDataLoading) {
@@ -200,7 +200,7 @@ class DataState {
       folderId: targetFolderId,
       resourceType: "notes"
     });
-    
+
     // Use switchNote to ensure consistent state management including folder highlighting
     await this.switchNote(note.id);
   }
@@ -230,16 +230,17 @@ class DataState {
       if (!this.previousVault) {
         this.previousVault = this.currentVault;
       }
-      
+
       uiState.setNoteFetching(true);
       uiState.setEditorLoading(false);
       uiState.toggleNoteViewLayout(true);
       const note = await sendMessage("getCredential", { resourceId: noteId })
+      console.log(note);
       this.setCurrentNoteData(note);
       this.setCurrentNoteId(noteId);
       uiState.setNoteFetching(false);
       StoreService.setCurrentNoteId(noteId);
-      
+
       // Update currentVault to match the note's folder for correct folder highlighting
       const notePreview = this.getNoteById(noteId);
       if (notePreview?.folderId) {
@@ -520,7 +521,7 @@ class DataState {
 
     if (resourceIndex !== -1) {
       const existingNote = this.notes[resourceIndex];
-      
+
       // Preserve local lastModified if it's newer than the backend version
       // This handles the case where we just saved locally but backend hasn't updated yet
       if (existingNote.lastModified && updatedResourcePreview.lastModified) {
@@ -531,7 +532,7 @@ class DataState {
       } else if (existingNote.lastModified && !updatedResourcePreview.lastModified) {
         updatedResourcePreview.lastModified = existingNote.lastModified;
       }
-      
+
       this.notes = [
         ...this.notes.slice(0, resourceIndex),
         updatedResourcePreview,
@@ -553,12 +554,12 @@ class DataState {
     }
     const noteContent = coordinator.saveNote();
     let stateVectors = coordinator.getStateVectors();
-    
+
     // Update lastModified timestamp in the notes array
     if (noteContent.last_modified) {
       this.updateNoteLastModified(noteId, noteContent.last_modified);
     }
-    
+
     await sendMessage("updateCredential", {
       id: noteId,
       data: JSON.stringify(noteContent),

@@ -33,51 +33,24 @@ diesel::table! {
         description -> Nullable<Text>,
         default_folder -> Bool,
         parent_folder_id -> Nullable<Text>,
+        ucan -> Text,
         deleted -> Bool,
         deleted_at -> Nullable<BigInt>,
         updated_at -> BigInt,
         created_at -> BigInt,
-    }
-}
-
-diesel::table! {
-    resource_keys (id) {
-        id -> Text,
-        resource_id -> Text,
-        user_id -> Text,
-        encrypted_key -> Text,
-        is_owner -> Bool,
-        created_at -> BigInt,
-        updated_at -> BigInt,
-    }
-}
-
-diesel::table! {
-    resource_vector_clocks (id) {
-        id -> Text,
-        resource_id -> Text,
-        device_id -> Text,
-        clock_value -> Integer,
-        created_at -> BigInt,
-        updated_at -> BigInt,
     }
 }
 
 diesel::table! {
     resources (id) {
         id -> Text,
-        resource_type -> Text,
-        data -> Text,
         folder_id -> Text,
-        created_folder_id -> Text,
-        signature -> Text,
-        favourite -> Bool,
-        created_by -> Text,
-        last_accessed -> BigInt,
-        deleted -> Bool,
-        deleted_at -> Nullable<BigInt>,
-        updated_at -> BigInt,
+        encrypted_data -> Text,
+        encrypted_key -> Text,
+        ucan_token -> Text,
+        metadata -> Nullable<Text>,
         created_at -> BigInt,
+        updated_at -> BigInt,
     }
 }
 
@@ -124,10 +97,6 @@ diesel::table! {
 
 diesel::joinable!(devices -> users (user_id));
 diesel::joinable!(folder_share_records -> folders (folder_id));
-diesel::joinable!(resource_keys -> resources (resource_id));
-diesel::joinable!(resource_keys -> users (user_id));
-diesel::joinable!(resource_vector_clocks -> devices (device_id));
-diesel::joinable!(resource_vector_clocks -> resources (resource_id));
 diesel::joinable!(resources -> folders (folder_id));
 diesel::joinable!(share_records -> resources (resource_id));
 
@@ -135,8 +104,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     devices,
     folder_share_records,
     folders,
-    resource_keys,
-    resource_vector_clocks,
     resources,
     share_records,
     store_items,

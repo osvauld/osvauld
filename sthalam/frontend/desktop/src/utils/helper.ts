@@ -1,6 +1,59 @@
 import { invoke } from "@tauri-apps/api/core";
 import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 
+// ===== Backend Types =====
+
+// Folder Types
+export interface AddFolderInput {
+  name: string;
+  description: string;
+}
+
+export interface FolderResponse {
+  id: string;
+  name: string;
+  description: string;
+  default: boolean;
+}
+
+// Resource Types
+export interface AddResourceInput {
+  resourcePayload: string;
+  folderId: string;
+  resourceType: string;
+  ucanTemplateJson: string;
+  metadataJson: string;
+}
+
+export interface ResourceMetadata {
+  id: string;
+  title: string;
+  resourceType: string;
+  folderId: string;
+  lastModified: number;
+  favourite: boolean;
+  preview?: string;
+}
+
+export interface GetResourceInput {
+  resourceId: string;
+}
+
+export interface ResourceResponse {
+  id: string;
+  data: {
+    template_doc: number[];
+    content_doc: number[];
+    user_content_doc: number[];
+    collaborative_doc: number[];
+    submissions_doc: number[];
+    static_assets: Array<{ id: string; data: number[] }>;
+  };
+  favourite: boolean;
+  lastAccessed: number;
+  folderId: string;
+}
+
 /**
  * Send message to Tauri backend
  * Follows livnote's sendMessage pattern with handler map
@@ -8,58 +61,51 @@ import { writeText, readText } from '@tauri-apps/plugin-clipboard-manager';
 export const sendMessage = async (action: string, data?: any): Promise<any> => {
   try {
     // Map actions to their specific handlers
+    // ✅ = Currently used, ⏳ = TODO/Not implemented, ❌ = To be removed
     const handlerMap = {
-      isSignedUp: () => invoke("check_signup_status"),
-      savePassphrase: (data: any) => invoke("handle_sign_up", { input: data }),
-      checkPvtLoaded: () => invoke("check_private_key_loaded"),
-      login: (data: any) => invoke("login", { input: data }),
-      addCredential: (data: any) =>
-        invoke("handle_add_resource", { input: data }),
-      addDevice: (data: any) => invoke("handle_add_device", { input: data }),
-      exportCertificate: (data: any) =>
-        invoke("handle_export_certificate", { input: data }),
-      changePassphrase: (data: any) =>
-        invoke("handle_change_passphrase", { input: data }),
-      addFolder: (data: any) => invoke("handle_add_folder", { input: data }),
-      getFolder: () => invoke("handle_get_folders"),
-      getCredentialsForFolder: (data: any) =>
-        invoke("handle_get_resources_for_folder", { input: data }),
-      startP2PListner: () => invoke("start_p2p_listener"),
-      deleteResource: (data: any) =>
-        invoke("soft_delete_resource", { input: data }),
-      deleteFolder: (data: any) =>
-        invoke("handle_soft_delete_folder", { input: data }),
-      toggleFav: (data: any) => invoke("handle_toggle_fav", { input: data }),
-      updateLastAccessed: (data: any) =>
-        invoke("handle_update_last_accessed", { input: data }),
-      getAllCredentials: () =>
-        invoke("handle_get_all_resources"),
-      emitAllResources: (selectedResourceId?: string) =>
-        invoke("emit_all_resources", {
-          selectedResourceId: selectedResourceId ?? null
-        }),
-      logout: () => invoke("handle_logout"),
-      updateCredential: (data: any) =>
-        invoke("handle_update_resource", { input: data }),
-      getCredential: (data: any) => invoke("handle_get_resource", { input: data }),
-      addKnownUser: (data: any) =>
-        invoke("handle_add_user", { input: data }),
-      getKnownUsers: () => invoke("handle_get_known_users"),
-      shareResource: (data: any) =>
-        invoke("handle_share_resource", { input: data }),
-      updateCurrentNote: (data: any) => {
-        invoke('update_current_note', { input: data })
-      },
-      getUserDetails: () => invoke('get_user_details'),
-      getOneTimeUcanToken: () => invoke('get_one_time_ucan_token'),
-      searchResource: (data: any) => invoke("handle_search_resources", { input: data }),
-      shareFolder: (data: any) => invoke("handle_share_folder", { input: data }),
-      getSharedFolderUsers: (data: any) => invoke("handle_get_shared_folder_users", { input: data }),
-      connectToWebsite: (data: any) => invoke("handle_connect_to_website", { input: data }),
-      publishResource: (data: any) => invoke("handle_publish_resource", { resourceId: data.resourceId }),
-      syncResource: (data: any) => invoke("handle_sync_resource", { resourceId: data.resourceId }),
-      folderSyncViewer: (data: any) => invoke("handle_folder_sync_viewer",
-        { folderId: data.folderId }),
+      // Auth handlers (core - always keep)
+      isSignedUp: () => invoke("check_signup_status"), // ✅
+      savePassphrase: (data: any) => invoke("handle_sign_up", { input: data }), // ✅
+      checkPvtLoaded: () => invoke("check_private_key_loaded"), // ✅
+      login: (data: any) => invoke("login", { input: data }), // ✅
+      logout: () => invoke("handle_logout"), // ✅
+      addDevice: (data: any) => invoke("handle_add_device", { input: data }), // ✅
+      exportCertificate: (data: any) => invoke("handle_export_certificate", { input: data }), // ✅
+      changePassphrase: (data: any) => invoke("handle_change_passphrase", { input: data }), // ✅
+      getUserDetails: () => invoke('get_user_details'), // ✅
+      getOneTimeUcanToken: () => invoke('get_one_time_ucan_token'), // ✅
+
+      // Folder handlers
+      addFolder: (data: any) => invoke("handle_add_folder", { input: data }), // ✅ data.svelte.ts:164
+      getFolder: () => invoke("handle_get_folders"), // ✅ data.svelte.ts:119
+      deleteFolder: (data: any) => invoke("handle_soft_delete_folder", { input: data }), // ⏳ TODO
+      shareFolder: (data: any) => invoke("handle_share_folder", { input: data }), // ⏳ TODO
+      getSharedFolderUsers: (data: any) => invoke("handle_get_shared_folder_users", { input: data }), // ⏳ TODO
+
+      // Resource handlers
+      addCredential: (data: any) => invoke("handle_add_resource", { input: data }), // ✅ data.svelte.ts:252
+      getCredential: (data: any) => invoke("handle_get_resource", { input: data }), // ✅ data.svelte.ts:326
+      getAllResourcesMetadata: () => invoke("handle_get_all_resources_metadata"), // ✅ data.svelte.ts:133
+      updateCredential: (data: any) => invoke("handle_update_resource", { input: data }), // ⏳ data.svelte.ts:457 (used but not implemented)
+      getCredentialsForFolder: (data: any) => invoke("handle_get_resources_for_folder", { input: data }), // ⏳ TODO
+      deleteResource: (data: any) => invoke("soft_delete_resource", { input: data }), // ⏳ TODO
+      shareResource: (data: any) => invoke("handle_share_resource", { input: data }), // ⏳ TODO
+      searchResource: (data: any) => invoke("handle_search_resources", { input: data }), // ⏳ TODO
+      toggleFav: (data: any) => invoke("handle_toggle_fav", { input: data }), // ⏳ TODO
+      updateLastAccessed: (data: any) => invoke("handle_update_last_accessed", { input: data }), // ⏳ TODO
+
+      // User handlers
+      addKnownUser: (data: any) => invoke("handle_add_user", { input: data }), // ⏳ TODO
+      getKnownUsers: () => invoke("handle_get_known_users"), // ⏳ TODO
+
+      // Network/P2P handlers
+      startP2PListener: () => invoke("start_p2p_listener"), // ✅ Initialize P2P network
+      addSovereignNode: (data: any) => invoke("handle_add_sovereign_node", { input: data }), // ✅ Add sovereign node connection
+      updateCurrentNote: (data: any) => { invoke('update_current_note', { input: data }) }, // ❌ Old live edit - to be removed
+      publishResource: (data: any) => invoke("handle_publish_resource", { resourceId: data.resourceId }), // ⏳ TODO (Phase 3)
+      connectToWebsite: (data: any) => invoke("handle_connect_to_website", { input: data }), // ❌ Website feature - removed
+      syncResource: (data: any) => invoke("handle_sync_resource", { resourceId: data.resourceId }), // ❌ Website feature - removed
+      folderSyncViewer: (data: any) => invoke("handle_folder_sync_viewer", { folderId: data.folderId }), // ❌ Website feature - removed
     };
     //@ts-ignore
     const handler = handlerMap[action];

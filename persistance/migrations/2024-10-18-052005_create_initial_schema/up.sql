@@ -20,10 +20,11 @@ CREATE TABLE folders (
     description TEXT,
     default_folder BOOLEAN NOT NULL DEFAULT FALSE,
     parent_folder_id TEXT,
+    ucan TEXT NOT NULL,
     deleted BOOLEAN NOT NULL DEFAULT FALSE,
     deleted_at BIGINT,
     updated_at BIGINT NOT NULL,
-    created_at BIGINT NOT NULL 
+    created_at BIGINT NOT NULL
 );
 
 
@@ -39,46 +40,14 @@ CREATE TABLE devices (
 
 CREATE TABLE resources (
     id TEXT PRIMARY KEY NOT NULL,
-    resource_type TEXT NOT NULL,
-    data TEXT NOT NULL,
     folder_id TEXT NOT NULL,
-    created_folder_id TEXT NOT NULL,
-    signature TEXT NOT NULL,
-    favourite BOOLEAN NOT NULL DEFAULT FALSE,
-    created_by TEXT NOT NULL,
-    last_accessed BIGINT NOT NULL,
-    deleted BOOLEAN NOT NULL DEFAULT FALSE,
-    deleted_at BIGINT,
-    updated_at BIGINT NOT NULL,
-    created_at BIGINT NOT NULL,
-    FOREIGN KEY (folder_id) REFERENCES folders (id)
-);
-
-CREATE TABLE resource_vector_clocks (
-    id TEXT PRIMARY KEY NOT NULL,
-    resource_id TEXT NOT NULL,
-    device_id TEXT NOT NULL,
-    clock_value INTEGER NOT NULL DEFAULT 0,
-    created_at BIGINT NOT NULL,
-    updated_at BIGINT NOT NULL,
-    FOREIGN KEY (resource_id) REFERENCES resources (id),
-    FOREIGN KEY (device_id) REFERENCES devices (id),
-    UNIQUE (resource_id, device_id)
-);
-
-
--- Resource keys table for per-user encryption keys
-CREATE TABLE resource_keys (
-    id TEXT PRIMARY KEY NOT NULL,
-    resource_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
+    encrypted_data TEXT NOT NULL,
     encrypted_key TEXT NOT NULL,
-    is_owner BOOLEAN NOT NULL DEFAULT FALSE,
+    ucan_token TEXT NOT NULL,
+    metadata TEXT,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
-    FOREIGN KEY (resource_id) REFERENCES resources(id),
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    UNIQUE(resource_id, user_id)
+    FOREIGN KEY (folder_id) REFERENCES folders (id)
 );
 
  

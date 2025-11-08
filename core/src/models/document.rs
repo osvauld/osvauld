@@ -1,91 +1,108 @@
-use std::future::Future;
-use yrs::updates::decoder::Decode;
-use yrs::updates::encoder::Encode;
-use yrs::{AsyncTransact, Doc, ReadTxn, StateVector, Update};
-/// Create a new YJS document
+use loro::{LoroDoc, LoroError, ExportMode};
+
+/// Create a new Loro document
 ///
 /// # Returns
-/// * `Doc` - A new YJS document ready for use
-pub fn create_doc() -> Doc {
-    Doc::new()
+/// * `LoroDoc` - A new Loro document ready for use
+pub fn create_doc() -> LoroDoc {
+    LoroDoc::new()
 }
 
-/// YJS Document implementation with v2 encoding methods
-impl YjsDocExt for Doc {
-    async fn apply_update_v2(&mut self, update: &[u8]) -> Result<(), String> {
-        if update.is_empty() {
-            return Ok(());
-        }
-
-        // Decode v2 update
-        let update_obj = Update::decode_v2(update)
-            .map_err(|e| format!("Failed to decode v2 update: {:?}", e))?;
-
-        // Apply the update to the document
-        let mut txn = self.transact_mut().await;
-        txn.apply_update(update_obj)
-            .map_err(|e| format!("Failed to apply update to document: {:?}", e))?;
-
-        Ok(())
-    }
-
-    async fn get_state_vector_v2(&self) -> Vec<u8> {
-        let txn = self.transact().await;
-        txn.state_vector().encode_v2()
-    }
-
-    async fn get_state_as_update_v2(&self) -> Vec<u8> {
-        let txn = self.transact().await;
-        txn.encode_state_as_update_v2(&StateVector::default())
-    }
-
-    async fn get_diff_update_v2(&self, state_vector: &[u8]) -> Result<Vec<u8>, String> {
-        if state_vector.is_empty() {
-            return Ok(self.get_state_as_update_v2().await);
-        }
-
-        // Decode the state vector
-        let sv = StateVector::decode_v2(state_vector)
-            .map_err(|e| format!("Failed to decode v2 state vector: {:?}", e))?;
-
-        // Generate diff update
-        let txn = self.transact().await;
-        let diff = txn.encode_diff_v2(&sv);
-        Ok(diff)
-    }
+/// Import a snapshot (full or shallow) into a new Loro document
+///
+/// # Arguments
+/// * `snapshot_bytes` - The snapshot bytes (from export_snapshot or export_shallow_snapshot)
+///
+/// # Returns
+/// * `Result<LoroDoc, LoroError>` - A new document with imported state
+pub fn import_snapshot(snapshot_bytes: &[u8]) -> Result<LoroDoc, LoroError> {
+    let doc = LoroDoc::new();
+    doc.import(snapshot_bytes)?;
+    Ok(doc)
 }
-pub trait YjsDocExt {
-    /// Apply a v2 encoded update to the document
-    ///
-    /// # Arguments
-    /// * `update` - The v2 encoded update as bytes
-    ///
-    /// # Returns
-    /// * `Result<(), String>` - Success or error message
-    fn apply_update_v2(&mut self, update: &[u8])
-    -> impl Future<Output = Result<(), String>> + Send;
 
-    /// Get the state vector of the document encoded in v2 format
-    ///
-    /// # Returns
-    /// * `Vec<u8>` - The v2 encoded state vector
-    fn get_state_vector_v2(&self) -> impl Future<Output = Vec<u8>> + Send;
+/// Import snapshot or updates into an existing Loro document
+///
+/// # Arguments
+/// * `doc` - The document to import into
+/// * `bytes` - The snapshot or update bytes to import
+///
+/// # Returns
+/// * `Result<(), LoroError>` - Success or error
+pub fn import_into(doc: &LoroDoc, bytes: &[u8]) -> Result<(), LoroError> {
+    doc.import(bytes).map(|_| ())
+}
 
-    /// Get the full document state as a v2 encoded update
-    ///
-    /// # Returns
-    /// * `Vec<u8>` - The v2 encoded document state
-    fn get_state_as_update_v2(&self) -> impl Future<Output = Vec<u8>> + Send;
+/// Export full snapshot with complete history (for owner/node storage)
+///
+/// # Arguments
+/// * `doc` - The document to export
+///
+/// # Returns
+/// * `Vec<u8>` - Encoded snapshot with all history
+pub fn export_snapshot(doc: &LoroDoc) -> Vec<u8> {
+    doc.export(ExportMode::Snapshot)
+        .expect("Failed to export Loro snapshot")
+}
 
-    /// Get a diff update between the current state and the provided state vector
-    ///
-    /// # Arguments
-    /// * `state_vector` - The v2 encoded state vector to diff against
-    ///
-    /// # Returns
-    /// * `Result<Vec<u8>, String>` - The v2 encoded diff update or error
-    fn get_diff_update_v2(
-        &self,
-        state_vector: &[u8],
-    ) -> impl Future<Output = Result<Vec<u8>, String>> + Send;
+/// Export shallow snapshot without full history (for viewers)
+///
+/// # Arguments
+/// * `doc` - The document to export
+///
+/// # Returns
+/// * `Vec<u8>` - Encoded shallow snapshot
+pub fn export_shallow_snapshot(doc: &LoroDoc) -> Vec<u8> {
+    let frontiers = doc.state_frontiers();
+    doc.export(ExportMode::shallow_snapshot(&frontiers))
+        .expect("Failed to export Loro shallow snapshot")
+}
+
+/// Export updates from a specific version vector (for incremental sync)
+///
+/// # Arguments
+/// * `doc` - The document to export from
+/// * `from_version` - The version vector to export updates from
+///
+/// # Returns
+/// * `Vec<u8>` - Encoded updates from the specified version
+pub fn export_updates(doc: &LoroDoc, from_version: &[u8]) -> Result<Vec<u8>, LoroError> {
+    // Parse the version vector
+    let vv = loro::VersionVector::decode(from_version)?;
+    Ok(doc.export(ExportMode::updates(&vv))
+        .expect("Failed to export Loro updates"))
+}
+
+/// Apply updates to a document
+///
+/// # Arguments
+/// * `doc` - The document to apply updates to
+/// * `updates` - The update bytes to apply
+///
+/// # Returns
+/// * `Result<(), LoroError>` - Success or error
+pub fn apply_updates(doc: &LoroDoc, updates: &[u8]) -> Result<(), LoroError> {
+    doc.import(updates).map(|_| ())
+}
+
+/// Get the operation log version vector (for owner/node - includes full history)
+///
+/// # Arguments
+/// * `doc` - The document
+///
+/// # Returns
+/// * `Vec<u8>` - Encoded version vector of the operation log
+pub fn oplog_vv(doc: &LoroDoc) -> Vec<u8> {
+    doc.oplog_vv().encode()
+}
+
+/// Get the state frontiers (for viewers - current state without history)
+///
+/// # Arguments
+/// * `doc` - The document
+///
+/// # Returns
+/// * `Vec<u8>` - Encoded frontiers representing current state
+pub fn state_frontiers(doc: &LoroDoc) -> Vec<u8> {
+    doc.state_frontiers().encode()
 }

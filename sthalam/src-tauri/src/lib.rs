@@ -2,41 +2,20 @@ use log::error;
 use persistance::{DbConnection, database::initialize_repositories, initialize_database};
 use tauri::Manager;
 pub mod asset_protocol;
-pub mod current_note_state;
-pub mod handlers;
-pub mod listners;
-pub mod preview_generator;
 mod types;
-pub mod user_state;
-pub mod website_state;
-use crate::handlers::auth_handler::{
-    check_private_key_loaded, check_signup_status, get_one_time_ucan_token, get_user_details,
-    handle_add_device, handle_change_passphrase, handle_export_certificate, handle_logout,
-    handle_sign_up, login,
-};
-use crate::handlers::folder_handler::{
-    handle_add_folder, handle_get_folders, handle_get_shared_folder_users, handle_share_folder,
-    handle_soft_delete_folder,
-};
-use crate::handlers::resource_handler::{
-    emit_all_resources, handle_add_resource, handle_get_all_resources, handle_get_resource,
-    handle_get_resources_for_folder, handle_publish_resource, handle_search_resources,
-    handle_share_resource, handle_toggle_fav, handle_update_last_accessed, handle_update_resource,
-    soft_delete_resource,
-};
-use crate::handlers::user_handler::{get_system_locale, handle_add_user, handle_get_known_users};
-use crate::handlers::website_handler::{
-    handle_connect_to_website, handle_folder_sync_viewer, handle_generate_share_token,
-    handle_load_website_state, handle_sync_resource, handle_update_website_state,
-};
-use crate::user_state::UserState;
-use crate::website_state::WebsiteState;
+
+// Import all shared handlers from tauri_handlers crate
+use tauri_handlers::handlers::auth::*;
+use tauri_handlers::handlers::folder::*;
+use tauri_handlers::handlers::p2p::*;
+use tauri_handlers::handlers::resource::*;
+use tauri_handlers::handlers::user::*;
+use tauri_handlers::{HandlerConfig, UserState};
 use clap::Parser;
 use crypto_utils::CryptoUtils;
 use network::P2PService;
 use search_indexer::SearchIndexManager;
 
-use listners::EventManager;
 use std::fs;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -129,27 +108,18 @@ pub fn run() {
                             incoming_receiver,
                         );
                     });
+                    // Create config for shared handlers (domain injection)
+                    let handler_config = HandlerConfig::new("sthalam");
                     let user_state = UserState::new();
 
-                    // Initialize WebsiteState
-                    let website_state = Arc::new(RwLock::new(WebsiteState::new(repo_ctx.clone())));
+                    // TODO: Re-implement event listeners and website state after Loro migration
+                    // See LISTENERS_ARCHITECTURE.md for reference
 
-                    // Initialize event manager and start listening
-                    let event_manager = EventManager::new(
-                        handle.clone(),
-                        p2p_receiver,
-                        p2p_sender,
-                        repo_ctx.clone(),
-                        crypto_utils.clone(),
-                    );
-                    rt.spawn(async move {
-                        event_manager.start_listening().await;
-                    });
+                    app.manage(handler_config);
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(p2p_service.clone());
                     app.manage(repo_ctx.clone());
-                    app.manage(website_state);
                 }
                 Err(e) => {
                     error!("Failed to set up database: {}", e);
@@ -169,42 +139,38 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_system_locale,
+            // Shared auth handlers
             check_signup_status,
+            get_user_details,
             handle_sign_up,
             check_private_key_loaded,
             login,
-            handle_add_resource,
             handle_add_device,
             handle_export_certificate,
             handle_change_passphrase,
+            handle_logout,
+            get_one_time_ucan_token,
+            // Shared folder handlers
             handle_add_folder,
             handle_get_folders,
-            handle_get_resources_for_folder,
-            soft_delete_resource,
             handle_soft_delete_folder,
-            handle_toggle_fav,
-            handle_update_last_accessed,
-            handle_get_all_resources,
-            handle_update_resource,
-            handle_get_resource,
+            handle_get_shared_folder_users,
+            handle_share_folder,
+            // Shared user handlers
             handle_add_user,
             handle_get_known_users,
-            handle_share_resource,
-            handle_publish_resource,
-            get_user_details,
-            emit_all_resources,
-            get_one_time_ucan_token,
-            handle_logout,
-            handle_search_resources,
-            handle_share_folder,
-            handle_get_shared_folder_users,
-            handle_generate_share_token,
-            handle_update_website_state,
-            handle_load_website_state,
-            handle_connect_to_website,
-            handle_sync_resource,
-            handle_folder_sync_viewer,
+            get_system_locale,
+            // Shared resource handlers
+            handle_add_resource,
+            handle_get_resource,
+            handle_get_all_resources_metadata,
+            handle_update_resource,
+            // P2P handlers
+            start_p2p_listener,
+            handle_add_sovereign_node,
+            // TODO: Implement remaining resource handlers:
+            // handle_delete_resource,
+            // etc.
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

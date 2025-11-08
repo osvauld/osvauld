@@ -16,9 +16,6 @@ pub enum ServiceError {
     #[error("User error: {0}")]
     User(#[from] UserServiceError),
 
-    #[error("Sync error: {0}")]
-    Sync(#[from] SyncServiceError),
-
     #[error("Crypto error: {0}")]
     Crypto(#[from] CryptoError),
 
@@ -115,6 +112,36 @@ pub enum ResourceServiceError {
     #[error("Update authority validation failed: {reason}")]
     AuthorityValidationFailed { reason: String },
 
+    #[error("Decryption failed for resource: {0}")]
+    DecryptionFailed(String),
+
+    #[error("Encryption failed: {0}")]
+    EncryptionFailed(String),
+
+    #[error("Invalid state: {0}")]
+    InvalidState(String),
+
+    #[error("Loro CRDT error: {0}")]
+    Loro(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
+    #[error("Invalid resource data: {0}")]
+    InvalidResourceData(String),
+
+    #[error("UCAN error: {0}")]
+    UcanError(String),
+
+    #[error("Key not found for resource: {0}")]
+    KeyNotFound(String),
+
+    #[error("User not found: {0}")]
+    UserNotFound(String),
+
+    #[error("Share record not found")]
+    ShareRecordNotFound,
+
     #[error(transparent)]
     Crypto(#[from] CryptoError),
 
@@ -179,48 +206,6 @@ pub enum UserServiceError {
 
     #[error("Failed to sign UCAN public key: {reason}")]
     UcanSigningFailed { reason: String },
-
-    #[error(transparent)]
-    Crypto(#[from] CryptoError),
-
-    #[error(transparent)]
-    Repository(#[from] RepositoryError),
-}
-
-#[derive(Error, Debug)]
-pub enum SyncServiceError {
-    #[error("Device manifest generation failed: {reason}")]
-    DeviceManifestFailed { reason: String },
-
-    #[error("User manifest generation failed: {reason}")]
-    UserManifestFailed { reason: String },
-
-    #[error("Resource sync failed for {resource_id}: {reason}")]
-    ResourceSyncFailed { resource_id: String, reason: String },
-
-    #[error("Network sync failed: {reason}")]
-    NetworkSyncFailed { reason: String },
-
-    #[error("Vector clock operation failed: {reason}")]
-    VectorClockFailed { reason: String },
-
-    #[error("Share record sync failed: {reason}")]
-    ShareRecordSyncFailed { reason: String },
-
-    #[error("Device sync failed: {reason}")]
-    DeviceSyncFailed { reason: String },
-
-    #[error("User sync failed: {reason}")]
-    UserSyncFailed { reason: String },
-
-    #[error("Folder sync failed: {reason}")]
-    FolderSyncFailed { reason: String },
-
-    #[error("UCAN token delegation failed: {reason}")]
-    UcanDelegationFailed { reason: String },
-
-    #[error("Default folder not found")]
-    DefaultFolderNotFound,
 
     #[error(transparent)]
     Crypto(#[from] CryptoError),

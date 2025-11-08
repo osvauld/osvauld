@@ -1,15 +1,23 @@
-// Add this to your types.rs file
-use osvauld_core::models::device::Device;
-use osvauld_core::models::user::User;
+use osvauld_core::models::{Device, User};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct CurrentUserState {
     pub user: Option<User>,
     pub device: Option<Device>,
 }
 
+impl Default for CurrentUserState {
+    fn default() -> Self {
+        Self {
+            user: None,
+            device: None,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct UserState {
     pub current_user: Arc<RwLock<CurrentUserState>>,
 }
@@ -21,21 +29,25 @@ impl UserState {
         }
     }
 
-    // Get the current user, returning an error if not present
     pub async fn get_user(&self) -> Result<User, String> {
-        let guard = self.current_user.read().await;
-        guard
+        let state = self.current_user.read().await;
+        state
             .user
             .clone()
-            .ok_or_else(|| "No user found in state. Please log in.".to_string())
+            .ok_or_else(|| "No user loaded".to_string())
     }
 
-    // Get the current device, returning an error if not present
     pub async fn get_device(&self) -> Result<Device, String> {
-        let guard = self.current_user.read().await;
-        guard
+        let state = self.current_user.read().await;
+        state
             .device
             .clone()
-            .ok_or_else(|| "No device found in state. Please register a device first.".to_string())
+            .ok_or_else(|| "No device loaded".to_string())
+    }
+}
+
+impl Default for UserState {
+    fn default() -> Self {
+        Self::new()
     }
 }

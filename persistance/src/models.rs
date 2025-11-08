@@ -1,20 +1,18 @@
 use crate::database::schema::folder_share_records;
 use crate::database::schema::{
-    devices, folders, resource_keys, resource_vector_clocks, resources, share_records, users,
+    devices, folders, resources, share_records, users,
 };
 use diesel::associations::Associations;
 use diesel::prelude::*;
 use osvauld_core::models::folder_share_record::FolderShareRecord as DomainFolderShareRecord;
 use osvauld_core::models::{
-    ResourceType,
     device::Device as DomainDevice,
     folder::Folder as DomainFolder,
-    resource::Resource as DomainResource,
-    resource_key::ResourceKey as DomainResourceKey,
+    resource::EncryptedResource as DomainEncryptedResource,
     share_record::{PermissionLevel, ShareOperation, ShareRecord as DomainShareRecord},
     user::User as DomainUser,
-    vector_clock::ResourceVectorClock as DomainResourceVectorClock,
 };
+use serde_json;
 #[derive(Queryable, Insertable)]
 #[diesel(table_name = folders)]
 pub struct FolderModel {
@@ -23,6 +21,7 @@ pub struct FolderModel {
     pub description: Option<String>,
     pub default_folder: bool,
     pub parent_folder_id: Option<String>,
+    pub ucan: String,
     pub deleted: bool,
     pub deleted_at: Option<i64>,
     pub created_at: i64,
@@ -37,6 +36,7 @@ impl From<&DomainFolder> for FolderModel {
             description: folder.description.clone(),
             default_folder: folder.default_folder,
             parent_folder_id: folder.parent_folder_id.clone(),
+            ucan: folder.ucan.clone(),
             deleted: folder.deleted,
             deleted_at: folder.deleted_at,
             created_at: folder.created_at,
@@ -53,6 +53,7 @@ impl From<FolderModel> for DomainFolder {
             description: model.description,
             default_folder: model.default_folder,
             parent_folder_id: model.parent_folder_id,
+            ucan: model.ucan,
             created_at: model.created_at,
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,
@@ -65,68 +66,57 @@ impl From<FolderModel> for DomainFolder {
 #[diesel(table_name = resources)]
 pub struct ResourceModel {
     pub id: String,
-    pub resource_type: String,
-    pub data: String,
     pub folder_id: String,
-    pub created_folder_id: String,
-    pub signature: String,
-    pub favourite: bool,
-    pub created_by: String,
-    pub last_accessed: i64,
-    pub deleted: bool,
-    pub deleted_at: Option<i64>,
-    pub updated_at: i64,
+    pub encrypted_data: String,
+    pub encrypted_key: String,
+    pub ucan_token: String,
+    pub metadata: Option<String>,
     pub created_at: i64,
+    pub updated_at: i64,
 }
 
-impl From<&DomainResource> for ResourceModel {
-    fn from(resource: &DomainResource) -> Self {
+impl From<&DomainEncryptedResource> for ResourceModel {
+    fn from(resource: &DomainEncryptedResource) -> Self {
         Self {
             id: resource.id.clone(),
-            resource_type: resource.resource_type.to_string(),
-            data: resource.data.clone(),
             folder_id: resource.folder_id.clone(),
-            created_folder_id: resource.created_folder_id.clone(),
-            signature: resource.signature.clone(),
-            favourite: resource.favourite,
-            last_accessed: resource.last_accessed,
-            created_by: resource.created_by.clone(),
-            deleted: resource.deleted,
-            deleted_at: resource.deleted_at,
+            encrypted_data: resource.encrypted_data.clone(),
+            encrypted_key: resource.encrypted_key.clone(),
+            ucan_token: resource.ucan_token.clone(),
+            metadata: Some(serde_json::to_string(&resource.metadata).unwrap_or_default()),
             created_at: resource.created_at,
             updated_at: resource.updated_at,
         }
     }
 }
 
-impl From<ResourceModel> for DomainResource {
+impl From<ResourceModel> for DomainEncryptedResource {
     fn from(model: ResourceModel) -> Self {
+        let metadata = model.metadata
+            .and_then(|m| serde_json::from_str(&m).ok())
+            .unwrap_or(serde_json::Value::Null);
+
         Self {
             id: model.id,
-            resource_type: ResourceType::from_str(&model.resource_type),
-            data: model.data,
             folder_id: model.folder_id,
-            created_folder_id: model.created_folder_id,
-            signature: model.signature,
+            encrypted_data: model.encrypted_data,
+            encrypted_key: model.encrypted_key,
+            ucan_token: model.ucan_token,
+            metadata,
             created_at: model.created_at,
             updated_at: model.updated_at,
-            created_by: model.created_by,
-            last_accessed: model.last_accessed,
-            favourite: model.favourite,
-            deleted: model.deleted,
-            deleted_at: model.deleted_at,
         }
     }
 }
 
 impl ResourceModel {
-    // Convert Vec<DomainModel> to Vec<DomainDomain>
-    pub fn to_domain_resources(models: Vec<ResourceModel>) -> Vec<DomainResource> {
-        models.into_iter().map(DomainResource::from).collect()
+    // Convert Vec<ResourceModel> to Vec<DomainEncryptedResource>
+    pub fn to_domain_resources(models: Vec<ResourceModel>) -> Vec<DomainEncryptedResource> {
+        models.into_iter().map(DomainEncryptedResource::from).collect()
     }
 
-    // Convert Vec<DomainDomain> to Vec<DomainModel>
-    pub fn from_domain_resources(resources: Vec<DomainResource>) -> Vec<ResourceModel> {
+    // Convert Vec<DomainEncryptedResource> to Vec<ResourceModel>
+    pub fn from_domain_resources(resources: Vec<DomainEncryptedResource>) -> Vec<ResourceModel> {
         resources
             .into_iter()
             .map(|c| ResourceModel::from(&c))
@@ -244,112 +234,6 @@ impl From<UserModel> for DomainUser {
 impl UserModel {
     pub fn to_domain_users(models: Vec<UserModel>) -> Vec<DomainUser> {
         models.into_iter().map(DomainUser::from).collect()
-    }
-}
-
-#[derive(Queryable, Insertable, Identifiable, Associations)]
-#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
-#[diesel(table_name = resource_keys)]
-pub struct ResourceKeyModel {
-    pub id: String,
-    pub resource_id: String,
-    pub user_id: String,
-    pub encrypted_key: String,
-    pub is_owner: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-impl From<&DomainResourceKey> for ResourceKeyModel {
-    fn from(resource_key: &DomainResourceKey) -> Self {
-        Self {
-            id: resource_key.id.clone(),
-            resource_id: resource_key.resource_id.clone(),
-            user_id: resource_key.user_id.clone(),
-            encrypted_key: resource_key.encrypted_key.clone(),
-            is_owner: resource_key.is_owner,
-            created_at: resource_key.created_at,
-            updated_at: resource_key.updated_at,
-        }
-    }
-}
-
-impl From<ResourceKeyModel> for DomainResourceKey {
-    fn from(model: ResourceKeyModel) -> Self {
-        Self {
-            id: model.id.clone(),
-            resource_id: model.resource_id.clone(),
-            user_id: model.user_id.clone(),
-            encrypted_key: model.encrypted_key.clone(),
-            is_owner: model.is_owner,
-            created_at: model.created_at,
-            updated_at: model.updated_at,
-        }
-    }
-}
-impl ResourceKeyModel {
-    pub fn to_domain_resource(models: Vec<ResourceKeyModel>) -> Vec<DomainResourceKey> {
-        models.into_iter().map(DomainResourceKey::from).collect()
-    }
-}
-
-#[derive(Queryable, Insertable, Identifiable, Associations, Selectable)]
-#[diesel(belongs_to(ResourceModel, foreign_key = resource_id))]
-#[diesel(table_name = resource_vector_clocks)]
-pub struct ResourceVectorClockModel {
-    pub id: String,
-    pub resource_id: String,
-    pub device_id: String,
-    pub clock_value: i32,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-impl From<&DomainResourceVectorClock> for ResourceVectorClockModel {
-    fn from(clock: &DomainResourceVectorClock) -> Self {
-        Self {
-            id: clock.id.clone(),
-            resource_id: clock.resource_id.clone(),
-            device_id: clock.device_id.clone(),
-            clock_value: clock.clock_value as i32, // Convert u64 to i32
-            created_at: clock.created_at,
-            updated_at: clock.updated_at,
-        }
-    }
-}
-
-impl From<ResourceVectorClockModel> for DomainResourceVectorClock {
-    fn from(model: ResourceVectorClockModel) -> Self {
-        Self {
-            id: model.id,
-            resource_id: model.resource_id,
-            device_id: model.device_id,
-            clock_value: model.clock_value as u64, // Convert i32 to u64
-            created_at: model.created_at,
-            updated_at: model.updated_at,
-        }
-    }
-}
-
-impl ResourceVectorClockModel {
-    // Helper to convert a collection of models to domain objects
-    pub fn to_domain_vector_clocks(
-        models: Vec<ResourceVectorClockModel>,
-    ) -> Vec<DomainResourceVectorClock> {
-        models
-            .into_iter()
-            .map(DomainResourceVectorClock::from)
-            .collect()
-    }
-
-    // Helper to convert a collection of domain objects to models
-    pub fn from_domain_vector_clocks(
-        clocks: &[DomainResourceVectorClock],
-    ) -> Vec<ResourceVectorClockModel> {
-        clocks
-            .iter()
-            .map(|clock| ResourceVectorClockModel::from(clock))
-            .collect()
     }
 }
 

@@ -73,12 +73,6 @@ pub async fn get_role_from_ucan_token(ucan_token: &str) -> Result<String, Crypto
     Ok(ucan_utils::get_role_from_token(&ucan))
 }
 
-/// Extract folder_id from UCAN token
-pub async fn extract_folder_id_from_ucan_token(ucan_token: &str) -> Result<String, CryptoError> {
-    let ucan = ucan_utils::validate_structure(ucan_token).await?;
-    Ok(ucan_utils::extract_folder_id_from_ucan(&ucan)?)
-}
-
 /// Extract resource_id from UCAN token
 pub async fn extract_resource_id_from_ucan_token(
     ucan_token: &str,

@@ -1,23 +1,22 @@
-use crate::types::{CryptoResponse, UserDetails};
+use crate::types::{BaseCryptoResponse, UserDetails};
 use base64::{Engine as _, engine::general_purpose};
 use crypto_utils::CryptoUtils;
-use log::error;
 use network::P2PService;
-use osvauld_core::models::{ConnectionAction, ConnectionType};
 use persistance::database::RepositoryContext;
 use services::{add_known_user, get_known_users};
 use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
 use tokio::sync::RwLock;
+
 #[tauri::command]
 pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
-    p2p_service: State<'_, Arc<P2PService>>,
-) -> Result<CryptoResponse, String> {
-    // // Decode the base64 string
+    _p2p_service: State<'_, Arc<P2PService>>,
+) -> Result<BaseCryptoResponse, String> {
+    // Decode the base64 string
     let json_bytes = general_purpose::STANDARD
         .decode(input)
         .map_err(|e| format!("Failed to decode input: {}", e))?;
@@ -37,7 +36,7 @@ pub async fn handle_add_user(
     let one_time_token = details.ucan_token;
     let ucan_pub_key = details.ucan_pub_key;
 
-    let (_user, device) = add_known_user(
+    let (_user, _device) = add_known_user(
         username,
         user_public_key,
         device_public_key,
@@ -48,32 +47,27 @@ pub async fn handle_add_user(
     )
     .await
     .map_err(|e| e.to_string())?;
-    let device = device.clone();
-    let p2p_service_clone = p2p_service.inner().clone();
 
-    tokio::spawn(async move {
-        if let Err(e) = p2p_service_clone
-            .connect_with_ticket(
-                &device.id,
-                ConnectionType::User,
-                Some(ConnectionAction::UserSync),
-            )
-            .await
-        {
-            error!("Failed to start P2P service: {}", e);
-        }
-    });
-    Ok(CryptoResponse::Success)
+    // TODO: Re-implement P2P connection after Loro migration
+    // let device = device.clone();
+    // let p2p_service_clone = p2p_service.inner().clone();
+    // tokio::spawn(async move {
+    //     if let Err(e) = p2p_service_clone.connect_with_ticket(&device.id).await {
+    //         error!("Failed to start P2P service: {}", e);
+    //     }
+    // });
+
+    Ok(BaseCryptoResponse::Success)
 }
 
 #[tauri::command]
 pub async fn handle_get_known_users(
     repo_ctx: State<'_, Arc<RepositoryContext>>,
-) -> Result<CryptoResponse, String> {
+) -> Result<BaseCryptoResponse, String> {
     let known_users = get_known_users(repo_ctx.inner().clone())
         .await
         .map_err(|e| e.to_string())?;
-    Ok(CryptoResponse::GetKnownUsers(known_users))
+    Ok(BaseCryptoResponse::GetKnownUsers(known_users))
 }
 
 #[tauri::command]

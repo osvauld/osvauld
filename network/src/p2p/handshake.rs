@@ -1,13 +1,13 @@
 use crate::p2p::{
     errors::{HandshakeError, P2PError, P2PResult},
-    peer_connection::PeerConnection,
+    peer_connection::{ConnectionType, PeerConnection},
     P2PEvent,
 };
 
 use base64::{engine::general_purpose, Engine as _};
 use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, FirstConnectRequest, FirstConnectResponse,
-    HandshakeMessage, Message, UcanAndUserExchange, User, UserWithDevices,
+    Device, FirstConnectRequest, FirstConnectResponse,
+    HandshakeMessage, Message, PeerRole, UcanAndUserExchange, User, UserWithDevices,
 };
 use services::{get_my_user_devices, issue_connect_ucan_token, sign_ucan_pub_key};
 use tracing::{debug, error, info, instrument};
@@ -15,14 +15,10 @@ use tracing::{debug, error, info, instrument};
 impl PeerConnection {
     #[instrument(skip(self, current_user, current_device), fields(
         connection_id = %self.get_id(),
-        peer_id = ?self.connection.remote_node_id(),
-        connection_type = ?connection_type,
-        action = ?action
+        peer_id = ?self.connection.remote_node_id()
     ), level = "info")]
     pub async fn initiate_handshake(
         &self,
-        connection_type: ConnectionType,
-        action: ConnectionAction,
         current_user: User,
         current_device: Device,
     ) -> P2PResult<()> {
@@ -38,53 +34,23 @@ impl PeerConnection {
             .await?;
         debug!("Successfully retrieved user for peer");
 
-        // Extract role from peer's UCAN token to determine connection type
-        let role = crypto_utils::get_role_from_ucan_token(&peer_user.ucan_token)
+        // Extract role from peer's UCAN token and convert to PeerRole enum
+        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&peer_user.ucan_token)
             .await
             .unwrap_or_else(|e| {
-                debug!("Failed to extract role from token: {}, defaulting to viewer", e);
-                "viewer".to_string()
+                debug!("Failed to extract role from token: {}, defaulting to user", e);
+                "user".to_string()
             });
+        let peer_role = PeerRole::from_string(&peer_role_from_token);
 
-        debug!("Extracted role from peer UCAN token: {}", role);
+        debug!("Extracted peer role from UCAN token: {:?}", peer_role);
 
-        // Handle viewer role specially - initiate website handshake
-        if role == "viewer" {
-            info!("Peer has viewer role, initiating website handshake with UCAN token");
+        // Use the same role from the peer's token
+        // This ensures role consistency: owner gets 'owner', node gets 'node'
+        let issued_token_role = peer_role.as_str();
 
-            // Check if this is a first connection or reconnection
-            if !peer_user.first_sync {
-                // First connection: send WebsiteHandshakeRequest
-                info!("First connection to node, sending WebsiteHandshakeRequest");
-                let request = osvauld_core::models::WebsiteHandshakeRequest {
-                    ucan_token: peer_user.ucan_token.clone(),
-                    viewer_user: current_user,
-                    viewer_device: current_device,
-                };
+        debug!("Will issue token with role: {}", issued_token_role);
 
-                self.send_message(Message::Handshake(
-                    HandshakeMessage::HandshakeWebsiteRequest(request),
-                )).await?;
-
-                info!("Sent website handshake request for first connection");
-            } else {
-                // Reconnection: send WebsiteReconnectRequest
-                info!("Reconnecting to node, sending WebsiteReconnectRequest");
-                let request = osvauld_core::models::WebsiteReconnectRequest {
-                    ucan_token: peer_user.ucan_token.clone(),
-                    viewer_user: current_user,
-                    viewer_device: current_device,
-                };
-
-                self.send_message(Message::Handshake(
-                    HandshakeMessage::HandshakeWebsiteReconnectRequest(request),
-                )).await?;
-
-                info!("Sent website reconnect request for reconnection");
-            }
-
-            return Ok(());
-        }
         // Service error automatically propagates
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
         if !peer_user.first_sync {
@@ -98,9 +64,9 @@ impl PeerConnection {
                 &self.crypto_utils,
                 &self.domain,
                 &peer_user.ucan_pub_key,
-                &role,
+                issued_token_role,  // Use explicit role for token we're issuing
             ).await?;
-            debug!("Successfully issued new UCAN token for peer with role '{}'", role);
+            debug!("Successfully issued new UCAN token for peer with role '{}'", issued_token_role);
 
             self.send_message(Message::Handshake(
                 HandshakeMessage::HandshakeFirstConnectRequest(FirstConnectRequest {
@@ -110,10 +76,9 @@ impl PeerConnection {
                     one_time_ucan: peer_user.ucan_token.clone(),
                     peer_device: current_device,
                     peer_user: current_user,
-                    connection_type,
                 }),
             )).await?;
-            
+
             info!("Sent HandshakeFirstConnectRequest to peer");
         } else {
             info!("Peer is an existing user, preparing HandshakeExchange");
@@ -121,14 +86,15 @@ impl PeerConnection {
                 ucan_token: peer_user.ucan_token,
                 peer_user: current_user,
                 peer_device: current_device,
-                connection_type,
                 signed_ucan_pub,
             };
             self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
                 exchange_message,
             ))).await?;
-            self.set_connection_type(ConnectionType::User).await;
-            info!("Sent HandshakeExchange to peer");
+            // Set connection type from peer role
+            let connection_type = ConnectionType::from_peer_role(&peer_role);
+            self.set_connection_type(connection_type).await;
+            info!("Sent HandshakeExchange to peer with connection type: {:?}", peer_role);
         }
         info!("Handshake initiation process completed successfully");
         Ok(())
@@ -148,17 +114,13 @@ impl PeerConnection {
             HandshakeMessage::HandshakeExchange(payload) => {
                 self.process_exchange_message(payload).await
             }
-            HandshakeMessage::HandshakeWebsiteRequest(payload) => {
-                self.process_website_handshake_request(payload).await
-            }
-            HandshakeMessage::HandshakeWebsiteResponse(payload) => {
-                self.process_website_handshake_response(payload).await
-            }
-            HandshakeMessage::HandshakeWebsiteReconnectRequest(payload) => {
-                self.process_website_reconnect_request(payload).await
-            }
-            HandshakeMessage::HandshakeWebsiteReconnectResponse(payload) => {
-                self.process_website_reconnect_response(payload).await
+            // Website/viewer handlers removed - not yet implemented
+            HandshakeMessage::HandshakeWebsiteRequest(_) |
+            HandshakeMessage::HandshakeWebsiteResponse(_) |
+            HandshakeMessage::HandshakeWebsiteReconnectRequest(_) |
+            HandshakeMessage::HandshakeWebsiteReconnectResponse(_) => {
+                error!("Website/viewer handshake not yet implemented");
+                Err(P2PError::Custom("Website/viewer handshake not yet implemented".to_string()).into())
             }
         }
     }
@@ -202,17 +164,40 @@ impl PeerConnection {
         }
         
         debug!("Peer's connect token is valid");
-        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
+
+        // Update peer user's ucan_token with the token they sent us (proves their capabilities)
+        let mut updated_peer_user = payload.peer_user.clone();
+        updated_peer_user.ucan_token = payload.ucan_token.clone();
+
+        self.set_peer_user_and_device(updated_peer_user, payload.peer_device.clone()).await;
+
+        // Extract role from UCAN and convert to PeerRole enum
+        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.ucan_token)
+            .await
+            .unwrap_or_else(|e| {
+                debug!("Failed to extract role from token: {}, defaulting to user", e);
+                "user".to_string()
+            });
+        let peer_role = PeerRole::from_string(&peer_role_from_token);
 
         if self.is_initiator {
             info!("This peer is the initiator. Completing handshake.");
             let mut handshake_complete = self.handshake_complete.lock().await;
             *handshake_complete = true;
-            self.start_user_network_sync().await?;
-            info!("Handshake marked as complete for initiator.");
+
+            // Set connection type from peer role
+            let connection_type = ConnectionType::from_peer_role(&peer_role);
+            self.set_connection_type(connection_type).await;
+
+            // Emit Connected event
+            self.event_emitter.emit(P2PEvent::Connected {
+                peer_id: payload.peer_user.id.clone(),
+            });
+
+            info!("Handshake marked as complete for initiator. Connection ready for sync requests.");
         } else {
             info!("This peer is the responder. Preparing and sending exchange response.");
-            
+
             // Service error automatically propagates
             let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
             debug!("(Responder) Successfully signed the UCAN public key");
@@ -232,17 +217,24 @@ impl PeerConnection {
                 peer_user: current_user,
                 peer_device: current_device,
                 ucan_token: peer_user.ucan_token,
-                connection_type: payload.connection_type.clone(),
             };
 
             let mut handshake_complete = self.handshake_complete.lock().await;
             *handshake_complete = true;
-            
+
             self.send_message(Message::Handshake(HandshakeMessage::HandshakeExchange(
                 exchange_message,
             ))).await?;
-            
-            self.set_connection_type(ConnectionType::User).await;
+
+            // Set connection type from peer role
+            let connection_type = ConnectionType::from_peer_role(&peer_role);
+            self.set_connection_type(connection_type).await;
+
+            // Emit Connected event
+            self.event_emitter.emit(P2PEvent::Connected {
+                peer_id: payload.peer_user.id.clone(),
+            });
+
             info!("(Responder) Sent handshake exchange response and marked handshake as complete.");
         }
         
@@ -288,9 +280,19 @@ impl PeerConnection {
 
         info!("Peer's one-time UCAN is valid. Proceeding to issue persistent UCAN.");
 
-        // Extract role from one-time UCAN token
-               let role = crypto_utils::get_role_from_ucan_token(&payload.one_time_ucan).await?;
-        info!("Extracted role '{}' from one-time UCAN token", role);
+        // Extract role from one-time UCAN token and convert to PeerRole enum
+        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.one_time_ucan).await?;
+        let peer_role = PeerRole::from_string(&peer_role_from_token);
+        info!("Extracted peer role from one-time UCAN token: {:?}", peer_role);
+
+        // Determine what role to issue in the token we give them
+        // Reciprocal relationship: owner gets 'node' token, node gets 'owner' token
+        let issued_token_role = match peer_role {
+            PeerRole::Owner => "node",  // If peer is owner, issue them 'node' token
+            PeerRole::Node => "owner",  // If peer is node, issue them 'owner' token
+            _ => "user",  // Default for other peer types
+        };
+        info!("Will issue token with role: {}", issued_token_role);
 
         // Service errors automatically propagate
         let signed_ucan_pub = sign_ucan_pub_key(&self.crypto_utils, self.repo_ctx.clone()).await?;
@@ -299,17 +301,19 @@ impl PeerConnection {
             &self.crypto_utils,
             &self.domain,
             &peer_ucan_pub,
-            &role,
+            issued_token_role,  // Use explicit role for token we're issuing
         ).await?;
-        debug!("Successfully issued new UCAN token for peer with role '{}' and signed local public key", role);
+        debug!("Successfully issued new UCAN token for peer with role '{}' and signed local public key", issued_token_role);
 
         let mut user = payload.peer_user.clone();
         user.first_sync = true;
         user.owner = false;
         user.ucan_token = payload.issued_ucan.clone();
         user.ucan_pub_key = peer_ucan_pub;
-        
-        self.set_connection_type(ConnectionType::User).await;
+
+        // Set connection type from peer role
+        let connection_type = ConnectionType::from_peer_role(&peer_role);
+        self.set_connection_type(connection_type).await;
         self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
 
         let user_with_devices = UserWithDevices {
@@ -343,6 +347,20 @@ impl PeerConnection {
         self.send_message(Message::Handshake(
             HandshakeMessage::HandshakeFirstConnectResponse(handshake_response),
         )).await?;
+
+        // Emit role-specific connection event
+        let event = match peer_role {
+            PeerRole::Node => P2PEvent::NodeConnected {
+                peer_id: payload.peer_user.id.clone(),
+            },
+            PeerRole::Viewer => P2PEvent::ViewerConnected {
+                peer_id: payload.peer_user.id.clone(),
+            },
+            _ => P2PEvent::UserConnected {
+                peer_id: payload.peer_user.id.clone(),
+            },
+        };
+        self.event_emitter.emit(event);
 
         info!("First connect handshake completed. Sent response message to peer.");
         Ok(())
@@ -384,6 +402,15 @@ impl PeerConnection {
         
         debug!("The UCAN issued by the peer is valid");
 
+        // Extract role from UCAN and convert to PeerRole enum
+        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.issued_ucan)
+            .await
+            .unwrap_or_else(|e| {
+                debug!("Failed to extract role from token: {}, defaulting to user", e);
+                "user".to_string()
+            });
+        let peer_role = PeerRole::from_string(&peer_role_from_token);
+
         let mut user = payload.peer_user.clone();
         user.ucan_token = payload.issued_ucan.clone();
         user.first_sync = true;
@@ -405,250 +432,28 @@ impl PeerConnection {
             .user_repo
             .add_users_with_devices_bulk(&vec![user_with_devices])
             .await?;
-        
-        info!("Successfully added peer user and devices to repository. Handshake complete.");
-        
-        self.start_user_network_sync().await?;
-        Ok(())
-    }
 
-    #[instrument(skip(self), level = "info")]
-    pub async fn execute_connection_action(&self) -> P2PResult<()> {
-        // Only execute if we have an action and we're the initiator
-        if let Some(action) = &self.action {
-            if !self.is_initiator {
-                info!(
-                    "Not executing action {:?} as this peer is not the initiator",
-                    action
-                );
-                return Ok(());
-            }
+        // Set connection type from peer role
+        let connection_type = ConnectionType::from_peer_role(&peer_role);
+        self.set_connection_type(connection_type).await;
 
-            info!("Executing connection action: {:?}", action);
-
-            // Execute the appropriate action
-            match action {
-                ConnectionAction::DeviceSync => self.start_add_device_process().await,
-                ConnectionAction::AddDevice => {
-                    info!("Initiator: Starting add device phase");
-                    self.start_add_device_process().await
-                }
-                ConnectionAction::LiveEdit => {
-                    info!("Live edit triggered");
-                    let connection_id = self.get_id();
-                    self.event_emitter.emit(P2PEvent::LiveEditConnected { connection_id });
-                    Ok(())
-                }
-                ConnectionAction::UserSync => self.start_user_network_sync().await,
-            }
-        } else {
-            debug!("No connection action to execute");
-            Ok(())
-        }
-    }
-
-    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn process_website_handshake_request(
-        &self,
-        payload: &osvauld_core::models::WebsiteHandshakeRequest,
-    ) -> P2PResult<()> {
-        info!("Processing website handshake request from viewer");
-
-        let current_user = self.get_local_user().await?;
-        let current_device = self.get_local_device().await
-            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
-        debug!("Retrieved local user and device information");
-
-        // Validate folder UCAN token
-        info!("Validating folder UCAN token from viewer");
-        let ucan = crypto_utils::ucan_utils::validate_structure(&payload.ucan_token)
-            .await
-            .map_err(|e| {
-                error!("Failed to parse viewer's UCAN token: {}", e);
-                HandshakeError::InvalidCredentials {
-                    user_id: payload.viewer_user.id.clone(),
-                }
-            })?;
-
-        // Extract folder_id from token capabilities
-        let folder_id = crypto_utils::ucan_utils::extract_folder_id_from_ucan(&ucan)
-            .map_err(|e| {
-                error!("Failed to extract folder_id from UCAN: {}", e);
-                HandshakeError::InvalidCredentials {
-                    user_id: payload.viewer_user.id.clone(),
-                }
-            })?;
-
-        info!("Validated folder token for folder_id: {}", folder_id);
-
-        // Return the same wildcard token back to viewer
-        // Viewer will use this for the first resource request
-        // After receiving folder + resources, viewer will use the folder-specific tokens
-        let viewer_token = payload.ucan_token.clone();
-        info!("Returning wildcard folder token back to viewer for resource requests");
-
-        // Set peer user and device from the viewer (in-memory only, not saved to DB)
-        self.set_peer_user_and_device(payload.viewer_user.clone(), payload.viewer_device.clone()).await;
-        self.set_connection_type(ConnectionType::Website).await;
-        info!("Set peer user and connection type to Website (viewer not saved to database)");
-
-        // Mark handshake as complete
-        let mut handshake_complete = self.handshake_complete.lock().await;
-        *handshake_complete = true;
-
-        // Send response back to viewer with the wildcard token
-        let response = osvauld_core::models::WebsiteHandshakeResponse {
-            node_user: current_user,
-            node_device: current_device,
-            viewer_specific_token: viewer_token,
+        // Emit role-specific connection event
+        let event = match peer_role {
+            PeerRole::Node => P2PEvent::NodeConnected {
+                peer_id: payload.peer_user.id.clone(),
+            },
+            PeerRole::Viewer => P2PEvent::ViewerConnected {
+                peer_id: payload.peer_user.id.clone(),
+            },
+            _ => P2PEvent::UserConnected {
+                peer_id: payload.peer_user.id.clone(),
+            },
         };
+        self.event_emitter.emit(event);
 
-        self.send_message(Message::Handshake(
-            HandshakeMessage::HandshakeWebsiteResponse(response),
-        )).await?;
-
-        info!("Website handshake request processed successfully");
-        Ok(())
-    }
-
-    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn process_website_handshake_response(
-        &self,
-        payload: &osvauld_core::models::WebsiteHandshakeResponse,
-    ) -> P2PResult<()> {
-        info!("Processing website handshake response from sovereign node");
-
-        // Receive the wildcard folder token back from sovereign node
-        // This is the same token we sent in the request (from connection string)
-        // We'll use this for the first resource request to get folder + resources
-        // After that, we'll use the folder-specific tokens from the folder_share_record
-        info!("Received wildcard folder token from sovereign node");
-
-        // Update node user in viewer's local database with the wildcard token
-        let mut node_user = payload.node_user.clone();
-        node_user.ucan_token = payload.viewer_specific_token.clone(); // Save wildcard token for first resource request
-        node_user.first_sync = true; // Mark as synced
-        node_user.owner = false;
-
-        // Get node's devices (for now, just the current device)
-        let node_devices = vec![payload.node_device.clone()];
-
-        let user_with_devices = UserWithDevices {
-            user: node_user.clone(),
-            devices: node_devices,
-        };
-
-        // Save or update node user in viewer's database
-        self.repo_ctx
-            .user_repo
-            .add_users_with_devices_bulk(&vec![user_with_devices])
-            .await?;
-
-        info!("Updated sovereign node user in local database with new token and first_sync=true");
-
-        // Set peer user and device from the sovereign node
-        self.set_peer_user_and_device(node_user, payload.node_device.clone()).await;
-        self.set_connection_type(ConnectionType::Website).await;
-        debug!("Set peer user and device from node response");
-
-        // Mark handshake as complete
-        let mut handshake_complete = self.handshake_complete.lock().await;
-        *handshake_complete = true;
-        drop(handshake_complete);
-
-        info!("Website handshake response processed successfully");
-
-        // Start website sync directly (only if initiator)
-        if self.is_initiator {
-            info!("Initiator: Starting website sync");
-            self.start_website_sync(false).await?;
-        }
+        info!("Successfully added peer user and devices to repository. Handshake complete. Connection ready for sync requests.");
 
         Ok(())
     }
 
-    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn process_website_reconnect_request(
-        &self,
-        payload: &osvauld_core::models::WebsiteReconnectRequest,
-    ) -> P2PResult<()> {
-        info!("Processing website reconnect request from viewer");
-
-        let current_user = self.get_local_user().await?;
-        let current_device = self.get_local_device().await
-            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
-        debug!("Retrieved local user and device information");
-
-        // Validate folder UCAN token
-        info!("Validating folder UCAN token from viewer");
-        let ucan = crypto_utils::ucan_utils::validate_structure(&payload.ucan_token)
-            .await
-            .map_err(|e| {
-                error!("Failed to parse viewer's UCAN token: {}", e);
-                HandshakeError::InvalidCredentials {
-                    user_id: payload.viewer_user.id.clone(),
-                }
-            })?;
-
-        // Extract folder_id from token capabilities for validation
-        let folder_id = crypto_utils::ucan_utils::extract_folder_id_from_ucan(&ucan)
-            .map_err(|e| {
-                error!("Failed to extract folder_id from UCAN: {}", e);
-                HandshakeError::InvalidCredentials {
-                    user_id: payload.viewer_user.id.clone(),
-                }
-            })?;
-
-        info!("Validated folder token for folder_id: {} (reconnection)", folder_id);
-
-        // Set peer user and device from the viewer (in-memory only, not saved to DB)
-        self.set_peer_user_and_device(payload.viewer_user.clone(), payload.viewer_device.clone()).await;
-        self.set_connection_type(ConnectionType::Website).await;
-        info!("Set peer user and connection type to Website (reconnection)");
-
-        // Mark handshake as complete
-        let mut handshake_complete = self.handshake_complete.lock().await;
-        *handshake_complete = true;
-
-        // Send response back to viewer
-        let response = osvauld_core::models::WebsiteReconnectResponse {
-            node_user: current_user,
-            node_device: current_device,
-        };
-
-        self.send_message(Message::Handshake(
-            HandshakeMessage::HandshakeWebsiteReconnectResponse(response),
-        )).await?;
-
-        info!("Website reconnect request processed successfully");
-        Ok(())
-    }
-
-    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
-    pub async fn process_website_reconnect_response(
-        &self,
-        payload: &osvauld_core::models::WebsiteReconnectResponse,
-    ) -> P2PResult<()> {
-        info!("Processing website reconnect response from sovereign node");
-
-        // Set peer user and device from the sovereign node
-        self.set_peer_user_and_device(payload.node_user.clone(), payload.node_device.clone()).await;
-        self.set_connection_type(ConnectionType::Website).await;
-        debug!("Set peer user and device from node response");
-
-        // Mark handshake as complete
-        let mut handshake_complete = self.handshake_complete.lock().await;
-        *handshake_complete = true;
-        drop(handshake_complete);
-
-        info!("Website reconnect response processed successfully");
-
-        // Start website sync with first_sync = true (reconnection = incremental sync)
-        if self.is_initiator {
-            info!("Initiator: Starting website sync for reconnection");
-            self.start_website_sync(true).await?;
-        }
-
-        Ok(())
-    }
 }

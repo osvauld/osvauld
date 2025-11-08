@@ -24,7 +24,7 @@ pub use key_management::{
 };
 pub use signature_operations::{verify_clear_text_message, verify_signature};
 pub use ucan_operations::{
-    extract_folder_id_from_ucan_token, extract_resource_id_from_ucan_token,
+    extract_resource_id_from_ucan_token,
     get_cid_from_ucan_token, get_role_from_ucan_token, validate_authority_for_update,
     validate_connect_token,
 };

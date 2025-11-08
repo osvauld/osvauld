@@ -1,387 +1,487 @@
-use core::fmt;
-
-use crate::models::{
-    ResourceKey, ResourceVectorClock, ShareRecord,
-    document::{YjsDocExt, create_doc},
-};
-use chrono::Local;
-use log::info;
+use std::collections::HashMap;
+use loro::LoroDoc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::models::document::{
+    apply_updates, create_doc, export_shallow_snapshot, export_updates, import_snapshot,
+    state_frontiers,
+};
+
+// UCAN parsing utilities
+use crypto_utils::ucan_utils::{extract_doc_capabilities, extract_facts};
+
+// ============================================================================
+// Core Structs
+// ============================================================================
+
+/// EncryptedResource - Database and network representation
+/// Contains encrypted data and metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Resource {
+pub struct EncryptedResource {
     pub id: String,
-    pub resource_type: ResourceType,
-    pub data: String,
     pub folder_id: String,
-    pub created_folder_id: String,
-    pub signature: String,
     pub created_at: i64,
     pub updated_at: i64,
-    pub favourite: bool,
-    pub created_by: String,
-    pub last_accessed: i64,
-    pub deleted: bool,
-    pub deleted_at: Option<i64>,
+
+    /// Encrypted JSON containing document snapshots
+    pub encrypted_data: String,
+
+    /// AES key encrypted with recipient's public key
+    pub encrypted_key: String,
+
+    /// UCAN token defining capabilities and sync rules
+    pub ucan_token: String,
+
+    /// Unencrypted metadata (title, type, search config)
+    /// Format: {"title": "...", "type": "notes", "search": {"docs": [...]}}
+    pub metadata: Value,
 }
+
+impl EncryptedResource {
+    /// Create a re-encrypted version for a different recipient
+    ///
+    /// Preserves id, folder_id, metadata, timestamps while replacing
+    /// encrypted data, key, and UCAN token.
+    ///
+    /// # Arguments
+    /// * `new_encrypted_data` - Resource data encrypted for new recipient
+    /// * `new_encrypted_key` - AES key encrypted for new recipient's public key
+    /// * `new_ucan_token` - UCAN token for new recipient
+    ///
+    /// # Returns
+    /// New EncryptedResource instance for the recipient
+    pub fn re_encrypt_for_recipient(
+        &self,
+        new_encrypted_data: String,
+        new_encrypted_key: String,
+        new_ucan_token: String,
+    ) -> Self {
+        Self {
+            id: self.id.clone(),
+            folder_id: self.folder_id.clone(),
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            encrypted_data: new_encrypted_data,
+            encrypted_key: new_encrypted_key,
+            ucan_token: new_ucan_token,
+            metadata: self.metadata.clone(),
+        }
+    }
+}
+
+/// Resource - Runtime representation with decrypted Loro documents
+/// Always contains decrypted data when in memory
+#[derive(Debug)]
+pub struct Resource {
+    pub id: String,
+    pub folder_id: String,
+    pub ucan_token: String,
+    pub metadata: Value,
+
+    /// Loaded Loro documents, keyed by document name
+    pub docs: HashMap<String, LoroDoc>,
+}
+
+// ============================================================================
+// Helper Structs
+// ============================================================================
+
+/// Document update with both updates and state vector
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocUpdate {
+    pub updates: Vec<u8>,
+    pub state_vector: Vec<u8>,
+}
+
+
+// ============================================================================
+// Resource Implementation
+// ============================================================================
 
 impl Resource {
-    pub fn new(
-        resource_type: String,
-        data: String,
+    /// Create a new Resource from decrypted data
+    ///
+    /// # Arguments
+    /// * `id` - Resource ID
+    /// * `folder_id` - Folder ID
+    /// * `ucan_token` - UCAN token string
+    /// * `metadata` - Metadata JSON value
+    /// * `decrypted_data_json` - Decrypted JSON string containing document snapshots
+    ///
+    /// # Decrypted Data Format
+    /// ```json
+    /// {
+    ///   "main_doc": [1, 2, 3, ...],
+    ///   "image_state": [4, 5, 6, ...],
+    ///   "comment_state": [7, 8, 9, ...]
+    /// }
+    /// ```
+    pub fn from_decrypted_data(
+        id: String,
         folder_id: String,
-        signature: String,
-        created_by: String,
-    ) -> Self {
-        let now = Local::now().timestamp_millis();
+        ucan_token: String,
+        metadata: Value,
+        decrypted_data_json: &str,
+    ) -> Result<Self, String> {
+        // Parse the decrypted data JSON
+        let data: HashMap<String, Vec<Value>> = serde_json::from_str(decrypted_data_json)
+            .map_err(|e| format!("Failed to parse decrypted data JSON: {}", e))?;
 
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            resource_type: ResourceType::from_str(&resource_type),
-            data,
-            created_folder_id: folder_id.clone(),
-            folder_id: folder_id,
-            signature,
-            created_at: now,
-            updated_at: now,
-            favourite: false,
-            created_by,
-            last_accessed: now,
-            deleted: false,
-            deleted_at: None,
-        }
-    }
-    /// Check if this resource supports CRDT operations
-    pub fn supports_crdt(&self) -> bool {
-        self.resource_type.has_crdt()
-    }
+        let mut docs = HashMap::new();
 
-    /// Get the document state keys for this resource
-    pub fn get_document_state_keys(&self) -> Vec<&'static str> {
-        self.resource_type.document_state_keys()
-    }
+        // Load each document
+        for (doc_name, snapshot_array) in data {
+            // Convert JSON array to Vec<u8>
+            let snapshot_bytes: Vec<u8> = snapshot_array
+                .iter()
+                .filter_map(|v| v.as_u64().map(|n| n as u8))
+                .collect();
 
-    /// Get the primary state key for sync operations
-    pub fn get_primary_state_key(&self) -> Option<&'static str> {
-        self.resource_type.primary_state_key()
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct DecryptedResource {
-    pub id: String,
-    pub resource_type: ResourceType,
-    pub data: Value,
-    pub last_accessed: i64,
-    pub favourite: bool,
-    pub folder_id: String,
-}
-
-impl DecryptedResource {
-    /// Check if this resource supports CRDT operations
-    pub fn supports_crdt(&self) -> bool {
-        self.resource_type.has_crdt()
-    }
-
-    /// Get a specific document state by key
-    pub fn get_document_state(&self, state_key: &str) -> Option<Vec<u8>> {
-        self.data
-            .get(state_key)
-            .and_then(|state| state.as_array())
-            .map(|array| {
-                array
-                    .iter()
-                    .filter_map(|v| v.as_u64().map(|n| n as u8))
-                    .collect()
-            })
-    }
-
-    /// Encode the entire document state as a YJS update
-    /// This is useful for one-way sync where you want to send the complete document state
-    /// The returned update can be applied to an empty document to recreate the full state
-    pub async fn encode_state_as_update(&self, state_key: &str) -> Result<Vec<u8>, String> {
-        // Get the current document state
-        let state_data = self.get_document_state(state_key).unwrap_or_default();
-
-        if state_data.is_empty() {
-            // If there's no state, return an empty update
-            return Ok(vec![]);
+            if !snapshot_bytes.is_empty() {
+                // Import the snapshot into a new LoroDoc
+                let doc = import_snapshot(&snapshot_bytes)
+                    .map_err(|e| format!("Failed to import snapshot for {}: {}", doc_name, e))?;
+                docs.insert(doc_name, doc);
+            }
         }
 
-        // Create a new YJS document and apply the state
-        let mut doc = create_doc();
-        doc.apply_update_v2(&state_data).await?;
-
-        // Get the entire state encoded as an update
-        // This update can be applied to an empty document
-        let update = doc.get_state_as_update_v2().await;
-
-        Ok(update)
+        Ok(Resource {
+            id,
+            folder_id,
+            ucan_token,
+            metadata,
+            docs,
+        })
     }
 
-    /// Generate diff update based on a peer's state vector
-    /// This is the CORRECT way to do one-way sync - only send what the peer doesn't have
-    pub async fn get_diff_update(
+    /// Filter documents and export snapshots for sending to a peer
+    ///
+    /// Uses both our UCAN (to know what we're allowed to send) and peer's UCAN
+    /// (to know what they're allowed to receive). Always exports shallow snapshots.
+    ///
+    /// # Arguments
+    /// * `our_ucan` - Our UCAN token (checks dont_send_to_node in facts)
+    /// * `peer_ucan` - Peer's UCAN token (checks their capabilities)
+    ///
+    /// # Returns
+    /// HashMap of doc_name -> shallow snapshot bytes
+    pub fn filter_to_send(
         &self,
-        state_key: &str,
-        peer_state_vector: &[u8],
-    ) -> Result<Vec<u8>, String> {
-        // Get the current document state
-        let state_data = self.get_document_state(state_key).unwrap_or_default();
+        our_ucan: &str,
+        peer_ucan: &str,
+    ) -> Result<HashMap<String, Vec<u8>>, String> {
+        // Parse our UCAN to check what we shouldn't send
+        let our_facts = extract_facts(our_ucan)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let dont_send = our_facts
+            .get("dont_send_to_node")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
-        if state_data.is_empty() {
-            // If we have no state, return empty update
-            return Ok(vec![]);
+        // Parse peer's UCAN to check what they can access
+        let peer_doc_caps = extract_doc_capabilities(peer_ucan)
+            .map_err(|e| e.to_string())?;
+
+        let mut filtered_snapshots = HashMap::new();
+
+        // For each doc in peer's capabilities
+        for (doc_name, _ability) in peer_doc_caps {
+            // Skip if we're not allowed to send this doc
+            if dont_send.contains(&doc_name) {
+                continue;
+            }
+
+            // Skip if we don't have this doc
+            if let Some(doc) = self.docs.get(&doc_name) {
+                // Export as shallow snapshot (viewers don't need full history)
+                let snapshot = export_shallow_snapshot(doc);
+                filtered_snapshots.insert(doc_name, snapshot);
+            }
         }
 
-        // Create a YJS document with our current state
-        let mut doc = create_doc();
-        doc.apply_update_v2(&state_data).await?;
-
-        // Generate only the updates the peer doesn't have
-        let diff_update = if peer_state_vector.is_empty() {
-            // Peer has nothing, send everything
-            doc.get_state_as_update_v2().await
-        } else {
-            // Peer has some state, send only the diff
-            doc.get_diff_update_v2(peer_state_vector).await?
-        };
-
-        Ok(diff_update)
+        Ok(filtered_snapshots)
     }
 
-    pub async fn get_state_vectors(&self) -> Result<String, String> {
+    /// Get state vectors for all documents
+    ///
+    /// Returns version vectors encoded as JSON for sync protocol
+    ///
+    /// # Returns
+    /// JSON string: {"doc_name": {"state_vector": [1,2,3,...]}, ...}
+    pub fn get_state_vectors(&self) -> Result<String, String> {
         let mut result = serde_json::Map::new();
 
-        for state_key in self.resource_type.document_state_keys() {
-            info!("state_key {:?}", state_key);
-            if let Some(state_data) = self.get_document_state(state_key) {
-                info!("document_state_data {:?}", state_data);
-                let mut doc = create_doc();
-                doc.apply_update_v2(&state_data).await?;
-                let state_vector = doc.get_state_vector_v2().await;
+        for (doc_name, doc) in &self.docs {
+            // Get state frontiers for this doc
+            let state_vector = state_frontiers(doc);
 
-                let vector_array: Vec<serde_json::Value> = state_vector
-                    .iter()
-                    .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                    .collect();
+            // Convert to JSON array
+            let vector_array: Vec<Value> = state_vector
+                .iter()
+                .map(|&b| Value::Number(serde_json::Number::from(b)))
+                .collect();
 
-                let mut doc_data = serde_json::Map::new();
-                doc_data.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-                doc_data.insert(
-                    "state_vector".to_string(),
-                    serde_json::Value::Array(vector_array),
-                );
+            let mut doc_data = serde_json::Map::new();
+            doc_data.insert("state_vector".to_string(), Value::Array(vector_array));
 
-                result.insert(state_key.to_string(), serde_json::Value::Object(doc_data));
-            }
+            result.insert(doc_name.clone(), Value::Object(doc_data));
         }
 
         serde_json::to_string(&result)
             .map_err(|e| format!("Failed to serialize state vectors: {}", e))
     }
-    /// Input: {"yjs_state": {"updates": [1,2,3], "state_vector": [4,5,6]}, "image_state": {...}}
-    /// Logic:
-    /// - If updates empty + state_vector present → generate updates for peer
-    /// - If updates present + state_vector empty → apply updates only  
-    /// - If both present → apply updates AND generate updates for peer
-    /// - If both empty → do nothing
-    /// /// Returns: {"yjs_state": {"updates": [1,2,3], "state_vector": [4,5,6]}, "image_state": {"updates": [7,8,9], "state_vector": [10,11,12]}}
-    pub async fn sync_updates(&mut self, input_data: &str) -> Result<String, String> {
-        let input_json: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(input_data).map_err(|e| format!("Invalid input JSON: {}", e))?;
 
-        let mut result_updates = serde_json::Map::new();
+    /// Generate updates for a peer based on their state vectors
+    ///
+    /// # Arguments
+    /// * `our_ucan` - Our UCAN token (checks dont_send_to_node)
+    /// * `peer_ucan` - Peer's UCAN token (checks their capabilities)
+    /// * `peer_state_vectors_json` - JSON with peer's state vectors
+    ///
+    /// # Input Format
+    /// ```json
+    /// {
+    ///   "doc_name": {
+    ///     "state_vector": [1, 2, 3, ...]
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Returns
+    /// JSON string with updates for each doc that peer is behind on
+    pub fn generate_updates(
+        &self,
+        our_ucan: &str,
+        peer_ucan: &str,
+        peer_state_vectors_json: &str,
+    ) -> Result<String, String> {
+        // Parse input
+        let peer_vectors: HashMap<String, serde_json::Map<String, Value>> =
+            serde_json::from_str(peer_state_vectors_json)
+                .map_err(|e| format!("Failed to parse peer state vectors: {}", e))?;
 
-        for state_key in self.resource_type.document_state_keys() {
-            if let Some(doc_data) = input_json.get(state_key) {
-                // Get our current state, or empty if document doesn't exist yet
-                let our_state_data = self.get_document_state(state_key).unwrap_or_default();
+        // Parse our UCAN to check what we shouldn't send
+        let our_facts = extract_facts(our_ucan)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let dont_send = our_facts
+            .get("dont_send_to_node")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
-                let mut doc = create_doc();
-                if !our_state_data.is_empty() {
-                    doc.apply_update_v2(&our_state_data).await?;
-                }
+        // Parse peer's UCAN
+        let peer_doc_caps = extract_doc_capabilities(peer_ucan)
+            .map_err(|e| e.to_string())?;
 
-                // Parse input updates and state vector
-                let input_updates: Vec<u8> = doc_data
-                    .get("updates")
-                    .and_then(|u| u.as_array())
-                    .map(|array| {
-                        array
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n as u8))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+        let mut result = serde_json::Map::new();
 
-                let input_state_vector: Vec<u8> = doc_data
+        // For each doc in peer's state vectors
+        for (doc_name, doc_data) in peer_vectors {
+            // Skip if we're not allowed to send this doc
+            if dont_send.contains(&doc_name) {
+                continue;
+            }
+
+            // Skip if peer doesn't have capability for this doc
+            if !peer_doc_caps.contains_key(&doc_name) {
+                continue;
+            }
+
+            // Skip if we don't have this doc
+            if let Some(doc) = self.docs.get(&doc_name) {
+                // Extract peer's state vector
+                let peer_state_vector: Vec<u8> = doc_data
                     .get("state_vector")
-                    .and_then(|sv| sv.as_array())
-                    .map(|array| {
-                        array
-                            .iter()
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
                             .filter_map(|v| v.as_u64().map(|n| n as u8))
                             .collect()
                     })
                     .unwrap_or_default();
 
-                let has_updates = !input_updates.is_empty();
-                let has_state_vector = !input_state_vector.is_empty();
-                let mut doc_was_updated = false;
+                // Generate updates from peer's version
+                let updates = export_updates(doc, &peer_state_vector)
+                    .map_err(|e| format!("Failed to generate updates for {}: {}", doc_name, e))?;
 
-                // Apply updates if present
-                if has_updates {
-                    doc.apply_update_v2(&input_updates).await?;
-                    doc_was_updated = true;
-                }
+                // Get our current state vector
+                let current_state_vector = state_frontiers(doc);
 
-                // Generate updates for peer if state vector present
-                if has_state_vector {
-                    let updates_for_peer = doc.get_diff_update_v2(&input_state_vector).await?;
-                    let current_state_vector = doc.get_state_vector_v2().await;
+                // Build response
+                let updates_array: Vec<Value> = updates
+                    .iter()
+                    .map(|&b| Value::Number(serde_json::Number::from(b)))
+                    .collect();
 
-                    // Normal flow: return both updates and current state vector
-                    let updates_array: Vec<serde_json::Value> = updates_for_peer
-                        .iter()
-                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                        .collect();
+                let state_vector_array: Vec<Value> = current_state_vector
+                    .iter()
+                    .map(|&b| Value::Number(serde_json::Number::from(b)))
+                    .collect();
 
-                    let state_vector_array: Vec<serde_json::Value> = current_state_vector
-                        .iter()
-                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                        .collect();
+                let mut doc_result = serde_json::Map::new();
+                doc_result.insert("updates".to_string(), Value::Array(updates_array));
+                doc_result.insert("state_vector".to_string(), Value::Array(state_vector_array));
 
-                    let mut doc_result = serde_json::Map::new();
-                    doc_result.insert(
-                        "updates".to_string(),
-                        serde_json::Value::Array(updates_array),
-                    );
-                    doc_result.insert(
-                        "state_vector".to_string(),
-                        serde_json::Value::Array(state_vector_array),
-                    );
-                    result_updates
-                        .insert(state_key.to_string(), serde_json::Value::Object(doc_result));
-                }
-
-                // Update our resource data if doc was modified
-                if doc_was_updated {
-                    let new_state = doc.get_state_as_update_v2().await;
-                    let state_array: Vec<serde_json::Value> = new_state
-                        .iter()
-                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                        .collect();
-
-                    if let Some(data_obj) = self.data.as_object_mut() {
-                        data_obj
-                            .insert(state_key.to_string(), serde_json::Value::Array(state_array));
-                    }
-                }
+                result.insert(doc_name, Value::Object(doc_result));
             }
         }
 
-        serde_json::to_string(&result_updates)
-            .map_err(|e| format!("Failed to serialize result: {}", e))
+        serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize updates: {}", e))
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct ResourceWithKey {
-    pub resource: Resource,
-    pub encrypted_key: String,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceKeyPair {
-    pub resource: Resource,
-    pub key: ResourceKey,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceManifestData {
-    pub resource_id: String,
-    pub share_record_ids: Vec<String>,
-    pub vector_clocks: Vec<ResourceVectorClock>,
-}
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceSyncData {
-    pub resource: Resource,
-    pub resource_keys: Vec<ResourceKey>,
-    pub share_records: Vec<ShareRecord>,
-    pub vector_clocks: Vec<ResourceVectorClock>,
-}
+    /// Apply updates from a peer
+    ///
+    /// Validates that peer has permission to update each document based on their UCAN.
+    ///
+    /// # Arguments
+    /// * `peer_ucan` - Peer's UCAN token (validates their capabilities)
+    /// * `updates_json` - JSON with updates from peer
+    ///
+    /// # Input Format
+    /// ```json
+    /// {
+    ///   "doc_name": {
+    ///     "updates": [1, 2, 3, ...],
+    ///     "state_vector": [4, 5, 6, ...]
+    ///   }
+    /// }
+    /// ```
+    pub fn apply_updates(&mut self, peer_ucan: &str, updates_json: &str) -> Result<(), String> {
+        // Parse input
+        let input: HashMap<String, serde_json::Map<String, Value>> =
+            serde_json::from_str(updates_json)
+                .map_err(|e| format!("Failed to parse updates JSON: {}", e))?;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceSyncInfo {
-    pub resource_id: String,
-    pub resource_ucan: String,
-    pub sync_data: String, // JSON with state vectors (and form data for viewer)
-}
+        // Parse peer's UCAN
+        let peer_doc_caps = extract_doc_capabilities(peer_ucan)
+            .map_err(|e| e.to_string())?;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ResourceType {
-    Notes,
-    Chat,
-    Website,
-    Default,
-}
+        // Apply updates for each doc
+        for (doc_name, doc_data) in input {
+            // Check peer's capability for this doc
+            let ability = peer_doc_caps
+                .get(&doc_name)
+                .ok_or_else(|| format!("Peer does not have capability for doc: {}", doc_name))?;
 
-impl ResourceType {
-    /// Returns whether this resource type supports CRDT operations
-    pub fn has_crdt(&self) -> bool {
-        match self {
-            ResourceType::Notes => true,
-            ResourceType::Chat => true,
-            ResourceType::Website => true,
-            ResourceType::Default => true,
+            // Reject if peer only has readonly access
+            if ability == "crud/readonly" {
+                return Err(format!(
+                    "Peer has readonly access to {}, cannot accept updates",
+                    doc_name
+                ));
+            }
+
+            // Extract updates
+            let update_bytes: Vec<u8> = doc_data
+                .get("updates")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_u64().map(|n| n as u8))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if update_bytes.is_empty() {
+                continue;
+            }
+
+            // Get or create the doc
+            let doc = self.docs.entry(doc_name.clone()).or_insert_with(create_doc);
+
+            // Apply the updates
+            apply_updates(doc, &update_bytes)
+                .map_err(|e| format!("Failed to apply updates to {}: {}", doc_name, e))?;
         }
+
+        Ok(())
     }
 
-    /// Returns the document state keys that this resource type uses
-    pub fn document_state_keys(&self) -> Vec<&'static str> {
-        match self {
-            ResourceType::Notes => vec!["main_doc", "image_state", "comment_state"],
-            ResourceType::Chat => vec!["chat", "image_state"],
-            ResourceType::Website => vec![
-                "blocksuite_doc",       // Main website content (owner edits, viewer reads)
-                "thread_comments_doc",  // Collaborative comments (bidirectional sync)
-                "form_submissions_doc", // Form submissions (viewer appends, owner receives)
-            ],
-            ResourceType::Default => vec!["yjs_state"],
+    /// Apply updates from a peer with additional filtering based on our UCAN
+    ///
+    /// Used by viewers to respect no_update_from_node rules
+    ///
+    /// # Arguments
+    /// * `our_ucan` - Our UCAN token (checks no_update_from_node in facts)
+    /// * `peer_ucan` - Peer's UCAN token (validates their capabilities)
+    /// * `updates_json` - JSON with updates from peer
+    pub fn apply_updates_filtered(
+        &mut self,
+        our_ucan: &str,
+        peer_ucan: &str,
+        updates_json: &str,
+    ) -> Result<(), String> {
+        // Parse our UCAN to check what we shouldn't accept
+        let our_facts = extract_facts(our_ucan)
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+        let no_update = our_facts
+            .get("no_update_from_node")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        // Parse input
+        let input: HashMap<String, serde_json::Map<String, Value>> =
+            serde_json::from_str(updates_json)
+                .map_err(|e| format!("Failed to parse updates JSON: {}", e))?;
+
+        // Filter out docs we shouldn't accept updates for
+        let mut filtered_input = serde_json::Map::new();
+        for (doc_name, doc_data) in input {
+            if !no_update.contains(&doc_name) {
+                filtered_input.insert(doc_name, Value::Object(doc_data));
+            }
         }
+
+        // Convert back to JSON and apply
+        let filtered_json = serde_json::to_string(&filtered_input)
+            .map_err(|e| format!("Failed to serialize filtered updates: {}", e))?;
+
+        self.apply_updates(peer_ucan, &filtered_json)
     }
 
-    /// Returns the primary document state key (used for main content sync)
-    pub fn primary_state_key(&self) -> Option<&'static str> {
-        match self {
-            ResourceType::Notes => Some("main_doc"),
-            ResourceType::Chat => Some("chat"),
-            ResourceType::Website => Some("blocksuite_doc"),
-            ResourceType::Default => Some("yjs_state"),
-        }
-    }
+    /// Export all documents as JSON for encryption and storage
+    ///
+    /// # Returns
+    /// JSON string with all document snapshots as byte arrays
+    /// Format: {"doc_name": [1,2,3,...], ...}
+    pub fn to_json(&self) -> Result<String, String> {
+        let mut result = serde_json::Map::new();
 
-    /// Convert from string representation with fallback to Default
-    pub fn from_str(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "notes" => ResourceType::Notes,
-            "chat" => ResourceType::Chat,
-            "website" => ResourceType::Website,
-            _ => ResourceType::Default,
-        }
-    }
+        for (doc_name, doc) in &self.docs {
+            // Export full snapshot (not shallow) for owner/node storage
+            let snapshot = export_shallow_snapshot(doc);
 
-    /// Convert to string representation
-    pub fn to_string(&self) -> String {
-        match self {
-            ResourceType::Notes => "notes".to_string(),
-            ResourceType::Chat => "chat".to_string(),
-            ResourceType::Website => "website".to_string(),
-            ResourceType::Default => "default".to_string(),
+            // Convert to JSON array
+            let snapshot_array: Vec<Value> = snapshot
+                .iter()
+                .map(|&b| Value::Number(serde_json::Number::from(b)))
+                .collect();
+
+            result.insert(doc_name.clone(), Value::Array(snapshot_array));
         }
+
+        serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize to JSON: {}", e))
     }
 }
-impl fmt::Display for ResourceType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.to_string())
-    }
-}
+
+

@@ -15,6 +15,9 @@ tokio = { version = "1.44.2", features = ["sync"] }
 thiserror = "2.0.0"
 rand = "0.8.5"
 base64 = "0.22.1"
+uuid = { version = "1.11.0", features = ["v4"] }
+chrono = "0.4"
+loro = "1.1.2"
 
 tracing = "0.1.41"
 tracing-appender = "0.2.3"

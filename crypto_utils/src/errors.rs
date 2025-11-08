@@ -173,6 +173,14 @@ pub enum UcanError {
     DelegationNotPermitted,
     #[error("Invalid Issuer")]
     InvalidIssuer,
+
+    // Loro migration - Phase 1.3
+    #[error("Template not found in UCAN facts")]
+    TemplateNotFound,
+    #[error("Template is incomplete or malformed: {0}")]
+    TemplateInvalid(String),
+    #[error("No document capabilities found in UCAN")]
+    NoDocumentCapabilities,
 }
 
 #[derive(Error, Debug)]

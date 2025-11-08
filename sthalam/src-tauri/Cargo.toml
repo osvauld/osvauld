@@ -25,6 +25,7 @@ cc = "1.2.29"
 
 [dependencies]
 network = { path = "../../network" }
+tauri_handlers = { path = "../../tauri_handlers" }
 tauri-plugin-shell = "2.2.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -52,7 +53,7 @@ services = { path = "../../services" }
 search_indexer = { path = "../../search_indexer" }
 tauri = { version = "2.4.1", features = ["protocol-asset"] }
 tauri-plugin-fs = "2.2.1"
-yrs = { version = "0.24.0", features = ["sync"] }
+loro = "1.5"
 tauri-plugin-dialog = "2.0.0-rc"
 clap = { version = "4.5.40", features = ["derive"] }
 regex = "1.11.1"

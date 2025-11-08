@@ -1,0 +1,32 @@
+[package]
+name = "tauri_handlers"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Tauri
+tauri = { version = "2", features = [] }
+
+# Workspace crates
+crypto_utils = { path = "../crypto_utils" }
+persistance = { path = "../persistance" }
+services = { path = "../services" }
+network = { path = "../network" }
+search_indexer = { path = "../search_indexer" }
+osvauld_core = { path = "../core" }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+log = "0.4"
+
+# Encoding
+base64 = "0.22"
+
+# Locale
+sys-locale = "0.3"

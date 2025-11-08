@@ -245,4 +245,42 @@ impl ShareRepository for SqliteShareRepository {
             })?;
         Ok(share_record_model.ucan_token)
     }
+
+    async fn find_by_resources_and_user(
+        &self,
+        resource_ids: &[String],
+        user_id: &str,
+        operation_type: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError> {
+        if resource_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
+
+        // Fetch all matching records using IN clause
+        let share_record_models = share_records::table
+            .filter(share_records::resource_id.eq_any(resource_ids))
+            .filter(share_records::recipient_user_id.eq(user_id))
+            .filter(share_records::operation_type.eq(operation_type))
+            .load::<ShareRecordModel>(&mut *conn)
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to find share records for {} resources and user '{}': {}",
+                    resource_ids.len(),
+                    user_id,
+                    e
+                ))
+            })?;
+
+        // Convert to domain models
+        let share_records = share_record_models
+            .into_iter()
+            .map(|model| model.to_domain())
+            .collect();
+
+        Ok(share_records)
+    }
 }

@@ -138,9 +138,28 @@ pub async fn issue_connect_ucan_token(
         e
     })?;
 
+    // Determine additional capabilities based on role
+    let additional_capabilities = match role {
+        "node" => {
+            // Nodes can add folders (for owner → node and node → owner connections)
+            vec![(format!("{}:add_folder", domain), "use".to_string())]
+        }
+        "viewer" => {
+            // Viewers have no additional capabilities beyond connect and share
+            vec![]
+        }
+        _ => vec![],
+    };
+
     let crypto = crypto_utils.read().await;
     crypto
-        .issue_connect_and_share_user_token(&encrypted_pvt_key, domain, peer_ucan_pub_key, role)
+        .issue_connect_and_share_user_token(
+            &encrypted_pvt_key,
+            domain,
+            peer_ucan_pub_key,
+            role,
+            additional_capabilities,
+        )
         .await
         .map_err(|e| {
             error!("Failed to issue connect and share token: {}", e);

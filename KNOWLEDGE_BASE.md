@@ -1,0 +1,2326 @@
+# Osvauld Protocol Technical Documentation
+
+**Status**: Living Document - Updated as implementation progresses
+**Last Updated**: 2025-11-08
+**Phase 2 Complete**: 65% of migration done (folder sharing implemented)
+
+This document captures implementation details, algorithms, and technical decisions as we migrate from Yrs to Loro.
+
+---
+
+## Table of Contents
+
+1. [Architecture Overview](#architecture-overview)
+2. [UCAN Token Structure](#ucan-token-structure)
+3. [Resource Model](#resource-model)
+4. [Encryption & Key Management](#encryption--key-management)
+5. [Sync Protocol & Algorithms](#sync-protocol--algorithms)
+6. [Search Indexing](#search-indexing)
+7. [Code Patterns](#code-patterns)
+8. [Implementation Notes](#implementation-notes)
+
+---
+
+## Architecture Overview
+
+### System Topology
+```
+Owner's Desktop ←→ Owner's Node ←→ Viewers
+```
+
+**Roles**:
+- **Owner's Desktop**: Content creation (separate device, e.g., laptop)
+- **Owner's Node**: Server (separate device, e.g., Raspberry Pi in local network)
+- **Viewers**: Request content from node
+
+### Data Flow
+
+**Publishing**:
+```
+Owner Desktop → (ResourceAdd) → Node stores encrypted
+```
+
+**Viewer Request**:
+```
+Viewer → (StateVectorRequest) → Node → filter & re-encrypt → Viewer
+```
+
+**Viewer Update**:
+```
+Viewer → (StateVectorRequest with updates) → Node → merge → relay to Owner
+```
+
+---
+
+## Sovereign Node Connection Protocol
+
+**Status**: ✅ Implemented (Phase 2.5 Complete)
+**Last Updated**: 2025-11-09
+
+### Overview
+
+The sovereign node connection protocol establishes a secure P2P connection between the owner's desktop/mobile device and their sovereign node (e.g., Kunki running on a Raspberry Pi). The protocol uses reciprocal role-based UCAN tokens to identify each party.
+
+**Connection Tokens Include**:
+- Base capabilities: `user-connect` and `user-share`
+- Role-based additional capabilities:
+  - `role="node"` tokens include `add_folder` capability
+  - `role="viewer"` tokens have no additional capabilities
+
+### Core Concept: Reciprocal Roles
+
+**Key Principle**: Each party stores a token describing WHO THEY ARE CONNECTING TO, not who they are.
+
+- **Owner stores**: Token with `role='owner'` (identifies the node as owner's node)
+- **Node stores**: Token with `role='node'` (identifies the owner as the node operator)
+
+### First Connection Flow
+
+#### 1. Generate Connection String (Kunki)
+
+**Command**: `kunki token` or `kunki start --print-token`
+**Location**: `kunki/src/main.rs:handle_token()` (line 367)
+
+```rust
+// Generate one-time UCAN with role='owner'
+let (token, pub_key) = generate_one_time_ucan_token(
+    domain,
+    &UserRole::Owner.to_string(),  // Role: "owner"
+    &crypto_utils,
+    repo_ctx,
+).await?;
+
+// Create connection string (base64-encoded JSON)
+let connection_details = json!({
+    "user_public_key": user.public_key,
+    "device_public_key": device.device_key,
+    "username": user.username,
+    "ucan_token": token,           // One-time token with role='owner'
+    "ucan_pub_key": pub_key,
+});
+```
+
+**Output**: Base64-encoded connection string containing one-time token with `role='owner'`
+
+#### 2. Add Sovereign Node (Owner App)
+
+**Frontend**: User pastes connection string into app
+**Handler**: `handle_add_sovereign_node()` (tauri_handlers/src/handlers/p2p.rs:58-104)
+
+```rust
+// 1. Decode connection string
+let details: UserDetails = decode_and_parse(input)?;
+
+// 2. Save to database (first_sync=false)
+let (_user, device) = add_known_user(
+    details.username,
+    details.user_public_key,
+    details.device_public_key,
+    details.ucan_token,  // One-time token with role='owner'
+    details.ucan_pub_key,
+    repo_ctx,
+    crypto_utils,
+).await?;
+
+// 3. Connect immediately (happy path)
+p2p_service.connect_with_ticket(&device.id).await?;
+```
+
+#### 3. Initiate Handshake (Owner)
+
+**Function**: `initiate_handshake()` (network/src/p2p/handshake.rs:37-101)
+
+```rust
+// Extract peer role from stored one-time token
+let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&peer_user.ucan_token).await?;
+let peer_role = PeerRole::from_string(&peer_role_from_token);  // PeerRole::Owner
+
+debug!("Extracted peer role from UCAN token: {:?}", peer_role);  // "owner"
+
+// Determine what role to issue them
+// Reciprocal relationship: owner gets 'node' token, node gets 'owner' token
+let issued_token_role = match peer_role {
+    PeerRole::Owner => "node",  // If peer is owner, issue them 'node' token
+    PeerRole::Node => "owner",  // If peer is node, issue them 'owner' token
+    _ => "user",
+};
+
+// Issue persistent token
+let new_ucan_token = issue_connect_ucan_token(
+    repo_ctx,
+    crypto_utils,
+    domain,
+    &peer_user.ucan_pub_key,
+    issued_token_role,  // "node"
+).await?;
+
+// Send FirstConnectRequest
+FirstConnectRequest {
+    issued_ucan: new_ucan_token,      // Persistent token with role='node' for node to store
+    one_time_ucan: peer_user.ucan_token,  // Node's one-time token with role='owner'
+    ...
+}
+```
+
+#### 4. Process Request (Node)
+
+**Function**: `process_first_user_connection_request()` (handshake.rs:279-362)
+
+```rust
+// Extract peer role from one-time token
+let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.one_time_ucan).await?;
+let peer_role = PeerRole::from_string(&peer_role_from_token);  // PeerRole::Owner
+
+info!("Extracted peer role from one-time UCAN token: {:?}", peer_role);  // "owner"
+
+// Determine what role to issue them
+// Reciprocal: owner gets 'node' token, node gets 'owner' token
+let issued_token_role = match peer_role {
+    PeerRole::Owner => "node",  // If peer is owner, issue them 'node' token
+    PeerRole::Node => "owner",  // If peer is node, issue them 'owner' token
+    _ => "user",
+};
+
+// Issue persistent token
+let peer_issued_ucan_token = issue_connect_ucan_token(
+    repo_ctx,
+    crypto_utils,
+    domain,
+    &peer_ucan_pub,
+    issued_token_role,  // "node"
+).await?;
+
+// Save owner to database (first_sync=true)
+user.ucan_token = payload.issued_ucan.clone();  // Store token owner gave us (role='node')
+
+// Set connection type
+let connection_type = ConnectionType::from_peer_role(&peer_role);
+self.set_connection_type(connection_type).await;
+
+// Send FirstConnectResponse
+FirstConnectResponse {
+    issued_ucan: peer_issued_ucan_token,  // Persistent token with role='owner'
+    ...
+}
+
+// Emit role-specific event
+P2PEvent::UserConnected { peer_id }  // Based on peer_role extraction
+```
+
+#### 5. Handshake Complete
+
+**Owner**: `process_first_user_connection_handshake_response()` (handshake.rs:405-451)
+
+```rust
+// Validate and extract role from issued token
+let peer_role = PeerRole::from_string(&peer_role_from_token);  // PeerRole::Owner (from node's response)
+
+// Save node to database (first_sync=true)
+user.ucan_token = payload.issued_ucan.clone();  // Store token node gave us (role='owner')
+
+// Set connection type
+let connection_type = ConnectionType::from_peer_role(&peer_role);
+self.set_connection_type(connection_type).await;
+
+// Emit role-specific event
+P2PEvent::UserConnected { peer_id }
+```
+
+**Result**:
+- Owner's DB: Stores node with token (role='owner'), first_sync=true
+- Node's DB: Stores owner with token (role='node'), first_sync=true
+- Both sides: Connection established with appropriate ConnectionType
+
+### Reconnection Flow (first_sync=true)
+
+**When**: App restart, manual reconnection
+
+**Flow**: `initiate_handshake()` (handshake.rs:87-101)
+
+```rust
+// Extract peer role from stored token
+let peer_role = PeerRole::from_string(&peer_role_from_token);
+
+// Send UcanAndUserExchange with stored token
+HandshakeExchange {
+    ucan_token: peer_user.ucan_token,  // Persistent token from database
+    ...
+}
+
+// Set connection type from peer role
+let connection_type = ConnectionType::from_peer_role(&peer_role);
+self.set_connection_type(connection_type).await;
+```
+
+**Processing**: `process_exchange_message()` (handshake.rs:173-230)
+
+```rust
+// Extract peer role from token
+let peer_role = PeerRole::from_string(&peer_role_from_token);
+
+// Set connection type
+let connection_type = ConnectionType::from_peer_role(&peer_role);
+self.set_connection_type(connection_type).await;
+
+// Emit Connected event
+P2PEvent::Connected { peer_id }
+```
+
+### P2P Events
+
+**New Events** (network/src/p2p/emitter.rs:17-27):
+```rust
+pub enum P2PEvent {
+    NodeConnected { peer_id: String },      // Sovereign node connected
+    UserConnected { peer_id: String },      // User/owner connected
+    ViewerConnected { peer_id: String },    // Viewer connected
+    FirstConnection { peer_id: String },    // First-time handshake complete
+    Connected { peer_id: String },          // Reconnection complete
+    ...
+}
+```
+
+**Emission**: During handshake, events are emitted based on extracted `peer_role`:
+```rust
+let event = match peer_role {
+    PeerRole::Node => P2PEvent::NodeConnected { peer_id },
+    PeerRole::Viewer => P2PEvent::ViewerConnected { peer_id },
+    _ => P2PEvent::UserConnected { peer_id },
+};
+```
+
+### Key Implementation Details
+
+**File Locations**:
+- PeerRole enum: `core/src/models/p2p.rs:10-37`
+- ConnectionType enum: `network/src/p2p/peer_connection.rs:16-32`
+- Handshake logic: `network/src/p2p/handshake.rs`
+- Handler: `tauri_handlers/src/handlers/p2p.rs:58-104`
+- Frontend: `sthalam/frontend/desktop/src/utils/helper.ts:103`
+- Kunki: `kunki/src/main.rs` (p2p_init integration, password masking)
+
+**Security Features**:
+- Password prompting with `rpassword` (invisible input)
+- One-time tokens replaced with persistent tokens after first handshake
+- Role-based connection type enforcement
+- Immediate connection (no background spawn for simplicity)
+
+**No Auto-Retry** (Happy Path Only):
+- Connection failures are not automatically retried
+- Manual reconnection required
+- Future enhancement: Add auto-retry on startup for nodes with first_sync=false
+
+### Connection Token Capabilities
+
+**Status**: ✅ Implemented (2025-11-09)
+
+#### add_folder Capability for Node Connections
+
+**Purpose**: Grants permission to add/share folders between owner and node
+
+**Why It's Needed**:
+- When owner shares a folder with node, node must validate the request
+- Owner's token (issued by node) must prove owner has `add_folder` permission
+- Without this capability, folder sharing would fail validation
+
+**Implementation**: Role-based capability determination at service layer
+
+**File Locations**:
+- Service logic: `services/src/user_service.rs:141-152` (issue_connect_ucan_token)
+- Crypto wrapper: `crypto_utils/src/crypto_utils.rs:298-323` (issue_connect_and_share_user_token)
+- Core UCAN generation: `crypto_utils/src/ucan_utils.rs:252-294` (generate_delegation_and_connection_token)
+
+**Service Layer Logic** (services/src/user_service.rs:141-152):
+```rust
+// Determine additional capabilities based on role
+let additional_capabilities = match role {
+    "owner" => {
+        // Owners can add folders (for owner ↔ node connections)
+        vec![(format!("{}:add_folder", domain), "use".to_string())]
+    }
+    "node" => {
+        // Nodes can add folders (for future node ↔ node connections)
+        vec![(format!("{}:add_folder", domain), "use".to_string())]
+    }
+    "viewer" => {
+        // Viewers have no additional capabilities beyond connect and share
+        vec![]
+    }
+    _ => vec![],
+};
+```
+
+**Token Structure** (role="owner"):
+```json
+{
+  "cap": {
+    "{domain}:user-connect:{user_id}": {"use": [{}]},
+    "{domain}:user-share:{user_id}": {"use": [{}]},
+    "{domain}:add_folder": {"use": [{}]}
+  },
+  "fct": {
+    "role": "owner"
+  }
+}
+```
+
+**Note**: Both "owner" and "node" roles receive `add_folder` capability to enable folder sharing in both directions.
+
+**Handshake Flow** (Updated 2025-11-09):
+1. **Owner → Node** (FirstConnectRequest):
+   - Owner extracts peer_role = "owner" from node's one-time token
+   - Owner uses same role: issued_token_role = "owner"
+   - Owner issues token to node with role="owner" → includes `add_folder`
+
+2. **Node → Owner** (FirstConnectResponse):
+   - Node extracts peer_role = "owner" from owner's one-time token
+   - Node uses same role: issued_token_role = "owner"
+   - Node issues token to owner with role="owner" → includes `add_folder`
+
+3. **Result**: Both sides receive tokens with role="owner" and `add_folder` capability
+
+**Role Assignment Logic** (network/src/p2p/handshake.rs):
+```rust
+// Use the same role from the peer's token
+// This ensures role consistency: owner gets 'owner', node gets 'node'
+let issued_token_role = peer_role.as_str();
+```
+
+**Important**: The role in the token's facts field now **matches** the role from the peer's one-time token, ensuring consistency across connections.
+
+**Validation During Folder Sharing**:
+```rust
+// When owner shares folder with node:
+// 1. Node receives folder share request
+// 2. Node looks up owner's token (the token node issued to owner)
+// 3. Node parses capabilities from owner's token
+// 4. Node validates: owner has "{domain}:add_folder" with "use" ability
+// 5. If valid, accept folder; otherwise reject
+```
+
+**Architecture Pattern**:
+- **Generic crypto function**: Accepts `additional_capabilities` parameter
+- **Service layer determines capabilities**: Based on role being issued
+- **Follows folder sharing pattern**: Handler/service determines business logic, crypto executes
+
+**Design Benefits**:
+- Reusable for different connection types (node, viewer, future roles)
+- Role-based capability grants are centralized in service layer
+- Easy to extend with new capabilities per role
+- Consistent with overall UCAN architecture
+
+### Testing Checklist
+
+- [ ] Kunki generates connection string correctly
+- [ ] handle_add_sovereign_node saves to DB
+- [ ] Auto-connection triggers after add
+- [ ] FirstConnectRequest with correct roles
+- [ ] Token validation succeeds
+- [ ] FirstConnectResponse received
+- [ ] Both sides save with first_sync=true
+- [ ] Role-specific events emitted (NodeConnected/UserConnected)
+- [ ] Reconnection works with stored tokens
+- [ ] Connection type set correctly based on peer_role
+- [ ] Password masking works in Kunki CLI
+- [ ] Connection tokens include add_folder capability for role="node"
+- [ ] Folder sharing validates add_folder capability from owner's token
+
+---
+
+## UCAN Token Structure
+
+### Capability Format
+
+```
+{domain}:resource:{resource_id}:{doc_name} - {ability}
+```
+
+**Example Token**:
+```json
+{
+  "cap": {
+    "sthalam:resource:abc123:content": {"crud/readonly": [{}]},
+    "sthalam:resource:abc123:comments": {"crud/merge": [{}]},
+    "sthalam:resource:abc123:submissions": {"crud/appendonly": [{}]}
+  }
+}
+```
+
+### Sync Abilities
+
+| Ability | Behavior | Use Case |
+|---------|----------|----------|
+| `crud/readonly` | Pull only | Public content |
+| `crud/merge` | Bidirectional | Collaborative docs |
+| `crud/appendonly` | Push only | Form submissions |
+
+### Two-Template Architecture
+
+**Status**: ✅ Implemented (Phase 2)
+
+**Design**: Owner UCAN contains two templates in facts section:
+- `owner_template` - Full access capabilities (for owner and node roles)
+- `viewer_template` - Restricted capabilities (for viewer role)
+
+**UcanFacts Structure**:
+```rust
+#[derive(Debug, Clone)]
+pub struct UcanFacts {
+    pub owner_template: UcanTemplate,
+    pub viewer_template: UcanTemplate,
+}
+
+#[derive(Debug, Clone)]
+pub struct UcanTemplate {
+    pub capabilities: HashMap<String, String>,  // doc_name → ability
+    pub no_update_from_node: Vec<String>,       // Local-only docs (don't accept)
+    pub dont_send_to_node: Vec<String>,         // Local-only docs (don't send)
+}
+```
+
+**Owner UCAN Example**:
+```json
+{
+  "cap": {
+    "domain:resource:abc123:main_doc": {"crud/merge": [{}]},
+    "domain:resource:abc123:comments": {"crud/merge": [{}]}
+  },
+  "fct": {
+    "owner_template": {
+      "capabilities": {
+        "main_doc": "crud/merge",
+        "comments": "crud/merge"
+      }
+    },
+    "viewer_template": {
+      "capabilities": {
+        "main_doc": "crud/readonly",
+        "comments": "crud/merge"
+      },
+      "no_update_from_node": ["cart_state"],
+      "dont_send_to_node": ["cart_state"]
+    }
+  }
+}
+```
+
+### Extraction Algorithm
+
+**Status**: ✅ Implemented (Phase 1.3 & Phase 2)
+
+**File**: `crypto_utils/src/ucan_utils.rs`
+
+**Functions Implemented**:
+
+#### extract_doc_capabilities(token: &str)
+**Purpose**: Extract document capabilities from UCAN token
+**Returns**: `HashMap<String, String>` - Map of doc_name → ability
+**Example**: `{"main_doc": "crud/readonly", "comments": "crud/merge"}`
+
+**Algorithm**:
+1. Parse UCAN token using `Ucan::try_from()`
+2. Iterate through all capabilities
+3. Filter capabilities matching pattern: `domain:resource:resource_id:doc_name`
+4. Extract doc_name (4th part) and ability
+5. Return HashMap or error if no doc capabilities found
+
+#### extract_ucan_facts(token: &str)
+**Purpose**: Extract complete UcanFacts with both templates
+**Returns**: `Result<UcanFacts, UcanError>`
+**Usage**: Get both owner_template and viewer_template from owner UCAN
+
+**Algorithm**:
+1. Parse UCAN and extract facts section
+2. Extract owner_template using extract_owner_template()
+3. Extract viewer_template using extract_viewer_template()
+4. Return UcanFacts struct or error if templates missing
+
+#### extract_owner_template(token: &str)
+**Purpose**: Extract owner template from UCAN facts
+**Returns**: `Result<UcanTemplate, UcanError>`
+
+**Algorithm**:
+1. Parse UCAN and extract facts section
+2. Look for `owner_template` key in facts
+3. Extract `capabilities` object (required)
+4. Extract `no_update_from_node` array (optional, defaults to empty)
+5. Extract `dont_send_to_node` array (optional, defaults to empty)
+6. Return UcanTemplate or error if template missing
+
+#### extract_viewer_template(token: &str)
+**Purpose**: Extract viewer template from UCAN facts
+**Returns**: `Result<UcanTemplate, UcanError>`
+
+**Algorithm**: Same as extract_owner_template but looks for `viewer_template` key
+
+#### extract_facts(token: &str)
+**Purpose**: General facts extractor
+**Returns**: `Option<Map<String, Value>>` - Raw facts map
+**Usage**: For extracting custom facts beyond templates
+
+#### Existing Functions (already implemented):
+- `extract_resource_id_from_ucan(ucan: &Ucan)` - Extracts resource ID from capabilities
+- `extract_folder_id_from_ucan(ucan: &Ucan)` - Extracts folder ID from capabilities
+
+**Pattern**: All new functions follow the pattern:
+- Public function takes `token: &str`, parses and validates
+- Internal helper takes `ucan: &Ucan`, does the extraction
+- Enables both convenience (parse once) and efficiency (reuse parsed UCAN)
+
+### Flexible UCAN Generation
+
+**Status**: ✅ Implemented (Phase 2)
+
+**File**: `crypto_utils/src/ucan_utils.rs` (core logic) + `crypto_utils/src/crypto_utils.rs` (wrapper)
+
+#### generate_flexible_resource_owner_ucan()
+**Purpose**: Generate owner UCAN with custom templates from frontend
+**Location**: `crypto_utils/src/ucan_utils.rs`
+
+**Signature**:
+```rust
+pub async fn generate_flexible_resource_owner_ucan(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    resource_id: &str,
+    capability_prefix: &str,
+    ucan_template_json: &str,  // Frontend provides complete template
+    expiry_seconds: Option<u64>,
+) -> Result<(String, String), UcanError>
+```
+
+**Returns**: `(ucan_token, encrypted_private_key)`
+
+**Algorithm**:
+1. Parse ucan_template_json to get UcanFacts (owner_template + viewer_template)
+2. Build capabilities from owner_template
+3. For each doc in owner_template.capabilities:
+   - Add capability: `{prefix}:resource:{resource_id}:{doc_name}` with ability
+4. Add both templates to facts section
+5. Generate UCAN token with capabilities and facts
+6. Encrypt private key with owner's public key
+7. Return (token, encrypted_key)
+
+**Frontend Control**: Frontend sends complete template structure, backend doesn't hardcode any doc names or abilities
+
+#### CryptoUtils Wrapper
+**Purpose**: Decrypt owner's UCAN private key and generate UCAN
+**Location**: `crypto_utils/src/crypto_utils.rs`
+
+**Signature**:
+```rust
+pub async fn generate_flexible_resource_owner_ucan(
+    &self,
+    encrypted_ucan_private_key: &str,
+    resource_id: &str,
+    capability_prefix: &str,
+    ucan_template_json: &str,
+    expiry_seconds: Option<u64>,
+) -> Result<(String, String), CryptoError>
+```
+
+**Algorithm**:
+1. Decrypt owner's UCAN private key
+2. Derive signing and verifying keys
+3. Call ucan_utils::generate_flexible_resource_owner_ucan()
+4. Return result
+
+### Role-Based Delegation
+
+**Status**: ✅ Implemented (Phase 2)
+
+**File**: `crypto_utils/src/crypto_utils.rs`
+
+#### issue_flexible_delegated_resource_ucan()
+**Purpose**: Issue delegated UCAN with automatic template selection based on role
+
+**Signature**:
+```rust
+pub async fn issue_flexible_delegated_resource_ucan<F, Fut>(
+    &self,
+    encrypted_delegator_private_key: &str,
+    proof_ucan_string: &str,
+    verifier_ucan_pub_b64: &str,
+    resource_id: &str,
+    recipient_ucan_pub_key: &str,
+    recipient_role: &str,  // "owner", "node", or "viewer"
+    proof_resolver: &F,
+) -> Result<(String, String), CryptoError>
+where
+    F: Fn(String) -> Fut,
+    Fut: Future<Output = Option<String>>,
+```
+
+**Returns**: `(delegated_ucan_token, encrypted_private_key)`
+
+**Algorithm**:
+1. Extract UcanFacts from proof UCAN (contains both templates)
+2. Select template based on recipient_role:
+   - "owner" or "node" → use owner_template
+   - "viewer" → use viewer_template
+3. Build capabilities from selected template
+4. For each doc in template.capabilities:
+   - Add capability: `{prefix}:resource:{resource_id}:{doc_name}` with ability
+5. Add selected template to facts (for potential re-delegation)
+6. Issue delegated UCAN with proof chain
+7. Encrypt private key with recipient's public key
+8. Return (token, encrypted_key)
+
+**Role Extraction**: share_resource() extracts role from recipient's user token
+
+**Template Inheritance**: Delegated UCAN includes the selected template in facts, enabling viewers to potentially re-delegate (if needed in future)
+
+### Delegated UCAN Facts Propagation
+
+**Status**: ✅ Fixed (2025-11-08)
+
+**Critical Bug**: Delegated UCANs were missing the entire `fct` field
+
+**Problem**:
+- Owner UCANs correctly contained facts: owner_template, viewer_template, doc_types, docs, role
+- Node's delegated UCANs had NO facts at all - completely empty `fct` field
+- Root cause: `generate_delegated_ucan()` only copied capabilities and proof, not facts
+
+**Solution** (crypto_utils/src/ucan_utils.rs:1026):
+
+**Updated generate_delegated_ucan() signature**:
+```rust
+pub async fn generate_delegated_ucan(
+    delegator_signing_key: &SigningKey,
+    delegator_verifying_key: &VerifyingKey,
+    recipient_ucan_pub_key: &str,
+    permissions: Vec<(String, String)>,
+    proof_ucan_string: &str,
+    // NEW PARAMETERS:
+    template_value: Option<serde_json::Value>,     // Template JSON from parent
+    recipient_role: &str,                          // "owner", "node", or "viewer"
+    doc_types_value: Option<serde_json::Value>,    // Asset vs CRDT classification
+    docs_list: Option<Vec<String>>,                // List of document names
+) -> Result<(String, String), UcanError>
+```
+
+**Facts Added to Delegated UCAN** (lines 1067-1088):
+```rust
+// 7. Add template to facts based on role
+if let Some(template) = template_value {
+    let template_key = match recipient_role {
+        "owner" | "node" => "owner_template",
+        "viewer" => "viewer_template",
+        _ => "owner_template",
+    };
+    builder = builder.with_fact(template_key, template);
+}
+
+// 8. Add role to facts
+builder = builder.with_fact("role", recipient_role.to_string());
+
+// 9. Add doc_types to facts if provided
+if let Some(doc_types) = doc_types_value {
+    builder = builder.with_fact("doc_types", doc_types);
+}
+
+// 10. Add docs list to facts if provided
+if let Some(docs) = docs_list {
+    builder = builder.with_fact("docs", docs);
+}
+```
+
+**Updated issue_flexible_delegated_resource_ucan()** (crypto_utils/src/crypto_utils.rs:571):
+
+**Facts Extraction** (lines 625-650):
+```rust
+// 4. Extract facts from parent UCAN for delegation
+let facts = ucan_to_prove.facts();
+
+// Determine template key based on role
+let template_key = match recipient_role {
+    "owner" | "node" => "owner_template",
+    "viewer" => "viewer_template",
+    _ => "owner_template",
+};
+
+// Extract template value, doc_types, and docs from parent UCAN facts
+let template_value = facts.as_ref()
+    .and_then(|f| f.get(template_key))
+    .cloned();
+
+let doc_types_value = facts.as_ref()
+    .and_then(|f| f.get("doc_types"))
+    .cloned();
+
+let docs_list = facts.as_ref()
+    .and_then(|f| f.get("docs"))
+    .and_then(|v| v.as_array())
+    .map(|arr| {
+        arr.iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect()
+    });
+```
+
+**Delegation Call** (lines 656-666):
+```rust
+let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
+    &delegator_signing_key,
+    &delegator_verifying_key,
+    recipient_ucan_pub_key,
+    permissions_to_grant,
+    proof_ucan_string,
+    template_value,      // Pass extracted template
+    recipient_role,      // Pass role
+    doc_types_value,     // Pass doc_types
+    docs_list,          // Pass docs
+)
+.await?;
+```
+
+**Result**:
+- Delegated UCANs now contain complete `fct` structure matching owner UCANs
+- Facts propagate through delegation chain
+- Node can parse doc_types to classify assets vs CRDTs
+- Node can parse templates for sync behavior
+
+**Updated Legacy Methods**:
+- `issue_delegated_folder_ucan()` - Passes `None` for template (folders don't use templates)
+- `issue_delegated_resource_ucan()` - Passes `None` for template (uses explicit permissions)
+
+**Use in Folder Sharing**:
+- `share_folder()` in services/src/folder_service.rs:168
+- Calls `issue_flexible_delegated_resource_ucan()` for each resource
+- Facts automatically extracted and propagated to node's delegated UCAN
+- Enables node to correctly parse CRDT vs asset docs during sync
+
+---
+
+## Resource Model
+
+### Two-Struct Architecture
+
+**Status**: ✅ Implemented
+
+**File**: `core/src/models/resource.rs`
+
+**Design Pattern**: Clear separation between storage and runtime representations
+
+**EncryptedResource** (Database/Network):
+- Stored in database with encrypted data
+- Transmitted over network between peers
+- Contains: id, folder_id, timestamps, encrypted_data, encrypted_key, ucan_token, metadata
+- Metadata field is UNENCRYPTED (title, type, search config) for quick access without decryption
+
+**Resource** (Runtime/In-Memory):
+- Always contains decrypted data when loaded
+- Service layer handles encryption boundary
+- Contains: id, folder_id, ucan_token, metadata, docs HashMap
+- LoroDoc instances loaded in memory for efficient operations
+- No version vector caching - computed on-demand from LoroDoc
+
+**Rationale**: Service layer decrypts EncryptedResource → creates Resource → business logic operates on decrypted Resource → service encrypts back to EncryptedResource for storage.
+
+### Resource Type Handling
+
+**Status**: ✅ Implemented
+
+**Design Change**: ResourceType enum removed from structs, moved to metadata field
+
+**Rationale**:
+- UCAN tokens define doc structure dynamically
+- No hardcoded doc names per resource type
+- ResourceType becomes UI metadata, not backend logic
+- Each resource can have any combination of docs based on UCAN capabilities
+
+**Metadata Format**:
+```
+{
+  "title": "Document Title",
+  "type": "notes",  // UI hint only (notes, website, chat, etc.)
+  "search": {
+    "docs": ["main_doc", "comment_state"]  // Which docs to index for search
+  }
+}
+```
+
+### Key Methods
+
+**Status**: ✅ Implemented
+
+**File**: `core/src/models/resource.rs`
+
+#### from_decrypted_data()
+**Purpose**: Create Resource from decrypted JSON data
+
+**Flow**:
+1. Parse decrypted JSON (format: `{"doc_name": [bytes], ...}`)
+2. For each doc, convert JSON array to Vec<u8>
+3. Import snapshot using `document::import_snapshot()`
+4. Store LoroDoc instance in docs HashMap
+5. Return fully loaded Resource
+
+**Usage**: Service layer calls this after decrypting encrypted_data from DB
+
+#### filter_to_send()
+**Purpose**: Filter docs and export snapshots for sending to a peer
+
+**Two-UCAN Filtering**:
+1. Parse our_ucan facts to find `dont_send_to_node` list
+2. Parse peer_ucan capabilities to find which docs they can access
+3. Intersection: only send docs that (we're allowed to send) AND (peer can receive)
+4. Export each doc as SHALLOW snapshot using `document::export_shallow_snapshot()`
+5. Return HashMap of doc_name → snapshot bytes
+
+**Rationale**: Always send shallow snapshots (no history) to reduce data size. Peers don't need full oplog for collaboration.
+
+#### get_state_vectors()
+**Purpose**: Get version vectors for all documents
+
+**Flow**:
+1. For each LoroDoc in docs HashMap
+2. Call `document::state_frontiers()` to get current state vector
+3. Convert to JSON array format
+4. Return JSON: `{"doc_name": {"state_vector": [bytes]}, ...}`
+
+**Usage**: Peer sends these to request incremental updates
+
+#### generate_updates()
+**Purpose**: Generate updates for peer based on their state vectors
+
+**Flow**:
+1. Parse peer's state vectors from JSON
+2. Check our_ucan facts for `dont_send_to_node` docs to exclude
+3. Check peer_ucan capabilities to see which docs they can access
+4. For each doc peer needs:
+   - Extract their state vector
+   - Call `document::export_updates(doc, &peer_state_vector)`
+   - Get our current state vector with `document::state_frontiers()`
+5. Return JSON with updates and current state vector per doc
+
+**Incremental Sync**: Only sends operations peer doesn't have yet
+
+#### apply_updates()
+**Purpose**: Apply updates from peer with permission validation
+
+**Flow**:
+1. Parse peer_ucan to extract their doc capabilities
+2. For each doc in updates:
+   - Validate peer has capability for this doc
+   - Reject if capability is `crud/readonly` (no write permission)
+   - Accept if capability is `crud/merge` or `crud/appendonly`
+3. Extract update bytes from JSON
+4. Get or create LoroDoc in docs HashMap
+5. Call `document::apply_updates(doc, &update_bytes)`
+
+**Merge Behavior**: Currently uses regular CRDT merge for all capabilities (no append-only enforcement yet)
+
+#### apply_updates_filtered()
+**Purpose**: Apply updates with additional filtering for viewer's local-only docs
+
+**Flow**:
+1. Parse our_ucan facts to find `no_update_from_node` list
+2. Filter out docs in that list (viewer keeps these local, doesn't accept node's updates)
+3. Call `apply_updates()` with filtered updates
+
+**Use Case**: Viewer has UI state, cart data that should never be overwritten by node
+
+#### to_json()
+**Purpose**: Export all docs as JSON for encryption and storage
+
+**Flow**:
+1. For each LoroDoc in docs HashMap
+2. Call `document::export_shallow_snapshot()` to get snapshot bytes
+3. Convert to JSON array format
+4. Return JSON: `{"doc_name": [bytes], ...}`
+
+**Usage**: Service layer calls this before encrypting Resource for DB storage
+
+### UCAN Integration
+
+**Status**: ✅ Complete (Phase 2)
+
+**File**: `crypto_utils/src/ucan_utils.rs` (UCAN parsing) + `core/src/models/resource.rs` (usage)
+
+**Capability Format**: `domain:resource:resource_id:doc_name`
+
+**Facts Format**:
+```json
+{
+  "owner_template": {
+    "capabilities": {
+      "doc_name": "crud/ability"
+    }
+  },
+  "viewer_template": {
+    "capabilities": {
+      "doc_name": "crud/ability"
+    },
+    "no_update_from_node": ["uiState", "cartDoc"],
+    "dont_send_to_node": ["uiState", "cartDoc"]
+  }
+}
+```
+
+**Implementation**: Full UCAN parsing in crypto_utils, used by Resource methods for filtering and permission validation
+
+### Future Considerations
+
+**Append-Only Enforcement**:
+- Loro does NOT have native append-only mode
+- Current implementation: regular CRDT merge for all capabilities
+- Future: Could add application-layer validation by inspecting operations
+- Alternative: Use signed operations where each addition includes author's signature
+  - Enables verification without concurrent edit conflicts
+  - Single-unit additions make signature verification feasible
+  - To be implemented when needed
+
+**Database Schema**:
+
+**Status**: To be documented during Phase 5
+
+New columns:
+- `encrypted_data` - JSON with encrypted doc snapshots
+- `encrypted_key` - AES key encrypted with recipient's pubkey
+- `ucan_token` - UCAN token string
+- `metadata` - Unencrypted JSON (title, type, search config)
+
+Keep:
+- `id`, `folder_id`, `created_at`, `updated_at`
+
+Remove:
+- Old Yrs-related fields
+- `resource_vectors` table (no longer needed)
+- `resource_keys` table (no longer needed)
+
+---
+
+## Encryption & Key Management
+
+### Encryption Flow
+
+**Status**: ✅ Implemented (Phase 2)
+
+**File**: `services/src/resource_service.rs`
+
+**Owner Encryption** (in create_resource):
+```
+1. Frontend sends Loro snapshots as JSON
+2. Generate random AES-256 key
+3. Encrypt JSON with AES-GCM
+4. Encrypt AES key with owner's UCAN public key
+5. Store encrypted_data and encrypted_key in DB
+```
+
+**Owner Decryption** (in decrypt_resources):
+```
+1. Fetch encrypted_data and encrypted_key from DB
+2. Decrypt AES key using owner's UCAN private key
+3. Decrypt JSON data with AES key
+4. Parse JSON and load Loro documents
+5. Return Resource with loaded docs
+```
+
+**Viewer Re-encryption** (in share_resource):
+```
+1. Load and decrypt resource with owner's key
+2. Filter docs based on viewer's UCAN template
+3. Export filtered docs as snapshots
+4. Generate NEW random AES key
+5. Encrypt filtered data with new key
+6. Encrypt new key with viewer's UCAN public key
+7. Store in share records table
+```
+
+**Update Flow** (in update_resource):
+```
+1. Frontend sends complete new Loro snapshots
+2. Generate NEW random AES key (key rotation for forward secrecy)
+3. Encrypt new snapshots with new key
+4. Encrypt new key with owner's public key
+5. Update BOTH encrypted_data AND encrypted_key in DB
+6. Update updated_at timestamp
+```
+
+**Key Rotation Benefit**:
+- Forward secrecy: Old encrypted data can't be decrypted if old key is compromised
+- Each update creates a fresh encryption envelope
+- Simple for single-user (Phase 2.5): Only owner's key in database
+- Phase 3 consideration: Multi-user sharing will need P2P key distribution
+
+### Key Lifecycle
+
+**Status**: ✅ Implemented (Phase 2)
+
+**Key Generation**:
+- Each resource has unique AES-256 key generated at creation
+- Keys stored encrypted with owner's UCAN public key
+- Viewer shares get NEW AES keys (never reuse owner's key)
+
+**Key Storage**:
+- encrypted_key column in resources table (owner's copy)
+- encrypted_key column in share_records table (viewer's copy)
+- Each share has independent key for security isolation
+
+**Key Rotation**: ✅ Implemented (Phase 2.5)
+- **Status**: Enabled on every resource update
+- **Implementation**: `services/src/resource_service.rs:313`
+- **Mechanism**: Calls `encrypt_data_for_user()` which generates NEW random AES key
+- **Database**: Updates both `encrypted_data` and `encrypted_key` fields
+- **Single-user**: Simple implementation (only owner's key in database)
+- **Multi-user consideration** (Phase 3):
+  - Owner updates resource → new key generated
+  - New key needs distribution to shared users via P2P
+  - Each user maintains independent local encrypted copy
+  - No need to re-encrypt in database (users store locally)
+
+**Key Revocation**: Partial implementation
+- Deleting share record removes viewer's access
+- Viewer can no longer decrypt without encrypted_key
+- No active key invalidation (relies on DB removal)
+
+---
+
+## Folder Sharing
+
+### Architecture Overview
+
+**Status**: ✅ Implemented (Phase 2.5 - 2025-11-08)
+
+**Design Principle**: Folder sharing is a "thin wrapper" around resource sharing
+- Creates folder-level ACL (folder_share_records)
+- Creates resource-level ACLs for each resource (share_records)
+- UCANs and encrypted data generated **on-demand during sync**, not pre-created
+- Share records only contain UCAN tokens (access control)
+
+### Two-Table ACL System
+
+**folder_share_records**:
+- Grants namespace access to folder
+- Contains: folder_id, recipient_user_id, ucan_token (folder UCAN), ucan_cid
+- Folder UCAN grants: `crud/read` + `share_folder` + `add_resources` capabilities
+- Role: "node" (for sovereign nodes)
+
+**folders table** (contains UCAN):
+- Added `ucan` field (TEXT NOT NULL) to store owner's folder UCAN
+- Migration: `persistance/migrations/2024-10-18-052005_create_initial_schema/up.sql:23`
+- Model: `core/src/models/folder.rs` - Folder struct includes `pub ucan: String`
+- Created with folder: When folder is created, owner's folder UCAN generated and stored
+- Used during sync: Owner's folder UCAN proves `add_resources` permission when sending resources
+- Updated before sending: When sending folder to node, `folder.ucan` replaced with recipient's token
+
+**share_records**:
+- Grants data access to individual resources
+- Contains: resource_id, recipient_user_id, ucan_token (resource UCAN), ucan_cid
+- Resource UCAN uses owner_template for nodes
+- **NO encrypted_data or encrypted_key** pre-created
+- Node requests encrypted data during sync when needed
+
+### Folder Sharing Flow
+
+**Service**: `share_folder()` (services/src/folder_service.rs:76)
+
+**Steps**:
+1. **Validation** (lines 86-110):
+   - Validate folder exists
+   - Validate recipient user exists
+   - Check if already shared using efficient single query:
+     ```rust
+     folder_share_repo.find_by_folder_and_user(folder_id, recipient_user_id)
+     ```
+
+2. **Generate Folder UCAN** (lines 113-138):
+   - Decrypt owner's UCAN signing keys
+   - Call `generate_flexible_folder_token()`:
+     - Capabilities: `crud/read` + `share_folder` + `add_resources`
+     - Recipient role: "node"
+     - 30-year lifetime
+   - Generate CID from folder UCAN token
+
+3. **Create Folder Share Record** (lines 141-153):
+   - Store folder_id, recipient_user_id, ucan_token, ucan_cid
+   - Permission level: Admin
+   - Save to folder_share_records table
+
+4. **Share All Resources** (lines 156-198):
+   - Get all resources in folder
+   - For each resource:
+     - Read unencrypted `ucan_token` from resources table (owner's UCAN)
+     - Call `issue_flexible_delegated_resource_ucan()`:
+       - Validates parent UCAN permissions
+       - Extracts owner_template from parent UCAN facts
+       - Extracts doc_types, docs from parent UCAN facts
+       - Builds permissions from template capabilities
+       - Generates delegated UCAN with **facts propagation**
+       - Returns (resource_ucan_token, resource_ucan_cid)
+     - Create share_record with UCAN only:
+       - **NO encrypted_data** (not pre-created)
+       - **NO encrypted_key** (not pre-created)
+       - Only ucan_token and ucan_cid
+     - Save to share_records table
+
+### On-Demand Encryption
+
+**Design**: Share records only contain UCANs, not encrypted data
+
+**Rationale**:
+- Reduces storage overhead (no duplicate encrypted data)
+- Enables dynamic filtering based on sync state
+- Encrypted data created during sync when node requests it
+
+**Sync Flow** (Phase 3):
+```
+1. Node requests resource with state vector
+2. Owner/peer loads resource
+3. Owner/peer filters docs based on node's UCAN
+4. Owner/peer exports filtered snapshots
+5. Owner/peer encrypts with node's public key (on-the-fly)
+6. Owner/peer sends encrypted data + UCAN
+7. Node stores encrypted data locally (not in database)
+```
+
+### Efficient Share Checking
+
+**Repository Method**: `find_by_folder_and_user()` (persistance/src/repositories/folder_share_repository.rs:165)
+
+**Before** (anti-pattern):
+```rust
+// Fetch all share records, filter in memory
+let all_shares = repo.get_records_by_folder_id(folder_id).await?;
+let existing = all_shares.iter().find(|s| s.recipient_user_id == user_id);
+```
+
+**After** (efficient):
+```rust
+// Single SQL query with WHERE clause
+folder_share_records::table
+    .filter(folder_share_records::folder_id.eq(folder_id))
+    .filter(folder_share_records::recipient_user_id.eq(user_id))
+    .filter(folder_share_records::operation_type.eq(ShareOperation::Share))
+    .first::<FolderShareRecordModel>(&mut *conn)
+    .optional()
+```
+
+**Benefit**: O(1) database query instead of O(n) memory filtering
+
+### UCAN Facts Propagation
+
+**Critical for Folder Sharing**: Delegated resource UCANs must contain facts for sync
+
+**Facts Required**:
+- `owner_template` or `viewer_template` - Sync capabilities
+- `doc_types` - Asset vs CRDT classification
+- `docs` - List of document names for parsing
+- `role` - Recipient role for connection type
+
+**Implementation**: See [Delegated UCAN Facts Propagation](#delegated-ucan-facts-propagation)
+
+**Usage in Folder Sharing**:
+- `share_folder()` calls `issue_flexible_delegated_resource_ucan()` (line 168)
+- Facts automatically extracted from owner's UCAN
+- Facts propagated to delegated UCAN for node
+- Node can parse doc_types during sync to handle assets vs CRDTs differently
+
+### Folder UCAN Capabilities
+
+**Status**: ✅ Implemented (2025-11-09)
+
+#### The add_resources Capability
+
+**Purpose**: Enables nodes to share resources from a folder with viewers/other nodes
+
+**Why It's Critical**:
+
+In the Osvauld architecture, the sovereign node acts as an intermediary between the owner and viewers:
+```
+Owner → Node → Viewers
+```
+
+When a viewer requests access to a resource:
+1. Viewer connects to node (not owner directly)
+2. Node needs to delegate resource access to viewer
+3. Node must prove it has authority to add/share resources from that folder
+4. The `add_resources` capability on the node's folder UCAN provides this proof
+
+**Without add_resources**:
+- Node could receive resources from owner
+- Node could NOT delegate/share those resources to viewers
+- Each viewer would need direct delegation from owner (defeats purpose of node)
+
+**With add_resources**:
+- Owner delegates folder to node with `add_resources` capability
+- Node can create delegated resource UCANs for viewers
+- Node proves authority by presenting folder UCAN during resource delegation
+- Viewers receive valid resource UCANs chained to owner's root authority
+
+**Capability Format**: `{domain}:folder:{folder_id}` - `add_resources`
+
+**Example Folder UCAN** (Node's Token):
+```json
+{
+  "cap": {
+    "sthalam.io:folder:abc123": {
+      "crud/read": [{}],
+      "share_folder": [{}],
+      "add_resources": [{}]
+    }
+  },
+  "fct": {
+    "role": "node"
+  }
+}
+```
+
+**Implementation Location**:
+- Handler: `tauri_handlers/src/handlers/folder.rs:95-100`
+- Service: `services/src/folder_service.rs:123-127`
+
+**Handler Determines Capabilities** (Architecture Pattern):
+```rust
+// Handler layer decides what capabilities are needed
+let folder_capabilities = vec![
+    (format!("{}:folder:{}", config.domain, input.folder_id), "crud/read".to_string()),
+    (format!("{}:folder:{}", config.domain, input.folder_id), "share_folder".to_string()),
+    (format!("{}:folder:{}", config.domain, input.folder_id), "add_resources".to_string()),
+];
+
+// Service layer executes with provided capabilities
+share_folder(
+    &input.folder_id,
+    &input.user_id,
+    folder_capabilities,  // Passed to service
+    &current_user,
+    repo_ctx,
+    crypto_utils,
+    &config.domain,
+).await?;
+```
+
+**Service Uses Capabilities**:
+```rust
+// Extract abilities from provided capabilities (line 123)
+let folder_capabilities: Vec<&str> = _folder_permissions
+    .iter()
+    .map(|(_, ability)| ability.as_str())
+    .collect();
+
+// Use in UCAN generation (line 134)
+let folder_ucan_token = crypto_utils::ucan_utils::generate_flexible_folder_token(
+    &signing_key,
+    &verifying_key,
+    folder_id,
+    domain,
+    None,
+    folder_capabilities,  // Includes add_resources
+    &recipient_user.ucan_pub_key,
+    "node",
+).await?;
+```
+
+**Resource Sync Validation** (Future):
+
+When sending resources to node, owner includes their folder UCAN:
+```rust
+// In ResourceDataSync message
+pub struct ResourceDataSync {
+    pub resource: EncryptedResource,
+    pub share_record: ShareRecord,
+    pub owner_folder_ucan: String,  // Proves owner has add_resources
+}
+```
+
+Node validates:
+1. Parse `owner_folder_ucan`
+2. Verify it contains `add_resources` capability for this folder
+3. Accept resource only if capability is present
+4. This proves sender has authority to add resources to this folder
+
+**Architecture Benefits**:
+- Clear separation: handlers define business logic, services execute
+- Flexible: different contexts can grant different capabilities
+- Secure: UCAN chain validates authority at each delegation step
+- Scalable: nodes can serve many viewers without owner involvement
+
+### Frontend Integration
+
+**Modal**: `PublishWebsiteModal.svelte`
+
+**Trigger** (line 132):
+```typescript
+sendMessage("shareFolder", {
+    folderId,
+    userId,
+    permissions
+})
+```
+
+**Handler**: `handle_share_folder()` (tauri_handlers/src/handlers/folder.rs:85)
+
+**Response**: `BaseCryptoResponse::Success`
+
+---
+
+## Sync Protocol & Algorithms
+
+### Simple Folder Sync Protocol
+
+**Status**: ✅ Implemented (2025-11-08)
+**Implementation**: Phase 2.5 - Owner → Node folder/resource push
+
+#### Overview
+
+The Simple Folder Sync Protocol is a unidirectional push-based sync from owner to node that occurs immediately after folder sharing. This is a "fire-and-forget" pattern where the owner sends the complete folder and all resources to the node without waiting for acknowledgment or implementing conflict resolution.
+
+**Design Philosophy**:
+- **Simplicity First**: No state vectors, no bidirectional sync, no conflict resolution
+- **Immediate Delivery**: Sync triggered automatically after ACL creation
+- **Partial Success Model**: Errors don't stop sync of other resources
+- **Future-Proof**: Foundation for bidirectional sync in Phase 3
+
+**Key Files**:
+- `network/src/p2p/sync_handler.rs` - Entry point and orchestration
+- `network/src/p2p/folder_sync.rs` - Folder-level sync logic
+- `network/src/p2p/resource_sync.rs` - Resource-level sync logic
+- `services/src/resource_service.rs` - prepare_resource_for_peer()
+
+#### Protocol Flow
+
+**Trigger**: User shares folder via `handle_share_folder()` in Tauri handler
+
+**1. Handler Initiates Sync** (`tauri_handlers/src/handlers/folder.rs:108`)
+   - After `share_folder()` creates ACLs and share records
+   - Calls `sync_handler::send_folder()` with folder_id, recipient_user_id
+   - Returns success immediately (doesn't wait for sync)
+
+**2. Sync Handler Orchestration** (`network/src/p2p/sync_handler.rs`)
+   - **Fire-and-forget**: Spawns async task (line 29)
+   - Get recipient's devices from database (line 57)
+   - Get or establish P2P connection:
+     - Try `get_connection_by_id(device.id)` first (line 70)
+     - If no connection: call `connect_with_ticket(device.id)` (line 79)
+     - Wait for handshake completion before proceeding
+   - Delegate to `folder_sync::send_folder_with_resources()` (line 82)
+
+**3. Folder-Level Sync** (`network/src/p2p/folder_sync.rs`)
+   - Get owner's folder to extract UCAN (line 27):
+     - Call `get_folder_by_id()` service
+     - Extract `owner_folder_ucan` from `folder.ucan` field
+     - This is the owner's folder UCAN containing `add_resources` capability
+   - Send folder metadata and share record (line 58):
+     - Get folder via `get_folder_by_id()` service
+     - Get folder share record via `get_folder_share_record()` service
+     - **Update folder.ucan** with recipient's token (line 90):
+       - Replace `folder.ucan` with `folder_share_record.ucan_token`
+       - Node receives folder with THEIR token, not owner's
+     - Send `Message::FolderDataSync` with updated folder
+   - Send all resources (line 45):
+     - Delegate to `resource_sync::send_all_resources_for_folder()`
+     - Pass `owner_folder_ucan` as proof of add_resources permission
+
+**4. Resource-Level Sync** (`network/src/p2p/resource_sync.rs`)
+   - **Bulk operation** optimized for multiple resources:
+     - Get all resources for folder (single query, line 32)
+     - Get all share records for folder (single query, line 52)
+     - Get recipient user for public key (line 72)
+   - **Loop through each resource** (line 85):
+     - Match resource with share record
+     - Call `prepare_resource_for_peer()` (line 102)
+     - Send `Message::ResourceDataSync` (line 131)
+     - **Partial success**: Errors logged, continues with other resources
+
+#### Resource Preparation Algorithm
+
+**Function**: `prepare_resource_for_peer()` (`services/src/resource_service.rs:647`)
+
+**Purpose**: Decrypt resource with owner's key, filter documents based on UCAN permissions, re-encrypt for peer with peer's key
+
+**Algorithm**:
+
+1. **Fetch Encrypted Resource** (line 658)
+   - Get `EncryptedResource` from database by resource_id
+   - Contains: encrypted_data, encrypted_key, ucan_token, metadata
+
+2. **Decrypt with Owner's Key** (line 668)
+   - Call `crypto_utils.decrypt_resource(encrypted_data, encrypted_key)`
+   - Uses owner's PGP private key to decrypt AES key
+   - Uses AES key to decrypt data
+   - Returns JSON string with Loro document snapshots
+
+3. **Parse to Resource Object** (line 682)
+   - Call `Resource::from_decrypted_data()`
+   - Parses JSON to HashMap<String, Vec<Value>>
+   - Loads 6 Loro documents: template_doc, content_doc, user_content_doc, collaborative_doc, submissions_doc, static_assets
+   - Returns in-memory Resource with loaded docs
+
+4. **Filter Documents by UCAN** (line 693)
+   - **Critical step**: `resource.filter_to_send(owner_ucan, peer_ucan)`
+   - Location: `core/src/models/resource.rs:169`
+   - Compare capabilities in owner UCAN vs peer UCAN
+   - **Algorithm**:
+     - Parse both UCANs to extract capabilities
+     - For each document in owner's resource:
+       - Check if peer has capability for this doc
+       - If yes: include doc in filtered result
+       - If no: exclude doc (peer won't receive it)
+   - Returns filtered HashMap with only permitted documents
+
+5. **Serialize Filtered Data** (line 703)
+   - Convert filtered HashMap to JSON string
+   - Only includes documents peer has access to
+
+6. **Re-encrypt for Peer** (line 710)
+   - **Critical**: Use `recipient.public_key` (PGP), NOT `ucan_pub_key`!
+   - Call `encrypt_data_for_user(filtered_json, peer_public_key)`
+   - Generates NEW random AES-256 key (not shared with owner's)
+   - Encrypts filtered data with AES-256-GCM
+   - Encrypts AES key with peer's PGP public key
+   - Returns: (new_encrypted_data, new_encrypted_key)
+
+7. **Create Peer's EncryptedResource** (line 717)
+   - Call `original_encrypted.re_encrypt_for_recipient()`
+   - Returns new EncryptedResource with:
+     - Same id, folder_id, metadata (unencrypted)
+     - Peer's encrypted_data (filtered and re-encrypted)
+     - Peer's encrypted_key (new AES key, encrypted for peer)
+     - Peer's UCAN token (from share record)
+
+**Key Insight**: Each peer gets their own encrypted copy with a unique AES key, containing only the documents they have permission to access.
+
+#### Connection Management
+
+**Pattern**: Connection indexed by `device.id` for consistency
+
+**Get or Establish Connection**:
+```
+1. Try: get_connection_by_id(device.id)
+   - Returns existing PeerConnection if active
+
+2. If no connection:
+   - Call: connect_with_ticket(device.id)
+   - Derives NodeId from device.id (public key)
+   - Establishes Iroh P2P connection
+   - Performs handshake (validates UCANs, exchanges tokens)
+   - Waits for handshake completion
+   - Returns ready-to-use PeerConnection
+
+3. Use connection for sync
+```
+
+**Important**: `connect_with_ticket()` is BLOCKING - waits for handshake to complete before returning. This ensures the connection is fully ready before any messages are sent.
+
+#### Message Types
+
+**FolderDataSync** (`Message::FolderDataSync`):
+- **Purpose**: Send folder metadata and share record
+- **Payload**:
+  - `folder`: Folder object (id, name, description, timestamps)
+  - `folder_share_record`: FolderShareRecord (UCAN token, permissions)
+- **Handler**: `folder_sync::handle_folder_data_sync()` (node side)
+- **Action**: Save folder and share record in single transaction
+
+**ResourceDataSync** (`Message::ResourceDataSync`):
+- **Purpose**: Send encrypted resource and share record
+- **Payload**:
+  - `resource`: EncryptedResource (re-encrypted for peer, filtered docs)
+  - `share_record`: ShareRecord (peer's UCAN token, resource permissions)
+- **Handler**: `resource_sync::handle_resource_data_sync()` (node side)
+- **Action** (TODO): Validate UCAN, save resource and share record in transaction
+
+#### Error Handling & Partial Success
+
+**Fire-and-Forget Pattern**:
+- Sync runs in spawned async task
+- Errors logged, don't propagate to handler
+- User gets immediate success response
+
+**Partial Success Model**:
+- Resource loop continues even if individual resources fail
+- Scenarios:
+  - Share record missing: Log error, skip resource, continue
+  - Decryption fails: Log error, skip resource, continue
+  - Encryption fails: Log error, skip resource, continue
+  - Send fails: Log error, skip resource, continue
+- **Result**: Some resources may sync successfully while others fail
+
+**Philosophy**: Better to deliver partial folder than fail entire operation
+
+#### Security & Encryption
+
+**Two-Layer Encryption Model**:
+
+1. **Owner's Encryption** (original storage):
+   - Resource encrypted with random AES-256 key
+   - AES key encrypted with owner's PGP public key
+   - Only owner can decrypt
+
+2. **Peer's Encryption** (re-encrypted for sync):
+   - NEW random AES-256 key generated
+   - Filtered documents encrypted with new AES key
+   - AES key encrypted with peer's PGP public key
+   - Only peer can decrypt their copy
+
+**Key Separation**:
+- `User.public_key`: PGP/GPG public key for encryption/decryption
+- `User.ucan_pub_key`: EdDSA public key for UCAN signing/verification
+- **Critical Bug**: Using wrong key causes "Failed to parse certificate: unexpected EOF"
+
+**UCAN-Based Filtering**:
+- Owner UCAN contains all document capabilities
+- Peer UCAN contains subset based on role (owner_template vs viewer_template)
+- `filter_to_send()` ensures peer only receives permitted documents
+- Examples:
+  - Owner might have all 6 docs
+  - Node might have 5 docs (all except user_content)
+  - Viewer might have 3 docs (template, content, static_assets)
+
+#### Performance Optimizations
+
+**Bulk Operations**:
+- Single query for all resources in folder (not N queries)
+- Single query for all share records (not N queries)
+- Avoids N+1 problem
+
+**Sequential Resource Send**:
+- Resources sent one at a time (not all in parallel)
+- Prevents memory explosion with large resources
+- Allows partial success if some fail
+
+**Async Background Processing**:
+- Sync doesn't block handler response
+- User can continue working immediately
+- No UI freeze during large syncs
+
+#### Current Limitations & TODOs
+
+**Node Side Reception** (Partial Implementation):
+- ✅ Folder reception works: `handle_folder_data_sync()` saves folder
+- ⏳ Resource reception disabled: `handle_resource_data_sync()` commented out
+- **Blockers**:
+  - Need `validate_ucan()` method in CryptoUtils
+  - Need `save_resource_with_share_record()` in ResourceRepository
+
+**No Bidirectional Sync**:
+- Only owner → node push
+- No node → owner updates
+- No viewer ↔ node sync
+- Phase 3 will add bidirectional state vector sync
+
+**No Conflict Resolution**:
+- Simple overwrite model
+- Last write wins (if re-sharing)
+- Phase 3 will add CRDT merge
+
+**No Incremental Updates**:
+- Always sends complete resource
+- No delta sync or state vectors
+- Phase 3 will add Loro state vector diffing
+
+### Message Types
+
+**Status**: Phase 2.5 - Folder sync messages implemented (see above)
+
+**File**: `core/src/models/p2p.rs`
+
+**Enum**: `ResourceUpdateMsg`
+
+**Variants**:
+- `ResourceAdd` - Owner publishes to node, or node sends to viewer
+- `StateVectorRequest` - Request updates based on version vectors
+- `StateVectorResponse` - Send updates plus list of docs to request back
+- `AssetTransfer` - Transfer binary assets separately from CRDT docs
+
+### State Vector Sync Algorithm
+
+**Status**: TODO - To be documented during Phase 3
+
+**Viewer Requests Updates**:
+```
+1. Viewer sends state vectors for each doc
+2. Node loads resource
+3. Node compares local version vectors with viewer's
+4. Node exports updates from viewer's version
+5. Node checks sync behavior (readonly/merge/appendonly)
+6. Node determines which docs to request from viewer
+7. Node responds with updates + request list
+```
+
+**Node Processes Viewer Updates**:
+```
+1. Validate UCAN permissions for each doc
+2. Check sync behavior allows this operation
+3. Apply updates to local docs
+4. Update cached state vectors
+5. Save to DB
+6. Relay to owner if online
+```
+
+### Sync Behavior Logic
+
+**Status**: TODO - To be documented during Phase 3
+
+**readonly**:
+- Algorithm for rejecting viewer writes: TBD
+
+**merge**:
+- Algorithm for bidirectional sync: TBD
+
+**appendonly**:
+- Algorithm for append-only operations: TBD
+
+---
+
+## Search Indexing
+
+### Configuration Format
+
+**Status**: TODO - To be documented during Phase 4
+
+**In Resource.metadata**:
+```json
+{
+  "title": "Unencrypted Title",
+  "search": {
+    "docs": ["content", "comments"]
+  }
+}
+```
+
+### Text Extraction Algorithm
+
+**Status**: TODO - To be documented during Phase 4
+
+**File**: `search_indexer/src/extractor.rs`
+
+**Function**: `extract_content()`
+
+**Algorithm**:
+1. Parse metadata.search.docs to know which docs to index
+2. Extract title from metadata field (unencrypted)
+3. For each doc in search config, get LoroDoc from resource
+4. Traverse Loro structure based on doc type (LoroText/LoroMap/LoroList)
+5. Extract all text content
+6. Concatenate and return title + content
+
+**Details**: TBD during implementation
+
+### Loro Text Traversal
+
+**Status**: TODO - To be documented during Phase 4
+
+How to extract text from:
+- LoroText: TBD
+- LoroMap: TBD
+- LoroList: TBD
+
+---
+
+## Code Patterns
+
+### Service Layer Pattern
+
+**Status**: ✅ Implemented (Phase 2)
+
+**Files**:
+- `services/src/resource_service.rs` - Encryption/decryption coordination (724 lines)
+- `core/src/models/resource.rs` - Business logic methods (456 lines)
+
+**Principle**: Service layer handles encryption boundary, Resource struct has business logic
+
+**Flow**:
+1. Service decrypts DB row, returns Resource + decrypted JSON
+2. Resource parses JSON and loads Loro docs
+3. Business logic works with Resource methods
+4. Service encrypts modified Resource back to DB
+
+**Separation**: Service = coordination & encryption, Resource = domain logic
+
+### 14 Service Methods Implemented
+
+**Helper Functions**:
+1. **decrypt_resources()** - Unified batch decryption
+   - Takes Vec<ResourceWithKey>
+   - Decrypts AES keys with UCAN private key
+   - Decrypts data with AES keys
+   - Calls Resource::from_decrypted_data()
+   - Returns Vec<Resource>
+
+**CRUD Operations**:
+2. **create_resource()** - Create with flexible UCAN
+   - Accepts resource_payload (Loro snapshots JSON)
+   - Accepts ucan_template_json (frontend-defined templates)
+   - Accepts metadata_json (title, type, search config)
+   - Generates flexible owner UCAN
+   - Encrypts and stores in DB
+
+3. **get_resource_by_id_direct()** - Fetch single resource
+   - Loads from DB
+   - Decrypts using decrypt_resources()
+   - Returns single Resource
+
+4. **update_resource()** - Update Loro snapshots
+   - Accepts new resource_payload (complete new snapshots)
+   - Reuses existing AES key
+   - Re-encrypts with same key
+   - Updates DB
+
+5. **delete_resource()** - Soft delete
+   - Marks resource as deleted
+   - Preserves data for recovery
+
+6. **get_resources_for_folder()** - List folder resources
+   - Fetches all resources in folder
+   - Batch decrypts with decrypt_resources()
+   - Returns Vec<Resource>
+
+7. **get_all_resources()** - List all user resources
+   - Fetches all user's resources
+   - Batch decrypts
+   - Returns Vec<Resource>
+
+**Sharing**:
+8. **share_resource()** - Role-based sharing
+   - Extracts recipient role from their user token
+   - Decrypts resource with owner's key
+   - Calls Resource::filter_to_send() with role-based UCAN
+   - Generates delegated UCAN with template selection
+   - Re-encrypts with NEW AES key for viewer
+   - Stores share record in DB
+
+9. **get_share_records_for_resource()** - List shares
+   - Returns all share records for resource
+   - Used for UI display of who has access
+
+**UCAN Management**:
+10. **get_resource_ucan_key()** - Get UCAN keypair
+    - Retrieves and decrypts UCAN private key
+    - Returns keypair for signing operations
+
+11. **validate_authority_for_update()** - Permission validation
+    - Checks if user can update resource
+    - Validates UCAN chain
+
+12. **resolve_proof()** - UCAN proof resolution
+    - Resolves proof chain for delegation
+    - Used by UCAN validation
+
+**Internal Helpers** (13-14):
+- Encryption/decryption utilities
+- Key generation helpers
+
+### Key Design Patterns
+
+**Unified Decryption**:
+- Single decrypt_resources() helper handles all decryption
+- Takes Vec for batch processing
+- Single resource case wraps in Vec, unwraps result
+- Consistent error handling
+
+**Frontend Control**:
+- Frontend sends complete Loro snapshots (no merging in backend)
+- Frontend defines UCAN templates (no hardcoded doc structure)
+- Backend just encrypts/decrypts and enforces permissions
+
+**Role-Based Template Selection**:
+- share_resource() extracts role from recipient token
+- Automatically selects owner_template or viewer_template
+- No manual template selection needed
+
+**Security Isolation**:
+- Each share gets NEW AES key (never reuse owner's key)
+- Viewer can't decrypt owner's original data
+- Compromised viewer key doesn't expose owner's data
+
+### Error Handling
+
+**Status**: TODO - To be documented as patterns emerge
+
+### State Management
+
+**Status**: TODO - To be documented as patterns emerge
+
+---
+
+## Implementation Notes
+
+### Phase 1: Core Protocol
+
+**Status**: ✅ Complete (100%)
+
+#### document.rs Loro Wrappers
+
+**Status**: ✅ Complete
+
+**File**: `core/src/models/document.rs`
+
+**Implementation Details**:
+
+**Functions Implemented**:
+1. `create_doc()` - Creates new LoroDoc
+2. `import_snapshot(bytes)` - Creates doc from snapshot (full or shallow)
+3. `import_into(doc, bytes)` - Imports into existing doc
+4. `export_snapshot(doc)` - Exports with full history (owner/node)
+5. `export_shallow_snapshot(doc)` - Exports without history (viewers)
+6. `export_updates(doc, from_version)` - Incremental updates for sync
+7. `apply_updates(doc, updates)` - Apply incoming updates
+8. `oplog_vv(doc)` - Version vector with full history (owner/node)
+9. `state_frontiers(doc)` - Current state frontiers (viewers)
+
+**Key Learnings**:
+
+**Shallow Snapshots for Viewers**:
+- Loro supports `ExportMode::shallow_snapshot(&frontiers)` like Git shallow clone
+- Removes old history, keeps only current state
+- Viewers don't need full operation history
+- Limitation: Can only sync updates from after the shallow snapshot point
+
+**Version Tracking**:
+- `oplog_vv()` - For owner/node, tracks all recorded history
+- `state_frontiers()` - For viewers, tracks current applied state
+- Both encode to bytes for transmission
+
+**Export Modes**:
+- `ExportMode::Snapshot` - Full state + all history
+- `ExportMode::shallow_snapshot(&frontiers)` - State without history
+- `ExportMode::updates(&version_vector)` - Incremental from version
+
+**Error Handling**: Uses `LoroError` directly from Loro crate
+
+**Compilation**: ✅ Compiles successfully
+
+#### Resource Model
+
+**Status**: ✅ Complete
+
+**File**: `core/src/models/resource.rs`
+
+**Implementation Details**:
+
+**Two-Struct Architecture**:
+- EncryptedResource: Database/network representation with encrypted_data, encrypted_key
+- Resource: Runtime representation with HashMap<String, LoroDoc>
+- Clean separation between storage and business logic
+
+**Key Learnings**:
+
+**No Cached State Vectors**:
+- Initially planned to cache state vectors in struct
+- Decision: Compute on-demand from LoroDoc
+- Rationale: LoroDoc.state_frontiers() is fast, caching adds complexity
+- Benefit: Always accurate, no sync issues between cache and doc state
+
+**ResourceType Moved to Metadata**:
+- Originally had ResourceType enum in struct
+- Moved to metadata field as unencrypted JSON
+- Rationale: UCAN tokens define doc structure, not backend enums
+- Benefit: Frontend controls resource types, backend is generic
+
+**Two-UCAN Filtering**:
+- filter_to_send() takes both our_ucan and peer_ucan
+- Checks our dont_send_to_node rules
+- Checks peer's capabilities
+- Only sends intersection (what we can send AND what they can receive)
+
+**Always Shallow Snapshots**:
+- filter_to_send() uses export_shallow_snapshot()
+- Peers don't need full operation history
+- Reduces data transfer size
+- Sufficient for collaboration
+
+**Gotchas**:
+
+**Viewer Filtering Direction**:
+- apply_updates_filtered() filters incoming updates (what viewer accepts)
+- filter_to_send() filters outgoing docs (what node sends)
+- Two different filtering directions for same viewer restrictions
+
+**Permission Validation**:
+- apply_updates() rejects crud/readonly docs
+- Must check ability string matches exactly "crud/readonly"
+- Other abilities (crud/merge, crud/appendonly) currently treated same
+
+**Metadata in Updates** (Bug Fixed 2025-11-07):
+- `from_decrypted_data()` expects: `HashMap<String, Vec<Value>>` - every field must be an array
+- Frontend must NOT include metadata fields (client_id, last_modified, title) in update payload
+- Only send Loro document snapshots (template_doc, content_doc, etc.) as arrays
+- Metadata fields would cause parser error: "expected a sequence, got string"
+- Add flow correctly separates resourcePayload (documents) from metadataJson (metadata)
+- Update flow must follow same pattern
+
+#### UCAN Utils
+
+**Status**: ✅ Complete
+
+**File**: `crypto_utils/src/ucan_utils.rs` + `crypto_utils/src/crypto_utils.rs`
+
+**Implementation Details**:
+
+**UcanFacts Structure**:
+- Two templates in one struct: owner_template + viewer_template
+- Each template has capabilities + sync rules
+- Enables single owner UCAN to define all access patterns
+
+**Template Extraction**:
+- extract_owner_template() and extract_viewer_template() are separate functions
+- Both use shared helper: extract_template_from_facts()
+- Optional fields default to empty arrays (no_update_from_node, dont_send_to_node)
+
+**Flexible UCAN Generation**:
+- Frontend sends complete UcanFacts as JSON
+- Backend just serializes and adds to facts section
+- No hardcoded doc names or capabilities in backend
+- Enables arbitrary doc structures per resource
+
+**Role-Based Delegation**:
+- issue_flexible_delegated_resource_ucan() extracts UcanFacts from proof
+- Selects template based on recipient_role string
+- "owner" or "node" → owner_template
+- "viewer" → viewer_template
+- Automatic, no manual intervention
+
+**Edge Cases**:
+
+**Missing Templates**:
+- If owner_template or viewer_template missing from facts, extraction fails
+- Returns UcanError with descriptive message
+- share_resource() propagates error to caller
+
+**Invalid Role**:
+- If recipient_role not "owner", "node", or "viewer", defaults to viewer_template
+- Safe fallback: least privilege by default
+
+**Empty Capabilities**:
+- Templates can have empty capabilities HashMap (valid but useless)
+- No validation at UCAN generation time
+- Validation happens at permission check time (no capabilities = no access)
+
+---
+
+### Phase 2: Service Layer
+
+**Status**: ✅ Complete (100%)
+
+#### Resource Service Rewrite
+
+**Status**: ✅ Complete
+
+**File**: `services/src/resource_service.rs`
+
+**Implementation Details**:
+
+**Code Reduction**:
+- Before: 1200+ lines, 34 methods
+- After: 724 lines, 14 methods
+- Reduction: 40% code reduction, 58% method reduction
+- Removed: All sync methods (9), vector clocks (3), resource keys (2), UI helpers (6)
+
+**Unified Decryption Pattern**:
+- Single decrypt_resources() helper handles all decryption
+- Takes Vec<ResourceWithKey> for batch processing
+- Consistent error handling across all decrypt paths
+- Reduces code duplication
+
+**Frontend-Driven Updates**:
+- update_resource() accepts complete new Loro snapshots
+- No merging or diff computation in backend
+- Frontend handles all CRDT operations
+- Backend just encrypts and stores
+
+**Role-Based Sharing Flow**:
+```
+1. Extract recipient role from their user token (via extract_facts)
+2. Load and decrypt resource
+3. Call issue_flexible_delegated_resource_ucan() with role
+4. Automatic template selection (owner/node vs viewer)
+5. Filter docs with Resource::filter_to_send()
+6. Generate new AES key
+7. Encrypt filtered data
+8. Store share record
+```
+
+**Key Learnings**:
+
+**Batch Decryption Optimization**:
+- decrypt_resources() processes all resources in one batch
+- Amortizes crypto_utils lock acquisition
+- Better than per-resource decryption in loop
+
+**AES Key Reuse**:
+- Owner's resources: Same AES key across updates
+- Viewer shares: Always new AES key (never reuse owner's)
+- Rationale: Owner key compromise doesn't expose shares
+
+**Template Selection Logic**:
+- Based on recipient's role field in their user token
+- Not based on share type or manual selection
+- Automatic and deterministic
+
+**Gotchas**:
+
+**Share Record Schema**:
+- Stores resource_id (shared resource)
+- Stores shared_with_user_id (recipient)
+- Stores encrypted_data (filtered + re-encrypted)
+- Stores encrypted_key (recipient's encrypted AES key)
+- Stores ucan_token (delegated UCAN)
+- Same schema as resources table but different table
+
+**Update Without UCAN**:
+- update_resource() doesn't regenerate UCAN
+- Reuses existing ucan_token and encrypted_ucan_key
+- Only updates encrypted_data
+- Assumption: UCAN templates don't change on update
+
+**No Sync Methods**:
+- Deliberately removed all network sync methods
+- Deferred to Phase 3 (network protocol redesign)
+- Phase 2 only handles local CRUD and sharing
+
+#### Encryption Implementation
+
+**Status**: ✅ Complete
+
+**Implementation Details**:
+
+**AES-256-GCM**:
+- Used for data encryption
+- Random IV per encryption operation
+- Authenticated encryption (prevents tampering)
+
+**Key Encryption**:
+- AES keys encrypted with Ed25519 public keys (via X25519 conversion)
+- UCAN public keys used for encryption
+- UCAN private keys used for decryption
+
+**Encryption Path**:
+```
+Resource.to_json() → JSON string → AES-256-GCM → Base64 → encrypted_data
+Random AES key → Encrypt with UCAN pubkey → Base64 → encrypted_key
+```
+
+**Decryption Path**:
+```
+encrypted_key → Base64 decode → Decrypt with UCAN privkey → AES key
+encrypted_data → Base64 decode → AES-256-GCM decrypt → JSON string → Resource::from_decrypted_data()
+```
+
+#### Key Generation
+
+**Status**: ✅ Complete
+
+**Implementation Details**:
+
+**Resource Creation**:
+- Generate random 32-byte AES key
+- Encrypt with owner's UCAN public key
+- Store encrypted_key in resources table
+
+**Resource Sharing**:
+- Generate NEW random 32-byte AES key (don't reuse owner's)
+- Encrypt filtered data with new key
+- Encrypt new key with viewer's UCAN public key
+- Store encrypted_key in share_records table
+
+**Key Isolation**:
+- Owner and viewer have independent AES keys
+- Viewer key compromise doesn't affect owner's data
+- Each share has unique key
+
+**Key Retrieval**:
+- get_resource_ucan_key() decrypts UCAN private key
+- Returns Ed25519 keypair for signing
+- Used for UCAN delegation and signing operations
+
+---
+
+### Phase 3: Network Protocol
+
+**Status**: Not Started
+
+#### Message Handlers
+
+**Implementation Details**: TBD
+
+#### Sync Logic
+
+**Implementation Details**: TBD
+
+---
+
+### Phase 4: Search Indexing
+
+**Status**: Not Started
+
+#### Text Extraction
+
+**Implementation Details**: TBD
+
+---
+
+### Phase 5: Database Migration
+
+**Status**: Not Started
+
+#### Migration Script
+
+**Implementation Details**: TBD
+
+---
+
+## Technical Decisions Log
+
+### Decision: Service Layer = Encryption Boundary
+**Date**: 2025-11-06
+**Rationale**: Clean separation between encrypted storage and business logic
+**Impact**: Resource struct always has decrypted data, service coordinates encryption
+
+### Decision: UCAN Contains Sync Behavior
+**Date**: 2025-11-06
+**Rationale**: Self-describing tokens, no server-side config needed
+**Impact**: Capabilities directly map to sync behavior (readonly/merge/appendonly)
+
+### Decision: Metadata Field Unencrypted
+**Date**: 2025-11-06
+**Rationale**: Quick access to title and search config without decryption
+**Impact**: Title, search config stored in plain JSON
+
+### Decision: Two-Template Architecture
+**Date**: 2025-11-07
+**Rationale**: Single owner UCAN defines both owner and viewer permissions, enables automatic role-based delegation
+**Impact**: Owner UCAN has owner_template and viewer_template in facts, delegation automatically selects correct template
+
+### Decision: 40% Code Reduction in resource_service.rs
+**Date**: 2025-11-07
+**Rationale**: Remove all sync methods (defer to Phase 3), remove vector clocks, remove UI helpers
+**Impact**: Cleaner service layer focused on CRUD and sharing only, 1200+ lines → 724 lines
+
+### Decision: Frontend Controls UCAN Structure
+**Date**: 2025-11-07
+**Rationale**: Backend shouldn't hardcode doc names or capabilities, makes protocol generic
+**Impact**: create_resource() accepts ucan_template_json parameter, frontend defines all doc structure
+
+### Decision: Role-Based Delegation
+**Date**: 2025-11-07
+**Rationale**: Automatic template selection based on recipient role, no manual intervention needed
+**Impact**: share_resource() extracts role from recipient token, automatically uses owner_template or viewer_template
+
+### Decision: Independent AES Keys for Shares
+**Date**: 2025-11-07
+**Rationale**: Security isolation - viewer key compromise shouldn't expose owner's data
+**Impact**: Each share gets NEW random AES key, never reuse owner's key
+
+### Decision: Frontend-Driven Updates
+**Date**: 2025-11-07
+**Rationale**: Backend shouldn't merge CRDTs, frontend has better context
+**Impact**: update_resource() accepts complete new Loro snapshots, no merging in backend
+
+### Decision: Folder Sharing as Thin Wrapper
+**Date**: 2025-11-08
+**Rationale**: Folder sharing is just ACL creation, not data duplication. UCANs and encrypted data generated on-demand during sync
+**Impact**: share_folder() creates folder_share_records and share_records with UCANs only, no pre-created encrypted_data
+
+### Decision: On-Demand Encryption for Shared Resources
+**Date**: 2025-11-08
+**Rationale**: Pre-creating encrypted data for all shares is wasteful, sync protocol can generate on-the-fly
+**Impact**: Share records only contain UCAN tokens, encrypted data created during sync when node requests it
+
+### Decision: Efficient Share Checking with find_by_folder_and_user()
+**Date**: 2025-11-08
+**Rationale**: Avoid fetching all share records and filtering in memory, use single SQL query
+**Impact**: Added find_by_folder_and_user() repository method with WHERE clause, O(1) instead of O(n)
+
+### Decision: UCAN Facts Must Propagate Through Delegation
+**Date**: 2025-11-08
+**Rationale**: Delegated UCANs need facts (templates, doc_types, docs) for node to correctly parse and sync resources
+**Impact**: Updated generate_delegated_ucan() signature to accept and propagate facts, updated issue_flexible_delegated_resource_ucan() to extract and pass facts
+
+### Decision: Add add_resources Capability to Folder UCANs
+**Date**: 2025-11-09
+**Rationale**: Nodes need authority to delegate resource access to viewers. Without add_resources capability, nodes can receive resources but cannot share them with viewers, breaking the Owner → Node → Viewer architecture.
+**Impact**:
+- Handler layer determines capabilities: `crud/read` + `share_folder` + `add_resources`
+- Service layer uses provided capabilities when generating folder UCAN
+- ResourceDataSync includes owner_folder_ucan field to prove sender has add_resources permission
+- Node can validate authority before accepting resources
+
+### Decision: Store Folder UCAN in folders Table
+**Date**: 2025-11-09
+**Rationale**: Need easy access to owner's folder UCAN when sending resources to prove add_resources permission. Querying folder_share_records would require finding the owner's self-share record (inefficient).
+**Impact**:
+- Added `ucan` field to folders table (up.sql migration)
+- Folder created with owner's UCAN token stored in folder.ucan
+- During resource sync, read folder.ucan to get owner's UCAN with add_resources
+- Before sending folder to node, replace folder.ucan with recipient's token from folder_share_record
+
+### Decision: Handler Determines Capabilities, Service Executes
+**Date**: 2025-11-09
+**Rationale**: Separation of concerns - business logic (what capabilities) belongs in handler layer, execution (how to generate UCAN) belongs in service layer. Enables different contexts to grant different capabilities without modifying service code.
+**Impact**:
+- Moved capability determination from folder_service.rs to tauri_handlers/src/handlers/folder.rs
+- Service accepts `folder_permissions` parameter and extracts abilities
+- Handler constructs capability list with domain-specific knowledge
+- Service is now reusable across different contexts (Tauri, CLI, API)
+
+### Decision: Role-Based Capabilities in Connection Tokens
+**Date**: 2025-11-09
+**Rationale**: Connection tokens need different capabilities based on recipient role. Nodes need `add_folder` to enable folder sharing validation. Viewers don't need this capability. Service layer should determine capabilities based on role for flexibility and reusability.
+**Impact**:
+- Added `additional_capabilities` parameter to `generate_delegation_and_connection_token()` (ucan_utils.rs)
+- Service layer (`issue_connect_ucan_token`) determines capabilities based on issued role:
+  - `role="node"` → includes `{domain}:add_folder` capability
+  - `role="viewer"` → no additional capabilities
+- Generic crypto function accepts capabilities as parameter (follows folder sharing pattern)
+- Enables future extension: new roles can easily get different capability sets
+- Node can validate owner has `add_folder` when receiving folder share requests
+
+### Decision: Add add_folder Capability to Connection Tokens
+**Date**: 2025-11-09
+**Rationale**: When owner shares folder with node, node must validate that owner has permission to add folders. Owner's connection token (issued by node to owner) needs to include `add_folder` capability for this validation.
+**Impact**:
+- Connection tokens with `role="node"` now include `{domain}:add_folder` capability
+- Both owner and node receive tokens with `add_folder` (reciprocal node roles)
+- Enables folder sharing validation: node checks owner's token for `add_folder` capability
+- Future folder sync can validate sender authority using this capability
+
+---
+
+## Future Considerations
+
+### Performance Optimizations
+- State vector caching strategy: TBD
+- In-memory resource caching: TBD
+- Lazy doc loading: TBD
+
+### Security Enhancements
+- Key rotation mechanism: TBD
+- Rate limiting: TBD
+- UCAN expiration handling: TBD
+
+### Features to Consider
+- Asset streaming for large files: TBD
+- Partial doc sync: TBD
+- Compression: TBD
+
+---
+
+## Glossary
+
+- **CRDT**: Conflict-free Replicated Data Type
+- **Loro**: CRDT library (replacing Yrs)
+- **UCAN**: User Controlled Authorization Networks
+- **State Vector**: Compact CRDT operation history
+- **Version Vector**: Loro's state vector equivalent
+- **Snapshot**: Complete serialized Loro document
+- **Update**: Incremental CRDT operations
+
+---
+
+## TODO: Sections to Add as We Implement
+
+- [ ] Detailed encryption algorithms
+- [ ] State vector comparison logic
+- [ ] Loro snapshot format
+- [ ] Update encoding format
+- [ ] Asset sync protocol details
+- [ ] Error codes and handling
+- [ ] Performance benchmarks
+- [ ] API reference
+
+---
+
+**This document will be continuously updated during implementation.**

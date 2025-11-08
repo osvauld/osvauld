@@ -11,4 +11,5 @@ members = [
   "network",
   "kunki",
   "search_indexer",
+  "tauri_handlers",
 ]

@@ -1,11 +1,11 @@
 use crate::{
     errors::{FolderServiceError, ServiceResult},
-    prepare_share_resource,
+    resource_service,
 };
 use crypto_utils::{CryptoUtils, errors::UcanError};
 use osvauld_core::models::{
-    Folder, FolderRecipientDiff, FolderRecipientUpdate, FolderShareRecord, FolderWithShareRecords,
-    PermissionLevel, UnknownFoldersPayload, User, ViewerFolderInfo,
+    Folder, FolderShareRecord,
+    PermissionLevel, User, ViewerFolderInfo,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
@@ -23,7 +23,11 @@ pub async fn create_folder(
     if name.trim().is_empty() {
         return Err(FolderServiceError::EmptyFolderName.into());
     }
-    let folder = Folder::new(name, description, false);
+
+    // Create folder with temporary empty UCAN (will be updated)
+    let mut folder = Folder::new(name, description, false, String::new());
+
+    // Generate owner UCAN for this folder using the generated folder ID
     let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
     let (folder_root_ucan_key, ucan_cid) = {
         let crypto = crypto_utils.read().await;
@@ -31,6 +35,9 @@ pub async fn create_folder(
             .generate_folder_owner_ucan(&encrypted_ucan_key, &folder.id, domain)
             .await?
     };
+
+    // Update folder with the generated UCAN
+    folder.ucan = folder_root_ucan_key.clone();
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
         folder.id.clone(),
         user.id.clone(),
@@ -76,159 +83,109 @@ pub async fn soft_delete_folder(
 pub async fn share_folder(
     folder_id: &str,
     recipient_user_id: &str,
-    folder_permissions: Vec<(String, String)>,
+    _folder_permissions: Vec<(String, String)>,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> ServiceResult<()> {
-    // 1. Validate folder exists and user has access
+    // 1. Validate folder exists
     let _folder = repo_ctx
         .folder_repo
         .find_by_id(folder_id)
         .await
-        .map_err(|_| FolderServiceError::FolderNotFound {
-            folder_id: folder_id.to_string(),
-        })?;
+        .map_err(|_| FolderServiceError::Validation("Folder not found".into()))?;
 
-    // 2. Check if folder is already shared with this user
-    let existing_folder_shares = repo_ctx
+    // 2. Validate recipient exists
+    let recipient_user = repo_ctx
+        .user_repo
+        .get_user_by_id(recipient_user_id)
+        .await
+        .map_err(|_| FolderServiceError::Validation("Recipient not found".into()))?;
+
+    // 3. Check if already shared (efficient query)
+    if repo_ctx
         .folder_share_repo
-        .get_records_by_folder_id(folder_id)
-        .await?;
-
-    let folder_already_shared = existing_folder_shares
-        .iter()
-        .any(|share| share.recipient_user_id == recipient_user_id);
-    if folder_already_shared {
-        return Ok(());
+        .find_by_folder_and_user(folder_id, recipient_user_id)
+        .await?
+        .is_some()
+    {
+        return Err(FolderServiceError::Validation(
+            "Folder already shared with this user".into(),
+        )
+        .into());
     }
 
-    // 3. Prepare folder UCAN delegation if not already shared
-
-    // Get current user's folder UCAN token (their own share record)
-    let user_folder_ucan_token = existing_folder_shares
-        .iter()
-        .find(|share| share.recipient_user_id == current_user.id)
-        .ok_or(FolderServiceError::InsufficientPermissions)?
-        .ucan_token
-        .clone();
-
-    // Get encrypted UCAN private key
+    // 4. Get owner's encrypted UCAN key
     let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
 
-    // Find the folder owner (root authority) from self-share record
-    let folder_owner_id = existing_folder_shares
+    // 5. Generate folder UCAN for recipient using provided capabilities
+    let folder_capabilities: Vec<&str> = _folder_permissions
         .iter()
-        .find(|share| share.shared_by_user_id == share.recipient_user_id)
-        .ok_or(FolderServiceError::InsufficientPermissions)?
-        .recipient_user_id
-        .clone();
+        .map(|(_, ability)| ability.as_str())
+        .collect();
 
-    let folder_owner = repo_ctx.user_repo.get_user_by_id(&folder_owner_id).await?;
-
-    // Create proof resolver for folder UCAN validation
-    let repo_ctx_clone = repo_ctx.clone();
-    let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
-
-    // Generate delegated folder UCAN
-    let (folder_ucan_token, folder_ucan_cid) = {
+    // Decrypt UCAN keys and generate folder token
+    let (signing_key, verifying_key) = {
         let crypto = crypto_utils.read().await;
-        crypto
-            .issue_delegated_folder_ucan(
-                &encrypted_ucan_key,
-                &user_folder_ucan_token,
-                &folder_owner.ucan_pub_key,
-                folder_id,
-                &repo_ctx
-                    .user_repo
-                    .get_user_by_id(recipient_user_id)
-                    .await?
-                    .ucan_pub_key,
-                folder_permissions,
-                &proof_resolver,
-            )
-            .await?
+        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
     };
 
-    // Create folder share record
+    let folder_ucan_token = crypto_utils::ucan_utils::generate_flexible_folder_token(
+        &signing_key,
+        &verifying_key,
+        folder_id,
+        domain,
+        None, // 30 year expiry
+        folder_capabilities,
+        &recipient_user.ucan_pub_key,
+        "node", // role
+    )
+    .await
+    .map_err(|e| FolderServiceError::Validation(e.to_string()))?;
+
+    // 6. Generate CID from folder UCAN token
+    let folder_ucan_cid = crypto_utils::get_cid_from_ucan_token(&folder_ucan_token)?;
+
+    // 7. Create and save folder_share_record
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
         folder_id.to_string(),
         current_user.id.clone(),
         recipient_user_id.to_string(),
-        PermissionLevel::Admin, // Full permissions for now
-        folder_ucan_token,
-        folder_ucan_cid,
+        PermissionLevel::Admin,
+        folder_ucan_token.clone(),
+        folder_ucan_cid.clone(),
     );
 
-    // 4. Get all resources in folder and prepare sharing data
-    let resource_ids = repo_ctx
-        .resource_repo
-        .get_resource_ids_by_folder_id(folder_id)
+    repo_ctx
+        .folder_share_repo
+        .save(&folder_share_record)
         .await?;
 
-    let mut all_resource_sharing_data = Vec::new();
+    // 8. Get all resources in folder
+    let resources = repo_ctx
+        .resource_repo
+        .find_all_by_folder(folder_id, &current_user.id)
+        .await?;
 
-    for resource_id in resource_ids {
-        // Create full resource permissions for each resource
-        let resource_permissions = vec![
-            (
-                format!("{}:resource:{}", domain, resource_id),
-                "crud/read".to_string(),
-            ),
-            (
-                format!("{}:resource:{}", domain, resource_id),
-                "crud/update".to_string(),
-            ),
-            (
-                format!("{}:resource:{}", domain, resource_id),
-                "ucan/share".to_string(),
-            ),
-        ];
-
-        // Prepare sharing data - this will return None if already shared
-        if let Some(sharing_data) = prepare_share_resource(
+    // 9. For each resource, share using resource_service (cleaner abstraction)
+    for resource in resources {
+        resource_service::share_resource(
+            &resource.id,
             recipient_user_id,
-            &resource_id,
-            resource_permissions,
+            "owner", // Node gets owner_template (full permissions)
             current_user,
+            domain,
             repo_ctx.clone(),
             crypto_utils,
         )
-        .await?
-        {
-            all_resource_sharing_data.push(sharing_data);
-        }
-    }
-
-    // 6. Extract data for transaction
-    let resource_keys: Vec<_> = all_resource_sharing_data
-        .iter()
-        .map(|d| d.resource_key.clone())
-        .collect();
-    let resource_share_records: Vec<_> = all_resource_sharing_data
-        .iter()
-        .map(|d| d.share_record.clone())
-        .collect();
-    let all_vector_clocks: Vec<_> = all_resource_sharing_data
-        .iter()
-        .flat_map(|d| d.vector_clocks.clone())
-        .collect();
-
-    // 7. Save everything in a single transaction
-    repo_ctx
-        .folder_share_repo
-        .share_folder_transaction(
-            &folder_share_record,
-            &resource_keys,
-            &resource_share_records,
-            &all_vector_clocks,
-        )
         .await?;
+    }
 
     Ok(())
 }
-/// Resolve proof function for folder sharing context
+
+/// Resolve proof function for folder sharing context (used by other functions)
 async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
     repo_ctx
         .folder_share_repo
@@ -247,154 +204,13 @@ pub async fn get_folder_shared_users(
         .await?)
 }
 
-pub async fn create_unknown_folders_payload(
-    folder_ids: &[String],
+pub async fn get_folder_by_id(
+    folder_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<UnknownFoldersPayload> {
-    if folder_ids.is_empty() {
-        return Ok(UnknownFoldersPayload {
-            folder_data: Vec::new(),
-        });
-    }
-
-    // Fetch folders by IDs
-    let folders = repo_ctx.folder_repo.get_folders_by_ids(folder_ids).await?;
-
-    // Build folder data with their respective share records
-    let mut folder_data = Vec::new();
-
-    for folder in folders {
-        let share_records = repo_ctx
-            .folder_share_repo
-            .get_records_by_folder_id(&folder.id)
-            .await?;
-        folder_data.push(FolderWithShareRecords {
-            folder,
-            share_records,
-        });
-    }
-
-    Ok(UnknownFoldersPayload { folder_data })
+) -> ServiceResult<Folder> {
+    Ok(repo_ctx.folder_repo.find_by_id(folder_id).await?)
 }
 
-pub async fn process_unknown_folders_payload(
-    payload: &UnknownFoldersPayload,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()> {
-    if payload.folder_data.is_empty() {
-        return Ok(());
-    }
-
-    for mut folder_pair in payload.folder_data.clone().into_iter() {
-        folder_pair.folder.default_folder = false;
-        repo_ctx
-            .folder_repo
-            .save_folder_with_share_records(&folder_pair.folder, &folder_pair.share_records)
-            .await?;
-    }
-
-    Ok(())
-}
-
-pub async fn get_missing_remote_folder_share_records(
-    missing_recipient_folder: Vec<FolderRecipientDiff>,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<FolderRecipientUpdate>> {
-    let mut folder_recipient_updates = Vec::new();
-    for missing_folder_recipients in missing_recipient_folder.iter() {
-        let mut missing_remote_fsr = Vec::new();
-        let share_records = repo_ctx
-            .folder_repo
-            .get_share_records_for_folder_and_recipients(
-                &missing_folder_recipients.folder_id,
-                &missing_folder_recipients.recipients_only_local_knows,
-            )
-            .await?;
-        missing_remote_fsr.extend(share_records);
-        let update_data = FolderRecipientUpdate {
-            folder_id: missing_folder_recipients.folder_id.clone(),
-            new_share_records: missing_remote_fsr,
-        };
-        folder_recipient_updates.push(update_data);
-    }
-    Ok(folder_recipient_updates)
-}
-
-pub async fn add_missing_recipients(
-    payload: &[FolderRecipientUpdate],
-    missing_remote_resources: &[String],
-    repo_ctx: Arc<RepositoryContext>,
-    recipient_user_id: &str,
-    current_user: &User,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    domain: &str,
-) -> ServiceResult<()> {
-    let folder_resource_pair = repo_ctx
-        .resource_repo
-        .get_folder_ids_for_resources(missing_remote_resources)
-        .await?;
-    let mut missing_share_data = Vec::new();
-
-    for recipient_map in payload.iter() {
-        let value = folder_resource_pair.get(&recipient_map.folder_id);
-        if let Some(resource_ids) = value {
-            for resource_id in resource_ids.iter() {
-                let resource_permissions = vec![
-                    (
-                        format!("{}:resource:{}", domain, resource_id),
-                        "crud/read".to_string(),
-                    ),
-                    (
-                        format!("{}:resource:{}", domain, resource_id),
-                        "crud/update".to_string(),
-                    ),
-                    (
-                        format!("{}:resource:{}", domain, resource_id),
-                        "ucan/share".to_string(),
-                    ),
-                ];
-                let share_data = prepare_share_resource(
-                    recipient_user_id,
-                    resource_id,
-                    resource_permissions,
-                    &current_user,
-                    repo_ctx.clone(),
-                    crypto_utils,
-                )
-                .await?;
-                if let Some(share_data) = share_data {
-                    missing_share_data.push(share_data);
-                }
-            }
-        }
-    }
-    let resource_keys: Vec<_> = missing_share_data
-        .iter()
-        .map(|d| d.resource_key.clone())
-        .collect();
-    let resource_share_records: Vec<_> = missing_share_data
-        .iter()
-        .map(|d| d.share_record.clone())
-        .collect();
-    let all_vector_clocks: Vec<_> = missing_share_data
-        .iter()
-        .flat_map(|d| d.vector_clocks.clone())
-        .collect();
-    let folder_share_records: Vec<_> = payload
-        .iter()
-        .flat_map(|element| element.new_share_records.clone())
-        .collect();
-    repo_ctx
-        .resource_repo
-        .save_resource_and_folder_sharing_data(
-            &resource_keys,
-            &resource_share_records,
-            &all_vector_clocks,
-            &folder_share_records,
-        )
-        .await?;
-    Ok(())
-}
 pub async fn get_viewer_folder_manifest(
     peer_user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
@@ -421,4 +237,29 @@ pub async fn get_viewer_folder_manifest(
     }
 
     Ok(result)
+}
+
+/// Accept and save a folder from a peer after validating add_folder capability
+pub async fn accept_folder_from_peer(
+    folder: &Folder,
+    folder_share_record: &FolderShareRecord,
+    peer_connection_token: &str,
+    domain: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<()> {
+    // Validate that peer has add_folder capability
+    crate::validate_peer_can_add_folder(peer_connection_token, domain).await?;
+
+    // Validate folder share UCAN token structure
+    crypto_utils::ucan_utils::validate_structure(&folder_share_record.ucan_token)
+        .await
+        .map_err(|e| FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e)))?;
+
+    // Save folder and share record in transaction
+    repo_ctx
+        .folder_repo
+        .save_folder_with_share_record(folder, folder_share_record)
+        .await?;
+
+    Ok(())
 }

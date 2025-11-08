@@ -5,7 +5,7 @@ use crypto_utils::{
 };
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
-use osvauld_core::models::{Certificate, Folder, FolderShareRecord, PermissionLevel, UserRole};
+use osvauld_core::models::{Certificate, UserRole};
 use persistance::database::RepositoryContext;
 use rand::{RngCore, rngs::OsRng};
 use std::sync::Arc;
@@ -67,18 +67,6 @@ pub async fn handle_signup(
 
     let user_id = get_key_id(&primary_certificate.public_key)?;
     let ucan_certificate = generate_ucan_key(&crypto).await?;
-    let default_folder = Folder::new("default".to_string(), None, true);
-    let (folder_ucan, ucan_cid) = crypto
-        .generate_folder_owner_ucan(&ucan_certificate.private_key, &default_folder.id, domain)
-        .await?;
-    let folder_share_record = FolderShareRecord::prepare_folder_share_record(
-        default_folder.id.clone(),
-        user_id.clone(),
-        user_id.clone(),
-        PermissionLevel::Admin,
-        folder_ucan,
-        ucan_cid,
-    );
     crypto.clear_cert();
 
     let user = User::new(
@@ -106,10 +94,6 @@ pub async fn handle_signup(
             None,
             &ucan_certificate,
         )
-        .await?;
-    repo_context
-        .folder_repo
-        .save_folder_with_share_record(&default_folder, &folder_share_record)
         .await?;
 
     Ok(())

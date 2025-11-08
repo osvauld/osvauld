@@ -1,18 +1,36 @@
 use crate::p2p::{
     emitter::{P2PEvent, P2PEventEmitter},
     errors::{MessageError, P2PError, P2PResult, SyncError},
+    folder_sync, resource_sync,
 };
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
 use iroh_quinn::VarInt;
-use osvauld_core::models::{
-    ConnectionAction, ConnectionType, Device, DeviceManifestComparisonResult, Message, User,
-    UserManifestComparisonResult,
-};
+use osvauld_core::models::{Device, Message, PeerRole, User};
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
+
+/// Connection type inferred from UCAN token role
+#[derive(Clone, Debug)]
+pub enum ConnectionType {
+    Owner,  // Owner ↔ Owner or Owner ↔ User connection
+    Node,   // Node ↔ Owner connection
+    Viewer, // Viewer ↔ Node connection (not yet implemented)
+}
+
+impl ConnectionType {
+    /// Create ConnectionType from PeerRole
+    pub fn from_peer_role(peer_role: &PeerRole) -> Self {
+        match peer_role {
+            PeerRole::Owner => ConnectionType::Owner,
+            PeerRole::Node => ConnectionType::Node,
+            PeerRole::Viewer => ConnectionType::Viewer,
+            PeerRole::User => ConnectionType::Owner, // Default to Owner
+        }
+    }
+}
 
 /// Context struct containing all service dependencies
 pub struct ServiceContext {
@@ -27,9 +45,7 @@ pub struct PeerConnection {
     pub device: Arc<RwLock<Device>>,
     pub node_id: String,
     pub user: Arc<RwLock<User>>,
-    pub action: Option<ConnectionAction>,
     pub is_initiator: bool,
-    pub is_live_edit: bool,
     pub handshake_complete: Arc<Mutex<bool>>,
     pub task_handle: tokio::task::JoinHandle<()>,
     pub context: Arc<ServiceContext>,
@@ -38,8 +54,6 @@ pub struct PeerConnection {
     pub disconnection_timer: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     pub crypto_utils: Arc<RwLock<CryptoUtils>>,
     pub repo_ctx: Arc<RepositoryContext>,
-    pub device_manifest_result: Arc<Mutex<Option<DeviceManifestComparisonResult>>>,
-    pub user_manifest_result: Arc<Mutex<Option<UserManifestComparisonResult>>>,
     pub challenge: String,
     pub domain: String,
 }
@@ -55,13 +69,10 @@ impl PeerConnection {
         on_close: Option<Box<dyn Fn(String) + Send + Sync>>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
         repo_ctx: Arc<RepositoryContext>,
-        action: Option<ConnectionAction>,
-        connection_type: Option<ConnectionType>,
         node_id: String,
         local_user: User,
         local_device: Device,
         challenge: String,
-        live_edit: bool,
         domain: String,
     ) -> Self {
         info!("Creating new peer connection");
@@ -70,14 +81,12 @@ impl PeerConnection {
 
         let mut peer_connection = Self {
             connection,
-            connection_type: Arc::new(RwLock::new(connection_type)),
+            connection_type: Arc::new(RwLock::new(None)), // Will be set during handshake
             device: Arc::new(RwLock::new(local_device)),
             node_id,
-            action,
             user: Arc::new(RwLock::new(local_user)),
             is_initiator,
             handshake_complete: Arc::new(Mutex::new(false)),
-            is_live_edit: live_edit,
             task_handle,
             context,
             event_emitter,
@@ -85,8 +94,6 @@ impl PeerConnection {
             disconnection_timer: Arc::new(Mutex::new(None)),
             repo_ctx,
             crypto_utils,
-            device_manifest_result: Arc::new(Mutex::new(None)),
-            user_manifest_result: Arc::new(Mutex::new(None)),
             challenge,
             domain,
         };
@@ -102,37 +109,26 @@ impl PeerConnection {
         self.node_id.clone()
     }
 
-    pub async fn set_device_manifest_comparison_result(
-        &self,
-        result: DeviceManifestComparisonResult,
-    ) {
-        let mut manifest_guard = self.device_manifest_result.lock().await;
-        *manifest_guard = Some(result);
+    /// Set connection type based on UCAN role
+    pub async fn set_connection_type_from_role(&self, role: &str) {
+        let conn_type = match role {
+            "owner" | "node" => ConnectionType::Owner,
+            "viewer" => ConnectionType::Viewer,
+            _ => {
+                warn!("Unknown role '{}', defaulting to Owner", role);
+                ConnectionType::Owner
+            }
+        };
+
+        let mut type_guard = self.connection_type.write().await;
+        *type_guard = Some(conn_type);
+        info!("Set connection type based on role: {} -> {:?}", role, type_guard);
     }
 
-    pub async fn set_user_manifest_comparison_result(&self, result: UserManifestComparisonResult) {
-        let mut manifest_guard = self.user_manifest_result.lock().await;
-        *manifest_guard = Some(result);
-    }
-
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
-    pub async fn get_device_manifest_result(&self) -> P2PResult<DeviceManifestComparisonResult> {
-        let manifest_guard = self.device_manifest_result.lock().await;
-        manifest_guard.clone().ok_or_else(|| {
-            P2PError::Sync(SyncError::ManifestNotFound {
-                entity_type: "device".to_string(),
-            })
-        })
-    }
-
-    #[instrument(skip(self), fields(connection_id = %self.get_id()), level = "debug")]
-    pub async fn get_user_manifest_result(&self) -> P2PResult<UserManifestComparisonResult> {
-        let manifest_guard = self.user_manifest_result.lock().await;
-        manifest_guard.clone().ok_or_else(|| {
-            P2PError::Sync(SyncError::ManifestNotFound {
-                entity_type: "user".to_string(),
-            })
-        })
+    /// Set connection type directly
+    pub async fn set_connection_type(&self, conn_type: ConnectionType) {
+        let mut type_guard = self.connection_type.write().await;
+        *type_guard = Some(conn_type);
     }
 
     pub async fn get_peer_device(&self) -> Device {
@@ -150,69 +146,13 @@ impl PeerConnection {
         *device_guard = new_device;
     }
 
-    pub async fn set_connection_type(&self, connection_type: ConnectionType) {
-        let mut conn_guard = self.connection_type.write().await;
-        *conn_guard = Some(connection_type);
-    }
 
     pub async fn get_connection_type(&self) -> ConnectionType {
         let conn_type = self.connection_type.read().await.clone();
-        conn_type.unwrap_or(ConnectionType::User)
+        conn_type.unwrap_or(ConnectionType::Owner)
     }
 
     /// Removes a resource from local_missing.unknown_resources in device manifest
-    #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
-    pub async fn remove_device_local_missing_resource(&self, resource_id: &str) -> bool {
-        let mut manifest_result = self.device_manifest_result.lock().await;
-        if let Some(ref mut manifest_comparison) = *manifest_result {
-            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
-
-            manifest_comparison
-                .local_missing
-                .unknown_resources
-                .retain(|id| id.to_string() != resource_id);
-
-            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
-
-            debug!(
-                initial_missing = initial_count,
-                remaining_missing = remaining_count,
-                resource_id = %resource_id,
-                "Updated local missing resources list"
-            );
-
-            remaining_count == 0
-        } else {
-            true // Consider empty if no manifest exists
-        }
-    }
-
-    #[instrument(skip(self), fields(connection_id = %self.get_id(), resource_id = %resource_id), level = "debug")]
-    pub async fn remove_user_local_missing_resource(&self, resource_id: &str) -> bool {
-        let mut manifest_result = self.user_manifest_result.lock().await;
-        if let Some(ref mut manifest_comparison) = *manifest_result {
-            let initial_count = manifest_comparison.local_missing.unknown_resources.len();
-
-            manifest_comparison
-                .local_missing
-                .unknown_resources
-                .retain(|id| id.to_string() != resource_id);
-
-            let remaining_count = manifest_comparison.local_missing.unknown_resources.len();
-
-            debug!(
-                initial_missing = initial_count,
-                remaining_missing = remaining_count,
-                resource_id = %resource_id,
-                "Updated local missing resources list"
-            );
-
-            remaining_count == 0
-        } else {
-            true // Consider empty if no manifest exists
-        }
-    }
-
     #[instrument(skip(self), level = "info")]
     pub async fn close_connection(&self) -> P2PResult<()> {
         info!("Closing connection: {}", self.get_id());
@@ -357,46 +297,51 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::MergeUpdate(payload) => self.process_resource_update_message(payload).await,
-            Message::LiveEdit(payload) => self.handle_live_edit_flow(payload).await,
-            Message::DeviceManifestRequest(payload) => self.handle_manifest_request(payload).await,
-            Message::DeviceManifestResponse(payload) => {
-                self.handle_manifest_response(payload).await
-            }
-            Message::DeviceNetworkSync(payload) => self.handle_device_network_sync(payload).await,
-            Message::DeviceManifestAck => self.handle_manifest_ack().await,
-            Message::DeviceNetworkSyncAck => self.send_resources().await,
-            Message::ResourceAdditionRequest(payload) => {
-                self.process_resource_addition_request(payload).await
-            }
-            Message::ResourceAdditionComplete => self.process_resource_addition_complete().await,
-            Message::UserManifestPayload(payload) => {
-                self.process_user_manifest_payload(payload).await
-            }
-            Message::UserNetworkSync(payload) => self.process_user_network_sync(payload).await,
-            Message::UserNetworkSyncAck => self.start_folder_sync().await,
-            Message::RetryRequest => self.start_user_network_sync().await,
-            Message::Handshake(payload) => self.handle_handshake_message(payload).await,
-            Message::FolderSync(payload) => self.process_folder_sync_message(payload).await,
-            Message::FolderTokenRequest(payload) => {
-                self.handle_folder_token_request(payload.folder_id.clone(), payload.domain.clone())
-                    .await
-            }
-            Message::FolderTokenResponse(payload) => {
-                info!(
-                    "Received folder token response for folder {}: {}",
-                    payload.folder_id, payload.connection_string
-                );
-
-                // Emit event to frontend
-                self.event_emitter.emit(P2PEvent::FolderTokenReceived {
-                    folder_id: payload.folder_id.clone(),
-                    connection_string: payload.connection_string.clone(),
-                });
-
+            Message::MergeUpdate(_payload) => {
+                // TODO: Forward to P2PService::handle_merge_update via event/channel
+                // For now, just log and return Ok
+                info!("Received MergeUpdate message (handler not yet wired)");
                 Ok(())
             }
-            Message::Website(payload) => self.handle_website_message(payload).await,
+            Message::ResourceAdditionRequest(_payload) => {
+                // TODO: Forward to P2PService::handle_resource_addition_request
+                info!("Received ResourceAdditionRequest message (handler not yet wired)");
+                Ok(())
+            }
+            Message::ResourceAdditionComplete => {
+                // TODO: Forward to P2PService::handle_resource_addition_complete
+                info!("Received ResourceAdditionComplete message (handler not yet wired)");
+                Ok(())
+            }
+            Message::AssetTransfer(_payload) => {
+                // TODO: Forward to P2PService::handle_asset_transfer
+                info!("Received AssetTransfer message (handler not yet wired)");
+                Ok(())
+            }
+            Message::RetryRequest => {
+                info!("Received retry request from peer");
+                // TODO: Determine what to retry
+                Ok(())
+            }
+            Message::Handshake(payload) => self.handle_handshake_message(payload).await,
+            Message::FolderDataSync(payload) => {
+                folder_sync::handle_folder_data_sync(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
+            }
+            Message::ResourceDataSync(payload) => {
+                resource_sync::handle_resource_data_sync(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
+            }
         }
     }
 
@@ -458,16 +403,12 @@ impl PeerConnection {
             task_handle: tokio::spawn(async {}),
             context: self.context.clone(),
             event_emitter: self.event_emitter.clone(),
-            action: self.action.clone(),
             on_close: self.on_close.clone(),
             disconnection_timer: self.disconnection_timer.clone(),
             repo_ctx: self.repo_ctx.clone(),
             crypto_utils: self.crypto_utils.clone(),
-            device_manifest_result: self.device_manifest_result.clone(),
-            user_manifest_result: self.user_manifest_result.clone(),
             handshake_complete: self.handshake_complete.clone(),
             challenge: self.challenge.clone(),
-            is_live_edit: self.is_live_edit.clone(),
             domain: self.domain.clone(),
         }
     }

@@ -95,17 +95,9 @@ class DataState {
    */
   private async setupEventListeners() {
     try {
-      const resourceAddedUnlisten = await listen('resource-added', (event: any) => {
-        this.handleResourceAdded(event);
-      });
-
-      const resourcesCompleteUnlisten = await listen('resources-loading-complete', () => {
-        this.isDataLoading = false;
-        console.log('✅ [DataState] All resources loaded');
-      });
-
-      this._unlisteners.push(resourceAddedUnlisten as any, resourcesCompleteUnlisten as any);
-      console.log('✅ [DataState] Event listeners setup');
+      // Note: Event listeners for resource updates can be added here if needed
+      // Currently we're using direct API calls instead of events for initial load
+      console.log('✅ [DataState] Event listeners ready (direct API mode)');
     } catch (error) {
       console.error('❌ [DataState] Failed to setup listeners:', error);
     }
@@ -132,17 +124,29 @@ class DataState {
   }
 
   /**
-   * Fetch all resources via backend event emission
+   * Fetch all resources metadata from backend
    */
   async fetchAllResources() {
     this.isDataLoading = true;
     try {
-      console.log('📥 [DataState] Triggering resource emission...');
-      // Backend will emit resource-added events for each resource
-      await sendMessage("emitAllResources");
-      console.log('✅ [DataState] Resource emission triggered');
+      console.log('📥 [DataState] Fetching all resources metadata...');
+      const resourcesMetadata = await sendMessage("getAllResourcesMetadata", {});
+
+      // Map to Resource type
+      this.resources = resourcesMetadata.map((r: any) => ({
+        id: r.id,
+        title: r.title || 'Untitled',
+        resourceType: r.resourceType || 'website',
+        websiteId: r.folderId,
+        lastModified: r.lastModified || Date.now(),
+        favourite: r.favourite || false,
+        preview: r.preview || ''
+      }));
+
+      console.log('✅ [DataState] Loaded', this.resources.length, 'resources');
     } catch (error) {
-      console.error('❌ [DataState] Failed to emit resources:', error);
+      console.error('❌ [DataState] Failed to fetch resources:', error);
+    } finally {
       this.isDataLoading = false;
     }
   }
@@ -181,38 +185,97 @@ class DataState {
       // Create empty document snapshots (doesn't mutate coordinator state)
       const snapshots = loroCoordinator.createEmptyDocumentSnapshots(title);
 
-      // Create content structure for backend
+      // Create content structure for backend (ONLY Loro document arrays)
       const loroContent = {
         template_doc: Array.from(snapshots.template),
         content_doc: Array.from(snapshots.content),
         user_content_doc: Array.from(snapshots.userContent),
         collaborative_doc: Array.from(snapshots.collaborative),
         submissions_doc: Array.from(snapshots.submissions),
-        static_assets: [], // Empty for new resources
-        client_id: this.clientId.toString(),
-        last_modified: Date.now(),
-        title
+        static_assets: [] // Empty for new resources
       };
 
       console.log('✅ [DataState] Loro content created');
 
-      // Send to backend
-      const resource = await sendMessage("addCredential", {
+      // Create UCAN template with owner and viewer capabilities
+      const ucanTemplate = {
+        owner_template: {
+          capabilities: {
+            "template_doc": "crud/merge",
+            "content_doc": "crud/merge",
+            "user_content_doc": "crud/merge",
+            "collaborative_doc": "crud/merge",
+            "submissions_doc": "crud/merge",
+            "static_assets": "crud/merge"
+          },
+          doc_types: {
+            "static_assets": "asset",
+            "template_doc": "crdt",
+            "content_doc": "crdt",
+            "user_content_doc": "crdt",
+            "collaborative_doc": "crdt",
+            "submissions_doc": "crdt"
+          }
+        },
+        viewer_template: {
+          capabilities: {
+            "template_doc": "crud/readonly",
+            "content_doc": "crud/readonly",
+            "collaborative_doc": "crud/merge",
+            "submissions_doc": "crud/appendonly",
+            "static_assets": "crud/readonly"
+          },
+          doc_types: {
+            "static_assets": "asset",
+            "template_doc": "crdt",
+            "content_doc": "crdt",
+            "collaborative_doc": "crdt",
+            "submissions_doc": "crdt"
+          },
+          no_update_from_node: ["user_content_doc"],
+          dont_send_to_node: ["user_content_doc"]
+        }
+      };
+
+      // Create metadata (unencrypted) - includes title, timestamps, client info
+      const metadata = {
+        title: title,
+        type: resourceType,
+        client_id: this.clientId.toString(),
+        last_modified: Date.now(),
+        search: {
+          docs: ["content_doc", "collaborative_doc"]
+        }
+      };
+
+      // Send to backend - returns ResourceMetadata
+      const resourceMetadata = await sendMessage("addCredential", {
         resourcePayload: JSON.stringify(loroContent),
         folderId: websiteId,
-        resourceType: resourceType
+        resourceType: resourceType,
+        ucanTemplateJson: JSON.stringify(ucanTemplate),
+        metadataJson: JSON.stringify(metadata)
       });
+      console.log("response we got back", resourceMetadata);
 
-      console.log('✅ [DataState] Resource created:', resource.id);
+      console.log('✅ [DataState] Resource created:', resourceMetadata.id);
 
-      // Add resourceType
-      resource.resourceType = resourceType;
-      resource.resource_type = resourceType;
+      // Add to resources list
+      const newResource = {
+        id: resourceMetadata.id,
+        title: resourceMetadata.title,
+        resourceType: resourceMetadata.resourceType,
+        websiteId: resourceMetadata.folderId,
+        lastModified: resourceMetadata.lastModified,
+        favourite: resourceMetadata.favourite,
+        preview: resourceMetadata.preview || ''
+      };
+      this.resources = [...this.resources, newResource];
 
       // Switch to the new resource (this loads the document into coordinator)
-      await this.switchResource(resource.id);
+      await this.switchResource(resourceMetadata.id);
 
-      return resource;
+      return newResource;
     } catch (error) {
       console.error('❌ [DataState] Failed to create resource:', error);
       throw error;
@@ -252,9 +315,6 @@ class DataState {
           collaborative_doc: Array.from(snapshots.collaborative),
           submissions_doc: Array.from(snapshots.submissions),
           static_assets: staticAssetsArray,
-          client_id: this.clientId.toString(),
-          last_modified: Date.now(),
-          title
         };
 
         console.log('📦 [DataState] Captured snapshots for previous resource:', currentResourceId);
@@ -324,34 +384,6 @@ class DataState {
     }
   }
 
-  /**
-   * Handle resource-added event from backend
-   */
-  private handleResourceAdded(event: any) {
-    try {
-      const resourceData = event.payload;
-
-      console.log('📥 [DataState] Resource-added event:', resourceData.id);
-
-      // Map to Resource type
-      const newResource: Resource = {
-        id: resourceData.id || '',
-        title: resourceData.title || 'Untitled',
-        resourceType: resourceData.resource_type || resourceData.resourceType || 'website',
-        websiteId: resourceData.folder_id || resourceData.folderId || '',
-        lastModified: resourceData.last_modified || resourceData.lastModified || Date.now(),
-        favourite: resourceData.favourite || false,
-        preview: resourceData.preview || ''
-      };
-
-      // Add to resources if not already present
-      if (!this.resources.find(r => r.id === newResource.id)) {
-        this.resources = [...this.resources, newResource];
-      }
-    } catch (error) {
-      console.error('❌ [DataState] Error handling resource-added:', error);
-    }
-  }
 
   /**
    * Save the currently active resource
@@ -377,17 +409,14 @@ class DataState {
         });
       }
 
-      // Create Loro content structure for backend
+      // Create Loro content structure for backend (documents only, no metadata)
       const loroContent = {
         template_doc: Array.from(snapshots.template),
         content_doc: Array.from(snapshots.content),
         user_content_doc: Array.from(snapshots.userContent),
         collaborative_doc: Array.from(snapshots.collaborative),
         submissions_doc: Array.from(snapshots.submissions),
-        static_assets: staticAssetsArray,
-        client_id: this.clientId.toString(),
-        last_modified: Date.now(),
-        title
+        static_assets: staticAssetsArray
       };
 
       console.log('📦 [DataState] Loro content prepared:', {

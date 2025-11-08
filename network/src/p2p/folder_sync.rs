@@ -1,142 +1,135 @@
-use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection, P2PEvent};
-use osvauld_core::models::{
-    Folder, FolderRecipientUpdate, FolderSyncMessage, Message, UnknownFoldersPayload,
-};
-use services::{
-    add_missing_recipients, create_unknown_folders_payload,
-    get_missing_remote_folder_share_records, process_unknown_folders_payload,
-};
-use tracing::{debug, info, instrument};
-impl PeerConnection {
-    /// Initiates folder synchronization process after user network sync
-    #[instrument(skip(self), fields(
-        connection_id = %self.get_id(),
-        is_initiator = self.is_initiator
-    ), level = "info")]
-    pub async fn start_folder_sync(&self) -> P2PResult<()> {
-        info!("Starting folder sync process");
+//! Folder sync protocol - simple push after share_folder()
+//!
+//! This module handles folder sync operations.
 
-        let manifest = self.get_user_manifest_result().await?;
+use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection, resource_sync};
+use crypto_utils::CryptoUtils;
+use osvauld_core::models::{FolderDataSync, Message, User};
+use persistance::database::RepositoryContext;
+use services::{get_folder_by_id, get_folder_share_record};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+use tracing::{error, info};
 
-        // Check if we have any unknown folders to send
-        if manifest.remote_missing.unknown_folders.is_empty() {
-            debug!("No unknown folders to send to remote peer");
+/// Send folder data then all resources
+///
+/// Entry point called by sync_service.
+/// Orchestrates: folder send + all resources send.
+pub async fn send_folder_with_resources(
+    folder_id: &str,
+    recipient_user_id: &str,
+    current_user: &User,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    // 1. Get owner's folder to extract UCAN
+    let owner_folder = get_folder_by_id(folder_id, repo_ctx.clone())
+        .await
+        .map_err(|e| {
+            error!("Failed to get folder {}: {}", folder_id, e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
+        })?;
+    let owner_folder_ucan = owner_folder.ucan.clone();
 
-            // Still need to send empty payload to maintain protocol flow
-            let empty_payload = UnknownFoldersPayload {
-                folder_data: Vec::new(),
-            };
+    // 2. Send folder first
+    send_folder_data(
+        folder_id,
+        recipient_user_id,
+        peer_conn.clone(),
+        repo_ctx.clone(),
+    )
+    .await?;
 
-            self.send_message(Message::FolderSync(
-                FolderSyncMessage::UnknownFoldersPayload(empty_payload),
-            ))
-            .await?;
-        } else {
-            // Fetch unknown folders and their share records
-            let unknown_folders_payload = create_unknown_folders_payload(
-                &manifest.remote_missing.unknown_folders,
-                self.repo_ctx.clone(),
-            )
-            .await?;
+    // 3. Send all resources with owner's folder UCAN (delegate to resource_sync)
+    resource_sync::send_all_resources_for_folder(
+        folder_id,
+        recipient_user_id,
+        current_user,
+        owner_folder_ucan,
+        peer_conn,
+        repo_ctx,
+        crypto_utils,
+    )
+    .await
+}
 
-            self.send_message(Message::FolderSync(
-                FolderSyncMessage::UnknownFoldersPayload(unknown_folders_payload),
-            ))
-            .await?;
-        }
+/// Send just folder data
+async fn send_folder_data(
+    folder_id: &str,
+    recipient_user_id: &str,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+) -> P2PResult<()> {
+    info!("Sending folder {} to node", folder_id);
 
-        info!("Unknown folders payload sent");
-        Ok(())
-    }
+    // Get folder by ID
+    let mut folder = get_folder_by_id(folder_id, repo_ctx.clone())
+        .await
+        .map_err(|e| {
+            error!("Failed to get folder {}: {}", folder_id, e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
+        })?;
 
-    /// Processes folder sync messages
-    #[instrument(skip(self, message), fields(
-        connection_id = %self.get_id(),
-        message_type = ?std::mem::discriminant(message)
-    ), level = "info")]
-    pub async fn process_folder_sync_message(&self, message: &FolderSyncMessage) -> P2PResult<()> {
-        match message {
-            FolderSyncMessage::UnknownFoldersPayload(payload) => {
-                self.process_unknown_folders_payload(payload).await
-            }
-            FolderSyncMessage::FolderRecipientSyncPayload(payload) => {
-                self.process_folder_recipient_sync(payload).await
-            }
-        }
-    }
+    // Get share record
+    let folder_share_record = get_folder_share_record(
+        folder_id,
+        recipient_user_id,
+        repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to get folder share record: {}", e);
+        crate::p2p::errors::P2PError::InvalidState(format!(
+            "Failed to get folder share record: {}",
+            e
+        ))
+    })?;
 
-    /// Processes received unknown folders payload
-    #[instrument(skip(self, payload), fields(
-        connection_id = %self.get_id(),
-    ), level = "info")]
-    async fn process_unknown_folders_payload(
-        &self,
-        payload: &UnknownFoldersPayload,
-    ) -> P2PResult<()> {
-        info!("Processing unknown folders payload");
-        process_unknown_folders_payload(payload, self.repo_ctx.clone()).await?;
-        let new_folders = payload
-            .folder_data
-            .iter()
-            .map(|folder_data| folder_data.folder.clone())
-            .collect::<Vec<Folder>>();
-        self.event_emitter.emit(P2PEvent::FoldersAdded {
-            folders: new_folders,
-        });
-        if !self.is_initiator {
-            let manifest = self.get_user_manifest_result().await?;
-            let our_unknown_folders = create_unknown_folders_payload(
-                &manifest.remote_missing.unknown_folders,
-                self.repo_ctx.clone(),
-            )
-            .await?;
+    // Update folder's UCAN with the recipient's folder UCAN token
+    folder.ucan = folder_share_record.ucan_token.clone();
 
-            self.send_message(Message::FolderSync(
-                FolderSyncMessage::UnknownFoldersPayload(our_unknown_folders),
-            ))
-            .await?;
-        } else {
-            let manifest_data = self.get_user_manifest_result().await?;
-            let missing_remote_fsr = get_missing_remote_folder_share_records(
-                manifest_data.folders_requiring_recipient_sync,
-                self.repo_ctx.clone(),
-            )
-            .await?;
-            let message = FolderSyncMessage::FolderRecipientSyncPayload(missing_remote_fsr);
-            self.send_message(Message::FolderSync(message)).await?;
-        }
+    // Send message
+    let data = FolderDataSync {
+        folder,
+        folder_share_record,
+    };
 
-        info!("Unknown folders exchange completed");
-        Ok(())
-    }
+    peer_conn
+        .send_message(Message::FolderDataSync(data))
+        .await
+}
 
-    async fn process_folder_recipient_sync(
-        &self,
-        payload: &[FolderRecipientUpdate],
-    ) -> P2PResult<()> {
-        let manifest_data = self.get_user_manifest_result().await?;
-        let current_user = self.get_local_user().await?;
-        let peer_user = self.get_peer_user().await;
-        add_missing_recipients(
-            payload,
-            &manifest_data.remote_missing.unknown_resources,
-            self.repo_ctx.clone(),
-            &peer_user.id,
-            &current_user,
-            &self.crypto_utils,
-            &self.domain,
-        )
-        .await?;
-        if !self.is_initiator {
-            let missing_remote_fsr = get_missing_remote_folder_share_records(
-                manifest_data.folders_requiring_recipient_sync,
-                self.repo_ctx.clone(),
-            )
-            .await?;
-            let message = FolderSyncMessage::FolderRecipientSyncPayload(missing_remote_fsr);
-            self.send_message(Message::FolderSync(message)).await?;
-        }
-        self.send_resources().await?;
-        Ok(())
-    }
+/// Handle folder data sync from owner (node side)
+///
+/// Orchestrates folder acceptance by delegating to folder_service
+pub async fn handle_folder_data_sync(
+    payload: FolderDataSync,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+    _crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    info!("Received folder {} from peer", payload.folder.id);
+
+    // Get the peer user to access their connection token
+    let peer_user_guard = peer_conn.user.read().await;
+    let peer_connection_token = &peer_user_guard.ucan_token;
+    let domain = &peer_conn.domain;
+
+    // Delegate to folder_service for validation and saving
+    services::accept_folder_from_peer(
+        &payload.folder,
+        &payload.folder_share_record,
+        peer_connection_token,
+        domain,
+        repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to accept folder from peer: {}", e);
+        crate::p2p::errors::P2PError::InvalidState(format!("Failed to accept folder: {}", e))
+    })?;
+
+    info!("✓ Accepted and saved folder {}", payload.folder.id);
+    Ok(())
 }

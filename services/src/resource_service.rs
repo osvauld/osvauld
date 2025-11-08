@@ -1,1211 +1,784 @@
+// =============================================================================
+// Loro Migration - Phase 2: Resource Service Layer
+// =============================================================================
+//
+// This module provides service-layer operations for encrypted resources using
+// Loro CRDTs. It handles:
+// - CRUD operations with encryption/decryption
+// - UCAN-based sharing with template-driven permissions
+// - Role-based delegation (owner, node, viewer)
+//
+// Major changes from Yrs version:
+// - Removed all sync methods (deferred to Phase 3 network module)
+// - Removed vector clock operations
+// - Removed UI helpers (toggle_fav, update_last_accessed)
+// - Simplified to 14 core methods using new Resource struct
+// - UCAN templates control permissions (owner_template, viewer_template)
+
 use crate::errors::{ResourceServiceError, ServiceResult};
 use crypto_utils::{CryptoUtils, encrypt_data_for_user, errors::UcanError};
 use log::{error, info};
 use osvauld_core::models::{
-    DecryptedResource, PermissionLevel, Resource, ResourceKey, ResourceVectorClock,
-    ResourceWithKey, ShareOperation, ShareRecord, User,
-    document::{create_doc, YjsDocExt},
+    PermissionLevel, ShareOperation, ShareRecord, User,
+    resource::{EncryptedResource, Resource},
 };
 use persistance::database::RepositoryContext;
-use serde_json::Value;
-use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-#[derive(Debug)]
-pub struct ResourceSharingData {
-    pub resource_key: ResourceKey,
-    pub share_record: ShareRecord,
-    pub vector_clocks: Vec<ResourceVectorClock>,
+use uuid::Uuid;
+
+// =============================================================================
+// Helper Structures
+// =============================================================================
+
+/// Struct combining encrypted resource with its decryption key
+/// Used internally for fetching and decrypting resources
+#[derive(Debug, Clone)]
+struct ResourceWithKey {
+    encrypted_resource: EncryptedResource,
+    encrypted_key: String,
 }
 
-/// Create a new resource with all its dependencies
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/// Decrypt one or more resources from database format to in-memory Resource structs
+///
+/// Unified helper that handles both single resource and batch decryption.
+///
+/// # Arguments
+/// * `resources_with_keys` - Vector of encrypted resources with their keys
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `Vec<Resource>` - Decrypted resources ready for use
+async fn decrypt_resources(
+    resources_with_keys: Vec<ResourceWithKey>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<Vec<Resource>> {
+    let mut decrypted_resources = Vec::new();
+
+    for resource_with_key in resources_with_keys {
+        let crypto = crypto_utils.read().await;
+
+        // Decrypt the encrypted_data field
+        let decrypted_json = crypto
+            .decrypt_resource(
+                &resource_with_key.encrypted_resource.encrypted_data,
+                &resource_with_key.encrypted_key,
+            )
+            .map_err(|e| {
+                error!(
+                    "Failed to decrypt resource {}: {}",
+                    resource_with_key.encrypted_resource.id, e
+                );
+                ResourceServiceError::DecryptionFailed(
+                    resource_with_key.encrypted_resource.id.clone(),
+                )
+            })?;
+
+        // Parse decrypted JSON and create Resource
+        let resource = Resource::from_decrypted_data(
+            resource_with_key.encrypted_resource.id.clone(),
+            resource_with_key.encrypted_resource.folder_id.clone(),
+            resource_with_key.encrypted_resource.ucan_token.clone(),
+            resource_with_key.encrypted_resource.metadata.clone(),
+            &decrypted_json,
+        )
+        .map_err(|e| {
+            error!(
+                "Failed to parse resource {}: {}",
+                resource_with_key.encrypted_resource.id, e
+            );
+            ResourceServiceError::InvalidResourceData(e)
+        })?;
+
+        decrypted_resources.push(resource);
+    }
+
+    Ok(decrypted_resources)
+}
+
+// =============================================================================
+// CRUD Operations
+// =============================================================================
+
+/// Create a new resource with encryption and UCAN token
+///
+/// # Arguments
+/// * `resource_payload` - Initial document data (JSON string with doc snapshots)
+/// * `ucan_template_json` - JSON containing owner_template and viewer_template
+/// * `metadata_json` - Resource metadata (title, search config, etc.)
+/// * `folder_id` - Folder UUID
+/// * `user` - Current user
+/// * `current_device_id` - Device ID for tracking
+/// * `domain` - Domain for UCAN (e.g., "sthalam.com")
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Resource` - The created resource (decrypted)
 pub async fn create_resource(
     resource_payload: String,
-    resource_type: String,
+    ucan_template_json: String,
+    metadata_json: String,
     folder_id: String,
     user: &User,
     current_device_id: &str,
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<DecryptedResource> {
+) -> ServiceResult<Resource> {
+    info!(
+        "Creating resource for user {} in folder {}",
+        user.id, folder_id
+    );
+
+    // Generate resource ID
+    let resource_id = Uuid::new_v4().to_string();
+
+    // Parse metadata JSON
+    let metadata: serde_json::Value = serde_json::from_str(&metadata_json).map_err(|e| {
+        ResourceServiceError::InvalidResourceData(format!("Invalid metadata JSON: {}", e))
+    })?;
+
+    // Encrypt the resource payload
     let (encrypted_data, encrypted_key) =
-        encrypt_data_for_user(&resource_payload, &user.public_key)?;
+        encrypt_data_for_user(&resource_payload, &user.public_key)
+            .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
 
-    // Create the resource
-    let mut resource = Resource::new(
-        resource_type,
+    // Get encrypted UCAN private key from store
+    let encrypted_ucan_private_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    // Generate owner UCAN with templates from frontend
+    let crypto = crypto_utils.read().await;
+    let (ucan_token, ucan_cid) = crypto
+        .generate_flexible_resource_owner_ucan(
+            &encrypted_ucan_private_key,
+            &resource_id,
+            domain,
+            &ucan_template_json,
+            None, // Use default 30-year expiry
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to generate owner UCAN: {}", e);
+            ResourceServiceError::UcanError(e.to_string())
+        })?;
+    drop(crypto);
+
+    // Get current timestamp
+    let now = chrono::Utc::now().timestamp();
+
+    // Create EncryptedResource for database storage
+    let encrypted_resource = EncryptedResource {
+        id: resource_id.clone(),
+        folder_id: folder_id.clone(),
+        created_at: now,
+        updated_at: now,
         encrypted_data,
-        folder_id.clone(),
-        "signature".to_string(),
-        user.id.clone(),
-    );
-
-    let signature = {
-        let crypto = crypto_utils.read().await;
-        crypto.sign_and_hash_message(&resource.id)?
-    };
-    resource.signature = signature.to_owned();
-
-    // Create the resource key for the user
-    let resource_key = ResourceKey::new(resource.id.clone(), user.id.clone(), encrypted_key, true);
-
-    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    let (ucan_token, ucan_cid) = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .generate_resource_owner_ucan(&encrypted_ucan_pvt_key, &resource.id, domain)
-            .await?
+        encrypted_key: encrypted_key.clone(),
+        ucan_token: ucan_token.clone(),
+        metadata: metadata.clone(),
     };
 
-    // Create the share record (user sharing with themselves as owner)
-    let share_record = ShareRecord::prepare_share_record(
-        resource.id.clone(),
-        user.id.clone(),
-        user.id.clone(),
-        PermissionLevel::Admin,
-        ucan_token,
-        ucan_cid,
-    );
-
-    // Get user's devices to create vector clocks
-    let user_devices = repo_ctx
-        .device_repo
-        .get_devices_by_user_id(&user.id)
-        .await?;
-
-    let device_ids: Vec<String> = user_devices.iter().map(|d| d.id.clone()).collect();
-
-    // Create initial vector clocks for all user's devices
-    let vector_clocks =
-        ResourceVectorClock::create_initial_entries(&resource.id, &device_ids, current_device_id);
-
-    // Save everything in a single transaction
+    // Save to database using new save_encrypted method
     repo_ctx
         .resource_repo
-        .save_resource_with_dependencies(&resource, &resource_key, &share_record, &vector_clocks)
-        .await?;
+        .save_encrypted(&encrypted_resource)
+        .await
+        .map_err(|e| {
+            error!("Failed to create resource in database: {}", e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
 
-    let decrypted_resource =
-        get_resource_by_id_direct(&resource.id, &user.id, repo_ctx.clone(), crypto_utils).await?;
+    // NOTE: ResourceKey is now part of EncryptedResource.encrypted_key
+    // No separate table needed
 
-    Ok(decrypted_resource)
+    // Create owner's ShareRecord
+    let share_record = ShareRecord {
+        id: Uuid::new_v4().to_string(),
+        resource_id: resource_id.clone(),
+        shared_by_user_id: user.id.clone(),
+        recipient_user_id: user.id.clone(), // Owner shares with self
+        ucan_token: ucan_token.clone(),
+        ucan_cid: ucan_cid.clone(),
+        operation_type: ShareOperation::Share,
+        permission_level: PermissionLevel::Admin,
+        created_at: now,
+        updated_at: now,
+    };
+
+    repo_ctx.share_repo.save(&share_record).await.map_err(|e| {
+        error!("Failed to create share record: {}", e);
+        ResourceServiceError::DatabaseError(e.to_string())
+    })?;
+
+    info!("Successfully created resource {}", resource_id);
+
+    // Return decrypted Resource
+    let resource = Resource::from_decrypted_data(
+        resource_id,
+        folder_id,
+        ucan_token,
+        metadata,
+        &resource_payload,
+    )
+    .map_err(|e| ResourceServiceError::InvalidResourceData(e))?;
+
+    Ok(resource)
 }
 
-/// Get a resource by ID and decrypt it for the user
+/// Get a single resource by ID
+///
+/// # Arguments
+/// * `resource_id` - Resource UUID
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Resource` - The decrypted resource
 pub async fn get_resource_by_id_direct(
     resource_id: &str,
-    user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<DecryptedResource> {
-    // Get the resource with its key from the repository
-    let resource_with_key = repo_ctx
+) -> ServiceResult<Resource> {
+    info!("Fetching resource by ID: {}", resource_id);
+
+    // Fetch encrypted resource from database
+    let encrypted_resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
+
+    // Create ResourceWithKey struct
+    let resource_with_key = ResourceWithKey {
+        encrypted_key: encrypted_resource.encrypted_key.clone(),
+        encrypted_resource,
+    };
+
+    // Decrypt using existing helper
+    let mut resources = decrypt_resources(vec![resource_with_key], crypto_utils).await?;
+
+    // Return single resource
+    let resource =
+        resources
+            .into_iter()
+            .next()
+            .ok_or_else(|| ResourceServiceError::ResourceNotFound {
+                resource_id: resource_id.to_string(),
+            })?;
+
+    Ok(resource)
+}
+
+/// Update a resource with new data and rotate AES key
+///
+/// Frontend sends complete new Loro snapshots, we replace the entire encrypted_data.
+/// Generates a new AES key for forward secrecy on every update.
+///
+/// # Arguments
+/// * `resource_id` - Resource UUID
+/// * `data` - New Loro document data (JSON string with snapshots)
+/// * `user` - Current user (for encryption)
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `()` - Success
+pub async fn update_resource(
+    resource_id: &str,
+    data: String,
+    user: &User,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<()> {
+    info!("Updating resource {}", resource_id);
+
+    // Parse data to extract metadata for validation
+    let data_json: serde_json::Value = serde_json::from_str(&data).map_err(|e| {
+        ResourceServiceError::InvalidResourceData(format!("Invalid data JSON: {}", e))
+    })?;
+
+    // Extract title from data for logging
+    let title = data_json
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Untitled");
+
+    info!("Updating resource {} ({})", resource_id, title);
+
+    // Generate NEW AES key and encrypt data (key rotation for forward secrecy)
+    let (encrypted_data, encrypted_key) = encrypt_data_for_user(&data, &user.public_key)
+        .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
+
+    // Update resource in database with new encrypted data and key
+    repo_ctx
         .resource_repo
-        .find_by_id(resource_id, user_id)
-        .await?;
+        .update_resource(&encrypted_data, &encrypted_key, resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to update resource in database: {}", e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
 
-    // Decrypt the resource
-    let decrypted_resource = decrypt_single_resource(resource_with_key, crypto_utils).await?;
-
-    Ok(decrypted_resource)
+    info!("Successfully updated resource {}", resource_id);
+    Ok(())
 }
 
-/// Helper function to decrypt a single resource
-async fn decrypt_single_resource(
-    resource_with_key: ResourceWithKey,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<DecryptedResource> {
-    // Lock crypto_utils and decrypt the resource data
-    let decrypted_data = {
-        let crypto = crypto_utils.read().await;
-        crypto.decrypt_resource(
-            &resource_with_key.resource.data,
-            &resource_with_key.encrypted_key,
-        )?
-    };
-
-    // Parse the JSON data
-    let parsed_data: Value = serde_json::from_str(&decrypted_data)
-        .unwrap_or_else(|_| serde_json::json!({"error": "Failed to parse resource data"}));
-    let last_modified = parsed_data
-        .get("last_modified")
-        .and_then(|v| v.as_i64())
-        .unwrap_or(resource_with_key.resource.last_accessed);
-    // Create the DecryptedResource
-    let decrypted_resource = DecryptedResource {
-        id: resource_with_key.resource.id,
-        resource_type: resource_with_key.resource.resource_type,
-        data: parsed_data,
-        last_accessed: last_modified,
-        favourite: resource_with_key.resource.favourite,
-        folder_id: resource_with_key.resource.folder_id,
-    };
-
-    Ok(decrypted_resource)
-}
-
+/// Soft delete a resource
+///
+/// # Arguments
+/// * `resource_id` - Resource UUID
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `()` - Success
 pub async fn delete_resource(
     resource_id: String,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<()> {
-    Ok(repo_ctx
-        .resource_repo
-        .soft_delete_resource(&resource_id)
-        .await?)
-}
-
-pub async fn toggle_fav(
-    resource_id: String,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()> {
-    Ok(repo_ctx.resource_repo.toggle_fav(&resource_id).await?)
-}
-
-pub async fn update_last_accessed(
-    resource_id: String,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()> {
-    Ok(repo_ctx
-        .resource_repo
-        .update_last_accessed(&resource_id)
-        .await?)
-}
-
-pub async fn update_resource(
-    resource_id: &str,
-    data: String,
-    user_id: &str,
-    current_device_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<DecryptedResource> {
-    let old_resource = repo_ctx
-        .resource_repo
-        .find_by_id(resource_id, user_id)
-        .await?;
-
-    let encrypted_data = {
-        let crypto = crypto_utils.read().await;
-        crypto.update_resource(&data, &old_resource.encrypted_key)?
-    };
+    info!("Deleting resource {}", resource_id);
 
     repo_ctx
         .resource_repo
-        .update_resource(&encrypted_data, resource_id)
-        .await?;
-
-    repo_ctx
-        .vector_clock_repo
-        .increment_vector_clock(resource_id, current_device_id)
-        .await?;
-
-    let decrypted_resource =
-        get_resource_by_id_direct(resource_id, user_id, repo_ctx, crypto_utils).await?;
-
-    Ok(decrypted_resource)
-}
-
-pub async fn get_resource(
-    resource_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    user_id: &str,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<(DecryptedResource, String)> {
-    // Get encrypted resource from repository
-    let resource_with_key = repo_ctx
-        .resource_repo
-        .find_by_id(resource_id, user_id)
-        .await?;
-
-    let encrypted_key = resource_with_key.encrypted_key.clone();
-    // Use the helper function
-    let decrypted_resources = decrypt_single_resource(resource_with_key, crypto_utils).await?;
-
-    Ok((decrypted_resources, encrypted_key))
-}
-
-pub async fn get_resources_for_folder(
-    folder_id: &str,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    user_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<DecryptedResource>> {
-    let resources_with_keys = repo_ctx
-        .resource_repo
-        .find_by_folder(folder_id, &user_id)
-        .await?;
-
-    // Decrypt and return the resources
-    decrypt_resources(resources_with_keys, crypto_utils).await
-}
-
-pub async fn get_all_resources(
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    repo_ctx: Arc<RepositoryContext>,
-    user_id: &str,
-) -> ServiceResult<Vec<DecryptedResource>> {
-    // Get resources with their keys
-    let resources_with_keys = repo_ctx.resource_repo.get_all_resources(&user_id).await?;
-
-    // Decrypt and return the resources
-    decrypt_resources(resources_with_keys, crypto_utils).await
-}
-
-async fn decrypt_resources(
-    resources_with_keys: Vec<ResourceWithKey>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<Vec<DecryptedResource>> {
-    // Initialize vector to store decrypted resources
-    let mut decrypted_resources = Vec::with_capacity(resources_with_keys.len());
-
-    // Lock crypto_utils once before the loop
-    let crypto = crypto_utils.read().await;
-
-    // Process each resource
-    for rk in resources_with_keys {
-        // Decrypt the resource data
-        let decrypted_data = crypto.decrypt_resource(&rk.resource.data, &rk.encrypted_key)?;
-
-        // Parse the JSON data
-        let parsed_data: Value = serde_json::from_str(&decrypted_data)
-            .unwrap_or_else(|_| serde_json::json!({"error": "Failed to parse resource data"}));
-
-        // Create the DecryptedResource
-        let decrypted_resource = DecryptedResource {
-            id: rk.resource.id,
-            resource_type: rk.resource.resource_type,
-            data: parsed_data,
-            last_accessed: rk.resource.last_accessed,
-            favourite: rk.resource.favourite,
-            folder_id: rk.resource.folder_id,
-        };
-
-        decrypted_resources.push(decrypted_resource);
-    }
-
-    Ok(decrypted_resources)
-}
-pub async fn prepare_share_resource(
-    recipient_user_id: &str,
-    resource_id: &str,
-    permissions: Vec<(String, String)>,
-    current_user: &User,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<Option<ResourceSharingData>> {
-    // 1. Check if resource is already shared with recipient
-    if repo_ctx
-        .resource_key_repo
-        .find_by_resource_and_user(resource_id, recipient_user_id)
+        .delete_resource(&resource_id)
         .await
-        .is_ok()
-    {
-        return Ok(None); // Already shared
-    }
+        .map_err(|e| {
+            error!("Failed to delete resource: {}", e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
 
-    // 2. Get the resource key for the current user
-    let resource_key = repo_ctx
-        .resource_key_repo
-        .find_by_resource_and_user(resource_id, &current_user.id)
-        .await?;
-
-    let delegator_share_record = repo_ctx
-        .share_repo
-        .find_by_resource_and_operation_and_user(
-            resource_id,
-            &ShareOperation::Share.to_string(),
-            &current_user.id,
-        )
-        .await?;
-
-    // 3. Get the recipient user to access their public key
-    let recipient_user = repo_ctx.user_repo.get_user_by_id(recipient_user_id).await?;
-
-    // 4. Encrypt the resource key for the recipient using their public key
-    let new_encryption_key = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .encrypt_key_with_new_pub_key(&resource_key.encrypted_key, &recipient_user.public_key)?
-    };
-
-    // 5. Create the new resource key for the recipient
-    let new_resource_key = ResourceKey::new(
-        resource_id.to_string(),
-        recipient_user_id.to_string(),
-        new_encryption_key,
-        false,
-    );
-
-    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 6. Get the resource owner (root authority for validation)
-    let resource_owner = repo_ctx
-        .resource_repo
-        .find_owner_by_resource_id(resource_id)
-        .await?;
-
-    // 7. Create the signature for the share record
-    let repo_ctx_clone = repo_ctx.clone();
-    let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
-
-    let (ucan_token, ucan_cid) = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .issue_delegated_resource_ucan(
-                &encrypted_ucan_pvt_key,
-                &delegator_share_record.ucan_token,
-                &resource_owner.ucan_pub_key,
-                resource_id,
-                &recipient_user.ucan_pub_key,
-                permissions,
-                &proof_resolver,
-            )
-            .await?
-    };
-
-    // 8. Create the share record
-    let share_record = ShareRecord::prepare_share_record(
-        resource_id.to_string(),
-        current_user.id.to_string(),
-        recipient_user_id.to_string(),
-        PermissionLevel::Write, // Default permission level
-        ucan_token,
-        ucan_cid,
-    );
-
-    // 9. Get recipient's devices to create vector clocks
-    let recipient_devices = repo_ctx
-        .device_repo
-        .get_devices_by_user_id(recipient_user_id)
-        .await?;
-
-    let recipient_device_ids: Vec<String> =
-        recipient_devices.iter().map(|d| d.id.clone()).collect();
-
-    // 10. Create vector clocks for recipient's devices
-    let recipient_vector_clocks =
-        ResourceVectorClock::create_entries_for_sharing(resource_id, &recipient_device_ids);
-
-    Ok(Some(ResourceSharingData {
-        resource_key: new_resource_key,
-        share_record,
-        vector_clocks: recipient_vector_clocks,
-    }))
-}
-
-pub async fn share_resource(
-    recipient_user_id: &str,
-    resource_id: &str,
-    permissions: Vec<(String, String)>,
-    current_user: &User,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<()> {
-    if let Some(sharing_data) = prepare_share_resource(
-        recipient_user_id,
-        resource_id,
-        permissions,
-        current_user,
-        repo_ctx.clone(),
-        crypto_utils,
-    )
-    .await?
-    {
-        // Save to repository if sharing is needed
-        repo_ctx
-            .resource_repo
-            .share_resource_transaction(
-                &sharing_data.resource_key,
-                &sharing_data.share_record,
-                &sharing_data.vector_clocks,
-            )
-            .await?;
-    }
-    // If None, resource was already shared - do nothing
+    info!("Successfully deleted resource {}", resource_id);
     Ok(())
 }
 
-pub async fn get_resource_state_vector(
-    resource_id: &str,
-    user_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<String> {
-    // 1. Get the decrypted resource
-    let (decrypted_resource, _) =
-        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
-
-    let state_vectors = decrypted_resource
-        .get_state_vectors()
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    Ok(state_vectors)
+/// Get all resources in a folder
+///
+/// # Arguments
+/// * `folder_id` - Folder UUID
+/// * `crypto_utils` - Crypto utilities
+/// * `user_id` - User UUID
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `Vec<Resource>` - All resources in the folder
+pub async fn get_resources_for_folder(
+    _folder_id: &str,
+    _crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    _user_id: &str,
+    _repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Vec<Resource>> {
+    // TODO: Reimplement get_resources_for_folder with Loro CRDT sync (Phase 3)
+    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
 }
 
-pub async fn get_resource_sync_info(
-    resource_id: &str,
-    user_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<osvauld_core::models::ResourceSyncInfo> {
-    // 1. Get decrypted resource
-    let (decrypted_resource, _) =
-        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
-    // 2. Get state vectors JSON
-    let state_vectors_json = decrypted_resource
-        .get_state_vectors()
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    // 3. For Website resources being synced by viewer, populate form data
-    let sync_data =
-        if decrypted_resource.resource_type == osvauld_core::models::ResourceType::Website {
-            let mut parsed: serde_json::Map<String, serde_json::Value> =
-                serde_json::from_str(&state_vectors_json)
-                    .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-            // Encode form submissions doc as a proper YJS update for one-way sync
-            if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
-                if let Some(doc_obj) = form_doc.as_object_mut() {
-                    // Encode the entire document state as a YJS update
-                    let form_update = decrypted_resource
-                        .encode_state_as_update("form_submissions_doc")
-                        .await
-                        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-                    // Log the actual form submissions to debug
-                    if let Some(form_data_value) = decrypted_resource.data.get("form_submissions_doc") {
-                        info!(
-                            "Viewer form_submissions_doc raw size: {} bytes",
-                            form_data_value.to_string().len()
-                        );
-                    }
-
-                    info!(
-                        "Encoded form_submissions_doc as update for resource {}: {} bytes",
-                        resource_id,
-                        form_update.len()
-                    );
-
-                    let form_update_array: Vec<serde_json::Value> = form_update
-                        .iter()
-                        .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                        .collect();
-
-                    doc_obj.insert(
-                        "updates".to_string(),
-                        serde_json::Value::Array(form_update_array),
-                    );
-                    doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
-                }
-            }
-
-            serde_json::to_string(&parsed)
-                .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?
-        } else {
-            state_vectors_json
-        };
-
-    // 4. Get resource UCAN token
-    let resource_ucan = get_resource_ucan_key(resource_id, user_id, repo_ctx).await?;
-
-    Ok(osvauld_core::models::ResourceSyncInfo {
-        resource_id: resource_id.to_string(),
-        resource_ucan,
-        sync_data,
-    })
+pub async fn get_all_resources(
+    _crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    _repo_ctx: Arc<RepositoryContext>,
+    _user_id: &str,
+) -> ServiceResult<Vec<Resource>> {
+    // TODO: Reimplement get_all_resources with Loro CRDT sync (Phase 3)
+    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
 }
 
-/// Process incremental sync from viewer and return updates for viewer
-/// Replaces form_submissions_doc with empty updates (node doesn't send form data back)
-pub async fn process_incremental_resource_sync(
-    resource_id: &str,
-    user_id: &str,
-    viewer_sync_data: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<String> {
-    // 1. Parse viewer's sync data
-    let mut viewer_data: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(viewer_sync_data)
-            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-    // 2. Empty updates for blocksuite_doc (viewer can't edit main content)
-    // Keep state_vector so sync protocol works correctly
-    if let Some(blocksuite_doc) = viewer_data.get_mut("blocksuite_doc") {
-        if let Some(obj) = blocksuite_doc.as_object_mut() {
-            obj.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-        }
-    }
-
-    // 3. Empty updates for thread_comments_doc (comments use separate ViewerCommentsUpdate flow)
-    // Keep state_vector so sync protocol works correctly
-    if let Some(thread_doc) = viewer_data.get_mut("thread_comments_doc") {
-        if let Some(obj) = thread_doc.as_object_mut() {
-            obj.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-        }
-    }
-
-    // 4. Keep form_submissions_doc with updates intact - these will be applied to DB
-    let modified_sync = serde_json::to_string(&viewer_data)
-        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-    info!("modified {:?}", modified_sync);
-    // 5. Apply form submissions to DB and generate response for viewer
-    // This will:
-    // - Merge form_submissions_doc into database
-    // - Emit form_submissions_doc updates to owner
-    // - Generate updates viewer needs (blocksuite_doc, thread_comments_doc)
-    let response = apply_updates_and_get_peer_updates(
-        resource_id,
-        user_id,
-        &modified_sync,
-        repo_ctx,
-        crypto_utils,
-    )
-    .await?;
-
-    info!("response back from node {:?}", response);
-
-    // 6. Parse response and empty form_submissions_doc (viewer doesn't need it back)
-    let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&response)
-        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-    // Empty form_submissions_doc updates in response (viewer has append-only, doesn't read back)
-    // Keep state_vector for sync protocol
-    if let Some(form_doc) = parsed.get_mut("form_submissions_doc") {
-        if let Some(obj) = form_doc.as_object_mut() {
-            obj.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-            // state_vector is preserved
-        }
-    }
-
-    Ok(serde_json::to_string(&parsed)
-        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)
-}
-
-/// Apply updates from node and generate viewer updates (only comments)
-/// Used by viewer to process node's sync response and generate updates to send back
-/// Viewer only sends back thread_comments_doc updates (bidirectional sync)
-pub async fn apply_and_generate_viewer_updates(
-    resource_id: &str,
-    user_id: &str,
-    node_sync_data: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<String> {
-    // Apply ALL updates from node (including blocksuite_doc) and get response
-    let response = apply_updates_and_get_peer_updates(
-        resource_id,
-        user_id,
-        node_sync_data,
-        repo_ctx,
-        crypto_utils,
-    )
-    .await?;
-
-    // Parse response
-    let mut parsed: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&response)
-        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-    // For blocksuite_doc: Keep state_vector (so node knows what to send), but empty updates (viewer is read-only)
-    if let Some(blocksuite) = parsed
-        .get_mut("blocksuite_doc")
-        .and_then(|v| v.as_object_mut())
-    {
-        blocksuite.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-    }
-
-    // For form_submissions_doc: Keep state_vector, but empty updates (node doesn't send this back)
-    if let Some(form_doc) = parsed
-        .get_mut("form_submissions_doc")
-        .and_then(|v| v.as_object_mut())
-    {
-        form_doc.insert("updates".to_string(), serde_json::Value::Array(vec![]));
-    }
-
-    // thread_comments_doc remains unchanged for bidirectional sync
-    Ok(serde_json::to_string(&parsed)
-        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?)
-}
-
-pub async fn get_resource_ucan_key(
-    resource_id: &str,
+/// Get metadata for all resources (no decryption, just metadata)
+///
+/// Returns lightweight metadata for all resources without decrypting their content.
+/// Used for listing resources in the UI.
+///
+/// # Arguments
+/// * `user_id` - User ID to fetch resources for
+/// * `repo_ctx` - Repository context
+///
+/// # Returns
+/// * `Vec<(EncryptedResource, String)>` - Encrypted resources with their encrypted keys
+pub async fn get_all_resources_metadata(
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<String> {
-    let delegator_share_record = repo_ctx
-        .share_repo
-        .find_by_resource_and_operation_and_user(
-            resource_id,
-            &ShareOperation::Share.to_string(),
-            user_id,
-        )
-        .await?;
+) -> ServiceResult<Vec<(EncryptedResource, String)>> {
+    info!("Fetching all resources metadata for user: {}", user_id);
 
-    Ok(delegator_share_record.ucan_token)
+    // Get all encrypted resources from database
+    // EncryptedResource already contains encrypted_key field
+    let encrypted_resources = repo_ctx.resource_repo.get_all_resources(user_id).await?;
+
+    // Convert to (EncryptedResource, encrypted_key) tuples
+    let resources_with_keys: Vec<(EncryptedResource, String)> = encrypted_resources
+        .into_iter()
+        .map(|resource| {
+            let key = resource.encrypted_key.clone();
+            (resource, key)
+        })
+        .collect();
+
+    info!("Found {} resources for user", resources_with_keys.len());
+    Ok(resources_with_keys)
 }
 
-// Also update the generate_updates_for_peer function similarly
-pub async fn generate_updates_for_peer(
+/// Share a resource with another user
+///
+/// Creates a share record with delegated UCAN token. Does NOT create encrypted_data
+/// (that's created on-demand during sync).
+///
+/// # Arguments
+/// * `resource_id` - Resource ID to share
+/// * `recipient_user_id` - User ID to share with
+/// * `recipient_role` - Role for recipient ("owner", "node", or "viewer")
+/// * `current_user` - Current user (owner) sharing the resource
+/// * `domain` - Domain for UCAN verification
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `()` - Success (share record created)
+pub async fn share_resource(
     resource_id: &str,
-    user_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    peer_state_vectors: &String,
-) -> ServiceResult<String> {
-    // 1. Get the decrypted resource
-    let (mut decrypted_resource, _) =
-        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
-
-    let updates = decrypted_resource
-        .sync_updates(peer_state_vectors)
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    Ok(updates)
-}
-
-/// Apply updates from a peer and generate any updates they might need in return
-pub async fn apply_updates_and_get_peer_updates(
-    resource_id: &str,
-    user_id: &str,
-    updates: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<String> {
-    // 1. Get the current resource with its YJS state
-    let (mut decrypted_resource, encrypted_key) =
-        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
-
-    // Log document size before merge
-    let size_before = decrypted_resource.data.to_string().len();
-    info!(
-        "Document size BEFORE merging updates for resource {}: {} bytes",
-        resource_id, size_before
-    );
-
-    // Check form_submissions_doc before sync
-    if let Some(data_obj) = decrypted_resource.data.as_object() {
-        if let Some(form_data) = data_obj.get("form_submissions_doc") {
-            info!(
-                "BEFORE: form_submissions_doc exists! Length: {}",
-                form_data.as_array().map(|a| a.len()).unwrap_or(0)
-            );
-        } else {
-            info!("BEFORE: form_submissions_doc does NOT exist in data!");
-        }
-    }
-
-    // Parse the incoming updates to handle form_submissions_doc specially
-    let mut updates_json: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(updates)
-            .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-    // Special handling for form_submissions_doc: compute diff to avoid duplicates
-    if let Some(form_doc) = updates_json.get_mut("form_submissions_doc") {
-        if let Some(doc_obj) = form_doc.as_object_mut() {
-            if let Some(viewer_updates_array) = doc_obj.get("updates").and_then(|v| v.as_array()) {
-                let viewer_updates_bytes: Vec<u8> = viewer_updates_array
-                    .iter()
-                    .filter_map(|v| v.as_u64().map(|n| n as u8))
-                    .collect();
-
-                info!(
-                    "Receiving form_submissions_doc with {} bytes, computing diff",
-                    viewer_updates_bytes.len()
-                );
-
-                // Get our current state and generate state vector
-                let our_state = decrypted_resource
-                    .get_document_state("form_submissions_doc")
-                    .unwrap_or_default();
-
-                // Compute the diff: what viewer has that we don't
-                let diff_update = if !viewer_updates_bytes.is_empty() {
-                    // Create temp doc with viewer's full state
-                    let mut viewer_doc = create_doc();
-                    viewer_doc.apply_update_v2(&viewer_updates_bytes).await
-                        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-                    // Get our state vector
-                    let our_state_vector = if !our_state.is_empty() {
-                        let mut our_doc = create_doc();
-                        our_doc.apply_update_v2(&our_state).await
-                            .map_err(|e| ResourceServiceError::ParseError(e))?;
-                        our_doc.get_state_vector_v2().await
-                    } else {
-                        vec![] // We have nothing, so viewer should send everything
-                    };
-
-                    // Get the diff: what viewer has that we don't have
-                    let diff = viewer_doc.get_diff_update_v2(&our_state_vector).await
-                        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-                    info!(
-                        "Computed diff for form_submissions_doc: {} bytes",
-                        diff.len()
-                    );
-
-                    diff
-                } else {
-                    vec![]
-                };
-
-                // Replace the updates with the diff
-                let diff_array: Vec<serde_json::Value> = diff_update
-                    .iter()
-                    .map(|&b| serde_json::Value::Number(serde_json::Number::from(b)))
-                    .collect();
-
-                doc_obj.insert("updates".to_string(), serde_json::Value::Array(diff_array));
-                doc_obj.insert("state_vector".to_string(), serde_json::Value::Array(vec![]));
-            }
-        }
-    }
-
-    // Convert back to string and use normal sync_updates
-    let modified_updates = serde_json::to_string(&updates_json)
-        .map_err(|e| ResourceServiceError::ParseError(e.to_string()))?;
-
-    let remote_updates = decrypted_resource
-        .sync_updates(&modified_updates)
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    // Log document size after merge
-    let size_after = decrypted_resource.data.to_string().len();
-    info!(
-        "Document size AFTER merging updates for resource {}: {} bytes",
-        resource_id, size_after
-    );
-
-    // Check form_submissions_doc after sync
-    if let Some(data_obj) = decrypted_resource.data.as_object() {
-        if let Some(form_data) = data_obj.get("form_submissions_doc") {
-            info!(
-                "AFTER: form_submissions_doc exists! Length: {}",
-                form_data.as_array().map(|a| a.len()).unwrap_or(0)
-            );
-        } else {
-            info!("AFTER: form_submissions_doc does NOT exist in data!");
-        }
-    }
-
-    let encrypted_data = {
-        let crypto = crypto_utils.read().await;
-        crypto.update_resource(&decrypted_resource.data.to_string(), &encrypted_key)?
-    };
-
-    repo_ctx
-        .resource_repo
-        .update_resource(&encrypted_data, resource_id)
-        .await?;
-
-    Ok(remote_updates)
-}
-
-pub async fn apply_buffer_updates_and_get_remote_updates(
-    resource_id: &str,
-    user_id: &str,
-    updates: &str,
-    peer_state_vectors: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<String> {
-    // 1. Get the current resource with its YJS state
-    let (mut decrypted_resource, _encrypted_key) =
-        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
-
-    let _ = decrypted_resource
-        .sync_updates(updates)
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    let remote_updates = decrypted_resource
-        .sync_updates(peer_state_vectors)
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    Ok(remote_updates)
-}
-
-pub async fn apply_buffer_and_peer_updates_and_get_remote_updates(
-    resource_id: &str,
-    user_id: &str,
-    remote_updates: &str,
-    local_updates: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<String> {
-    // 1. Get the current resource with its YJS state
-    let (mut decrypted_resource, _encrypted_key) =
-        get_resource(resource_id, repo_ctx, user_id, crypto_utils).await?;
-
-    let _remote_updates = decrypted_resource
-        .sync_updates(local_updates)
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    let remote_updates = decrypted_resource
-        .sync_updates(remote_updates)
-        .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
-
-    Ok(remote_updates)
-}
-
-pub async fn apply_updates(
-    resource_id: &str,
-    updates: &str,
-    user_id: &str,
+    recipient_user_id: &str,
+    recipient_role: &str,
+    current_user: &User,
+    domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<()> {
-    let (mut decrypted_resource, encrypted_key) =
-        get_resource(resource_id, repo_ctx.clone(), user_id, crypto_utils).await?;
-
-    // Log document size before merge
-    let size_before = decrypted_resource.data.to_string().len();
     info!(
-        "Document size BEFORE merging updates for resource {}: {} bytes",
-        resource_id, size_before
+        "Sharing resource {} with user {} (role: {})",
+        resource_id, recipient_user_id, recipient_role
     );
 
-    decrypted_resource
-        .sync_updates(updates)
+    // 1. Get recipient user to get their UCAN public key
+    let recipient_user = repo_ctx
+        .user_repo
+        .get_user_by_id(recipient_user_id)
         .await
-        .map_err(|e| ResourceServiceError::ParseError(e))?;
+        .map_err(|e| {
+            error!("Failed to find recipient user {}: {}", recipient_user_id, e);
+            ResourceServiceError::UserNotFound(recipient_user_id.to_string())
+        })?;
 
-    // Log document size after merge
-    let size_after = decrypted_resource.data.to_string().len();
+    // 2. Get resource from database to read its UCAN token (proof)
+    let resource = repo_ctx
+        .resource_repo
+        .find_by_id(resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch resource {}: {}", resource_id, e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
+
     info!(
-        "Document size AFTER merging updates for resource {}: {} bytes",
-        resource_id, size_after
+        "Owner's resource UCAN token length: {}",
+        resource.ucan_token.len()
     );
 
-    let encrypted_data = {
-        let crypto = crypto_utils.read().await;
-        crypto.update_resource(&decrypted_resource.data.to_string(), &encrypted_key)?
+    // 3. Get encrypted UCAN key from store
+    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
+        error!("Failed to get UCAN key: {}", e);
+        ResourceServiceError::DatabaseError(e.to_string())
+    })?;
+
+    // 4. Generate delegated UCAN for recipient
+    let crypto = crypto_utils.read().await;
+
+    info!(
+        "Calling issue_flexible_delegated_resource_ucan with role: {}",
+        recipient_role
+    );
+
+    // Clone repo_ctx for the closure
+    let repo_ctx_for_closure = repo_ctx.clone();
+
+    let (resource_ucan_token, resource_ucan_cid) = crypto
+        .issue_flexible_delegated_resource_ucan(
+            &encrypted_ucan_key,
+            &resource.ucan_token, // Proof UCAN (owner's)
+            &current_user.ucan_pub_key,
+            resource_id,
+            &recipient_user.ucan_pub_key,
+            recipient_role,
+            &|cid| {
+                let repo_ctx_clone = repo_ctx_for_closure.clone();
+                let cid_owned = cid.to_string();
+                async move {
+                    repo_ctx_clone
+                        .share_repo
+                        .get_ucan_by_cid(&cid_owned)
+                        .await
+                        .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
+                }
+            },
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to generate delegated UCAN: {}", e);
+            ResourceServiceError::UcanError(e.to_string())
+        })?;
+
+    drop(crypto);
+
+    info!(
+        "Generated delegated UCAN token length: {}",
+        resource_ucan_token.len()
+    );
+
+    // 5. Create share record (NO encrypted_data - created during sync)
+    let share_record = ShareRecord {
+        id: Uuid::new_v4().to_string(),
+        resource_id: resource_id.to_string(),
+        shared_by_user_id: current_user.id.clone(),
+        recipient_user_id: recipient_user_id.to_string(),
+        ucan_token: resource_ucan_token,
+        ucan_cid: resource_ucan_cid,
+        permission_level: PermissionLevel::Admin,
+        operation_type: ShareOperation::Share,
+        created_at: chrono::Utc::now().timestamp(),
+        updated_at: chrono::Utc::now().timestamp(),
     };
 
-    repo_ctx
-        .resource_repo
-        .update_resource(&encrypted_data, resource_id)
-        .await?;
+    // 6. Save share record to database
+    repo_ctx.share_repo.save(&share_record).await.map_err(|e| {
+        error!("Failed to save share record: {}", e);
+        ResourceServiceError::DatabaseError(e.to_string())
+    })?;
+
+    info!(
+        "Successfully shared resource {} with user {}",
+        resource_id, recipient_user_id
+    );
 
     Ok(())
 }
 
 pub async fn get_share_records_for_resource(
-    resource_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
+    _resource_id: &str,
+    _repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<Vec<ShareRecord>> {
-    Ok(repo_ctx.share_repo.find_by_resource(resource_id).await?)
+    // TODO: Reimplement get_share_records_for_resource with Loro CRDT sync (Phase 3)
+    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
 }
 
-pub async fn get_vector_clocks_for_resource(
-    resource_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<ResourceVectorClock>> {
-    Ok(repo_ctx
-        .vector_clock_repo
-        .get_vector_clocks_for_resource(resource_id)
-        .await?)
-}
-
-pub fn find_missing_resource_keys(
-    local: &[ResourceKey],
-    remote: &[ResourceKey],
-) -> (Vec<ResourceKey>, Vec<ResourceKey>) {
-    let missing_in_remote: Vec<ResourceKey> = local
-        .iter()
-        .filter(|item1| !remote.iter().any(|item2| item2.id == item1.id))
-        .cloned()
-        .collect();
-
-    let missing_in_local: Vec<ResourceKey> = remote
-        .iter()
-        .filter(|item2| !local.iter().any(|item1| item1.id == item2.id))
-        .cloned()
-        .collect();
-
-    (missing_in_local, missing_in_remote)
-}
-
-pub async fn get_resource_keys_for_resource(
-    resource_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<ResourceKey>> {
-    Ok(repo_ctx
-        .resource_key_repo
-        .find_by_resource_id(resource_id)
-        .await?)
-}
-
-pub async fn merge_vector_clocks(
-    resource_id: &str,
-    vector_clocks: &Vec<ResourceVectorClock>,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<(Vec<ResourceVectorClock>, Vec<ResourceVectorClock>)> {
-    info!("Merging vector clocks for resource {}", resource_id);
-
-    // Get our local vector clocks for this resource
-    let local_vector_clocks = repo_ctx
-        .vector_clock_repo
-        .get_vector_clocks_for_resource(resource_id)
-        .await?;
-
-    let merge_result = ResourceVectorClock::merge(&local_vector_clocks, vector_clocks);
-
-    // If local clocks need updating, update our database
-    if merge_result.local_needs_update {
-        repo_ctx
-            .vector_clock_repo
-            .update_vector_clocks(&merge_result.update_local, &merge_result.add_local)
-            .await?;
-    }
-
-    Ok((merge_result.add_remote, merge_result.update_remote))
-}
-
-pub async fn merge_share_records(
-    resource_id: &str,
-    remote_share_records: &[ShareRecord],
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<ShareRecord>> {
-    let local_share_records = repo_ctx.share_repo.find_by_resource(resource_id).await?;
-
-    let local_set: HashSet<String> = local_share_records
-        .iter()
-        .map(|record| record.id.clone())
-        .collect();
-
-    let remote_set: HashSet<String> = remote_share_records
-        .iter()
-        .map(|record| record.id.clone())
-        .collect();
-
-    // Find share records that exist in remote but not in local
-    let remote_only_records: Vec<ShareRecord> = remote_share_records
-        .iter()
-        .filter(|record| !local_set.contains(&record.id))
-        .cloned()
-        .collect();
-
-    repo_ctx.share_repo.save_many(&remote_only_records).await?;
-
-    // Find share records that exist in local but not in remote
-    let local_only_records: Vec<ShareRecord> = local_share_records
-        .iter()
-        .filter(|record| !remote_set.contains(&record.id))
-        .cloned()
-        .collect();
-
-    Ok(local_only_records)
-}
-
-pub async fn update_vector_clocks(
-    add_clock: &[ResourceVectorClock],
-    update_clock: &[ResourceVectorClock],
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()> {
-    Ok(repo_ctx
-        .vector_clock_repo
-        .update_vector_clocks(&update_clock, &add_clock)
-        .await?)
-}
-
-pub async fn add_share_records(
-    share_records: &[ShareRecord],
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()> {
-    Ok(repo_ctx.share_repo.save_many(share_records).await?)
+pub async fn get_resource_ucan_key(
+    _resource_id: &str,
+    _user_id: &str,
+    _repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<String> {
+    // TODO: Reimplement get_resource_ucan_key with Loro CRDT sync (Phase 3)
+    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
 }
 
 pub async fn validate_authority_for_update(
-    resource_id: &str,
-    token: &str,
-    peer_user_id: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    domain: &str,
+    _resource_id: &str,
+    _token: &str,
+    _peer_user_id: &str,
+    _repo_ctx: Arc<RepositoryContext>,
+    _domain: &str,
 ) -> ServiceResult<bool> {
-    let peer_user = repo_ctx.user_repo.get_user_by_id(peer_user_id).await?;
+    // TODO: Reimplement validate_authority_for_update with Loro CRDT sync (Phase 3)
+    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
+}
 
-    let resource_owner = repo_ctx
+pub async fn get_resource_state_vectors(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<CryptoUtils>,
+) -> Result<String, ResourceServiceError> {
+    todo!("Implement after network layer compiles")
+}
+
+/// Generate incremental updates for a peer based on their state vectors
+///
+/// Computes what updates the peer needs based on their current state.
+///
+/// # Arguments
+/// * `resource_id` - Resource ID
+/// * `user_id` - User ID generating updates
+/// * `peer_state_vectors` - JSON string with peer's current state vectors
+/// * `peer_ucan` - Peer's UCAN token for capability filtering
+/// * `our_ucan` - Our UCAN token for filtering rules
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `String` - JSON string: {"doc_name": {"updates": [...], "state_vector": [...]}, ...}
+pub async fn generate_updates_for_peer(
+    _resource_id: &str,
+    _user_id: &str,
+    _peer_state_vectors: &str,
+    _peer_ucan: &str,
+    _our_ucan: &str,
+    _repo_ctx: Arc<RepositoryContext>,
+    _crypto_utils: Arc<CryptoUtils>,
+) -> Result<String, ResourceServiceError> {
+    // TODO: Reimplement generate_updates_for_peer with Loro CRDT sync (Phase 3)
+    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
+}
+
+/// Apply updates from a peer to local resource
+///
+/// Validates permissions and applies CRDT updates from peer.
+///
+/// # Arguments
+/// * `resource_id` - Resource ID
+/// * `user_id` - User ID applying updates
+/// * `updates_json` - JSON string with peer's updates
+/// * `peer_ucan` - Peer's UCAN token for permission validation
+/// * `our_ucan` - Our UCAN token for filtering rules
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for encryption/decryption
+///
+/// # Returns
+/// * `()` - Success (resource updated in database)
+pub async fn apply_peer_updates(
+    resource_id: &str,
+    user_id: &str,
+    updates_json: &str,
+    peer_ucan: &str,
+    our_ucan: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<CryptoUtils>,
+) -> Result<(), ResourceServiceError> {
+    todo!("Implement after network layer compiles")
+}
+
+/// Prepare resource for sending to a peer
+///
+/// Filters documents based on UCANs and re-encrypts for peer.
+///
+/// # Arguments
+/// * `resource_id` - Resource ID
+/// * `user_id` - User ID preparing resource
+/// * `peer_ucan` - Peer's UCAN token for capability filtering
+/// * `peer_public_key` - Peer's public key for encryption
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `EncryptedResource` - Resource filtered and encrypted for peer
+pub async fn prepare_resource_for_peer(
+    resource_id: &str,
+    _user_id: &str,
+    peer_ucan: &str,
+    peer_public_key: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> Result<EncryptedResource, ResourceServiceError> {
+    info!("Preparing resource {} for peer", resource_id);
+
+    // 1. Fetch original encrypted resource from database
+    let original_encrypted = repo_ctx
         .resource_repo
-        .find_owner_by_resource_id(resource_id)
-        .await?;
+        .find_by_id(resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch resource {}: {}", resource_id, e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
 
-    let repo_ctx_clone = repo_ctx.clone();
-    let proof_resolver = move |cid: &str| resolve_proof(repo_ctx_clone.clone(), cid.to_string());
+    // 2. Decrypt resource to get Loro docs
+    let decrypted_json = {
+        let crypto = crypto_utils.read().await;
+        crypto
+            .decrypt_resource(
+                &original_encrypted.encrypted_data,
+                &original_encrypted.encrypted_key,
+            )
+            .map_err(|e| {
+                error!("Failed to decrypt resource {}: {}", resource_id, e);
+                ResourceServiceError::DecryptionFailed(resource_id.to_string())
+            })?
+    };
 
-    let token = crypto_utils::validate_authority_for_update(
-        token,
-        &peer_user.ucan_pub_key,
-        &resource_owner.ucan_pub_key,
-        resource_id,
+    // Parse decrypted JSON and create Resource
+    let resource = Resource::from_decrypted_data(
+        original_encrypted.id.clone(),
+        original_encrypted.folder_id.clone(),
+        original_encrypted.ucan_token.clone(),
+        original_encrypted.metadata.clone(),
+        &decrypted_json,
+    )
+    .map_err(|e| {
+        error!("Failed to parse resource {}: {}", resource_id, e);
+        ResourceServiceError::InvalidResourceData(e)
+    })?;
+
+    // 3. Filter documents based on UCANs (returns unencrypted HashMap)
+    let filtered_snapshots = resource
+        .filter_to_send(&original_encrypted.ucan_token, peer_ucan)
+        .map_err(|e| {
+            error!("Failed to filter resource {}: {}", resource_id, e);
+            ResourceServiceError::InvalidResourceData(e)
+        })?;
+
+    // 4. Convert filtered HashMap to JSON string
+    let filtered_json = serde_json::to_string(&filtered_snapshots).map_err(|e| {
+        error!("Failed to serialize filtered data: {}", e);
+        ResourceServiceError::InvalidResourceData(format!("Serialization failed: {}", e))
+    })?;
+
+    // 5. Encrypt filtered data for peer
+    let (new_encrypted_data, new_encrypted_key) =
+        encrypt_data_for_user(&filtered_json, peer_public_key).map_err(|e| {
+            error!("Failed to encrypt for peer: {}", e);
+            ResourceServiceError::EncryptionFailed(e.to_string())
+        })?;
+
+    // 6. Create new EncryptedResource for peer
+    let peer_encrypted_resource = original_encrypted.re_encrypt_for_recipient(
+        new_encrypted_data,
+        new_encrypted_key,
+        peer_ucan.to_string(),
+    );
+
+    info!("Successfully prepared resource {} for peer", resource_id);
+    Ok(peer_encrypted_resource)
+}
+
+/// Accept and save a resource from a peer after validating capabilities
+///
+/// Validates that:
+/// 1. Owner has `add_resources` capability for the folder in folder UCAN
+/// 2. Folder ID in folder UCAN matches resource.folder_id
+///
+/// # Arguments
+/// * `resource` - Encrypted resource to save
+/// * `share_records` - All share records for this resource
+/// * `owner_folder_ucan` - Owner's folder UCAN token
+/// * `domain` - Domain for UCAN verification
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `()` - Success (resource and share records saved)
+pub async fn accept_resource_from_peer(
+    resource: &EncryptedResource,
+    share_records: &[ShareRecord],
+    owner_folder_ucan: &str,
+    domain: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<()> {
+    info!("Accepting resource {} from peer", resource.id);
+
+    // Validate owner's folder UCAN has add_resources capability for this folder
+    crate::validate_peer_can_add_resources(
+        owner_folder_ucan,
+        &resource.folder_id,
         domain,
-        &proof_resolver,
     )
     .await?;
 
-    Ok(token)
-}
-
-async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
+    // Save resource with all share records in transaction
     repo_ctx
-        .share_repo
-        .get_ucan_by_cid(&cid)
+        .resource_repo
+        .save_resource_with_share_records(resource, share_records)
         .await
-        .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-}
-
-/// Auto-share a resource with all users who have access to the folder
-/// This runs in background to avoid blocking the frontend response
-pub async fn auto_share_resource_with_folder_users(
-    resource_id: &str,
-    folder_id: &str,
-    current_user: &User,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    domain: &str,
-) -> ServiceResult<()> {
-    info!(
-        "Starting auto-share for resource {} in folder {}",
-        resource_id, folder_id
-    );
-
-    // 1. Get users who have access to this folder
-    let shared_users = match repo_ctx.folder_share_repo.get_shared_users(folder_id).await {
-        Ok(users) => users,
-        Err(e) => {
-            error!("Failed to get shared users for folder {}: {}", folder_id, e);
-            return Err(e.into());
-        }
-    };
-
-    // 2. Filter out current user (already has access)
-    let recipient_users: Vec<_> = shared_users
-        .iter()
-        .filter(|user| user.id != current_user.id)
-        .collect();
-
-    if recipient_users.is_empty() {
-        info!(
-            "No other users to share resource {} with in folder {}",
-            resource_id, folder_id
-        );
-        return Ok(());
-    }
+        .map_err(|e| {
+            error!(
+                "Failed to save resource {} with share records: {}",
+                resource.id, e
+            );
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
 
     info!(
-        "Found {} users to auto-share resource {} with",
-        recipient_users.len(),
-        resource_id
+        "Successfully accepted resource {} with {} share records",
+        resource.id,
+        share_records.len()
     );
-
-    // 3. Prepare sharing data for each recipient
-    let mut all_sharing_data = Vec::new();
-
-    for recipient_user in recipient_users {
-        // Create resource permissions (same as folder sharing)
-        let resource_permissions = vec![
-            (
-                format!("{}:resource:{}", domain, resource_id),
-                "crud/read".to_string(),
-            ),
-            (
-                format!("{}:resource:{}", domain, resource_id),
-                "crud/update".to_string(),
-            ),
-            (
-                format!("{}:resource:{}", domain, resource_id),
-                "ucan/share".to_string(),
-            ),
-        ];
-
-        // Prepare sharing data
-        match prepare_share_resource(
-            &recipient_user.id,
-            resource_id,
-            resource_permissions,
-            current_user,
-            repo_ctx.clone(),
-            crypto_utils,
-        )
-        .await
-        {
-            Ok(Some(sharing_data)) => {
-                info!(
-                    "Prepared sharing data for user {} on resource {}",
-                    recipient_user.id, resource_id
-                );
-                all_sharing_data.push(sharing_data);
-            }
-            Ok(None) => {
-                info!(
-                    "Resource {} already shared with user {}, skipping",
-                    resource_id, recipient_user.id
-                );
-            }
-            Err(e) => {
-                error!(
-                    "Failed to prepare sharing data for user {} on resource {}: {}",
-                    recipient_user.id, resource_id, e
-                );
-                // Continue with other users instead of failing completely
-                continue;
-            }
-        }
-    }
-
-    // 4. Batch save all sharing data if we have any
-    if !all_sharing_data.is_empty() {
-        let resource_keys: Vec<_> = all_sharing_data
-            .iter()
-            .map(|d| d.resource_key.clone())
-            .collect();
-        let share_records: Vec<_> = all_sharing_data
-            .iter()
-            .map(|d| d.share_record.clone())
-            .collect();
-        let vector_clocks: Vec<_> = all_sharing_data
-            .iter()
-            .flat_map(|d| d.vector_clocks.clone())
-            .collect();
-
-        // Save all in a transaction
-        match repo_ctx
-            .resource_repo
-            .save_bulk_sharing_data(&resource_keys, &share_records, &vector_clocks)
-            .await
-        {
-            Ok(()) => {
-                info!(
-                    "Successfully auto-shared resource {} with {} users in folder {}",
-                    resource_id,
-                    all_sharing_data.len(),
-                    folder_id
-                );
-            }
-            Err(e) => {
-                error!(
-                    "Failed to save bulk sharing data for resource {} in folder {}: {}",
-                    resource_id, folder_id, e
-                );
-                return Err(e.into());
-            }
-        }
-    } else {
-        info!(
-            "No new sharing data to save for resource {} in folder {}",
-            resource_id, folder_id
-        );
-    }
-
     Ok(())
 }

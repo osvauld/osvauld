@@ -1,6 +1,5 @@
 use crate::models::{
-    Certificate, Device, Folder, FolderManifestData, FolderShareRecord, Resource, ResourceKey,
-    ResourceKeyPair, ResourceManifestData, ResourceSyncData, ResourceVectorClock, ResourceWithKey,
+    Certificate, Device, EncryptedResource, Folder, FolderManifestData, FolderShareRecord,
     ShareRecord, User, UserWithDeviceIds, UserWithDevices,
 };
 use async_trait::async_trait;
@@ -80,94 +79,58 @@ pub trait StoreRepository: Send + Sync {
 
 #[async_trait]
 pub trait ResourceRepository: Send + Sync {
-    //TODO: change fav and last accessed
-    async fn save(&self, resource: &Resource) -> Result<(), RepositoryError>;
+    /// Save an encrypted resource to the database
+    async fn save_encrypted(&self, resource: &EncryptedResource) -> Result<(), RepositoryError>;
+
+    /// Find resources by folder ID
     async fn find_by_folder(
         &self,
         folder_id: &str,
         user_id: &str,
-    ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
+    ) -> Result<Vec<EncryptedResource>, RepositoryError>;
+
+    /// Find all resources by folder (alias for find_by_folder)
     async fn find_all_by_folder(
         &self,
         folder_id: &str,
         user_id: &str,
-    ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
-    async fn find_by_id(&self, id: &str, user_id: &str)
-    -> Result<ResourceWithKey, RepositoryError>;
+    ) -> Result<Vec<EncryptedResource>, RepositoryError>;
+
+    /// Find a single resource by ID
+    async fn find_by_id(&self, id: &str) -> Result<EncryptedResource, RepositoryError>;
+
+    /// Delete a resource (hard delete)
     async fn delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
-    async fn soft_delete_resource(&self, id: &str) -> Result<(), RepositoryError>;
-    async fn toggle_fav(&self, id: &str) -> Result<(), RepositoryError>;
-    async fn update_last_accessed(&self, id: &str) -> Result<(), RepositoryError>;
+
+    /// Get all resources for a user
     async fn get_all_resources(
         &self,
         user_id: &str,
-    ) -> Result<Vec<ResourceWithKey>, RepositoryError>;
-    async fn get_favourites(&self, user_id: &str) -> Result<Vec<ResourceWithKey>, RepositoryError>;
-    async fn update_resource(&self, data: &str, resource_id: &str) -> Result<(), RepositoryError>;
-    async fn find_resource_with_key(
-        &self,
-        resource_id: &str,
-        user_id: &str,
-    ) -> Result<ResourceKeyPair, RepositoryError>;
-    async fn save_resource_with_key(
-        &self,
-        resource: &Resource,
-        key: &ResourceKey,
-    ) -> Result<(), RepositoryError>;
-    async fn find_by_id_raw(&self, id: &str) -> Result<Resource, RepositoryError>;
-    async fn save_resource_with_dependencies(
-        &self,
-        resource: &Resource,
-        resource_key: &ResourceKey,
-        share_record: &ShareRecord,
-        vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError>;
-    async fn share_resource_transaction(
-        &self,
-        resource_key: &ResourceKey,
-        share_record: &ShareRecord,
-        recipient_vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError>;
-    async fn add_device_with_vector_clocks(
-        &self,
-        device: &Device,
-        vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError>;
-    async fn get_resource_manifest_data(
-        &self,
-        resource_ids: Option<&[String]>,
-    ) -> Result<Vec<ResourceManifestData>, RepositoryError>;
-    async fn get_resource_sync_data(
-        &self,
-        resource_id: &str,
-    ) -> Result<ResourceSyncData, RepositoryError>;
+    ) -> Result<Vec<EncryptedResource>, RepositoryError>;
 
-    async fn save_resource_sync_data(
-        &self,
-        sync_data: &ResourceSyncData,
-    ) -> Result<(), RepositoryError>;
+    /// Update encrypted resource data and key
+    async fn update_resource(&self, data: &str, encrypted_key: &str, resource_id: &str) -> Result<(), RepositoryError>;
+
+    /// Get all resource IDs
     async fn get_all_resource_ids(&self) -> Result<Vec<String>, RepositoryError>;
-    async fn find_owner_by_resource_id(&self, resource_id: &str) -> Result<User, RepositoryError>;
+
+    /// Get mapping of folder IDs to resource IDs
     async fn get_folder_ids_for_resources(
         &self,
         resource_ids: &[String],
     ) -> Result<HashMap<String, Vec<String>>, RepositoryError>;
+
+    /// Get resource IDs for a specific folder
     async fn get_resource_ids_by_folder_id(
         &self,
         folder_id: &str,
     ) -> Result<Vec<String>, RepositoryError>;
-    async fn save_resource_and_folder_sharing_data(
+
+    /// Save resource with multiple share records in a transaction
+    async fn save_resource_with_share_records(
         &self,
-        resource_keys: &[ResourceKey],
-        resource_share_records: &[ShareRecord],
-        vector_clocks: &[ResourceVectorClock],
-        folder_share_records: &[FolderShareRecord],
-    ) -> Result<(), RepositoryError>;
-    async fn save_bulk_sharing_data(
-        &self,
-        resource_keys: &[ResourceKey],
+        resource: &EncryptedResource,
         share_records: &[ShareRecord],
-        vector_clocks: &[ResourceVectorClock],
     ) -> Result<(), RepositoryError>;
 }
 
@@ -248,81 +211,6 @@ pub trait UserRepository: Send + Sync {
 }
 
 #[async_trait]
-pub trait ResourceKeyRepository: Send + Sync {
-    async fn save(&self, key: &ResourceKey) -> Result<(), RepositoryError>;
-    async fn find_by_resource_id(
-        &self,
-        resource_id: &str,
-    ) -> Result<Vec<ResourceKey>, RepositoryError>;
-    async fn find_by_resource_and_user(
-        &self,
-        resource_id: &str,
-        user_id: &str,
-    ) -> Result<ResourceKey, RepositoryError>;
-    async fn delete_by_resource_id(&self, resource_id: &str) -> Result<(), RepositoryError>;
-    async fn delete_by_resource_and_user(
-        &self,
-        resource_id: &str,
-        user_id: &str,
-    ) -> Result<(), RepositoryError>;
-
-    async fn add_resource_keys(&self, keys: &[ResourceKey]) -> Result<(), RepositoryError>;
-}
-
-#[async_trait]
-pub trait VectorClockRepository: Send + Sync {
-    /// Save multiple vector clock entries
-    async fn save_vector_clocks(
-        &self,
-        vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError>;
-
-    /// Increment a vector clock for a specific resource and device
-    async fn increment_vector_clock(
-        &self,
-        resource_id: &str,
-        device_id: &str,
-    ) -> Result<ResourceVectorClock, RepositoryError>;
-
-    /// Get all vector clock entries for a resource
-    async fn get_vector_clocks_for_resource(
-        &self,
-        resource_id: &str,
-    ) -> Result<Vec<ResourceVectorClock>, RepositoryError>;
-
-    /// Get a specific vector clock entry
-    async fn get_vector_clock(
-        &self,
-        resource_id: &str,
-        device_id: &str,
-    ) -> Result<ResourceVectorClock, RepositoryError>;
-
-    async fn check_if_device_needs_update(
-        &self,
-        resource_ids: &[String],
-        last_synced_at: i64,
-        device_id: &str,
-    ) -> Result<bool, RepositoryError>;
-
-    async fn get_resource_ids_needing_updates(
-        &self,
-        resource_ids: &[String],
-        last_synced_at: i64,
-        device_id: &str,
-    ) -> Result<Vec<String>, RepositoryError>;
-
-    async fn update_vector_clocks(
-        &self,
-        update_vector_clocks: &[ResourceVectorClock],
-        add_vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError>;
-    async fn save_vector_clock(
-        &self,
-        vector_clock: &ResourceVectorClock,
-    ) -> Result<(), RepositoryError>;
-}
-
-#[async_trait]
 pub trait ShareRepository: Send + Sync {
     /// Save a share record to the database
     async fn save(&self, share_record: &ShareRecord) -> Result<(), RepositoryError>;
@@ -356,6 +244,15 @@ pub trait ShareRepository: Send + Sync {
         resource_id: &str,
         user_id: &str,
     ) -> Result<String, RepositoryError>;
+
+    /// Find share records for multiple resources and a user with specific operation type
+    /// Returns records in same order as input resource_ids
+    async fn find_by_resources_and_user(
+        &self,
+        resource_ids: &[String],
+        user_id: &str,
+        operation_type: &str,
+    ) -> Result<Vec<ShareRecord>, RepositoryError>;
 }
 #[async_trait]
 pub trait FolderShareRecordRepository: Send + Sync {
@@ -381,13 +278,12 @@ pub trait FolderShareRecordRepository: Send + Sync {
     ) -> Result<(), RepositoryError>;
 
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
-    async fn share_folder_transaction(
-        &self,
-        folder_share_record: &FolderShareRecord,
-        resource_keys: &[ResourceKey],
-        resource_share_records: &[ShareRecord],
-        resource_vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError>;
-
     async fn get_shared_users(&self, folder_id: &str) -> Result<Vec<User>, RepositoryError>;
+
+    /// Check if a folder is shared with a specific user (efficient single query)
+    async fn find_by_folder_and_user(
+        &self,
+        folder_id: &str,
+        user_id: &str,
+    ) -> Result<Option<FolderShareRecord>, RepositoryError>;
 }

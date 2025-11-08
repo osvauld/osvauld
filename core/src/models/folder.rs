@@ -9,6 +9,7 @@ pub struct Folder {
     pub default_folder: bool,
     pub parent_folder_id: Option<String>,
     pub description: Option<String>,
+    pub ucan: String,
     pub created_at: i64,
     pub updated_at: i64,
     pub deleted: bool,
@@ -20,13 +21,14 @@ pub struct FolderManifestData {
     pub recipient_user_ids: Vec<String>,
 }
 impl Folder {
-    pub fn new(name: String, description: Option<String>, default_folder: bool) -> Self {
+    pub fn new(name: String, description: Option<String>, default_folder: bool, ucan: String) -> Self {
         let now = Local::now().timestamp_millis();
 
         Self {
             id: Uuid::new_v4().to_string(),
             name,
             description,
+            ucan,
             created_at: now,
             updated_at: now,
             default_folder,

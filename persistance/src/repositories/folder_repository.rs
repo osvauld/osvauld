@@ -95,14 +95,9 @@ impl FolderRepository for SqliteFolderRepository {
 
         // Start a transaction
         conn.transaction(|conn| -> Result<(), DieselError> {
-            // First soft delete all resources in the folder
-            diesel::update(resources::table)
+            // First delete all resources in the folder (no longer soft-delete)
+            diesel::delete(resources::table)
                 .filter(resources::folder_id.eq(folder_id))
-                .set((
-                    resources::deleted.eq(true),
-                    resources::deleted_at.eq(Some(now)),
-                    resources::updated_at.eq(now),
-                ))
                 .execute(conn)?;
 
             // Then soft delete the folder

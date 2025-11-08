@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use crypto_utils::CryptoUtils;
 use log::{error, info};
-use network::P2PService;
+use network::{P2PService, p2p_init};
 use osvauld_core::models::UserRole;
 use persistance::{database::initialize_repositories, initialize_database};
 
@@ -14,6 +14,21 @@ use services::{
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// Helper function to get passphrase - either from argument or by prompting
+fn get_passphrase(passphrase_opt: Option<String>, prompt: &str) -> Result<String, Box<dyn std::error::Error>> {
+    match passphrase_opt {
+        Some(p) => Ok(p),
+        None => {
+            println!("{}", prompt);
+            let passphrase = rpassword::read_password()?;
+            if passphrase.is_empty() {
+                return Err("Passphrase cannot be empty".into());
+            }
+            Ok(passphrase)
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(author, version, about = "LivNote P2P CLI", long_about = None)]
 struct Cli {
@@ -25,7 +40,7 @@ struct Cli {
     db_path: String,
 
     /// Domain for UCAN tokens
-    #[arg(short = 'o', long, default_value = "livnote")]
+    #[arg(short = 'o', long, default_value = "sthalam")]
     domain: String,
 }
 
@@ -37,16 +52,16 @@ enum Commands {
         #[arg(short, long)]
         username: String,
 
-        /// Passphrase for encryption
+        /// Passphrase for encryption (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
     },
 
     /// Start the P2P listener and print connection token
     Start {
-        /// Passphrase to unlock the certificate
+        /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
 
         /// Generate and print a one-time connection token
         #[arg(short = 't', long)]
@@ -55,16 +70,16 @@ enum Commands {
 
     /// Generate a connection token without starting the listener
     Token {
-        /// Passphrase to unlock the certificate
+        /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
     },
 
     /// Generate a folder share token for public viewing
     FolderToken {
-        /// Passphrase to unlock the certificate
+        /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
-        passphrase: String,
+        passphrase: Option<String>,
 
         /// Folder ID to generate token for
         #[arg(short, long)]
@@ -74,8 +89,12 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize logging with filters to suppress noisy dependencies
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or(
+            "debug,iroh=warn,tracing=warn,iroh::magicsock=warn,quinn=warn"
+        )
+    ).init();
 
     let cli = Cli::parse();
 
@@ -98,14 +117,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             username,
             passphrase,
         } => {
-            handle_init(&username, &passphrase, repo_ctx.clone()).await?;
+            let pass = get_passphrase(passphrase, "Enter passphrase:")?;
+            handle_init(&username, &pass, repo_ctx.clone(), domain.clone()).await?;
         }
         Commands::Start {
             passphrase,
             print_token,
         } => {
+            let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
             handle_start(
-                &passphrase,
+                &pass,
                 print_token,
                 repo_ctx.clone(),
                 crypto_utils.clone(),
@@ -114,14 +135,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
         }
         Commands::Token { passphrase } => {
-            handle_token(&passphrase, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
+            let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
+            handle_token(&pass, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
         }
         Commands::FolderToken {
             passphrase,
             folder_id,
         } => {
+            let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
             handle_folder_token(
-                &passphrase,
+                &pass,
                 &folder_id,
                 repo_ctx.clone(),
                 crypto_utils.clone(),
@@ -138,6 +161,7 @@ async fn handle_init(
     username: &str,
     passphrase: &str,
     repo_ctx: Arc<persistance::database::RepositoryContext>,
+    domain: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if already signed up
     if is_signed_up(repo_ctx.clone()).await? {
@@ -148,7 +172,7 @@ async fn handle_init(
     info!("Initializing new user: {}", username);
 
     // Create user and certificates
-    handle_signup(username, passphrase, repo_ctx.clone(), "livnote").await?;
+    handle_signup(username, passphrase, repo_ctx.clone(), &domain).await?;
 
     // Create default folder
 
@@ -223,8 +247,8 @@ async fn handle_start(
 
     let p2p_service = Arc::new(p2p_service);
 
-    // Start P2P service
-    p2p_service.start_p2p_service(&device, &user).await?;
+    // Initialize P2P network (new pattern)
+    p2p_init::initialize_p2p(&p2p_service, &user, &device).await?;
 
     info!("✔ P2P service started");
     info!("✔ Node ID: {}", device.device_key);
@@ -255,8 +279,20 @@ async fn handle_start(
                 Some(event) => {
                     use network::p2p::P2PEvent;
                     match event {
-                        P2PEvent::Connected => {
-                            info!("📡 ✅ Peer connected");
+                        P2PEvent::Connected { peer_id } => {
+                            info!("📡 ✅ Peer connected: {}", peer_id);
+                        }
+                        P2PEvent::NodeConnected { peer_id } => {
+                            info!("🖥️  ✅ Sovereign node connected: {}", peer_id);
+                        }
+                        P2PEvent::UserConnected { peer_id } => {
+                            info!("👤 ✅ User connected: {}", peer_id);
+                        }
+                        P2PEvent::ViewerConnected { peer_id } => {
+                            info!("👁️  ✅ Viewer connected: {}", peer_id);
+                        }
+                        P2PEvent::FirstConnection { peer_id } => {
+                            info!("🆕 ✅ First-time connection completed: {}", peer_id);
                         }
                         P2PEvent::Disconnected => {
                             info!("📡 ❌ Peer disconnected");
@@ -272,9 +308,6 @@ async fn handle_start(
                         }
                         P2PEvent::Error { message, source } => {
                             error!("⚠️  P2P error from {}: {}", source, message);
-                        }
-                        P2PEvent::LiveEditConnected { connection_id } => {
-                            info!("✏️  ✅ Live edit connected: {}", connection_id);
                         }
                         P2PEvent::ResourceAdded {
                             resource_id,
@@ -348,7 +381,7 @@ async fn handle_token(
     info!("Loading user certificate...");
 
     // Load certificate to verify passphrase
-    let (user, _device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
+    let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
 
     info!("✔ Authenticated as: {}", user.username);
 
@@ -361,14 +394,27 @@ async fn handle_token(
     )
     .await?;
 
+    // Create connection string JSON (same as in handle_start)
+    let connection_details = json!({
+        "user_public_key": user.public_key,
+        "device_public_key": device.device_key,
+        "username": user.username,
+        "ucan_token": token,
+        "ucan_pub_key": pub_key,
+    });
+
+    // Convert to string and base64 encode
+    let connection_json = connection_details.to_string();
+    let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
+
     println!("\n╔══════════════════════════════════════════╗");
-    println!("ONE-TIME CONNECTION TOKEN");
+    println!("║     ONE-TIME CONNECTION STRING           ║");
     println!("╚══════════════════════════════════════════╝");
-    println!("{}", token);
+    println!("{}", encoded_connection);
     println!("╚══════════════════════════════════════════╝");
-    println!("Public Key: {}", pub_key);
-    println!("User ID: {}", user.id);
-    println!("Username: {}", user.username);
+    println!("\nℹ️  Copy the string above and paste it into your app");
+    println!("ℹ️  User: {}", user.username);
+    println!("ℹ️  User ID: {}", user.id);
     println!("╚══════════════════════════════════════════╝\n");
 
     Ok(())

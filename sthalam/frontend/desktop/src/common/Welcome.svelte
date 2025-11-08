@@ -35,6 +35,14 @@
 		} finally {
 			if (pubkey) {
 				authenticated?.(true);
+				// Initialize P2P network after successful login
+				try {
+					await sendMessage("startP2PListener");
+					console.log("P2P network initialized");
+				} catch (error) {
+					console.error("Failed to initialize P2P network:", error);
+					// Non-fatal error - user is logged in but P2P won't work
+				}
 			}
 			isLoaderActive = false;
 			setTimeout(() => {

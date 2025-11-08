@@ -21,8 +21,6 @@ pub fn handle_asset_request<R: tauri::Runtime>(
         path.to_string()
     };
 
-    info!("[Asset Protocol] Request for: {}", path_str);
-
     let app_handle = app.app_handle().clone();
 
     tauri::async_runtime::spawn(async move {
@@ -36,8 +34,12 @@ pub fn handle_asset_request<R: tauri::Runtime>(
                     Ok(content) => {
                         let mime_type = get_mime_type(&path_str);
 
-                        info!("[Asset Protocol] ✓ Serving {} ({} bytes, MIME: {})",
-                            path_str, content.len(), mime_type);
+                        info!(
+                            "[Asset Protocol] ✓ Serving {} ({} bytes, MIME: {})",
+                            path_str,
+                            content.len(),
+                            mime_type
+                        );
 
                         let response = tauri::http::Response::builder()
                             .status(200)
@@ -51,13 +53,20 @@ pub fn handle_asset_request<R: tauri::Runtime>(
                         responder.respond(response);
                     }
                     Err(e) => {
-                        error!("[Asset Protocol] ✗ Failed to read file: {} - {}", path.display(), e);
+                        error!(
+                            "[Asset Protocol] ✗ Failed to read file: {} - {}",
+                            path.display(),
+                            e
+                        );
                         send_404(responder);
                     }
                 }
             }
             None => {
-                error!("[Asset Protocol] ✗ Could not resolve path for: {}", path_str);
+                error!(
+                    "[Asset Protocol] ✗ Could not resolve path for: {}",
+                    path_str
+                );
                 send_404(responder);
             }
         }
@@ -65,15 +74,21 @@ pub fn handle_asset_request<R: tauri::Runtime>(
 }
 
 /// Resolve asset path based on dev/production mode
-fn resolve_asset_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path_str: &str) -> Option<PathBuf> {
+fn resolve_asset_path<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    path_str: &str,
+) -> Option<PathBuf> {
     if cfg!(debug_assertions) {
         // Dev mode: serve from public directory
         let current_dir = std::env::current_dir().ok()?;
         let workspace = current_dir.parent().unwrap_or(&current_dir);
         let dev_path = workspace.join("frontend/desktop/public").join(path_str);
 
-        info!("[Asset Protocol] Dev mode - workspace: {}, path: {}",
-            workspace.display(), dev_path.display());
+        info!(
+            "[Asset Protocol] Dev mode - workspace: {}, path: {}",
+            workspace.display(),
+            dev_path.display()
+        );
 
         Some(dev_path)
     } else {
@@ -84,16 +99,24 @@ fn resolve_asset_path<R: tauri::Runtime>(app: &tauri::AppHandle<R>, path_str: &s
         let prod_path = resource_dir.join(path_str);
 
         if prod_path.exists() {
-            info!("[Asset Protocol] Production mode - found at: {}", prod_path.display());
+            info!(
+                "[Asset Protocol] Production mode - found at: {}",
+                prod_path.display()
+            );
             return Some(prod_path);
         }
 
         // Try alternate path with _up_/frontend/desktop/dist/ prefix
         // (Tauri preserves ../ in resource paths)
-        let alt_path = resource_dir.join("_up_/frontend/desktop/dist").join(path_str);
+        let alt_path = resource_dir
+            .join("_up_/frontend/desktop/dist")
+            .join(path_str);
 
         if alt_path.exists() {
-            info!("[Asset Protocol] Production mode - found at alternate path: {}", alt_path.display());
+            info!(
+                "[Asset Protocol] Production mode - found at alternate path: {}",
+                alt_path.display()
+            );
             return Some(alt_path);
         }
 

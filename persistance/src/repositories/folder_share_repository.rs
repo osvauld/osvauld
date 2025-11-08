@@ -1,15 +1,11 @@
 use crate::DbConnection;
-use crate::database::schema::{
-    folder_share_records, resource_keys, resource_vector_clocks, share_records, users,
-};
-use crate::models::{
-    FolderShareRecordModel, ResourceKeyModel, ResourceVectorClockModel, ShareRecordModel, UserModel,
-};
+use crate::database::schema::{folder_share_records, users};
+use crate::models::{FolderShareRecordModel, UserModel};
 use async_trait::async_trait;
 use diesel::prelude::*;
 use osvauld_core::models::folder_share_record::FolderShareRecord;
 use osvauld_core::models::share_record::ShareOperation;
-use osvauld_core::models::{ResourceKey, ResourceVectorClock, ShareRecord, User};
+use osvauld_core::models::User;
 use osvauld_core::repositories::{FolderShareRecordRepository, RepositoryError};
 
 pub struct SqliteFolderShareRecordRepository {
@@ -143,75 +139,8 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
 
         Ok(ucan_token)
     }
-    async fn share_folder_transaction(
-        &self,
-        folder_share_record: &FolderShareRecord,
-        resource_keys: &[ResourceKey],
-        resource_share_records: &[ShareRecord],
-        resource_vector_clocks: &[ResourceVectorClock],
-    ) -> Result<(), RepositoryError> {
-        let mut conn = self.connection.get().map_err(|e| {
-            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
-        })?;
-        // Use a transaction to ensure all operations succeed or fail together
-        conn.transaction::<_, diesel::result::Error, _>(|conn| {
-            // 1. Insert folder share record
-            let folder_share_model = FolderShareRecordModel::from(folder_share_record);
-            diesel::insert_into(folder_share_records::table)
-                .values(&folder_share_model)
-                .execute(conn)?;
-
-            // 2. Insert all resource keys
-            if !resource_keys.is_empty() {
-                let resource_key_models: Vec<ResourceKeyModel> = resource_keys
-                    .iter()
-                    .map(|key| ResourceKeyModel::from(key))
-                    .collect();
-
-                for resource_key_model in &resource_key_models {
-                    diesel::insert_into(resource_keys::table)
-                        .values(resource_key_model)
-                        .execute(conn)?;
-                }
-            }
-
-            // 3. Insert all share records
-            if !resource_share_records.is_empty() {
-                let share_record_models: Vec<ShareRecordModel> = resource_share_records
-                    .iter()
-                    .map(|record| ShareRecordModel::from(record))
-                    .collect();
-
-                for share_record_model in &share_record_models {
-                    diesel::insert_into(share_records::table)
-                        .values(share_record_model)
-                        .execute(conn)?;
-                }
-            }
-            // 4. Insert all vector clocks
-            if !resource_vector_clocks.is_empty() {
-                let vector_clock_models = ResourceVectorClockModel::from_domain_vector_clocks(resource_vector_clocks);
-                for vector_clock_model in &vector_clock_models {
-                    diesel::insert_into(resource_vector_clocks::table)
-                        .values(vector_clock_model)
-                        .execute(conn)?;
-                }
-            }
-
-            Ok(())
-        })
-        .map_err(|e| {
-            RepositoryError::DatabaseError(format!(
-                "Failed to share folder transaction (resource_keys: {}, share_records: {}, vector_clocks: {}): {}",
-                resource_keys.len(),
-                resource_share_records.len(),
-                resource_vector_clocks.len(),
-                e
-            ))
-        })?;
-
-        Ok(())
-    }
+    // Removed: share_folder_transaction - no longer needed with new architecture
+    // Resource keys and vector clocks are managed differently now
     async fn get_shared_users(&self, folder_id: &str) -> Result<Vec<User>, RepositoryError> {
         let mut conn = self.connection.get().map_err(|e| {
             RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
@@ -231,5 +160,30 @@ impl FolderShareRecordRepository for SqliteFolderShareRecordRepository {
             })?;
 
         Ok(UserModel::to_domain_users(user_models))
+    }
+
+    async fn find_by_folder_and_user(
+        &self,
+        folder_id: &str,
+        user_id: &str,
+    ) -> Result<Option<FolderShareRecord>, RepositoryError> {
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
+
+        let result = folder_share_records::table
+            .filter(folder_share_records::folder_id.eq(folder_id))
+            .filter(folder_share_records::recipient_user_id.eq(user_id))
+            .filter(folder_share_records::operation_type.eq(ShareOperation::Share.to_string()))
+            .first::<FolderShareRecordModel>(&mut *conn)
+            .optional()
+            .map_err(|e| {
+                RepositoryError::DatabaseError(format!(
+                    "Failed to find folder share record for folder '{}' and user '{}': {}",
+                    folder_id, user_id, e
+                ))
+            })?;
+
+        Ok(result.map(|model| model.to_domain()))
     }
 }

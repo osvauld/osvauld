@@ -1,85 +1,83 @@
-use crate::models::ResourceKey;
-
-use super::ResourceSyncData;
+use super::resource::EncryptedResource;
 use super::device::Device;
 use super::folder::Folder;
 use super::folder_share_record::FolderShareRecord;
 use super::share_record::ShareRecord;
-use super::sync::{
-    DeviceManifestComparisonResult, DeviceManifestRequestPayload, DeviceNetworkSyncPayload,
-    UserManifestPayload, UserNetworkSyncPayload,
-};
 use super::user::User;
-use super::vector_clock::ResourceVectorClock;
 use serde::{Deserialize, Serialize};
+
+/// Represents the role/type of a peer in P2P connections
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PeerRole {
+    Owner,
+    Node,
+    Viewer,
+    User,
+}
+
+impl PeerRole {
+    /// Create PeerRole from string (extracted from UCAN token)
+    pub fn from_string(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "owner" => PeerRole::Owner,
+            "node" => PeerRole::Node,
+            "viewer" => PeerRole::Viewer,
+            _ => PeerRole::User, // Default
+        }
+    }
+
+    /// Convert PeerRole to string (for UCAN token facts)
+    pub fn as_str(&self) -> &str {
+        match self {
+            PeerRole::Owner => "owner",
+            PeerRole::Node => "node",
+            PeerRole::Viewer => "viewer",
+            PeerRole::User => "user",
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {
+    // Connection management
     Ping,
     Pong,
     Error,
-    MergeUpdate(ResourceUpdateMsg),
-    LiveEdit(LiveEditMessage),
-    // Disconnect(DisconnectStatus),
-    DeviceManifestRequest(DeviceManifestRequestPayload),
-    DeviceManifestResponse(DeviceManifestComparisonResult),
-    DeviceNetworkSync(DeviceNetworkSyncPayload),
-    DeviceManifestAck,
-    DeviceNetworkSyncAck,
-    ResourceAdditionRequest(ResourceSyncData),
-    ResourceAdditionComplete,
-    UserManifestPayload(UserManifestPayload),
-    UserNetworkSync(UserNetworkSyncPayload),
-    UserNetworkSyncAck,
-    FolderSync(FolderSyncMessage),
-    RetryRequest,
     Handshake(HandshakeMessage),
-    FolderTokenRequest(FolderTokenRequest),
-    FolderTokenResponse(FolderTokenResponse),
-    Website(WebsiteMessage),
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum DisconnectStatus {
-    Request,
-    Accepted,
-    Rejected(String),
-}
+    RetryRequest,
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ConnectionType {
-    Device,
-    User,
-    Website,
+    // Resource sync (unified UCAN-based protocol for owner connections)
+    MergeUpdate(ResourceUpdateMsg),
+    ResourceAdditionRequest(EncryptedResource),
+    ResourceAdditionComplete,
+    AssetTransfer(AssetTransferMessage),
+
+    // Folder sync (simple push protocol)
+    FolderDataSync(FolderDataSync),
+    ResourceDataSync(ResourceDataSync),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ResourceUpdateMsg {
-    // Initial message with state vector
+    /// Step 1: Initiator sends their state vectors and asset IDs
+    /// state_vectors: JSON format {"doc_name": {"state_vector": [1,2,3,...]}}
+    /// asset_ids: List of asset IDs this peer has
     StateVectorRequest {
         resource_id: String,
-        state_vectors: String,
+        state_vectors: String,  // JSON with Loro state vectors per doc
+        asset_ids: Vec<String>, // Asset IDs this peer has
         ucan_token: String,
     },
-    // Response with updates and state vector
+
+    /// Step 2: Responder sends updates and their state
+    /// updates: JSON format {"doc_name": {"updates": [...], "state_vector": [...]}}
+    /// missing_asset_ids: Asset IDs responder needs from initiator
     UpdatesResponse {
         resource_id: String,
-        updates: String,
+        updates: String,              // JSON with Loro updates per doc
+        state_vectors: String,        // Responder's current state vectors
+        missing_asset_ids: Vec<String>, // Assets responder doesn't have
         ucan_token: String,
-    },
-    FinalUpdateMerge {
-        resource_id: String,
-        updates: String,
-        vector_clocks: Vec<ResourceVectorClock>,
-        share_records: Vec<ShareRecord>,
-        resource_keys: Vec<ResourceKey>,
-    },
-    // Acknowledgment that sync is complete
-    VectorClockResponse {
-        resource_id: String,
-        update_clock: Vec<ResourceVectorClock>,
-        add_clock: Vec<ResourceVectorClock>,
-        share_records: Vec<ShareRecord>,
-        resource_keys: Vec<ResourceKey>,
     },
 }
 
@@ -102,7 +100,7 @@ pub struct FirstConnectRequest {
     pub one_time_ucan: String,
     pub peer_device: Device,
     pub peer_user: User,
-    pub connection_type: ConnectionType,
+    // Note: connection_type removed - inferred from UCAN token role
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -120,7 +118,7 @@ pub struct UcanAndUserExchange {
     pub ucan_token: String,
     pub peer_user: User,
     pub peer_device: Device,
-    pub connection_type: ConnectionType,
+    // Note: connection_type removed - inferred from UCAN token role
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -150,116 +148,48 @@ pub struct WebsiteReconnectResponse {
     pub node_device: Device,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ConnectionAction {
-    DeviceSync,
-    AddDevice,
-    LiveEdit,
-    UserSync,
-}
 
+/// Asset transfer messages for static files (non-CRDT)
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum LiveEditMessage {
-    /// Verify both peers are editing the same document
-    DocumentCheck {
+pub enum AssetTransferMessage {
+    /// Request specific assets by ID
+    AssetRequest {
         resource_id: String,
-    },
-    NotSameDocument,
-    /// Exchange document state vectors for comparison
-    StateVectorExchange {
-        resource_id: String,
-        state_vectors: String,
-    },
-    /// Transfer document updates and pending changes
-    /// Contains the update data along with the current buffer state
-    UpdateExchange {
-        resource_id: String,
-        updates: String,
-    },
-    UpdateExchangeResponse {
-        resource_id: String,
-        updates: String,
-    },
-    DocumentChange {
-        resource_id: String,
-    },
-    DocumentUpdate {
-        resource_id: String,
-        client_id: u32,
-        updates: Vec<u8>,
-        doc_type: String,
-    },
-    AwarenessUpdate {
-        resource_id: String,
-        client_id: u32,
-        awareness_data: Vec<u8>,
-    },
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum FolderSyncMessage {
-    UnknownFoldersPayload(UnknownFoldersPayload),
-    FolderRecipientSyncPayload(Vec<FolderRecipientUpdate>),
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FolderWithShareRecords {
-    pub folder: Folder,
-    pub share_records: Vec<FolderShareRecord>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UnknownFoldersPayload {
-    pub folder_data: Vec<FolderWithShareRecords>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FolderRecipientUpdate {
-    pub folder_id: String,
-    pub new_share_records: Vec<FolderShareRecord>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FolderTokenRequest {
-    pub folder_id: String,
-    pub domain: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FolderTokenResponse {
-    pub folder_id: String,
-    pub connection_string: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum WebsiteMessage {
-    ResourceRequest {
+        asset_ids: Vec<String>,
         ucan_token: String,
     },
-    ResourceResponse {
+    /// Response with requested asset data
+    AssetResponse {
         resource_id: String,
-        resource_data: ResourceSyncData,
-    },
-    InitialSyncComplete {
-        folder_id: String,
-        resource_count: usize,
-    },
-    FolderResourceInfo {
-        folder_id: String,
-        resource_ids: Vec<String>,
-        folder_ucan: String,
-    },
-    IncrementalSyncRequest {
-        resource_id: String,
-        resource_ucan: String,
-        sync_data: String, // JSON with state vectors and form updates
-    },
-    IncrementalSyncResponse {
-        resource_id: String,
-        sync_data: String, // JSON with comment and website updates
-    },
-    ViewerCommentsUpdate {
-        resource_id: String,
-        resource_ucan: String,
-        sync_data: String, // JSON with only thread_comments_doc updates
+        assets: Vec<Asset>,
     },
 }
+
+/// Represents a static asset (image, file, etc.)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Asset {
+    pub asset_id: String,
+    pub data: Vec<u8>,
+    pub mime_type: Option<String>,
+}
+
+// Folder sync protocol - simple push after share_folder()
+
+/// Folder data with share record for syncing to node
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderDataSync {
+    pub folder: Folder,
+    pub folder_share_record: FolderShareRecord,
+}
+
+/// Resource data with share records for syncing to node
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceDataSync {
+    /// Re-encrypted resource for node
+    pub resource: EncryptedResource,
+    /// All share records for this resource (enables node to forward viewer updates)
+    pub share_records: Vec<ShareRecord>,
+    /// Owner's folder UCAN token (proves add_resources permission)
+    pub owner_folder_ucan: String,
+}
+

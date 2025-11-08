@@ -5,83 +5,51 @@ use tokio::sync::mpsc;
 /// Enum representing various P2P events that can be emitted
 #[derive(Debug, Clone)]
 pub enum P2PEvent {
-    /// Emitted when a connection is established
-    Connected,
-    /// Type of connection established (user or device)
+    /// Emitted when a connection is established (after handshake complete)
+    Connected {
+        peer_id: String,
+    },
+    /// Emitted when a first-time connection completes (token exchange done)
+    FirstConnection {
+        peer_id: String,
+    },
+    /// Emitted when a sovereign node connection is established
+    NodeConnected {
+        peer_id: String,
+    },
+    /// Emitted when a user connection is established
+    UserConnected {
+        peer_id: String,
+    },
+    /// Emitted when a viewer connection is established
+    ViewerConnected {
+        peer_id: String,
+    },
     /// Emitted when a connection is terminated
     Disconnected,
     /// Emitted when a handshake fails
     HandshakeFailed {
-        /// Description of the error
         error: String,
     },
     /// Emitted when a sync operation completes
     SyncComplete,
     /// Emitted when a share operation completes
     ShareComplete,
-    /// Emitted when a real-time editing event is received
-    EditingEvent {
-        resource_id: String,
-        client_id: u32,
-        updates: Vec<u8>,
-        doc_type: String,
-    },
-    AwarenessEvent {
-        resource_id: String,
-        client_id: u32,
-        awareness_data: Vec<u8>,
-    },
     /// Emitted when an error occurs
     Error {
-        /// Description of the error  
         message: String,
-        /// Source of the error
         source: String,
     },
-    UpdatesEvent {
-        resource_id: String,
-        updates: String,
-        client_id: u32,
-    },
-    LiveEditConnected {
-        connection_id: String,
-    },
-    DocumentCheck {
-        resource_id: String,
-        connection_id: String,
-    },
-    UpdateRequest {
-        resource_id: String,
-        connection_id: String,
-        state_vectors: String,
-        current_user_id: String,
-    },
-    ProcessUpdate {
-        resource_id: String,
-        connection_id: String,
-        updates: String,
-        client_id: u32,
-    },
-    ProcessUpdateResponse {
-        resource_id: String,
-        connection_id: String,
-        updates: String,
-        client_id: u32,
-    },
-    DocumentChanged {
-        resource_id: String,
-        connection_id: String,
-    },
-    DocumentMismatch {
-        connection_id: String,
-    },
+    /// Emitted when a resource is successfully added
     ResourceAdded {
         resource_id: String,
         username: String,
     },
+    /// Emitted when folders are added
     FoldersAdded {
         folders: Vec<Folder>,
     },
+    /// Emitted when a folder connection token is received
     FolderTokenReceived {
         folder_id: String,
         connection_string: String,
