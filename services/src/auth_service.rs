@@ -308,20 +308,13 @@ pub async fn generate_one_time_ucan_token(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(String, String)> {
-    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    let (ucan_token, ucan_public_key) = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .generate_one_time_user_connect_token(
-                &encrypted_ucan_pvt_key,
-                capability_str,
-                role,
-            )
-            .await?
-    };
-
-    Ok((ucan_token, ucan_public_key))
+    crate::ucan_service::issue_one_time_connection_token(
+        capability_str,
+        role,
+        crypto_utils,
+        &repo_ctx,
+    )
+    .await
 }
 
 pub async fn generate_folder_share_token(

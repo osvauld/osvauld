@@ -127,28 +127,34 @@ When removing a handler:
 
 **Frontend → Handler → Service → Crypto Utils → Repository**
 
-1. **Frontend**: `sendMessage("addFolder", { name, description })`
-   - Location: `FolderManager.svelte:26`, `data.svelte.ts:164`
+**Status**: ✅ Updated (2025-11-09) - Template-based permissions
+
+1. **Frontend**: `sendMessage("addFolder", { name, description, folderTemplateJson })`
+   - Location: `FolderManager.svelte:26`, `data.svelte.ts:169`
    - Calls: `invoke("handle_add_folder", { input: data })`
-   - Types: `AddFolderInput` (helper.ts:7)
+   - Types: `AddFolderInput` with folderTemplateJson (helper.ts:7)
+   - **Changed**: Added `folderTemplateJson: JSON.stringify(FOLDER_TEMPLATE)`
 
 2. **Handler**: `handle_add_folder`
    - Location: `tauri_handlers/src/handlers/folder.rs:19`
    - Returns: `BaseCryptoResponse::FolderCreated(folder)` → `FolderResponse` (helper.ts:12)
 
 3. **Service**: `create_folder`
-   - Location: `services/src/folder_service.rs:13`
+   - Location: `services/src/folder_service.rs:14`
+   - **Template-Based Implementation** (2025-11-09):
    - Steps:
-     - Validates folder name is not empty (line 22)
-     - Creates new `Folder` model (line 25)
-     - Gets encrypted UCAN key from store (line 26)
-     - **Calls crypto_utils**: `generate_folder_owner_ucan()` (line 30)
-       - Location: `crypto_utils/src/ucan_utils.rs`
-       - Generates UCAN token for folder owner
-       - Grants full folder permissions
+     - Validates folder name is not empty (line 24)
+     - Creates new `Folder` model (line 29)
+     - Gets encrypted UCAN key from store (line 32)
+     - **Calls crypto_utils**: `generate_folder_ucan_with_template()` (line 35)
+       - Location: `crypto_utils/src/ucan_utils.rs:718`
+       - Parses folder_template_json from frontend
+       - Extracts owner_template capabilities
+       - Builds UCAN with capabilities from template
+       - Embeds owner_template and node_template in facts
        - Returns: (folder_root_ucan_key, ucan_cid)
-     - Creates `FolderShareRecord` for owner (line 33)
-     - Saves folder and share record in transaction (line 41)
+     - Creates `FolderShareRecord` for owner (line 47)
+     - Saves folder and share record in transaction (line 55)
 
 4. **Repository Functions**:
    - `store_repo.get_ucan_key()` - `persistance/src/repositories/store_repository.rs:233`
@@ -184,55 +190,47 @@ When removing a handler:
 
 **Frontend → Handler → Service → Crypto Utils → Repository**
 
-1. **Frontend**: `sendMessage("shareFolder", { folderId, userId, permissions })`
-   - Location: `PublishWebsiteModal.svelte:132`
+**Status**: ✅ Updated (2025-11-09) - Template-based permissions
+
+1. **Frontend**: `sendMessage("shareFolder", { folderId, userId, recipientRole })`
+   - Location: `PublishWebsiteModal.svelte:119`
    - Calls: `invoke("handle_share_folder", { input: data })`
-   - Types: `ShareFolderInput` (helper.ts)
+   - Types: `ShareFolder` with recipientRole: "node" (helper.ts)
+   - **Changed**: Replaced `permissions` array with `recipientRole` string
 
 2. **Handler**: `handle_share_folder`
    - Location: `tauri_handlers/src/handlers/folder.rs:85`
    - Returns: `BaseCryptoResponse::Success`
 
 3. **Service**: `share_folder`
-   - Location: `services/src/folder_service.rs:76`
+   - Location: `services/src/folder_service.rs:89`
+   - **Template-Based Implementation** (2025-11-09):
    - Steps:
-     - Validates folder exists (line 86)
-     - Validates recipient user exists (line 93)
-     - Checks if already shared using efficient single query (line 100)
+     - Validates folder exists (line 99)
+     - Validates recipient user exists (line 106)
+     - Checks if already shared using efficient single query (line 113)
        - Calls `folder_share_repo.find_by_folder_and_user()`
-     - Gets owner's encrypted UCAN key (line 113)
-     - Decrypts UCAN signing keys (line 119)
-     - **Calls crypto_utils**: `generate_flexible_folder_token()` (line 124)
+     - **Extracts template from owner's folder UCAN** (line 125-143):
+       - Matches recipient_role ("owner" or "node") to template_key
+       - Parses folder.ucan using `crypto_utils::ucan_utils::validate_structure()`
+       - Gets facts from parsed UCAN
+       - Extracts `owner_template` or `node_template` based on role
+       - Gets capabilities map from template
+     - Gets owner's encrypted UCAN key (line 153)
+     - Decrypts UCAN signing keys (line 154)
+     - **Calls crypto_utils**: `generate_flexible_folder_token()` (line 160)
        - Location: `crypto_utils/src/ucan_utils.rs`
-       - Grants `crud/read` + `share_folder` capabilities
-       - Recipient role: "node"
+       - Uses capabilities extracted from template
+       - Recipient role: passed from frontend ("node")
        - Returns: folder_ucan_token
-     - Generates CID from folder UCAN (line 138)
-     - Creates and saves `FolderShareRecord` (line 141)
-     - Gets all resources in folder (line 156)
-     - **For each resource** (line 162):
-       - Reads unencrypted `ucan_token` from resources table
-       - **Calls crypto_utils**: `issue_flexible_delegated_resource_ucan()` (line 168)
-         - Location: `crypto_utils/src/crypto_utils.rs:571`
-         - Validates parent UCAN structure and permissions
-         - Extracts appropriate template (owner_template for nodes)
-         - **Extracts facts from parent UCAN** (line 625):
-           - `template_value`: owner_template or viewer_template JSON
-           - `doc_types_value`: Asset vs CRDT classification
-           - `docs_list`: All document names
-         - Builds permissions from template capabilities
-         - **Calls**: `generate_delegated_ucan()` with facts (line 656)
-           - Location: `crypto_utils/src/ucan_utils.rs:1026`
-           - **Adds facts to delegated UCAN** (line 1067-1088):
-             - `owner_template` or `viewer_template` (based on role)
-             - `role`: "owner" (for nodes)
-             - `doc_types`: Asset/CRDT classification
-             - `docs`: List of document names
-           - Signs delegated UCAN with owner's key
-           - Returns: (resource_ucan_token, resource_ucan_cid)
-       - Creates `ShareRecord` with UCAN only (line 184)
-         - **NO encrypted_data or encrypted_key** (created during sync)
-       - Saves share_record to database (line 197)
+     - Generates CID from folder UCAN (line 174)
+     - Creates and saves `FolderShareRecord` (line 177)
+     - Gets all resources in folder (line 192)
+     - **For each resource** (line 198):
+       - Calls `resource_service::share_resource()` with same role
+       - Passes `recipient_role` (not hardcoded "owner")
+       - Location: `services/src/resource_service.rs`
+       - Resource sharing uses same template-based delegation
 
 4. **Repository Functions**:
    - `folder_share_repo.find_by_folder_and_user()` - `persistance/src/repositories/folder_share_repository.rs:165`
@@ -257,13 +255,55 @@ When removing a handler:
   - Passes facts to `generate_delegated_ucan()` (lines 656-666)
 - **Result**: Delegated UCANs now contain complete facts structure matching owner UCANs
 
-**Key Architecture Points**:
-- Folder sharing is a "thin wrapper" around resource sharing
+**Key Architecture Points** (Updated 2025-11-09):
+- **Template-based permissions**: Frontend defines all capabilities in `permissions.ts`
+- **Role-based delegation**: Backend extracts appropriate template based on `recipient_role`
+- **No hardcoded capabilities**: All permissions come from frontend configuration
+- **Unified pattern**: Both folders and resources use template-based delegation
 - UCANs and encrypted data generated **on-demand during sync**, not pre-created
 - Share records only contain UCAN tokens (access control)
 - Node will request encrypted data during sync when needed
-- Template-based delegation: owner_template for nodes, viewer_template for viewers
 - Facts propagate through delegation chain for CRDT/asset classification
+
+**Functions Used** (Template-Based):
+- **Crypto Utils**:
+  - `generate_folder_ucan_with_template()` - NEW (replaces generate_folder_owner_ucan)
+    - Location: `crypto_utils/src/ucan_utils.rs:718`
+    - Parameters: Takes folder_template_json from frontend
+    - Returns: (ucan_token, ucan_cid) with templates embedded in facts
+  - `validate_structure()` - Parse and validate UCAN token
+    - Location: `crypto_utils/src/ucan_utils.rs:305`
+    - Used for extracting templates from owner UCAN
+  - ❌ `generate_folder_owner_ucan()` - REMOVED (replaced by template-based function)
+
+- **Validation Service**:
+  - `validate_peer_can_add_folder()` - Validate peer connection token
+    - Location: `services/src/validation_service.rs:22`
+    - Checks peer has `add_folder` capability in connection token
+    - Added detailed logging for debugging
+
+- **Folder Service**:
+  - `accept_folder_from_peer()` - Receive folder from peer
+    - Location: `services/src/folder_service.rs:272`
+    - Validates peer connection token and folder UCAN
+    - Added detailed logging for debugging
+
+- **Network Layer**:
+  - `handshake::process_exchange_message()` - FIXED: Store correct peer token
+    - Location: `network/src/p2p/handshake.rs:168-172`
+    - Now stores payload.ucan_token (token peer sent us)
+    - Critical for folder validation to work
+  - `folder_sync::handle_folder_data_sync()` - Receive folder
+    - Location: `network/src/p2p/folder_sync.rs:106`
+    - Added detailed logging for validation debugging
+
+**Error Handling**:
+- New error variant: `FolderServiceError::InvalidRole { role: String }`
+  - Location: `services/src/errors.rs:176`
+  - Returned when recipient_role is not "owner" or "node"
+- New error variant: `FolderServiceError::UcanError(String)`
+  - Location: `services/src/errors.rs:179`
+  - Returned when UCAN parsing or template extraction fails
 
 ### addResource Flow
 

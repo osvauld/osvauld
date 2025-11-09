@@ -212,7 +212,7 @@ pub async fn handle_resource_sync_request(
     info!("Received resource sync request from peer");
 
     // Extract resource_id from UCAN token
-    let resource_id = crypto_utils::extract_resource_id_from_ucan_token(&payload.resource_ucan)
+    let resource_id = services::ucan_service::extract_resource_id(&payload.resource_ucan)
         .await
         .map_err(|e| {
             error!("Failed to extract resource_id from UCAN: {}", e);
@@ -232,20 +232,12 @@ pub async fn handle_resource_sync_request(
         info!("Resource {} not found locally, requesting from peer", resource_id);
 
         // Extract folder_id from initiator's folder_ucan to find our folder_ucan
-        // First validate and parse the UCAN
         let domain = &peer_conn.domain;
-        let folder_ucan_parsed = crypto_utils::ucan_utils::validate_structure(&payload.folder_ucan)
-            .await
-            .map_err(|e| {
-                error!("Failed to parse initiator's folder_ucan: {}", e);
-                crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder_ucan: {}", e))
-            })?;
-
-        // Extract folder_id using add_resources capability
-        let folder_id = crypto_utils::ucan_utils::extract_folder_id_with_add_resources_capability(
-            &folder_ucan_parsed,
-            domain,
+        let folder_id = services::ucan_service::extract_folder_id_with_add_resources(
+            &payload.folder_ucan,
+            domain
         )
+        .await
         .map_err(|e| {
             error!("Failed to extract folder_id from initiator's folder_ucan: {}", e);
             crate::p2p::errors::P2PError::InvalidState(format!("No folder_id found in UCAN: {}", e))
@@ -564,7 +556,8 @@ pub async fn handle_state_vector_request(
     info!("Received StateVectorRequest for resource {}", resource_id);
 
     // Generate updates for peer based on their state vectors
-    let our_updates = services::generate_updates_for_peer(
+    // This function loads the resource from DB, decrypts it, generates updates, and extracts state vectors
+    let (our_updates, our_state_vectors) = services::generate_updates_for_peer(
         &peer_ucan,
         &peer_state_vectors,
         repo_ctx.clone(),
@@ -576,17 +569,10 @@ pub async fn handle_state_vector_request(
         crate::p2p::errors::P2PError::InvalidState(format!("Failed to generate updates: {}", e))
     })?;
 
-    info!("✓ Generated updates for peer");
+    info!("✓ Generated updates and state vectors for peer");
 
     // TODO: Get our asset IDs and compare with peer's to find missing assets
     let missing_asset_ids: Vec<String> = vec![]; // Placeholder
-
-    // Get our current state vectors (extract from updates)
-    let our_state_vectors = osvauld_core::models::Resource::extract_state_vectors_from_updates(&our_updates)
-        .map_err(|e| {
-            error!("Failed to extract state vectors from updates: {}", e);
-            crate::p2p::errors::P2PError::InvalidState(format!("Failed to extract state vectors: {}", e))
-        })?;
 
     info!("✓ Extracted state vectors, sending UpdatesResponse");
 

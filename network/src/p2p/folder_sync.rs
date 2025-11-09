@@ -72,19 +72,15 @@ async fn send_folder_data(
         })?;
 
     // Get share record
-    let folder_share_record = get_folder_share_record(
-        folder_id,
-        recipient_user_id,
-        repo_ctx,
-    )
-    .await
-    .map_err(|e| {
-        error!("Failed to get folder share record: {}", e);
-        crate::p2p::errors::P2PError::InvalidState(format!(
-            "Failed to get folder share record: {}",
-            e
-        ))
-    })?;
+    let folder_share_record = get_folder_share_record(folder_id, recipient_user_id, repo_ctx)
+        .await
+        .map_err(|e| {
+            error!("Failed to get folder share record: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to get folder share record: {}",
+                e
+            ))
+        })?;
 
     // Update folder's UCAN with the recipient's folder UCAN token
     folder.ucan = folder_share_record.ucan_token.clone();
@@ -95,9 +91,7 @@ async fn send_folder_data(
         folder_share_record,
     };
 
-    peer_conn
-        .send_message(Message::FolderDataSync(data))
-        .await
+    peer_conn.send_message(Message::FolderDataSync(data)).await
 }
 
 /// Handle folder data sync from owner (node side)
@@ -109,14 +103,13 @@ pub async fn handle_folder_data_sync(
     repo_ctx: Arc<RepositoryContext>,
     _crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> P2PResult<()> {
-    info!("Received folder {} from peer", payload.folder.id);
+    info!("📥 Received folder {} from peer", payload.folder.id);
 
     // Get the peer user to access their connection token
     let peer_user_guard = peer_conn.user.read().await;
+    let peer_user_id = &peer_user_guard.id;
     let peer_connection_token = &peer_user_guard.ucan_token;
     let domain = &peer_conn.domain;
-
-    // Delegate to folder_service for validation and saving
     services::accept_folder_from_peer(
         &payload.folder,
         &payload.folder_share_record,
@@ -126,10 +119,12 @@ pub async fn handle_folder_data_sync(
     )
     .await
     .map_err(|e| {
-        error!("Failed to accept folder from peer: {}", e);
+        error!("❌ Failed to accept folder from peer: {}", e);
+        error!("   Folder ID: {}", payload.folder.id);
+        error!("   Peer user ID: {}", peer_user_id);
         crate::p2p::errors::P2PError::InvalidState(format!("Failed to accept folder: {}", e))
     })?;
 
-    info!("✓ Accepted and saved folder {}", payload.folder.id);
+    info!("✅ Accepted and saved folder {}", payload.folder.id);
     Ok(())
 }

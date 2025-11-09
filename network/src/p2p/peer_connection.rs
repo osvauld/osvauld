@@ -409,6 +409,16 @@ impl PeerConnection {
                 )
                 .await
             }
+            Message::FolderTokenRequest(_payload) => {
+                // TODO: Handle folder token request
+                info!("Received FolderTokenRequest - handler not yet implemented");
+                Ok(())
+            }
+            Message::FolderTokenResponse(_payload) => {
+                // TODO: Handle folder token response
+                info!("Received FolderTokenResponse - handler not yet implemented");
+                Ok(())
+            }
         }
     }
 

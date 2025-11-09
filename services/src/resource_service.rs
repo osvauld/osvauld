@@ -15,7 +15,7 @@
 // - Simplified to 14 core methods using new Resource struct
 // - UCAN templates control permissions (owner_template, viewer_template)
 
-use crate::errors::{ResourceServiceError, ServiceResult};
+use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::{CryptoUtils, encrypt_data_for_user, errors::UcanError};
 use log::{error, info};
 use osvauld_core::models::{
@@ -26,18 +26,6 @@ use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-
-// =============================================================================
-// Helper Structures
-// =============================================================================
-
-/// Struct combining encrypted resource with its decryption key
-/// Used internally for fetching and decrypting resources
-#[derive(Debug, Clone)]
-struct ResourceWithKey {
-    encrypted_resource: EncryptedResource,
-    encrypted_key: String,
-}
 
 // =============================================================================
 // Helper Functions
@@ -60,7 +48,7 @@ async fn load_resource_by_ucan(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> Result<Resource, ResourceServiceError> {
     // 1. Extract resource_id from UCAN token
-    let resource_id = crypto_utils::extract_resource_id_from_ucan_token(ucan_token)
+    let resource_id = crate::ucan_service::extract_resource_id(ucan_token)
         .await
         .map_err(|e| {
             error!("Failed to extract resource_id from UCAN: {}", e);
@@ -69,44 +57,13 @@ async fn load_resource_by_ucan(
 
     info!("Loading resource: {}", resource_id);
 
-    // 2. Fetch encrypted resource from database
-    let encrypted_resource = repo_ctx
-        .resource_repo
-        .find_by_id(&resource_id)
+    // 2. Use common helper to fetch, decrypt, and parse resource
+    get_resource_by_id_direct(&resource_id, repo_ctx, crypto_utils)
         .await
-        .map_err(|e| {
-            error!("Failed to fetch resource {}: {}", resource_id, e);
-            ResourceServiceError::DatabaseError(e.to_string())
-        })?;
-
-    // 3. Decrypt resource
-    let decrypted_json = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .decrypt_resource(
-                &encrypted_resource.encrypted_data,
-                &encrypted_resource.encrypted_key,
-            )
-            .map_err(|e| {
-                error!("Failed to decrypt resource {}: {}", resource_id, e);
-                ResourceServiceError::DecryptionFailed(resource_id.to_string())
-            })?
-    };
-
-    // 4. Parse into Resource struct
-    let resource = Resource::from_decrypted_data(
-        encrypted_resource.id.clone(),
-        encrypted_resource.folder_id.clone(),
-        encrypted_resource.ucan_token.clone(),
-        encrypted_resource.metadata.clone(),
-        &decrypted_json,
-    )
-    .map_err(|e| {
-        error!("Failed to parse resource {}: {}", resource_id, e);
-        ResourceServiceError::InvalidResourceData(e)
-    })?;
-
-    Ok(resource)
+        .map_err(|e| match e {
+            ServiceError::Resource(err) => err,
+            _ => ResourceServiceError::InvalidState(format!("Unexpected error: {}", e)),
+        })
 }
 
 /// Decrypt one or more resources from database format to in-memory Resource structs
@@ -120,43 +77,38 @@ async fn load_resource_by_ucan(
 /// # Returns
 /// * `Vec<Resource>` - Decrypted resources ready for use
 async fn decrypt_resources(
-    resources_with_keys: Vec<ResourceWithKey>,
+    encrypted_resources: Vec<EncryptedResource>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<Vec<Resource>> {
     let mut decrypted_resources = Vec::new();
 
-    for resource_with_key in resources_with_keys {
+    for encrypted_resource in encrypted_resources {
         let crypto = crypto_utils.read().await;
 
         // Decrypt the encrypted_data field
         let decrypted_json = crypto
             .decrypt_resource(
-                &resource_with_key.encrypted_resource.encrypted_data,
-                &resource_with_key.encrypted_key,
+                &encrypted_resource.encrypted_data,
+                &encrypted_resource.encrypted_key,
             )
             .map_err(|e| {
                 error!(
                     "Failed to decrypt resource {}: {}",
-                    resource_with_key.encrypted_resource.id, e
+                    encrypted_resource.id, e
                 );
-                ResourceServiceError::DecryptionFailed(
-                    resource_with_key.encrypted_resource.id.clone(),
-                )
+                ResourceServiceError::DecryptionFailed(encrypted_resource.id.clone())
             })?;
 
         // Parse decrypted JSON and create Resource
         let resource = Resource::from_decrypted_data(
-            resource_with_key.encrypted_resource.id.clone(),
-            resource_with_key.encrypted_resource.folder_id.clone(),
-            resource_with_key.encrypted_resource.ucan_token.clone(),
-            resource_with_key.encrypted_resource.metadata.clone(),
+            encrypted_resource.id.clone(),
+            encrypted_resource.folder_id.clone(),
+            encrypted_resource.ucan_token.clone(),
+            encrypted_resource.metadata.clone(),
             &decrypted_json,
         )
         .map_err(|e| {
-            error!(
-                "Failed to parse resource {}: {}",
-                resource_with_key.encrypted_resource.id, e
-            );
+            error!("Failed to parse resource {}: {}", encrypted_resource.id, e);
             ResourceServiceError::InvalidResourceData(e)
         })?;
 
@@ -164,6 +116,52 @@ async fn decrypt_resources(
     }
 
     Ok(decrypted_resources)
+}
+
+/// Decrypt a single EncryptedResource to Resource
+///
+/// Helper that decrypts and parses a single encrypted resource.
+///
+/// # Arguments
+/// * `encrypted_resource` - The encrypted resource to decrypt
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `Resource` - Decrypted resource ready for use
+async fn decrypt_encrypted_resource(
+    encrypted_resource: &EncryptedResource,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> Result<Resource, ResourceServiceError> {
+    let crypto = crypto_utils.read().await;
+
+    // Decrypt the encrypted_data field
+    let decrypted_json = crypto
+        .decrypt_resource(
+            &encrypted_resource.encrypted_data,
+            &encrypted_resource.encrypted_key,
+        )
+        .map_err(|e| {
+            error!(
+                "Failed to decrypt resource {}: {}",
+                encrypted_resource.id, e
+            );
+            ResourceServiceError::DecryptionFailed(encrypted_resource.id.clone())
+        })?;
+
+    // Parse decrypted JSON and create Resource
+    let resource = Resource::from_decrypted_data(
+        encrypted_resource.id.clone(),
+        encrypted_resource.folder_id.clone(),
+        encrypted_resource.ucan_token.clone(),
+        encrypted_resource.metadata.clone(),
+        &decrypted_json,
+    )
+    .map_err(|e| {
+        error!("Failed to parse resource {}: {}", encrypted_resource.id, e);
+        ResourceServiceError::InvalidResourceData(e)
+    })?;
+
+    Ok(resource)
 }
 
 // =============================================================================
@@ -214,25 +212,19 @@ pub async fn create_resource(
         encrypt_data_for_user(&resource_payload, &user.public_key)
             .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
 
-    // Get encrypted UCAN private key from store
-    let encrypted_ucan_private_key = repo_ctx.store_repo.get_ucan_key().await?;
-
     // Generate owner UCAN with templates from frontend
-    let crypto = crypto_utils.read().await;
-    let (ucan_token, ucan_cid) = crypto
-        .generate_flexible_resource_owner_ucan(
-            &encrypted_ucan_private_key,
-            &resource_id,
-            domain,
-            &ucan_template_json,
-            None, // Use default 30-year expiry
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to generate owner UCAN: {}", e);
-            ResourceServiceError::UcanError(e.to_string())
-        })?;
-    drop(crypto);
+    let (ucan_token, ucan_cid) = crate::ucan_service::issue_resource_owner_token(
+        &resource_id,
+        domain,
+        &ucan_template_json,
+        crypto_utils,
+        &repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to generate owner UCAN: {}", e);
+        ResourceServiceError::UcanError(e.to_string())
+    })?;
 
     // Get current timestamp
     let now = chrono::Utc::now().timestamp();
@@ -315,23 +307,10 @@ pub async fn get_resource_by_id_direct(
     // Fetch encrypted resource from database
     let encrypted_resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
 
-    // Create ResourceWithKey struct
-    let resource_with_key = ResourceWithKey {
-        encrypted_key: encrypted_resource.encrypted_key.clone(),
-        encrypted_resource,
-    };
-
     // Decrypt using existing helper
-    let mut resources = decrypt_resources(vec![resource_with_key], crypto_utils).await?;
+    let resource = decrypt_encrypted_resource(&encrypted_resource, crypto_utils).await?;
 
     // Return single resource
-    let resource =
-        resources
-            .into_iter()
-            .next()
-            .ok_or_else(|| ResourceServiceError::ResourceNotFound {
-                resource_id: resource_id.to_string(),
-            })?;
 
     Ok(resource)
 }
@@ -414,7 +393,6 @@ pub async fn delete_resource(
     info!("Successfully deleted resource {}", resource_id);
     Ok(())
 }
-
 
 /// Get metadata for all resources (no decryption, just metadata)
 ///
@@ -618,11 +596,11 @@ pub async fn get_resource_state_vectors_by_ucan(
     let resource = load_resource_by_ucan(ucan_token, repo_ctx, crypto_utils).await?;
 
     // Get state vectors filtered by UCAN capabilities
-    let state_vectors = resource
-        .get_state_vectors_for_ucan(ucan_token)
+    let state_vectors = crate::merge_service::get_state_vectors_for_ucan(&resource, ucan_token)
+        .await
         .map_err(|e| {
             error!("Failed to get filtered state vectors: {}", e);
-            ResourceServiceError::InvalidResourceData(e)
+            ResourceServiceError::InvalidResourceData(e.to_string())
         })?;
 
     info!("Successfully got state vectors (filtered by UCAN)");
@@ -647,22 +625,30 @@ pub async fn generate_updates_for_peer(
     peer_state_vectors: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> Result<String, ResourceServiceError> {
+) -> Result<(String, String), ResourceServiceError> {
     info!("Generating updates for peer");
 
     // Load resource using common helper
     let resource = load_resource_by_ucan(peer_ucan, repo_ctx, crypto_utils).await?;
 
     // Generate updates based on peer's state vectors and capabilities
-    let updates = resource
-        .generate_updates(peer_ucan, peer_state_vectors)
+    let updates =
+        crate::merge_service::generate_updates_for_peer(&resource, peer_ucan, peer_state_vectors)
+            .await
+            .map_err(|e| {
+                error!("Failed to generate updates for peer: {}", e);
+                ResourceServiceError::InvalidResourceData(e.to_string())
+            })?;
+
+    // Extract state vectors from updates
+    let state_vectors = crate::merge_service::extract_state_vectors_from_updates(&updates)
         .map_err(|e| {
-            error!("Failed to generate updates for peer: {}", e);
-            ResourceServiceError::InvalidResourceData(e)
+            error!("Failed to extract state vectors from updates: {}", e);
+            ResourceServiceError::InvalidResourceData(e.to_string())
         })?;
 
-    info!("Successfully generated updates for peer");
-    Ok(updates)
+    info!("Successfully generated updates and state vectors for peer");
+    Ok((updates, state_vectors))
 }
 
 /// Apply updates from a peer and generate our updates back
@@ -696,8 +682,8 @@ pub async fn apply_peer_updates(
     let mut resource = load_resource_by_ucan(peer_ucan, repo_ctx.clone(), crypto_utils).await?;
 
     // 2. Apply peer's updates (validates UCAN permissions)
-    resource
-        .apply_updates(peer_ucan, peer_updates_json)
+    crate::merge_service::apply_peer_updates(&mut resource, peer_ucan, peer_updates_json)
+        .await
         .map_err(|e| {
             error!("Failed to apply peer updates: {}", e);
             ResourceServiceError::InvalidResourceData(format!("Failed to apply updates: {}", e))
@@ -706,42 +692,37 @@ pub async fn apply_peer_updates(
     info!("Successfully applied peer updates");
 
     // 3. Extract peer's state vectors from their updates to know what they have
-    let peer_state_vectors_json = Resource::extract_state_vectors_from_updates(peer_updates_json)
-        .map_err(|e| {
-            error!("Failed to extract peer state vectors: {}", e);
-            ResourceServiceError::InvalidResourceData(e)
-        })?;
+    let peer_state_vectors_json = crate::merge_service::extract_state_vectors_from_updates(
+        peer_updates_json,
+    )
+    .map_err(|e| {
+        error!("Failed to extract peer state vectors: {}", e);
+        ResourceServiceError::InvalidResourceData(e.to_string())
+    })?;
 
     // 4. Generate our updates for peer based on their state
-    let our_updates = resource
-        .generate_updates(peer_ucan, &peer_state_vectors_json)
-        .map_err(|e| {
-            error!("Failed to generate our updates for peer: {}", e);
-            ResourceServiceError::InvalidResourceData(e)
-        })?;
+    let our_updates = crate::merge_service::generate_updates_for_peer(
+        &resource,
+        peer_ucan,
+        &peer_state_vectors_json,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to generate our updates for peer: {}", e);
+        ResourceServiceError::InvalidResourceData(e.to_string())
+    })?;
 
-    // 5. Serialize updated resource to JSON
+    // 5. Serialize and save updated resource to database
     let updated_json = resource.to_json().map_err(|e| {
         error!("Failed to serialize updated resource: {}", e);
         ResourceServiceError::InvalidResourceData(e)
     })?;
 
-    // 6. Encrypt with NEW AES key (key rotation for forward secrecy)
-    let (encrypted_data, encrypted_key) = encrypt_data_for_user(&updated_json, &user.public_key)
-        .map_err(|e| {
-            error!("Failed to encrypt updated resource: {}", e);
-            ResourceServiceError::EncryptionFailed(e.to_string())
-        })?;
-
-    // 7. Save updated resource to database
-    let resource_id = &resource.id;
-    repo_ctx
-        .resource_repo
-        .update_resource(&encrypted_data, &encrypted_key, resource_id)
+    update_resource(&resource.id, updated_json, user, repo_ctx)
         .await
-        .map_err(|e| {
-            error!("Failed to save updated resource to DB: {}", e);
-            ResourceServiceError::DatabaseError(e.to_string())
+        .map_err(|e| match e {
+            ServiceError::Resource(err) => err,
+            _ => ResourceServiceError::InvalidState(format!("Failed to update resource: {}", e)),
         })?;
 
     info!("Successfully applied updates and generated response");
@@ -804,7 +785,10 @@ pub async fn get_resource_ucans_for_sync(
         })?;
 
     let folder_share = folder_share_option.ok_or_else(|| {
-        error!("No folder share found for folder {} and user {}", resource.folder_id, user_id);
+        error!(
+            "No folder share found for folder {} and user {}",
+            resource.folder_id, user_id
+        );
         ResourceServiceError::DatabaseError("No folder share found for user".to_string())
     })?;
 
@@ -836,7 +820,7 @@ pub async fn prepare_resource_for_peer(
 ) -> Result<EncryptedResource, ResourceServiceError> {
     info!("Preparing resource {} for peer", resource_id);
 
-    // 1. Fetch original encrypted resource from database
+    // 1. Fetch original encrypted resource (needed for timestamps and re_encrypt_for_recipient)
     let original_encrypted = repo_ctx
         .resource_repo
         .find_by_id(resource_id)
@@ -846,40 +830,17 @@ pub async fn prepare_resource_for_peer(
             ResourceServiceError::DatabaseError(e.to_string())
         })?;
 
-    // 2. Decrypt resource to get Loro docs
-    let decrypted_json = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .decrypt_resource(
-                &original_encrypted.encrypted_data,
-                &original_encrypted.encrypted_key,
-            )
-            .map_err(|e| {
-                error!("Failed to decrypt resource {}: {}", resource_id, e);
-                ResourceServiceError::DecryptionFailed(resource_id.to_string())
-            })?
-    };
-
-    // Parse decrypted JSON and create Resource
-    let resource = Resource::from_decrypted_data(
-        original_encrypted.id.clone(),
-        original_encrypted.folder_id.clone(),
-        original_encrypted.ucan_token.clone(),
-        original_encrypted.metadata.clone(),
-        &decrypted_json,
-    )
-    .map_err(|e| {
-        error!("Failed to parse resource {}: {}", resource_id, e);
-        ResourceServiceError::InvalidResourceData(e)
-    })?;
+    // 2. Decrypt and parse resource using helper
+    let resource = decrypt_encrypted_resource(&original_encrypted, crypto_utils).await?;
 
     // 3. Filter documents based on UCANs (returns unencrypted HashMap)
-    let filtered_snapshots = resource
-        .filter_to_send(&original_encrypted.ucan_token, peer_ucan)
-        .map_err(|e| {
-            error!("Failed to filter resource {}: {}", resource_id, e);
-            ResourceServiceError::InvalidResourceData(e)
-        })?;
+    let filtered_snapshots =
+        crate::merge_service::filter_documents_to_send(&resource, &resource.ucan_token, peer_ucan)
+            .await
+            .map_err(|e| {
+                error!("Failed to filter resource {}: {}", resource_id, e);
+                ResourceServiceError::InvalidResourceData(e.to_string())
+            })?;
 
     // 4. Convert filtered HashMap to JSON string
     let filtered_json = serde_json::to_string(&filtered_snapshots).map_err(|e| {
@@ -930,12 +891,7 @@ pub async fn accept_resource_from_peer(
     info!("Accepting resource {} from peer", resource.id);
 
     // Validate owner's folder UCAN has add_resources capability for this folder
-    crate::validate_peer_can_add_resources(
-        owner_folder_ucan,
-        &resource.folder_id,
-        domain,
-    )
-    .await?;
+    crate::validate_peer_can_add_resources(owner_folder_ucan, &resource.folder_id, domain).await?;
 
     // Save resource with all share records in transaction
     repo_ctx

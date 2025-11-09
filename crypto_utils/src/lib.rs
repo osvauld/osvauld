@@ -11,11 +11,13 @@ pub mod key_management;
 pub mod signature_operations;
 pub mod signature_utils;
 pub mod types;
-pub mod ucan_operations;
 pub mod ucan_utils;
 
 // Re-export the main public API
 pub use crypto_utils::CryptoUtils;
+
+// Re-export UCAN type for services to use directly
+pub use ucan::Ucan;
 pub use data_encryption::{decrypt_with_aes, encrypt_data_for_user};
 pub use key_management::{
     change_certificate_password, derive_node_id_from_public_key, encrypt_string_with_public_key,
@@ -23,8 +25,3 @@ pub use key_management::{
     generate_keys_without_password, get_key_id, import_certificate,
 };
 pub use signature_operations::{verify_clear_text_message, verify_signature};
-pub use ucan_operations::{
-    extract_resource_id_from_ucan_token,
-    get_cid_from_ucan_token, get_role_from_ucan_token, validate_authority_for_update,
-    validate_connect_token,
-};

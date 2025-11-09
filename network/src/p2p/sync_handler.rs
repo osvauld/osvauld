@@ -5,7 +5,7 @@
 
 use crate::p2p::{errors::P2PResult, folder_sync, P2PService};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{Message, ResourceSyncRequestMsg, User};
+use osvauld_core::models::{FolderTokenRequest, Message, ResourceSyncRequestMsg, User};
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -237,5 +237,108 @@ pub async fn sync_resource(
     }
 
     info!("✓ Resource sync initiated for: {}", resource_id);
+    Ok(())
+}
+
+/// Request folder token from a sovereign node
+///
+/// Gets/establishes connection with the node and sends FolderTokenRequest
+/// with folder_id and folder_ucan. The node will generate a shareable link
+/// and send it back via FolderTokenResponse.
+///
+/// # Arguments
+/// * `folder_id` - ID of the folder to get token for
+/// * `user_id` - User ID of the sovereign node to request from
+/// * `repo_ctx` - Database repository context
+/// * `p2p_service` - P2P service for connections
+///
+/// # Returns
+/// * `Ok(())` - Request sent successfully
+/// * `Err` - If connection fails or folder not found
+pub async fn request_folder_token(
+    folder_id: String,
+    user_id: String,
+    repo_ctx: Arc<RepositoryContext>,
+    p2p_service: Arc<P2PService>,
+) -> P2PResult<()> {
+    info!(
+        "Requesting folder token for folder: {} from user: {}",
+        folder_id, user_id
+    );
+
+    // 1. Get current user
+    let user_guard = p2p_service.current_user.read().await;
+    let current_user = user_guard
+        .as_ref()
+        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No user logged in".to_string()))?
+        .clone();
+    drop(user_guard);
+
+    // 2. Get folder to extract UCAN
+    let folder = services::get_folder_by_id(&folder_id, repo_ctx.clone())
+        .await
+        .map_err(|e| {
+            error!("Failed to get folder {}: {}", folder_id, e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
+        })?;
+
+    // 3. Get recipient's devices
+    let devices = repo_ctx
+        .device_repo
+        .get_devices_by_user_id(&user_id)
+        .await?;
+
+    if devices.is_empty() {
+        error!("No devices found for user {}", user_id);
+        return Err(crate::p2p::errors::P2PError::InvalidState(format!(
+            "No devices found for user {}",
+            user_id
+        )));
+    }
+
+    let device = &devices[0];
+
+    // 4. Get or establish peer connection
+    let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
+        Ok(conn) => conn,
+        Err(_) => {
+            // No active connection, try to establish one
+            info!(
+                "No active connection to device {} for user {}, attempting to connect",
+                device.id, user_id
+            );
+
+            match p2p_service.connect_with_ticket(&device.id).await? {
+                Some(conn) => conn,
+                None => {
+                    error!(
+                        "Failed to establish connection to device {} for user {}",
+                        device.id, user_id
+                    );
+                    return Err(crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Failed to connect to device {}",
+                        device.id
+                    )));
+                }
+            }
+        }
+    };
+
+    // 5. Create and send FolderTokenRequest
+    let request = FolderTokenRequest {
+        folder_id: folder.id.clone(),
+        folder_ucan: folder.ucan.clone(),
+    };
+
+    info!(
+        "Sending FolderTokenRequest to peer: {} for folder: {}",
+        device.id, folder.id
+    );
+
+    peer_conn
+        .send_message(Message::FolderTokenRequest(request))
+        .await?;
+
+    info!("✓ Folder token request sent successfully");
     Ok(())
 }

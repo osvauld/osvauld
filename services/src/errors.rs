@@ -1,4 +1,4 @@
-use crypto_utils::errors::CryptoError;
+use crypto_utils::errors::{CryptoError, UcanError};
 use osvauld_core::repositories::RepositoryError;
 use thiserror::Error;
 
@@ -18,6 +18,9 @@ pub enum ServiceError {
 
     #[error("Crypto error: {0}")]
     Crypto(#[from] CryptoError),
+
+    #[error("UCAN error: {0}")]
+    Ucan(#[from] UcanError),
 
     #[error("Repository error: {0}")]
     Repository(#[from] RepositoryError),
@@ -171,6 +174,13 @@ pub enum FolderServiceError {
 
     #[error("PermissionDenied")]
     InsufficientPermissions,
+
+    #[error("Invalid role: {role}. Expected 'owner' or 'node'")]
+    InvalidRole { role: String },
+
+    #[error("UCAN error: {0}")]
+    UcanError(String),
+
     #[error(transparent)]
     Repository(#[from] RepositoryError),
 }

@@ -2,6 +2,7 @@ import { sendMessage } from '../utils/helper';
 import { loroCoordinator } from '../shared/loro/loroCoordinator';
 import type { Website, Resource, UserDetails } from '../types';
 import { listen } from '@tauri-apps/api/event';
+import { FOLDER_TEMPLATE, RESOURCE_TEMPLATE } from '../config/permissions';
 
 /**
  * Clean Data State Management for Sthalam
@@ -165,7 +166,11 @@ class DataState {
    */
   async addWebsite(name: string) {
     try {
-      const website = await sendMessage("addFolder", { name, description: "" });
+      const website = await sendMessage("addFolder", {
+        name,
+        description: "",
+        folderTemplateJson: JSON.stringify(FOLDER_TEMPLATE)
+      });
       this.websites = [...this.websites, website];
       console.log('✅ [DataState] Website created:', name);
       return website;
@@ -197,46 +202,6 @@ class DataState {
 
       console.log('✅ [DataState] Loro content created');
 
-      // Create UCAN template with owner and viewer capabilities
-      const ucanTemplate = {
-        owner_template: {
-          capabilities: {
-            "template_doc": "crud/merge",
-            "content_doc": "crud/merge",
-            "user_content_doc": "crud/merge",
-            "collaborative_doc": "crud/merge",
-            "submissions_doc": "crud/merge",
-            "static_assets": "crud/merge"
-          },
-          doc_types: {
-            "static_assets": "asset",
-            "template_doc": "crdt",
-            "content_doc": "crdt",
-            "user_content_doc": "crdt",
-            "collaborative_doc": "crdt",
-            "submissions_doc": "crdt"
-          }
-        },
-        viewer_template: {
-          capabilities: {
-            "template_doc": "crud/readonly",
-            "content_doc": "crud/readonly",
-            "collaborative_doc": "crud/merge",
-            "submissions_doc": "crud/appendonly",
-            "static_assets": "crud/readonly"
-          },
-          doc_types: {
-            "static_assets": "asset",
-            "template_doc": "crdt",
-            "content_doc": "crdt",
-            "collaborative_doc": "crdt",
-            "submissions_doc": "crdt"
-          },
-          no_update_from_node: ["user_content_doc"],
-          dont_send_to_node: ["user_content_doc"]
-        }
-      };
-
       // Create metadata (unencrypted) - includes title, timestamps, client info
       const metadata = {
         title: title,
@@ -253,7 +218,7 @@ class DataState {
         resourcePayload: JSON.stringify(loroContent),
         folderId: websiteId,
         resourceType: resourceType,
-        ucanTemplateJson: JSON.stringify(ucanTemplate),
+        ucanTemplateJson: JSON.stringify(RESOURCE_TEMPLATE),
         metadataJson: JSON.stringify(metadata)
       });
       console.log("response we got back", resourceMetadata);

@@ -7653,6 +7653,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "crypto_utils",
+ "ed25519-dalek",
  "log",
  "loro",
  "osvauld_core",
@@ -7666,6 +7667,7 @@ dependencies = [
  "tracing-appender",
  "tracing-log",
  "tracing-subscriber",
+ "ucan",
  "uuid",
 ]
 
@@ -8031,6 +8033,7 @@ dependencies = [
  "tauri_handlers",
  "thiserror 2.0.12",
  "tokio",
+ "tracing",
  "url",
  "uuid",
 ]

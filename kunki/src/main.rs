@@ -240,9 +240,9 @@ async fn handle_start(
         println!("╚══════════════════════════════════════════╝\n");
     }
 
-    // Initialize P2P service
+    // Initialize P2P service (CLI doesn't need event handling)
     info!("Starting P2P service...");
-    let (p2p_service, mut p2p_receiver, _p2p_sender, incoming_receiver) =
+    let (p2p_service, _p2p_receiver) =
         P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain.clone());
 
     let p2p_service = Arc::new(p2p_service);
@@ -254,111 +254,20 @@ async fn handle_start(
     info!("✔ Node ID: {}", device.device_key);
     info!("Listening for incoming connections...");
 
-    let p2p_service_clone = p2p_service.clone();
-    let incoming_task = tokio::spawn(async move {
-        P2PService::start_processing_incoming_events(
-            (*p2p_service_clone).clone(),
-            incoming_receiver,
-        );
-        // Keep this task alive
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        }
-    });
-
     // Print status
     println!("\n🟢 SERVICE STATUS: ONLINE");
     println!("🔐 Press Ctrl+C to stop the service");
     println!("🔗 Service is ready to accept connections\n");
 
-    // Handle P2P events
-    let event_task = tokio::spawn(async move {
-        info!("🚀 Starting P2P event handler...");
-        loop {
-            match p2p_receiver.recv().await {
-                Some(event) => {
-                    use network::p2p::P2PEvent;
-                    match event {
-                        P2PEvent::Connected { peer_id } => {
-                            info!("📡 ✅ Peer connected: {}", peer_id);
-                        }
-                        P2PEvent::NodeConnected { peer_id } => {
-                            info!("🖥️  ✅ Sovereign node connected: {}", peer_id);
-                        }
-                        P2PEvent::UserConnected { peer_id } => {
-                            info!("👤 ✅ User connected: {}", peer_id);
-                        }
-                        P2PEvent::ViewerConnected { peer_id } => {
-                            info!("👁️  ✅ Viewer connected: {}", peer_id);
-                        }
-                        P2PEvent::FirstConnection { peer_id } => {
-                            info!("🆕 ✅ First-time connection completed: {}", peer_id);
-                        }
-                        P2PEvent::Disconnected => {
-                            info!("📡 ❌ Peer disconnected");
-                        }
-                        P2PEvent::HandshakeFailed { error } => {
-                            error!("🤝 ❌ Handshake failed: {}", error);
-                        }
-                        P2PEvent::SyncComplete => {
-                            info!("🔄 ✅ Sync completed");
-                        }
-                        P2PEvent::ShareComplete => {
-                            info!("📤 ✅ Share completed");
-                        }
-                        P2PEvent::Error { message, source } => {
-                            error!("⚠️  P2P error from {}: {}", source, message);
-                        }
-                        P2PEvent::ResourceAdded {
-                            resource_id,
-                            username: _,
-                        } => {
-                            info!("📄 ✅ Resource added: {}", resource_id);
-                        }
-                        _ => {
-                            info!("📨 Received P2P event: {:?}", event);
-                        }
-                    }
-                }
-                None => {
-                    info!("P2P event channel closed");
-                    break;
-                }
-            }
-        }
-        info!("P2P event handler stopped");
-    });
-
     // Setup signal handler for graceful shutdown
-    let shutdown_signal = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to listen for Ctrl+C");
-        info!("🛑 Shutdown signal received");
-    };
+    info!("🎯 Service is now running - waiting for shutdown signal");
 
-    // Keep the service running
-    info!("🎯 Service is now running - waiting for events or shutdown signal");
+    tokio::signal::ctrl_c()
+        .await
+        .expect("Failed to listen for Ctrl+C");
 
-    tokio::select! {
-        _ = shutdown_signal => {
-            info!("🛑 Initiating graceful shutdown...");
-        }
-        result = event_task => {
-            match result {
-                Ok(_) => info!("✅ P2P event handler completed"),
-                Err(e) => error!("❌ P2P event handler failed: {}", e),
-            }
-            info!("Service stopping due to event task completion");
-        }
-        result = incoming_task => {
-            match result {
-                Ok(_) => info!("✅ Incoming processor completed"),
-                Err(e) => error!("❌ Incoming processor failed: {}", e),
-            }
-            info!("Service stopping due to incoming task completion");
-        }
-    }
+    info!("🛑 Shutdown signal received");
+    info!("🛑 Initiating graceful shutdown...");
     info!("🔄 Cleaning up...");
     info!("✅ P2P service stopped gracefully");
     println!("\n🔴 SERVICE STATUS: OFFLINE");

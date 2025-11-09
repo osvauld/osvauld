@@ -421,18 +421,22 @@ impl CryptoUtils {
         Ok((token, cid))
     }
 
-    pub async fn generate_folder_owner_ucan(
+    /// Generate folder owner UCAN with templates for role-based delegation
+    pub async fn generate_folder_ucan_with_template(
         &self,
         encrypted_ucan_private_key: &str,
         folder_id: &str,
         capability_prefix: &str,
+        folder_template_json: &str,
     ) -> Result<(String, String), CryptoError> {
         let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
-        let (token, cid) = ucan_utils::generate_folder_owner_ucan(
+        let (token, cid) = ucan_utils::generate_folder_ucan_with_template(
             &signing_key,
             &verifying_key,
             folder_id,
             capability_prefix,
+            folder_template_json,
+            None, // Use default 30 year expiry
         )
         .await?;
         Ok((token, cid))

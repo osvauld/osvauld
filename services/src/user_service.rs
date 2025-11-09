@@ -23,7 +23,7 @@ pub async fn add_known_user(
         crypto.sign_message(&user_public_key)?
     };
 
-    let ucan_cid = crypto_utils::get_cid_from_ucan_token(&one_time_token)?;
+    let ucan_cid = crate::ucan_service::get_cid(&one_time_token)?;
 
     let user = User::new(
         username,
@@ -121,9 +121,7 @@ pub async fn get_ucan_pub_key(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
-    let encrypted_ucan_pvt_key = repo_ctx.store_repo.get_ucan_key().await?;
-    let crypto = crypto_utils.read().await;
-    Ok(crypto.get_public_ucan_key(&encrypted_ucan_pvt_key).await?)
+    crate::ucan_service::get_ucan_public_key(crypto_utils, &repo_ctx).await
 }
 
 pub async fn issue_connect_ucan_token(
@@ -133,38 +131,18 @@ pub async fn issue_connect_ucan_token(
     peer_ucan_pub_key: &str,
     role: &str,
 ) -> ServiceResult<String> {
-    let encrypted_pvt_key = repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
-        error!("Failed to get UCAN key for issuing new token: {}", e);
+    crate::ucan_service::issue_peer_connection_token(
+        domain,
+        peer_ucan_pub_key,
+        role,
+        crypto_utils,
+        &repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to issue connect and share token: {}", e);
         e
-    })?;
-
-    // Determine additional capabilities based on role
-    let additional_capabilities = match role {
-        "node" => {
-            // Nodes can add folders (for owner → node and node → owner connections)
-            vec![(format!("{}:add_folder", domain), "use".to_string())]
-        }
-        "viewer" => {
-            // Viewers have no additional capabilities beyond connect and share
-            vec![]
-        }
-        _ => vec![],
-    };
-
-    let crypto = crypto_utils.read().await;
-    crypto
-        .issue_connect_and_share_user_token(
-            &encrypted_pvt_key,
-            domain,
-            peer_ucan_pub_key,
-            role,
-            additional_capabilities,
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to issue connect and share token: {}", e);
-            e.into()
-        })
+    })
 }
 
 pub async fn sign_ucan_pub_key(

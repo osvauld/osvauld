@@ -465,51 +465,6 @@ pub fn extract_folder_id_with_add_resources_capability(
     Err(UcanError::CapabilityNotFound)
 }
 
-/// Extract the resource_id from a UCAN's resource capabilities.
-///
-/// This function looks for resource capabilities in the UCAN and extracts
-/// the resource_id. Supports multiple formats:
-/// - "domain:resource:resource_id" (standard format)
-/// - "domain:resource:resource_id:doc_type" (3-doc architecture)
-/// - "domain:resource:folder_id/resource_id" (folder-scoped)
-///
-/// ### Arguments
-/// * `ucan` - The UCAN object to extract the resource_id from.
-///
-/// ### Returns
-/// The resource_id string, or an error if no matching capability is found.
-pub fn extract_resource_id_from_ucan(ucan: &Ucan) -> Result<String, UcanError> {
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        // Look for resource pattern in the URI
-        if cap_resource.contains(":resource:") {
-            let parts: Vec<&str> = cap_resource.split(':').collect();
-
-            // Handle different formats:
-            // - Standard: [domain, "resource", resource_id] (3 parts)
-            // - 3-doc: [domain, "resource", resource_id, doc_type] (4 parts)
-            if parts.len() >= 3 && parts[1] == "resource" {
-                let resource_id = parts[2];
-
-                // Handle folder-scoped pattern: "folder_id/resource_id"
-                let final_resource_id = if let Some(slash_pos) = resource_id.find('/') {
-                    &resource_id[slash_pos + 1..]
-                } else {
-                    resource_id
-                };
-
-                // Make sure it's not wildcard or empty
-                if !final_resource_id.is_empty() && final_resource_id != "*" && final_resource_id != "**" {
-                    return Ok(final_resource_id.to_string());
-                }
-            }
-        }
-    }
-
-    Err(UcanError::CapabilityNotFound)
-}
-
 fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
     let key_bytes = general_purpose::STANDARD
         .decode(key_b64)
@@ -715,51 +670,103 @@ pub async fn generate_flexible_resource_owner_ucan(
     Ok((token_str, token_cid.to_string()))
 }
 
-/// Generates a "root" UCAN for a new folder, issued by the owner to themselves.
+/// Generates a folder owner UCAN with templates for role-based delegation
 ///
-/// This token grants full folder permissions and serves as the root of authority for
-/// any future folder delegations.
-pub async fn generate_folder_owner_ucan(
+/// This function creates a folder UCAN with templates embedded in the facts section.
+/// The templates define capabilities for different roles (owner_template and node_template)
+/// which are used during folder sharing to determine what capabilities to delegate.
+///
+/// # Arguments
+/// * `owner_signing_key` - The signing key of the folder owner
+/// * `owner_verifying_key` - The verifying key of the folder owner
+/// * `folder_id` - The ID of the folder
+/// * `capability_prefix` - The domain prefix (e.g., "sthalam")
+/// * `folder_template_json` - JSON string containing owner_template and node_template
+/// * `expiry_seconds` - Token lifetime in seconds (None = 30 years)
+///
+/// # Template JSON Structure
+/// ```json
+/// {
+///   "owner_template": {
+///     "capabilities": {
+///       "add_resources": "...",
+///       "crud/read": "...",
+///       "share_folder": "..."
+///     }
+///   },
+///   "node_template": {
+///     "capabilities": {
+///       "add_resources": "...",
+///       "crud/read": "..."
+///     }
+///   }
+/// }
+/// ```
+pub async fn generate_folder_ucan_with_template(
     owner_signing_key: &SigningKey,
     owner_verifying_key: &VerifyingKey,
     folder_id: &str,
     capability_prefix: &str,
+    folder_template_json: &str,
+    expiry_seconds: Option<u64>,
 ) -> Result<(String, String), UcanError> {
-    // 1. Create KeyMaterial for the owner
-    let key_material =
-        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+    // 1. Parse the template JSON
+    let template_value: serde_json::Value = serde_json::from_str(folder_template_json)
+        .map_err(|e| UcanError::TemplateInvalid(format!("Failed to parse folder template JSON: {}", e)))?;
 
-    // 2. The issuer and audience are the same for the owner's root token
+    let template_obj = template_value.as_object()
+        .ok_or_else(|| UcanError::TemplateInvalid("Folder template must be an object".to_string()))?;
+
+    // 2. Extract owner_template
+    let owner_template_value = template_obj.get("owner_template")
+        .ok_or_else(|| UcanError::TemplateInvalid("Missing 'owner_template'".to_string()))?;
+
+    let owner_template_obj = owner_template_value.as_object()
+        .ok_or_else(|| UcanError::TemplateInvalid("owner_template must be an object".to_string()))?;
+
+    let owner_capabilities_value = owner_template_obj.get("capabilities")
+        .ok_or_else(|| UcanError::TemplateInvalid("owner_template missing 'capabilities'".to_string()))?;
+
+    let owner_capabilities_obj = owner_capabilities_value.as_object()
+        .ok_or_else(|| UcanError::TemplateInvalid("owner_template capabilities must be an object".to_string()))?;
+
+    // 3. Create KeyMaterial for the owner
+    let key_material = Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+
     let owner_did = key_material
         .get_did()
         .await
         .map_err(|e| UcanError::DidError(e.to_string()))?;
 
-    // 3. A root token should have a very long lifetime
-    let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
+    // 4. Set lifetime (default 30 years or custom)
+    let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
 
-    // 4. Define the full set of capabilities for the folder owner
+    // 5. Build capabilities from owner_template
     let folder_uri = format!("{}:folder:{}", capability_prefix, folder_id);
-    let capabilities = vec![
-        Capability::from((folder_uri.as_str(), "crud/read", &json!({}))),
-        Capability::from((folder_uri.as_str(), "crud/update", &json!({}))),
-        Capability::from((folder_uri.as_str(), "crud/delete", &json!({}))),
-        Capability::from((folder_uri.as_str(), "add_resources", &json!({}))),
-        Capability::from((folder_uri.as_str(), "share_folder", &json!({}))),
-    ];
+    let mut capabilities = Vec::new();
 
-    // 5. Build the UCAN using the builder
+    for (capability_name, _) in owner_capabilities_obj {
+        capabilities.push(Capability::from((folder_uri.as_str(), capability_name.as_str(), &json!({}))));
+    }
+
+    // 6. Build the UCAN with capabilities
     let mut builder = UcanBuilder::default()
         .issued_by(&key_material)
         .for_audience(&owner_did)
-        .with_lifetime(long_lifetime);
+        .with_lifetime(lifetime);
 
-    // Add each capability to the builder
     for cap in capabilities {
         builder = builder.claiming_capability(cap);
     }
 
-    // Finalize the builder, sign it, and encode it as a string
+    // 7. Add both templates to facts
+    builder = builder.with_fact("owner_template", owner_template_value.clone());
+
+    let node_template_value = template_obj.get("node_template")
+        .ok_or_else(|| UcanError::TemplateInvalid("Missing 'node_template'".to_string()))?;
+    builder = builder.with_fact("node_template", node_template_value.clone());
+
+    // 8. Build, sign, and encode
     let ucan = builder
         .build()
         .map_err(|e| UcanError::CreationError(e.to_string()))?
@@ -771,7 +778,6 @@ pub async fn generate_folder_owner_ucan(
         .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
         .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?;
 
-    // Return the encoded token string and CID
     let token_str = ucan
         .encode()
         .map_err(|e| UcanError::EncodingError(e.to_string()))?;

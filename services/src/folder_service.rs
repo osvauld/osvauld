@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 pub async fn create_folder(
     name: String,
     description: Option<String>,
+    folder_template_json: String,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
@@ -28,13 +29,14 @@ pub async fn create_folder(
     let mut folder = Folder::new(name, description, false, String::new());
 
     // Generate owner UCAN for this folder using the generated folder ID
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
-    let (folder_root_ucan_key, ucan_cid) = {
-        let crypto = crypto_utils.read().await;
-        crypto
-            .generate_folder_owner_ucan(&encrypted_ucan_key, &folder.id, domain)
-            .await?
-    };
+    let (folder_root_ucan_key, ucan_cid) = crate::ucan_service::issue_folder_owner_token(
+        &folder.id,
+        domain,
+        &folder_template_json,
+        crypto_utils,
+        &repo_ctx,
+    )
+    .await?;
 
     // Update folder with the generated UCAN
     folder.ucan = folder_root_ucan_key.clone();
@@ -83,14 +85,14 @@ pub async fn soft_delete_folder(
 pub async fn share_folder(
     folder_id: &str,
     recipient_user_id: &str,
-    _folder_permissions: Vec<(String, String)>,
+    recipient_role: &str,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
 ) -> ServiceResult<()> {
     // 1. Validate folder exists
-    let _folder = repo_ctx
+    let folder = repo_ctx
         .folder_repo
         .find_by_id(folder_id)
         .await
@@ -116,38 +118,29 @@ pub async fn share_folder(
         .into());
     }
 
-    // 4. Get owner's encrypted UCAN key
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+    // 4. Extract capabilities from folder UCAN template based on role
+    let folder_capabilities = crate::ucan_service::extract_folder_capabilities(
+        &folder.ucan,
+        recipient_role,
+    )
+    .await?;
 
-    // 5. Generate folder UCAN for recipient using provided capabilities
-    let folder_capabilities: Vec<&str> = _folder_permissions
-        .iter()
-        .map(|(_, ability)| ability.as_str())
-        .collect();
-
-    // Decrypt UCAN keys and generate folder token
-    let (signing_key, verifying_key) = {
-        let crypto = crypto_utils.read().await;
-        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
-    };
-
-    let folder_ucan_token = crypto_utils::ucan_utils::generate_flexible_folder_token(
-        &signing_key,
-        &verifying_key,
+    // 6 & 7. Generate delegated folder UCAN for recipient using ucan_service
+    let folder_ucan_token = crate::ucan_service::issue_delegated_folder_token(
         folder_id,
         domain,
-        None, // 30 year expiry
         folder_capabilities,
         &recipient_user.ucan_pub_key,
-        "node", // role
+        recipient_role,
+        crypto_utils,
+        &repo_ctx,
     )
-    .await
-    .map_err(|e| FolderServiceError::Validation(e.to_string()))?;
+    .await?;
 
-    // 6. Generate CID from folder UCAN token
-    let folder_ucan_cid = crypto_utils::get_cid_from_ucan_token(&folder_ucan_token)?;
+    // 8. Generate CID from folder UCAN token
+    let folder_ucan_cid = crate::ucan_service::get_cid(&folder_ucan_token)?;
 
-    // 7. Create and save folder_share_record
+    // 9. Create and save folder_share_record
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
         folder_id.to_string(),
         current_user.id.clone(),
@@ -162,18 +155,18 @@ pub async fn share_folder(
         .save(&folder_share_record)
         .await?;
 
-    // 8. Get all resources in folder
+    // 10. Get all resources in folder
     let resources = repo_ctx
         .resource_repo
         .find_all_by_folder(folder_id, &current_user.id)
         .await?;
 
-    // 9. For each resource, share using resource_service (cleaner abstraction)
+    // 11. For each resource, share using resource_service with same role
     for resource in resources {
         resource_service::share_resource(
             &resource.id,
             recipient_user_id,
-            "owner", // Node gets owner_template (full permissions)
+            recipient_role,
             current_user,
             domain,
             repo_ctx.clone(),
@@ -247,19 +240,33 @@ pub async fn accept_folder_from_peer(
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<()> {
+    tracing::info!("📂 Accepting folder from peer:");
+    tracing::info!("  - Folder ID: {}", folder.id);
+    tracing::info!("  - Folder name: {}", folder.name);
+    tracing::info!("  - Share record recipient: {}", folder_share_record.recipient_user_id);
+    tracing::info!("  - Share record shared_by: {}", folder_share_record.shared_by_user_id);
+
     // Validate that peer has add_folder capability
+    tracing::info!("  Step 1: Validating peer connection token...");
     crate::validate_peer_can_add_folder(peer_connection_token, domain).await?;
 
     // Validate folder share UCAN token structure
-    crypto_utils::ucan_utils::validate_structure(&folder_share_record.ucan_token)
+    tracing::info!("  Step 2: Validating folder share UCAN structure...");
+    crate::ucan_service::validate_ucan_structure(&folder_share_record.ucan_token)
         .await
-        .map_err(|e| FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e)))?;
+        .map_err(|e| {
+            tracing::error!("❌ Invalid folder share UCAN: {}", e);
+            FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e))
+        })?;
+    tracing::info!("  ✓ Folder share UCAN structure valid");
 
     // Save folder and share record in transaction
+    tracing::info!("  Step 3: Saving folder and share record to database...");
     repo_ctx
         .folder_repo
         .save_folder_with_share_record(folder, folder_share_record)
         .await?;
 
+    tracing::info!("✅ Successfully accepted and saved folder {}", folder.id);
     Ok(())
 }

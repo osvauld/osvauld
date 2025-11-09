@@ -1,8 +1,8 @@
 # Osvauld Protocol Technical Documentation
 
 **Status**: Living Document - Updated as implementation progresses
-**Last Updated**: 2025-11-08
-**Phase 2 Complete**: 65% of migration done (folder sharing implemented)
+**Last Updated**: 2025-11-10
+**Phase 3 Complete**: UCAN Service Architecture implemented (code deduplication)
 
 This document captures implementation details, algorithms, and technical decisions as we migrate from Yrs to Loro.
 
@@ -441,7 +441,7 @@ let issued_token_role = peer_role.as_str();
 
 #### Validation Flow
 
-**File**: `services/src/validation_service.rs`
+**File**: `services/src/ucan_service.rs` (formerly `validation_service.rs`)
 
 **Function**: `validate_peer_can_add_resources()`
 
@@ -460,7 +460,7 @@ let issued_token_role = peer_role.as_str();
    - Compare folder_id from UCAN with `expected_folder_id` (resource.folder_id)
    - Reject if mismatch - UCAN is for wrong folder
 
-**Code Location**: `services/src/validation_service.rs:64-95`
+**Code Location**: `services/src/ucan_service.rs:110-147`
 
 ```rust
 pub async fn validate_peer_can_add_resources(
@@ -1422,7 +1422,105 @@ folder_share_records::table
 
 ### Folder UCAN Capabilities
 
-**Status**: ✅ Implemented (2025-11-09)
+**Status**: ✅ Implemented (2025-11-09) - Template-based architecture
+
+#### Token Architecture
+
+**Three Types of Tokens**:
+
+1. **Connection Tokens** - Establish peer-to-peer relationship
+   - Owner's token for Node (issued by owner)
+   - Node's token for Owner (issued by node)
+
+2. **Folder UCANs** - Folder-level permissions with templates
+   - Owner's folder UCAN (contains owner_template and node_template)
+   - Node's folder UCAN (delegated from owner using template)
+
+3. **Resource UCANs** - Resource-level permissions with templates
+   - Owner's resource UCAN (contains owner_template and viewer_template)
+   - Delegated resource UCANs (for node/viewer using templates)
+
+#### Connection Tokens (Peer Authentication)
+
+**Owner's Token for Node** (issued by owner to authenticate node):
+```json
+{
+  "aud": "did:key:z6Mk...node_pub_key",
+  "cap": {
+    "sthalam:add_folder": {"use": [{}]},
+    "sthalam:user-connect:owner_user_id": {"use": [{}]},
+    "sthalam:user-share:owner_user_id": {"use": [{}]}
+  },
+  "fct": {
+    "role": "node"
+  },
+  "iss": "did:key:z6Mk...owner_pub_key"
+}
+```
+
+**Node's Token for Owner** (issued by node to authenticate owner):
+```json
+{
+  "aud": "did:key:z6Mk...owner_pub_key",
+  "cap": {
+    "sthalam:user-connect:node_user_id": {"use": [{}]},
+    "sthalam:user-share:node_user_id": {"use": [{}]}
+  },
+  "fct": {
+    "role": "owner"
+  },
+  "iss": "did:key:z6Mk...node_pub_key"
+}
+```
+
+#### Folder UCAN Token Structure (Template-Based)
+
+**Owner's Folder UCAN** (contains templates in facts):
+```json
+{
+  "aud": "did:key:z6Mk...owner_pub_key",
+  "cap": {
+    "sthalam:folder:2aed1e00-fe48-45a3-81cb-3fc27d323218": {
+      "own": [{}],
+      "get_share_link": [{}],
+      "add_resources": [{}],
+      "crud/read": [{}],
+      "crud/update": [{}],
+      "crud/delete": [{}],
+      "share_folder": [{}]
+    }
+  },
+  "fct": {
+    "role": "owner",
+    "owner_template": {
+      "capabilities": {
+        "own": "own",
+        "get_share_link": "get_share_link",
+        "add_resources": "add_resources",
+        "crud/read": "crud/read",
+        "crud/update": "crud/update",
+        "crud/delete": "crud/delete",
+        "share_folder": "share_folder"
+      }
+    },
+    "node_template": {
+      "capabilities": {
+        "get_share_link": "get_share_link",
+        "add_resources": "add_resources",
+        "crud/read": "crud/read",
+        "share_folder": "share_folder"
+      }
+    }
+  },
+  "iss": "did:key:z6Mk...owner_pub_key"
+}
+```
+
+**Key Points**:
+- Templates defined in frontend: `sthalam/frontend/desktop/src/config/permissions.ts`
+- `owner_template`: Full permissions (owner and node roles)
+- `node_template`: Subset of permissions (for sovereign node)
+- Backend extracts appropriate template based on `recipient_role` parameter
 
 #### The add_resources Capability
 
@@ -1452,69 +1550,151 @@ When a viewer requests access to a resource:
 - Node proves authority by presenting folder UCAN during resource delegation
 - Viewers receive valid resource UCANs chained to owner's root authority
 
-**Capability Format**: `{domain}:folder:{folder_id}` - `add_resources`
+#### Template-Based Delegation (Current Implementation)
 
-**Example Folder UCAN** (Node's Token):
+**Status**: ✅ Implemented (2025-11-09)
+
+**Architecture**: Frontend-driven template pattern with role-based delegation
+
+**Files Modified**:
+- Frontend config: `sthalam/frontend/desktop/src/config/permissions.ts`
+- Frontend state: `sthalam/frontend/desktop/src/state/data.svelte.ts`
+- Frontend UI: `sthalam/frontend/desktop/src/components/PublishWebsiteModal.svelte`
+- UCAN generation: `crypto_utils/src/ucan_utils.rs`
+- UCAN wrapper: `crypto_utils/src/crypto_utils.rs`
+- Service layer: `services/src/folder_service.rs`
+- Handler types: `tauri_handlers/src/types/common.rs`
+- Handler functions: `tauri_handlers/src/handlers/folder.rs`
+- Errors: `services/src/errors.rs`
+
+**Node's Folder UCAN Token** (Received from Owner):
 ```json
 {
+  "aud": "S94M6UPEdc8z7BuY3eefidBW2iLo+nXNMH4Dr7KU6ps=",
   "cap": {
-    "sthalam.io:folder:abc123": {
+    "sthalam:folder:f80eb3c2-a2a4-4a2e-836f-22fbc75ffd24": {
+      "add_resources": [{}],
       "crud/read": [{}],
-      "share_folder": [{}],
-      "add_resources": [{}]
+      "get_share_link": [{}],
+      "share_folder": [{}]
+    },
+    "sthalam:resource:f80eb3c2-a2a4-4a2e-836f-22fbc75ffd24/*": {
+      "add_resources": [{}],
+      "crud/read": [{}],
+      "get_share_link": [{}],
+      "share_folder": [{}]
     }
   },
   "fct": {
     "role": "node"
-  }
+  },
+  "iss": "did:key:z6Mk...owner_pub_key"
 }
 ```
 
-**Implementation Location**:
-- Handler: `tauri_handlers/src/handlers/folder.rs:95-100`
-- Service: `services/src/folder_service.rs:123-127`
+**Key Points**:
+- Capabilities extracted from `node_template` in owner's folder UCAN
+- Includes both folder-level and wildcard resource-level capabilities
+- `role: "node"` indicates this is for a sovereign node
+- No templates in delegated token (templates only in root owner UCAN)
 
-**Handler Determines Capabilities** (Architecture Pattern):
-```rust
-// Handler layer decides what capabilities are needed
-let folder_capabilities = vec![
-    (format!("{}:folder:{}", config.domain, input.folder_id), "crud/read".to_string()),
-    (format!("{}:folder:{}", config.domain, input.folder_id), "share_folder".to_string()),
-    (format!("{}:folder:{}", config.domain, input.folder_id), "add_resources".to_string()),
-];
-
-// Service layer executes with provided capabilities
-share_folder(
-    &input.folder_id,
-    &input.user_id,
-    folder_capabilities,  // Passed to service
-    &current_user,
-    repo_ctx,
-    crypto_utils,
-    &config.domain,
-).await?;
+**Node's Resource UCAN Token** (Delegated from Owner):
+```json
+{
+  "aud": "did:key:z6Mk...node_pub_key",
+  "cap": {
+    "sthalam:resource:0831ecf7-5eb3-4e3c-854c-542a2bab7dff:collaborative_doc": {"crud/merge": [{}]},
+    "sthalam:resource:0831ecf7-5eb3-4e3c-854c-542a2bab7dff:content_doc": {"crud/merge": [{}]},
+    "sthalam:resource:0831ecf7-5eb3-4e3c-854c-542a2bab7dff:static_assets": {"crud/merge": [{}]},
+    "sthalam:resource:0831ecf7-5eb3-4e3c-854c-542a2bab7dff:submissions_doc": {"crud/merge": [{}]},
+    "sthalam:resource:0831ecf7-5eb3-4e3c-854c-542a2bab7dff:template_doc": {"crud/merge": [{}]},
+    "sthalam:resource:0831ecf7-5eb3-4e3c-854c-542a2bab7dff:user_content_doc": {"crud/merge": [{}]}
+  },
+  "fct": {
+    "role": "node",
+    "docs": ["collaborative_doc", "content_doc", "static_assets", "submissions_doc", "template_doc", "user_content_doc"],
+    "doc_types": {
+      "collaborative_doc": "crdt",
+      "content_doc": "crdt",
+      "static_assets": "asset",
+      "submissions_doc": "crdt",
+      "template_doc": "crdt",
+      "user_content_doc": "crdt"
+    },
+    "owner_template": {
+      "capabilities": {
+        "collaborative_doc": "crud/merge",
+        "content_doc": "crud/merge",
+        "static_assets": "crud/merge",
+        "submissions_doc": "crud/merge",
+        "template_doc": "crud/merge",
+        "user_content_doc": "crud/merge"
+      },
+      "doc_types": {
+        "collaborative_doc": "crdt",
+        "content_doc": "crdt",
+        "static_assets": "asset",
+        "submissions_doc": "crdt",
+        "template_doc": "crdt",
+        "user_content_doc": "crdt"
+      }
+    }
+  },
+  "prf": ["bafkr4ifu7ooufdhyqsprzbjaix4hlxzgy4c6nr5roy2hbfq4u5lacgy62q"],
+  "iss": "did:key:z6Mk...owner_pub_key"
+}
 ```
 
-**Service Uses Capabilities**:
-```rust
-// Extract abilities from provided capabilities (line 123)
-let folder_capabilities: Vec<&str> = _folder_permissions
-    .iter()
-    .map(|(_, ability)| ability.as_str())
-    .collect();
+**Key Points**:
+- Delegated from owner using `owner_template` (node gets full permissions for resources)
+- Contains `owner_template` in facts for future viewer delegation
+- `prf` (proof) field chains to owner's root UCAN
+- Node can further delegate to viewers using `viewer_template`
 
-// Use in UCAN generation (line 134)
-let folder_ucan_token = crypto_utils::ucan_utils::generate_flexible_folder_token(
-    &signing_key,
-    &verifying_key,
-    folder_id,
-    domain,
-    None,
-    folder_capabilities,  // Includes add_resources
-    &recipient_user.ucan_pub_key,
-    "node",
-).await?;
-```
+**Implementation Flow**:
+
+1. **Folder Creation** (`services/src/folder_service.rs:create_folder`):
+   ```rust
+   pub async fn create_folder(
+       name: String,
+       description: Option<String>,
+       folder_template_json: String,  // From frontend
+       // ... other params
+   ) -> ServiceResult<Folder>
+   ```
+   - Frontend passes `FOLDER_TEMPLATE` from `permissions.ts`
+   - Backend calls `generate_folder_ucan_with_template()`
+   - Templates embedded in owner's folder UCAN facts
+
+2. **Folder Sharing** (`services/src/folder_service.rs:share_folder`):
+   ```rust
+   pub async fn share_folder(
+       folder_id: &str,
+       recipient_user_id: &str,
+       recipient_role: &str,  // "owner" or "node"
+       // ... other params
+   ) -> ServiceResult<()>
+   ```
+   - Frontend passes `recipientRole: "node"`
+   - Backend extracts template from owner's folder UCAN based on role
+   - Delegates with capabilities from extracted template
+   - Also shares all resources in folder with same role
+
+3. **Template Extraction** (from folder UCAN):
+   ```rust
+   let template_key = match recipient_role {
+       "owner" => "owner_template",
+       "node" => "node_template",
+       _ => return Err(InvalidRole),
+   };
+
+   let folder_ucan_parsed = validate_structure(&folder.ucan).await?;
+   let facts = folder_ucan_parsed.facts().ok_or(...)?.clone();
+   let template = facts.get(template_key).ok_or(...)?;
+   let capabilities_map = template.get("capabilities")
+       .and_then(|c| c.as_object())
+       .ok_or(...)?;
+   ```
 
 **Resource Sync Validation** (Future):
 
@@ -2256,6 +2436,131 @@ How to extract text from:
 ---
 
 ## Code Patterns
+
+### UCAN Service Architecture
+
+**Status**: ✅ Implemented (Phase 3 - November 2025)
+**Last Updated**: 2025-11-10
+
+**Purpose**: Centralized UCAN token validation, issuance, and key management to eliminate code duplication across services.
+
+**File**: `services/src/ucan_service.rs`
+
+#### Architecture Layers
+
+```
+┌─────────────────────────────────────────┐
+│   Domain Services                        │
+│   (auth, folder, resource, user)         │
+│   - Domain-specific business logic       │
+│   - Call ucan_service for common ops    │
+└─────────────────┬───────────────────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│   ucan_service.rs (NEW)                  │
+│   ├─ Validation: Business rules         │
+│   ├─ Issuance: Token generation         │
+│   └─ Helpers: Key management            │
+└─────────────────┬───────────────────────┘
+                  │
+┌─────────────────▼───────────────────────┐
+│   crypto_utils (ucan_utils.rs)           │
+│   - Cryptographic primitives             │
+│   - Low-level UCAN operations            │
+└──────────────────────────────────────────┘
+```
+
+#### Public Functions
+
+**Validation Functions** (Business-level validation):
+- `validate_peer_can_add_folder(token, domain)` - Validates peer has add_folder capability
+- `validate_peer_can_add_resources(folder_ucan, folder_id, domain)` - Validates folder access with capability check
+- `validate_folder_access_for_resource(folder_ucan, resource_folder_id, domain)` - Validates folder ownership for resource requests
+
+**Issuance Functions** (Token generation with boilerplate elimination):
+- `issue_one_time_connection_token(capability_str, role, crypto_utils, repo_ctx)` - For QR codes/connection strings
+- `issue_peer_connection_token(domain, peer_pub_key, role, crypto_utils, repo_ctx)` - For P2P connections with role-based capabilities
+- `issue_folder_owner_token(folder_id, domain, template_json, crypto_utils, repo_ctx)` - For folder creation
+- `issue_delegated_folder_token(folder_id, domain, capabilities, recipient_pub_key, role, crypto_utils, repo_ctx)` - For folder sharing
+- `issue_resource_owner_token(resource_id, domain, template_json, crypto_utils, repo_ctx)` - For resource creation
+- `get_ucan_public_key(crypto_utils, repo_ctx)` - Get UCAN public key
+
+**Helper Functions** (Internal):
+- `get_decrypted_ucan_keys(repo_ctx, crypto_utils)` - Private helper that eliminates repeated "get key → decrypt" pattern
+
+#### Migration Impact
+
+**Before**: 8 instances of duplicated boilerplate across services:
+```rust
+// Repeated pattern in auth_service, user_service, folder_service, resource_service
+let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+let crypto = crypto_utils.read().await;
+crypto.some_ucan_method(&encrypted_key, ...).await?;
+```
+
+**After**: Single centralized call:
+```rust
+// All services now use
+crate::ucan_service::issue_*_token(...).await?;
+```
+
+**Code Reduction**: ~50+ lines of duplicated code eliminated
+
+#### Usage Examples
+
+**Before (auth_service.rs)**:
+```rust
+let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+let crypto = crypto_utils.read().await;
+crypto.generate_one_time_user_connect_token(&encrypted_ucan_key, capability_str, role).await?;
+```
+
+**After**:
+```rust
+crate::ucan_service::issue_one_time_connection_token(capability_str, role, crypto_utils, &repo_ctx).await?;
+```
+
+**Before (folder_service.rs)**:
+```rust
+let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+let (signing_key, verifying_key) = {
+    let crypto = crypto_utils.read().await;
+    crypto.decrypt_ucan_key(&encrypted_key)?
+};
+crypto_utils::ucan_utils::generate_flexible_folder_token(&signing_key, &verifying_key, ...).await?;
+```
+
+**After**:
+```rust
+crate::ucan_service::issue_delegated_folder_token(folder_id, domain, capabilities, recipient_pub_key, role, crypto_utils, &repo_ctx).await?;
+```
+
+#### Services Refactored
+
+1. **auth_service.rs**: `generate_one_time_ucan_token()` now uses `ucan_service`
+2. **user_service.rs**: `issue_connect_ucan_token()` and `get_ucan_pub_key()` now use `ucan_service`
+3. **folder_service.rs**: Folder creation and sharing now use `ucan_service`
+4. **resource_service.rs**: Resource creation now uses `ucan_service`
+
+#### Design Decisions
+
+**Why Not Include Extraction Functions?**
+- Extraction functions work with parsed `Ucan` objects from the `ucan` crate
+- These are domain-specific and tightly coupled to crypto_utils
+- Services call `crypto_utils::ucan_utils::extract_*()` directly when needed
+
+**Why Keep Domain-Specific Logic in Services?**
+- Folder template extraction based on recipient role (folder_service)
+- Resource sync permission filtering (resource_service)
+- Role-based capability mapping (user_service)
+- These require domain knowledge that shouldn't be in ucan_service
+
+**Future Extensions**:
+- Add more validation patterns as needed (e.g., `validate_can_generate_shareable_link`)
+- Add token generation for new features (e.g., public folder view tokens)
+- Keep the service focused on common patterns, not domain-specific logic
+
+---
 
 ### Service Layer Pattern
 

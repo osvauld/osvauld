@@ -2,6 +2,7 @@ use log::error;
 use persistance::{DbConnection, database::initialize_repositories, initialize_database};
 use tauri::Manager;
 pub mod asset_protocol;
+mod event_manager;
 mod types;
 
 // Import all shared handlers from tauri_handlers crate
@@ -98,22 +99,22 @@ pub fn run() {
                     let repo_ctx = Arc::new(initialize_repositories(connection.clone()));
                     let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
                     let domain = Arc::new("sthalam".to_string());
-                    let (p2p_service, p2p_receiver, p2p_sender, incoming_receiver) =
+                    let (p2p_service, p2p_receiver) =
                         P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain);
-                    let p2p_service_clone = p2p_service.clone();
                     let p2p_service = Arc::new(p2p_service);
-                    rt.spawn(async move {
-                        P2PService::start_processing_incoming_events(
-                            p2p_service_clone,
-                            incoming_receiver,
-                        );
-                    });
+
                     // Create config for shared handlers (domain injection)
                     let handler_config = HandlerConfig::new("sthalam");
                     let user_state = UserState::new();
 
-                    // TODO: Re-implement event listeners and website state after Loro migration
-                    // See LISTENERS_ARCHITECTURE.md for reference
+                    // Create and start EventManager for bidirectional event communication
+                    let event_manager = event_manager::EventManager::new(
+                        app.handle().clone(),
+                        p2p_service.clone(),
+                        repo_ctx.clone(),
+                        crypto_utils.clone(),
+                    );
+                    event_manager.start(p2p_receiver, rt.handle());
 
                     app.manage(handler_config);
                     app.manage(user_state);

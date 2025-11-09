@@ -27,6 +27,7 @@ pub async fn handle_add_folder(
     let folder = create_folder(
         input.name,
         Some(input.description),
+        input.folder_template_json,
         repo_ctx.inner().clone(),
         &crypto_utils,
         &config.domain,
@@ -92,18 +93,11 @@ pub async fn handle_share_folder(
 ) -> Result<BaseCryptoResponse, String> {
     let user = user_state.get_user().await?;
 
-    // 1. Define folder capabilities for node (includes add_resources for viewer sharing)
-    let folder_capabilities = vec![
-        (format!("{}:folder:{}", config.domain, input.folder_id), "crud/read".to_string()),
-        (format!("{}:folder:{}", config.domain, input.folder_id), "share_folder".to_string()),
-        (format!("{}:folder:{}", config.domain, input.folder_id), "add_resources".to_string()),
-    ];
-
-    // 2. Share folder (creates ACLs and share records)
+    // 1. Share folder using template-based permissions
     share_folder(
         &input.folder_id,
         &input.user_id,
-        folder_capabilities,
+        &input.recipient_role,
         &user,
         repo_ctx.inner().clone(),
         &crypto_utils,

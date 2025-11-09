@@ -4,8 +4,6 @@ pub mod emitter;
 pub mod errors;
 pub mod folder_sync;
 pub mod handshake;
-pub mod incoming;
-pub mod incoming_handler;
 pub mod logger;
 pub mod p2p_init;
 pub mod p2p_service;

@@ -3,7 +3,6 @@ use crate::p2p::{
     constants::*,
     emitter::{P2PEvent, P2PEventEmitter},
     errors::{ConnectionError, P2PError, P2PResult},
-    incoming::{IncomingEvent, P2PSender},
     peer_connection::{PeerConnection, ServiceContext},
 };
 
@@ -42,14 +41,8 @@ impl P2PService {
         repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
         domain: Arc<String>,
-    ) -> (
-        Self,
-        mpsc::UnboundedReceiver<P2PEvent>,
-        P2PSender,
-        mpsc::UnboundedReceiver<IncomingEvent>,
-    ) {
+    ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>) {
         let (emitter, receiver) = P2PEventEmitter::new();
-        let (p2p_sender, incoming_receiver) = P2PSender::new();
         info!("Creating new P2P service instance");
 
         let service = Self {
@@ -63,7 +56,7 @@ impl P2PService {
         };
 
         debug!("P2P service instance created successfully");
-        (service, receiver, p2p_sender, incoming_receiver)
+        (service, receiver)
     }
 
     /// Ensures the P2P service is initialized

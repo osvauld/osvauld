@@ -33,6 +33,7 @@ tauri-plugin-store = "2.2.0"
 crypto_utils = { path = "../../crypto_utils" }
 once_cell = "1.8"
 log = "0.4"
+tracing = "0.1"
 tauri-plugin-log = "2.3.1"
 tauri-plugin-clipboard-manager = "2.0.2"
 tokio = { version = "1.44.2", features = ["full"] }

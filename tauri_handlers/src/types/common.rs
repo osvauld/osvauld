@@ -164,6 +164,7 @@ pub struct PasswordChangeInput {
 pub struct AddFolderInput {
     pub name: String,
     pub description: String,
+    pub folder_template_json: String,
 }
 
 #[derive(Deserialize)]
@@ -183,7 +184,7 @@ pub struct FolderShareUsersInput {
 pub struct ShareFolder {
     pub folder_id: String,
     pub user_id: String,
-    pub permissions: Vec<(String, String)>,
+    pub recipient_role: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

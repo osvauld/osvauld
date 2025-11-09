@@ -35,7 +35,7 @@ impl PeerConnection {
         debug!("Successfully retrieved user for peer");
 
         // Extract role from peer's UCAN token and convert to PeerRole enum
-        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&peer_user.ucan_token)
+        let peer_role_from_token = services::ucan_service::get_role(&peer_user.ucan_token)
             .await
             .unwrap_or_else(|e| {
                 debug!("Failed to extract role from token: {}, defaulting to user", e);
@@ -68,6 +68,11 @@ impl PeerConnection {
             ).await?;
             debug!("Successfully issued new UCAN token for peer with role '{}'", issued_token_role);
 
+            // Replace current_user's ucan_token with the peer's token (the one we're connecting to)
+            let mut user_to_send = current_user.clone();
+            
+            user_to_send.ucan_token = peer_user.ucan_token.clone();
+
             self.send_message(Message::Handshake(
                 HandshakeMessage::HandshakeFirstConnectRequest(FirstConnectRequest {
                     devices: user_devices,
@@ -75,16 +80,18 @@ impl PeerConnection {
                     signed_ucan_pub,
                     one_time_ucan: peer_user.ucan_token.clone(),
                     peer_device: current_device,
-                    peer_user: current_user,
+                    peer_user: user_to_send,
                 }),
             )).await?;
 
             info!("Sent HandshakeFirstConnectRequest to peer");
         } else {
+            let mut user_to_send = current_user.clone();
+            user_to_send.ucan_token = peer_user.ucan_token.clone();
             info!("Peer is an existing user, preparing HandshakeExchange");
             let exchange_message = UcanAndUserExchange {
                 ucan_token: peer_user.ucan_token,
-                peer_user: current_user,
+                peer_user: user_to_send,
                 peer_device: current_device,
                 signed_ucan_pub,
             };
@@ -148,7 +155,7 @@ impl PeerConnection {
         debug!("Retrieved local user and device");
         
         // Crypto error automatically propagates
-        let token_validation = crypto_utils::validate_connect_token(
+        services::ucan_service::validate_connect_token(
             &payload.ucan_token,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
@@ -156,13 +163,6 @@ impl PeerConnection {
             &self.domain,
         ).await?;
 
-        if !token_validation {
-            error!("Peer's connect token is invalid");
-            return Err(HandshakeError::InvalidCredentials {
-                user_id: payload.peer_user.id.clone(),
-            }.into());
-        }
-        
         debug!("Peer's connect token is valid");
 
         // Update peer user's ucan_token with the token they sent us (proves their capabilities)
@@ -172,7 +172,7 @@ impl PeerConnection {
         self.set_peer_user_and_device(updated_peer_user, payload.peer_device.clone()).await;
 
         // Extract role from UCAN and convert to PeerRole enum
-        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.ucan_token)
+        let peer_role_from_token = services::ucan_service::get_role(&payload.ucan_token)
             .await
             .unwrap_or_else(|e| {
                 debug!("Failed to extract role from token: {}, defaulting to user", e);
@@ -261,7 +261,7 @@ impl PeerConnection {
         debug!("Successfully verified peer's signed UCAN public key");
 
         // Crypto error automatically propagates
-        let one_time_token_validation = crypto_utils::validate_connect_token(
+        services::ucan_service::validate_connect_token(
             &payload.one_time_ucan,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
@@ -269,19 +269,10 @@ impl PeerConnection {
             &self.domain,
         ).await?;
 
-        debug!("Completed validation of one-time UCAN");
-
-        if !one_time_token_validation {
-            error!("Peer's one-time UCAN is invalid");
-            return Err(HandshakeError::InvalidCredentials {
-                user_id: payload.peer_user.id.clone(),
-            }.into());
-        }
-
         info!("Peer's one-time UCAN is valid. Proceeding to issue persistent UCAN.");
 
         // Extract role from one-time UCAN token and convert to PeerRole enum
-        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.one_time_ucan).await?;
+        let peer_role_from_token = services::ucan_service::get_role(&payload.one_time_ucan).await?;
         let peer_role = PeerRole::from_string(&peer_role_from_token);
         info!("Extracted peer role from one-time UCAN token: {:?}", peer_role);
 
@@ -314,7 +305,8 @@ impl PeerConnection {
         // Set connection type from peer role
         let connection_type = ConnectionType::from_peer_role(&peer_role);
         self.set_connection_type(connection_type).await;
-        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
+        // Use updated user with correct ucan_token (the one we received from peer)
+        self.set_peer_user_and_device(user.clone(), payload.peer_device.clone()).await;
 
         let user_with_devices = UserWithDevices {
             user,
@@ -353,9 +345,6 @@ impl PeerConnection {
             PeerRole::Node => P2PEvent::NodeConnected {
                 peer_id: payload.peer_user.id.clone(),
             },
-            PeerRole::Viewer => P2PEvent::ViewerConnected {
-                peer_id: payload.peer_user.id.clone(),
-            },
             _ => P2PEvent::UserConnected {
                 peer_id: payload.peer_user.id.clone(),
             },
@@ -385,7 +374,7 @@ impl PeerConnection {
         debug!("Retrieved local user information");
         
         // Crypto error automatically propagates
-        let token_validation_result = crypto_utils::validate_connect_token(
+        services::ucan_service::validate_connect_token(
             &payload.ucan_token,
             &peer_ucan_pub,
             &current_user.ucan_pub_key,
@@ -393,17 +382,10 @@ impl PeerConnection {
             &self.domain,
         ).await?;
 
-        if !token_validation_result {
-            error!("The UCAN issued by the peer is invalid");
-            return Err(HandshakeError::InvalidCredentials {
-                user_id: payload.peer_user.id.clone(),
-            }.into());
-        }
-        
         debug!("The UCAN issued by the peer is valid");
 
         // Extract role from UCAN and convert to PeerRole enum
-        let peer_role_from_token = crypto_utils::get_role_from_ucan_token(&payload.issued_ucan)
+        let peer_role_from_token = services::ucan_service::get_role(&payload.issued_ucan)
             .await
             .unwrap_or_else(|e| {
                 debug!("Failed to extract role from token: {}, defaulting to user", e);
@@ -417,7 +399,8 @@ impl PeerConnection {
         user.owner = false;
         user.ucan_pub_key = peer_ucan_pub;
 
-        self.set_peer_user_and_device(payload.peer_user.clone(), payload.peer_device.clone()).await;
+        // Use updated user with correct ucan_token (the one peer issued to us)
+        self.set_peer_user_and_device(user.clone(), payload.peer_device.clone()).await;
 
         let user_with_devices = UserWithDevices {
             user,
@@ -440,9 +423,6 @@ impl PeerConnection {
         // Emit role-specific connection event
         let event = match peer_role {
             PeerRole::Node => P2PEvent::NodeConnected {
-                peer_id: payload.peer_user.id.clone(),
-            },
-            PeerRole::Viewer => P2PEvent::ViewerConnected {
                 peer_id: payload.peer_user.id.clone(),
             },
             _ => P2PEvent::UserConnected {

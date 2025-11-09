@@ -38,7 +38,7 @@
 			// Fetch users this folder is already shared with
 			if (dataState.currentWebsite && dataState.currentWebsite.id !== "all") {
 				const sharedUsers = await sendMessage("getSharedFolderUsers", {
-					folderId: dataState.currentWebsite.id
+					folderId: dataState.currentWebsite.id,
 				});
 				existingUsers = sharedUsers || [];
 				console.log("✅ Existing users for folder:", existingUsers);
@@ -47,19 +47,6 @@
 			console.error("Error fetching users:", error);
 		}
 	}
-
-	const generateFolderPermissions = (folderId: string) => {
-		const abilities = [
-			"crud/read",
-			"crud/update",
-			"crud/delete",
-			"add_resources",
-			"share_folder",
-		];
-		const folderURI = `sthalam:folder:${folderId}`;
-		const permissionsToGrant = abilities.map((ability) => [folderURI, ability]);
-		return permissionsToGrant;
-	};
 
 	const handleGenerateLink = async () => {
 		const currentWebsite = dataState.currentWebsite;
@@ -75,11 +62,14 @@
 		}
 
 		// First, get the device_id for the selected user
-		const selectedUser = existingUsers.find(u => u.id === selectedSovereignNodeId);
+		const selectedUser = existingUsers.find(
+			(u) => u.id === selectedSovereignNodeId,
+		);
 		if (!selectedUser) {
 			console.error("Selected sovereign node not found");
 			return;
 		}
+		console.log(selectedUser, "Node");
 
 		isGeneratingLink = true;
 		generatedConnectionString = null; // Reset previous string
@@ -89,7 +79,7 @@
 			await emit("request-folder-token", {
 				folderId: currentWebsite.id,
 				deviceId: selectedUser.id, // This is actually the device_id from the User object
-				domain: "sthalam"
+				domain: "sthalam",
 			});
 
 			console.log("✅ Folder token request event emitted");
@@ -128,11 +118,11 @@
 
 		isPublishing = true;
 		try {
-			const permissions = generateFolderPermissions(currentWebsite.id);
+			// Share folder with 'node' role (template-based permissions)
 			await sendMessage("shareFolder", {
 				folderId: currentWebsite.id,
 				userId: selectedUserId,
-				permissions,
+				recipientRole: "node",
 			});
 
 			console.log("✅ Website published successfully!");
@@ -187,15 +177,15 @@
 			{
 				value: null as string | null,
 				label: "-- Select a node --",
-				disabled: true
-			}
+				disabled: true,
+			},
 		];
 
-		existingUsers.forEach(user => {
+		existingUsers.forEach((user) => {
 			options.push({
 				value: user.id,
 				label: user.username,
-				disabled: false
+				disabled: false,
 			});
 		});
 
@@ -227,7 +217,11 @@
 				onclick={onClose}
 			>
 				<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-					<path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+					<path
+						fill-rule="evenodd"
+						d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+						clip-rule="evenodd"
+					></path>
 				</svg>
 			</button>
 		</div>
@@ -238,150 +232,224 @@
 				Select a user to publish "{dataState.currentWebsite?.name}" to:
 			</p>
 
-		<!-- Existing Users (Already Published To) -->
-		{#if existingUsers.length > 0}
-			<div class="mb-4">
-				<h3 class="text-sm text-textActive mb-2">Already published to:</h3>
-				<div class="space-y-2 max-h-[10rem] overflow-y-auto">
-					{#each existingUsers as user}
-						{@const isSovereignNode = user.id === dataState.sovereignNodeId}
-						<div class="flex items-center gap-3 px-3 py-2 bg-osvauld-fieldActive rounded-lg">
-							<div class="w-8 h-8 rounded-full bg-livnotePink flex items-center justify-center text-black font-medium">
-								{user.username.charAt(0).toUpperCase()}
+			<!-- Existing Users (Already Published To) -->
+			{#if existingUsers.length > 0}
+				<div class="mb-4">
+					<h3 class="text-sm text-textActive mb-2">Already published to:</h3>
+					<div class="space-y-2 max-h-[10rem] overflow-y-auto">
+						{#each existingUsers as user}
+							{@const isSovereignNode = user.id === dataState.sovereignNodeId}
+							<div
+								class="flex items-center gap-3 px-3 py-2 bg-osvauld-fieldActive rounded-lg"
+							>
+								<div
+									class="w-8 h-8 rounded-full bg-livnotePink flex items-center justify-center text-black font-medium"
+								>
+									{user.username.charAt(0).toUpperCase()}
+								</div>
+								<span class="text-white flex items-center gap-2">
+									{user.username}
+									{#if isSovereignNode}
+										<span
+											class="text-xs px-2 py-0.5 bg-livnotePink/20 text-livnotePink rounded-full border border-livnotePink/40"
+											>Node</span
+										>
+									{/if}
+								</span>
+								<span class="ml-auto text-xs text-green-500">Published</span>
 							</div>
-							<span class="text-white flex items-center gap-2">
-								{user.username}
-								{#if isSovereignNode}
-									<span class="text-xs px-2 py-0.5 bg-livnotePink/20 text-livnotePink rounded-full border border-livnotePink/40">Node</span>
-								{/if}
-							</span>
-							<span class="ml-auto text-xs text-green-500">Published</span>
-						</div>
-					{/each}
+						{/each}
+					</div>
 				</div>
-			</div>
-			<div class="h-px bg-osvauld-borderColor my-4"></div>
-		{/if}
+				<div class="h-px bg-osvauld-borderColor my-4"></div>
+			{/if}
 
-		<!-- Available Users -->
-		<div class="flex-1 overflow-y-auto min-h-[8rem]">
-			<h3 class="text-sm text-textActive mb-2">Available users: ({availableUsers.length})</h3>
-			{#if availableUsers.length === 0}
-				<p class="text-sm text-textActive py-4">No users available. Add a user first.</p>
-			{:else}
-				<div class="space-y-2">
-					{#each availableUsers as user}
-						{@const isAlreadyPublished = existingUsers.some(u => u.id === user.id)}
-						{@const isSovereignNode = user.id === dataState.sovereignNodeId}
-						{(() => {
-							console.log("🔍 Rendering user:", user.username, "ID:", user.id, "Already published:", isAlreadyPublished);
-							return "";
-						})()}
-						<button
-							class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors {selectedUserId === user.id
-								? 'bg-livnotePink text-black'
-								: isAlreadyPublished
-									? 'bg-osvauld-fieldActive text-textActive opacity-50 cursor-not-allowed'
-									: 'bg-osvauld-fieldActive text-white hover:bg-osvauld-activeBorder'}"
-							onclick={() => {
-								if (!isAlreadyPublished) {
-									selectedUserId = user.id;
-								}
-							}}
-							disabled={isAlreadyPublished}
-						>
-							<div class="w-8 h-8 rounded-full {selectedUserId === user.id ? 'bg-black' : 'bg-livnotePink'} flex items-center justify-center {selectedUserId === user.id ? 'text-white' : 'text-black'} font-medium">
-								{user.username.charAt(0).toUpperCase()}
-							</div>
-							<span class="flex-1 text-left flex items-center gap-2">
-								{user.username}
-								{#if isSovereignNode}
-									<span class="text-xs px-2 py-0.5 bg-livnotePink/20 text-livnotePink rounded-full border border-livnotePink/40">Node</span>
+			<!-- Available Users -->
+			<div class="flex-1 overflow-y-auto min-h-[8rem]">
+				<h3 class="text-sm text-textActive mb-2">
+					Available users: ({availableUsers.length})
+				</h3>
+				{#if availableUsers.length === 0}
+					<p class="text-sm text-textActive py-4">
+						No users available. Add a user first.
+					</p>
+				{:else}
+					<div class="space-y-2">
+						{#each availableUsers as user}
+							{@const isAlreadyPublished = existingUsers.some(
+								(u) => u.id === user.id,
+							)}
+							{@const isSovereignNode = user.id === dataState.sovereignNodeId}
+							{(() => {
+								console.log(
+									"🔍 Rendering user:",
+									user.username,
+									"ID:",
+									user.id,
+									"Already published:",
+									isAlreadyPublished,
+								);
+								return "";
+							})()}
+							<button
+								class="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors {selectedUserId ===
+								user.id
+									? 'bg-livnotePink text-black'
+									: isAlreadyPublished
+										? 'bg-osvauld-fieldActive text-textActive opacity-50 cursor-not-allowed'
+										: 'bg-osvauld-fieldActive text-white hover:bg-osvauld-activeBorder'}"
+								onclick={() => {
+									if (!isAlreadyPublished) {
+										selectedUserId = user.id;
+									}
+								}}
+								disabled={isAlreadyPublished}
+							>
+								<div
+									class="w-8 h-8 rounded-full {selectedUserId === user.id
+										? 'bg-black'
+										: 'bg-livnotePink'} flex items-center justify-center {selectedUserId ===
+									user.id
+										? 'text-white'
+										: 'text-black'} font-medium"
+								>
+									{user.username.charAt(0).toUpperCase()}
+								</div>
+								<span class="flex-1 text-left flex items-center gap-2">
+									{user.username}
+									{#if isSovereignNode}
+										<span
+											class="text-xs px-2 py-0.5 bg-livnotePink/20 text-livnotePink rounded-full border border-livnotePink/40"
+											>Node</span
+										>
+									{/if}
+								</span>
+								{#if selectedUserId === user.id}
+									<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+										<path
+											fill-rule="evenodd"
+											d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+											clip-rule="evenodd"
+										></path>
+									</svg>
 								{/if}
-							</span>
-							{#if selectedUserId === user.id}
-								<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-									<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-								</svg>
-							{/if}
-						</button>
-					{/each}
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			<!-- Generate Shareable Link Section -->
+			{#if existingUsers.length > 0}
+				<div class="mt-6 pt-4 border-t border-osvauld-borderColor">
+					<h3 class="text-sm text-textActive mb-3">Generate Shareable Link:</h3>
+					<p class="text-xs text-textActive mb-3">
+						Select a published node to generate a shareable connection string
+						for viewers.
+					</p>
+
+					<!-- Select Sovereign Node -->
+					<div class="mb-3">
+						<label class="block text-xs text-textActive mb-2"
+							>Select Node:</label
+						>
+						<Dropdown
+							bind:value={selectedSovereignNodeId}
+							options={nodeOptions()}
+							onChange={(value) => (selectedSovereignNodeId = value)}
+							placeholder="-- Select a node --"
+						/>
+					</div>
+
+					<button
+						class="w-full px-4 py-2 bg-osvauld-fieldActive text-white rounded-lg text-sm hover:bg-osvauld-activeBorder transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+						onclick={handleGenerateLink}
+						disabled={isGeneratingLink || !selectedSovereignNodeId}
+					>
+						{#if isGeneratingLink}
+							<svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+								<circle
+									class="opacity-25"
+									cx="12"
+									cy="12"
+									r="10"
+									stroke="currentColor"
+									stroke-width="4"
+								></circle>
+								<path
+									class="opacity-75"
+									fill="currentColor"
+									d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+								></path>
+							</svg>
+							Requesting...
+						{:else}
+							<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+								<path
+									d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"
+								></path>
+							</svg>
+							Generate Shareable Link
+						{/if}
+					</button>
+
+					<!-- Display Generated Connection String -->
+					{#if generatedConnectionString}
+						<div
+							class="mt-4 p-3 bg-osvauld-background rounded-lg border border-green-500/30"
+						>
+							<div class="flex items-center justify-between mb-2">
+								<span class="text-xs text-green-500 font-medium"
+									>✓ Connection String Generated</span
+								>
+								<button
+									class="px-2 py-1 bg-osvauld-fieldActive text-white rounded text-xs hover:bg-osvauld-activeBorder transition-colors flex items-center gap-1"
+									onclick={handleCopyConnectionString}
+								>
+									{#if isCopied}
+										<svg
+											class="w-3 h-3"
+											fill="currentColor"
+											viewBox="0 0 20 20"
+										>
+											<path
+												fill-rule="evenodd"
+												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+												clip-rule="evenodd"
+											></path>
+										</svg>
+										Copied!
+									{:else}
+										<svg
+											class="w-3 h-3"
+											fill="currentColor"
+											viewBox="0 0 20 20"
+										>
+											<path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z"
+											></path>
+											<path
+												d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z"
+											></path>
+										</svg>
+										Copy
+									{/if}
+								</button>
+							</div>
+							<div
+								class="bg-osvauld-fieldActive p-2 rounded text-xs text-textActive break-all font-mono"
+							>
+								{generatedConnectionString}
+							</div>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>
 
-		<!-- Generate Shareable Link Section -->
-		{#if existingUsers.length > 0}
-			<div class="mt-6 pt-4 border-t border-osvauld-borderColor">
-				<h3 class="text-sm text-textActive mb-3">Generate Shareable Link:</h3>
-				<p class="text-xs text-textActive mb-3">
-					Select a published node to generate a shareable connection string for viewers.
-				</p>
-
-				<!-- Select Sovereign Node -->
-				<div class="mb-3">
-					<label class="block text-xs text-textActive mb-2">Select Node:</label>
-					<Dropdown
-						bind:value={selectedSovereignNodeId}
-						options={nodeOptions()}
-						onChange={(value) => selectedSovereignNodeId = value}
-						placeholder="-- Select a node --"
-					/>
-				</div>
-
-				<button
-					class="w-full px-4 py-2 bg-osvauld-fieldActive text-white rounded-lg text-sm hover:bg-osvauld-activeBorder transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-					onclick={handleGenerateLink}
-					disabled={isGeneratingLink || !selectedSovereignNodeId}
-				>
-					{#if isGeneratingLink}
-						<svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-							<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-							<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-						</svg>
-						Requesting...
-					{:else}
-						<svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-							<path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-						</svg>
-						Generate Shareable Link
-					{/if}
-				</button>
-
-				<!-- Display Generated Connection String -->
-				{#if generatedConnectionString}
-					<div class="mt-4 p-3 bg-osvauld-background rounded-lg border border-green-500/30">
-						<div class="flex items-center justify-between mb-2">
-							<span class="text-xs text-green-500 font-medium">✓ Connection String Generated</span>
-							<button
-								class="px-2 py-1 bg-osvauld-fieldActive text-white rounded text-xs hover:bg-osvauld-activeBorder transition-colors flex items-center gap-1"
-								onclick={handleCopyConnectionString}
-							>
-								{#if isCopied}
-									<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-										<path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-									</svg>
-									Copied!
-								{:else}
-									<svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-										<path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-										<path d="M6 3a2 2 0 00-2 2v11a2 2 0 002 2h8a2 2 0 002-2V5a2 2 0 00-2-2 3 3 0 01-3 3H9a3 3 0 01-3-3z" />
-									</svg>
-									Copy
-								{/if}
-							</button>
-						</div>
-						<div class="bg-osvauld-fieldActive p-2 rounded text-xs text-textActive break-all font-mono">
-							{generatedConnectionString}
-						</div>
-					</div>
-				{/if}
-			</div>
-		{/if}
-		</div>
-
 		<!-- Footer (fixed at bottom) -->
-		<div class="flex justify-end gap-3 p-6 pt-4 border-t border-osvauld-borderColor">
+		<div
+			class="flex justify-end gap-3 p-6 pt-4 border-t border-osvauld-borderColor"
+		>
 			<button
 				class="px-4 py-2 text-sm text-textActive hover:text-white transition-colors"
 				onclick={onClose}
@@ -395,8 +463,19 @@
 			>
 				{#if isPublishing}
 					<svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+						<circle
+							class="opacity-25"
+							cx="12"
+							cy="12"
+							r="10"
+							stroke="currentColor"
+							stroke-width="4"
+						></circle>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+						></path>
 					</svg>
 					Publishing...
 				{:else}

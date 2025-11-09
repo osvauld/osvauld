@@ -61,6 +61,10 @@ pub enum Message {
     // Folder sync (simple push protocol)
     FolderDataSync(FolderDataSync),
     ResourceDataSync(ResourceDataSync),
+
+    // Folder token request (for generating shareable links)
+    FolderTokenRequest(FolderTokenRequest),
+    FolderTokenResponse(FolderTokenResponse),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -226,5 +230,19 @@ pub struct ResourceTransferMsg {
     pub resource: EncryptedResource,
     /// All share records for this resource
     pub share_records: Vec<ShareRecord>,
+}
+
+/// Request folder token for generating shareable link
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderTokenRequest {
+    pub folder_id: String,
+    pub folder_ucan: String,
+}
+
+/// Response with generated folder token (shareable link)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderTokenResponse {
+    pub folder_id: String,
+    pub connection_string: String,
 }
 
