@@ -825,6 +825,285 @@ Node App:
 
 ---
 
+## Resource Sync Validation Flow (2025-11-09)
+
+### Functions Used
+
+**Validation Service** (services/src/validation_service.rs):
+- `validate_peer_can_add_resources()` - Validates owner's folder UCAN for add_resources capability
+  - Location: services/src/validation_service.rs:64-95
+  - Purpose: Validate owner has permission to add resources to specific folder
+  - Steps:
+    1. Validate folder UCAN structure
+    2. Extract folder_id with add_resources capability
+    3. Verify folder_id matches resource.folder_id
+
+**Crypto Utils UCAN Functions** (crypto_utils/src/ucan_utils.rs):
+- `extract_folder_id_with_add_resources_capability()` - Extract folder_id from UCAN with capability check
+  - Location: crypto_utils/src/ucan_utils.rs:466-497
+  - Purpose: Find folder UCAN capability and extract folder_id
+  - Returns: folder_id if found with add_resources ability
+  - Error: UcanError::CapabilityNotFound if not found
+
+**Resource Service** (services/src/resource_service.rs):
+- `accept_resource_from_peer()` - Accept and save resource from peer
+  - Location: services/src/resource_service.rs:748-788
+  - Purpose: Validate and save resource + share records from peer
+  - Validation: Calls validate_peer_can_add_resources()
+  - Save: Calls resource_repo.save_resource_with_share_records()
+
+**Repository Layer** (persistance/src/repositories/resource_repository.rs):
+- `save_resource_with_share_records()` - Save resource + share records in transaction
+  - Location: persistance/src/repositories/resource_repository.rs:204-247
+  - Purpose: Atomic save of resource with all share records
+  - Transaction: Uses diesel transaction for atomicity
+  - Strategy: insert_or_ignore_into for idempotent saves
+
+**Network Layer** (network/src/p2p/):
+- `handshake::process_exchange_message()` - Fixed peer token storage
+  - Location: network/src/p2p/handshake.rs:168-172
+  - Fix: Store payload.ucan_token (token peer sent us) instead of peer_user.ucan_token
+  - Impact: Both folder_sync and resource_sync now get correct peer connection token
+
+- `resource_sync::handle_resource_data_sync()` - Receive resource from peer
+  - Location: network/src/p2p/resource_sync.rs:157-187
+  - Purpose: Orchestrate resource reception, delegate to service
+  - Delegates: Calls services::accept_resource_from_peer()
+
+### Key Learnings from This Session
+
+1. **Connection vs Folder Capabilities**:
+   - Connection tokens have `{domain}:add_folder` (connection-level)
+   - Folder UCANs have `{domain}:folder:{folder_id}:add_resources` (folder-level)
+   - NEVER validate folder-level permissions with connection tokens!
+
+2. **Folder UCAN Usage**:
+   - Owner sends their folder UCAN (folder.ucan field) with each resource
+   - Proves owner has add_resources permission for that specific folder
+   - Node validates folder_id in UCAN matches resource.folder_id
+
+3. **Handshake Token Storage**:
+   - Must store the token peer SENDS us (proves their capabilities)
+   - NOT the token we ISSUED to them (just records what we gave them)
+   - Fixed in process_exchange_message() by using payload.ucan_token
+
+4. **Share Records in ResourceDataSync**:
+   - Send ALL share records (Vec<ShareRecord>), not just one
+   - Enables node to forward viewer updates back to owner
+   - Node needs to know all viewers who have access
+
+5. **Transaction-Based Saving**:
+   - Resource + share records saved in single transaction
+   - Uses insert_or_ignore_into for idempotent saves (re-sending is safe)
+   - Atomicity ensures consistency
+
+---
+
+## Resource Sync (CRDT Merge Protocol)
+
+**Status**: ✅ Implemented (2025-11-09)
+**Purpose**: Bidirectional CRDT synchronization between peers using state vectors
+
+### Flow
+
+```
+User clicks sync → syncResource → handle_sync_resource →
+network::p2p::sync_handler::sync_resource →
+(For each peer with access):
+  - Get share records → services::get_all_share_records_for_resource()
+  - Get UCANs → services::get_resource_ucans_for_sync()
+  - Send ResourceSyncRequest(resource_ucan, folder_ucan)
+
+Peer receives → handle_resource_sync_request →
+  - Check if resource exists
+  - If exists: Get state vectors → services::get_resource_state_vectors_by_ucan()
+  - Send StateVectorRequest(state_vectors, ucan_token)
+
+Initiator receives → handle_state_vector_request →
+  - Generate updates → services::generate_updates_for_peer()
+  - Send UpdatesResponse(updates, state_vectors, ucan_token)
+
+Peer receives → handle_updates_response →
+  - Apply updates → services::apply_peer_updates()
+  - (TODO: Send our updates back)
+```
+
+### Key Functions
+
+**Tauri Handler** (tauri_handlers/src/handlers/resource.rs):
+- `handle_sync_resource()` - Entry point for resource sync
+  - Location: tauri_handlers/src/handlers/resource.rs:242-271
+  - Purpose: Initiate sync from frontend
+  - Pattern: Fire-and-forget (spawns async task)
+  - Call: `network::p2p::sync_handler::sync_resource()`
+
+**Sync Orchestration** (network/src/p2p/sync_handler.rs):
+- `sync_resource()` - Orchestrate resource sync with all peers
+  - Location: network/src/p2p/sync_handler.rs:125-241
+  - Purpose: Find peers, get UCANs, send sync requests
+  - Pattern: For each peer with access (skip self)
+  - Calls:
+    - `services::get_all_share_records_for_resource()` - Find users with access
+    - `services::get_resource_ucans_for_sync()` - Get resource + folder UCANs
+    - `p2p_service.get_connection_by_id()` or `connect_with_ticket()` - Get connection
+    - `peer_conn.send_message(Message::ResourceSyncRequest)` - Send request
+
+**Network Handlers** (network/src/p2p/resource_sync.rs):
+- `handle_resource_sync_request()` - Receive sync request
+  - Location: network/src/p2p/resource_sync.rs:400-492
+  - Purpose: Check if resource exists, initiate CRDT merge
+  - If resource exists: Send StateVectorRequest
+  - If not: Send ResourceNotFoundRequest (not implemented)
+  - Calls: `services::get_resource_state_vectors_by_ucan()`
+
+- `handle_state_vector_request()` - Receive state vectors, send updates
+  - Location: network/src/p2p/resource_sync.rs:555-608
+  - Purpose: Generate incremental updates based on peer's state
+  - Calls: `services::generate_updates_for_peer()`
+  - Sends: UpdatesResponse with incremental Loro updates
+
+- `handle_updates_response()` - Receive and apply updates
+  - Location: network/src/p2p/resource_sync.rs:632-680
+  - Purpose: Apply peer's updates, generate our updates back
+  - Calls: `services::apply_peer_updates()`
+  - TODO: Send our updates back to complete bidirectional sync
+
+**Service Layer** (services/src/resource_service.rs):
+- `get_resource_ucans_for_sync()` - Get resource + folder UCANs
+  - Location: services/src/resource_service.rs:763-813
+  - Purpose: Get UCANs needed for ResourceSyncRequest
+  - Finds: Share record with operation="share" for user
+  - Returns: (resource_ucan, folder_ucan)
+
+- `get_resource_state_vectors_by_ucan()` - Get UCAN-filtered state vectors
+  - Location: services/src/resource_service.rs:463-517
+  - Purpose: Get state vectors only for docs peer can access
+  - UCAN Filtering: Only include docs in UCAN capabilities
+  - Returns: JSON with state vectors per doc
+
+- `generate_updates_for_peer()` - Generate incremental updates
+  - Location: services/src/resource_service.rs:519-580
+  - Purpose: Generate Loro updates based on peer's state vectors
+  - UCAN Filtering: Only send updates for permitted docs
+  - Incremental: Uses `document::export_updates(doc, &peer_state_vector)`
+  - Returns: JSON with updates + current state per doc
+
+- `apply_peer_updates()` - Apply updates and generate response
+  - Location: services/src/resource_service.rs:582-645
+  - Purpose: Merge peer's updates, generate our updates back
+  - Validation: Checks peer's UCAN for each doc
+  - Rejects: Updates for `crud/readonly` docs
+  - Bidirectional: Applies their updates AND generates our updates
+  - Saves: Merged resource to database
+  - Returns: JSON with our updates for peer
+
+- `get_all_share_records_for_resource()` - Get all users with access
+  - Location: services/src/share_service.rs (new file)
+  - Purpose: Find all peers to sync with
+  - Returns: Vec<ShareRecord> for resource
+
+**Helper Functions** (tauri_handlers/src/types/common.rs):
+- `SyncResourceInput` - Input type for sync command
+  - Location: tauri_handlers/src/types/common.rs:255-259
+  - Fields: resource_id
+
+**Frontend Integration** (sthalam/frontend/desktop/src/utils/helper.ts):
+- `syncResource` action - Call sync command
+  - Location: helper.ts:107
+  - Handler map: `invoke("handle_sync_resource", { input: data })`
+  - Usage: `sendMessage("syncResource", { resourceId: "abc123" })`
+
+### Message Flow
+
+1. **ResourceSyncRequest** (`Message::ResourceSyncRequest`):
+   - Contains: resource_ucan, folder_ucan
+   - Purpose: Initiate sync for a resource
+   - Response: StateVectorRequest (if resource exists)
+
+2. **StateVectorRequest** (`Message::MergeUpdate(StateVectorRequest)`):
+   - Contains: resource_id, state_vectors (JSON), asset_ids, ucan_token
+   - Purpose: "Here are my state vectors, send me your updates"
+   - Response: UpdatesResponse
+
+3. **UpdatesResponse** (`Message::MergeUpdate(UpdatesResponse)`):
+   - Contains: resource_id, updates (JSON), state_vectors, missing_asset_ids, ucan_token
+   - Purpose: "Here are updates you're missing + my current state"
+   - Response: None (sync complete) or UpdatesResponse (bidirectional)
+
+### State Vector Format
+
+```json
+{
+  "template_doc": {
+    "state_vector": [1, 229, 249, 220, 160, ...]
+  },
+  "content_doc": {
+    "state_vector": [1, 152, 156, 175, 191, ...]
+  },
+  "collaborative_doc": {
+    "state_vector": [0]
+  }
+}
+```
+
+- Empty `[0]`: No operations yet
+- Non-empty: Loro's version vector encoding
+- **Filtered**: Only includes docs peer has permission for
+
+### Updates Format
+
+```json
+{
+  "content_doc": {
+    "state_vector": [1, 152, 156, 175, 191, ...],
+    "updates": [108, 111, 114, 111, 0, 0, ...]
+  }
+}
+```
+
+- `state_vector`: Sender's current state
+- `updates`: Incremental Loro operations
+
+### Key Learnings from Resource Sync
+
+1. **Operation Type = "share"**:
+   - All share records currently have operation_type = "share"
+   - `get_resource_ucans_for_sync()` queries for operation="share"
+   - Fixed from looking for "view" which didn't exist
+
+2. **State Vector Sync Protocol**:
+   - Initiator sends ResourceSyncRequest with UCANs
+   - Peer responds with StateVectorRequest (their state)
+   - Initiator sends UpdatesResponse (incremental updates)
+   - Peer applies updates and generates response
+   - Bidirectional: Both sides converge to same state
+
+3. **UCAN Filtering Throughout**:
+   - State vectors: Only include permitted docs
+   - Updates generation: Only send permitted updates
+   - Update application: Validate permissions for each doc
+   - Security: Prevents unauthorized document access
+
+4. **Incremental Sync**:
+   - State vectors enable minimal data transfer
+   - Only send operations peer doesn't have
+   - Loro handles efficient binary encoding
+   - Much better than full snapshot sync
+
+5. **P2PService State Management**:
+   - p2p_service managed as `Arc<P2PService>` in lib.rs
+   - NOT wrapped in Mutex like originally attempted
+   - Handler uses `p2p_service.inner().clone()` directly
+   - Matches folder sharing pattern
+
+6. **Fire-and-Forget Pattern**:
+   - Handler spawns async task for sync
+   - Returns success immediately
+   - User doesn't wait for sync completion
+   - Errors logged, don't propagate
+
+---
+
 ## Notes
 
 - This file tracks **frontend → backend** function calls
@@ -833,3 +1112,5 @@ Node App:
 - Auth functions are considered core and always kept
 - Website-related handlers already removed (not needed for sthalam core)
 - **Folder sync flow** added 2025-11-08 after implementing simple folder sync protocol
+- **Resource sync validation** added 2025-11-09 after implementing folder UCAN validation
+- **Resource sync (CRDT merge)** added 2025-11-09 after implementing bidirectional state vector sync

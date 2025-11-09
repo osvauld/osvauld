@@ -104,7 +104,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       updateCurrentNote: (data: any) => { invoke('update_current_note', { input: data }) }, // ❌ Old live edit - to be removed
       publishResource: (data: any) => invoke("handle_publish_resource", { resourceId: data.resourceId }), // ⏳ TODO (Phase 3)
       connectToWebsite: (data: any) => invoke("handle_connect_to_website", { input: data }), // ❌ Website feature - removed
-      syncResource: (data: any) => invoke("handle_sync_resource", { resourceId: data.resourceId }), // ❌ Website feature - removed
+      syncResource: (data: any) => invoke("handle_sync_resource", { input: data }), // ✅ P2P resource sync
       folderSyncViewer: (data: any) => invoke("handle_folder_sync_viewer", { folderId: data.folderId }), // ❌ Website feature - removed
     };
     //@ts-ignore

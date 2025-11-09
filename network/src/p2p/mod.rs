@@ -15,3 +15,4 @@ pub mod sync_handler;
 
 pub use emitter::{P2PEvent, P2PEventEmitter};
 pub use p2p_service::P2PService;
+pub use sync_handler::sync_resource;

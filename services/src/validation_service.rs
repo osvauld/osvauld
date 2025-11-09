@@ -99,3 +99,31 @@ pub async fn validate_peer_can_add_resources(
 
     Ok(())
 }
+
+/// Validate that a requester has access to a resource via their folder UCAN
+///
+/// This validates:
+/// - The folder UCAN structure is valid
+/// - The folder UCAN has proper capabilities (add_resources)
+/// - The resource's folder_id matches the folder_id in the UCAN
+///
+/// Used when a peer requests a resource - validates they should have access
+/// based on folder permissions.
+///
+/// # Arguments
+/// * `folder_ucan` - Requester's folder UCAN token
+/// * `resource_folder_id` - The folder_id that the resource belongs to
+/// * `domain` - The domain to check (e.g., "sthalam")
+///
+/// # Returns
+/// * `Ok(())` if requester has valid folder access
+/// * `Err` with descriptive error if validation fails
+pub async fn validate_folder_access_for_resource(
+    folder_ucan: &str,
+    resource_folder_id: &str,
+    domain: &str,
+) -> ServiceResult<()> {
+    // Reuse existing validation - folder UCAN must have add_resources capability
+    // and folder_id must match the resource's folder
+    validate_peer_can_add_resources(folder_ucan, resource_folder_id, domain).await
+}

@@ -2,17 +2,16 @@
 // See HANDOFF.md and LISTENERS_ARCHITECTURE.md for migration context
 
 use crate::config::HandlerConfig;
-use crate::types::{AddResourceInput, BaseCryptoResponse, GetResource, ResourceMetadata, ResourceResponse, UpdateResourceInput};
+use crate::types::{AddResourceInput, BaseCryptoResponse, GetResource, ResourceMetadata, ResourceResponse, SyncResourceInput, UpdateResourceInput};
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use log::{error, info};
 use network::P2PService;
 use persistance::database::RepositoryContext;
-use search_indexer::SearchIndexManager;
 use services::{create_resource, get_all_resources_metadata, get_resource_by_id_direct, update_resource};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, State};
-use tokio::sync::{Mutex, RwLock};
+use tauri::State;
+use tokio::sync::RwLock;
 
 #[tauri::command]
 pub async fn handle_add_resource(
@@ -226,6 +225,47 @@ pub async fn handle_update_resource(
 
     info!("Resource updated successfully: {}", response.id);
     Ok(BaseCryptoResponse::ResourceUpdated(response))
+}
+
+/// Sync a resource with connected peers
+///
+/// Initiates the resource sync protocol by calling the network layer.
+/// The sync_resource function will:
+/// 1. Get all users with access to the resource
+/// 2. For each user, get their devices and establish connections
+/// 3. Send ResourceSyncRequest to start the sync protocol
+///
+/// This is fire-and-forget - spawned as async task.
+#[tauri::command]
+pub async fn handle_sync_resource(
+    input: SyncResourceInput,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    p2p_service: State<'_, Arc<P2PService>>,
+) -> Result<BaseCryptoResponse, String> {
+    info!("Syncing resource: {}", input.resource_id);
+
+    // Spawn async task for sync
+    let resource_id = input.resource_id.clone();
+    let repo = repo_ctx.inner().clone();
+    let crypto = crypto_utils.inner().clone();
+    let p2p = p2p_service.inner().clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = network::p2p::sync_handler::sync_resource(
+            resource_id.clone(),
+            repo,
+            crypto,
+            p2p,
+        )
+        .await
+        {
+            error!("Failed to sync resource {}: {}", resource_id, e);
+        }
+    });
+
+    info!("✓ Resource sync task spawned for: {}", input.resource_id);
+    Ok(BaseCryptoResponse::Success)
 }
 
 // TODO: Implement remaining resource handlers as needed:

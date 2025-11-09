@@ -238,12 +238,87 @@ impl Resource {
             .map_err(|e| format!("Failed to serialize state vectors: {}", e))
     }
 
-    /// Generate updates for a peer based on their state vectors
+    /// Get state vectors filtered by UCAN token capabilities
+    ///
+    /// Returns state vectors only for documents that the UCAN token grants access to.
+    /// Respects dont_send_to_node rules for viewer tokens.
     ///
     /// # Arguments
-    /// * `our_ucan` - Our UCAN token (checks dont_send_to_node)
-    /// * `peer_ucan` - Peer's UCAN token (checks their capabilities)
-    /// * `peer_state_vectors_json` - JSON with peer's state vectors
+    /// * `ucan_token` - UCAN token from initiator (contains capabilities)
+    /// * `domain` - Domain for UCAN parsing (e.g., "sthalam")
+    ///
+    /// # Returns
+    /// JSON string with state vectors for accessible docs only:
+    /// ```json
+    /// {
+    ///   "doc_name": {
+    ///     "state_vector": [1, 2, 3, ...]
+    ///   }
+    /// }
+    /// ```
+    pub fn get_state_vectors_for_ucan(&self, ucan_token: &str) -> Result<String, String> {
+        // 1. Extract document capabilities from UCAN (domain is extracted from UCAN itself)
+        let doc_capabilities = extract_doc_capabilities(ucan_token)
+            .map_err(|e| format!("Failed to extract doc capabilities: {}", e))?;
+
+        // 2. Extract facts to check for dont_send_to_node
+        let facts = extract_facts(ucan_token)
+            .map_err(|e| format!("Failed to extract facts: {}", e))?;
+
+        // 3. Get dont_send_to_node list (if exists)
+        let dont_send_to_node: Vec<String> = facts
+            .as_ref()
+            .and_then(|f| f.get("dont_send_to_node"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        // 4. Build result with filtered docs
+        let mut result = serde_json::Map::new();
+
+        for (doc_name, doc) in &self.docs {
+            // Skip if not in capabilities
+            if !doc_capabilities.contains_key(doc_name) {
+                continue;
+            }
+
+            // Skip if in dont_send_to_node list
+            if dont_send_to_node.contains(doc_name) {
+                continue;
+            }
+
+            // Get state frontiers for this doc
+            let state_vector = state_frontiers(doc);
+
+            // Convert to JSON array
+            let vector_array: Vec<Value> = state_vector
+                .iter()
+                .map(|&b| Value::Number(serde_json::Number::from(b)))
+                .collect();
+
+            let mut doc_data = serde_json::Map::new();
+            doc_data.insert("state_vector".to_string(), Value::Array(vector_array));
+
+            result.insert(doc_name.clone(), Value::Object(doc_data));
+        }
+
+        serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize state vectors: {}", e))
+    }
+
+    /// Generate updates for a peer based on their state vectors
+    ///
+    /// Compares peer's state vectors with our current state and generates
+    /// incremental updates for documents they're behind on. Respects peer's
+    /// UCAN capabilities - only generates updates for docs they have access to.
+    ///
+    /// # Arguments
+    /// * `peer_ucan` - Peer's UCAN token (checks their capabilities and dont_send_to_node)
+    /// * `peer_state_vectors_json` - JSON with peer's current state vectors
     ///
     /// # Input Format
     /// ```json
@@ -255,10 +330,17 @@ impl Resource {
     /// ```
     ///
     /// # Returns
-    /// JSON string with updates for each doc that peer is behind on
+    /// JSON string with updates for each doc that peer is behind on:
+    /// ```json
+    /// {
+    ///   "doc_name": {
+    ///     "updates": [1, 2, 3, ...],
+    ///     "state_vector": [4, 5, 6, ...]
+    ///   }
+    /// }
+    /// ```
     pub fn generate_updates(
         &self,
-        our_ucan: &str,
         peer_ucan: &str,
         peer_state_vectors_json: &str,
     ) -> Result<String, String> {
@@ -267,11 +349,15 @@ impl Resource {
             serde_json::from_str(peer_state_vectors_json)
                 .map_err(|e| format!("Failed to parse peer state vectors: {}", e))?;
 
-        // Parse our UCAN to check what we shouldn't send
-        let our_facts = extract_facts(our_ucan)
+        // Parse peer's UCAN to get capabilities
+        let peer_doc_caps = extract_doc_capabilities(peer_ucan)
+            .map_err(|e| e.to_string())?;
+
+        // Check peer's dont_send_to_node rules (e.g., viewer doesn't want user_content_doc)
+        let peer_facts = extract_facts(peer_ucan)
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
-        let dont_send = our_facts
+        let dont_send_to_peer = peer_facts
             .get("dont_send_to_node")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -281,21 +367,17 @@ impl Resource {
             })
             .unwrap_or_default();
 
-        // Parse peer's UCAN
-        let peer_doc_caps = extract_doc_capabilities(peer_ucan)
-            .map_err(|e| e.to_string())?;
-
         let mut result = serde_json::Map::new();
 
         // For each doc in peer's state vectors
         for (doc_name, doc_data) in peer_vectors {
-            // Skip if we're not allowed to send this doc
-            if dont_send.contains(&doc_name) {
+            // Skip if peer doesn't have capability for this doc
+            if !peer_doc_caps.contains_key(&doc_name) {
                 continue;
             }
 
-            // Skip if peer doesn't have capability for this doc
-            if !peer_doc_caps.contains_key(&doc_name) {
+            // Skip if in peer's dont_send_to_node list
+            if dont_send_to_peer.contains(&doc_name) {
                 continue;
             }
 
@@ -481,6 +563,47 @@ impl Resource {
 
         serde_json::to_string(&result)
             .map_err(|e| format!("Failed to serialize to JSON: {}", e))
+    }
+
+    /// Extract state vectors from updates JSON
+    ///
+    /// Converts updates format to state vectors format by removing updates and keeping only state_vector.
+    ///
+    /// # Input Format
+    /// ```json
+    /// {
+    ///   "doc_name": {
+    ///     "updates": [1, 2, 3, ...],
+    ///     "state_vector": [4, 5, 6, ...]
+    ///   }
+    /// }
+    /// ```
+    ///
+    /// # Output Format
+    /// ```json
+    /// {
+    ///   "doc_name": {
+    ///     "state_vector": [4, 5, 6, ...]
+    ///   }
+    /// }
+    /// ```
+    pub fn extract_state_vectors_from_updates(updates_json: &str) -> Result<String, String> {
+        let input: HashMap<String, serde_json::Map<String, Value>> =
+            serde_json::from_str(updates_json)
+                .map_err(|e| format!("Failed to parse updates JSON: {}", e))?;
+
+        let mut result = serde_json::Map::new();
+
+        for (doc_name, doc_data) in input {
+            if let Some(state_vector) = doc_data.get("state_vector") {
+                let mut doc_result = serde_json::Map::new();
+                doc_result.insert("state_vector".to_string(), state_vector.clone());
+                result.insert(doc_name, Value::Object(doc_result));
+            }
+        }
+
+        serde_json::to_string(&result)
+            .map_err(|e| format!("Failed to serialize state vectors: {}", e))
     }
 }
 

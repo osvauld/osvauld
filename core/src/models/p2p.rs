@@ -52,6 +52,12 @@ pub enum Message {
     ResourceAdditionComplete,
     AssetTransfer(AssetTransferMessage),
 
+    // Resource request protocol (when peer doesn't have resource)
+    ResourceSyncRequest(ResourceSyncRequestMsg),
+    ResourceNotFoundRequest(ResourceNotFoundRequestMsg),
+    ResourceTransfer(ResourceTransferMsg),
+    ResourceTransferAck,
+
     // Folder sync (simple push protocol)
     FolderDataSync(FolderDataSync),
     ResourceDataSync(ResourceDataSync),
@@ -191,5 +197,34 @@ pub struct ResourceDataSync {
     pub share_records: Vec<ShareRecord>,
     /// Owner's folder UCAN token (proves add_resources permission)
     pub owner_folder_ucan: String,
+}
+
+// Resource request protocol - initiated when peer doesn't have resource
+
+/// Step 1: Initiator sends UCAN to check if responder has resource and start sync
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceSyncRequestMsg {
+    /// Resource UCAN token (contains resource_id)
+    pub resource_ucan: String,
+    /// Initiator's folder UCAN (for validation when responder sends resource back)
+    pub folder_ucan: String,
+}
+
+/// Step 2: Responder requests full resource (doesn't have it locally)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceNotFoundRequestMsg {
+    /// ID of the resource being requested
+    pub resource_id: String,
+    /// Responder's folder UCAN proving they should have access
+    pub folder_ucan: String,
+}
+
+/// Step 3: Initiator sends complete resource to responder
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResourceTransferMsg {
+    /// Re-encrypted resource for responder
+    pub resource: EncryptedResource,
+    /// All share records for this resource
+    pub share_records: Vec<ShareRecord>,
 }
 

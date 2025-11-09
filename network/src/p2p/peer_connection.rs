@@ -297,11 +297,45 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::MergeUpdate(_payload) => {
-                // TODO: Forward to P2PService::handle_merge_update via event/channel
-                // For now, just log and return Ok
-                info!("Received MergeUpdate message (handler not yet wired)");
-                Ok(())
+            Message::MergeUpdate(payload) => {
+                match payload {
+                    osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
+                        resource_id,
+                        state_vectors,
+                        asset_ids,
+                        ucan_token,
+                    } => {
+                        resource_sync::handle_state_vector_request(
+                            resource_id.clone(),
+                            state_vectors.clone(),
+                            asset_ids.clone(),
+                            ucan_token.clone(),
+                            Arc::new(self.clone()),
+                            self.repo_ctx.clone(),
+                            self.crypto_utils.clone(),
+                        )
+                        .await
+                    }
+                    osvauld_core::models::ResourceUpdateMsg::UpdatesResponse {
+                        resource_id,
+                        updates,
+                        state_vectors,
+                        missing_asset_ids,
+                        ucan_token,
+                    } => {
+                        resource_sync::handle_updates_response(
+                            resource_id.clone(),
+                            updates.clone(),
+                            state_vectors.clone(),
+                            missing_asset_ids.clone(),
+                            ucan_token.clone(),
+                            Arc::new(self.clone()),
+                            self.repo_ctx.clone(),
+                            self.crypto_utils.clone(),
+                        )
+                        .await
+                    }
+                }
             }
             Message::ResourceAdditionRequest(_payload) => {
                 // TODO: Forward to P2PService::handle_resource_addition_request
@@ -339,6 +373,39 @@ impl PeerConnection {
                     Arc::new(self.clone()),
                     self.repo_ctx.clone(),
                     self.crypto_utils.clone(),
+                )
+                .await
+            }
+            Message::ResourceSyncRequest(payload) => {
+                resource_sync::handle_resource_sync_request(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
+            }
+            Message::ResourceNotFoundRequest(payload) => {
+                resource_sync::handle_resource_not_found_request(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
+            }
+            Message::ResourceTransfer(payload) => {
+                resource_sync::handle_resource_transfer(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
+            }
+            Message::ResourceTransferAck => {
+                resource_sync::handle_resource_transfer_ack(
+                    Arc::new(self.clone()),
                 )
                 .await
             }

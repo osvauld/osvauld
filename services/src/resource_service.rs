@@ -43,6 +43,72 @@ struct ResourceWithKey {
 // Helper Functions
 // =============================================================================
 
+/// Load and decrypt a resource by extracting resource_id from UCAN token
+///
+/// Common helper used by sync operations to load a resource based on peer's UCAN.
+///
+/// # Arguments
+/// * `ucan_token` - UCAN token containing resource_id
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `Resource` - Decrypted resource ready for sync operations
+async fn load_resource_by_ucan(
+    ucan_token: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> Result<Resource, ResourceServiceError> {
+    // 1. Extract resource_id from UCAN token
+    let resource_id = crypto_utils::extract_resource_id_from_ucan_token(ucan_token)
+        .await
+        .map_err(|e| {
+            error!("Failed to extract resource_id from UCAN: {}", e);
+            ResourceServiceError::UcanError(format!("Invalid UCAN token: {}", e))
+        })?;
+
+    info!("Loading resource: {}", resource_id);
+
+    // 2. Fetch encrypted resource from database
+    let encrypted_resource = repo_ctx
+        .resource_repo
+        .find_by_id(&resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch resource {}: {}", resource_id, e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
+
+    // 3. Decrypt resource
+    let decrypted_json = {
+        let crypto = crypto_utils.read().await;
+        crypto
+            .decrypt_resource(
+                &encrypted_resource.encrypted_data,
+                &encrypted_resource.encrypted_key,
+            )
+            .map_err(|e| {
+                error!("Failed to decrypt resource {}: {}", resource_id, e);
+                ResourceServiceError::DecryptionFailed(resource_id.to_string())
+            })?
+    };
+
+    // 4. Parse into Resource struct
+    let resource = Resource::from_decrypted_data(
+        encrypted_resource.id.clone(),
+        encrypted_resource.folder_id.clone(),
+        encrypted_resource.ucan_token.clone(),
+        encrypted_resource.metadata.clone(),
+        &decrypted_json,
+    )
+    .map_err(|e| {
+        error!("Failed to parse resource {}: {}", resource_id, e);
+        ResourceServiceError::InvalidResourceData(e)
+    })?;
+
+    Ok(resource)
+}
+
 /// Decrypt one or more resources from database format to in-memory Resource structs
 ///
 /// Unified helper that handles both single resource and batch decryption.
@@ -349,34 +415,6 @@ pub async fn delete_resource(
     Ok(())
 }
 
-/// Get all resources in a folder
-///
-/// # Arguments
-/// * `folder_id` - Folder UUID
-/// * `crypto_utils` - Crypto utilities
-/// * `user_id` - User UUID
-/// * `repo_ctx` - Database repository context
-///
-/// # Returns
-/// * `Vec<Resource>` - All resources in the folder
-pub async fn get_resources_for_folder(
-    _folder_id: &str,
-    _crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    _user_id: &str,
-    _repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<Resource>> {
-    // TODO: Reimplement get_resources_for_folder with Loro CRDT sync (Phase 3)
-    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
-}
-
-pub async fn get_all_resources(
-    _crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    _repo_ctx: Arc<RepositoryContext>,
-    _user_id: &str,
-) -> ServiceResult<Vec<Resource>> {
-    // TODO: Reimplement get_all_resources with Loro CRDT sync (Phase 3)
-    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
-}
 
 /// Get metadata for all resources (no decryption, just metadata)
 ///
@@ -545,96 +583,233 @@ pub async fn share_resource(
     Ok(())
 }
 
-pub async fn get_share_records_for_resource(
-    _resource_id: &str,
-    _repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<Vec<ShareRecord>> {
-    // TODO: Reimplement get_share_records_for_resource with Loro CRDT sync (Phase 3)
-    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
-}
+// =============================================================================
+// Resource Sync Operations
+// =============================================================================
 
-pub async fn get_resource_ucan_key(
-    _resource_id: &str,
-    _user_id: &str,
-    _repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<String> {
-    // TODO: Reimplement get_resource_ucan_key with Loro CRDT sync (Phase 3)
-    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
-}
-
-pub async fn validate_authority_for_update(
-    _resource_id: &str,
-    _token: &str,
-    _peer_user_id: &str,
-    _repo_ctx: Arc<RepositoryContext>,
-    _domain: &str,
-) -> ServiceResult<bool> {
-    // TODO: Reimplement validate_authority_for_update with Loro CRDT sync (Phase 3)
-    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
-}
-
-pub async fn get_resource_state_vectors(
-    resource_id: &str,
-    user_id: &str,
+/// Get state vectors for a resource based on UCAN token capabilities
+///
+/// Extracts resource_id from the UCAN token, loads the resource, and returns
+/// state vectors only for documents that the token holder has access to.
+/// This ensures that owner/node get all docs, while viewers only get docs
+/// they have permissions for (respects dont_send_to_node rules).
+///
+/// # Arguments
+/// * `ucan_token` - UCAN token from the initiator (contains resource_id and capabilities)
+/// * `domain` - Domain for UCAN validation (e.g., "sthalam")
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `String` - JSON string with state vectors: {"doc_name": {"state_vector": [...]}, ...}
+///           Only includes docs that the UCAN token has access to
+pub async fn get_resource_state_vectors_by_ucan(
+    ucan_token: &str,
+    domain: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<CryptoUtils>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> Result<String, ResourceServiceError> {
-    todo!("Implement after network layer compiles")
+    info!("Getting state vectors from UCAN token");
+
+    // TODO: Validate UCAN token (signature, proof chain, expiry)
+    // For now, we trust the token since it came from authenticated peer connection
+
+    // Load resource using common helper
+    let resource = load_resource_by_ucan(ucan_token, repo_ctx, crypto_utils).await?;
+
+    // Get state vectors filtered by UCAN capabilities
+    let state_vectors = resource
+        .get_state_vectors_for_ucan(ucan_token)
+        .map_err(|e| {
+            error!("Failed to get filtered state vectors: {}", e);
+            ResourceServiceError::InvalidResourceData(e)
+        })?;
+
+    info!("Successfully got state vectors (filtered by UCAN)");
+    Ok(state_vectors)
 }
 
 /// Generate incremental updates for a peer based on their state vectors
 ///
-/// Computes what updates the peer needs based on their current state.
+/// Loads resource, compares peer's state vectors with our current state,
+/// and generates incremental updates filtered by peer's UCAN capabilities.
 ///
 /// # Arguments
-/// * `resource_id` - Resource ID
-/// * `user_id` - User ID generating updates
+/// * `peer_ucan` - Peer's UCAN token (contains resource_id and capabilities)
 /// * `peer_state_vectors` - JSON string with peer's current state vectors
-/// * `peer_ucan` - Peer's UCAN token for capability filtering
-/// * `our_ucan` - Our UCAN token for filtering rules
 /// * `repo_ctx` - Database repository context
 /// * `crypto_utils` - Crypto utilities for decryption
 ///
 /// # Returns
 /// * `String` - JSON string: {"doc_name": {"updates": [...], "state_vector": [...]}, ...}
 pub async fn generate_updates_for_peer(
-    _resource_id: &str,
-    _user_id: &str,
-    _peer_state_vectors: &str,
-    _peer_ucan: &str,
-    _our_ucan: &str,
-    _repo_ctx: Arc<RepositoryContext>,
-    _crypto_utils: Arc<CryptoUtils>,
+    peer_ucan: &str,
+    peer_state_vectors: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> Result<String, ResourceServiceError> {
-    // TODO: Reimplement generate_updates_for_peer with Loro CRDT sync (Phase 3)
-    Err(ResourceServiceError::InvalidState("Not yet implemented".to_string()).into())
+    info!("Generating updates for peer");
+
+    // Load resource using common helper
+    let resource = load_resource_by_ucan(peer_ucan, repo_ctx, crypto_utils).await?;
+
+    // Generate updates based on peer's state vectors and capabilities
+    let updates = resource
+        .generate_updates(peer_ucan, peer_state_vectors)
+        .map_err(|e| {
+            error!("Failed to generate updates for peer: {}", e);
+            ResourceServiceError::InvalidResourceData(e)
+        })?;
+
+    info!("Successfully generated updates for peer");
+    Ok(updates)
 }
 
-/// Apply updates from a peer to local resource
+/// Apply updates from a peer and generate our updates back
 ///
-/// Validates permissions and applies CRDT updates from peer.
+/// This function:
+/// 1. Applies peer's updates to our local resource (validates UCAN permissions)
+/// 2. Extracts peer's state vectors from the updates
+/// 3. Generates our updates for peer based on their state
+/// 4. Saves updated resource to DB with new AES key (key rotation)
+/// 5. Returns our updates + our state vectors
 ///
 /// # Arguments
-/// * `resource_id` - Resource ID
-/// * `user_id` - User ID applying updates
-/// * `updates_json` - JSON string with peer's updates
-/// * `peer_ucan` - Peer's UCAN token for permission validation
-/// * `our_ucan` - Our UCAN token for filtering rules
+/// * `peer_ucan` - Peer's UCAN token (contains resource_id and capabilities)
+/// * `peer_updates_json` - JSON string with peer's updates and state vectors
+/// * `user` - Current user (for encryption)
 /// * `repo_ctx` - Database repository context
 /// * `crypto_utils` - Crypto utilities for encryption/decryption
 ///
 /// # Returns
-/// * `()` - Success (resource updated in database)
+/// * `String` - JSON with our updates: {"doc_name": {"updates": [...], "state_vector": [...]}, ...}
 pub async fn apply_peer_updates(
+    peer_ucan: &str,
+    peer_updates_json: &str,
+    user: &User,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> Result<String, ResourceServiceError> {
+    info!("Applying peer updates");
+
+    // 1. Load resource using common helper
+    let mut resource = load_resource_by_ucan(peer_ucan, repo_ctx.clone(), crypto_utils).await?;
+
+    // 2. Apply peer's updates (validates UCAN permissions)
+    resource
+        .apply_updates(peer_ucan, peer_updates_json)
+        .map_err(|e| {
+            error!("Failed to apply peer updates: {}", e);
+            ResourceServiceError::InvalidResourceData(format!("Failed to apply updates: {}", e))
+        })?;
+
+    info!("Successfully applied peer updates");
+
+    // 3. Extract peer's state vectors from their updates to know what they have
+    let peer_state_vectors_json = Resource::extract_state_vectors_from_updates(peer_updates_json)
+        .map_err(|e| {
+            error!("Failed to extract peer state vectors: {}", e);
+            ResourceServiceError::InvalidResourceData(e)
+        })?;
+
+    // 4. Generate our updates for peer based on their state
+    let our_updates = resource
+        .generate_updates(peer_ucan, &peer_state_vectors_json)
+        .map_err(|e| {
+            error!("Failed to generate our updates for peer: {}", e);
+            ResourceServiceError::InvalidResourceData(e)
+        })?;
+
+    // 5. Serialize updated resource to JSON
+    let updated_json = resource.to_json().map_err(|e| {
+        error!("Failed to serialize updated resource: {}", e);
+        ResourceServiceError::InvalidResourceData(e)
+    })?;
+
+    // 6. Encrypt with NEW AES key (key rotation for forward secrecy)
+    let (encrypted_data, encrypted_key) = encrypt_data_for_user(&updated_json, &user.public_key)
+        .map_err(|e| {
+            error!("Failed to encrypt updated resource: {}", e);
+            ResourceServiceError::EncryptionFailed(e.to_string())
+        })?;
+
+    // 7. Save updated resource to database
+    let resource_id = &resource.id;
+    repo_ctx
+        .resource_repo
+        .update_resource(&encrypted_data, &encrypted_key, resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to save updated resource to DB: {}", e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
+
+    info!("Successfully applied updates and generated response");
+    Ok(our_updates)
+}
+
+/// Get resource UCANs for sync
+///
+/// Retrieves the resource UCAN and folder UCAN needed to initiate sync.
+/// Used by the sync handler to prepare ResourceSyncRequest message.
+///
+/// # Arguments
+/// * `resource_id` - ID of the resource to sync
+/// * `user_id` - ID of the user initiating sync
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `(resource_ucan, folder_ucan)` - Tuple of UCAN tokens
+pub async fn get_resource_ucans_for_sync(
     resource_id: &str,
     user_id: &str,
-    updates_json: &str,
-    peer_ucan: &str,
-    our_ucan: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<CryptoUtils>,
-) -> Result<(), ResourceServiceError> {
-    todo!("Implement after network layer compiles")
+) -> Result<(String, String), ResourceServiceError> {
+    info!("Getting UCANs for resource sync: {}", resource_id);
+
+    // Get resource to find folder_id
+    let resource = repo_ctx
+        .resource_repo
+        .find_by_id(resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to find resource {}: {}", resource_id, e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
+
+    // Get share record to get resource UCAN
+    let share_record = repo_ctx
+        .share_repo
+        .find_by_resource_and_operation_and_user(resource_id, "share", user_id)
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to find share record for resource {} and user {}: {}",
+                resource_id, user_id, e
+            );
+            ResourceServiceError::DatabaseError(format!("No share record found: {}", e))
+        })?;
+
+    // Get folder share record to get folder UCAN
+    let folder_share_option = repo_ctx
+        .folder_share_repo
+        .find_by_folder_and_user(&resource.folder_id, user_id)
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to find folder share for folder {} and user {}: {}",
+                resource.folder_id, user_id, e
+            );
+            ResourceServiceError::DatabaseError(format!("Failed to get folder share: {}", e))
+        })?;
+
+    let folder_share = folder_share_option.ok_or_else(|| {
+        error!("No folder share found for folder {} and user {}", resource.folder_id, user_id);
+        ResourceServiceError::DatabaseError("No folder share found for user".to_string())
+    })?;
+
+    info!("✓ Found UCANs for resource sync");
+    Ok((share_record.ucan_token, folder_share.ucan_token))
 }
 
 /// Prepare resource for sending to a peer

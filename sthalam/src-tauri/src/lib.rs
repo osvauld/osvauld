@@ -165,6 +165,7 @@ pub fn run() {
             handle_get_resource,
             handle_get_all_resources_metadata,
             handle_update_resource,
+            handle_sync_resource,
             // P2P handlers
             start_p2p_listener,
             handle_add_sovereign_node,

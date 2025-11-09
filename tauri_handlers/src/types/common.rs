@@ -251,3 +251,9 @@ pub struct UserDetails {
     pub ucan_token: String,
     pub ucan_pub_key: String,
 }
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncResourceInput {
+    pub resource_id: String,
+}
