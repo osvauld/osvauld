@@ -12,8 +12,8 @@ use openpgp::{
 };
 use sequoia_openpgp::{self as openpgp, crypto::mpi::SecretKeyMaterial};
 use serde_json::json;
-use std::future::Future;
 use std::boxed::Box;
+use std::future::Future;
 use ucan::{
     builder::UcanBuilder,
     capability::Capability,
@@ -583,24 +583,30 @@ pub async fn generate_flexible_resource_owner_ucan(
     let template_value: serde_json::Value = serde_json::from_str(ucan_template_json)
         .map_err(|e| UcanError::TemplateInvalid(format!("Failed to parse template JSON: {}", e)))?;
 
-    let template_obj = template_value.as_object()
+    let template_obj = template_value
+        .as_object()
         .ok_or_else(|| UcanError::TemplateInvalid("Template must be an object".to_string()))?;
 
     // 2. Extract owner_template
-    let owner_template_value = template_obj.get("owner_template")
+    let owner_template_value = template_obj
+        .get("owner_template")
         .ok_or_else(|| UcanError::TemplateInvalid("Missing 'owner_template'".to_string()))?;
 
-    let owner_template_obj = owner_template_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("owner_template must be an object".to_string()))?;
+    let owner_template_obj = owner_template_value.as_object().ok_or_else(|| {
+        UcanError::TemplateInvalid("owner_template must be an object".to_string())
+    })?;
 
-    let owner_capabilities_value = owner_template_obj.get("capabilities")
-        .ok_or_else(|| UcanError::TemplateInvalid("owner_template missing 'capabilities'".to_string()))?;
+    let owner_capabilities_value = owner_template_obj.get("capabilities").ok_or_else(|| {
+        UcanError::TemplateInvalid("owner_template missing 'capabilities'".to_string())
+    })?;
 
-    let owner_capabilities_obj = owner_capabilities_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("owner_template capabilities must be an object".to_string()))?;
+    let owner_capabilities_obj = owner_capabilities_value.as_object().ok_or_else(|| {
+        UcanError::TemplateInvalid("owner_template capabilities must be an object".to_string())
+    })?;
 
     // 3. Create KeyMaterial for the owner
-    let key_material = Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
 
     let owner_did = key_material
         .get_did()
@@ -613,11 +619,19 @@ pub async fn generate_flexible_resource_owner_ucan(
     // 5. Build capabilities from owner_template
     let mut capabilities = Vec::new();
     for (doc_name, ability_value) in owner_capabilities_obj {
-        let ability = ability_value.as_str()
-            .ok_or_else(|| UcanError::TemplateInvalid(format!("Ability for {} must be a string", doc_name)))?;
+        let ability = ability_value.as_str().ok_or_else(|| {
+            UcanError::TemplateInvalid(format!("Ability for {} must be a string", doc_name))
+        })?;
 
-        let resource_uri = format!("{}:resource:{}:{}", capability_prefix, resource_id, doc_name);
-        capabilities.push(Capability::from((resource_uri.as_str(), ability, &json!({}))));
+        let resource_uri = format!(
+            "{}:resource:{}:{}",
+            capability_prefix, resource_id, doc_name
+        );
+        capabilities.push(Capability::from((
+            resource_uri.as_str(),
+            ability,
+            &json!({}),
+        )));
     }
 
     // 6. Build the UCAN with capabilities
@@ -633,7 +647,8 @@ pub async fn generate_flexible_resource_owner_ucan(
     // 7. Add both templates to facts
     builder = builder.with_fact("owner_template", owner_template_value.clone());
 
-    let viewer_template_value = template_obj.get("viewer_template")
+    let viewer_template_value = template_obj
+        .get("viewer_template")
         .ok_or_else(|| UcanError::TemplateInvalid("Missing 'viewer_template'".to_string()))?;
     builder = builder.with_fact("viewer_template", viewer_template_value.clone());
 
@@ -646,7 +661,8 @@ pub async fn generate_flexible_resource_owner_ucan(
     }
 
     // 7c. Add document list for resource parsing
-    let doc_names: Vec<String> = owner_capabilities_obj.keys()
+    let doc_names: Vec<String> = owner_capabilities_obj
+        .keys()
         .map(|k| k.to_string())
         .collect();
     builder = builder.with_fact("docs", json!(doc_names));
@@ -711,27 +727,35 @@ pub async fn generate_folder_ucan_with_template(
     expiry_seconds: Option<u64>,
 ) -> Result<(String, String), UcanError> {
     // 1. Parse the template JSON
-    let template_value: serde_json::Value = serde_json::from_str(folder_template_json)
-        .map_err(|e| UcanError::TemplateInvalid(format!("Failed to parse folder template JSON: {}", e)))?;
+    let template_value: serde_json::Value =
+        serde_json::from_str(folder_template_json).map_err(|e| {
+            UcanError::TemplateInvalid(format!("Failed to parse folder template JSON: {}", e))
+        })?;
 
-    let template_obj = template_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("Folder template must be an object".to_string()))?;
+    let template_obj = template_value.as_object().ok_or_else(|| {
+        UcanError::TemplateInvalid("Folder template must be an object".to_string())
+    })?;
 
     // 2. Extract owner_template
-    let owner_template_value = template_obj.get("owner_template")
+    let owner_template_value = template_obj
+        .get("owner_template")
         .ok_or_else(|| UcanError::TemplateInvalid("Missing 'owner_template'".to_string()))?;
 
-    let owner_template_obj = owner_template_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("owner_template must be an object".to_string()))?;
+    let owner_template_obj = owner_template_value.as_object().ok_or_else(|| {
+        UcanError::TemplateInvalid("owner_template must be an object".to_string())
+    })?;
 
-    let owner_capabilities_value = owner_template_obj.get("capabilities")
-        .ok_or_else(|| UcanError::TemplateInvalid("owner_template missing 'capabilities'".to_string()))?;
+    let owner_capabilities_value = owner_template_obj.get("capabilities").ok_or_else(|| {
+        UcanError::TemplateInvalid("owner_template missing 'capabilities'".to_string())
+    })?;
 
-    let owner_capabilities_obj = owner_capabilities_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("owner_template capabilities must be an object".to_string()))?;
+    let owner_capabilities_obj = owner_capabilities_value.as_object().ok_or_else(|| {
+        UcanError::TemplateInvalid("owner_template capabilities must be an object".to_string())
+    })?;
 
     // 3. Create KeyMaterial for the owner
-    let key_material = Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
 
     let owner_did = key_material
         .get_did()
@@ -746,7 +770,11 @@ pub async fn generate_folder_ucan_with_template(
     let mut capabilities = Vec::new();
 
     for (capability_name, _) in owner_capabilities_obj {
-        capabilities.push(Capability::from((folder_uri.as_str(), capability_name.as_str(), &json!({}))));
+        capabilities.push(Capability::from((
+            folder_uri.as_str(),
+            capability_name.as_str(),
+            &json!({}),
+        )));
     }
 
     // 6. Build the UCAN with capabilities
@@ -762,7 +790,8 @@ pub async fn generate_folder_ucan_with_template(
     // 7. Add both templates to facts
     builder = builder.with_fact("owner_template", owner_template_value.clone());
 
-    let node_template_value = template_obj.get("node_template")
+    let node_template_value = template_obj
+        .get("node_template")
         .ok_or_else(|| UcanError::TemplateInvalid("Missing 'node_template'".to_string()))?;
     builder = builder.with_fact("node_template", node_template_value.clone());
 
@@ -783,94 +812,6 @@ pub async fn generate_folder_ucan_with_template(
         .map_err(|e| UcanError::EncodingError(e.to_string()))?;
 
     Ok((token_str, token_cid.to_string()))
-}
-
-/// Generates a flexible UCAN token for a resource with custom permissions and expiry
-///
-/// This token can grant various levels of access to a resource.
-/// Supports custom expiry times and multiple capability types.
-///
-/// # Arguments
-/// * `owner_signing_key` - The signing key of the resource owner
-/// * `owner_verifying_key` - The verifying key of the resource owner
-/// * `resource_id` - The ID of the resource to share
-/// * `capability_prefix` - The domain prefix (e.g., "sthalam")
-/// * `expiry_seconds` - Token lifetime in seconds (None = infinite/30 years)
-/// * `capabilities` - List of capabilities to grant (e.g., ["view/public", "crud/update", "ucan/share"])
-/// * `audience` - Target audience DID or "*" for public
-///
-/// # Example capabilities:
-/// - "view/public" - Read-only public access
-/// - "crud/read" - Authenticated read
-/// - "crud/update" - Edit permissions
-/// - "crud/delete" - Delete permissions
-/// - "ucan/share" - Can reshare to others
-pub async fn generate_flexible_resource_token(
-    owner_signing_key: &SigningKey,
-    owner_verifying_key: &VerifyingKey,
-    resource_id: &str,
-    capability_prefix: &str,
-    expiry_seconds: Option<u64>,
-    capabilities: Vec<&str>,
-    audience: &str,
-) -> Result<String, UcanError> {
-    // 1. Create KeyMaterial for the owner
-    let key_material =
-        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
-
-    // 2. Set lifetime (default to 30 years if None for "infinite")
-    let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
-
-    // 3. Build capabilities from the provided list
-    let resource_uri = format!("{}:resource:{}", capability_prefix, resource_id);
-    let mut builder = UcanBuilder::default()
-        .issued_by(&key_material)
-        .for_audience(audience)
-        .with_lifetime(lifetime);
-
-    // Add each capability to the builder
-    for capability_str in capabilities {
-        let capability = Capability::from((resource_uri.as_str(), capability_str, &json!({})));
-        builder = builder.claiming_capability(capability);
-    }
-
-    // 4. Build and sign the UCAN
-    let ucan = builder
-        .build()
-        .map_err(|e| UcanError::CreationError(e.to_string()))?
-        .sign()
-        .await
-        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
-
-    // 5. Return the encoded token string
-    let token_str = ucan
-        .encode()
-        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
-
-    Ok(token_str)
-}
-
-/// Generates a public view-only UCAN token for a resource (convenience wrapper)
-///
-/// This token grants read-only access to a resource for public viewing.
-/// Uses wildcard audience (*) and only grants "view/public" capability.
-/// Default expiry: 30 days
-pub async fn generate_public_view_token(
-    owner_signing_key: &SigningKey,
-    owner_verifying_key: &VerifyingKey,
-    resource_id: &str,
-    capability_prefix: &str,
-) -> Result<String, UcanError> {
-    generate_flexible_resource_token(
-        owner_signing_key,
-        owner_verifying_key,
-        resource_id,
-        capability_prefix,
-        Some(30 * 24 * 60 * 60), // 30 days
-        vec!["view/public"],
-        "*", // Public wildcard audience
-    )
-    .await
 }
 
 /// Generates a flexible UCAN token for a folder with custom permissions and expiry
@@ -1048,9 +989,9 @@ pub async fn generate_delegated_ucan(
     permissions: Vec<(String, String)>, // The specific permissions to grant
     proof_ucan_string: &str,            // The parent UCAN token string
     template_value: Option<serde_json::Value>, // Template to include in facts
-    recipient_role: &str,                       // Role (owner, node, viewer)
+    recipient_role: &str,               // Role (owner, node, viewer)
     doc_types_value: Option<serde_json::Value>, // Doc types mapping
-    docs_list: Option<Vec<String>>,              // List of doc names
+    docs_list: Option<Vec<String>>,     // List of doc names
 ) -> Result<(String, String), UcanError> {
     // 1. Parse the parent UCAN string to use it as a proof object.
     let authority_ucan =
@@ -1126,45 +1067,6 @@ pub async fn generate_delegated_ucan(
     Ok((token_string, token_cid))
 }
 /// Generate a delegated user connection token with embedded proof
-pub async fn generate_delegated_user_connection_token(
-    signing_key: &SigningKey,
-    verifying_key: &VerifyingKey,
-    target_user_id: &str,
-    audience_ucan_pub_key: &str,
-    domain: &str,
-    parent_token: &str,
-) -> Result<String, UcanError> {
-    let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
-    let audience_did = pub_key_b64_to_did(audience_ucan_pub_key)?;
-
-    let connect_resource = format!("{}:user-connect:{}", domain, target_user_id);
-    let connect_capability = Capability::from((connect_resource.as_str(), "use", &json!({})));
-
-    let lifetime = 30 * 365 * 24 * 60 * 60; // 30 years
-
-    // Calculate CID of parent token for standard prf field
-    let parent_ucan =
-        Ucan::try_from(parent_token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-
-    let ucan = UcanBuilder::default()
-        .issued_by(&key_material)
-        .for_audience(&audience_did)
-        .with_lifetime(lifetime)
-        .claiming_capability(connect_capability)
-        .witnessed_by(&parent_ucan, None) // Standard CID reference
-        .with_fact("proof", parent_token.to_string()) // Embedded proof
-        .build()
-        .map_err(|e| UcanError::CreationError(e.to_string()))?
-        .sign()
-        .await
-        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
-
-    let token_string = ucan
-        .encode()
-        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
-
-    Ok(token_string)
-}
 pub async fn validate_embedded_proof_chain(
     proof_token: &str,
     target_user_id: &str,              // For capability validation
@@ -1247,255 +1149,39 @@ pub struct UcanFacts {
     pub viewer_template: UcanTemplate,
 }
 
-/// Extract raw facts section from UCAN token
-///
-/// # Arguments
-/// * `token` - The UCAN token string
-///
-/// # Returns
-/// * `Ok(Some(facts_map))` - Facts section as JSON map
-/// * `Ok(None)` - No facts section in UCAN (valid, just no facts)
-/// * `Err(UcanError)` - Parse error
-pub fn extract_facts(token: &str) -> Result<Option<serde_json::Map<String, serde_json::Value>>, UcanError> {
-    let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-    Ok(extract_facts_from_ucan(&ucan))
-}
-
-/// Internal helper: Extract facts from parsed Ucan object
-fn extract_facts_from_ucan(ucan: &Ucan) -> Option<serde_json::Map<String, serde_json::Value>> {
-    ucan.facts().as_ref().map(|facts| {
-        // Convert BTreeMap to serde_json::Map
-        facts.iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    })
-}
-
-/// Extract template from UCAN facts section
-///
-/// Template is used by Node to create viewer UCANs with proper doc structure and sync rules.
-///
-/// # Expected Facts Structure
-/// ```json
-/// {
-///   "fct": {
-///     "template": {
-///       "capabilities": {
-///         "main_doc": "crud/readonly",
-///         "comments": "crud/merge"
-///       },
-///       "no_update_from_node": ["uiState", "cartDoc"],
-///       "dont_send_to_node": ["uiState", "cartDoc"]
-///     }
-///   }
-/// }
-/// ```
-///
-/// # Arguments
-/// * `token` - The UCAN token string
-///
-/// # Returns
-/// * `Ok(Some(template))` - Template found and parsed
-/// * `Ok(None)` - No template in facts (not all UCANs have templates)
-/// * `Err(UcanError::TemplateInvalid)` - Template exists but malformed
-pub fn extract_template(token: &str) -> Result<Option<UcanTemplate>, UcanError> {
-    let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-    extract_template_from_ucan(&ucan)
-}
-
-/// Internal helper: Extract template from parsed Ucan object
-fn extract_template_from_ucan(ucan: &Ucan) -> Result<Option<UcanTemplate>, UcanError> {
-    let facts = match extract_facts_from_ucan(ucan) {
-        Some(f) => f,
-        None => return Ok(None), // No facts = no template (valid)
-    };
-
-    // Check if template exists in facts
-    let template_value = match facts.get("template") {
-        Some(t) => t,
-        None => return Ok(None), // No template in facts (valid)
-    };
-
-    // Parse template object
-    let template_obj = template_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("Template must be an object".to_string()))?;
-
-    // Extract capabilities
-    let capabilities_value = template_obj.get("capabilities")
-        .ok_or_else(|| UcanError::TemplateInvalid("Missing 'capabilities' field".to_string()))?;
-
-    let capabilities_obj = capabilities_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid("capabilities must be an object".to_string()))?;
-
-    let mut capabilities = std::collections::HashMap::new();
-    for (doc_name, ability_value) in capabilities_obj {
-        let ability = ability_value.as_str()
-            .ok_or_else(|| UcanError::TemplateInvalid(format!("Ability for {} must be a string", doc_name)))?;
-        capabilities.insert(doc_name.clone(), ability.to_string());
-    }
-
-    // Extract no_update_from_node (optional, defaults to empty)
-    let no_update_from_node = template_obj.get("no_update_from_node")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Extract dont_send_to_node (optional, defaults to empty)
-    let dont_send_to_node = template_obj.get("dont_send_to_node")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(Some(UcanTemplate {
-        capabilities,
-        no_update_from_node,
-        dont_send_to_node,
-    }))
-}
-
-/// Extract document capabilities from UCAN token
-///
-/// Parses capabilities in the format: `domain:resource:resource_id:doc_name`
-/// Returns a map of doc_name -> ability (e.g., "main_doc" -> "crud/readonly")
-///
-/// # Expected Capability Format
-/// ```json
-/// {
-///   "cap": {
-///     "sthalam:resource:abc123:main_doc": {"crud/readonly": [{}]},
-///     "sthalam:resource:abc123:comments": {"crud/merge": [{}]},
-///     "sthalam:resource:abc123:submissions": {"crud/appendonly": [{}]}
-///   }
-/// }
-/// ```
-///
-/// # Arguments
-/// * `token` - The UCAN token string
-///
-/// # Returns
-/// * `Ok(HashMap)` - Map of doc_name to ability
-/// * `Err(UcanError::NoDocumentCapabilities)` - No document capabilities found
-/// * `Err(UcanError::ParseError)` - Failed to parse token
-pub fn extract_doc_capabilities(token: &str) -> Result<std::collections::HashMap<String, String>, UcanError> {
-    let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-    extract_doc_capabilities_from_ucan(&ucan)
-}
-
-/// Internal helper: Extract doc capabilities from parsed Ucan object
-fn extract_doc_capabilities_from_ucan(ucan: &Ucan) -> Result<std::collections::HashMap<String, String>, UcanError> {
-    let mut doc_capabilities = std::collections::HashMap::new();
-
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        // Look for resource pattern with doc name: "domain:resource:resource_id:doc_name"
-        if cap_resource.contains(":resource:") {
-            let parts: Vec<&str> = cap_resource.split(':').collect();
-
-            // Must have exactly 4 parts: [domain, "resource", resource_id, doc_name]
-            if parts.len() == 4 && parts[1] == "resource" {
-                let doc_name = parts[3];
-
-                // Get the ability (first ability in the map)
-                let ability = capability.ability;
-
-                doc_capabilities.insert(doc_name.to_string(), ability.to_string());
-            }
-        }
-    }
-
-    if doc_capabilities.is_empty() {
-        return Err(UcanError::NoDocumentCapabilities);
-    }
-
-    Ok(doc_capabilities)
-}
-
-// ============================================================================
-// Loro Migration - Phase 2: Extract Owner and Viewer Templates
-// ============================================================================
-
-/// Extract UcanFacts containing both owner and viewer templates
-///
-/// # Expected Facts Structure
-/// ```json
-/// {
-///   "owner_template": {
-///     "capabilities": {"main_doc": "crud/merge", ...},
-///     "no_update_from_node": [],
-///     "dont_send_to_node": []
-///   },
-///   "viewer_template": {
-///     "capabilities": {"main_doc": "crud/readonly", ...},
-///     "no_update_from_node": ["main_doc"],
-///     "dont_send_to_node": ["main_doc"]
-///   }
-/// }
-/// ```
-///
-/// # Arguments
-/// * `token` - The UCAN token string
-///
-/// # Returns
-/// * `Ok(UcanFacts)` - Both templates found and parsed
-/// * `Err(UcanError)` - Missing or malformed templates
-pub fn extract_ucan_facts(token: &str) -> Result<UcanFacts, UcanError> {
-    let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-    extract_ucan_facts_from_ucan(&ucan)
-}
-
-/// Internal helper: Extract UcanFacts from parsed Ucan object
-fn extract_ucan_facts_from_ucan(ucan: &Ucan) -> Result<UcanFacts, UcanError> {
-    let facts = extract_facts_from_ucan(ucan)
-        .ok_or_else(|| UcanError::TemplateNotFound)?;
-
-    // Extract owner_template
-    let owner_template = extract_template_from_facts(&facts, "owner_template")?;
-
-    // Extract viewer_template
-    let viewer_template = extract_template_from_facts(&facts, "viewer_template")?;
-
-    Ok(UcanFacts {
-        owner_template,
-        viewer_template,
-    })
-}
-
 /// Extract a specific template from facts by key
 fn extract_template_from_facts(
     facts: &serde_json::Map<String, serde_json::Value>,
     template_key: &str,
 ) -> Result<UcanTemplate, UcanError> {
-    let template_value = facts.get(template_key)
+    let template_value = facts
+        .get(template_key)
         .ok_or_else(|| UcanError::TemplateNotFound)?;
 
-    let template_obj = template_value.as_object()
+    let template_obj = template_value
+        .as_object()
         .ok_or_else(|| UcanError::TemplateInvalid(format!("{} must be an object", template_key)))?;
 
     // Extract capabilities
-    let capabilities_value = template_obj.get("capabilities")
-        .ok_or_else(|| UcanError::TemplateInvalid(format!("{} missing 'capabilities' field", template_key)))?;
+    let capabilities_value = template_obj.get("capabilities").ok_or_else(|| {
+        UcanError::TemplateInvalid(format!("{} missing 'capabilities' field", template_key))
+    })?;
 
-    let capabilities_obj = capabilities_value.as_object()
-        .ok_or_else(|| UcanError::TemplateInvalid(format!("{} capabilities must be an object", template_key)))?;
+    let capabilities_obj = capabilities_value.as_object().ok_or_else(|| {
+        UcanError::TemplateInvalid(format!("{} capabilities must be an object", template_key))
+    })?;
 
     let mut capabilities = std::collections::HashMap::new();
     for (doc_name, ability_value) in capabilities_obj {
-        let ability = ability_value.as_str()
-            .ok_or_else(|| UcanError::TemplateInvalid(format!("Ability for {} must be a string", doc_name)))?;
+        let ability = ability_value.as_str().ok_or_else(|| {
+            UcanError::TemplateInvalid(format!("Ability for {} must be a string", doc_name))
+        })?;
         capabilities.insert(doc_name.clone(), ability.to_string());
     }
 
     // Extract no_update_from_node (optional, defaults to empty)
-    let no_update_from_node = template_obj.get("no_update_from_node")
+    let no_update_from_node = template_obj
+        .get("no_update_from_node")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -1505,7 +1191,8 @@ fn extract_template_from_facts(
         .unwrap_or_default();
 
     // Extract dont_send_to_node (optional, defaults to empty)
-    let dont_send_to_node = template_obj.get("dont_send_to_node")
+    let dont_send_to_node = template_obj
+        .get("dont_send_to_node")
         .and_then(|v| v.as_array())
         .map(|arr| {
             arr.iter()
@@ -1531,7 +1218,14 @@ fn extract_template_from_facts(
 /// * `Err(UcanError)` - Missing or malformed template
 pub fn extract_owner_template(token: &str) -> Result<UcanTemplate, UcanError> {
     let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-    let facts = extract_facts_from_ucan(&ucan)
+    let facts = ucan
+        .facts()
+        .as_ref()
+        .map(|f| {
+            f.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<serde_json::Map<String, serde_json::Value>>()
+        })
         .ok_or_else(|| UcanError::TemplateNotFound)?;
     extract_template_from_facts(&facts, "owner_template")
 }
@@ -1546,7 +1240,14 @@ pub fn extract_owner_template(token: &str) -> Result<UcanTemplate, UcanError> {
 /// * `Err(UcanError)` - Missing or malformed template
 pub fn extract_viewer_template(token: &str) -> Result<UcanTemplate, UcanError> {
     let ucan = Ucan::try_from(token).map_err(|e| UcanError::ParseError(e.to_string()))?;
-    let facts = extract_facts_from_ucan(&ucan)
+    let facts = ucan
+        .facts()
+        .as_ref()
+        .map(|f| {
+            f.iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect::<serde_json::Map<String, serde_json::Value>>()
+        })
         .ok_or_else(|| UcanError::TemplateNotFound)?;
     extract_template_from_facts(&facts, "viewer_template")
 }

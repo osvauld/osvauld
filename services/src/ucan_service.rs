@@ -677,13 +677,39 @@ pub async fn validate_ucan_structure(ucan_token: &str) -> ServiceResult<()> {
 pub async fn extract_doc_capabilities(
     ucan_token: &str,
 ) -> ServiceResult<std::collections::HashMap<String, String>> {
-    crypto_utils::ucan_utils::extract_doc_capabilities(ucan_token)
-        .map_err(|e| crate::errors::FolderServiceError::UcanError(e.to_string()).into())
+    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
+
+    let mut doc_capabilities = std::collections::HashMap::new();
+
+    for capability in ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+
+        // Look for resource pattern with doc name: "domain:resource:resource_id:doc_name"
+        if cap_resource.contains(":resource:") {
+            let parts: Vec<&str> = cap_resource.split(':').collect();
+
+            // Must have exactly 4 parts: [domain, "resource", resource_id, doc_name]
+            if parts.len() == 4 && parts[1] == "resource" {
+                let doc_name = parts[3];
+                let ability = capability.ability;
+
+                doc_capabilities.insert(doc_name.to_string(), ability.to_string());
+            }
+        }
+    }
+
+    if doc_capabilities.is_empty() {
+        return Err(crate::errors::FolderServiceError::UcanError(
+            "No document capabilities found".to_string()
+        ).into());
+    }
+
+    Ok(doc_capabilities)
 }
 
 /// Extract facts from UCAN token
 ///
-/// Wrapper for crypto_utils function - returns facts JSON map.
+/// Returns facts JSON map directly from parsed UCAN.
 /// Used by merge_service to check dont_send_to_node and no_update_from_node rules.
 ///
 /// # Arguments
@@ -694,6 +720,12 @@ pub async fn extract_doc_capabilities(
 pub async fn extract_facts(
     ucan_token: &str,
 ) -> ServiceResult<Option<serde_json::Map<String, serde_json::Value>>> {
-    crypto_utils::ucan_utils::extract_facts(ucan_token)
-        .map_err(|e| crate::errors::FolderServiceError::UcanError(e.to_string()).into())
+    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
+
+    Ok(ucan.facts().as_ref().map(|facts| {
+        // Convert BTreeMap to serde_json::Map
+        facts.iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }))
 }

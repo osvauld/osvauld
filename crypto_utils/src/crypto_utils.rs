@@ -322,30 +322,6 @@ impl CryptoUtils {
         Ok(token)
     }
 
-    /// Issue a delegated user connection token with embedded proof chain
-    pub async fn issue_delegated_user_connect_token(
-        &self,
-        encrypted_private_key: &str,
-        domain: &str,
-        target_user_id: &str,
-        audience_ucan_pub_key: &str,
-        parent_token: &str,
-    ) -> Result<String, CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
-
-        let token = ucan_utils::generate_delegated_user_connection_token(
-            &signing_key,
-            &verifying_key,
-            target_user_id,
-            audience_ucan_pub_key,
-            domain,
-            parent_token,
-        )
-        .await?;
-
-        Ok(token)
-    }
-
     /// Get public UCAN key from encrypted private key
     pub async fn get_public_ucan_key(
         &self,
@@ -480,10 +456,10 @@ impl CryptoUtils {
 
         // 2. Extract domain from the parent UCAN's capabilities
         let domain = ucan_utils::extract_domain_from_ucan(&folder_ucan_to_prove, "folder")?;
-        
+
         // 3. Construct the full folder URI for validation
         let folder_resource = format!("{}:folder:{}", domain, folder_id);
-        
+
         ucan_utils::validate_ucan_permission(
             &folder_ucan_to_prove,
             verifier_ucan_pub_b64,
@@ -505,10 +481,10 @@ impl CryptoUtils {
             recipient_ucan_pub_key,
             permissions_to_grant,
             proof_folder_ucan_string,
-            None,      // No template for folder UCANs
-            "node",    // Default role
-            None,      // No doc_types
-            None,      // No docs
+            None,   // No template for folder UCANs
+            "node", // Default role
+            None,   // No doc_types
+            None,   // No docs
         )
         .await?;
 
@@ -534,7 +510,7 @@ impl CryptoUtils {
 
         // Extract domain from the parent UCAN's capabilities
         let domain = ucan_utils::extract_domain_from_ucan(&ucan_to_prove, "resource")?;
-        
+
         // Construct the full resource URI for validation
         let resource_uri = format!("{}:resource:{}", domain, resource_id);
 
@@ -557,10 +533,10 @@ impl CryptoUtils {
             recipient_ucan_pub_key,
             permissions_to_grant,
             proof_ucan_string,
-            None,      // No template - explicit permissions provided
-            "node",    // Default role
-            None,      // No doc_types
-            None,      // No docs
+            None,   // No template - explicit permissions provided
+            "node", // Default role
+            None,   // No doc_types
+            None,   // No docs
         )
         .await?;
 
@@ -624,9 +600,10 @@ impl CryptoUtils {
                 ucan_utils::extract_viewer_template(proof_ucan_string)?
             }
             _ => {
-                return Err(CryptoError::UcanError(UcanError::TemplateInvalid(
-                    format!("Invalid recipient role: {}. Must be 'owner', 'node', or 'viewer'", recipient_role)
-                )));
+                return Err(CryptoError::UcanError(UcanError::TemplateInvalid(format!(
+                    "Invalid recipient role: {}. Must be 'owner', 'node', or 'viewer'",
+                    recipient_role
+                ))));
             }
         };
 
@@ -658,15 +635,12 @@ impl CryptoUtils {
         log::info!("Looking for template key: {}", template_key);
 
         // Extract template value, doc_types, and docs from parent UCAN facts
-        let template_value = facts.as_ref()
-            .and_then(|f| f.get(template_key))
-            .cloned();
+        let template_value = facts.as_ref().and_then(|f| f.get(template_key)).cloned();
 
-        let doc_types_value = facts.as_ref()
-            .and_then(|f| f.get("doc_types"))
-            .cloned();
+        let doc_types_value = facts.as_ref().and_then(|f| f.get("doc_types")).cloned();
 
-        let docs_list = facts.as_ref()
+        let docs_list = facts
+            .as_ref()
             .and_then(|f| f.get("docs"))
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -678,8 +652,16 @@ impl CryptoUtils {
         // DEBUG: Log extraction results
         log::info!(
             "Facts extraction results: template={}, doc_types={}, docs={}",
-            if template_value.is_some() { "✅" } else { "❌" },
-            if doc_types_value.is_some() { "✅" } else { "❌" },
+            if template_value.is_some() {
+                "✅"
+            } else {
+                "❌"
+            },
+            if doc_types_value.is_some() {
+                "✅"
+            } else {
+                "❌"
+            },
             if docs_list.is_some() { "✅" } else { "❌" }
         );
 
