@@ -285,7 +285,6 @@ class DataState {
         console.log('📦 [DataState] Captured snapshots for previous resource:', currentResourceId);
 
         // Fire and forget - save in background
-        this.updateResourceLastModified(currentResourceId, loroContent.last_modified);
         sendMessage("updateCredential", {
           id: currentResourceId,
           data: JSON.stringify(loroContent)

@@ -11,13 +11,16 @@ This document captures implementation details, algorithms, and technical decisio
 ## Table of Contents
 
 1. [Architecture Overview](#architecture-overview)
-2. [UCAN Token Structure](#ucan-token-structure)
-3. [Resource Model](#resource-model)
-4. [Encryption & Key Management](#encryption--key-management)
-5. [Sync Protocol & Algorithms](#sync-protocol--algorithms)
-6. [Search Indexing](#search-indexing)
-7. [Code Patterns](#code-patterns)
-8. [Implementation Notes](#implementation-notes)
+2. [Sovereign Node Connection Protocol](#sovereign-node-connection-protocol)
+3. [Viewer Connection String Generation](#viewer-connection-string-generation)
+4. [UCAN Token Structure](#ucan-token-structure)
+5. [Resource Model](#resource-model)
+6. [Encryption & Key Management](#encryption--key-management)
+7. [Folder Sharing](#folder-sharing)
+8. [Sync Protocol & Algorithms](#sync-protocol--algorithms)
+9. [Search Indexing](#search-indexing)
+10. [Code Patterns](#code-patterns)
+11. [Implementation Notes](#implementation-notes)
 
 ---
 
@@ -627,6 +630,402 @@ self.set_peer_user_and_device(updated_peer_user, payload.peer_device.clone()).aw
 - [x] Peer connection token correctly stored during handshake
 - [x] Resource sync validates folder UCAN add_resources capability
 - [x] Folder ID in UCAN matches resource.folder_id
+
+---
+
+## Viewer Connection String Generation
+
+**Status**: ✅ Implemented (2025-11-10)
+**Last Updated**: 2025-11-10
+
+### Overview
+
+The Viewer Connection String Generation feature allows owners to request shareable connection strings from their sovereign nodes. These connection strings contain viewer UCAN tokens that enable public viewers to connect to the node and request resources from specific folders.
+
+**Flow**: Owner's Desktop → Request → Sovereign Node → Generate Viewer Token → Return Connection String → Owner Shares with Viewers
+
+### Architecture
+
+```
+Owner's Desktop                 Sovereign Node
+      |                               |
+      |  1. Request Token             |
+      |  (FolderTokenRequest)         |
+      |------------------------------>|
+      |                               |
+      |                               | 2. Validate get_share_link
+      |                               | 3. Generate viewer UCAN
+      |                               | 4. Create connection string
+      |                               |
+      |  5. Return String             |
+      |  (FolderTokenResponse)        |
+      |<------------------------------|
+      |                               |
+      |  6. Display in UI             |
+```
+
+### Implementation Components
+
+#### 1. UCAN Token Generation
+
+**File**: `crypto_utils/src/ucan_utils.rs:926-974`
+
+**Function**: `generate_viewer_connection_token()`
+
+**Purpose**: Generic token generator that accepts capabilities and facts from service layer
+
+**Signature**:
+```rust
+pub async fn generate_viewer_connection_token(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    capabilities: Vec<(String, String)>,
+    facts: Option<serde_json::Map<String, serde_json::Value>>,
+    audience: &str,
+    expiry_seconds: Option<u64>,
+) -> Result<String, UcanError>
+```
+
+**Key Features**:
+- Accepts capabilities as `Vec<(resource, ability)>` tuples
+- Accepts optional facts as JSON map
+- Flexible audience (typically `"*"` for viewers)
+- Configurable expiry (defaults to 30 years if None)
+- Service layer controls all business logic
+
+**Wrapper**: `crypto_utils/src/crypto_utils.rs:439-462`
+```rust
+pub async fn generate_viewer_connection_token(
+    &self,
+    encrypted_ucan_private_key: &str,
+    capabilities: Vec<(String, String)>,
+    facts: Option<serde_json::Map<String, serde_json::Value>>,
+    audience: &str,
+    expiry_seconds: Option<u64>,
+) -> Result<String, CryptoError>
+```
+
+#### 2. UCAN Validation
+
+**File**: `services/src/ucan_service.rs:158-212`
+
+**Function**: `validate_peer_can_request_link()`
+
+**Purpose**: Validates requester has `get_share_link` capability for the folder
+
+**Validation Flow**:
+1. Parse peer's folder UCAN structure
+2. Extract folder_id with `get_share_link` capability
+3. Verify folder_id matches expected folder
+4. Return error if validation fails
+
+**Capability Format**: `{domain}:folder:{folder_id}` with ability `get_share_link`
+
+**Pattern**: Same as `validate_peer_can_add_resources()` but checks for different ability
+
+#### 3. Service Layer Token Generation
+
+**File**: `services/src/ucan_service.rs:214-292`
+
+**Function**: `generate_viewer_token_for_folder()`
+
+**Purpose**: Orchestrates validation and token generation
+
+**Flow**:
+1. Validate requester has `get_share_link` capability
+2. Get encrypted UCAN key from store
+3. Build capabilities:
+   - `{domain}:user-connect:*` with `use` (universal connection)
+   - `{domain}:folder:{folder_id}` with `request_resources`
+   - `{domain}:folder:{folder_id}` with `get_share_link`
+   - `{domain}:resource:{folder_id}/*` with `request_resources`
+   - `{domain}:resource:{folder_id}/*` with `get_share_link`
+4. Build facts:
+   - `role: "viewer"`
+   - `folder_id: "{folder_id}"`
+5. Generate viewer token (30 days expiry)
+
+**Returns**: Viewer UCAN token string
+
+#### 4. P2P Message Handlers
+
+**File**: `network/src/p2p/folder_sync.rs:132-223`
+
+##### handle_folder_token_request()
+
+**Purpose**: Generate and send viewer connection string
+
+**Flow**:
+1. Call `ucan_service::generate_viewer_token_for_folder()` to validate and generate token
+2. Get current user and device info from peer connection
+3. Get UCAN public key from encrypted store
+4. Create connection details JSON:
+   ```json
+   {
+     "user_public_key": "<node_pgp_key>",
+     "device_public_key": "<node_device_key>",
+     "username": "<node_username>",
+     "ucan_token": "<viewer_ucan_token>",
+     "ucan_pub_key": "<node_ucan_pub_key>",
+     "folder_id": "<folder_id>"
+   }
+   ```
+5. Base64-encode connection string
+6. Send `FolderTokenResponse` message back to requester
+
+##### handle_folder_token_response()
+
+**Purpose**: Emit event to frontend with connection string
+
+**Flow**:
+1. Receive connection string from node
+2. Emit `P2PEvent::FolderTokenReceived` with folder_id and connection_string
+3. Frontend listener catches event and displays
+
+**File**: `network/src/p2p/peer_connection.rs:412-424`
+
+**Routing**: peer_connection delegates to folder_sync handlers
+```rust
+Message::FolderTokenRequest(payload) => {
+    folder_sync::handle_folder_token_request(
+        payload.clone(),
+        Arc::new(self.clone()),
+    )
+    .await
+}
+Message::FolderTokenResponse(payload) => {
+    folder_sync::handle_folder_token_response(
+        payload.clone(),
+        Arc::new(self.clone()),
+    )
+    .await
+}
+```
+
+#### 5. Request Initiation
+
+**File**: `network/src/p2p/sync_handler.rs:258-344`
+
+**Function**: `request_folder_token()`
+
+**Purpose**: Initiate folder token request to node
+
+**Flow**:
+1. Get current user
+2. Get folder to extract UCAN
+3. Get recipient's devices
+4. Get or establish peer connection
+5. Create and send `FolderTokenRequest`:
+   ```rust
+   FolderTokenRequest {
+       folder_id: folder.id,
+       folder_ucan: folder.ucan,  // Owner's folder UCAN (has get_share_link)
+   }
+   ```
+
+#### 6. Event Bridge Layer
+
+**File**: `sthalam/src-tauri/src/event_manager/tauri_listener.rs:28-77`
+
+**Purpose**: Listen for frontend `"request-folder-token"` event
+
+**Flow**:
+1. Parse payload: `{folderId, deviceId, domain}`
+2. Call `sync_handler::request_folder_token()`
+3. Async spawn (fire-and-forget)
+
+**File**: `sthalam/src-tauri/src/event_manager/p2p_listener.rs:80-94`
+
+**Purpose**: Bridge P2P events to frontend
+
+**Flow**:
+1. Catch `P2PEvent::FolderTokenReceived`
+2. Emit to frontend: `"folder-token-received"` with `{folderId, connectionString}`
+
+#### 7. Frontend Integration
+
+**File**: `sthalam/frontend/desktop/src/components/PublishWebsiteModal.svelte`
+
+**Request Flow** (lines 78-90):
+```javascript
+await emit("request-folder-token", {
+    folderId: currentWebsite.id,
+    deviceId: selectedUser.id,
+    domain: "sthalam"
+});
+```
+
+**Response Flow** (lines 152-164):
+```javascript
+unlisten = await listen("folder-token-received", (event: any) => {
+    const { folderId, connectionString } = event.payload;
+    if (folderId === dataState.currentWebsite?.id) {
+        generatedConnectionString = connectionString;
+        isGeneratingLink = false;
+    }
+});
+```
+
+**UI Elements**:
+- Dropdown to select published sovereign node
+- "Generate Shareable Link" button
+- Connection string display with copy button
+- Loading states during generation
+
+### Viewer UCAN Token Structure
+
+```json
+{
+  "aud": "*",
+  "cap": {
+    "sthalam:user-connect:*": {
+      "use": [{}]
+    },
+    "sthalam:folder:{folder_id}": {
+      "request_resources": [{}],
+      "get_share_link": [{}]
+    },
+    "sthalam:resource:{folder_id}/*": {
+      "request_resources": [{}],
+      "get_share_link": [{}]
+    }
+  },
+  "fct": {
+    "role": "viewer",
+    "folder_id": "{folder_id}"
+  },
+  "exp": <30 days from now>,
+  "iss": "did:key:z6Mk...<node_ucan_pub_key>"
+}
+```
+
+**Capabilities Breakdown**:
+1. `user-connect:*` - Can connect to any node (viewers may use different nodes)
+2. `folder:request_resources` - Can request resources from this specific folder
+3. `folder:get_share_link` - Can view/request share links for this folder
+4. `resource:*/request_resources` - Can request specific resources in the folder
+5. `resource:*/get_share_link` - Can get share links for resources in the folder
+
+**Key Properties**:
+- **Audience**: `"*"` (wildcard - any viewer can use this)
+- **Role**: `"viewer"` (identifies as viewer connection)
+- **Expiry**: 30 days (balances security with usability)
+- **No proof chain**: Root token issued directly by node
+
+### Connection String Format
+
+**Base64-encoded JSON**:
+```json
+{
+  "user_public_key": "<node_pgp_public_key>",
+  "device_public_key": "<node_device_key>",
+  "username": "<node_username>",
+  "ucan_token": "<viewer_ucan_token>",
+  "ucan_pub_key": "<node_ucan_pub_key>",
+  "folder_id": "<folder_id>"
+}
+```
+
+**Usage**: Viewers decode this string to extract:
+- Node connection info (public keys, username)
+- Viewer UCAN token for authentication
+- Folder ID to request resources from
+
+### Security Considerations
+
+**Validation**:
+- Owner must have `get_share_link` capability in their folder UCAN
+- Only nodes can generate viewer tokens (sovereign node requirement)
+- Viewer tokens have limited 30-day lifetime
+- Viewer tokens grant read-only capabilities (`request_resources`)
+
+**Isolation**:
+- Each folder gets unique viewer token
+- Viewers cannot access other folders
+- Viewers cannot modify resources (no write capabilities)
+- Token expiry forces periodic refresh
+
+### Message Protocol
+
+**FolderTokenRequest**:
+```rust
+pub struct FolderTokenRequest {
+    pub folder_id: String,
+    pub folder_ucan: String,  // Owner's folder UCAN
+}
+```
+
+**FolderTokenResponse**:
+```rust
+pub struct FolderTokenResponse {
+    pub folder_id: String,
+    pub connection_string: String,  // Base64-encoded JSON
+}
+```
+
+### Complete Event Flow
+
+```
+1. User clicks "Generate Shareable Link" in UI
+   ↓
+2. Frontend emits "request-folder-token"
+   ↓
+3. Tauri listener catches event
+   ↓
+4. Calls sync_handler::request_folder_token()
+   ↓
+5. sync_handler sends FolderTokenRequest to node
+   ↓
+6. peer_connection routes to folder_sync::handle_folder_token_request()
+   ↓
+7. folder_sync validates and generates viewer token
+   ↓
+8. folder_sync creates connection string
+   ↓
+9. folder_sync sends FolderTokenResponse back
+   ↓
+10. peer_connection routes to folder_sync::handle_folder_token_response()
+   ↓
+11. folder_sync emits P2PEvent::FolderTokenReceived
+   ↓
+12. p2p_listener catches event
+   ↓
+13. p2p_listener emits "folder-token-received" to frontend
+   ↓
+14. Frontend listener catches event
+   ↓
+15. UI displays connection string with copy button
+```
+
+### Implementation Checklist
+
+- [x] Core UCAN generation function with flexible capabilities/facts
+- [x] CryptoUtils wrapper for key decryption
+- [x] UCAN validation for get_share_link capability
+- [x] Service layer token generation orchestration
+- [x] folder_sync handlers for request/response
+- [x] peer_connection message routing
+- [x] sync_handler request initiation
+- [x] Tauri event listeners (request and response)
+- [x] Frontend event emission and listening
+- [x] UI integration in PublishWebsiteModal
+
+### Future Enhancements
+
+**Token Refresh**:
+- Implement automatic token refresh before expiry
+- Notify owner when viewer tokens are expiring
+- Allow manual token revocation
+
+**Analytics**:
+- Track viewer token usage
+- Monitor connection attempts
+- Alert on suspicious access patterns
+
+**Advanced Capabilities**:
+- Time-based access restrictions
+- Resource-specific viewer tokens
+- Multi-folder viewer access
 
 ---
 

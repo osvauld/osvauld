@@ -4,6 +4,6 @@
     "wasm": "cd template-transpiler && ./deploy-wasm.sh",
     "dev": "pnpm wasm && cargo tauri dev",
     "dev:fast": "cargo tauri dev",
-    "build": "pnpm wasm && cargo tauri build"
+    "build": "pnpm wasm && cargo tauri build --no-bundle"
   }
 }
