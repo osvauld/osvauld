@@ -409,15 +409,19 @@ impl PeerConnection {
                 )
                 .await
             }
-            Message::FolderTokenRequest(_payload) => {
-                // TODO: Handle folder token request
-                info!("Received FolderTokenRequest - handler not yet implemented");
-                Ok(())
+            Message::FolderTokenRequest(payload) => {
+                folder_sync::handle_folder_token_request(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                )
+                .await
             }
-            Message::FolderTokenResponse(_payload) => {
-                // TODO: Handle folder token response
-                info!("Received FolderTokenResponse - handler not yet implemented");
-                Ok(())
+            Message::FolderTokenResponse(payload) => {
+                folder_sync::handle_folder_token_response(
+                    payload.clone(),
+                    Arc::new(self.clone()),
+                )
+                .await
             }
         }
     }

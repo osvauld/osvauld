@@ -866,6 +866,155 @@ pub async fn prepare_resource_for_peer(
     Ok(peer_encrypted_resource)
 }
 
+/// Prepare resource transfer in response to ResourceNotFoundRequest
+///
+/// This function validates folder access, fetches share records, and prepares
+/// the resource for sending to a peer who doesn't have it.
+///
+/// # Arguments
+/// * `resource_id` - ID of the resource to transfer
+/// * `requester_folder_ucan` - Requester's folder UCAN token (proves they should have access)
+/// * `requester_user_id` - Requester's user ID
+/// * `requester_public_key` - Requester's public key for encryption
+/// * `domain` - Domain for UCAN validation
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for encryption
+///
+/// # Returns
+/// * `(EncryptedResource, Vec<ShareRecord>)` - Resource encrypted for requester and all share records
+pub async fn prepare_resource_transfer(
+    resource_id: &str,
+    requester_folder_ucan: &str,
+    requester_user_id: &str,
+    requester_public_key: &str,
+    domain: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> Result<(EncryptedResource, Vec<ShareRecord>), ResourceServiceError> {
+    info!("Preparing resource transfer for resource {}", resource_id);
+
+    // Get resource to find its folder_id
+    let resource = repo_ctx
+        .resource_repo
+        .find_by_id(resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to find resource {}: {}", resource_id, e);
+            ResourceServiceError::InvalidState(format!("Resource not found: {}", e))
+        })?;
+
+    // Validate requester's folder_ucan proves they should have access
+    crate::validate_folder_access_for_resource(
+        requester_folder_ucan,
+        &resource.folder_id,
+        domain,
+    )
+    .await
+    .map_err(|e| {
+        error!(
+            "Failed to validate folder access for resource {}: {}",
+            resource_id, e
+        );
+        ResourceServiceError::UcanError(format!("Access denied: {}", e))
+    })?;
+
+    info!("✓ Validated folder access");
+
+    // Get share record for requester to get their resource UCAN
+    // Note: Using "view" operation as default - this gives read access
+    let peer_share_record = repo_ctx
+        .share_repo
+        .find_by_resource_and_operation_and_user(resource_id, "view", requester_user_id)
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to find share record for resource {} and user {}: {}",
+                resource_id, requester_user_id, e
+            );
+            ResourceServiceError::InvalidState(format!(
+                "No share record found for requester: {}",
+                e
+            ))
+        })?;
+
+    // Get ALL share records for this resource
+    let all_share_records = crate::get_all_share_records_for_resource(resource_id, repo_ctx.clone())
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to get all share records for resource {}: {}",
+                resource_id, e
+            );
+            ResourceServiceError::InvalidState(format!(
+                "Failed to get share records: {}",
+                e
+            ))
+        })?;
+
+    // Prepare resource for peer (decrypt, filter, re-encrypt)
+    let peer_encrypted_resource = prepare_resource_for_peer(
+        resource_id,
+        requester_user_id,
+        &peer_share_record.ucan_token,
+        requester_public_key,
+        repo_ctx.clone(),
+        crypto_utils,
+    )
+    .await
+    .map_err(|e| {
+        error!(
+            "Failed to prepare resource {} for peer: {}",
+            resource_id, e
+        );
+        ResourceServiceError::InvalidState(format!("Failed to prepare resource: {}", e))
+    })?;
+
+    info!("✓ Resource prepared for transfer");
+    Ok((peer_encrypted_resource, all_share_records))
+}
+
+/// Save resource transfer from initiator
+///
+/// This function saves a resource and its share records received during
+/// ResourceTransfer protocol. Note: We skip folder_ucan validation here because:
+/// 1. Responder sent their folder_ucan in the request
+/// 2. Initiator already validated it before sending
+///
+/// # Arguments
+/// * `resource` - Encrypted resource to save
+/// * `share_records` - All share records for this resource
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `()` - Success (resource and share records saved)
+pub async fn save_resource_transfer(
+    resource: &EncryptedResource,
+    share_records: &[ShareRecord],
+    repo_ctx: Arc<RepositoryContext>,
+) -> Result<(), ResourceServiceError> {
+    info!("Saving resource transfer for resource {}", resource.id);
+
+    // Save resource with all share records in transaction
+    repo_ctx
+        .resource_repo
+        .save_resource_with_share_records(resource, share_records)
+        .await
+        .map_err(|e| {
+            error!(
+                "Failed to save resource {} with share records: {}",
+                resource.id, e
+            );
+            ResourceServiceError::InvalidState(format!("Failed to save resource: {}", e))
+        })?;
+
+    info!(
+        "✓ Saved resource {} with {} share records",
+        resource.id,
+        share_records.len()
+    );
+    Ok(())
+}
+
 /// Accept and save a resource from a peer after validating capabilities
 ///
 /// Validates that:

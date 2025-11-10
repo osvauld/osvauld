@@ -908,6 +908,71 @@ pub async fn generate_public_folder_view_token(
     .await
 }
 
+/// Generates a viewer connection token with flexible capabilities and facts
+///
+/// This is a generic token generator that accepts capabilities and facts from the service layer.
+/// The service layer determines what capabilities to grant based on business logic.
+///
+/// # Arguments
+/// * `owner_signing_key` - The signing key of the node issuing the token
+/// * `owner_verifying_key` - The verifying key of the node issuing the token
+/// * `capabilities` - List of (resource, ability) tuples to grant
+/// * `facts` - Optional facts to embed in the token (e.g., role, folder_id)
+/// * `audience` - Target audience DID or "*" for public/wildcard
+/// * `expiry_seconds` - Token lifetime in seconds (None = 30 years default)
+///
+/// # Returns
+/// UCAN token string
+pub async fn generate_viewer_connection_token(
+    owner_signing_key: &SigningKey,
+    owner_verifying_key: &VerifyingKey,
+    capabilities: Vec<(String, String)>,
+    facts: Option<serde_json::Map<String, serde_json::Value>>,
+    audience: &str,
+    expiry_seconds: Option<u64>,
+) -> Result<String, UcanError> {
+    // 1. Create KeyMaterial
+    let key_material =
+        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
+
+    // 2. Set lifetime (default to 30 years if None)
+    let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
+
+    // 3. Build UCAN with capabilities
+    let mut builder = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(audience)
+        .with_lifetime(lifetime);
+
+    // 4. Add capabilities
+    for (resource, ability) in capabilities {
+        let cap = Capability::from((resource.as_str(), ability.as_str(), &json!({})));
+        builder = builder.claiming_capability(cap);
+    }
+
+    // 5. Add facts if provided
+    if let Some(facts_map) = facts {
+        for (key, value) in facts_map {
+            builder = builder.with_fact(&key, value);
+        }
+    }
+
+    // 6. Build and sign UCAN
+    let ucan = builder
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    // 7. Encode and return
+    let token_str = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    Ok(token_str)
+}
+
 pub async fn validate_ucan_permission<F, Fut>(
     ucan: &Ucan,
     verifier_ucan_pub_b64: &str,

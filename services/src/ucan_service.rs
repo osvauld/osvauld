@@ -155,6 +155,142 @@ pub async fn validate_peer_can_add_resources(
     Ok(())
 }
 
+/// Validate that a peer can request a share link for a folder
+///
+/// This validates:
+/// - Peer's folder UCAN is valid
+/// - Peer has get_share_link capability for the specific folder
+/// - Folder ID in UCAN matches expected folder ID
+pub async fn validate_peer_can_request_link(
+    peer_folder_ucan: &str,
+    expected_folder_id: &str,
+    domain: &str,
+) -> ServiceResult<()> {
+    // 1. Validate peer's folder UCAN structure
+    let folder_ucan = crypto_utils::ucan_utils::validate_structure(peer_folder_ucan)
+        .await
+        .map_err(|e| {
+            crate::errors::FolderServiceError::UcanError(format!(
+                "Invalid peer folder UCAN: {}",
+                e
+            ))
+        })?;
+
+    // 2. Extract folder_id with get_share_link capability
+    let folder_pattern = format!("{}:folder:", domain);
+    let mut folder_id_from_ucan = None;
+
+    for capability in folder_ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+
+        if cap_resource.starts_with(&folder_pattern) && capability.ability == "get_share_link" {
+            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
+                if !folder_id.is_empty() && folder_id != "*" {
+                    folder_id_from_ucan = Some(folder_id.to_string());
+                    break;
+                }
+            }
+        }
+    }
+
+    let folder_id_from_ucan = folder_id_from_ucan.ok_or_else(|| {
+        crate::errors::FolderServiceError::UcanError(
+            "Peer's folder UCAN lacks get_share_link capability or no folder found".to_string()
+        )
+    })?;
+
+    // 3. Verify folder_id matches expected folder_id
+    if folder_id_from_ucan != expected_folder_id {
+        return Err(crate::errors::FolderServiceError::UcanError(format!(
+            "Folder ID mismatch: UCAN has {}, expected {}",
+            folder_id_from_ucan, expected_folder_id
+        ))
+        .into());
+    }
+
+    Ok(())
+}
+
+/// Generate a viewer connection token for folder access
+///
+/// This function:
+/// 1. Validates the requester has get_share_link capability for the folder
+/// 2. Generates a viewer connection token with appropriate capabilities
+/// 3. Returns the token string for the requester to share with viewers
+///
+/// # Arguments
+/// * `requester_folder_ucan` - The requester's folder UCAN (must have get_share_link capability)
+/// * `folder_id` - The folder ID to generate viewer access for
+/// * `domain` - The domain prefix (e.g., "sthalam")
+/// * `repo_ctx` - Repository context for accessing encrypted UCAN keys
+/// * `crypto_utils` - Crypto utilities for token generation
+///
+/// # Returns
+/// * `Ok(token_string)` - The generated viewer connection token
+/// * `Err` if validation fails or token generation fails
+pub async fn generate_viewer_token_for_folder(
+    requester_folder_ucan: &str,
+    folder_id: &str,
+    domain: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
+) -> ServiceResult<String> {
+    // 1. Validate requester has get_share_link capability
+    validate_peer_can_request_link(requester_folder_ucan, folder_id, domain).await?;
+
+    // 2. Get encrypted UCAN key from store
+    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    // 3. Build capabilities for viewer token
+    let capabilities = vec![
+        // Universal connection capability
+        (format!("{}:user-connect:*", domain), "use".to_string()),
+        // Folder-level capabilities
+        (
+            format!("{}:folder:{}", domain, folder_id),
+            "request_resources".to_string(),
+        ),
+        (
+            format!("{}:folder:{}", domain, folder_id),
+            "get_share_link".to_string(),
+        ),
+        // Resource-level wildcard capabilities
+        (
+            format!("{}:resource:{}/*", domain, folder_id),
+            "request_resources".to_string(),
+        ),
+        (
+            format!("{}:resource:{}/*", domain, folder_id),
+            "get_share_link".to_string(),
+        ),
+    ];
+
+    // 4. Build facts for viewer token
+    let mut facts = serde_json::Map::new();
+    facts.insert("role".to_string(), serde_json::json!("viewer"));
+    facts.insert("folder_id".to_string(), serde_json::json!(folder_id));
+
+    // 5. Generate viewer token (30 days expiry)
+    let crypto = crypto_utils.read().await;
+    let viewer_token = crypto
+        .generate_viewer_connection_token(
+            &encrypted_ucan_key,
+            capabilities,
+            Some(facts),
+            "*", // Wildcard audience
+            Some(30 * 24 * 60 * 60), // 30 days
+        )
+        .await
+        .map_err(|e| {
+            crate::errors::FolderServiceError::UcanError(format!(
+                "Failed to generate viewer token: {}",
+                e
+            ))
+        })?;
+
+    Ok(viewer_token)
+}
+
 /// Validate that a requester has access to a resource via their folder UCAN
 ///
 /// This validates:

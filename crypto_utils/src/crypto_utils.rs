@@ -436,6 +436,31 @@ impl CryptoUtils {
         Ok(token)
     }
 
+    /// Generates a viewer connection token with flexible capabilities and facts
+    ///
+    /// Decrypts the node's UCAN private key and generates a viewer connection token.
+    /// Capabilities and facts are provided by the service layer.
+    pub async fn generate_viewer_connection_token(
+        &self,
+        encrypted_ucan_private_key: &str,
+        capabilities: Vec<(String, String)>,
+        facts: Option<serde_json::Map<String, serde_json::Value>>,
+        audience: &str,
+        expiry_seconds: Option<u64>,
+    ) -> Result<String, CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+        let token = ucan_utils::generate_viewer_connection_token(
+            &signing_key,
+            &verifying_key,
+            capabilities,
+            facts,
+            audience,
+            expiry_seconds,
+        )
+        .await?;
+        Ok(token)
+    }
+
     /// Issue a delegated folder UCAN after validating permissions
     pub async fn issue_delegated_folder_ucan<F, Fut>(
         &self,

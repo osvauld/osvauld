@@ -232,6 +232,63 @@ pub async fn get_viewer_folder_manifest(
     Ok(result)
 }
 
+/// Get responder's folder UCAN for a folder
+///
+/// This function is used by the resource sync protocol to look up the responder's
+/// folder UCAN when they receive a sync request from an initiator.
+///
+/// # Arguments
+/// * `initiator_folder_ucan` - The initiator's folder UCAN token
+/// * `local_user_id` - The responder's (local) user ID
+/// * `domain` - Domain for UCAN validation
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `String` - The responder's folder UCAN token
+///
+/// # Errors
+/// * `FolderServiceError` - If folder_id extraction fails, folder share not found, or database error
+pub async fn get_responder_folder_ucan_for_folder(
+    initiator_folder_ucan: &str,
+    local_user_id: &str,
+    domain: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<String> {
+    tracing::info!("Looking up responder's folder_ucan");
+
+    // Extract folder_id from initiator's folder_ucan
+    let folder_id = crate::ucan_service::extract_folder_id_with_add_resources(
+        initiator_folder_ucan,
+        domain
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to extract folder_id from initiator's folder_ucan: {}", e);
+        FolderServiceError::UcanError(format!("No folder_id found in UCAN: {}", e))
+    })?;
+
+    tracing::info!("Looking up responder's folder_ucan for folder {}", folder_id);
+
+    // Get responder's folder share record to get their folder_ucan
+    let folder_share_option = repo_ctx
+        .folder_share_repo
+        .find_by_folder_and_user(&folder_id, local_user_id)
+        .await?;
+
+    let folder_share = folder_share_option.ok_or_else(|| {
+        tracing::error!(
+            "No folder share found for folder {} and user {}",
+            folder_id, local_user_id
+        );
+        FolderServiceError::Validation(
+            "Responder doesn't have access to folder".to_string()
+        )
+    })?;
+
+    tracing::info!("✓ Found responder's folder_ucan");
+    Ok(folder_share.ucan_token)
+}
+
 /// Accept and save a folder from a peer after validating add_folder capability
 pub async fn accept_folder_from_peer(
     folder: &Folder,

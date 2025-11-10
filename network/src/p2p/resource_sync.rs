@@ -6,7 +6,7 @@ use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{Message, ResourceDataSync, ResourceNotFoundRequestMsg, ResourceSyncRequestMsg, ResourceTransferMsg, ResourceUpdateMsg, User};
 use persistance::database::RepositoryContext;
-use services::{get_all_share_records_for_resource, get_resource_share_records_for_folder, prepare_resource_for_peer, validate_folder_access_for_resource};
+use services::{get_all_share_records_for_resource, get_resource_share_records_for_folder, prepare_resource_for_peer};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -231,47 +231,24 @@ pub async fn handle_resource_sync_request(
     if !resource_exists {
         info!("Resource {} not found locally, requesting from peer", resource_id);
 
-        // Extract folder_id from initiator's folder_ucan to find our folder_ucan
-        let domain = &peer_conn.domain;
-        let folder_id = services::ucan_service::extract_folder_id_with_add_resources(
-            &payload.folder_ucan,
-            domain
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to extract folder_id from initiator's folder_ucan: {}", e);
-            crate::p2p::errors::P2PError::InvalidState(format!("No folder_id found in UCAN: {}", e))
-        })?;
-
-        info!("Looking up responder's folder_ucan for folder {}", folder_id);
-
         // Get local user
         let local_user = peer_conn.get_local_user().await?;
 
-        // Get responder's folder share record to get their folder_ucan
-        let folder_share_option = repo_ctx
-            .folder_share_repo
-            .find_by_folder_and_user(&folder_id, &local_user.id)
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to find folder share for folder {} and user {}: {}",
-                    folder_id, local_user.id, e
-                );
-                crate::p2p::errors::P2PError::InvalidState(format!(
-                    "Database error looking up folder share: {}",
-                    e
-                ))
-            })?;
-
-        let folder_share = folder_share_option.ok_or_else(|| {
-            error!(
-                "No folder share found for folder {} and user {}",
-                folder_id, local_user.id
-            );
-            crate::p2p::errors::P2PError::InvalidState(
-                "Responder doesn't have access to folder".to_string()
-            )
+        // Get responder's folder_ucan using folder_service
+        let domain = &peer_conn.domain;
+        let responder_folder_ucan = services::get_responder_folder_ucan_for_folder(
+            &payload.folder_ucan,
+            &local_user.id,
+            domain,
+            repo_ctx.clone(),
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to get responder's folder_ucan: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to get folder access: {}",
+                e
+            ))
         })?;
 
         info!("✓ Found responder's folder_ucan, sending ResourceNotFoundRequest");
@@ -279,7 +256,7 @@ pub async fn handle_resource_sync_request(
         // Send ResourceNotFoundRequest with responder's folder_ucan
         let request = ResourceNotFoundRequestMsg {
             resource_id: resource_id.clone(),
-            folder_ucan: folder_share.ucan_token,
+            folder_ucan: responder_folder_ucan,
         };
 
         peer_conn
@@ -331,8 +308,7 @@ pub async fn handle_resource_sync_request(
 ///
 /// Flow:
 /// - Receives ResourceNotFoundRequest with resource_id and responder's folder_ucan
-/// - Validates responder's folder_ucan proves they should have access
-/// - Prepares resource for peer (filter + re-encrypt)
+/// - Delegates to resource_service to validate access and prepare resource
 /// - Sends ResourceTransfer with resource + share records
 ///
 /// # Arguments
@@ -352,85 +328,28 @@ pub async fn handle_resource_not_found_request(
 ) -> P2PResult<()> {
     info!("Received resource not found request for resource {}", payload.resource_id);
 
-    // Get resource to find its folder_id
-    let resource = repo_ctx
-        .resource_repo
-        .find_by_id(&payload.resource_id)
-        .await
-        .map_err(|e| {
-            error!("Failed to find resource {}: {}", payload.resource_id, e);
-            crate::p2p::errors::P2PError::InvalidState(format!("Resource not found: {}", e))
-        })?;
-
-    let domain = &peer_conn.domain;
-
-    // Validate requester's folder_ucan proves they should have access
-    validate_folder_access_for_resource(
-        &payload.folder_ucan,
-        &resource.folder_id,
-        domain,
-    )
-    .await
-    .map_err(|e| {
-        error!(
-            "Failed to validate folder access for resource {}: {}",
-            payload.resource_id, e
-        );
-        crate::p2p::errors::P2PError::InvalidState(format!("Access denied: {}", e))
-    })?;
-
-    info!("✓ Validated folder access, preparing resource for peer");
-
     // Get peer user for re-encryption
     let peer_user = peer_conn.get_peer_user().await;
 
-    // Get share record for requester to get their resource UCAN
-    // Note: Using "view" operation as default - this gives read access
-    let peer_share_record = repo_ctx
-        .share_repo
-        .find_by_resource_and_operation_and_user(&payload.resource_id, "view", &peer_user.id)
-        .await
-        .map_err(|e| {
-            error!(
-                "Failed to find share record for resource {} and user {}: {}",
-                payload.resource_id, peer_user.id, e
-            );
-            crate::p2p::errors::P2PError::InvalidState(format!(
-                "No share record found for requester: {}",
-                e
-            ))
-        })?;
+    let domain = &peer_conn.domain;
 
-    // Get ALL share records for this resource
-    let all_share_records = get_all_share_records_for_resource(&payload.resource_id, repo_ctx.clone())
-        .await
-        .map_err(|e| {
-            error!(
-                "Failed to get all share records for resource {}: {}",
-                payload.resource_id, e
-            );
-            crate::p2p::errors::P2PError::InvalidState(format!(
-                "Failed to get share records: {}",
-                e
-            ))
-        })?;
-
-    // Prepare resource for peer (decrypt, filter, re-encrypt)
-    let peer_encrypted_resource = prepare_resource_for_peer(
+    // Delegate to resource_service to validate and prepare resource
+    let (peer_encrypted_resource, all_share_records) = services::prepare_resource_transfer(
         &payload.resource_id,
+        &payload.folder_ucan,
         &peer_user.id,
-        &peer_share_record.ucan_token,
         &peer_user.public_key,
+        domain,
         repo_ctx.clone(),
         &crypto_utils,
     )
     .await
     .map_err(|e| {
         error!(
-            "Failed to prepare resource {} for peer: {}",
+            "Failed to prepare resource transfer for {}: {}",
             payload.resource_id, e
         );
-        crate::p2p::errors::P2PError::InvalidState(format!("Failed to prepare resource: {}", e))
+        crate::p2p::errors::P2PError::InvalidState(format!("Failed to prepare transfer: {}", e))
     })?;
 
     info!("✓ Resource prepared, sending to peer");
@@ -453,7 +372,7 @@ pub async fn handle_resource_not_found_request(
 ///
 /// Flow:
 /// - Receives ResourceTransfer with complete resource + share records
-/// - Validates and saves resource to database
+/// - Delegates to resource_service to save resource
 /// - Sends ResourceTransferAck to confirm receipt
 ///
 /// # Arguments
@@ -473,27 +392,16 @@ pub async fn handle_resource_transfer(
 ) -> P2PResult<()> {
     info!("Received resource transfer for resource {}", payload.resource.id);
 
-    // Save resource with all share records
-    // Note: We skip folder_ucan validation here because:
-    // 1. Responder sent their folder_ucan in the request
-    // 2. Initiator already validated it before sending
-    repo_ctx
-        .resource_repo
-        .save_resource_with_share_records(&payload.resource, &payload.share_records)
+    // Delegate to resource_service to save resource transfer
+    services::save_resource_transfer(&payload.resource, &payload.share_records, repo_ctx)
         .await
         .map_err(|e| {
             error!(
-                "Failed to save resource {} with share records: {}",
+                "Failed to save resource transfer for {}: {}",
                 payload.resource.id, e
             );
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to save resource: {}", e))
         })?;
-
-    info!(
-        "✓ Saved resource {} with {} share records",
-        payload.resource.id,
-        payload.share_records.len()
-    );
 
     // Send acknowledgment
     peer_conn
