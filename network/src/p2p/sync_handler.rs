@@ -223,7 +223,7 @@ pub async fn sync_resource(
         info!("Sending ResourceSyncRequest to peer: {}", device.id);
 
         match peer_conn
-            .send_message(Message::ResourceSyncRequest(sync_request.clone()))
+            .send_message(Message::Resource(osvauld_core::models::ResourceMessage::ResourceSyncRequest(sync_request.clone())))
             .await
         {
             Ok(_) => {
@@ -336,9 +336,56 @@ pub async fn request_folder_token(
     );
 
     peer_conn
-        .send_message(Message::FolderTokenRequest(request))
+        .send_message(Message::Folder(osvauld_core::models::FolderMessage::FolderTokenRequest(request)))
         .await?;
 
     info!("✓ Folder token request sent successfully");
     Ok(())
+}
+
+/// Connect viewer to website/node
+///
+/// Fire-and-forget: spawns async task to establish P2P connection
+/// and delegate to website_handler to send WebsiteRequest
+///
+/// # Arguments
+/// * `device_id` - Node's device ID
+/// * `ucan_token` - UCAN token for folder access (from connection string)
+/// * `p2p_service` - P2P service
+pub fn connect_to_website(
+    device_id: String,
+    ucan_token: String,
+    p2p_service: Arc<P2PService>,
+) {
+    tokio::spawn(async move {
+        info!("🌐 Connecting viewer to node device: {}", device_id);
+
+        // Establish P2P connection
+        let peer_conn = match p2p_service.connect_with_ticket(&device_id).await {
+            Ok(Some(conn)) => {
+                info!("✅ P2P connection established");
+                conn
+            }
+            Ok(None) => {
+                error!("⚠️ Connection already in progress for device: {}", device_id);
+                return;
+            }
+            Err(e) => {
+                error!("❌ Failed to connect to node: {}", e);
+                return;
+            }
+        };
+
+        // Delegate to website_handler to send WebsiteRequest
+        if let Err(e) = crate::p2p::website_handler::initiate_website_request(
+            peer_conn,
+            ucan_token,
+            device_id,
+            p2p_service,
+        )
+        .await
+        {
+            error!("❌ Failed to initiate website request: {}", e);
+        }
+    });
 }

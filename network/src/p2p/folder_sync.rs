@@ -4,12 +4,45 @@
 
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection, resource_sync};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{FolderDataSync, Message, User};
+use osvauld_core::models::{FolderDataSync, FolderMessage, Message, User};
 use persistance::database::RepositoryContext;
 use services::{get_folder_by_id, get_folder_share_record};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
+
+/// Process all Folder messages - central routing function
+///
+/// This function receives all Folder message variants and delegates
+/// to the appropriate handler based on message type.
+///
+/// # Arguments
+/// * `peer_conn` - The peer connection
+/// * `message` - The FolderMessage variant to process
+/// * `repo_ctx` - Repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Ok(())` - Message processed successfully
+/// * `Err` - If processing fails
+pub async fn process_message(
+    peer_conn: Arc<PeerConnection>,
+    message: FolderMessage,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    match message {
+        FolderMessage::FolderDataSync(payload) => {
+            handle_folder_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        FolderMessage::FolderTokenRequest(payload) => {
+            handle_folder_token_request(payload, peer_conn).await
+        }
+        FolderMessage::FolderTokenResponse(payload) => {
+            handle_folder_token_response(payload, peer_conn).await
+        }
+    }
+}
 
 /// Send folder data then all resources
 ///
@@ -91,7 +124,7 @@ async fn send_folder_data(
         folder_share_record,
     };
 
-    peer_conn.send_message(Message::FolderDataSync(data)).await
+    peer_conn.send_message(Message::Folder(FolderMessage::FolderDataSync(data))).await
 }
 
 /// Handle folder data sync from owner (node side)
@@ -197,7 +230,7 @@ pub async fn handle_folder_token_request(
         connection_string,
     };
 
-    peer_conn.send_message(osvauld_core::models::Message::FolderTokenResponse(response)).await?;
+    peer_conn.send_message(Message::Folder(FolderMessage::FolderTokenResponse(response))).await?;
 
     info!("✅ Sent FolderTokenResponse for folder: {}", payload.folder_id);
     Ok(())

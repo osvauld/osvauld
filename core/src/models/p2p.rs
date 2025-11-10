@@ -44,27 +44,15 @@ pub enum Message {
     Pong,
     Error,
     Handshake(HandshakeMessage),
-    RetryRequest,
 
-    // Resource sync (unified UCAN-based protocol for owner connections)
-    MergeUpdate(ResourceUpdateMsg),
-    ResourceAdditionRequest(EncryptedResource),
-    ResourceAdditionComplete,
-    AssetTransfer(AssetTransferMessage),
+    // Resource sync protocol (CRDT merging, resource transfer, etc.)
+    Resource(ResourceMessage),
 
-    // Resource request protocol (when peer doesn't have resource)
-    ResourceSyncRequest(ResourceSyncRequestMsg),
-    ResourceNotFoundRequest(ResourceNotFoundRequestMsg),
-    ResourceTransfer(ResourceTransferMsg),
-    ResourceTransferAck,
+    // Folder sync protocol (simple push and token management)
+    Folder(FolderMessage),
 
-    // Folder sync (simple push protocol)
-    FolderDataSync(FolderDataSync),
-    ResourceDataSync(ResourceDataSync),
-
-    // Folder token request (for generating shareable links)
-    FolderTokenRequest(FolderTokenRequest),
-    FolderTokenResponse(FolderTokenResponse),
+    // Website viewer connection protocol
+    Website(WebsiteMessage),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,15 +79,38 @@ pub enum ResourceUpdateMsg {
     },
 }
 
+/// Resource sync messages (CRDT merging and resource transfer)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ResourceMessage {
+    // CRDT merge protocol
+    MergeUpdate(ResourceUpdateMsg),
+
+    // Resource request/transfer protocol
+    ResourceSyncRequest(ResourceSyncRequestMsg),
+    ResourceNotFoundRequest(ResourceNotFoundRequestMsg),
+    ResourceTransfer(ResourceTransferMsg),
+    ResourceTransferAck,
+
+    // Simple push sync (used for initial folder sync)
+    ResourceDataSync(ResourceDataSync),
+}
+
+/// Folder sync messages (simple push and token management)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum FolderMessage {
+    // Simple push sync
+    FolderDataSync(FolderDataSync),
+
+    // Token request/response for shareable links
+    FolderTokenRequest(FolderTokenRequest),
+    FolderTokenResponse(FolderTokenResponse),
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum HandshakeMessage {
     HandshakeFirstConnectRequest(FirstConnectRequest),
     HandshakeFirstConnectResponse(FirstConnectResponse),
     HandshakeExchange(UcanAndUserExchange),
-    HandshakeWebsiteRequest(WebsiteHandshakeRequest),
-    HandshakeWebsiteResponse(WebsiteHandshakeResponse),
-    HandshakeWebsiteReconnectRequest(WebsiteReconnectRequest),
-    HandshakeWebsiteReconnectResponse(WebsiteReconnectResponse),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -131,31 +142,20 @@ pub struct UcanAndUserExchange {
     // Note: connection_type removed - inferred from UCAN token role
 }
 
+/// Website viewer connection messages (separate from handshake protocol)
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WebsiteHandshakeRequest {
+pub enum WebsiteMessage {
+    WebsiteRequest(WebsiteRequest),
+    // Future: WebsiteResponse, WebsiteReconnectRequest, etc.
+}
+
+/// Initial request from viewer to node with connection details
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct WebsiteRequest {
     pub ucan_token: String,
     pub viewer_user: User,
     pub viewer_device: Device,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WebsiteHandshakeResponse {
-    pub node_user: User,
-    pub node_device: Device,
-    pub viewer_specific_token: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WebsiteReconnectRequest {
-    pub ucan_token: String,
-    pub viewer_user: User,
-    pub viewer_device: Device,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WebsiteReconnectResponse {
-    pub node_user: User,
-    pub node_device: Device,
+    pub first_sync: bool,
 }
 
 

@@ -157,3 +157,80 @@ pub async fn sign_ucan_pub_key(
         e.into()
     })
 }
+
+/// Parsed connection string data
+#[derive(Debug, Clone)]
+pub struct ConnectionStringData {
+    pub username: String,
+    pub user_public_key: String,
+    pub device_public_key: String,
+    pub ucan_token: String,
+    pub ucan_pub_key: String,
+    pub folder_id: Option<String>,
+}
+
+/// Parse and decode a connection string (base64-encoded JSON)
+/// Returns all fields needed for both sovereign node and viewer connections
+pub fn parse_connection_string(
+    connection_string: &str
+) -> ServiceResult<ConnectionStringData> {
+    use base64::{Engine as _, engine::general_purpose};
+    use crate::errors::UserServiceError;
+
+    // 1. Decode base64
+    let decoded = general_purpose::STANDARD
+        .decode(connection_string)
+        .map_err(|e| UserServiceError::InvalidUserData {
+            field: "connection_string".into(),
+            reason: format!("Failed to decode base64: {}", e),
+        })?;
+
+    // 2. Convert to UTF-8
+    let json_str = String::from_utf8(decoded)
+        .map_err(|e| UserServiceError::InvalidUserData {
+            field: "connection_string".into(),
+            reason: format!("Invalid UTF-8: {}", e),
+        })?;
+
+    // 3. Parse JSON
+    let details: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| UserServiceError::InvalidUserData {
+            field: "connection_string".into(),
+            reason: format!("Invalid JSON: {}", e),
+        })?;
+
+    // 4. Extract all fields
+    Ok(ConnectionStringData {
+        username: details["username"].as_str()
+            .ok_or_else(|| UserServiceError::InvalidUserData {
+                field: "username".into(),
+                reason: "Missing username in connection string".into(),
+            })?
+            .to_string(),
+        user_public_key: details["user_public_key"].as_str()
+            .ok_or_else(|| UserServiceError::InvalidUserData {
+                field: "user_public_key".into(),
+                reason: "Missing user_public_key in connection string".into(),
+            })?
+            .to_string(),
+        device_public_key: details["device_public_key"].as_str()
+            .ok_or_else(|| UserServiceError::InvalidUserData {
+                field: "device_public_key".into(),
+                reason: "Missing device_public_key in connection string".into(),
+            })?
+            .to_string(),
+        ucan_token: details["ucan_token"].as_str()
+            .ok_or_else(|| UserServiceError::InvalidUserData {
+                field: "ucan_token".into(),
+                reason: "Missing ucan_token in connection string".into(),
+            })?
+            .to_string(),
+        ucan_pub_key: details["ucan_pub_key"].as_str()
+            .ok_or_else(|| UserServiceError::InvalidUserData {
+                field: "ucan_pub_key".into(),
+                reason: "Missing ucan_pub_key in connection string".into(),
+            })?
+            .to_string(),
+        folder_id: details["folder_id"].as_str().map(|s| s.to_string()),
+    })
+}

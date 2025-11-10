@@ -446,6 +446,42 @@ pub async fn extract_folder_id_with_add_resources(
     ))
 }
 
+/// Extract folder_id from viewer UCAN token (uses request_resources capability)
+///
+/// Viewer tokens have request_resources instead of add_resources.
+/// This function extracts the folder_id from viewer connection tokens.
+///
+/// # Arguments
+/// * `ucan_token` - The viewer UCAN token to extract from
+/// * `domain` - The domain (e.g., "sthalam")
+///
+/// # Returns
+/// * `Ok(folder_id)` - The extracted folder_id
+/// * `Err` if no folder with request_resources capability found
+pub async fn extract_folder_id_from_viewer_token(
+    ucan_token: &str,
+    domain: &str,
+) -> ServiceResult<String> {
+    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
+
+    let folder_pattern = format!("{}:folder:", domain);
+
+    for capability in ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+        if cap_resource.starts_with(&folder_pattern) && capability.ability == "request_resources" {
+            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
+                if !folder_id.is_empty() && folder_id != "*" {
+                    return Ok(folder_id.to_string());
+                }
+            }
+        }
+    }
+
+    Err(crate::errors::ServiceError::Ucan(
+        crypto_utils::errors::UcanError::CapabilityNotFound
+    ))
+}
+
 /// Extract resource_id from UCAN token (business logic)
 ///
 /// Parses the UCAN and extracts the first resource ID found in capabilities.

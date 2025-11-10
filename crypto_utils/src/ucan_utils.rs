@@ -432,39 +432,6 @@ pub fn extract_domain_from_ucan(ucan: &Ucan, resource_type: &str) -> Result<Stri
     Err(UcanError::CapabilityNotFound)
 }
 
-/// Extract folder_id from UCAN and verify it has add_resources capability
-///
-/// Looks for capability matching "domain:folder:folder_id" pattern and checks
-/// if it has the "add_resources" ability.
-///
-/// ### Arguments
-/// * `ucan` - The UCAN object to extract from
-/// * `domain` - The domain to match (e.g., "sthalam")
-///
-/// ### Returns
-/// The folder_id string if found with add_resources capability
-pub fn extract_folder_id_with_add_resources_capability(
-    ucan: &Ucan,
-    domain: &str,
-) -> Result<String, UcanError> {
-    let folder_pattern = format!("{}:folder:", domain);
-
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        if cap_resource.starts_with(&folder_pattern) && capability.ability == "add_resources" {
-            // Extract folder_id from "domain:folder:folder_id"
-            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
-                if !folder_id.is_empty() && folder_id != "*" {
-                    return Ok(folder_id.to_string());
-                }
-            }
-        }
-    }
-
-    Err(UcanError::CapabilityNotFound)
-}
-
 fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
     let key_bytes = general_purpose::STANDARD
         .decode(key_b64)
@@ -787,13 +754,18 @@ pub async fn generate_folder_ucan_with_template(
         builder = builder.claiming_capability(cap);
     }
 
-    // 7. Add both templates to facts
+    // 7. Add all three templates to facts
     builder = builder.with_fact("owner_template", owner_template_value.clone());
 
     let node_template_value = template_obj
         .get("node_template")
         .ok_or_else(|| UcanError::TemplateInvalid("Missing 'node_template'".to_string()))?;
     builder = builder.with_fact("node_template", node_template_value.clone());
+
+    let viewer_template_value = template_obj
+        .get("viewer_template")
+        .ok_or_else(|| UcanError::TemplateInvalid("Missing 'viewer_template'".to_string()))?;
+    builder = builder.with_fact("viewer_template", viewer_template_value.clone());
 
     // 8. Build, sign, and encode
     let ucan = builder

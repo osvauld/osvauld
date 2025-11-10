@@ -4,12 +4,91 @@
 
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{Message, ResourceDataSync, ResourceNotFoundRequestMsg, ResourceSyncRequestMsg, ResourceTransferMsg, ResourceUpdateMsg, User};
+use osvauld_core::models::{Message, ResourceDataSync, ResourceMessage, ResourceNotFoundRequestMsg, ResourceSyncRequestMsg, ResourceTransferMsg, ResourceUpdateMsg, User};
 use persistance::database::RepositoryContext;
 use services::{get_all_share_records_for_resource, get_resource_share_records_for_folder, prepare_resource_for_peer};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
+
+/// Process all Resource messages - central routing function
+///
+/// This function receives all Resource message variants and delegates
+/// to the appropriate handler based on message type.
+///
+/// # Arguments
+/// * `peer_conn` - The peer connection
+/// * `message` - The ResourceMessage variant to process
+/// * `repo_ctx` - Repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Ok(())` - Message processed successfully
+/// * `Err` - If processing fails
+pub async fn process_message(
+    peer_conn: Arc<PeerConnection>,
+    message: ResourceMessage,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    match message {
+        ResourceMessage::MergeUpdate(payload) => {
+            match payload {
+                ResourceUpdateMsg::StateVectorRequest {
+                    resource_id,
+                    state_vectors,
+                    asset_ids,
+                    ucan_token,
+                } => {
+                    handle_state_vector_request(
+                        resource_id,
+                        state_vectors,
+                        asset_ids,
+                        ucan_token,
+                        peer_conn,
+                        repo_ctx,
+                        crypto_utils,
+                    )
+                    .await
+                }
+                ResourceUpdateMsg::UpdatesResponse {
+                    resource_id,
+                    updates,
+                    state_vectors,
+                    missing_asset_ids,
+                    ucan_token,
+                } => {
+                    handle_updates_response(
+                        resource_id,
+                        updates,
+                        state_vectors,
+                        missing_asset_ids,
+                        ucan_token,
+                        peer_conn,
+                        repo_ctx,
+                        crypto_utils,
+                    )
+                    .await
+                }
+            }
+        }
+        ResourceMessage::ResourceSyncRequest(payload) => {
+            handle_resource_sync_request(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        ResourceMessage::ResourceNotFoundRequest(payload) => {
+            handle_resource_not_found_request(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        ResourceMessage::ResourceTransfer(payload) => {
+            handle_resource_transfer(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        ResourceMessage::ResourceTransferAck => {
+            handle_resource_transfer_ack(peer_conn).await
+        }
+        ResourceMessage::ResourceDataSync(payload) => {
+            handle_resource_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+    }
+}
 
 /// Send all resources for a folder to a peer
 ///
@@ -147,7 +226,7 @@ pub async fn send_resource_data(
     info!("Sending resource {} to node", resource_data.resource.id);
 
     peer_conn
-        .send_message(Message::ResourceDataSync(resource_data))
+        .send_message(Message::Resource(ResourceMessage::ResourceDataSync(resource_data)))
         .await
 }
 
@@ -260,7 +339,7 @@ pub async fn handle_resource_sync_request(
         };
 
         peer_conn
-            .send_message(Message::ResourceNotFoundRequest(request))
+            .send_message(Message::Resource(ResourceMessage::ResourceNotFoundRequest(request)))
             .await?;
 
         info!("✓ Sent ResourceNotFoundRequest for resource {}", resource_id);
@@ -295,7 +374,7 @@ pub async fn handle_resource_sync_request(
         };
 
         peer_conn
-            .send_message(Message::MergeUpdate(state_vector_request))
+            .send_message(Message::Resource(ResourceMessage::MergeUpdate(state_vector_request)))
             .await?;
 
         info!("✓ Sent StateVectorRequest for resource {}", resource_id);
@@ -361,7 +440,7 @@ pub async fn handle_resource_not_found_request(
     };
 
     peer_conn
-        .send_message(Message::ResourceTransfer(transfer_msg))
+        .send_message(Message::Resource(ResourceMessage::ResourceTransfer(transfer_msg)))
         .await?;
 
     info!("✓ Resource {} sent to peer", payload.resource_id);
@@ -405,7 +484,7 @@ pub async fn handle_resource_transfer(
 
     // Send acknowledgment
     peer_conn
-        .send_message(Message::ResourceTransferAck)
+        .send_message(Message::Resource(ResourceMessage::ResourceTransferAck))
         .await?;
 
     info!("✓ Resource transfer complete for {}", payload.resource.id);
@@ -494,7 +573,7 @@ pub async fn handle_state_vector_request(
     };
 
     peer_conn
-        .send_message(Message::MergeUpdate(updates_response))
+        .send_message(Message::Resource(ResourceMessage::MergeUpdate(updates_response)))
         .await?;
 
     info!("✓ Sent UpdatesResponse to peer");

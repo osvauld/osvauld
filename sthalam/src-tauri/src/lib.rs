@@ -170,6 +170,7 @@ pub fn run() {
             // P2P handlers
             start_p2p_listener,
             handle_add_sovereign_node,
+            handle_connect_to_website,
             // TODO: Implement remaining resource handlers:
             // handle_delete_resource,
             // etc.

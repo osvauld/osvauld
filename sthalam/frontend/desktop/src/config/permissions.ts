@@ -23,6 +23,13 @@ export const FOLDER_TEMPLATE = {
       "share_folder": "share_folder",
     },
   },
+  viewer_template: {
+    capabilities: {
+      "crud/read": "crud/read",
+      "request_resources": "request_resources",
+      "get_share_link": "get_share_link",
+    },
+  },
 };
 
 // ========== RESOURCE TEMPLATES ==========

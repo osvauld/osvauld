@@ -1007,6 +1007,321 @@ pub struct FolderTokenResponse {
 - [x] peer_connection message routing
 - [x] sync_handler request initiation
 - [x] Tauri event listeners (request and response)
+
+---
+
+## Website Viewer Connection Protocol
+
+**Status**: 🚧 In Progress (Phase 1 Complete)
+**Last Updated**: 2025-11-10
+
+### Overview
+
+The Website Viewer Connection Protocol enables public viewers to connect to sovereign nodes using shareable connection strings, validate folder access, and receive read-only resource data. This protocol is separate from the owner-node connection protocol and uses a different message structure.
+
+**Flow**: Viewer receives connection string → Connects to node → Sends WebsiteRequest → Node validates → Node sends folder and resources
+
+### Architecture
+
+```
+Viewer (Browser/Desktop)          Sovereign Node
+      |                                |
+      |  1. Parse connection string    |
+      |     (add node to DB)           |
+      |                                |
+      |  2. Establish P2P connection   |
+      |------------------------------>|
+      |                                |
+      |  3. Validate & Send            |
+      |     WebsiteRequest             |
+      |------------------------------>|
+      |                                |
+      |                                | 4. Validate folder access
+      |                                | 5. Check first_sync status
+      |                                | 6. Check folder exists
+      |                                |
+      |  7. Send folder & resources    |
+      |<------------------------------|
+      |                                |
+      |  8. Display content            |
+```
+
+### Phase 1: Connection Establishment & Validation (✅ Complete)
+
+#### Message Structure
+
+**WebsiteRequest** (sent by viewer):
+```rust
+pub struct WebsiteRequest {
+    pub ucan_token: String,        // Viewer UCAN from connection string
+    pub viewer_user: User,          // Viewer's User struct
+    pub viewer_device: Device,      // Viewer's Device struct
+    pub first_sync: bool,           // Viewer's first_sync status
+}
+```
+
+**Message Wrapper**:
+```rust
+pub enum WebsiteMessage {
+    WebsiteRequest(WebsiteRequest),
+    // Future: WebsiteResponse, WebsiteReconnectRequest, etc.
+}
+
+pub enum Message {
+    // ...
+    Website(WebsiteMessage),  // Routed to website_handler
+}
+```
+
+#### Viewer Side Implementation
+
+**File**: `tauri_handlers/src/handlers/p2p.rs:handle_connect_to_website()`
+
+**Flow**:
+1. Parse connection string (base64 JSON with node info + UCAN token)
+2. Derive node user_id from public key
+3. Check if node already exists in viewer's database
+   - If exists: Reuse existing device
+   - If not: Call `add_known_user()` to save node
+4. Fire-and-forget: Spawn async task to connect and send request
+
+**File**: `network/src/p2p/sync_handler.rs:connect_to_website()`
+
+**Parameters**:
+- `device_id`: Node's device ID
+- `ucan_token`: Viewer UCAN from connection string
+- `p2p_service`: P2P service reference
+
+**Flow**:
+1. Establish P2P connection with node via `connect_with_ticket()`
+2. Delegate to `website_handler::initiate_website_request()`
+
+**File**: `network/src/p2p/website_handler.rs:initiate_website_request()`
+
+**Validation Steps**:
+1. Get viewer's local user/device from P2PService state
+2. Get node device to find user_id
+3. **Call `services::check_user_and_folder_status()`**:
+   - Extract folder_id from UCAN token (via `ucan_service`)
+   - Check if folder exists in viewer's database
+   - Check if node user has completed first_sync
+4. Handle validation results:
+   - ❌ `!first_sync_done`: Return error (node not ready)
+   - ❌ `!folder_exists`: Return error (folder not found)
+   - ✅ Both true: Proceed to send WebsiteRequest
+5. Create and send WebsiteRequest message
+
+#### Node Side Implementation
+
+**File**: `network/src/p2p/website_handler.rs:process_website_request()`
+
+**Flow**:
+1. Receive WebsiteRequest from viewer
+2. Get node's local user/device from peer_conn
+3. Extract repo_ctx and domain from peer_conn
+4. **Call `services::check_user_and_folder_status()`**:
+   - Extract folder_id from viewer's UCAN
+   - Check if folder exists in node's database
+   - Check if node user has completed first_sync
+5. Return status: `(first_sync_done, folder_exists)`
+
+**File**: `services/src/website_service.rs:check_user_and_folder_status()`
+
+**Purpose**: Validate folder access and connection readiness
+
+**Flow**:
+1. Extract folder_id from UCAN using `ucan_service::extract_folder_id_with_add_resources()`
+2. Check folder existence: `folder_repo.find_by_id(folder_id)`
+3. Check first_sync: `user_repo.get_user_by_id(node_user_id)` → `user.first_sync`
+4. Return `(first_sync_done, folder_exists)`
+
+**Note**: Folder validation happens on BOTH sides:
+- Viewer validates before sending request
+- Node validates when receiving request
+
+#### Message Routing
+
+**peer_connection.rs** routes Website messages to centralized handler:
+```rust
+Message::Website(website_msg) => {
+    website_handler::process_message(
+        Arc::new(self.clone()),
+        website_msg.clone(),
+    ).await
+}
+```
+
+**website_handler::process_message()** delegates to specific handlers:
+```rust
+match message {
+    WebsiteMessage::WebsiteRequest(payload) => {
+        process_website_request(peer_conn, payload).await
+    }
+    // Future: Other variants
+}
+```
+
+### Phase 2: Folder and Resource Sync (⏳ TODO)
+
+After validation succeeds, node must send folder and resources to viewer.
+
+#### TODO: Response Flow
+
+**Scenarios to handle**:
+1. ✅ **First connection (`first_sync=true`, folder exists)**:
+   - [ ] Send full folder metadata
+   - [ ] Send all resources in folder
+   - [ ] Use existing `folder_sync::send_folder_with_resources()`?
+
+2. ⏳ **Reconnection (`first_sync=true`, folder exists, viewer already has folder)**:
+   - [ ] Check if viewer already has folder (how to detect?)
+   - [ ] Send only new/updated resources
+   - [ ] Use CRDT merge protocol or full sync?
+
+3. ❌ **First sync not done (`first_sync=false`)**:
+   - [ ] Wait for first_sync completion?
+   - [ ] Return error to viewer?
+   - [ ] Queue request for later?
+
+4. ❌ **Folder not found (`folder_exists=false`)**:
+   - [ ] Return error to viewer
+   - [ ] How to communicate this to viewer UI?
+
+#### TODO: WebsiteResponse Message
+
+Need to define response structure:
+```rust
+// TODO: Define in core/src/models/p2p.rs
+pub struct WebsiteResponse {
+    pub status: ConnectionStatus,  // Success, FolderNotFound, NotReady, etc.
+    pub node_user: User,
+    pub node_device: Device,
+    // Additional fields?
+}
+```
+
+#### TODO: Persistent Viewer Tokens
+
+**Current**: One-time UCAN token from connection string
+**Needed**: Node should issue persistent connection token for reconnections
+
+- [ ] Define viewer-specific token format
+- [ ] Store viewer connections on node side (or keep ephemeral?)
+- [ ] Implement token refresh mechanism
+- [ ] Handle token expiry and renewal
+
+### Phase 3: Viewer Updates & Sync (⏳ TODO)
+
+#### TODO: Bidirectional Sync
+
+**Scenarios**:
+1. **Viewer modifies resource (if allowed)**:
+   - [ ] Viewer sends CRDT updates to node
+   - [ ] Node validates write permissions
+   - [ ] Node merges and propagates to owner
+
+2. **Owner updates resource**:
+   - [ ] Node pushes updates to connected viewers
+   - [ ] Use existing resource sync protocol?
+
+3. **Collaborative editing**:
+   - [ ] Multiple viewers editing same resource
+   - [ ] CRDT conflict resolution
+   - [ ] Real-time sync or periodic?
+
+### Implementation Checklist
+
+#### Phase 1: Connection & Validation (✅ Complete)
+- [x] WebsiteMessage and WebsiteRequest types
+- [x] Connection string parser (reuses sovereign node parser)
+- [x] Viewer-side: parse connection string and add node to DB
+- [x] Viewer-side: establish P2P connection
+- [x] Viewer-side: validate folder access before sending request
+- [x] Viewer-side: send WebsiteRequest message
+- [x] Node-side: receive and route WebsiteRequest
+- [x] Node-side: validate folder access and first_sync status
+- [x] website_service: check_user_and_folder_status()
+- [x] Centralized message routing (website_handler::process_message)
+- [x] Error handling for validation failures
+
+#### Phase 2: Folder & Resource Sync (⏳ TODO)
+- [ ] Define WebsiteResponse message structure
+- [ ] Implement send_folder_to_viewer()
+- [ ] Implement send_resources_to_viewer()
+- [ ] Handle first connection vs reconnection
+- [ ] Detect if viewer already has folder
+- [ ] Emit events to frontend for UI updates
+- [ ] Handle errors gracefully (folder not found, etc.)
+- [ ] Test with real connection strings
+
+#### Phase 3: Bidirectional Sync (⏳ TODO)
+- [ ] Define viewer write permissions
+- [ ] Implement viewer → node update protocol
+- [ ] Implement node → viewer update push
+- [ ] Handle collaborative editing conflicts
+- [ ] Persistent viewer connection tokens
+- [ ] Token refresh mechanism
+- [ ] Viewer session management
+
+### Security Considerations
+
+**Viewer Tokens**:
+- ✅ Tokens have limited capabilities (`request_resources`)
+- ✅ Tokens scoped to specific folder (folder_id in UCAN)
+- ⏳ Token expiry enforcement (30 days - needs testing)
+- ⏳ Token refresh mechanism (TODO)
+
+**Validation**:
+- ✅ Folder access validated on both sides
+- ✅ first_sync status checked before allowing access
+- ⏳ UCAN signature verification (basic structure check only)
+- ⏳ Rate limiting for viewer requests (TODO)
+
+**Isolation**:
+- ✅ Viewers cannot access other folders
+- ✅ Viewers stored in separate database (ephemeral)
+- ⏳ Viewers cannot see other viewers (TODO: verify)
+- ⏳ Resource filtering based on viewer permissions (TODO)
+
+### Key Differences from Sovereign Node Protocol
+
+**Sovereign Node Connection**:
+- Reciprocal role-based UCANs (owner ↔ node)
+- Persistent connection (first_sync protocol)
+- Full read/write access
+- Stored in user database
+
+**Website Viewer Connection**:
+- One-way UCAN (viewer has token for node)
+- Ephemeral/session-based connection
+- Read-only access (TODO: verify)
+- NOT stored in node's user database (or is it?)
+
+### Open Questions
+
+1. **Viewer Storage**: Should viewers be stored in node's database?
+   - Current: YES (added via `add_known_user()`)
+   - Alternative: Ephemeral (not stored, session-only)
+   - Decision: TBD
+
+2. **Folder Detection**: How to detect if viewer already has folder?
+   - Check folder in viewer's DB?
+   - Use CRDT state vectors?
+   - Always send full folder?
+
+3. **Write Permissions**: Can viewers modify resources?
+   - Current token: Only `request_resources` capability
+   - Future: Add write capabilities for collaborative editing?
+
+4. **Connection Lifecycle**: When to disconnect viewers?
+   - On browser close?
+   - After inactivity timeout?
+   - Never (persistent connection)?
+
+5. **Token Storage**: Where should viewer connection token be stored on viewer side?
+   - In user.ucan_token field (current)?
+   - Separate viewer_tokens table?
+   - Not stored at all (ephemeral)?
 - [x] Frontend event emission and listening
 - [x] UI integration in PublishWebsiteModal
 

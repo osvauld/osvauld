@@ -1,7 +1,7 @@
 use crate::p2p::{
     emitter::{P2PEvent, P2PEventEmitter},
-    errors::{MessageError, P2PError, P2PResult, SyncError},
-    folder_sync, resource_sync,
+    errors::{MessageError, P2PError, P2PResult},
+    folder_sync, resource_sync, website_handler,
 };
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
@@ -122,7 +122,10 @@ impl PeerConnection {
 
         let mut type_guard = self.connection_type.write().await;
         *type_guard = Some(conn_type);
-        info!("Set connection type based on role: {} -> {:?}", role, type_guard);
+        info!(
+            "Set connection type based on role: {} -> {:?}",
+            role, type_guard
+        );
     }
 
     /// Set connection type directly
@@ -145,7 +148,6 @@ impl PeerConnection {
         *user_guard = new_user;
         *device_guard = new_device;
     }
-
 
     pub async fn get_connection_type(&self) -> ConnectionType {
         let conn_type = self.connection_type.read().await.clone();
@@ -297,131 +299,27 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::MergeUpdate(payload) => {
-                match payload {
-                    osvauld_core::models::ResourceUpdateMsg::StateVectorRequest {
-                        resource_id,
-                        state_vectors,
-                        asset_ids,
-                        ucan_token,
-                    } => {
-                        resource_sync::handle_state_vector_request(
-                            resource_id.clone(),
-                            state_vectors.clone(),
-                            asset_ids.clone(),
-                            ucan_token.clone(),
-                            Arc::new(self.clone()),
-                            self.repo_ctx.clone(),
-                            self.crypto_utils.clone(),
-                        )
-                        .await
-                    }
-                    osvauld_core::models::ResourceUpdateMsg::UpdatesResponse {
-                        resource_id,
-                        updates,
-                        state_vectors,
-                        missing_asset_ids,
-                        ucan_token,
-                    } => {
-                        resource_sync::handle_updates_response(
-                            resource_id.clone(),
-                            updates.clone(),
-                            state_vectors.clone(),
-                            missing_asset_ids.clone(),
-                            ucan_token.clone(),
-                            Arc::new(self.clone()),
-                            self.repo_ctx.clone(),
-                            self.crypto_utils.clone(),
-                        )
-                        .await
-                    }
-                }
-            }
-            Message::ResourceAdditionRequest(_payload) => {
-                // TODO: Forward to P2PService::handle_resource_addition_request
-                info!("Received ResourceAdditionRequest message (handler not yet wired)");
-                Ok(())
-            }
-            Message::ResourceAdditionComplete => {
-                // TODO: Forward to P2PService::handle_resource_addition_complete
-                info!("Received ResourceAdditionComplete message (handler not yet wired)");
-                Ok(())
-            }
-            Message::AssetTransfer(_payload) => {
-                // TODO: Forward to P2PService::handle_asset_transfer
-                info!("Received AssetTransfer message (handler not yet wired)");
-                Ok(())
-            }
-            Message::RetryRequest => {
-                info!("Received retry request from peer");
-                // TODO: Determine what to retry
-                Ok(())
+            Message::Resource(resource_msg) => {
+                resource_sync::process_message(
+                    Arc::new(self.clone()),
+                    resource_msg.clone(),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
             }
             Message::Handshake(payload) => self.handle_handshake_message(payload).await,
-            Message::FolderDataSync(payload) => {
-                folder_sync::handle_folder_data_sync(
-                    payload.clone(),
+            Message::Folder(folder_msg) => {
+                folder_sync::process_message(
                     Arc::new(self.clone()),
+                    folder_msg.clone(),
                     self.repo_ctx.clone(),
                     self.crypto_utils.clone(),
                 )
                 .await
             }
-            Message::ResourceDataSync(payload) => {
-                resource_sync::handle_resource_data_sync(
-                    payload.clone(),
-                    Arc::new(self.clone()),
-                    self.repo_ctx.clone(),
-                    self.crypto_utils.clone(),
-                )
-                .await
-            }
-            Message::ResourceSyncRequest(payload) => {
-                resource_sync::handle_resource_sync_request(
-                    payload.clone(),
-                    Arc::new(self.clone()),
-                    self.repo_ctx.clone(),
-                    self.crypto_utils.clone(),
-                )
-                .await
-            }
-            Message::ResourceNotFoundRequest(payload) => {
-                resource_sync::handle_resource_not_found_request(
-                    payload.clone(),
-                    Arc::new(self.clone()),
-                    self.repo_ctx.clone(),
-                    self.crypto_utils.clone(),
-                )
-                .await
-            }
-            Message::ResourceTransfer(payload) => {
-                resource_sync::handle_resource_transfer(
-                    payload.clone(),
-                    Arc::new(self.clone()),
-                    self.repo_ctx.clone(),
-                    self.crypto_utils.clone(),
-                )
-                .await
-            }
-            Message::ResourceTransferAck => {
-                resource_sync::handle_resource_transfer_ack(
-                    Arc::new(self.clone()),
-                )
-                .await
-            }
-            Message::FolderTokenRequest(payload) => {
-                folder_sync::handle_folder_token_request(
-                    payload.clone(),
-                    Arc::new(self.clone()),
-                )
-                .await
-            }
-            Message::FolderTokenResponse(payload) => {
-                folder_sync::handle_folder_token_response(
-                    payload.clone(),
-                    Arc::new(self.clone()),
-                )
-                .await
+            Message::Website(website_msg) => {
+                website_handler::process_message(Arc::new(self.clone()), website_msg.clone()).await
             }
         }
     }

@@ -121,14 +121,6 @@ impl PeerConnection {
             HandshakeMessage::HandshakeExchange(payload) => {
                 self.process_exchange_message(payload).await
             }
-            // Website/viewer handlers removed - not yet implemented
-            HandshakeMessage::HandshakeWebsiteRequest(_) |
-            HandshakeMessage::HandshakeWebsiteResponse(_) |
-            HandshakeMessage::HandshakeWebsiteReconnectRequest(_) |
-            HandshakeMessage::HandshakeWebsiteReconnectResponse(_) => {
-                error!("Website/viewer handshake not yet implemented");
-                Err(P2PError::Custom("Website/viewer handshake not yet implemented".to_string()).into())
-            }
         }
     }
 
