@@ -5,7 +5,10 @@
   import { parseHUML } from '../lib/services/humlParser';
   import BlockRenderer from '../renderer/BlockRenderer.svelte';
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
+  import NavigationPanel from '../components/NavigationPanel.svelte';
+  import NavigationToggle from '../components/NavigationToggle.svelte';
   import { uploadAsset, setAllowedFileTypes } from '../lib/services/assetService';
+  import { uiState } from '../state';
 
   // Publisher UI State - Local snapshots of CRDT state for reactive UI
   let publisherUIState = $state<Record<string, any>>({});
@@ -397,33 +400,44 @@
 </script>
 
 <div class="publisher-app">
-  <div class="publisher-toolbar">
-    <span class="toolbar-title">Publisher Mode</span>
-    <ModeSwitcher />
-  </div>
+  <!-- Navigation Panel -->
+  <NavigationPanel />
 
-  {#if currentScreen}
-    <div class="screen-container">
-      <div class="screen" style={currentScreen.css}>
-        {#each currentScreen.blocks as block (block.id || Math.random())}
-          <BlockRenderer
-            {block}
-            context={expressionContext}
-            onAction={handleAction}
-            onStateChange={(key, value) => {
-              publisherUIState = { ...publisherUIState, [key]: value };
-            }}
-          />
-        {/each}
+  <!-- Main Content Area -->
+  <div class="publisher-content">
+    <div class="publisher-toolbar">
+      <div class="flex items-center gap-2">
+        {#if !uiState.showNavigationPanel}
+          <NavigationToggle />
+        {/if}
+        <span class="toolbar-title">Publisher Mode</span>
       </div>
+      <ModeSwitcher />
     </div>
-  {:else}
-    <div class="no-screens">
-      <h2>Publisher Mode</h2>
-      <p>No screens defined for publisher mode.</p>
-      <p>Please define publisher screens in your template.</p>
-    </div>
-  {/if}
+
+    {#if currentScreen}
+      <div class="screen-container">
+        <div class="screen" style={currentScreen.css}>
+          {#each currentScreen.blocks as block (block.id || Math.random())}
+            <BlockRenderer
+              {block}
+              context={expressionContext}
+              onAction={handleAction}
+              onStateChange={(key, value) => {
+                publisherUIState = { ...publisherUIState, [key]: value };
+              }}
+            />
+          {/each}
+        </div>
+      </div>
+    {:else}
+      <div class="no-screens">
+        <h2>Publisher Mode</h2>
+        <p>No screens defined for publisher mode.</p>
+        <p>Please define publisher screens in your template.</p>
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -431,8 +445,16 @@
     width: 100%;
     height: 100%;
     display: flex;
+    flex-direction: row;
+    overflow: hidden;
+  }
+
+  .publisher-content {
+    flex: 1;
+    display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-width: 0;
   }
 
   .publisher-toolbar {

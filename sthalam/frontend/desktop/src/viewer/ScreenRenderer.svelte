@@ -1,22 +1,72 @@
 <script lang="ts">
-  import { loroCoordinator } from '../shared/loro/loroCoordinator';
+  import BlockRenderer from '../renderer/BlockRenderer.svelte';
+  import type { Context, ActionHandler } from '../lib/types/huml';
 
-  // Get template tree
-  const tree = loroCoordinator.getTemplateTree();
+  interface Props {
+    currentScreen: any;
+    context: Context;
+    onAction?: ActionHandler;
+  }
 
-  // For now, just log what we have
-  const roots = tree.roots();
-  console.log('📱 [ScreenRenderer] Root screens:', roots);
+  let { currentScreen, context, onAction }: Props = $props();
+
+  // Handle actions from blocks
+  function handleAction(action: string, params?: any): void {
+    if (onAction) {
+      onAction(action, params);
+    }
+  }
+
+  // No state changes in viewer mode (read-only)
+  function handleStateChange(key: string, value: any): void {
+    console.warn('⚠️ [ScreenRenderer] State changes not allowed in viewer mode');
+  }
 </script>
 
 <div class="screen-renderer">
-  <!-- Will render screens here once we have block rendering -->
-  <p>Screens will render here</p>
+  {#if currentScreen}
+    <div class="screen" style={currentScreen.css}>
+      {#if currentScreen.blocks && currentScreen.blocks.length > 0}
+        {#each currentScreen.blocks as block (block.id || Math.random())}
+          <BlockRenderer
+            {block}
+            {context}
+            onAction={handleAction}
+            onStateChange={handleStateChange}
+          />
+        {/each}
+      {:else}
+        <div class="empty-screen">
+          <p>No content to display</p>
+        </div>
+      {/if}
+    </div>
+  {:else}
+    <div class="no-screen">
+      <p>No screen selected</p>
+    </div>
+  {/if}
 </div>
 
 <style>
   .screen-renderer {
     width: 100%;
     height: 100%;
+    overflow: auto;
+  }
+
+  .screen {
+    width: 100%;
+    min-height: 100%;
+  }
+
+  .empty-screen,
+  .no-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    color: #666;
+    font-size: 14px;
   }
 </style>

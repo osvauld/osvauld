@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { dataState, uiState } from "../state";
 	import WebsiteFolder from "./WebsiteFolder.svelte";
+	import ViewerWebsiteFolder from "./ViewerWebsiteFolder.svelte";
 	import AddSovereignNodeModal from "./AddSovereignNodeModal.svelte";
+	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
 	import PublishButton from "./PublishButton.svelte";
 	import SyncResourceButton from "./SyncResourceButton.svelte";
 	import ModeSwitcher from "./ModeSwitcher.svelte";
@@ -11,6 +13,10 @@
 
 	let showCreateWebsite = $state(false);
 	let websiteName = $state("");
+	let showAddWebsiteModal = $state(false);
+
+	// Get current mode
+	const currentMode = $derived(uiState.mode);
 
 	// Get regular websites (excluding "all")
 	const websites = $derived(
@@ -72,31 +78,60 @@
 				</span>
 			</button>
 
-			<!-- Sovereign Node Button -->
-			<button
-				class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
-				onclick={() => uiState.showSovereignNodeModalFn()}
-				title="Add sovereign node"
-			>
-				<span class="shrink-0 text-base">🌐</span>
-				<span class="flex-1 text-left text-sm font-normal">
-					{dataState.sovereignNodeId ? "Sovereign Node ✓" : "Add Sovereign Node"}
-				</span>
-			</button>
+			<!-- Mode-specific Add Button -->
+			{#if currentMode === "viewer"}
+				<!-- Add Website Button (Viewer Mode) -->
+				<button
+					class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+					onclick={() => (showAddWebsiteModal = true)}
+					title="Add website connection"
+				>
+					<span class="shrink-0 text-base">🌐</span>
+					<span class="flex-1 text-left text-sm font-normal">
+						Add Website
+					</span>
+				</button>
+			{:else}
+				<!-- Add Sovereign Node Button (Builder/Publisher Mode) -->
+				<button
+					class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-osvauld-fieldText hover:text-osvauld-sideListTextActive hover:bg-osvauld-fieldActive transition-colors duration-150"
+					onclick={() => uiState.showSovereignNodeModalFn()}
+					title="Add sovereign node"
+				>
+					<span class="shrink-0 text-base">🌐</span>
+					<span class="flex-1 text-left text-sm font-normal">
+						{dataState.sovereignNodeId ? "Sovereign Node ✓" : "Add Sovereign Node"}
+					</span>
+				</button>
+			{/if}
 		</div>
 
 		<!-- Websites Tree -->
 		<div class="flex-1 overflow-y-auto py-1 scrollbar-thin min-h-0">
 			<div class="flex flex-col gap-1 px-1">
-				{#each websites as website (website.id)}
-					<WebsiteFolder
-						{website}
-						isExpanded={uiState.isFolderExpanded(website.id)}
-						onToggle={() => uiState.toggleFolderExpansion(website.id)}
-						onSelect={() => dataState.switchWebsite(website)}
-						isSelected={dataState.currentWebsite.id === website.id}
-					/>
-				{/each}
+				{#if currentMode === "viewer"}
+					<!-- Viewer Mode: Use ViewerWebsiteFolder -->
+					{#each websites as website (website.id)}
+						<ViewerWebsiteFolder
+							{website}
+							isExpanded={uiState.isFolderExpanded(website.id)}
+							onToggle={() => uiState.toggleFolderExpansion(website.id)}
+							onSelect={() => dataState.switchWebsite(website)}
+							isSelected={dataState.currentWebsite.id === website.id}
+						/>
+					{/each}
+				{:else}
+					<!-- Builder/Publisher Mode: Use WebsiteFolder -->
+					{#each websites as website (website.id)}
+						<WebsiteFolder
+							{website}
+							isExpanded={uiState.isFolderExpanded(website.id)}
+							onToggle={() => uiState.toggleFolderExpansion(website.id)}
+							onSelect={() => dataState.switchWebsite(website)}
+							isSelected={dataState.currentWebsite.id === website.id}
+						/>
+					{/each}
+				{/if}
 			</div>
 		</div>
 
@@ -153,5 +188,10 @@
 	<!-- Sovereign Node Modal -->
 	{#if uiState.showSovereignNodeModal}
 		<AddSovereignNodeModal />
+	{/if}
+
+	<!-- Add Website Modal (Viewer Mode) -->
+	{#if showAddWebsiteModal}
+		<AddWebsiteConnectionModal onClose={() => (showAddWebsiteModal = false)} />
 	{/if}
 {/if}
