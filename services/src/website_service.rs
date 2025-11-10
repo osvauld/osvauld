@@ -29,8 +29,8 @@ pub async fn check_user_and_folder_status(
 ) -> ServiceResult<(bool, bool)> {
     info!("Checking user and folder status for viewer connection");
 
-    // 1. Extract folder_id from UCAN token
-    let folder_id = ucan_service::extract_folder_id_with_add_resources(
+    // 1. Extract folder_id from UCAN token (viewer tokens use request_resources)
+    let folder_id = ucan_service::extract_folder_id_from_viewer_token(
         viewer_ucan_token,
         domain,
     )

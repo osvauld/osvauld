@@ -11,6 +11,7 @@ pub mod key_management;
 pub mod signature_operations;
 pub mod signature_utils;
 pub mod types;
+pub mod ucan_extractors;
 pub mod ucan_utils;
 
 // Re-export the main public API

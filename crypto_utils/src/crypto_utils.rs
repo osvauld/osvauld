@@ -614,16 +614,13 @@ impl CryptoUtils {
         )
         .await?;
 
-        // 2. Extract appropriate template based on recipient role
-        let template = match recipient_role {
-            "owner" | "node" => {
-                // Owner and node get owner_template (full access)
-                ucan_utils::extract_owner_template(proof_ucan_string)?
-            }
-            "viewer" => {
-                // Viewer gets viewer_template (restricted access)
-                ucan_utils::extract_viewer_template(proof_ucan_string)?
-            }
+        // 2. Parse proof UCAN once
+        let proof_ucan = ucan_utils::validate_structure(proof_ucan_string).await?;
+
+        // 3. Determine template key based on recipient role
+        let template_key = match recipient_role {
+            "owner" | "node" => "owner_template",
+            "viewer" => "viewer_template",
             _ => {
                 return Err(CryptoError::UcanError(UcanError::TemplateInvalid(format!(
                     "Invalid recipient role: {}. Must be 'owner', 'node', or 'viewer'",
@@ -632,15 +629,19 @@ impl CryptoUtils {
             }
         };
 
-        // 3. Build permissions from template capabilities
+        // 4. Extract template object and capabilities using atomic functions
+        let template_obj = crate::ucan_extractors::get_template_object(&proof_ucan, template_key)?;
+        let capabilities = crate::ucan_extractors::extract_capabilities_from_template(&template_obj)?;
+
+        // 5. Build permissions from template capabilities
         let mut permissions_to_grant = Vec::new();
-        for (doc_name, ability) in &template.capabilities {
+        for (doc_name, ability) in &capabilities {
             let doc_resource_uri = format!("{}:resource:{}:{}", domain, resource_id, doc_name);
             permissions_to_grant.push((doc_resource_uri, ability.clone()));
         }
 
-        // 4. Extract facts from parent UCAN for delegation
-        let facts = ucan_to_prove.facts();
+        // 6. Extract facts from parent UCAN for delegation
+        let facts = proof_ucan.facts();
 
         // DEBUG: Log facts extraction
         if let Some(f) = facts.as_ref() {
@@ -649,13 +650,6 @@ impl CryptoUtils {
         } else {
             log::warn!("❌ Parent UCAN has NO facts field!");
         }
-
-        // Determine template key based on role
-        let template_key = match recipient_role {
-            "owner" | "node" => "owner_template",
-            "viewer" => "viewer_template",
-            _ => "owner_template",
-        };
 
         log::info!("Looking for template key: {}", template_key);
 
@@ -690,7 +684,7 @@ impl CryptoUtils {
             if docs_list.is_some() { "✅" } else { "❌" }
         );
 
-        // 5. Decrypt delegator keys and generate delegated UCAN
+        // 7. Decrypt delegator keys and generate delegated UCAN
         let (delegator_signing_key, delegator_verifying_key) =
             self.decrypt_ucan_key(encrypted_delegator_private_key)?;
 

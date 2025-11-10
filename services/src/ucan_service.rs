@@ -427,23 +427,12 @@ pub async fn extract_folder_id_with_add_resources(
     domain: &str,
 ) -> ServiceResult<String> {
     let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-
-    let folder_pattern = format!("{}:folder:", domain);
-
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-        if cap_resource.starts_with(&folder_pattern) && capability.ability == "add_resources" {
-            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
-                if !folder_id.is_empty() && folder_id != "*" {
-                    return Ok(folder_id.to_string());
-                }
-            }
-        }
-    }
-
-    Err(crate::errors::ServiceError::Ucan(
-        crypto_utils::errors::UcanError::CapabilityNotFound
-    ))
+    crypto_utils::ucan_extractors::extract_id_with_capability(
+        &ucan,
+        domain,
+        "folder",
+        "add_resources"
+    ).map_err(|e| e.into())
 }
 
 /// Extract folder_id from viewer UCAN token (uses request_resources capability)
@@ -463,23 +452,12 @@ pub async fn extract_folder_id_from_viewer_token(
     domain: &str,
 ) -> ServiceResult<String> {
     let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-
-    let folder_pattern = format!("{}:folder:", domain);
-
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-        if cap_resource.starts_with(&folder_pattern) && capability.ability == "request_resources" {
-            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
-                if !folder_id.is_empty() && folder_id != "*" {
-                    return Ok(folder_id.to_string());
-                }
-            }
-        }
-    }
-
-    Err(crate::errors::ServiceError::Ucan(
-        crypto_utils::errors::UcanError::CapabilityNotFound
-    ))
+    crypto_utils::ucan_extractors::extract_id_with_capability(
+        &ucan,
+        domain,
+        "folder",
+        "request_resources"
+    ).map_err(|e| e.into())
 }
 
 /// Extract resource_id from UCAN token (business logic)
