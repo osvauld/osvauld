@@ -9,6 +9,7 @@ use crate::errors::ServiceResult;
 use crypto_utils;
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use persistance::database::RepositoryContext;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -706,6 +707,177 @@ pub async fn issue_resource_owner_token(
             domain,
             ucan_template_json,
             None, // Default 30-year expiry
+        )
+        .await?;
+
+    Ok((token, cid))
+}
+
+// ==================== VIEWER TOKEN FUNCTIONS ====================
+
+/// Create viewer connect token - fresh root token from node owner
+///
+/// This token allows the viewer to maintain a connection with the node.
+/// Contains basic connect capability and folder_id in facts for context.
+///
+/// # Arguments
+/// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience DID)
+/// * `folder_id` - Folder ID to store in facts for context
+/// * `domain` - Application domain (e.g., "sthalam")
+/// * `crypto_utils` - Crypto utilities instance
+/// * `repo_ctx` - Repository context for accessing encrypted keys
+///
+/// # Returns
+/// * `Ok((token, cid))` - Connect token and its CID for database storage
+/// * `Err` - If key retrieval or token generation fails
+pub async fn create_viewer_connect_token(
+    viewer_pub_key: &str,
+    folder_id: &str,
+    domain: &str,
+    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
+    repo_ctx: &Arc<RepositoryContext>,
+) -> ServiceResult<(String, String)> {
+    // 1. Build capabilities (business logic)
+    let connect_resource = format!("{}:connect", domain);
+    let capabilities = vec![(connect_resource, "use".to_string())];
+
+    // 2. Build facts (business logic)
+    let mut facts = serde_json::Map::new();
+    facts.insert("role".to_string(), json!("viewer"));
+    facts.insert("folder_id".to_string(), json!(folder_id));
+
+    // 3. Get encrypted key
+    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    // 4. Call generic crypto function (ONLY crypto operation)
+    let crypto = crypto_utils.read().await;
+    let (token, cid) = crypto
+        .generate_ucan_with_cid(
+            &encrypted_key,
+            viewer_pub_key,
+            capabilities,
+            Some(facts),
+            Some(30 * 24 * 60 * 60), // 30 days
+        )
+        .await?;
+
+    Ok((token, cid))
+}
+
+/// Create viewer folder token - grants request_resources capability
+///
+/// This token allows the viewer to request folder contents.
+/// Uses folder and resource wildcard pattern for comprehensive access.
+///
+/// # Arguments
+/// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience DID)
+/// * `folder_id` - Folder ID
+/// * `domain` - Application domain (e.g., "sthalam")
+/// * `crypto_utils` - Crypto utilities instance
+/// * `repo_ctx` - Repository context for accessing encrypted keys
+///
+/// # Returns
+/// * `Ok((token, cid))` - Folder token and its CID for database storage
+/// * `Err` - If key retrieval or token generation fails
+pub async fn create_viewer_folder_token(
+    viewer_pub_key: &str,
+    folder_id: &str,
+    domain: &str,
+    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
+    repo_ctx: &Arc<RepositoryContext>,
+) -> ServiceResult<(String, String)> {
+    // 1. Build capabilities (business logic - folder-specific pattern)
+    let folder_uri = format!("{}:folder:{}", domain, folder_id);
+    let resource_wildcard = format!("{}:resource:{}/*", domain, folder_id);
+
+    let capabilities = vec![
+        (folder_uri, "request_resources".to_string()),
+        (resource_wildcard, "request_resources".to_string()),
+    ];
+
+    // 2. Build facts (business logic)
+    let mut facts = serde_json::Map::new();
+    facts.insert("role".to_string(), json!("viewer"));
+
+    // 3. Get encrypted key
+    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    // 4. Call generic crypto function
+    let crypto = crypto_utils.read().await;
+    let (token, cid) = crypto
+        .generate_ucan_with_cid(
+            &encrypted_key,
+            viewer_pub_key,
+            capabilities,
+            Some(facts),
+            None, // Default 30 years
+        )
+        .await?;
+
+    Ok((token, cid))
+}
+
+/// Create viewer resource token - extracts viewer_template and generates token
+///
+/// Gets the resource from database, parses owner UCAN, extracts viewer_template,
+/// builds document-specific capabilities, and generates viewer token.
+///
+/// # Arguments
+/// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience DID)
+/// * `resource_id` - Resource ID
+/// * `domain` - Application domain (e.g., "sthalam")
+/// * `crypto_utils` - Crypto utilities instance
+/// * `repo_ctx` - Repository context for accessing encrypted keys and resources
+///
+/// # Returns
+/// * `Ok((token, cid))` - Resource token and its CID for database storage
+/// * `Err` - If resource not found, template extraction fails, or token generation fails
+pub async fn create_viewer_resource_token(
+    viewer_pub_key: &str,
+    resource_id: &str,
+    domain: &str,
+    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
+    repo_ctx: &Arc<RepositoryContext>,
+) -> ServiceResult<(String, String)> {
+    // 1. Get resource from database (business logic)
+    let resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
+
+    // 2. Parse owner's UCAN token (uses existing atomic functions)
+    let owner_ucan = crypto_utils::ucan_utils::validate_structure(&resource.ucan_token).await?;
+
+    // 3. Extract viewer_template using atomic functions (business logic)
+    let template_obj =
+        crypto_utils::ucan_extractors::get_template_object(&owner_ucan, "viewer_template")?;
+
+    let capabilities_map =
+        crypto_utils::ucan_extractors::extract_capabilities_from_template(&template_obj)?;
+
+    // 4. Build capability list with full resource URIs (business logic)
+    let mut capabilities = Vec::new();
+    let doc_names: Vec<String> = capabilities_map.keys().cloned().collect();
+
+    for (doc_name, ability) in capabilities_map {
+        let resource_uri = format!("{}:resource:{}:{}", domain, resource_id, doc_name);
+        capabilities.push((resource_uri, ability));
+    }
+
+    // 5. Build facts (business logic)
+    let mut facts = serde_json::Map::new();
+    facts.insert("role".to_string(), json!("viewer"));
+    facts.insert("docs".to_string(), json!(doc_names));
+
+    // 6. Get encrypted key
+    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+    // 7. Call generic crypto function (ONLY crypto operation)
+    let crypto = crypto_utils.read().await;
+    let (token, cid) = crypto
+        .generate_ucan_with_cid(
+            &encrypted_key,
+            viewer_pub_key,
+            capabilities,
+            Some(facts),
+            None, // Default 30 years
         )
         .await?;
 

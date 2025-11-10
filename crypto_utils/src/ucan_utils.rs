@@ -445,67 +445,6 @@ fn pub_key_b64_to_did(key_b64: &str) -> Result<String, UcanError> {
     Ok(did)
 }
 
-/// Generates a "root" UCAN for a new resource, issued by the owner to themselves.
-///
-/// This token grants full permissions and serves as the root of authority for
-/// any future delegations.
-pub async fn generate_resource_owner_ucan(
-    owner_signing_key: &SigningKey,
-    owner_verifying_key: &VerifyingKey,
-    resource_id: &str,
-    capability_prefix: &str,
-) -> Result<(String, String), UcanError> {
-    // 1. Create KeyMaterial for the owner using the struct from ucan_utils.rs.
-    let key_material =
-        Ed25519KeyMaterial::new(owner_signing_key.clone(), owner_verifying_key.clone());
-
-    // 2. The issuer and audience are the same for the owner's root token.
-    // The get_did method is defined by the KeyMaterial trait.
-    let owner_did = key_material
-        .get_did()
-        .await
-        .map_err(|e| UcanError::DidError(e.to_string()))?;
-
-    // 3. A root token should have a very long lifetime.
-    let long_lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
-
-    // 4. Define the full set of capabilities for the owner.
-    let resource_uri = format!("{}:resource:{}", capability_prefix, resource_id);
-    let capabilities = vec![
-        Capability::from((resource_uri.as_str(), "crud/read", &json!({}))),
-        Capability::from((resource_uri.as_str(), "crud/update", &json!({}))),
-        Capability::from((resource_uri.as_str(), "crud/delete", &json!({}))),
-        Capability::from((resource_uri.as_str(), "ucan/share", &json!({}))),
-    ];
-
-    // 5. Build the UCAN using the builder definition provided.
-    let mut builder = UcanBuilder::default()
-        .issued_by(&key_material)
-        .for_audience(&owner_did)
-        .with_lifetime(long_lifetime);
-
-    // Add each capability to the builder.
-    for cap in capabilities {
-        builder = builder.claiming_capability(cap);
-    }
-
-    // Finalize the builder, sign it, and encode it as a string.
-    let ucan = builder
-        .build()
-        .map_err(|e| UcanError::CreationError(e.to_string()))?
-        .sign()
-        .await
-        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
-    let token_cid = ucan
-        .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
-        .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?;
-    // 6. Return the encoded token string.
-    let token_str = ucan
-        .encode()
-        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
-    Ok((token_str, token_cid.to_string()))
-}
-
 /// Generates a flexible "root" UCAN for a resource with custom templates from frontend
 ///
 /// Loro Migration - Phase 2: Accepts UCAN template JSON from frontend containing
@@ -943,6 +882,103 @@ pub async fn generate_viewer_connection_token(
         .map_err(|e| UcanError::EncodingError(e.to_string()))?;
 
     Ok(token_str)
+}
+
+/// Generic UCAN token generator with CID - pure cryptographic operation
+///
+/// This function ONLY performs cryptographic operations:
+/// - Creates KeyMaterial from signing and verifying keys
+/// - Builds UcanBuilder with provided parameters
+/// - Adds pre-formatted capabilities (as resource URIs)
+/// - Adds pre-built facts (as JSON map)
+/// - Signs, encodes, and computes CID
+///
+/// ALL business logic (template parsing, capability building, role decisions,
+/// database queries) should happen in the service layer before calling this function.
+///
+/// # Arguments
+/// * `signing_key` - Ed25519 signing key
+/// * `verifying_key` - Ed25519 verifying key
+/// * `audience` - Target audience DID or "*" for wildcard
+/// * `capabilities` - Pre-built list of (resource_uri, ability) tuples
+/// * `facts` - Optional pre-built facts map
+/// * `expiry_seconds` - Token lifetime in seconds (None = 30 years default)
+///
+/// # Returns
+/// * `Ok((token_string, cid_string))` - Encoded UCAN token and its CID for database storage
+/// * `Err(UcanError)` - Signing, encoding, or CID computation error
+///
+/// # Example
+/// ```rust
+/// let capabilities = vec![
+///     ("sthalam:resource:123:main_doc".to_string(), "crud/readonly".to_string()),
+///     ("sthalam:resource:123:sidebar".to_string(), "crud/readonly".to_string()),
+/// ];
+/// let mut facts = serde_json::Map::new();
+/// facts.insert("role".to_string(), json!("viewer"));
+///
+/// let (token, cid) = generate_ucan_with_cid(
+///     &signing_key,
+///     &verifying_key,
+///     "did:key:viewer123",
+///     capabilities,
+///     Some(facts),
+///     None,
+/// ).await?;
+/// ```
+pub async fn generate_ucan_with_cid(
+    signing_key: &SigningKey,
+    verifying_key: &VerifyingKey,
+    audience: &str,
+    capabilities: Vec<(String, String)>,
+    facts: Option<serde_json::Map<String, serde_json::Value>>,
+    expiry_seconds: Option<u64>,
+) -> Result<(String, String), UcanError> {
+    // 1. Create KeyMaterial
+    let key_material =
+        Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
+
+    // 2. Set lifetime (default to 30 years if None)
+    let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
+
+    // 3. Build UCAN with capabilities
+    let mut builder = UcanBuilder::default()
+        .issued_by(&key_material)
+        .for_audience(audience)
+        .with_lifetime(lifetime);
+
+    // 4. Add capabilities
+    for (resource, ability) in capabilities {
+        let cap = Capability::from((resource.as_str(), ability.as_str(), &json!({})));
+        builder = builder.claiming_capability(cap);
+    }
+
+    // 5. Add facts if provided
+    if let Some(facts_map) = facts {
+        for (key, value) in facts_map {
+            builder = builder.with_fact(&key, value);
+        }
+    }
+
+    // 6. Build and sign UCAN
+    let ucan = builder
+        .build()
+        .map_err(|e| UcanError::CreationError(e.to_string()))?
+        .sign()
+        .await
+        .map_err(|e| UcanError::SignatureError(e.to_string()))?;
+
+    // 7. Compute CID (required for database storage in share records)
+    let token_cid = ucan
+        .to_cid(UcanBuilder::<Ed25519KeyMaterial>::default_hasher())
+        .map_err(|e| UcanError::UcanCidConvertionFailed(e.to_string()))?;
+
+    // 8. Encode token string
+    let token_str = ucan
+        .encode()
+        .map_err(|e| UcanError::EncodingError(e.to_string()))?;
+
+    Ok((token_str, token_cid.to_string()))
 }
 
 pub async fn validate_ucan_permission<F, Fut>(

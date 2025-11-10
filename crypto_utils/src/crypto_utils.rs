@@ -344,24 +344,6 @@ impl CryptoUtils {
         Ok(signed_message)
     }
 
-    /// Generate resource owner UCAN
-    pub async fn generate_resource_owner_ucan(
-        &self,
-        encrypted_ucan_private_key: &str,
-        resource_id: &str,
-        capability_prefix: &str,
-    ) -> Result<(String, String), CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
-        let (token, cid) = ucan_utils::generate_resource_owner_ucan(
-            &signing_key,
-            &verifying_key,
-            resource_id,
-            capability_prefix,
-        )
-        .await?;
-        Ok((token, cid))
-    }
-
     /// Loro Migration - Phase 2: Generate flexible resource owner UCAN with custom templates
     ///
     /// Wrapper for generate_flexible_resource_owner_ucan that handles key decryption.
@@ -459,6 +441,47 @@ impl CryptoUtils {
         )
         .await?;
         Ok(token)
+    }
+
+    /// Generic UCAN token generator - decrypts key and calls core crypto function
+    ///
+    /// This is a thin wrapper that:
+    /// 1. Decrypts the UCAN private key
+    /// 2. Calls the generic ucan_utils::generate_ucan_with_cid()
+    ///
+    /// ALL business logic (template parsing, capability building, role decisions)
+    /// should be done in the service layer before calling this function.
+    ///
+    /// # Arguments
+    /// * `encrypted_ucan_private_key` - Encrypted UCAN private key
+    /// * `audience` - Target audience DID or "*" for wildcard
+    /// * `capabilities` - Pre-built list of (resource_uri, ability) tuples
+    /// * `facts` - Optional pre-built facts map
+    /// * `expiry_seconds` - Token lifetime in seconds (None = 30 years default)
+    ///
+    /// # Returns
+    /// * `Ok((token_string, cid_string))` - Encoded UCAN token and its CID
+    /// * `Err(CryptoError)` - Key decryption, signing, or encoding error
+    pub async fn generate_ucan_with_cid(
+        &self,
+        encrypted_ucan_private_key: &str,
+        audience: &str,
+        capabilities: Vec<(String, String)>,
+        facts: Option<serde_json::Map<String, serde_json::Value>>,
+        expiry_seconds: Option<u64>,
+    ) -> Result<(String, String), CryptoError> {
+        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+
+        ucan_utils::generate_ucan_with_cid(
+            &signing_key,
+            &verifying_key,
+            audience,
+            capabilities,
+            facts,
+            expiry_seconds,
+        )
+        .await
+        .map_err(|e| e.into())
     }
 
     /// Issue a delegated folder UCAN after validating permissions
@@ -631,7 +654,8 @@ impl CryptoUtils {
 
         // 4. Extract template object and capabilities using atomic functions
         let template_obj = crate::ucan_extractors::get_template_object(&proof_ucan, template_key)?;
-        let capabilities = crate::ucan_extractors::extract_capabilities_from_template(&template_obj)?;
+        let capabilities =
+            crate::ucan_extractors::extract_capabilities_from_template(&template_obj)?;
 
         // 5. Build permissions from template capabilities
         let mut permissions_to_grant = Vec::new();

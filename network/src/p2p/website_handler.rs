@@ -31,11 +31,23 @@ pub async fn initiate_website_request(
     info!("🌐 Initiating WebsiteRequest - validating connection");
 
     // 1. Get viewer's local user and device from P2PService
-    let viewer_user = p2p_service.current_user.read().await.clone()
-        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No viewer user found".to_string()))?;
+    let viewer_user = p2p_service
+        .current_user
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| {
+            crate::p2p::errors::P2PError::InvalidState("No viewer user found".to_string())
+        })?;
 
-    let viewer_device = p2p_service.current_device.read().await.clone()
-        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No viewer device found".to_string()))?;
+    let viewer_device = p2p_service
+        .current_device
+        .read()
+        .await
+        .clone()
+        .ok_or_else(|| {
+            crate::p2p::errors::P2PError::InvalidState("No viewer device found".to_string())
+        })?;
 
     info!(
         "Viewer: {} (device: {}, first_sync: {})",
@@ -43,8 +55,14 @@ pub async fn initiate_website_request(
     );
 
     // 2. Get node device to find user_id
-    let node_device = p2p_service.repo_ctx.device_repo.find_by_id(&device_id).await
-        .map_err(|e| crate::p2p::errors::P2PError::InvalidState(format!("Failed to get node device: {}", e)))?;
+    let node_device = p2p_service
+        .repo_ctx
+        .device_repo
+        .find_by_id(&device_id)
+        .await
+        .map_err(|e| {
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get node device: {}", e))
+        })?;
 
     let node_user_id = &node_device.user_id;
 
@@ -75,14 +93,14 @@ pub async fn initiate_website_request(
     if !first_sync_done {
         error!("⚠️ Node first_sync not done yet");
         return Err(crate::p2p::errors::P2PError::InvalidState(
-            "Node has not completed first sync".to_string()
+            "Node has not completed first sync".to_string(),
         ));
     }
 
     if !folder_exists {
         error!("⚠️ Folder does not exist on node");
         return Err(crate::p2p::errors::P2PError::InvalidState(
-            "Folder not found on node".to_string()
+            "Folder not found on node".to_string(),
         ));
     }
 
@@ -128,10 +146,9 @@ pub async fn process_message(
     match message {
         WebsiteMessage::WebsiteRequest(payload) => {
             process_website_request(peer_conn, payload).await
-        }
-        // Future: Add other variants here
-        // WebsiteMessage::WebsiteResponse(payload) => { ... }
-        // WebsiteMessage::WebsiteReconnectRequest(payload) => { ... }
+        } // Future: Add other variants here
+          // WebsiteMessage::WebsiteResponse(payload) => { ... }
+          // WebsiteMessage::WebsiteReconnectRequest(payload) => { ... }
     }
 }
 
@@ -162,12 +179,9 @@ async fn process_website_request(
 
     // 1. Get local node user and device from peer connection
     let node_user = peer_conn.get_local_user().await?;
-    let node_device = peer_conn
-        .get_local_device()
-        .await
-        .ok_or_else(|| {
-            crate::p2p::errors::P2PError::InvalidState("No local device found".to_string())
-        })?;
+    let node_device = peer_conn.get_local_device().await.ok_or_else(|| {
+        crate::p2p::errors::P2PError::InvalidState("No local device found".to_string())
+    })?;
 
     info!(
         "Node user: {}, device: {}",
@@ -177,27 +191,6 @@ async fn process_website_request(
     // 2. Get repo_ctx and domain from peer connection
     let repo_ctx = peer_conn.repo_ctx.clone();
     let domain = peer_conn.domain.as_str();
-
-    // 3. Call website_service to check status
-    let (first_sync_done, folder_exists) = services::check_user_and_folder_status(
-        &request.ucan_token,
-        &node_user.id,
-        domain,
-        repo_ctx,
-    )
-    .await
-    .map_err(|e| {
-        error!("Failed to check user and folder status: {}", e);
-        crate::p2p::errors::P2PError::InvalidState(format!(
-            "Status check failed: {}",
-            e
-        ))
-    })?;
-
-    info!(
-        "Status check complete: first_sync={}, folder_exists={}",
-        first_sync_done, folder_exists
-    );
 
     // 4. TODO: Process based on status flags
     // - If !first_sync_done: Return error or wait
