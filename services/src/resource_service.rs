@@ -483,50 +483,25 @@ pub async fn share_resource(
         resource.ucan_token.len()
     );
 
-    // 3. Get encrypted UCAN key from store
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await.map_err(|e| {
-        error!("Failed to get UCAN key: {}", e);
-        ResourceServiceError::DatabaseError(e.to_string())
-    })?;
-
-    // 4. Generate delegated UCAN for recipient
-    let crypto = crypto_utils.read().await;
-
+    // 3. Generate delegated UCAN for recipient using ucan_service
     info!(
-        "Calling issue_flexible_delegated_resource_ucan with role: {}",
+        "Calling issue_resource_ucan_for_node with role: {}",
         recipient_role
     );
 
-    // Clone repo_ctx for the closure
-    let repo_ctx_for_closure = repo_ctx.clone();
-
-    let (resource_ucan_token, resource_ucan_cid) = crypto
-        .issue_flexible_delegated_resource_ucan(
-            &encrypted_ucan_key,
-            &resource.ucan_token, // Proof UCAN (owner's)
-            &current_user.ucan_pub_key,
-            resource_id,
-            &recipient_user.ucan_pub_key,
-            recipient_role,
-            &|cid| {
-                let repo_ctx_clone = repo_ctx_for_closure.clone();
-                let cid_owned = cid.to_string();
-                async move {
-                    repo_ctx_clone
-                        .share_repo
-                        .get_ucan_by_cid(&cid_owned)
-                        .await
-                        .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-                }
-            },
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to generate delegated UCAN: {}", e);
-            ResourceServiceError::UcanError(e.to_string())
-        })?;
-
-    drop(crypto);
+    let (resource_ucan_token, resource_ucan_cid) = crate::ucan_service::issue_resource_ucan_for_node(
+        resource_id,
+        &resource.ucan_token, // Owner's resource UCAN (contains templates)
+        &recipient_user.ucan_pub_key,
+        domain,
+        crypto_utils.clone(),
+        &repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to generate delegated UCAN: {}", e);
+        ResourceServiceError::UcanError(e.to_string())
+    })?;
 
     info!(
         "Generated delegated UCAN token length: {}",

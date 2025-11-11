@@ -12,6 +12,7 @@ pub enum PeerRole {
     Owner,
     Node,
     Viewer,
+    ViewerNode,  // Node from viewer's perspective (server side, no escalated privileges)
     User,
 }
 
@@ -22,6 +23,7 @@ impl PeerRole {
             "owner" => PeerRole::Owner,
             "node" => PeerRole::Node,
             "viewer" => PeerRole::Viewer,
+            "viewer_node" => PeerRole::ViewerNode,
             _ => PeerRole::User, // Default
         }
     }
@@ -32,6 +34,7 @@ impl PeerRole {
             PeerRole::Owner => "owner",
             PeerRole::Node => "node",
             PeerRole::Viewer => "viewer",
+            PeerRole::ViewerNode => "viewer_node",
             PeerRole::User => "user",
         }
     }
@@ -111,6 +114,8 @@ pub enum HandshakeMessage {
     HandshakeFirstConnectRequest(FirstConnectRequest),
     HandshakeFirstConnectResponse(FirstConnectResponse),
     HandshakeExchange(UcanAndUserExchange),
+    ViewerHandshakeRequest(ViewerHandshakeRequest),
+    ViewerHandshakeResponse(ViewerHandshakeResponse),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -142,11 +147,26 @@ pub struct UcanAndUserExchange {
     // Note: connection_type removed - inferred from UCAN token role
 }
 
+/// Viewer handshake request from viewer to node
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ViewerHandshakeRequest {
+    pub viewer_user: User,
+    pub viewer_device: Device,
+    pub viewer_auth_token: String,  // Token from connection string (for authentication)
+}
+
+/// Viewer handshake response from node to viewer
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ViewerHandshakeResponse {
+    pub node_user: User,
+    pub node_device: Device,
+}
+
 /// Website viewer connection messages (separate from handshake protocol)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum WebsiteMessage {
     WebsiteRequest(WebsiteRequest),
-    // Future: WebsiteResponse, WebsiteReconnectRequest, etc.
+    UpdateUcan(UpdateUcanMessage),
 }
 
 /// Initial request from viewer to node with connection details
@@ -156,6 +176,16 @@ pub struct WebsiteRequest {
     pub viewer_user: User,
     pub viewer_device: Device,
     pub first_sync: bool,
+}
+
+/// Update UCAN token message from node to viewer
+///
+/// Sent by node when viewer connects with first_sync=false.
+/// Contains new viewer-specific connection token for future use.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UpdateUcanMessage {
+    pub new_ucan_token: String,
+    pub new_ucan_cid: String,
 }
 
 

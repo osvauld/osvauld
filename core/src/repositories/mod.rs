@@ -208,6 +208,12 @@ pub trait UserRepository: Send + Sync {
     async fn get_ucan_by_cid(&self, cid: &str) -> Result<String, RepositoryError>;
     async fn update_first_sync(&self, user_id: &str, first_sync: bool)
         -> Result<(), RepositoryError>;
+    async fn update_ucan(
+        &self,
+        user_id: &str,
+        new_ucan_token: String,
+        new_ucan_cid: String,
+    ) -> Result<(), RepositoryError>;
 }
 
 #[async_trait]

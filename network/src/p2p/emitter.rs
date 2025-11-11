@@ -28,6 +28,15 @@ pub enum P2PEvent {
         folder_id: String,
         connection_string: String,
     },
+    /// Emitted when a folder is synced
+    FolderSynced {
+        folder_id: String,
+        folder_name: String,
+    },
+    /// Emitted when a resource is synced (metadata as JSON)
+    ResourceSynced {
+        metadata_json: String,
+    },
 }
 
 /// Handles event emission for the P2P service

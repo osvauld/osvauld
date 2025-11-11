@@ -158,6 +158,20 @@ pub async fn sign_ucan_pub_key(
     })
 }
 
+/// Update user's UCAN token and CID
+pub async fn update_ucan(
+    user_id: &str,
+    new_ucan_token: String,
+    new_ucan_cid: String,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<()> {
+    repo_ctx
+        .user_repo
+        .update_ucan(user_id, new_ucan_token, new_ucan_cid)
+        .await?;
+    Ok(())
+}
+
 /// Parsed connection string data
 #[derive(Debug, Clone)]
 pub struct ConnectionStringData {

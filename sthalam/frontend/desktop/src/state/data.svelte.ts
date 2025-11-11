@@ -96,9 +96,36 @@ class DataState {
    */
   private async setupEventListeners() {
     try {
-      // Note: Event listeners for resource updates can be added here if needed
-      // Currently we're using direct API calls instead of events for initial load
-      console.log('✅ [DataState] Event listeners ready (direct API mode)');
+      // Listen for folder sync events
+      const folderSyncUnlisten = await listen('folder-synced', (event: any) => {
+        const { folderId, folderName } = event.payload;
+        console.log('📁 [DataState] Folder synced:', folderId, folderName);
+
+        // Refresh websites list to show new folder
+        this.fetchWebsites();
+      });
+      this._unlisteners.push(folderSyncUnlisten);
+
+      // Listen for resource sync events
+      const resourceSyncUnlisten = await listen('resource-synced', (event: any) => {
+        const metadata = event.payload;
+        console.log('📄 [DataState] Resource synced:', metadata.id, metadata.title);
+
+        // Add resource to local list if not already present
+        const exists = this.resources.some((r: any) => r.id === metadata.id);
+        if (!exists) {
+          this.resources = [...this.resources, {
+            id: metadata.id,
+            title: metadata.title,
+            websiteId: metadata.folderId,
+            resourceType: metadata.resourceType,
+            lastModified: metadata.lastModified,
+          }];
+        }
+      });
+      this._unlisteners.push(resourceSyncUnlisten);
+
+      console.log('✅ [DataState] Event listeners setup complete');
     } catch (error) {
       console.error('❌ [DataState] Failed to setup listeners:', error);
     }
@@ -140,8 +167,6 @@ class DataState {
         resourceType: r.resourceType || 'website',
         websiteId: r.folderId,
         lastModified: r.lastModified || Date.now(),
-        favourite: r.favourite || false,
-        preview: r.preview || ''
       }));
 
       console.log('✅ [DataState] Loaded', this.resources.length, 'resources');

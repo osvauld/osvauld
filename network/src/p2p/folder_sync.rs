@@ -159,6 +159,13 @@ pub async fn handle_folder_data_sync(
     })?;
 
     info!("✅ Accepted and saved folder {}", payload.folder.id);
+
+    // Emit FolderSynced event
+    peer_conn.event_emitter.emit(crate::p2p::emitter::P2PEvent::FolderSynced {
+        folder_id: payload.folder.id.clone(),
+        folder_name: payload.folder.name.clone(),
+    });
+
     Ok(())
 }
 

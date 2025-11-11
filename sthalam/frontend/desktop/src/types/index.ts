@@ -26,9 +26,6 @@ export interface Resource {
   resourceType: 'website';  // Only website resource type (HUML templates stored in contentDoc)
   websiteId: string;        // The website/folder this resource belongs to
   lastModified: number;
-  favourite?: boolean;
-  preview?: string;
-  content?: BlocksuiteContent; // Full BlockSuite content when loaded
 }
 
 export interface UserDetails {

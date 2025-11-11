@@ -498,4 +498,34 @@ impl UserRepository for SqliteUserRepository {
 
         Ok(())
     }
+
+    async fn update_ucan(
+        &self,
+        user_id: &str,
+        new_ucan_token: String,
+        new_ucan_cid: String,
+    ) -> Result<(), RepositoryError> {
+        let now = Local::now().timestamp_millis();
+        let mut conn = self.connection.get().map_err(|e| {
+            RepositoryError::DatabaseError(format!("Failed to get database connection: {}", e))
+        })?;
+
+        diesel::update(users::table)
+            .filter(users::id.eq(user_id))
+            .set((
+                users::ucan_token.eq(new_ucan_token),
+                users::ucan_cid.eq(new_ucan_cid),
+                users::updated_at.eq(now),
+            ))
+            .execute(&mut *conn)
+            .map_err(|e| match e {
+                diesel::result::Error::NotFound => RepositoryError::NotFound,
+                _ => RepositoryError::DatabaseError(format!(
+                    "Failed to update UCAN token for user '{}': {}",
+                    user_id, e
+                )),
+            })?;
+
+        Ok(())
+    }
 }

@@ -86,30 +86,14 @@ pub async fn initiate_website_request(
     );
 
     // 4. TODO: Handle different flows based on status
-    // - If !first_sync_done: Need to handle first connection flow
     // - If !folder_exists: Folder not found - error or different flow?
-    // - If both true: Proceed with sending request
-
-    if !first_sync_done {
-        error!("⚠️ Node first_sync not done yet");
-        return Err(crate::p2p::errors::P2PError::InvalidState(
-            "Node has not completed first sync".to_string(),
-        ));
-    }
-
-    if !folder_exists {
-        error!("⚠️ Folder does not exist on node");
-        return Err(crate::p2p::errors::P2PError::InvalidState(
-            "Folder not found on node".to_string(),
-        ));
-    }
 
     // 5. Create and send WebsiteRequest
     let request = WebsiteRequest {
         ucan_token,
         viewer_user: viewer_user.clone(),
         viewer_device: viewer_device.clone(),
-        first_sync: viewer_user.first_sync,
+        first_sync: first_sync_done,
     };
 
     info!(
@@ -146,9 +130,8 @@ pub async fn process_message(
     match message {
         WebsiteMessage::WebsiteRequest(payload) => {
             process_website_request(peer_conn, payload).await
-        } // Future: Add other variants here
-          // WebsiteMessage::WebsiteResponse(payload) => { ... }
-          // WebsiteMessage::WebsiteReconnectRequest(payload) => { ... }
+        }
+        WebsiteMessage::UpdateUcan(payload) => process_update_ucan(peer_conn, payload).await,
     }
 }
 
@@ -188,14 +171,197 @@ async fn process_website_request(
         node_user.username, node_device.id
     );
 
-    // 2. Get repo_ctx and domain from peer connection
+    // 2. Get repo_ctx, domain, and crypto_utils from peer connection
     let repo_ctx = peer_conn.repo_ctx.clone();
     let domain = peer_conn.domain.as_str();
+    let crypto_utils = peer_conn.crypto_utils.clone();
 
-    // 4. TODO: Process based on status flags
-    // - If !first_sync_done: Return error or wait
-    // - If !folder_exists: Different flow (to be discussed)
-    // - If both true: Proceed with sending folder and resources
+    // 3. Extract folder_id from viewer's UCAN token
+    let folder_id =
+        services::ucan_service::extract_folder_id_from_viewer_token(&request.ucan_token, domain)
+            .await
+            .map_err(|e| {
+                crate::p2p::errors::P2PError::InvalidState(format!(
+                    "Failed to extract folder_id: {}",
+                    e
+                ))
+            })?;
 
+    info!("Extracted folder_id: {}", folder_id);
+
+    // 4. Extract role from viewer's UCAN token
+    let viewer_role = services::ucan_service::get_role(&request.ucan_token)
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to extract role from viewer token: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to extract role: {}", e))
+        })?;
+
+    info!("Extracted viewer role from token: {}", viewer_role);
+
+    // 5. If first_sync = false, generate new viewer connection token
+    if !request.first_sync {
+        info!("First sync = false, generating new viewer connection token");
+
+        let (new_ucan_token, new_ucan_cid) = services::ucan_service::create_viewer_connect_token(
+            &request.viewer_user.ucan_pub_key,
+            &folder_id,
+            domain,
+            crypto_utils.clone(),
+            &repo_ctx,
+        )
+        .await
+        .map_err(|e| {
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to create viewer connect token: {}",
+                e
+            ))
+        })?;
+
+        info!("Generated new viewer connect token (CID: {})", new_ucan_cid);
+
+        // 6. Send UpdateUcan message to viewer
+        let update_msg = osvauld_core::models::UpdateUcanMessage {
+            new_ucan_token,
+            new_ucan_cid,
+        };
+
+        peer_conn
+            .send_message(osvauld_core::models::Message::Website(
+                osvauld_core::models::WebsiteMessage::UpdateUcan(update_msg),
+            ))
+            .await?;
+
+        info!("✓ Sent UpdateUcan message to viewer");
+    }
+
+    // 7. Get folder prepared for viewer
+    let (folder, folder_share_record) = services::get_folder_to_send(
+        &folder_id,
+        &node_user.id,
+        &viewer_role,
+        &request.viewer_user.ucan_pub_key,
+        domain,
+        repo_ctx.clone(),
+        &crypto_utils,
+    )
+    .await?;
+
+    info!("✓ Prepared folder for viewer");
+
+    // 8. Send FolderDataSync message to viewer
+    peer_conn
+        .send_message(osvauld_core::models::Message::Folder(
+            osvauld_core::models::FolderMessage::FolderDataSync(
+                osvauld_core::models::FolderDataSync {
+                    folder,
+                    folder_share_record,
+                },
+            ),
+        ))
+        .await?;
+
+    info!("✅ Sent FolderDataSync to viewer");
+
+    // 9. Get folder again to extract owner_folder_ucan (node's folder UCAN)
+    let node_folder = repo_ctx
+        .folder_repo
+        .find_by_id(&folder_id)
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to get folder: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
+        })?;
+
+    let owner_folder_ucan = node_folder.ucan.clone();
+    info!("Retrieved node's folder UCAN for resource validation");
+
+    // 10. Get all resource IDs for this folder
+    let resource_ids = repo_ctx
+        .resource_repo
+        .get_resource_ids_by_folder_id(&folder_id)
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to get resource IDs: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get resource IDs: {}", e))
+        })?;
+
+    info!("Found {} resources in folder", resource_ids.len());
+
+    // 11. Loop through resources and send each one
+    for resource_id in &resource_ids {
+        // Prepare resource for viewer
+        let (viewer_encrypted_resource, share_record) = services::prepare_resource_for_viewer(
+            &resource_id,
+            &node_user.id,
+            &request.viewer_user,
+            domain,
+            repo_ctx.clone(),
+            &crypto_utils,
+        )
+        .await?;
+
+        // Send ResourceDataSync message
+        let resource_data = osvauld_core::models::ResourceDataSync {
+            resource: viewer_encrypted_resource,
+            share_records: vec![share_record], // Single share record for viewer
+            owner_folder_ucan: owner_folder_ucan.clone(),
+        };
+
+        peer_conn
+            .send_message(osvauld_core::models::Message::Resource(
+                osvauld_core::models::ResourceMessage::ResourceDataSync(resource_data),
+            ))
+            .await?;
+
+        info!("✅ Sent resource {} to viewer", resource_id);
+    }
+
+    info!("✅ Sent all {} resources to viewer", resource_ids.len());
+
+    Ok(())
+}
+
+/// Process UpdateUcan message from node (received by viewer)
+///
+/// When viewer connects with first_sync=false, node generates a new
+/// viewer-specific connection token and sends it via this message.
+/// Viewer updates their stored UCAN token for future connections.
+///
+/// # Arguments
+/// * `peer_conn` - The peer connection with the node
+/// * `update_msg` - UpdateUcanMessage containing new token and CID
+///
+/// # Returns
+/// * `Ok(())` - UCAN token updated successfully
+/// * `Err` - If update fails
+async fn process_update_ucan(
+    peer_conn: Arc<PeerConnection>,
+    update_msg: osvauld_core::models::UpdateUcanMessage,
+) -> P2PResult<()> {
+    info!("📥 Processing UpdateUcan message from node");
+
+    // 1. Get viewer's local user from peer connection
+    let viewer_user = peer_conn.get_local_user().await?;
+    let repo_ctx = peer_conn.repo_ctx.clone();
+
+    info!(
+        "Updating UCAN token for viewer user: {} (CID: {})",
+        viewer_user.username, update_msg.new_ucan_cid
+    );
+
+    // 2. Update viewer's UCAN token via user_service
+    services::update_ucan(
+        &viewer_user.id,
+        update_msg.new_ucan_token,
+        update_msg.new_ucan_cid,
+        repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        crate::p2p::errors::P2PError::InvalidState(format!("Failed to update viewer UCAN: {}", e))
+    })?;
+
+    info!("✅ Viewer UCAN token updated successfully");
     Ok(())
 }

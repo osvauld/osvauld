@@ -4,9 +4,15 @@
 
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{Message, ResourceDataSync, ResourceMessage, ResourceNotFoundRequestMsg, ResourceSyncRequestMsg, ResourceTransferMsg, ResourceUpdateMsg, User};
+use osvauld_core::models::{
+    Message, ResourceDataSync, ResourceMessage, ResourceNotFoundRequestMsg, ResourceSyncRequestMsg,
+    ResourceTransferMsg, ResourceUpdateMsg, User,
+};
 use persistance::database::RepositoryContext;
-use services::{get_all_share_records_for_resource, get_resource_share_records_for_folder, prepare_resource_for_peer};
+use services::{
+    get_all_share_records_for_resource, get_resource_share_records_for_folder,
+    prepare_resource_for_peer,
+};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -32,46 +38,44 @@ pub async fn process_message(
     crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> P2PResult<()> {
     match message {
-        ResourceMessage::MergeUpdate(payload) => {
-            match payload {
-                ResourceUpdateMsg::StateVectorRequest {
+        ResourceMessage::MergeUpdate(payload) => match payload {
+            ResourceUpdateMsg::StateVectorRequest {
+                resource_id,
+                state_vectors,
+                asset_ids,
+                ucan_token,
+            } => {
+                handle_state_vector_request(
                     resource_id,
                     state_vectors,
                     asset_ids,
                     ucan_token,
-                } => {
-                    handle_state_vector_request(
-                        resource_id,
-                        state_vectors,
-                        asset_ids,
-                        ucan_token,
-                        peer_conn,
-                        repo_ctx,
-                        crypto_utils,
-                    )
-                    .await
-                }
-                ResourceUpdateMsg::UpdatesResponse {
+                    peer_conn,
+                    repo_ctx,
+                    crypto_utils,
+                )
+                .await
+            }
+            ResourceUpdateMsg::UpdatesResponse {
+                resource_id,
+                updates,
+                state_vectors,
+                missing_asset_ids,
+                ucan_token,
+            } => {
+                handle_updates_response(
                     resource_id,
                     updates,
                     state_vectors,
                     missing_asset_ids,
                     ucan_token,
-                } => {
-                    handle_updates_response(
-                        resource_id,
-                        updates,
-                        state_vectors,
-                        missing_asset_ids,
-                        ucan_token,
-                        peer_conn,
-                        repo_ctx,
-                        crypto_utils,
-                    )
-                    .await
-                }
+                    peer_conn,
+                    repo_ctx,
+                    crypto_utils,
+                )
+                .await
             }
-        }
+        },
         ResourceMessage::ResourceSyncRequest(payload) => {
             handle_resource_sync_request(payload, peer_conn, repo_ctx, crypto_utils).await
         }
@@ -81,9 +85,7 @@ pub async fn process_message(
         ResourceMessage::ResourceTransfer(payload) => {
             handle_resource_transfer(payload, peer_conn, repo_ctx, crypto_utils).await
         }
-        ResourceMessage::ResourceTransferAck => {
-            handle_resource_transfer_ack(peer_conn).await
-        }
+        ResourceMessage::ResourceTransferAck => handle_resource_transfer_ack(peer_conn).await,
         ResourceMessage::ResourceDataSync(payload) => {
             handle_resource_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
         }
@@ -111,7 +113,7 @@ pub async fn send_all_resources_for_folder(
     // 1. Get all resources in folder
     let resources = repo_ctx
         .resource_repo
-        .find_all_by_folder(folder_id, &current_user.id)
+        .get_resource_ids_by_folder_id(folder_id)
         .await
         .map_err(|e| {
             error!("Failed to get resources for folder {}: {}", folder_id, e);
@@ -140,7 +142,10 @@ pub async fn send_all_resources_for_folder(
                 ))
             })?;
 
-    info!("Found {} resources shared with recipient", recipient_share_records.len());
+    info!(
+        "Found {} resources shared with recipient",
+        recipient_share_records.len()
+    );
 
     // 3. Get recipient user for public key
     let recipient = repo_ctx
@@ -158,18 +163,19 @@ pub async fn send_all_resources_for_folder(
     // 4. Loop through recipient's share records and send each resource
     for recipient_share in recipient_share_records {
         // Get ALL share records for this resource (for forwarding viewer updates)
-        let all_share_records = get_all_share_records_for_resource(&recipient_share.resource_id, repo_ctx.clone())
-            .await
-            .map_err(|e| {
-                error!(
-                    "Failed to get all share records for resource {}: {}",
-                    recipient_share.resource_id, e
-                );
-                crate::p2p::errors::P2PError::InvalidState(format!(
-                    "Failed to get all share records: {}",
-                    e
-                ))
-            })?;
+        let all_share_records =
+            get_all_share_records_for_resource(&recipient_share.resource_id, repo_ctx.clone())
+                .await
+                .map_err(|e| {
+                    error!(
+                        "Failed to get all share records for resource {}: {}",
+                        recipient_share.resource_id, e
+                    );
+                    crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Failed to get all share records: {}",
+                        e
+                    ))
+                })?;
 
         // Prepare resource for peer (decrypt, filter, re-encrypt using recipient's UCAN)
         let peer_encrypted_resource = match prepare_resource_for_peer(
@@ -226,7 +232,9 @@ pub async fn send_resource_data(
     info!("Sending resource {} to node", resource_data.resource.id);
 
     peer_conn
-        .send_message(Message::Resource(ResourceMessage::ResourceDataSync(resource_data)))
+        .send_message(Message::Resource(ResourceMessage::ResourceDataSync(
+            resource_data,
+        )))
         .await
 }
 
@@ -258,6 +266,38 @@ pub async fn handle_resource_data_sync(
     })?;
 
     info!("✓ Accepted and saved resource {}", payload.resource.id);
+
+    // Extract metadata and emit ResourceSynced event
+    let metadata = &payload.resource.metadata;
+    let title = metadata
+        .get("title")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Untitled")
+        .to_string();
+    let resource_type = metadata
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("website")
+        .to_string();
+    let last_modified = metadata
+        .get("last_modified")
+        .and_then(|v| v.as_i64())
+        .unwrap_or_else(|| payload.resource.updated_at);
+
+    let metadata_json = serde_json::json!({
+        "id": payload.resource.id,
+        "title": title,
+        "resourceType": resource_type,
+        "folderId": payload.resource.folder_id,
+        "lastModified": last_modified,
+        "favourite": false,
+        "preview": null,
+    });
+
+    peer_conn.event_emitter.emit(crate::p2p::emitter::P2PEvent::ResourceSynced {
+        metadata_json: metadata_json.to_string(),
+    });
+
     Ok(())
 }
 
@@ -308,7 +348,10 @@ pub async fn handle_resource_sync_request(
         .is_ok();
 
     if !resource_exists {
-        info!("Resource {} not found locally, requesting from peer", resource_id);
+        info!(
+            "Resource {} not found locally, requesting from peer",
+            resource_id
+        );
 
         // Get local user
         let local_user = peer_conn.get_local_user().await?;
@@ -339,12 +382,20 @@ pub async fn handle_resource_sync_request(
         };
 
         peer_conn
-            .send_message(Message::Resource(ResourceMessage::ResourceNotFoundRequest(request)))
+            .send_message(Message::Resource(ResourceMessage::ResourceNotFoundRequest(
+                request,
+            )))
             .await?;
 
-        info!("✓ Sent ResourceNotFoundRequest for resource {}", resource_id);
+        info!(
+            "✓ Sent ResourceNotFoundRequest for resource {}",
+            resource_id
+        );
     } else {
-        info!("Resource {} found locally, getting state vectors for sync", resource_id);
+        info!(
+            "Resource {} found locally, getting state vectors for sync",
+            resource_id
+        );
 
         // Get our state vectors filtered by initiator's UCAN
         let domain = &peer_conn.domain;
@@ -356,8 +407,14 @@ pub async fn handle_resource_sync_request(
         )
         .await
         .map_err(|e| {
-            error!("Failed to get state vectors for resource {}: {}", resource_id, e);
-            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get state vectors: {}", e))
+            error!(
+                "Failed to get state vectors for resource {}: {}",
+                resource_id, e
+            );
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to get state vectors: {}",
+                e
+            ))
         })?;
 
         info!("✓ Got state vectors, sending StateVectorRequest to initiator");
@@ -374,7 +431,9 @@ pub async fn handle_resource_sync_request(
         };
 
         peer_conn
-            .send_message(Message::Resource(ResourceMessage::MergeUpdate(state_vector_request)))
+            .send_message(Message::Resource(ResourceMessage::MergeUpdate(
+                state_vector_request,
+            )))
             .await?;
 
         info!("✓ Sent StateVectorRequest for resource {}", resource_id);
@@ -405,7 +464,10 @@ pub async fn handle_resource_not_found_request(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> P2PResult<()> {
-    info!("Received resource not found request for resource {}", payload.resource_id);
+    info!(
+        "Received resource not found request for resource {}",
+        payload.resource_id
+    );
 
     // Get peer user for re-encryption
     let peer_user = peer_conn.get_peer_user().await;
@@ -440,7 +502,9 @@ pub async fn handle_resource_not_found_request(
     };
 
     peer_conn
-        .send_message(Message::Resource(ResourceMessage::ResourceTransfer(transfer_msg)))
+        .send_message(Message::Resource(ResourceMessage::ResourceTransfer(
+            transfer_msg,
+        )))
         .await?;
 
     info!("✓ Resource {} sent to peer", payload.resource_id);
@@ -469,7 +533,10 @@ pub async fn handle_resource_transfer(
     repo_ctx: Arc<RepositoryContext>,
     _crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> P2PResult<()> {
-    info!("Received resource transfer for resource {}", payload.resource.id);
+    info!(
+        "Received resource transfer for resource {}",
+        payload.resource.id
+    );
 
     // Delegate to resource_service to save resource transfer
     services::save_resource_transfer(&payload.resource, &payload.share_records, repo_ctx)
@@ -499,10 +566,11 @@ pub async fn handle_resource_transfer(
 ///
 /// # Returns
 /// * `Ok(())` - Always succeeds
-pub async fn handle_resource_transfer_ack(
-    peer_conn: Arc<PeerConnection>,
-) -> P2PResult<()> {
-    info!("Received resource transfer acknowledgment from peer {}", peer_conn.get_id());
+pub async fn handle_resource_transfer_ack(peer_conn: Arc<PeerConnection>) -> P2PResult<()> {
+    info!(
+        "Received resource transfer acknowledgment from peer {}",
+        peer_conn.get_id()
+    );
     // Transfer complete - no further action needed
     Ok(())
 }
@@ -573,7 +641,9 @@ pub async fn handle_state_vector_request(
     };
 
     peer_conn
-        .send_message(Message::Resource(ResourceMessage::MergeUpdate(updates_response)))
+        .send_message(Message::Resource(ResourceMessage::MergeUpdate(
+            updates_response,
+        )))
         .await?;
 
     info!("✓ Sent UpdatesResponse to peer");
@@ -644,7 +714,10 @@ pub async fn handle_updates_response(
 
     // TODO: If peer needs assets, send AssetTransfer
     if !missing_asset_ids.is_empty() {
-        info!("Peer needs {} assets - asset transfer not yet implemented", missing_asset_ids.len());
+        info!(
+            "Peer needs {} assets - asset transfer not yet implemented",
+            missing_asset_ids.len()
+        );
         // TODO: Implement asset transfer
     }
 

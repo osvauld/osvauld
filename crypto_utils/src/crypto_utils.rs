@@ -344,105 +344,6 @@ impl CryptoUtils {
         Ok(signed_message)
     }
 
-    /// Loro Migration - Phase 2: Generate flexible resource owner UCAN with custom templates
-    ///
-    /// Wrapper for generate_flexible_resource_owner_ucan that handles key decryption.
-    ///
-    /// # Arguments
-    /// * `encrypted_ucan_private_key` - Encrypted UCAN private key
-    /// * `resource_id` - UUID of the resource
-    /// * `capability_prefix` - Domain prefix (e.g., "sthalam.com")
-    /// * `ucan_template_json` - JSON with owner_template and viewer_template
-    /// * `expiry_seconds` - Optional expiry in seconds
-    ///
-    /// # Returns
-    /// * `Ok((token, cid))` - UCAN token string and CID
-    /// * `Err(CryptoError)` - Key decryption or UCAN generation error
-    pub async fn generate_flexible_resource_owner_ucan(
-        &self,
-        encrypted_ucan_private_key: &str,
-        resource_id: &str,
-        capability_prefix: &str,
-        ucan_template_json: &str,
-        expiry_seconds: Option<u64>,
-    ) -> Result<(String, String), CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
-        let (token, cid) = ucan_utils::generate_flexible_resource_owner_ucan(
-            &signing_key,
-            &verifying_key,
-            resource_id,
-            capability_prefix,
-            ucan_template_json,
-            expiry_seconds,
-        )
-        .await?;
-        Ok((token, cid))
-    }
-
-    /// Generate folder owner UCAN with templates for role-based delegation
-    pub async fn generate_folder_ucan_with_template(
-        &self,
-        encrypted_ucan_private_key: &str,
-        folder_id: &str,
-        capability_prefix: &str,
-        folder_template_json: &str,
-    ) -> Result<(String, String), CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
-        let (token, cid) = ucan_utils::generate_folder_ucan_with_template(
-            &signing_key,
-            &verifying_key,
-            folder_id,
-            capability_prefix,
-            folder_template_json,
-            None, // Use default 30 year expiry
-        )
-        .await?;
-        Ok((token, cid))
-    }
-
-    /// Generate public folder view token
-    pub async fn generate_public_folder_view_token(
-        &self,
-        encrypted_ucan_private_key: &str,
-        folder_id: &str,
-        capability_prefix: &str,
-    ) -> Result<String, CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
-        let token = ucan_utils::generate_public_folder_view_token(
-            &signing_key,
-            &verifying_key,
-            folder_id,
-            capability_prefix,
-        )
-        .await?;
-        Ok(token)
-    }
-
-    /// Generates a viewer connection token with flexible capabilities and facts
-    ///
-    /// Decrypts the node's UCAN private key and generates a viewer connection token.
-    /// Capabilities and facts are provided by the service layer.
-    pub async fn generate_viewer_connection_token(
-        &self,
-        encrypted_ucan_private_key: &str,
-        capabilities: Vec<(String, String)>,
-        facts: Option<serde_json::Map<String, serde_json::Value>>,
-        audience: &str,
-        expiry_seconds: Option<u64>,
-    ) -> Result<String, CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
-        let token = ucan_utils::generate_viewer_connection_token(
-            &signing_key,
-            &verifying_key,
-            capabilities,
-            facts,
-            audience,
-            expiry_seconds,
-        )
-        .await?;
-        Ok(token)
-    }
-
     /// Generic UCAN token generator - decrypts key and calls core crypto function
     ///
     /// This is a thin wrapper that:
@@ -484,248 +385,39 @@ impl CryptoUtils {
         .map_err(|e| e.into())
     }
 
-    /// Issue a delegated folder UCAN after validating permissions
-    pub async fn issue_delegated_folder_ucan<F, Fut>(
-        &self,
-        encrypted_delegator_private_key: &str,
-        proof_folder_ucan_string: &str,
-        verifier_ucan_pub_b64: &str,
-        folder_id: &str,
-        recipient_ucan_pub_key: &str,
-        permissions_to_grant: Vec<(String, String)>,
-        proof_resolver: &F,
-    ) -> Result<(String, String), CryptoError>
-    where
-        F: Fn(&str) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
-    {
-        // 1. Validate the proof folder UCAN structure
-        let folder_ucan_to_prove = ucan_utils::validate_structure(proof_folder_ucan_string).await?;
-
-        // 2. Extract domain from the parent UCAN's capabilities
-        let domain = ucan_utils::extract_domain_from_ucan(&folder_ucan_to_prove, "folder")?;
-
-        // 3. Construct the full folder URI for validation
-        let folder_resource = format!("{}:folder:{}", domain, folder_id);
-
-        ucan_utils::validate_ucan_permission(
-            &folder_ucan_to_prove,
-            verifier_ucan_pub_b64,
-            proof_resolver,
-            &folder_resource,
-            &"share_folder".to_string(),
-        )
-        .await?;
-
-        // 4. Decrypt the delegator's UCAN keys
-        let (delegator_signing_key, delegator_verifying_key) =
-            self.decrypt_ucan_key(encrypted_delegator_private_key)?;
-
-        // 5. Generate the delegated UCAN using existing function
-        // Note: Folder UCANs don't use templates, so pass None for template-related parameters
-        let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
-            &delegator_signing_key,
-            &delegator_verifying_key,
-            recipient_ucan_pub_key,
-            permissions_to_grant,
-            proof_folder_ucan_string,
-            None,   // No template for folder UCANs
-            "node", // Default role
-            None,   // No doc_types
-            None,   // No docs
-        )
-        .await?;
-
-        Ok((new_token, new_cid))
-    }
-
-    /// Issue a delegated resource UCAN after validating permissions
-    pub async fn issue_delegated_resource_ucan<F, Fut>(
-        &self,
-        encrypted_delegator_private_key: &str,
-        proof_ucan_string: &str,
-        verifier_ucan_pub_b64: &str,
-        resource_id: &str,
-        recipient_ucan_pub_key: &str,
-        permissions_to_grant: Vec<(String, String)>,
-        proof_resolver: &F,
-    ) -> Result<(String, String), CryptoError>
-    where
-        F: Fn(&str) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
-    {
-        let ucan_to_prove = ucan_utils::validate_structure(proof_ucan_string).await?;
-
-        // Extract domain from the parent UCAN's capabilities
-        let domain = ucan_utils::extract_domain_from_ucan(&ucan_to_prove, "resource")?;
-
-        // Construct the full resource URI for validation
-        let resource_uri = format!("{}:resource:{}", domain, resource_id);
-
-        ucan_utils::validate_ucan_permission(
-            &ucan_to_prove,
-            verifier_ucan_pub_b64,
-            proof_resolver,
-            &resource_uri,
-            &"ucan/share".to_string(),
-        )
-        .await?;
-
-        let (delegator_signing_key, delegator_verifying_key) =
-            self.decrypt_ucan_key(encrypted_delegator_private_key)?;
-
-        // Note: This method doesn't use templates - use issue_flexible_delegated_resource_ucan for template-based delegation
-        let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
-            &delegator_signing_key,
-            &delegator_verifying_key,
-            recipient_ucan_pub_key,
-            permissions_to_grant,
-            proof_ucan_string,
-            None,   // No template - explicit permissions provided
-            "node", // Default role
-            None,   // No doc_types
-            None,   // No docs
-        )
-        .await?;
-
-        Ok((new_token, new_cid))
-    }
-
-    /// Loro Migration - Phase 2: Issue delegated resource UCAN with role-based template selection
+    /// Generate viewer connection token - simple wrapper that returns only token
     ///
-    /// Automatically selects the appropriate template (owner_template or viewer_template)
-    /// from the parent UCAN based on the recipient's role and copies all facts to delegated UCAN.
+    /// This is a thin wrapper around generate_ucan_with_cid() that only returns
+    /// the token (not CID) for backward compatibility with code that builds
+    /// capabilities in the service layer and doesn't need CID.
     ///
     /// # Arguments
-    /// * `encrypted_delegator_private_key` - Delegator's encrypted UCAN private key
-    /// * `proof_ucan_string` - Parent UCAN token (must contain owner_template and viewer_template in facts)
-    /// * `verifier_ucan_pub_b64` - Verifier's public key (base64)
-    /// * `resource_id` - UUID of the resource
-    /// * `recipient_ucan_pub_key` - Recipient's UCAN public key
-    /// * `recipient_role` - Recipient's role ("owner", "node", or "viewer")
-    /// * `proof_resolver` - Function to resolve UCAN proofs by CID
+    /// * `encrypted_ucan_private_key` - Encrypted UCAN private key
+    /// * `capabilities` - Pre-built list of (resource_uri, ability) tuples
+    /// * `facts` - Optional pre-built facts map
+    /// * `audience` - Target audience DID or "*" for wildcard
+    /// * `expiry_seconds` - Token lifetime in seconds
     ///
     /// # Returns
-    /// * `Ok((token, cid))` - Delegated UCAN token and its CID
-    /// * `Err(CryptoError)` - Validation or generation error
-    pub async fn issue_flexible_delegated_resource_ucan<F, Fut>(
+    /// * `Ok(token_string)` - Encoded UCAN token only (no CID)
+    pub async fn generate_viewer_connection_token(
         &self,
-        encrypted_delegator_private_key: &str,
-        proof_ucan_string: &str,
-        verifier_ucan_pub_b64: &str,
-        resource_id: &str,
-        recipient_ucan_pub_key: &str,
-        recipient_role: &str,
-        proof_resolver: &F,
-    ) -> Result<(String, String), CryptoError>
-    where
-        F: Fn(&str) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<String, UcanError>> + Send + 'static,
-    {
-        // 1. Validate proof UCAN structure and permissions
-        let ucan_to_prove = ucan_utils::validate_structure(proof_ucan_string).await?;
-
-        let domain = ucan_utils::extract_domain_from_ucan(&ucan_to_prove, "resource")?;
-        let resource_uri = format!("{}:resource:{}", domain, resource_id);
-
-        ucan_utils::validate_ucan_permission(
-            &ucan_to_prove,
-            verifier_ucan_pub_b64,
-            proof_resolver,
-            &resource_uri,
-            &"ucan/share".to_string(),
-        )
-        .await?;
-
-        // 2. Parse proof UCAN once
-        let proof_ucan = ucan_utils::validate_structure(proof_ucan_string).await?;
-
-        // 3. Determine template key based on recipient role
-        let template_key = match recipient_role {
-            "owner" | "node" => "owner_template",
-            "viewer" => "viewer_template",
-            _ => {
-                return Err(CryptoError::UcanError(UcanError::TemplateInvalid(format!(
-                    "Invalid recipient role: {}. Must be 'owner', 'node', or 'viewer'",
-                    recipient_role
-                ))));
-            }
-        };
-
-        // 4. Extract template object and capabilities using atomic functions
-        let template_obj = crate::ucan_extractors::get_template_object(&proof_ucan, template_key)?;
-        let capabilities =
-            crate::ucan_extractors::extract_capabilities_from_template(&template_obj)?;
-
-        // 5. Build permissions from template capabilities
-        let mut permissions_to_grant = Vec::new();
-        for (doc_name, ability) in &capabilities {
-            let doc_resource_uri = format!("{}:resource:{}:{}", domain, resource_id, doc_name);
-            permissions_to_grant.push((doc_resource_uri, ability.clone()));
-        }
-
-        // 6. Extract facts from parent UCAN for delegation
-        let facts = proof_ucan.facts();
-
-        // DEBUG: Log facts extraction
-        if let Some(f) = facts.as_ref() {
-            log::info!("✅ Parent UCAN has facts field with {} keys", f.len());
-            log::info!("   Available fact keys: {:?}", f.keys().collect::<Vec<_>>());
-        } else {
-            log::warn!("❌ Parent UCAN has NO facts field!");
-        }
-
-        log::info!("Looking for template key: {}", template_key);
-
-        // Extract template value, doc_types, and docs from parent UCAN facts
-        let template_value = facts.as_ref().and_then(|f| f.get(template_key)).cloned();
-
-        let doc_types_value = facts.as_ref().and_then(|f| f.get("doc_types")).cloned();
-
-        let docs_list = facts
-            .as_ref()
-            .and_then(|f| f.get("docs"))
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            });
-
-        // DEBUG: Log extraction results
-        log::info!(
-            "Facts extraction results: template={}, doc_types={}, docs={}",
-            if template_value.is_some() {
-                "✅"
-            } else {
-                "❌"
-            },
-            if doc_types_value.is_some() {
-                "✅"
-            } else {
-                "❌"
-            },
-            if docs_list.is_some() { "✅" } else { "❌" }
-        );
-
-        // 7. Decrypt delegator keys and generate delegated UCAN
-        let (delegator_signing_key, delegator_verifying_key) =
-            self.decrypt_ucan_key(encrypted_delegator_private_key)?;
-
-        let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
-            &delegator_signing_key,
-            &delegator_verifying_key,
-            recipient_ucan_pub_key,
-            permissions_to_grant,
-            proof_ucan_string,
-            template_value,
-            recipient_role,
-            doc_types_value,
-            docs_list,
-        )
-        .await?;
-
-        Ok((new_token, new_cid))
+        encrypted_ucan_private_key: &str,
+        capabilities: Vec<(String, String)>,
+        facts: Option<serde_json::Map<String, serde_json::Value>>,
+        audience: &str,
+        expiry_seconds: Option<u64>,
+    ) -> Result<String, CryptoError> {
+        let (token, _cid) = self
+            .generate_ucan_with_cid(
+                encrypted_ucan_private_key,
+                audience,
+                capabilities,
+                facts,
+                expiry_seconds,
+            )
+            .await?;
+        Ok(token)
     }
 }
 

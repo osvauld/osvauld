@@ -8,6 +8,7 @@ use base64::{engine::general_purpose, Engine as _};
 use osvauld_core::models::{
     Device, FirstConnectRequest, FirstConnectResponse,
     HandshakeMessage, Message, PeerRole, UcanAndUserExchange, User, UserWithDevices,
+    ViewerHandshakeRequest, ViewerHandshakeResponse,
 };
 use services::{get_my_user_devices, issue_connect_ucan_token, sign_ucan_pub_key};
 use tracing::{debug, error, info, instrument};
@@ -27,7 +28,8 @@ impl PeerConnection {
         let peer_id = self.connection.remote_node_id().map_err(|e| P2PError::Custom(e.to_string()))?;
         debug!("Successfully retrieved peer id: {}", peer_id);
         let device_id_b64 = general_purpose::STANDARD.encode(peer_id);
-        // Repository error automatically propagates
+
+        // CRITICAL: Fetch peer_user BEFORE role check (so viewer can issue token and set peer_user)
         let peer_user = self.repo_ctx
             .user_repo
             .get_user_by_device_id(&device_id_b64)
@@ -44,6 +46,50 @@ impl PeerConnection {
         let peer_role = PeerRole::from_string(&peer_role_from_token);
 
         debug!("Extracted peer role from UCAN token: {:?}", peer_role);
+
+        // Check if viewer and handle viewer handshake
+        if peer_role == PeerRole::Viewer {
+            info!("Viewer connection detected, initiating viewer handshake");
+            self.set_connection_type(ConnectionType::Viewer).await;
+
+            // 1. Issue local viewer_node token for the node peer
+            let viewer_node_token = services::ucan_service::issue_viewer_to_node_token(
+                &peer_user.ucan_pub_key,
+                &self.domain,
+                self.crypto_utils.clone(),
+                &self.repo_ctx,
+            )
+            .await?;
+            debug!("Issued viewer_node token locally");
+
+            // 2. Set peer_user with viewer_node token (stored locally)
+            let mut peer_user_with_token = peer_user.clone();
+            peer_user_with_token.ucan_token = viewer_node_token;
+
+            // Get peer_device from database
+            let peer_device = self.repo_ctx
+                .device_repo
+                .find_by_id(&device_id_b64)
+                .await?;
+
+            self.set_peer_user_and_device(peer_user_with_token, peer_device).await;
+            debug!("Set peer_user with viewer_node token");
+
+            // 3. Send ViewerHandshakeRequest with auth token from connection string
+            let request = ViewerHandshakeRequest {
+                viewer_user: current_user,
+                viewer_device: current_device,
+                viewer_auth_token: peer_user.ucan_token.clone(), // Auth token from connection string
+            };
+
+            self.send_message(Message::Handshake(
+                HandshakeMessage::ViewerHandshakeRequest(request),
+            ))
+            .await?;
+
+            info!("Sent ViewerHandshakeRequest to node");
+            return Ok(());
+        }
 
         // Use the same role from the peer's token
         // This ensures role consistency: owner gets 'owner', node gets 'node'
@@ -120,6 +166,12 @@ impl PeerConnection {
             }
             HandshakeMessage::HandshakeExchange(payload) => {
                 self.process_exchange_message(payload).await
+            }
+            HandshakeMessage::ViewerHandshakeRequest(payload) => {
+                self.process_viewer_handshake_request(payload).await
+            }
+            HandshakeMessage::ViewerHandshakeResponse(payload) => {
+                self.process_viewer_handshake_response(payload).await
             }
         }
     }
@@ -425,6 +477,74 @@ impl PeerConnection {
 
         info!("Successfully added peer user and devices to repository. Handshake complete. Connection ready for sync requests.");
 
+        Ok(())
+    }
+
+    /// Process incoming ViewerHandshakeRequest from viewer (node side)
+    ///
+    /// Node validates the viewer's auth token and sends back ViewerHandshakeResponse.
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn process_viewer_handshake_request(
+        &self,
+        payload: &ViewerHandshakeRequest,
+    ) -> P2PResult<()> {
+        info!("Processing ViewerHandshakeRequest from viewer: {}", payload.viewer_user.username);
+
+        // 1. Get local node user and device
+        let node_user = self.get_local_user().await?;
+        let node_device = self.get_local_device().await
+            .ok_or_else(|| HandshakeError::MissingPeerInfo)?;
+
+        debug!("Node user: {}, device: {}", node_user.username, node_device.id);
+
+        // 2. Validate auth token (issuer must be node's DID + structure validation)
+        services::ucan_service::validate_ucan_issuer(
+            &payload.viewer_auth_token,
+            &node_user.ucan_pub_key,
+        )
+        .await?;
+
+        info!("✓ Viewer auth token validated (issuer: node, structure: valid)");
+
+        // 3. Set peer_user (viewer) and peer_device
+        self.set_peer_user_and_device(payload.viewer_user.clone(), payload.viewer_device.clone()).await;
+        debug!("Set peer_user (viewer) and peer_device");
+
+        // 4. Mark handshake as complete
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+        info!("Handshake marked as complete on node side");
+
+        // 5. Send ViewerHandshakeResponse back to viewer
+        let response = ViewerHandshakeResponse {
+            node_user,
+            node_device,
+        };
+
+        self.send_message(Message::Handshake(
+            HandshakeMessage::ViewerHandshakeResponse(response),
+        ))
+        .await?;
+
+        info!("✅ Sent ViewerHandshakeResponse to viewer. Handshake complete.");
+        Ok(())
+    }
+
+    /// Process incoming ViewerHandshakeResponse from node (viewer side)
+    ///
+    /// Viewer marks handshake as complete after receiving response from node.
+    #[instrument(skip(self, payload), fields(connection_id = %self.get_id()), level = "info")]
+    pub async fn process_viewer_handshake_response(
+        &self,
+        payload: &ViewerHandshakeResponse,
+    ) -> P2PResult<()> {
+        info!("Processing ViewerHandshakeResponse from node: {}", payload.node_user.username);
+
+        // Mark handshake as complete
+        let mut handshake_complete = self.handshake_complete.lock().await;
+        *handshake_complete = true;
+
+        info!("✅ Handshake marked as complete on viewer side. Connection ready.");
         Ok(())
     }
 

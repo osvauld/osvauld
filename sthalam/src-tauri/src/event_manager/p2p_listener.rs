@@ -92,6 +92,34 @@ pub async fn listen_to_p2p_events(
                     error!("Failed to emit folder-token-received event: {}", e);
                 }
             }
+
+            P2PEvent::FolderSynced {
+                folder_id,
+                folder_name,
+            } => {
+                info!("P2P FolderSynced event: {} ({})", folder_id, folder_name);
+                if let Err(e) = app_handle.emit(
+                    "folder-synced",
+                    json!({
+                        "folderId": folder_id,
+                        "folderName": folder_name
+                    }),
+                ) {
+                    error!("Failed to emit folder-synced event: {}", e);
+                }
+            }
+
+            P2PEvent::ResourceSynced { metadata_json } => {
+                info!("P2P ResourceSynced event");
+                // Parse the JSON string and re-emit to avoid double-stringification
+                if let Ok(metadata) = serde_json::from_str::<serde_json::Value>(&metadata_json) {
+                    if let Err(e) = app_handle.emit("resource-synced", metadata) {
+                        error!("Failed to emit resource-synced event: {}", e);
+                    }
+                } else {
+                    error!("Failed to parse resource metadata JSON: {}", metadata_json);
+                }
+            }
         }
     }
 

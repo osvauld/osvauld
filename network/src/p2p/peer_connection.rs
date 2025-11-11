@@ -27,6 +27,7 @@ impl ConnectionType {
             PeerRole::Owner => ConnectionType::Owner,
             PeerRole::Node => ConnectionType::Node,
             PeerRole::Viewer => ConnectionType::Viewer,
+            PeerRole::ViewerNode => ConnectionType::Viewer, // Server side of viewer connection
             PeerRole::User => ConnectionType::Owner, // Default to Owner
         }
     }

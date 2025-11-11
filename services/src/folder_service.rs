@@ -126,7 +126,7 @@ pub async fn share_folder(
     .await?;
 
     // 6 & 7. Generate delegated folder UCAN for recipient using ucan_service
-    let folder_ucan_token = crate::ucan_service::issue_delegated_folder_token(
+    let (folder_ucan_token, folder_ucan_cid) = crate::ucan_service::issue_delegated_folder_token(
         folder_id,
         domain,
         folder_capabilities,
@@ -136,9 +136,6 @@ pub async fn share_folder(
         &repo_ctx,
     )
     .await?;
-
-    // 8. Generate CID from folder UCAN token
-    let folder_ucan_cid = crate::ucan_service::get_cid(&folder_ucan_token)?;
 
     // 9. Create and save folder_share_record
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
