@@ -1,8 +1,8 @@
 # Osvauld Protocol Technical Documentation
 
 **Status**: Living Document - Updated as implementation progresses
-**Last Updated**: 2025-11-10
-**Phase 3 Complete**: UCAN Service Architecture implemented (code deduplication)
+**Last Updated**: 2025-11-11
+**Phase 4 In Progress**: Viewer mode implementation with template propagation fixes
 
 This document captures implementation details, algorithms, and technical decisions as we migrate from Yrs to Loro.
 
@@ -1706,6 +1706,219 @@ let (new_token, new_cid) = ucan_utils::generate_delegated_ucan(
 - Calls `issue_flexible_delegated_resource_ucan()` for each resource
 - Facts automatically extracted and propagated to node's delegated UCAN
 - Enables node to correctly parse CRDT vs asset docs during sync
+
+### Template Propagation in Viewer Mode (2025-11-11)
+
+**Status**: ✅ Fixed - Templates now propagate through full delegation chain (Owner → Node → Viewer)
+
+**Problem**: Node's folder and resource UCANs were missing `viewer_template` in facts, preventing nodes from delegating to viewers.
+
+**Root Cause**:
+- `issue_delegated_folder_token()` only set `role` in facts, didn't include templates
+- `share_resource()` called `crypto.issue_flexible_delegated_resource_ucan()` directly (with proof resolver)
+- `create_viewer_resource_token()` only set `role` and `docs`, didn't include template
+
+**Solution**: Added static `viewer_template` to all delegated UCANs in ucan_service.rs
+
+#### 1. Folder UCAN Template Propagation
+
+**File**: `services/src/ucan_service.rs` (lines 758-769)
+
+**Function**: `issue_delegated_folder_token()`
+
+**Change**: Added static `viewer_template` to facts:
+```rust
+// 2. Build facts
+let mut facts = serde_json::Map::new();
+facts.insert("role".to_string(), json!(recipient_role));
+
+// Add static viewer_template for folder delegation
+// This allows nodes to delegate to viewers (viewer can extract viewer_template)
+facts.insert("viewer_template".to_string(), json!({
+    "capabilities": {
+        "crud/read": "crud/read",
+        "request_resources": "request_resources",
+        "get_share_link": "get_share_link"
+    }
+}));
+```
+
+**Template Source**: From `sthalam/frontend/desktop/src/config/permissions.ts` - `FOLDER_TEMPLATE.viewer_template`
+
+#### 2. Resource UCAN for Node Delegation (Owner → Node)
+
+**File**: `services/src/ucan_service.rs` (lines 1195-1285)
+
+**New Function**: `issue_resource_ucan_for_node()`
+
+**Purpose**:
+- Replaces `crypto.issue_flexible_delegated_resource_ucan()` in `share_resource()`
+- Removes proof resolver logic (simplified delegation chain)
+- Extracts owner_template from owner's resource UCAN
+- Adds static `viewer_template` to enable node → viewer delegation
+
+**Signature**:
+```rust
+pub async fn issue_resource_ucan_for_node(
+    resource_id: &str,
+    owner_resource_ucan: &str,  // Contains templates
+    recipient_ucan_pub_key: &str,
+    domain: &str,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+    repo_ctx: &Arc<RepositoryContext>,
+) -> ServiceResult<(String, String)>
+```
+
+**Algorithm**:
+1. Parse owner's resource UCAN
+2. Extract owner_template (contains node capabilities)
+3. Build capability list with full resource URIs
+4. Build facts with role="node", docs, and doc_types
+5. Add static viewer_template (from permissions.ts)
+6. Call `crypto.generate_ucan_with_cid()` (NO proof resolver)
+
+**Viewer Template** (lines 1250-1267):
+```rust
+facts.insert("viewer_template".to_string(), json!({
+    "capabilities": {
+        "template_doc": "crud/readonly",
+        "content_doc": "crud/readonly",
+        "collaborative_doc": "crud/merge",
+        "submissions_doc": "crud/appendonly",
+        "static_assets": "crud/readonly"
+    },
+    "doc_types": {
+        "static_assets": "asset",
+        "template_doc": "crdt",
+        "content_doc": "crdt",
+        "collaborative_doc": "crdt",
+        "submissions_doc": "crdt"
+    },
+    "no_update_from_node": ["user_content_doc"],
+    "dont_send_to_node": ["user_content_doc"]
+}));
+```
+
+**Template Source**: From `permissions.ts` - `RESOURCE_TEMPLATE.viewer_template`
+
+#### 3. Resource UCAN for Viewer (Node → Viewer)
+
+**File**: `services/src/ucan_service.rs` (lines 1108-1126)
+
+**Function**: `create_viewer_resource_token()`
+
+**Change**: Added viewer_template to facts (same structure as above)
+
+**Purpose**: Allows viewers to understand document capabilities and restrictions
+
+#### 4. Updated share_resource() Flow
+
+**File**: `services/src/resource_service.rs` (lines 486-504)
+
+**Before** (lines 486-529):
+```rust
+// Get encrypted UCAN key from store
+let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+
+// Generate delegated UCAN for recipient
+let crypto = crypto_utils.read().await;
+let (resource_ucan_token, resource_ucan_cid) = crypto
+    .issue_flexible_delegated_resource_ucan(
+        &encrypted_ucan_key,
+        &resource.ucan_token,  // Proof UCAN
+        &current_user.ucan_pub_key,
+        resource_id,
+        &recipient_user.ucan_pub_key,
+        recipient_role,
+        &|cid| {
+            // Proof resolver callback...
+        },
+    )
+    .await?;
+drop(crypto);
+```
+
+**After** (lines 486-504):
+```rust
+// Generate delegated UCAN for recipient using ucan_service
+let (resource_ucan_token, resource_ucan_cid) = crate::ucan_service::issue_resource_ucan_for_node(
+    resource_id,
+    &resource.ucan_token,  // Owner's resource UCAN (contains templates)
+    &recipient_user.ucan_pub_key,
+    domain,
+    crypto_utils.clone(),
+    &repo_ctx,
+)
+.await?;
+```
+
+**Changes**:
+- ✅ Removed direct crypto_utils call
+- ✅ Removed proof resolver callback
+- ✅ Now goes through ucan_service layer
+- ✅ Templates automatically included
+
+#### 5. Viewer Self-Issued Token (add_folder capability)
+
+**File**: `services/src/ucan_service.rs` (lines 1165-1170)
+
+**Function**: `issue_viewer_to_node_token()`
+
+**Already Includes**:
+```rust
+let connect_resource = format!("{}:connect", domain);
+let add_folder_resource = format!("{}:add_folder", domain);
+let capabilities = vec![
+    (connect_resource, "use".to_string()),
+    (add_folder_resource, "use".to_string()),  // ✅ Already present
+];
+```
+
+**Purpose**: Allows viewer to receive folders from node during sync
+
+#### 6. Website Service (Temporary/Ductape)
+
+**Status**: ⚠️ TEMPORARY - Will be replaced by unified functions later
+
+**Files**:
+- `services/src/website_service.rs`
+  - `check_user_and_folder_status()` - Validates viewer connection
+  - `get_folder_to_send()` - Prepares folder for viewer
+  - `prepare_resource_for_viewer()` - Prepares single resource for viewer
+
+**Note**: These are temporary functions specifically for viewer mode. They duplicate logic from `share_folder()` and `share_resource()` but with viewer-specific handling. Will be refactored into unified delegation functions once viewer mode stabilizes.
+
+**Current Flow**:
+1. Node receives `WebsiteRequest` from viewer
+2. Calls `get_folder_to_send()` to prepare folder with viewer UCAN
+3. Sends `FolderDataSync` message to viewer
+4. Loops through resources, calling `prepare_resource_for_viewer()` for each
+5. Sends `ResourceDataSync` messages to viewer
+6. All UCANs now include `viewer_template` for potential re-delegation
+
+#### Benefits
+
+1. **Complete Delegation Chain**: Owner → Node → Viewer all have templates
+2. **No Proof Resolver**: Simplified UCAN generation (removed complex async callback)
+3. **Centralized Logic**: All UCAN generation goes through ucan_service
+4. **Template Consistency**: Static templates match permissions.ts exactly
+5. **Future-Proof**: Viewers have templates for potential re-delegation
+
+#### Testing
+
+**Folder Sync**:
+- ✅ Node receives folder UCAN with viewer_template
+- ✅ Node can extract viewer_template to delegate to viewer
+- ✅ Viewer receives folder with appropriate capabilities
+
+**Resource Sync**:
+- ✅ Node receives resource UCAN with viewer_template
+- ✅ Node can filter documents based on viewer_template
+- ✅ Viewer receives re-encrypted resources with correct capabilities
+
+**Self-Issued Token**:
+- ✅ Viewer's self-issued token has `add_folder` capability
+- ✅ Folder sync succeeds without permission errors
 
 ---
 

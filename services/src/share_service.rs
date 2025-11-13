@@ -1,7 +1,7 @@
 //! Share service - handles folder and resource share records
 
-use crate::errors::{ServiceResult, FolderServiceError, ResourceServiceError};
-use osvauld_core::models::{FolderShareRecord, ShareRecord, ShareOperation};
+use crate::errors::{FolderServiceError, ResourceServiceError, ServiceResult};
+use osvauld_core::models::{FolderShareRecord, ShareOperation, ShareRecord};
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 
@@ -24,6 +24,21 @@ pub async fn get_folder_share_record(
         })
 }
 
+/// Get all folder share records for a folder (all users with access)
+pub async fn get_all_folder_share_records(
+    _folder_id: &str,
+    _repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Vec<FolderShareRecord>> {
+    // TODO: Implement when we need folder sync
+    // let share_records = repo_ctx
+    //     .folder_share_repo
+    //     .find_by_folder(folder_id)
+    //     .await?;
+    //
+    // Ok(share_records)
+    todo!()
+}
+
 /// Get resource share record for a user
 pub async fn get_resource_share_record(
     resource_id: &str,
@@ -38,9 +53,7 @@ pub async fn get_resource_share_record(
             user_id,
         )
         .await
-        .map_err(|_e| {
-            ResourceServiceError::ShareRecordNotFound.into()
-        })
+        .map_err(|_e| ResourceServiceError::ShareRecordNotFound.into())
 }
 
 /// Get all resource share records for a folder (bulk operation)

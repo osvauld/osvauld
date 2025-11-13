@@ -129,6 +129,14 @@ export class LoroCoordinator {
   }
 
   /**
+   * Get collaborative state map (shared between owner and viewers)
+   * Stores: counter, comments, etc. - editable by both roles
+   */
+  getCollaborativeMap(): LoroMap {
+    return this.documents.collaborativeDoc.getMap('collaborativeState');
+  }
+
+  /**
    * Get submissions map
    */
   getSubmissions(): LoroMap {

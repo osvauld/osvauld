@@ -75,6 +75,10 @@ pub struct Resource {
 
     /// Loaded Loro documents, keyed by document name
     pub docs: HashMap<String, LoroDoc>,
+
+    /// Static assets (images, PDFs, etc.) stored as base64 binary data
+    /// Format: {"asset_id": base64_string, ...}
+    pub static_assets: HashMap<String, String>,
 }
 
 // ============================================================================
@@ -119,24 +123,43 @@ impl Resource {
         decrypted_data_json: &str,
     ) -> Result<Self, String> {
         // Parse the decrypted data JSON
-        let data: HashMap<String, Vec<Value>> = serde_json::from_str(decrypted_data_json)
+        let data: Value = serde_json::from_str(decrypted_data_json)
             .map_err(|e| format!("Failed to parse decrypted data JSON: {}", e))?;
 
         let mut docs = HashMap::new();
+        let mut static_assets = HashMap::new();
 
-        // Load each document
-        for (doc_name, snapshot_array) in data {
-            // Convert JSON array to Vec<u8>
-            let snapshot_bytes: Vec<u8> = snapshot_array
-                .iter()
-                .filter_map(|v| v.as_u64().map(|n| n as u8))
-                .collect();
+        // Load each field from the data
+        if let Some(obj) = data.as_object() {
+            for (field_name, value) in obj {
+                // Handle static_assets separately
+                if field_name == "static_assets" {
+                    if let Some(assets_obj) = value.as_object() {
+                        // static_assets is a map: {"asset_id": "base64_string", ...}
+                        for (asset_id, asset_value) in assets_obj {
+                            if let Some(asset_str) = asset_value.as_str() {
+                                static_assets.insert(asset_id.clone(), asset_str.to_string());
+                            }
+                        }
+                    }
+                    continue;
+                }
 
-            if !snapshot_bytes.is_empty() {
-                // Import the snapshot into a new LoroDoc
-                let doc = import_snapshot(&snapshot_bytes)
-                    .map_err(|e| format!("Failed to import snapshot for {}: {}", doc_name, e))?;
-                docs.insert(doc_name, doc);
+                // Handle Loro documents (fields ending in _doc)
+                if let Some(snapshot_array) = value.as_array() {
+                    // Convert JSON array to Vec<u8>
+                    let snapshot_bytes: Vec<u8> = snapshot_array
+                        .iter()
+                        .filter_map(|v| v.as_u64().map(|n| n as u8))
+                        .collect();
+
+                    if !snapshot_bytes.is_empty() {
+                        // Import the snapshot into a new LoroDoc
+                        let doc = import_snapshot(&snapshot_bytes)
+                            .map_err(|e| format!("Failed to import snapshot for {}: {}", field_name, e))?;
+                        docs.insert(field_name.clone(), doc);
+                    }
+                }
             }
         }
 
@@ -146,6 +169,7 @@ impl Resource {
             ucan_token,
             metadata,
             docs,
+            static_assets,
         })
     }
 
@@ -185,11 +209,12 @@ impl Resource {
     /// Export all documents as JSON for encryption and storage
     ///
     /// # Returns
-    /// JSON string with all document snapshots as byte arrays
-    /// Format: {"doc_name": [1,2,3,...], ...}
+    /// JSON string with all document snapshots as byte arrays and static assets
+    /// Format: {"doc_name": [1,2,3,...], "static_assets": {"asset_id": "base64_string", ...}}
     pub fn to_json(&self) -> Result<String, String> {
         let mut result = serde_json::Map::new();
 
+        // Export Loro documents
         for (doc_name, doc) in &self.docs {
             let snapshot = export_shallow_snapshot(doc);
 
@@ -200,6 +225,13 @@ impl Resource {
 
             result.insert(doc_name.clone(), Value::Array(snapshot_array));
         }
+
+        // Export static_assets as a map
+        let mut assets_map = serde_json::Map::new();
+        for (asset_id, asset_data) in &self.static_assets {
+            assets_map.insert(asset_id.clone(), Value::String(asset_data.clone()));
+        }
+        result.insert("static_assets".to_string(), Value::Object(assets_map));
 
         serde_json::to_string(&result)
             .map_err(|e| format!("Failed to serialize to JSON: {}", e))

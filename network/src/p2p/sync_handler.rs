@@ -125,7 +125,7 @@ async fn send_folder_impl(
 pub async fn sync_resource(
     resource_id: String,
     repo_ctx: Arc<RepositoryContext>,
-    _crypto_utils: Arc<RwLock<CryptoUtils>>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
     p2p_service: Arc<P2PService>,
 ) -> P2PResult<()> {
     info!("Initiating resource sync for: {}", resource_id);
@@ -153,24 +153,31 @@ pub async fn sync_resource(
 
     info!("Found {} users with access to resource", share_records.len());
 
-    // 2. Get UCANs from service layer
-    let (resource_ucan, folder_ucan) = services::get_resource_ucans_for_sync(
-        &resource_id,
-        &current_user.id,
-        repo_ctx.clone(),
-    )
-    .await
-    .map_err(|e| {
-        error!("Failed to get UCANs for resource sync: {}", e);
-        crate::p2p::errors::P2PError::InvalidState(format!("Failed to get UCANs: {}", e))
-    })?;
+    // 2. Prepare complete sync request (UCANs + state_vectors + full_docs)
+    let (resource_ucan, folder_ucan, state_vectors, full_docs) =
+        services::prepare_resource_sync_request(
+            &resource_id,
+            &current_user.id,
+            repo_ctx.clone(),
+            &crypto_utils,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to prepare resource sync request: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to prepare sync data: {}",
+                e
+            ))
+        })?;
 
-    info!("✓ Got UCANs, creating sync request");
+    info!("✓ Prepared sync request with state_vectors and full_docs");
 
     // Create ResourceSyncRequest message
     let sync_request = ResourceSyncRequestMsg {
         resource_ucan,
         folder_ucan,
+        state_vectors,
+        full_docs,
     };
 
     // 3. For each user with access, get their devices and sync
@@ -237,6 +244,127 @@ pub async fn sync_resource(
     }
 
     info!("✓ Resource sync initiated for: {}", resource_id);
+    Ok(())
+}
+
+/// Sync folder with all recipients (CRDT merge sync)
+///
+/// Gets all folder_share_records, establishes connections with each recipient,
+/// and delegates to folder_sync handler for state vector comparison.
+///
+/// This is used for:
+/// - Owner → Node: Push new resources added to folder
+/// - Viewer/Node → Node: Pull missing resources from node
+///
+/// # Arguments
+/// * `folder_id` - ID of the folder to sync
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+/// * `p2p_service` - P2P service for connections and current user
+///
+/// # Returns
+/// * `Ok(())` - Sync request sent successfully
+/// * `Err` - If folder not found or no recipients
+pub async fn sync_folder(
+    folder_id: String,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+    p2p_service: Arc<P2PService>,
+) -> P2PResult<()> {
+    info!("Initiating folder sync for: {}", folder_id);
+
+    // Get current user from P2PService
+    let user_guard = p2p_service.current_user.read().await;
+    let current_user = user_guard
+        .as_ref()
+        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No user logged in".to_string()))?
+        .clone();
+    drop(user_guard);
+
+    // 1. Get all folder_share_records
+    let folder_share_records = services::get_all_folder_share_records(&folder_id, repo_ctx.clone())
+        .await
+        .map_err(|e| {
+            error!("Failed to get folder share records for {}: {}", folder_id, e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder share records: {}", e))
+        })?;
+
+    if folder_share_records.is_empty() {
+        error!("No folder share records found for folder {}", folder_id);
+        return Ok(());
+    }
+
+    info!("Found {} recipients for folder", folder_share_records.len());
+
+    // 2. For each recipient (except current user), sync folder
+    for share_record in folder_share_records {
+        // Skip syncing with ourselves
+        if share_record.recipient_user_id == current_user.id {
+            continue;
+        }
+
+        let recipient_user_id = &share_record.recipient_user_id;
+        info!("Syncing folder with user: {}", recipient_user_id);
+
+        // Get recipient's devices
+        let devices = repo_ctx
+            .device_repo
+            .get_devices_by_user_id(recipient_user_id)
+            .await
+            .map_err(|e| crate::p2p::errors::P2PError::InvalidState(e.to_string()))?;
+
+        if devices.is_empty() {
+            error!("No devices found for user {}", recipient_user_id);
+            continue;
+        }
+
+        let device = &devices[0];
+
+        // Get or establish peer connection
+        let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
+            Ok(conn) => conn,
+            Err(_) => {
+                // No active connection, try to establish one
+                info!(
+                    "No active connection to device {} for user {}, attempting to connect",
+                    device.id, recipient_user_id
+                );
+
+                match p2p_service.connect_with_ticket(&device.id).await? {
+                    Some(conn) => conn,
+                    None => {
+                        error!(
+                            "Failed to establish connection to device {} for user {}",
+                            device.id, recipient_user_id
+                        );
+                        continue;
+                    }
+                }
+            }
+        };
+
+        // Delegate to folder_sync handler
+        info!("Calling folder_sync handler for peer: {}", device.id);
+
+        match folder_sync::sync_folder_handler(
+            &folder_id,
+            peer_conn,
+            repo_ctx.clone(),
+            crypto_utils.clone(),
+        )
+        .await
+        {
+            Ok(_) => {
+                info!("✓ Folder sync sent to peer: {}", device.id);
+            }
+            Err(e) => {
+                error!("Failed to sync folder with peer {}: {}", device.id, e);
+                continue;
+            }
+        }
+    }
+
+    info!("✓ Folder sync initiated for: {}", folder_id);
     Ok(())
 }
 

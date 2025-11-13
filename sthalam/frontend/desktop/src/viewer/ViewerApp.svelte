@@ -22,6 +22,10 @@
 
   // CRDT subscriptions
   let templateUnsubscribe: (() => void) | null = null;
+  let collaborativeUnsubscribe: (() => void) | null = null;
+
+  // Template metadata for routing state updates
+  let templateDefinition: any = null;
 
   onMount(() => {
     initializeViewer();
@@ -29,6 +33,7 @@
 
   onDestroy(() => {
     if (templateUnsubscribe) templateUnsubscribe();
+    if (collaborativeUnsubscribe) collaborativeUnsubscribe();
   });
 
   /**
@@ -48,6 +53,9 @@
 
     try {
       const template = parseHUML(humlSource);
+
+      // Store template definition for state routing
+      templateDefinition = template;
 
       // 1. Load viewer state definition from template (read-only)
       const stateDefinition = template.documents?.viewerState || {};
@@ -70,8 +78,12 @@
       const contentMap = loroCoordinator.getContentMap();
       const contentDocData = contentMap.toJSON();
 
-      // Merge: initial state < persisted state < contentDoc collections
-      viewerState = { ...initialState, ...persistedState, ...contentDocData };
+      // Load collaborative state from collaborativeDoc (shared with owner/publisher)
+      const collaborativeMap = loroCoordinator.getCollaborativeMap();
+      const collaborativeState = collaborativeMap.toJSON();
+
+      // Merge: initial state < persisted state < contentDoc collections < collaborative state
+      viewerState = { ...initialState, ...persistedState, ...contentDocData, ...collaborativeState };
 
       console.log('📊 [ViewerApp] Initialized viewer state:', viewerState);
 
@@ -91,6 +103,16 @@
     templateUnsubscribe = templateDoc.subscribe(() => {
       // Re-initialize when template changes
       loadViewerScreens();
+    });
+
+    // 5. Subscribe to collaborative doc changes (when owner/publisher updates collaborative state)
+    const collaborativeDoc = loroCoordinator.getDocuments().collaborativeDoc;
+    collaborativeUnsubscribe = collaborativeDoc.subscribe(() => {
+      // Reload collaborative state when it changes from sync
+      const collaborativeMap = loroCoordinator.getCollaborativeMap();
+      const collaborativeState = collaborativeMap.toJSON();
+      viewerState = { ...viewerState, ...collaborativeState };
+      console.log('🔄 [ViewerApp] Updated collaborative state from sync:', collaborativeState);
     });
   }
 
@@ -180,7 +202,21 @@
   }
 
   /**
-   * Handle viewer actions (read-only, navigation only)
+   * Determine which Loro document a state key belongs to
+   */
+  function getDocumentTypeForKey(key: string): 'publisherState' | 'collaborativeState' | 'contentDoc' | 'unknown' {
+    if (!templateDefinition?.documents) return 'unknown';
+
+    // Check each document section
+    if (templateDefinition.documents.publisherState?.[key]) return 'publisherState';
+    if (templateDefinition.documents.collaborativeState?.[key]) return 'collaborativeState';
+    if (templateDefinition.documents.contentDoc?.[key]) return 'contentDoc';
+
+    return 'unknown';
+  }
+
+  /**
+   * Handle viewer actions (limited: navigate and collaborative setState only)
    */
   function handleAction(action: string, params: any = {}) {
     console.log('🎯 [ViewerApp] Handling action:', action, params);
@@ -190,8 +226,44 @@
         handleNavigate(params);
         break;
 
+      case 'setState':
+        handleSetState(params);
+        break;
+
       default:
         console.warn('⚠️ [ViewerApp] Action not supported in viewer mode:', action);
+    }
+  }
+
+  /**
+   * Update collaborative state (viewers can only edit collaborative state)
+   */
+  function handleSetState(params: any) {
+    const { stateUpdates } = params;
+
+    if (!stateUpdates) return;
+
+    // Determine which updates are allowed (only collaborative state)
+    const collaborativeMap = loroCoordinator.getCollaborativeMap();
+    let hasCollaborativeUpdates = false;
+
+    for (const [key, value] of Object.entries(stateUpdates)) {
+      const docType = getDocumentTypeForKey(key);
+
+      if (docType === 'collaborativeState') {
+        // Viewers CAN edit collaborative state
+        collaborativeMap.set(key, value);
+        viewerState = { ...viewerState, [key]: value };
+        hasCollaborativeUpdates = true;
+        console.log('✅ [ViewerApp] Updated collaborative state:', key, value);
+      } else {
+        // Viewers CANNOT edit other state types
+        console.warn(`⚠️ [ViewerApp] Viewer cannot edit ${docType} state:`, key);
+      }
+    }
+
+    if (hasCollaborativeUpdates) {
+      loroCoordinator.getDocuments().collaborativeDoc.commit();
     }
   }
 

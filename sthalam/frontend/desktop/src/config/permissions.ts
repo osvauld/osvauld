@@ -58,7 +58,7 @@ export const RESOURCE_TEMPLATE = {
       "template_doc": "crud/readonly",
       "content_doc": "crud/readonly",
       "collaborative_doc": "crud/merge",
-      "submissions_doc": "crud/appendonly",
+      "submissions_doc": "crud/submit",
       "static_assets": "crud/readonly",
     },
     doc_types: {
@@ -68,8 +68,9 @@ export const RESOURCE_TEMPLATE = {
       "collaborative_doc": "crdt",
       "submissions_doc": "crdt",
     },
-    no_update_from_node: ["user_content_doc"],
+    no_update_from_node: ["submissions_doc"],
     dont_send_to_node: ["user_content_doc"],
+    full_doc_send: ["submissions_doc"],
   },
 };
 

@@ -35,15 +35,33 @@ export class TemplateImporter {
     templateMap.set('name', template.name || 'Untitled');
     templateMap.set('version', template.version || 'v1.0.0');
 
-    // 5. Initialize state in contentDoc
-    // Extract initial state from template.documents section
-    if (template.documents?.appState) {
-      this.initializeState(template.documents.appState, contentMap);
+    // 5. Initialize state in Loro documents from HUML template.documents section
+    // Each HUML section maps to a specific Loro document
+
+    // publisherState → content_doc (stateMap)
+    if (template.documents?.publisherState) {
+      const stateMap = loroCoordinator.getStateMap();
+      console.log('📝 [TemplateImporter] publisherState:', template.documents.publisherState);
+      this.initializeState(template.documents.publisherState, stateMap);
+    }
+
+    // contentDoc → content_doc (contentMap)
+    if (template.documents?.contentDoc) {
+      console.log('📝 [TemplateImporter] contentDoc:', template.documents.contentDoc);
+      this.initializeState(template.documents.contentDoc, contentMap);
+    }
+
+    // collaborativeState → collaborative_doc
+    if (template.documents?.collaborativeState) {
+      const collaborativeMap = loroCoordinator.getCollaborativeMap();
+      console.log('📝 [TemplateImporter] collaborativeState:', template.documents.collaborativeState);
+      this.initializeState(template.documents.collaborativeState, collaborativeMap);
     }
 
     // 6. Commit changes
     loroCoordinator.getDocuments().templateDoc.commit();
     loroCoordinator.getDocuments().contentDoc.commit();
+    loroCoordinator.getDocuments().collaborativeDoc.commit();
 
     console.log('✅ [TemplateImporter] Import complete!');
   }
@@ -54,16 +72,25 @@ export class TemplateImporter {
   private initializeState(appState: any, contentMap: any): void {
     // Recursively initialize state from schema
     for (const [key, value] of Object.entries(appState)) {
+      console.log(`🔍 [TemplateImporter] Processing field: ${key}, type: ${Array.isArray(value) ? 'Array' : typeof value}, value:`, value);
+
       if (this.isStateDefinition(value)) {
         // It's a state definition with type and initial value
         const def = value as any;
         if (def.initial !== undefined) {
           contentMap.set(key, def.initial);
+          console.log(`✅ [TemplateImporter] Set ${key} = ${def.initial}`);
         }
+      } else if (Array.isArray(value)) {
+        // It's an array schema (defined with - ::)
+        // Initialize as empty array
+        contentMap.set(key, []);
+        console.log(`✅ [TemplateImporter] Set ${key} = [] (array schema)`);
       } else if (typeof value === 'object' && value !== null) {
         // It's a nested object, recurse
         // For now, just flatten it
         // TODO: Handle nested state properly
+        console.log(`⚠️ [TemplateImporter] Recursing into ${key}`);
         this.initializeState(value, contentMap);
       }
     }
@@ -76,6 +103,7 @@ export class TemplateImporter {
     return (
       typeof value === 'object' &&
       value !== null &&
+      !Array.isArray(value) &&
       ('type' in value || 'initial' in value)
     );
   }

@@ -94,6 +94,9 @@ pub enum ResourceMessage {
     ResourceTransfer(ResourceTransferMsg),
     ResourceTransferAck,
 
+    // Asset transfer protocol (for static files)
+    AssetTransfer(AssetTransferMsg),
+
     // Simple push sync (used for initial folder sync)
     ResourceDataSync(ResourceDataSync),
 }
@@ -103,6 +106,10 @@ pub enum ResourceMessage {
 pub enum FolderMessage {
     // Simple push sync
     FolderDataSync(FolderDataSync),
+
+    // CRDT folder sync protocol
+    FolderSyncRequest(FolderSyncRequestMsg),
+    FolderSyncResponse(FolderSyncResponseMsg),
 
     // Token request/response for shareable links
     FolderTokenRequest(FolderTokenRequest),
@@ -235,13 +242,19 @@ pub struct ResourceDataSync {
 
 // Resource request protocol - initiated when peer doesn't have resource
 
-/// Step 1: Initiator sends UCAN to check if responder has resource and start sync
+/// Step 1: Initiator sends UCAN with state vectors to check if responder has resource and start sync
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourceSyncRequestMsg {
     /// Resource UCAN token (contains resource_id)
     pub resource_ucan: String,
     /// Initiator's folder UCAN (for validation when responder sends resource back)
     pub folder_ucan: String,
+    /// Initiator's state vectors for CRDT docs
+    /// JSON format: {"doc_name": {"state_vector": [1,2,3,...], "asset_ids": ["id1", "id2"]}}
+    pub state_vectors: String,
+    /// Full documents for crud/submit capability (viewer submissions)
+    /// JSON format: {"submissions_doc": {"doc_type": "loro", "data": "base64..."}}
+    pub full_docs: String,
 }
 
 /// Step 2: Responder requests full resource (doesn't have it locally)
@@ -260,6 +273,41 @@ pub struct ResourceTransferMsg {
     pub resource: EncryptedResource,
     /// All share records for this resource
     pub share_records: Vec<ShareRecord>,
+}
+
+/// Folder sync request - discover resources in folder
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderSyncRequestMsg {
+    /// Folder UCAN proving access to folder
+    pub folder_ucan: String,
+    /// Initiator's resource list with state vectors
+    /// JSON format: {"resource_id": {"state_vectors": {...}, "asset_ids": [...]}}
+    pub resources: String,
+}
+
+/// Folder sync response - identify missing and existing resources
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderSyncResponseMsg {
+    /// Folder ID being synced
+    pub folder_id: String,
+    /// Resource IDs that responder doesn't have (need full transfer)
+    pub missing_resource_ids: Vec<String>,
+    /// Resources that responder has (will use individual ResourceSyncRequest)
+    /// JSON format: {"resource_id": {"state_vectors": {...}, "asset_ids": [...]}}
+    pub existing_resources: String,
+}
+
+/// Asset transfer message for static files
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssetTransferMsg {
+    /// Resource ID this asset belongs to
+    pub resource_id: String,
+    /// Asset ID
+    pub asset_id: String,
+    /// Binary asset data
+    pub asset_data: Vec<u8>,
+    /// Metadata JSON (mime_type, size, etc.)
+    pub metadata: String,
 }
 
 /// Request folder token for generating shareable link

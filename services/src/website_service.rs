@@ -251,11 +251,13 @@ pub async fn prepare_resource_for_viewer(
     info!("Created EncryptedResource for viewer");
 
     // 8. Create ShareRecord in memory (not saved - viewer will save it)
+    // NOTE: Currently using self-referencing (node→node) as a duct tape solution
+    // This allows viewer to identify the node that sent the resource
     let share_record = ShareRecord {
         id: Uuid::new_v4().to_string(),
         resource_id: resource_id.to_string(),
         shared_by_user_id: node_user_id.to_string(),
-        recipient_user_id: node_user_id.to_string(), // Self-referencing
+        recipient_user_id: node_user_id.to_string(), // Duct tape: self-referencing
         ucan_token: viewer_resource_ucan,
         ucan_cid: viewer_resource_ucan_cid,
         permission_level: PermissionLevel::Read,
@@ -263,7 +265,7 @@ pub async fn prepare_resource_for_viewer(
         created_at: Utc::now().timestamp(),
         updated_at: Utc::now().timestamp(),
     };
-    info!("Created ShareRecord in memory (self-referencing with node user)");
+    info!("Created ShareRecord in memory (self-referencing with node user - duct tape)");
 
     Ok((viewer_encrypted_resource, share_record))
 }

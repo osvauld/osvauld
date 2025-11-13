@@ -1105,25 +1105,19 @@ pub async fn create_viewer_resource_token(
     facts.insert("role".to_string(), json!("viewer"));
     facts.insert("docs".to_string(), json!(doc_names));
 
-    // Add static viewer_template (from permissions.ts - RESOURCE_TEMPLATE.viewer_template)
-    facts.insert("viewer_template".to_string(), json!({
-        "capabilities": {
-            "template_doc": "crud/readonly",
-            "content_doc": "crud/readonly",
-            "collaborative_doc": "crud/merge",
-            "submissions_doc": "crud/appendonly",
-            "static_assets": "crud/readonly"
-        },
-        "doc_types": {
-            "static_assets": "asset",
-            "template_doc": "crdt",
-            "content_doc": "crdt",
-            "collaborative_doc": "crdt",
-            "submissions_doc": "crdt"
-        },
-        "no_update_from_node": ["user_content_doc"],
-        "dont_send_to_node": ["user_content_doc"]
-    }));
+    // Extract and include doc_types, no_update_from_node, dont_send_to_node, full_doc_send from template
+    if let Some(doc_types) = template_obj.get("doc_types") {
+        facts.insert("doc_types".to_string(), doc_types.clone());
+    }
+    if let Some(no_update) = template_obj.get("no_update_from_node") {
+        facts.insert("no_update_from_node".to_string(), no_update.clone());
+    }
+    if let Some(dont_send) = template_obj.get("dont_send_to_node") {
+        facts.insert("dont_send_to_node".to_string(), dont_send.clone());
+    }
+    if let Some(full_doc_send) = template_obj.get("full_doc_send") {
+        facts.insert("full_doc_send".to_string(), full_doc_send.clone());
+    }
 
     // 6. Get encrypted key
     let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
@@ -1272,7 +1266,7 @@ pub async fn issue_resource_ucan_for_node(
             "template_doc": "crud/readonly",
             "content_doc": "crud/readonly",
             "collaborative_doc": "crud/merge",
-            "submissions_doc": "crud/appendonly",
+            "submissions_doc": "crud/submit",
             "static_assets": "crud/readonly"
         },
         "doc_types": {
@@ -1282,8 +1276,9 @@ pub async fn issue_resource_ucan_for_node(
             "collaborative_doc": "crdt",
             "submissions_doc": "crdt"
         },
-        "no_update_from_node": ["user_content_doc"],
-        "dont_send_to_node": ["user_content_doc"]
+        "no_update_from_node": ["submissions_doc"],
+        "dont_send_to_node": ["user_content_doc"],
+        "full_doc_send": ["submissions_doc"]
     }));
 
     // 5. Get encrypted key
@@ -1479,4 +1474,86 @@ pub async fn extract_facts(
         // Convert BTreeMap to serde_json::Map
         facts.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }))
+}
+
+/// Extract folder_id from folder UCAN token
+///
+/// Parses folder capability to extract folder ID.
+/// Format: "domain:folder:folder_id"
+///
+/// # Arguments
+/// * `folder_ucan` - The folder UCAN token
+///
+/// # Returns
+/// * Folder ID as String
+pub async fn extract_folder_id(folder_ucan: &str) -> ServiceResult<String> {
+    let ucan = crypto_utils::ucan_utils::validate_structure(folder_ucan).await?;
+
+    // Look for folder capability
+    for capability in ucan.capabilities().iter() {
+        let cap_resource = capability.resource;
+
+        if cap_resource.contains(":folder:") {
+            let parts: Vec<&str> = cap_resource.split(':').collect();
+
+            // Format: [domain, "folder", folder_id]
+            if parts.len() == 3 && parts[1] == "folder" {
+                return Ok(parts[2].to_string());
+            }
+        }
+    }
+
+    Err(crate::errors::FolderServiceError::UcanError(
+        "No folder capability found in UCAN".to_string(),
+    )
+    .into())
+}
+
+/// Extract user_id from UCAN token facts
+///
+/// Gets the user ID from the UCAN facts section.
+///
+/// # Arguments
+/// * `ucan_token` - The UCAN token
+///
+/// # Returns
+/// * User ID as String
+pub async fn extract_user_id(ucan_token: &str) -> ServiceResult<String> {
+    let facts = extract_facts(ucan_token).await?;
+
+    let facts_map = facts.ok_or_else(|| {
+        crate::errors::FolderServiceError::UcanError("No facts found in UCAN".to_string())
+    })?;
+
+    let user_id = facts_map
+        .get("user_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            crate::errors::FolderServiceError::UcanError("No user_id in UCAN facts".to_string())
+        })?;
+
+    Ok(user_id.to_string())
+}
+
+/// Extract audience (aud) from UCAN token
+///
+/// The audience is the DID of the intended recipient of the UCAN.
+/// For viewer UCANs, this is the viewer's UCAN public key as a DID.
+///
+/// # Arguments
+/// * `ucan_token` - The UCAN token string
+///
+/// # Returns
+/// * `String` - The audience DID
+pub async fn extract_audience(ucan_token: &str) -> ServiceResult<String> {
+    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token)
+        .await
+        .map_err(|e| {
+            crate::errors::FolderServiceError::UcanError(format!(
+                "Failed to parse UCAN: {}",
+                e
+            ))
+        })?;
+
+    Ok(ucan.audience().to_string())
 }

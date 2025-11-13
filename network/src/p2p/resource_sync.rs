@@ -3,6 +3,7 @@
 //! This module handles resource sync operations.
 
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection};
+use osvauld_core::models::AssetTransferMsg;
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
     Message, ResourceDataSync, ResourceMessage, ResourceNotFoundRequestMsg, ResourceSyncRequestMsg,
@@ -88,6 +89,9 @@ pub async fn process_message(
         ResourceMessage::ResourceTransferAck => handle_resource_transfer_ack(peer_conn).await,
         ResourceMessage::ResourceDataSync(payload) => {
             handle_resource_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        ResourceMessage::AssetTransfer(payload) => {
+            handle_asset_transfer(payload, peer_conn, repo_ctx, crypto_utils).await
         }
     }
 }
@@ -305,30 +309,37 @@ pub async fn handle_resource_data_sync(
 // Resource Request Protocol Handlers
 // =============================================================================
 
-/// Handle resource sync request from initiator (responder side)
+/// Handle resource sync request from initiator (responder side) - Round 1
+///
+/// NEW PROTOCOL: ResourceSyncRequest now contains state_vectors and full_docs.
+/// This is the first round of the 2-round sync protocol.
 ///
 /// Flow:
-/// - Receives resource_ucan + folder_ucan from initiator
+/// - Receives resource_ucan + folder_ucan + state_vectors + full_docs from initiator
 /// - Extracts resource_id and checks if resource exists locally
 /// - If not found: Sends ResourceNotFoundRequest with responder's folder_ucan
-/// - If found: Continues with normal merge sync (StateVectorRequest)
+/// - If found:
+///   1. Parse and apply full_docs (e.g., viewer submissions)
+///   2. Generate updates for peer based on their state_vectors
+///   3. Compare asset_ids to determine missing assets
+///   4. Send UpdatesResponse (first round response with updates)
 ///
 /// # Arguments
-/// * `payload` - ResourceSyncRequestMsg containing resource_ucan and initiator's folder_ucan
+/// * `payload` - ResourceSyncRequestMsg containing resource_ucan, folder_ucan, state_vectors, full_docs
 /// * `peer_conn` - Peer connection to send response
 /// * `repo_ctx` - Database repository context
 /// * `crypto_utils` - Crypto utilities for UCAN parsing
 ///
 /// # Returns
-/// * `Ok(())` - Response sent (either ResourceNotFoundRequest or StateVectorRequest)
-/// * `Err` - If UCAN parsing or database lookup fails
+/// * `Ok(())` - Response sent (either ResourceNotFoundRequest or UpdatesResponse)
+/// * `Err` - If UCAN parsing, database lookup, or update generation fails
 pub async fn handle_resource_sync_request(
     payload: ResourceSyncRequestMsg,
     peer_conn: Arc<PeerConnection>,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> P2PResult<()> {
-    info!("Received resource sync request from peer");
+    info!("Received resource sync request from peer (NEW PROTOCOL: with state_vectors and full_docs)");
 
     // Extract resource_id from UCAN token
     let resource_id = services::ucan_service::extract_resource_id(&payload.resource_ucan)
@@ -393,50 +404,219 @@ pub async fn handle_resource_sync_request(
         );
     } else {
         info!(
-            "Resource {} found locally, getting state vectors for sync",
+            "Resource {} found locally, processing sync request",
             resource_id
         );
 
-        // Get our state vectors filtered by initiator's UCAN
-        let domain = &peer_conn.domain;
-        let our_state_vectors = services::get_resource_state_vectors_by_ucan(
+        // PHASE 5.1: Apply full_docs if present (viewer submissions)
+        if !payload.full_docs.is_empty() && payload.full_docs != "{}" {
+            info!("Processing full_docs (viewer submissions)");
+
+            // Parse full_docs JSON
+            let full_docs: std::collections::HashMap<String, Vec<u8>> =
+                serde_json::from_str(&payload.full_docs).map_err(|e| {
+                    error!("Failed to parse full_docs JSON: {}", e);
+                    crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Invalid full_docs JSON: {}",
+                        e
+                    ))
+                })?;
+
+            // Apply each full document (e.g., submissions_doc)
+            for (doc_name, doc_bytes) in full_docs {
+                if doc_name == "submissions_doc" {
+                    // Get viewer identifier from UCAN audience (source of truth)
+                    let viewer_identifier =
+                        services::ucan_service::extract_audience(&payload.resource_ucan)
+                            .await
+                            .map_err(|e| {
+                                error!("Failed to extract audience from UCAN: {}", e);
+                                crate::p2p::errors::P2PError::InvalidState(format!(
+                                    "Invalid UCAN: {}",
+                                    e
+                                ))
+                            })?;
+
+                    info!("Applying submission from viewer: {}", viewer_identifier);
+
+                    // Get local user for saving
+                    let local_user = peer_conn.get_local_user().await?;
+
+                    // Load resource, apply submission, save
+                    let mut resource = services::get_resource_by_id_direct(
+                        &resource_id,
+                        repo_ctx.clone(),
+                        &crypto_utils,
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to load resource: {}", e);
+                        crate::p2p::errors::P2PError::InvalidState(format!(
+                            "Failed to load resource: {}",
+                            e
+                        ))
+                    })?;
+
+                    // Apply viewer submission with isolation
+                    services::apply_submission(
+                        &mut resource,
+                        &viewer_identifier,
+                        &doc_bytes,
+                        &payload.resource_ucan,
+                    )
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to apply submission: {}", e);
+                        crate::p2p::errors::P2PError::InvalidState(format!(
+                            "Failed to apply submission: {}",
+                            e
+                        ))
+                    })?;
+
+                    // Save updated resource
+                    let updated_json = resource.to_json().map_err(|e| {
+                        error!("Failed to serialize resource: {}", e);
+                        crate::p2p::errors::P2PError::InvalidState(format!(
+                            "Failed to serialize resource: {}",
+                            e
+                        ))
+                    })?;
+
+                    services::update_resource(&resource_id, updated_json, &local_user, repo_ctx.clone())
+                        .await
+                        .map_err(|e| {
+                            error!("Failed to save resource: {}", e);
+                            crate::p2p::errors::P2PError::InvalidState(format!(
+                                "Failed to save resource: {}",
+                                e
+                            ))
+                        })?;
+
+                    info!("✓ Applied viewer submission from user {}", viewer_identifier);
+                }
+            }
+        }
+
+        // Generate updates for peer based on their state vectors
+        let (our_updates, our_state_vectors) = services::generate_updates_for_peer(
             &payload.resource_ucan,
-            domain,
+            &payload.state_vectors,
             repo_ctx.clone(),
             &crypto_utils,
         )
         .await
         .map_err(|e| {
             error!(
-                "Failed to get state vectors for resource {}: {}",
+                "Failed to generate updates for resource {}: {}",
                 resource_id, e
             );
             crate::p2p::errors::P2PError::InvalidState(format!(
-                "Failed to get state vectors: {}",
+                "Failed to generate updates: {}",
                 e
             ))
         })?;
 
-        info!("✓ Got state vectors, sending StateVectorRequest to initiator");
+        info!("✓ Generated updates for peer");
 
-        // TODO: Get our asset IDs from resource
-        let our_asset_ids: Vec<String> = vec![]; // Placeholder
+        // Load our resource to get our UCAN token
+        let our_resource = services::get_resource_by_id_direct(
+            &resource_id,
+            repo_ctx.clone(),
+            &crypto_utils,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to load resource for Round 1 response: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to load resource: {}", e))
+        })?;
 
-        // Send StateVectorRequest with our state and assets
-        let state_vector_request = ResourceUpdateMsg::StateVectorRequest {
-            resource_id: resource_id.clone(),
+        // PHASE 5.2: Compare asset IDs to determine missing assets
+        let missing_asset_ids: Vec<String> = {
+            // Parse peer's state_vectors to extract asset_ids
+            let peer_state_vectors: std::collections::HashMap<String, serde_json::Value> =
+                serde_json::from_str(&payload.state_vectors).map_err(|e| {
+                    error!("Failed to parse state_vectors JSON: {}", e);
+                    crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Invalid state_vectors JSON: {}",
+                        e
+                    ))
+                })?;
+
+            // Extract peer's asset_ids from static_assets entry
+            let peer_asset_ids: Vec<String> = peer_state_vectors
+                .get("static_assets")
+                .and_then(|v| v.get("asset_ids"))
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if !peer_asset_ids.is_empty() {
+                info!("Peer has {} assets, comparing...", peer_asset_ids.len());
+
+                // Load resource to get our asset_ids
+                let resource = services::get_resource_by_id_direct(
+                    &resource_id,
+                    repo_ctx.clone(),
+                    &crypto_utils,
+                )
+                .await
+                .map_err(|e| {
+                    error!("Failed to load resource for asset comparison: {}", e);
+                    crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Failed to load resource: {}",
+                        e
+                    ))
+                })?;
+
+                // Extract our asset_ids
+                let our_asset_ids = services::extract_asset_ids(&resource)
+                    .await
+                    .map_err(|e| {
+                        error!("Failed to extract asset IDs: {}", e);
+                        crate::p2p::errors::P2PError::InvalidState(format!(
+                            "Failed to extract asset IDs: {}",
+                            e
+                        ))
+                    })?;
+
+                info!("We have {} assets", our_asset_ids.len());
+
+                // Compare using set operations
+                let (missing_on_peer, _missing_on_us) =
+                    services::compare_asset_ids(&our_asset_ids, &peer_asset_ids);
+
+                if !missing_on_peer.is_empty() {
+                    info!("Peer is missing {} assets", missing_on_peer.len());
+                }
+
+                missing_on_peer
+            } else {
+                vec![]
+            }
+        };
+
+        info!("✓ Prepared response, sending UpdatesResponse (Round 1)");
+
+        // Send UpdatesResponse (first round)
+        let updates_response = ResourceUpdateMsg::UpdatesResponse {
+            resource_id,
+            updates: our_updates,
             state_vectors: our_state_vectors,
-            asset_ids: our_asset_ids,
-            ucan_token: payload.resource_ucan.clone(), // Use initiator's UCAN to identify which resource
+            missing_asset_ids,
+            ucan_token: our_resource.ucan_token.clone(),
         };
 
         peer_conn
             .send_message(Message::Resource(ResourceMessage::MergeUpdate(
-                state_vector_request,
+                updates_response,
             )))
             .await?;
 
-        info!("✓ Sent StateVectorRequest for resource {}", resource_id);
+        info!("✓ Sent UpdatesResponse (Round 1) to peer");
     }
 
     Ok(())
@@ -650,14 +830,17 @@ pub async fn handle_state_vector_request(
     Ok(())
 }
 
-/// Handle UpdatesResponse from peer (initiator side)
+/// Handle UpdatesResponse from peer - Round 1 or Round 2
+///
+/// NEW PROTOCOL: Always 2 rounds for proper convergence.
 ///
 /// Flow:
 /// - Receives peer's updates and state vectors
 /// - Applies peer's updates to local resource
-/// - Generates our updates based on peer's new state
+/// - Generates our updates based on peer's new state vectors
 /// - Saves updated resource
-/// - If peer needs assets, sends AssetTransfer message
+/// - ALWAYS sends Round 2: UpdatesResponse with our updates back to peer
+/// - If peer needs assets, sends AssetTransfer messages
 ///
 /// # Arguments
 /// * `resource_id` - ID of resource being synced
@@ -670,7 +853,7 @@ pub async fn handle_state_vector_request(
 /// * `crypto_utils` - Crypto utilities
 ///
 /// # Returns
-/// * `Ok(())` - Updates applied successfully
+/// * `Ok(())` - Updates applied successfully and Round 2 sent
 /// * `Err` - If applying updates or saving fails
 pub async fn handle_updates_response(
     resource_id: String,
@@ -687,7 +870,7 @@ pub async fn handle_updates_response(
     // Get local user for encryption
     let local_user = peer_conn.get_local_user().await?;
 
-    // Apply peer's updates and generate our updates back
+    // Apply peer's updates to our resource (this also saves the resource)
     let our_updates = services::apply_peer_updates(
         &peer_ucan,
         &peer_updates,
@@ -703,24 +886,231 @@ pub async fn handle_updates_response(
 
     info!("✓ Applied peer updates and saved resource");
 
-    // If we have updates to send back to peer, send them
-    // Check if our_updates contains any actual updates (not just empty state vectors)
-    if !our_updates.trim().is_empty() && our_updates != "{}" {
-        info!("We have updates to send back to peer");
+    // Check if we should send Round 2 response based on our role
+    // Protocol:
+    // - Round 1: Initiator sends ResourceSyncRequest → Responder sends UpdatesResponse
+    // - Round 2: Initiator sends UpdatesResponse → Responder receives and STOPS
+    // So only the INITIATOR should send Round 2 response when receiving UpdatesResponse
+    if peer_conn.is_initiator {
+        info!("We are initiator - sending Round 2 UpdatesResponse");
 
-        // TODO: Send our updates back if needed (depends on sync strategy)
-        // For now, we assume one-way sync from responder to initiator
+        // Generate our updates based on peer's current state vectors
+        let (our_round2_updates, our_state_vectors) = services::generate_updates_for_peer(
+            &peer_ucan,
+            &peer_state_vectors,
+            repo_ctx.clone(),
+            &crypto_utils,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to generate Round 2 updates: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to generate Round 2 updates: {}", e))
+        })?;
+
+        info!("✓ Generated Round 2 updates for peer");
+
+        // Check if peer's UCAN has no_update_from_node restriction
+        // Extract facts from peer UCAN to filter out docs peer shouldn't receive
+        let peer_facts = services::ucan_service::extract_facts(&peer_ucan)
+            .await
+            .map_err(|e| {
+                error!("Failed to extract facts from peer UCAN: {}", e);
+                crate::p2p::errors::P2PError::InvalidState(format!("Failed to extract UCAN facts: {}", e))
+            })?
+            .unwrap_or_default();
+
+        let no_update_from_node: Vec<String> = peer_facts
+            .get("no_update_from_node")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+
+        if !no_update_from_node.is_empty() {
+            info!("Peer has no_update_from_node filter: {:?}", no_update_from_node);
+            // Note: generate_updates_for_peer already filters based on no_update_from_node
+            // This is just for logging/debugging
+        }
+
+        // Load our resource to get our UCAN token
+        let our_resource = services::get_resource_by_id_direct(
+            &resource_id,
+            repo_ctx.clone(),
+            &crypto_utils,
+        )
+        .await
+        .map_err(|e| {
+            error!("Failed to load resource for Round 2: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to load resource: {}", e))
+        })?;
+
+        // Send Round 2 UpdatesResponse
+        let round2_response = ResourceUpdateMsg::UpdatesResponse {
+            resource_id: resource_id.clone(),
+            updates: our_round2_updates,
+            state_vectors: our_state_vectors,
+            missing_asset_ids: vec![], // Asset transfer handled separately
+            ucan_token: our_resource.ucan_token.clone(),
+        };
+
+        peer_conn
+            .send_message(Message::Resource(ResourceMessage::MergeUpdate(
+                round2_response,
+            )))
+            .await?;
+
+        info!("✓ Sent Round 2 UpdatesResponse to peer");
+    } else {
+        info!("We are responder - NOT sending Round 2 (protocol complete)");
     }
 
-    // TODO: If peer needs assets, send AssetTransfer
+    // PHASE 5.3: If peer needs assets, send AssetTransfer messages
     if !missing_asset_ids.is_empty() {
         info!(
-            "Peer needs {} assets - asset transfer not yet implemented",
+            "Peer needs {} assets - sending AssetTransfer messages",
             missing_asset_ids.len()
         );
-        // TODO: Implement asset transfer
+
+        for asset_id in missing_asset_ids {
+            info!("Preparing to send asset: {}", asset_id);
+
+            // Load asset binary data from storage
+            let asset_data = services::get_asset_binary_data(
+                &resource_id,
+                &asset_id,
+                repo_ctx.clone(),
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to load asset {} binary data: {}", asset_id, e);
+                crate::p2p::errors::P2PError::InvalidState(format!(
+                    "Failed to load asset: {}",
+                    e
+                ))
+            })?;
+
+            // Load resource to get asset metadata from static_assets doc
+            let resource = services::get_resource_by_id_direct(
+                &resource_id,
+                repo_ctx.clone(),
+                &crypto_utils,
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to load resource for asset metadata: {}", e);
+                crate::p2p::errors::P2PError::InvalidState(format!(
+                    "Failed to load resource: {}",
+                    e
+                ))
+            })?;
+
+            // TODO: Extract metadata from static_assets (when assets are implemented)
+            // Should call merge_service function, not Loro operations directly
+            let metadata_json = serde_json::json!({
+                "mime_type": "application/octet-stream",
+                "size": asset_data.len(),
+                "filename": format!("{}.bin", asset_id),
+            })
+            .to_string();
+
+            // Send AssetTransfer message
+            let transfer_msg = osvauld_core::models::AssetTransferMsg {
+                resource_id: resource_id.clone(),
+                asset_id: asset_id.clone(),
+                asset_data,
+                metadata: metadata_json,
+            };
+
+            peer_conn
+                .send_message(osvauld_core::models::Message::Resource(
+                    osvauld_core::models::ResourceMessage::AssetTransfer(transfer_msg),
+                ))
+                .await?;
+
+            info!("✓ Sent AssetTransfer for: {}", asset_id);
+        }
+
+        info!("✓ All asset transfers sent");
     }
 
-    info!("✓ Sync complete for resource {}", resource_id);
+    info!("✓ Sync Round 2 complete for resource {}", resource_id);
+    Ok(())
+}
+
+/// Handle asset transfer from peer
+///
+/// Flow:
+/// - Receives AssetTransferMsg with resource_id, asset_id, asset_data, and metadata
+/// - Validates resource_id exists locally
+/// - Saves asset data to local storage
+/// - Updates static_assets document with new asset reference
+///
+/// # Arguments
+/// * `payload` - AssetTransferMsg containing asset data and metadata
+/// * `peer_conn` - Peer connection (for logging)
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Ok(())` - Asset saved successfully
+/// * `Err` - If validation or save fails
+pub async fn handle_asset_transfer(
+    payload: AssetTransferMsg,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    info!(
+        "Received asset transfer for resource {}, asset {}",
+        payload.resource_id, payload.asset_id
+    );
+
+    // Validate resource exists locally
+    let resource_exists = repo_ctx
+        .resource_repo
+        .find_by_id(&payload.resource_id)
+        .await
+        .is_ok();
+
+    if !resource_exists {
+        error!(
+            "Cannot save asset - resource {} not found locally",
+            payload.resource_id
+        );
+        return Err(crate::p2p::errors::P2PError::InvalidState(format!(
+            "Resource {} not found",
+            payload.resource_id
+        )));
+    }
+
+    info!(
+        "✓ Resource {} exists, saving asset (size: {} bytes)",
+        payload.resource_id,
+        payload.asset_data.len()
+    );
+
+    // Get local user for saving
+    let local_user = peer_conn.get_local_user().await?;
+
+    // Call service layer to save asset
+    services::save_asset_binary_data(
+        &payload.resource_id,
+        &payload.asset_id,
+        &payload.asset_data,
+        &payload.metadata,
+        &local_user,
+        repo_ctx,
+        &crypto_utils,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to save asset: {}", e);
+        crate::p2p::errors::P2PError::InvalidState(format!("Failed to save asset: {}", e))
+    })?;
+
+    info!(
+        "✓ Asset transfer complete - saved {} ({} bytes)",
+        payload.asset_id,
+        payload.asset_data.len()
+    );
     Ok(())
 }

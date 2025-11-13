@@ -31,6 +31,10 @@
 
   // CRDT subscriptions
   let templateUnsubscribe: (() => void) | null = null;
+  let collaborativeUnsubscribe: (() => void) | null = null;
+
+  // Template metadata for routing state updates
+  let templateDefinition: any = null;
 
   onMount(() => {
     initializePublisher();
@@ -38,10 +42,25 @@
 
   onDestroy(() => {
     if (templateUnsubscribe) templateUnsubscribe();
+    if (collaborativeUnsubscribe) collaborativeUnsubscribe();
   });
 
   /**
-   * Persist state changes to contentDoc automatically
+   * Determine which Loro document a state key belongs to
+   */
+  function getDocumentTypeForKey(key: string): 'publisherState' | 'collaborativeState' | 'contentDoc' | 'unknown' {
+    if (!templateDefinition?.documents) return 'unknown';
+
+    // Check each document section
+    if (templateDefinition.documents.publisherState?.[key]) return 'publisherState';
+    if (templateDefinition.documents.collaborativeState?.[key]) return 'collaborativeState';
+    if (templateDefinition.documents.contentDoc?.[key]) return 'contentDoc';
+
+    return 'unknown';
+  }
+
+  /**
+   * Persist state changes to appropriate Loro documents automatically
    */
   $effect(() => {
     // Watch for changes to publisherUIState
@@ -50,15 +69,38 @@
     // Only save if we have state to persist
     if (Object.keys(stateToSave).length === 0) return;
 
-    // Save to contentDoc (automatically debounced by Svelte)
+    // Route state updates to the correct Loro document
     const stateMap = loroCoordinator.getStateMap();
+    const collaborativeMap = loroCoordinator.getCollaborativeMap();
+    const contentMap = loroCoordinator.getContentMap();
+
     for (const [key, value] of Object.entries(stateToSave)) {
       // Only persist non-temporary fields (exclude _uploading, _error)
-      if (!key.endsWith('_uploading') && !key.endsWith('_error')) {
-        stateMap.set(key, value);
+      if (key.endsWith('_uploading') || key.endsWith('_error')) continue;
+
+      // Determine which document this key belongs to
+      const docType = getDocumentTypeForKey(key);
+
+      switch (docType) {
+        case 'publisherState':
+          stateMap.set(key, value);
+          break;
+        case 'collaborativeState':
+          collaborativeMap.set(key, value);
+          break;
+        case 'contentDoc':
+          contentMap.set(key, value);
+          break;
+        default:
+          // Default to stateMap for backwards compatibility
+          stateMap.set(key, value);
+          break;
       }
     }
+
+    // Commit all documents
     loroCoordinator.getDocuments().contentDoc.commit();
+    loroCoordinator.getDocuments().collaborativeDoc.commit();
   });
 
   /**
@@ -78,6 +120,9 @@
 
     try {
       const template = parseHUML(humlSource);
+
+      // Store template definition for state routing
+      templateDefinition = template;
 
       // 1. Load publisher state definition from template
       const stateDefinition = template.documents?.publisherState || {};
@@ -100,8 +145,12 @@
       const contentMap = loroCoordinator.getContentMap();
       const contentDocData = contentMap.toJSON();
 
-      // Merge: initial state < persisted state < contentDoc collections
-      publisherUIState = { ...initialState, ...persistedState, ...contentDocData };
+      // Load collaborative state from collaborativeDoc (shared with viewers)
+      const collaborativeMap = loroCoordinator.getCollaborativeMap();
+      const collaborativeState = collaborativeMap.toJSON();
+
+      // Merge: initial state < persisted state < contentDoc collections < collaborative state
+      publisherUIState = { ...initialState, ...persistedState, ...contentDocData, ...collaborativeState };
 
       // Initialize arrays as empty if not defined (for list-based templates)
       if (!publisherUIState.videos) {
@@ -122,6 +171,8 @@
 
       console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
       console.log('💾 [PublisherApp] Loaded persisted state from contentDoc:', persistedState);
+      console.log('🔄 [PublisherApp] Collaborative state:', collaborativeState);
+      console.log('🔍 [PublisherApp] Has comments?', 'comments' in publisherUIState, publisherUIState.comments);
 
       // 2. Load computed expressions from template
       const expressions = template.documents?.publisherComputed || {};
@@ -139,6 +190,16 @@
     templateUnsubscribe = templateDoc.subscribe(() => {
       // Re-initialize when template changes
       loadPublisherScreens();
+    });
+
+    // 5. Subscribe to collaborative doc changes (when viewers update collaborative state)
+    const collaborativeDoc = loroCoordinator.getDocuments().collaborativeDoc;
+    collaborativeUnsubscribe = collaborativeDoc.subscribe(() => {
+      // Reload collaborative state when it changes from sync
+      const collaborativeMap = loroCoordinator.getCollaborativeMap();
+      const collaborativeState = collaborativeMap.toJSON();
+      publisherUIState = { ...publisherUIState, ...collaborativeState };
+      console.log('🔄 [PublisherApp] Updated collaborative state from sync:', collaborativeState);
     });
   }
 

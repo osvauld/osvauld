@@ -47,7 +47,7 @@ export interface ResourceResponse {
     user_content_doc: number[];
     collaborative_doc: number[];
     submissions_doc: number[];
-    static_assets: Array<{ id: string; data: number[] }>;
+    static_assets: Record<string, string>; // Map of asset_id -> base64_string
   };
   favourite: boolean;
   lastAccessed: number;

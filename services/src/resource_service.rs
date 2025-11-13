@@ -21,6 +21,7 @@ use log::{error, info};
 use osvauld_core::models::{
     PermissionLevel, ShareOperation, ShareRecord, User,
     resource::{EncryptedResource, Resource},
+    document::create_doc,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
@@ -189,7 +190,7 @@ pub async fn create_resource(
     metadata_json: String,
     folder_id: String,
     user: &User,
-    current_device_id: &str,
+    _current_device_id: &str,
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
@@ -558,7 +559,7 @@ pub async fn share_resource(
 ///           Only includes docs that the UCAN token has access to
 pub async fn get_resource_state_vectors_by_ucan(
     ucan_token: &str,
-    domain: &str,
+    _domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> Result<String, ResourceServiceError> {
@@ -709,16 +710,17 @@ pub async fn apply_peer_updates(
 /// Retrieves the resource UCAN and folder UCAN needed to initiate sync.
 /// Used by the sync handler to prepare ResourceSyncRequest message.
 ///
+/// NOTE: Share records are self-referencing (node→node) by design (duct tape solution).
+/// We get ALL share records for the resource/folder and take the first one.
+///
 /// # Arguments
 /// * `resource_id` - ID of the resource to sync
-/// * `user_id` - ID of the user initiating sync
 /// * `repo_ctx` - Database repository context
 ///
 /// # Returns
 /// * `(resource_ucan, folder_ucan)` - Tuple of UCAN tokens
 pub async fn get_resource_ucans_for_sync(
     resource_id: &str,
-    user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> Result<(String, String), ResourceServiceError> {
     info!("Getting UCANs for resource sync: {}", resource_id);
@@ -733,42 +735,51 @@ pub async fn get_resource_ucans_for_sync(
             ResourceServiceError::DatabaseError(e.to_string())
         })?;
 
-    // Get share record to get resource UCAN
-    let share_record = repo_ctx
+    // Get ALL share records for this resource (operation="share")
+    // NOTE: Share records are self-referencing (node→node) by design
+    let share_records = repo_ctx
         .share_repo
-        .find_by_resource_and_operation_and_user(resource_id, "share", user_id)
+        .find_by_resource_and_operation(resource_id, "share")
         .await
         .map_err(|e| {
             error!(
-                "Failed to find share record for resource {} and user {}: {}",
-                resource_id, user_id, e
+                "Failed to find share records for resource {}: {}",
+                resource_id, e
             );
-            ResourceServiceError::DatabaseError(format!("No share record found: {}", e))
+            ResourceServiceError::DatabaseError(format!("No share records found: {}", e))
         })?;
 
-    // Get folder share record to get folder UCAN
-    let folder_share_option = repo_ctx
+    // Take first share record (should be only one for now)
+    let share_record = share_records.first().ok_or_else(|| {
+        error!("No share records found for resource {}", resource_id);
+        ResourceServiceError::DatabaseError("No share records found".to_string())
+    })?;
+
+    // Get ALL folder share records for this folder (operation="share")
+    // NOTE: get_records_by_folder_id already filters by operation="share"
+    let folder_share_records = repo_ctx
         .folder_share_repo
-        .find_by_folder_and_user(&resource.folder_id, user_id)
+        .get_records_by_folder_id(&resource.folder_id)
         .await
         .map_err(|e| {
             error!(
-                "Failed to find folder share for folder {} and user {}: {}",
-                resource.folder_id, user_id, e
+                "Failed to find folder share records for folder {}: {}",
+                resource.folder_id, e
             );
-            ResourceServiceError::DatabaseError(format!("Failed to get folder share: {}", e))
+            ResourceServiceError::DatabaseError(format!("No folder share records found: {}", e))
         })?;
 
-    let folder_share = folder_share_option.ok_or_else(|| {
+    // Take first folder share record (should be only one for now)
+    let folder_share_record = folder_share_records.first().ok_or_else(|| {
         error!(
-            "No folder share found for folder {} and user {}",
-            resource.folder_id, user_id
+            "No folder share records found for folder {}",
+            resource.folder_id
         );
-        ResourceServiceError::DatabaseError("No folder share found for user".to_string())
+        ResourceServiceError::DatabaseError("No folder share records found".to_string())
     })?;
 
     info!("✓ Found UCANs for resource sync");
-    Ok((share_record.ucan_token, folder_share.ucan_token))
+    Ok((share_record.ucan_token.clone(), folder_share_record.ucan_token.clone()))
 }
 
 /// Prepare resource for sending to a peer
@@ -1037,3 +1048,208 @@ pub async fn accept_resource_from_peer(
     );
     Ok(())
 }
+
+/// Compare asset IDs using set operations
+///
+/// Determines which assets are missing on each side by performing
+/// HashSet difference operations.
+///
+/// # Arguments
+/// * `local_asset_ids` - Asset IDs we have locally
+/// * `peer_asset_ids` - Asset IDs the peer has
+///
+/// # Returns
+/// * `(missing_on_peer, missing_on_local)` - Tuple of asset ID vectors
+pub fn compare_asset_ids(
+    local_asset_ids: &[String],
+    peer_asset_ids: &[String],
+) -> (Vec<String>, Vec<String>) {
+    use std::collections::HashSet;
+
+    let local_set: HashSet<&String> = local_asset_ids.iter().collect();
+    let peer_set: HashSet<&String> = peer_asset_ids.iter().collect();
+
+    // Assets we have that peer doesn't
+    let missing_on_peer: Vec<String> = local_set
+        .difference(&peer_set)
+        .map(|&id| id.clone())
+        .collect();
+
+    // Assets peer has that we don't
+    let missing_on_local: Vec<String> = peer_set
+        .difference(&local_set)
+        .map(|&id| id.clone())
+        .collect();
+
+    (missing_on_peer, missing_on_local)
+}
+
+/// Get list of resources in folder for folder sync
+///
+/// Returns minimal resource information needed for folder sync discovery phase.
+/// Includes resource_id, state_vectors, and asset_ids for each resource.
+///
+/// # Arguments
+/// * `folder_id` - ID of the folder
+/// * `user_id` - ID of the user
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `Vec<ResourceSyncInfo>` - List of resource sync information
+pub async fn get_resource_list_for_folder(
+    folder_id: &str,
+    user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<Vec<serde_json::Value>> {
+    info!("Getting resource list for folder: {}", folder_id);
+
+    // 1. Get all resource IDs in folder
+    let resource_ids = repo_ctx
+        .resource_repo
+        .get_resource_ids_by_folder_id(folder_id)
+        .await
+        .map_err(|e| ResourceServiceError::DatabaseError(e.to_string()))?;
+
+    info!("Found {} resources in folder", resource_ids.len());
+
+    // 2. For each resource, get share record and prepare sync info
+    let mut resource_list = Vec::new();
+
+    for resource_id in resource_ids {
+        // Get share record to get UCAN token
+        let share_records = repo_ctx
+            .share_repo
+            .find_by_resources_and_user(&[resource_id.clone()], user_id, "read")
+            .await
+            .map_err(|e| {
+                error!("Failed to get share record for resource {}: {}", resource_id, e);
+                ResourceServiceError::DatabaseError(e.to_string())
+            })?;
+
+        let share_record = share_records.into_iter().next().ok_or_else(|| {
+            error!("No share record found for resource {} and user {}", resource_id, user_id);
+            ResourceServiceError::InvalidState(format!("No share record found for resource {}", resource_id))
+        })?;
+
+        // Get resource for last_modified timestamp
+        let resource = repo_ctx
+            .resource_repo
+            .find_by_id(&resource_id)
+            .await
+            .map_err(|e| ResourceServiceError::DatabaseError(e.to_string()))?;
+
+        // Prepare resource info
+        let resource_info = serde_json::json!({
+            "resource_id": resource_id,
+            "resource_ucan": share_record.ucan_token,
+            "last_modified": resource.updated_at,
+        });
+
+        resource_list.push(resource_info);
+    }
+
+    Ok(resource_list)
+}
+
+/// Prepare all data needed for ResourceSyncRequest
+///
+/// Aggregates UCANs, state vectors, and full docs for a resource sync request.
+///
+/// # Arguments
+/// * `resource_id` - ID of the resource
+/// * `user_id` - ID of the user
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities for decryption
+///
+/// # Returns
+/// * `(resource_ucan, folder_ucan, state_vectors, full_docs)` - Tuple of sync data
+pub async fn prepare_resource_sync_request(
+    resource_id: &str,
+    user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<(String, String, String, String)> {
+    info!("Preparing ResourceSyncRequest for resource: {}", resource_id);
+
+    // 1. Get UCANs (user_id no longer needed - share records are self-referencing)
+    let (resource_ucan, folder_ucan) =
+        get_resource_ucans_for_sync(resource_id, repo_ctx.clone()).await?;
+
+    // 2. Load and decrypt resource
+    let resource = get_resource_by_id_direct(resource_id, repo_ctx.clone(), crypto_utils).await?;
+
+    // 3. Prepare sync data (state vectors + full docs)
+    let (state_vectors, full_docs) =
+        crate::merge_service::prepare_sync_data(&resource, &resource_ucan).await?;
+
+    info!("Successfully prepared ResourceSyncRequest data");
+    Ok((resource_ucan, folder_ucan, state_vectors, full_docs))
+}
+
+/// Get asset binary data from local storage
+///
+/// Retrieves the binary data for an asset stored in the filesystem.
+/// Assets are stored at: <data_dir>/resources/<resource_id>/assets/<asset_id>.<ext>
+///
+/// # Arguments
+/// * `resource_id` - ID of the resource containing the asset
+/// * `asset_id` - ID of the asset to retrieve
+/// * `repo_ctx` - Repository context (provides data_dir path)
+///
+/// # Returns
+/// * `Vec<u8>` - Binary asset data
+pub async fn get_asset_binary_data(
+    resource_id: &str,
+    asset_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Vec<u8>> {
+    // TODO: Implement asset retrieval from encrypted resource blob
+    // Assets are stored inside EncryptedResource.encrypted_data as JSON
+    // Not as separate files on filesystem
+    info!("get_asset_binary_data called for asset {} in resource {} (STUB)", asset_id, resource_id);
+    Ok(Vec::new())
+}
+
+/// Save asset binary data to local storage
+///
+/// Saves binary data for an asset to the filesystem and updates the
+/// static_assets Loro document with metadata.
+///
+/// # Arguments
+/// * `resource_id` - ID of the resource to save asset to
+/// * `asset_id` - ID of the asset
+/// * `asset_data` - Binary asset data
+/// * `metadata_json` - Asset metadata JSON (mime_type, size, filename)
+/// * `user` - Current user (for encryption when saving resource)
+/// * `repo_ctx` - Repository context
+/// * `crypto_utils` - Crypto utilities for decryption/encryption
+///
+/// # Returns
+/// * `()` - Success
+pub async fn save_asset_binary_data(
+    resource_id: &str,
+    asset_id: &str,
+    asset_data: &[u8],
+    metadata_json: &str,
+    user: &User,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+) -> ServiceResult<()> {
+    // TODO: Implement asset saving to encrypted resource blob
+    // Assets should be stored inside EncryptedResource.encrypted_data as JSON
+    // This function should call merge_service to handle the asset addition
+    info!("save_asset_binary_data called for asset {} in resource {} (STUB)", asset_id, resource_id);
+    Ok(())
+}
+
+// ==================== Re-export merge_service functions ====================
+// These are thin wrappers to maintain architectural boundaries:
+// P2P layer → resource_service → merge_service
+
+/// Apply viewer submission (re-exported from merge_service)
+pub use crate::merge_service::apply_submission;
+
+/// Extract asset IDs (re-exported from merge_service)
+pub use crate::merge_service::extract_asset_ids;

@@ -1,8 +1,9 @@
-# HUML Template Guide (Accurate - 2025-01-05)
+# HUML Template Guide (Accurate - 2025-01-12)
 
 **Status:** ✅ Reflects actual implementation
 **Version:** Sthalam v0.1.0
-**Last Validated:** 2025-01-05
+**Last Validated:** 2025-01-12
+**Last Updated:** Added collaborativeState documentation and forEach clarifications
 
 ---
 
@@ -269,6 +270,106 @@ documents::
 - Data that needs to persist across sessions
 - Data that needs to sync to viewers
 
+### ✅ NEW: Collaborative State (collaborativeState)
+
+**For bidirectional collaborative features (editable by both publisher and viewers), use `collaborativeState`:**
+
+```yaml
+documents::
+  collaborativeState::
+    counter::
+      type: "number"
+      initial: 0
+
+    newComment::
+      type: "string"
+      initial: ""
+
+    comments::
+      - ::
+        id::
+          type: "string"
+        content::
+          type: "string"
+        author::
+          type: "string"
+        timestamp::
+          type: "number"
+```
+
+**What is collaborativeState?**
+- A separate Loro CRDT document (`collaborative_doc`) that syncs between publisher and all viewers
+- Both publisher and viewers can **read and write** to collaborative state
+- Changes sync bidirectionally via the P2P network
+- Perfect for real-time collaborative features like comments, likes, shared counters, etc.
+
+**Key Differences Between Document Types:**
+
+| Feature | publisherState | contentDoc | collaborativeState |
+|---------|---------------|------------|-------------------|
+| **Stored In** | `content_doc` (stateMap) | `content_doc` (contentMap) | `collaborative_doc` |
+| **Publisher Access** | Read/Write | Read/Write | Read/Write |
+| **Viewer Access** | Read-Only | Read-Only | **Read/Write** ✅ |
+| **Use Cases** | Single values, UI state | Collections, persistent data | Collaborative features |
+| **Examples** | `currentTitle`, `uploadedVideoId` | `videos[]`, `images[]` | `comments[]`, `counter`, `likes` |
+
+**Important Implementation Details:**
+
+1. **Array Schema Syntax**: Use `- ::` to define array item structure (same as contentDoc):
+   ```yaml
+   comments::
+     - ::
+       id::
+         type: "string"
+       content::
+         type: "string"
+   ```
+   This initializes as an empty array `[]`, not as a CEL expression.
+
+2. **Viewer State Updates**: Viewers can call `setState` action on collaborative fields:
+   ```yaml
+   # This works for viewers when updating collaborative state
+   - ::
+     type: "button"
+     content: "Add Comment"
+     action: "setState"
+     stateUpdates::
+       comments: "${ comments + [{\"id\": string(now()), \"content\": newComment, \"author\": \"Viewer\", \"timestamp\": now()}] }"
+       newComment: ""
+   ```
+
+3. **Iteration with forEach**: Use `forEach` (not `repeat`) to iterate over collaborative arrays:
+   ```yaml
+   - ::
+     type: "container"
+     forEach: "${ comments }"
+     as: "item"
+     key: "id"
+     blocks::
+       - ::
+         type: "text"
+         content: "{{item.content}}"
+       - ::
+         type: "text"
+         content: "— {{item.author}}"
+   ```
+
+4. **Real-time Sync**: Changes to collaborative state trigger automatic CRDT sync:
+   - Publisher updates → syncs to node → syncs to all viewers
+   - Viewer updates → syncs to node → syncs to publisher and other viewers
+   - Conflict-free merging via Loro CRDT
+
+**When to use collaborativeState:**
+- Comments, reactions, likes
+- Shared counters or polls
+- Real-time collaborative editing features
+- Any data that viewers should be able to modify
+
+**When NOT to use collaborativeState:**
+- Publisher-only content (use publisherState or contentDoc)
+- Sensitive data that viewers shouldn't modify
+- Large binary assets (use static assets)
+
 ---
 
 ## 2. Computed Values
@@ -481,20 +582,67 @@ when: "{{counter > 0}}"  # Wrong syntax!
 
 ### `forEach` - Iteration
 
+**⚠️ CRITICAL: Use `forEach`, NOT `repeat`**
+
 ```yaml
 - ::
   type: "container"
   forEach: "${ items }"
   as: "item"
+  key: "id"
   blocks::
     - ::
       type: "text"
       content: "{{item.title}}"
+    - ::
+      type: "text"
+      content: "{{item.description}}"
 ```
 
+**Properties:**
+- `forEach: "${ expression }"` - Expression that returns an array to iterate over
+- `as: "item"` - Loop variable name (optional, default: `"item"`)
+- `key: "id"` - Property name to use as unique key for each item (optional but recommended)
+- `blocks::` - Child blocks to render for each item
+
 **Loop Variables:**
-- `as: "item"` - Creates `item` variable (default: `"item"`)
+- `item` (or custom name from `as`) - Current item in the iteration
 - `itemIndex` - Automatically available (0-based index)
+
+**Examples:**
+
+```yaml
+# Iterating over collaborative comments
+- ::
+  type: "container"
+  forEach: "${ comments }"
+  as: "comment"
+  key: "id"
+  blocks::
+    - ::
+      type: "text"
+      content: "{{comment.content}}"
+    - ::
+      type: "text"
+      content: "— {{comment.author}}"
+
+# Iterating over videos from contentDoc
+- ::
+  type: "container"
+  forEach: "videos"
+  key: "id"
+  css: "display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));"
+  blocks::
+    - ::
+      type: "video"
+      videoId: "{{item.videoId}}"
+      title: "{{item.title}}"
+```
+
+**Common Mistakes:**
+- ❌ Using `repeat` instead of `forEach` (not supported)
+- ❌ Forgetting `as` and `key` properties for clarity
+- ❌ Not using CEL syntax `${ }` for dynamic arrays
 
 ---
 

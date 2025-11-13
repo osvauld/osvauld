@@ -1,0 +1,214 @@
+name: "Sync Test - Comments"
+version: "v1.0.0"
+
+documents::
+  publisherState::
+    title::
+      type: "string"
+      initial: "Welcome to Sync Test"
+    description::
+      type: "string"
+      initial: "This template tests Owner ↔ Node ↔ Viewer sync"
+    newComment::
+      type: "string"
+      initial: ""
+
+  collaborativeState::
+    commentCount::
+      type: "number"
+      initial: 0
+    lastComment::
+      type: "string"
+      initial: ""
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "home"
+      name: "Publisher - Content Editor"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 800px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "{{title}}"
+          css: "color: #2563eb; margin-bottom: 1rem;"
+
+        - ::
+          type: "text"
+          content: "{{description}}"
+          css: "color: #6b7280; margin-bottom: 2rem;"
+
+        - ::
+          type: "section"
+          css: "background: #f3f4f6; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "Edit Content (Owner Only)"
+              css: "color: #1f2937; margin-bottom: 1rem;"
+
+            - ::
+              type: "label"
+              for: "title"
+              content: "Title"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #374151;"
+
+            - ::
+              type: "input"
+              name: "title"
+              inputType: "text"
+              placeholder: "Update title..."
+              css: "width: 100%; padding: 0.5rem; margin-bottom: 1rem; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;"
+
+            - ::
+              type: "label"
+              for: "description"
+              content: "Description"
+              css: "display: block; font-weight: 600; margin-bottom: 0.5rem; color: #374151;"
+
+            - ::
+              type: "input"
+              name: "description"
+              inputType: "text"
+              placeholder: "Update description..."
+              css: "width: 100%; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;"
+
+        - ::
+          type: "section"
+          css: "border: 2px solid #10b981; padding: 1.5rem; border-radius: 8px;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "Comments (Collaborative - Syncs with Viewer)"
+              css: "color: #10b981; margin-bottom: 1rem;"
+
+            - ::
+              type: "container"
+              css: "margin-bottom: 1rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "Total Comments: {{size(comments)}}"
+                  css: "color: #6b7280; font-size: 14px;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "column"
+              gap: "0.5rem"
+              css: "margin-bottom: 1rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "📝 {{item.text}} - by {{item.author}}"
+                  repeat: "${ comments }"
+                  css: "padding: 0.75rem; background: white; border: 1px solid #d1d5db; border-radius: 4px;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "row"
+              gap: "0.5rem"
+              blocks::
+                - ::
+                  type: "input"
+                  name: "newComment"
+                  inputType: "text"
+                  placeholder: "Add comment as publisher..."
+                  css: "flex: 1; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px;"
+
+                - ::
+                  type: "button"
+                  content: "Add"
+                  action: "setState"
+                  stateUpdates::
+                    comments: "${ comments + [{'text': newComment, 'author': 'Publisher'}] }"
+                    newComment: ""
+                  css: "padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer;"
+
+  viewer::
+    - ::
+      type: "screen"
+      id: "home"
+      name: "Viewer - Read & Comment"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 800px; margin: 0 auto; font-family: system-ui;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "{{title}}"
+          css: "color: #8b5cf6; margin-bottom: 1rem;"
+
+        - ::
+          type: "text"
+          content: "{{description}}"
+          css: "color: #6b7280; margin-bottom: 2rem;"
+
+        - ::
+          type: "section"
+          css: "background: #fef3c7; padding: 1rem; border-radius: 8px; margin-bottom: 2rem;"
+          blocks::
+            - ::
+              type: "text"
+              content: "📖 You are viewing this in VIEWER mode. Content is read-only but you can add comments!"
+              css: "color: #92400e; font-size: 14px;"
+
+        - ::
+          type: "section"
+          css: "border: 2px solid #8b5cf6; padding: 1.5rem; border-radius: 8px;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "Comments (Collaborative)"
+              css: "color: #8b5cf6; margin-bottom: 1rem;"
+
+            - ::
+              type: "container"
+              css: "margin-bottom: 1rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "Total Comments: {{size(comments)}}"
+                  css: "color: #6b7280; font-size: 14px;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "column"
+              gap: "0.5rem"
+              css: "margin-bottom: 1rem;"
+              blocks::
+                - ::
+                  type: "text"
+                  content: "💬 {{item.text}} - by {{item.author}}"
+                  repeat: "${ comments }"
+                  css: "padding: 0.75rem; background: white; border: 1px solid #e5e7eb; border-radius: 4px;"
+
+            - ::
+              type: "container"
+              layout: "flex"
+              direction: "row"
+              gap: "0.5rem"
+              blocks::
+                - ::
+                  type: "input"
+                  name: "viewerComment"
+                  inputType: "text"
+                  placeholder: "Add your comment..."
+                  css: "flex: 1; padding: 0.5rem; border: 1px solid #d1d5db; border-radius: 4px;"
+
+                - ::
+                  type: "button"
+                  content: "Comment"
+                  action: "setState"
+                  stateUpdates::
+                    comments: "${ comments + [{'text': viewerComment, 'author': 'Viewer'}] }"
+                    viewerComment: ""
+                  css: "padding: 0.5rem 1rem; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer;"
