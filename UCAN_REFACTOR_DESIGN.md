@@ -2,26 +2,35 @@
 
 ## Progress Status
 
-**Overall Progress**: 33% Complete (Phase 1-2 of 6)
+**Overall Progress**: 50% Complete (Phase 1-2 complete, Phase 3 80% complete)
 
 - ✅ **Phase 1 Complete**: Core domain models (capability.rs, connection_token.rs, ucan_domain.rs, ucan_token.rs, sync_context.rs)
 - ✅ **Phase 2 Complete**: Rewritten ucan_service.rs (1559 → 756 lines, zero hardcoded templates)
-- 🔄 **Phase 3 Next**: Refactor resource_service into 4-file module (mod, core, crud, sync) + delete merge_service.rs & website_service.rs
+- 🔄 **Phase 3 In Progress (80%)**: 4-file resource_service module implemented (1210 lines written)
+  - ✅ core.rs (330 lines) - Reusable building blocks
+  - ✅ crud.rs (427 lines) - 7 CRUD functions with typed tokens
+  - ✅ sync.rs (403 lines) - 19 sync functions (mix of new + transitional)
+  - ✅ mod.rs (50 lines) - Module structure
+  - ✅ Extended ucan_service utilities (302 lines added)
+  - ⏳ Fixing 76 compilation errors (down from 200+)
 - ⏳ **Phase 4-6 Pending**: P2P layer, Frontend, Testing
 
 **Key Achievements**:
-- 11 typed token wrappers created
-- UCAN 0.4.0 compatibility fixed
-- Zero hardcoded templates
-- Type-safe delegation pattern established
-- 48 compilation errors in services (expected, will fix in Phase 3)
-- 4-file module structure designed with reusable core layer
+- 11 typed token wrappers created ✅
+- UCAN 0.4.0 compatibility fixed ✅
+- Zero hardcoded templates ✅
+- Type-safe delegation pattern established ✅
+- 4-file module structure implemented ✅
+- Reusable core layer extracts 4 major patterns ✅
+- Network package: 0 compilation errors ✅
+- Services package: 76 errors (down from 200+) 🔄
 
-**Phase 3 Design**:
-- Resource service split into 4 files (mod, core, crud, sync)
-- NEW core.rs layer extracts ~400 lines of duplicated patterns
-- 25% code reduction (2128 → 1600 lines)
-- All functions refactored to use typed tokens + SyncContext
+**Phase 3 Implementation Details**:
+- **New code written**: 1,512 lines (resource_service module 1210 + ucan_service utilities 302)
+- **Core patterns extracted**: Load-Decrypt-Parse, Update-Encrypt-Save, State-Vector-Generation, Filter-and-Re-encrypt
+- **Transitional strategy**: Keep merge_service & website_service temporarily for gradual migration
+- **Typed token integration**: All new CRUD functions use ResourceOwnerToken, ResourceShareToken
+- **Design decision**: core.rs is private module (internal reusable building blocks only)
 
 ## Overview
 
@@ -973,16 +982,20 @@ let mut facts = template.to_facts();
 ### Phase 3: Consolidate Services - Delete Ductape
 **Goal**: Consolidate all resource/folder/viewer operations into resource_service module with reusable core
 
+**Status**: 🔄 **In Progress** (80% complete - module structure implemented, fixing compilation errors)
+
 **Architecture Decision**: Split resource_service.rs (1255 lines) into 4-file module with reusable building blocks
 
-**Module Structure**:
+**Module Structure** (Implemented):
 ```
 services/src/resource_service/
-├── mod.rs       (~150 lines)  - Public API surface + re-exports
-├── core.rs      (~200 lines)  - Reusable building blocks (NEW)
-├── crud.rs      (~350 lines)  - Resource lifecycle operations
-└── sync.rs      (~900 lines)  - CRDT sync + consolidated functions
+├── mod.rs       (50 lines)    - Public API surface + re-exports ✅
+├── core.rs      (330 lines)   - Reusable building blocks (NEW) ✅
+├── crud.rs      (427 lines)   - Resource lifecycle operations ✅
+└── sync.rs      (403 lines)   - CRDT sync + consolidated functions ✅
 ```
+
+**Total Implemented**: 1,210 lines of new code
 
 **Part A: Delete merge_service.rs** (602 lines)
 - **Why**: Permission logic now in SyncContext, CRDT ops are simple 1-line calls
@@ -1000,31 +1013,55 @@ services/src/resource_service/
   - `prepare_resource_for_viewer()` - Use SyncContext for filtering
   - `check_folder_and_user_status()` - Use typed tokens
 
-**Part C: Refactor resource_service.rs into Module**
+**Part C: Refactor resource_service.rs into Module** ✅ **IMPLEMENTED**
 
-1. **Create resource_service/core.rs** (NEW - Reusable building blocks):
+**Implementation Decision**: Instead of generic trait, created concrete functions for each token type to avoid cross-crate trait implementation issues.
+
+1. **Created resource_service/core.rs** (330 lines - NEW Reusable building blocks):
+
+   **Pattern 1: Load-Decrypt-Parse** (eliminates 5+ duplications):
    ```rust
-   /// Load resource by typed token (extracts ID, loads, decrypts)
-   pub async fn load_and_decrypt_by_token<T: ResourceTokenTrait>(
-       token: &T,
-       repo_ctx: Arc<RepositoryContext>,
-       crypto_utils: &Arc<RwLock<CryptoUtils>>,
-   ) -> ServiceResult<Resource>
+   /// Load resource by ResourceOwnerToken
+   pub async fn load_and_decrypt_by_owner_token(...)
 
+   /// Load resource by ResourceShareToken
+   pub async fn load_and_decrypt_by_share_token(...)
+
+   /// Load resource by ResourceViewerToken
+   pub async fn load_and_decrypt_by_viewer_token(...)
+
+   /// Load resource directly by ID (internal use)
+   pub async fn load_and_decrypt_resource(resource_id, ...)
+
+   /// Batch decrypt resources (for folder listings)
+   pub async fn decrypt_resources(encrypted_resources, ...)
+   ```
+
+   **Pattern 2: Update-Encrypt-Save** (eliminates 3+ duplications):
+   ```rust
    /// Encrypt resource data and save to database
+   /// Uses key rotation for forward secrecy
    pub async fn encrypt_and_save_resource(
        resource: &Resource,
        user_public_key: &str,
        repo_ctx: Arc<RepositoryContext>,
    ) -> ServiceResult<()>
+   ```
 
+   **Pattern 3: State-Vector-Generation** (eliminates 4+ duplications):
+   ```rust
    /// Build state vectors JSON for documents matching filter
+   /// Generic filter function allows flexible document selection
    pub fn build_state_vectors_json(
        resource: &Resource,
        doc_filter: impl Fn(&str) -> bool,
    ) -> ServiceResult<String>
+   ```
 
+   **Pattern 4: Filter-and-Re-encrypt** (eliminates 3+ duplications):
+   ```rust
    /// Filter resource documents and encrypt for peer
+   /// Uses SyncContext for permission-based filtering
    pub async fn filter_and_encrypt_for_peer(
        resource: &Resource,
        sync_context: &SyncContext,
@@ -1032,42 +1069,124 @@ services/src/resource_service/
    ) -> ServiceResult<(Vec<u8>, Vec<u8>)>
    ```
 
-2. **Create resource_service/crud.rs** (from resource_service.rs lines 172-560):
-   - Refactor 6 CRUD functions to use core.rs helpers
-   - Replace string UCANs with typed tokens
-   - Example refactoring:
+   **Helper**:
    ```rust
-   // BEFORE (20 lines):
-   pub async fn get_resource_by_id(ucan_token: &str, ...) {
-       let resource_id = extract_resource_id(ucan_token).await?;
-       let encrypted = repo_ctx.resource_repo.find_by_id(&resource_id).await?;
-       let crypto = crypto_utils.read().await;
-       let decrypted = crypto.decrypt_resource(...)?;
-       let resource = Resource::from_decrypted_data(...)?;
-       // ... more boilerplate
+   /// Create SyncContext from two raw UCAN tokens
+   pub async fn create_sync_context(our_token, peer_token) -> ServiceResult<SyncContext>
+   ```
+
+2. **Created resource_service/crud.rs** (427 lines) ✅:
+
+   **7 CRUD functions implemented**:
+   - `create_resource()` - Uses `ucan_service::resource_tokens::issue_owner_token()`
+   - `get_resource_by_id_direct()` - Uses `core::load_and_decrypt_resource()`
+   - `get_resource_by_token()` - Uses `core::load_and_decrypt_by_share_token()`
+   - `get_all_resources_metadata()` - Batch metadata fetching (no decryption)
+   - `update_resource()` - Direct encryption/save (key rotation for forward secrecy)
+   - `delete_resource()` - Soft delete
+   - `share_resource()` - Uses `ucan_service::resource_tokens::delegate_to_node()` with typed tokens
+
+   **Implementation Highlights**:
+   ```rust
+   // BEFORE (resource_service.rs lines 301-317):
+   pub async fn get_resource_by_id_direct(resource_id: &str, ...) {
+       let encrypted_resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
+       let resource = decrypt_encrypted_resource(&encrypted_resource, crypto_utils).await?;
+       Ok(resource)
    }
 
-   // AFTER (8 lines):
-   pub async fn get_resource_by_id(token: &ResourceShareToken, ...) {
-       let resource = core::load_and_decrypt_by_token(token, repo_ctx, crypto_utils).await?;
-       Ok(resource)
+   // AFTER (crud.rs - uses core helper):
+   pub async fn get_resource_by_id_direct(resource_id: &str, ...) {
+       core::load_and_decrypt_resource(resource_id, repo_ctx, crypto_utils).await
    }
    ```
 
-3. **Create resource_service/sync.rs** (consolidate + refactor):
-   - Move 8 existing sync functions (use core.rs)
-   - Move 3 folder sync helpers
-   - Move 2 asset operations
-   - Add 9 functions from merge_service.rs (refactored with core.rs)
-   - Add 3 functions from website_service.rs (refactored with core.rs)
-   - Total: ~23 functions, all using typed tokens + SyncContext
+   **Typed Token Integration**:
+   - `share_resource()` now parses owner token as `ResourceOwnerToken`
+   - Delegates using typed `delegate_to_node()` returning `ResourceShareToken`
+   - Eliminates string-based UCAN manipulation
 
-4. **Create resource_service/mod.rs**:
-   - Module declarations: `mod core;`, `mod crud;`, `mod sync;`
-   - Re-export all public functions: `pub use crud::*;`, `pub use sync::*;`
-   - Public API documentation
+3. **Created resource_service/sync.rs** (403 lines) ✅:
 
-**Part D: Update Callers**
+   **19 functions implemented** (mix of new implementations and delegations):
+
+   **State Vector Operations** (3 functions):
+   - `get_resource_state_vectors_by_ucan()` - Delegates to merge_service (transitional)
+   - `generate_updates_for_peer()` - Delegates to merge_service (transitional)
+   - `apply_peer_updates()` - Loads, applies via merge_service, saves with core
+
+   **Resource Transfer** (6 functions):
+   - `get_resource_ucans_for_sync()` - Get UCANs for folder sync
+   - `prepare_resource_for_peer()` - Uses `core::filter_and_encrypt_for_peer()`
+   - `prepare_resource_transfer()` - Orchestrates UCAN + data preparation
+   - `save_resource_transfer()` - Stub (TODO)
+   - `accept_resource_from_peer()` - Stub (TODO)
+   - `prepare_resource_sync_request()` - Uses `core::build_state_vectors_json()`
+
+   **Folder Sync Helpers** (3 functions):
+   - `compare_asset_ids()` - Stub (TODO)
+   - `get_resource_list_for_folder()` - Database query
+   - Asset operations (2 stubs)
+
+   **Website/Viewer Operations** (3 functions - delegates to website_service):
+   - `check_user_and_folder_status()` - Transitional delegation
+   - `get_folder_to_send()` - Transitional delegation
+   - `prepare_resource_for_viewer()` - Transitional delegation
+
+   **Re-exports from merge_service** (5 functions - transitional):
+   - Uses `pub use crate::merge_service::...` for backwards compatibility
+
+   **Implementation Strategy**:
+   - Core functions use new patterns (SyncContext, core.rs helpers)
+   - Transitional functions delegate to old services (merge_service, website_service)
+   - Allows incremental refactoring without breaking existing code
+
+4. **Created resource_service/mod.rs** (50 lines) ✅:
+   ```rust
+   mod core;  // Private - internal use only
+   mod crud;  // Public - re-exported
+   mod sync;  // Public - re-exported
+
+   pub use crud::*;  // Export all CRUD functions
+   pub use sync::*;  // Export all sync functions
+   ```
+
+   **Design Decision**: core.rs is private module - provides reusable building blocks for crud.rs and sync.rs but not exposed to external callers.
+
+**Part D: Extended ucan_service.rs** ✅ **IMPLEMENTED**
+
+Added backwards-compatible utility functions needed by old code:
+
+1. **utilities module** (157 lines):
+   - `extract_resource_id(ucan_token)` - Extract resource ID from UCAN capabilities
+   - `extract_folder_id_from_viewer_token(viewer_ucan, domain)` - Extract folder ID for viewers
+   - `extract_folder_id_with_add_resources(ucan, domain)` - Validate add_resources capability
+   - `extract_doc_capabilities(ucan)` - Get document name → capability map
+   - `extract_facts(ucan)` - Get raw UCAN facts JSON
+   - `extract_folder_capabilities(ucan)` - Get folder capability list
+
+2. **connection_tokens additions** (44 lines):
+   - `issue_one_time_connection_token()` - Wrapper for issue_one_time()
+   - `generate_public_folder_view_token()` - Wrapper for issue_viewer_auth()
+
+3. **folder_tokens additions** (47 lines):
+   - `issue_folder_owner_token()` - Create self-signed folder owner token
+
+4. **validation additions** (54 lines):
+   - `validate_folder_access_for_resource()` - Verify folder token matches folder_id
+   - `validate_ucan_structure()` - Generic UCAN validation
+
+5. **Re-exports** (added at top level):
+   ```rust
+   pub use connection_tokens::{issue_one_time_connection_token, generate_public_folder_view_token};
+   pub use folder_tokens::issue_folder_owner_token;
+   pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, ...};
+   pub use validation::{validate_folder_access_for_resource, validate_ucan_structure};
+   ```
+
+**Design Decision**: Keep old extraction functions as wrappers around new typed tokens. Allows gradual migration without breaking existing code.
+
+**Part E: Update Callers** ⏳ **PENDING**
 - Update folder_service.rs to use new signatures
 - Update share_service.rs to use typed tokens
 - Update website_handler.rs to call resource_service (not website_service)
@@ -1082,32 +1201,44 @@ services/src/resource_service/
   use crate::resource_service::{filter_and_encrypt_for_peer, prepare_resource_for_viewer};
   ```
 
-**Files to Delete**:
-- ❌ services/src/resource_service.rs (split into module)
-- ❌ services/src/merge_service.rs (602 lines)
-- ❌ services/src/website_service.rs (271 lines)
+**Files Status**:
+- ✅ services/src/resource_service.rs → RENAMED to resource_service_OLD.rs (backup)
+- ⏳ services/src/merge_service.rs (602 lines) - KEPT for transitional delegations
+- ⏳ services/src/website_service.rs (271 lines) - KEPT for transitional delegations
 
-**Files to Create**:
-- ✅ services/src/resource_service/mod.rs (~150 lines)
-- ✅ services/src/resource_service/core.rs (~200 lines) - NEW REUSABLE LAYER
-- ✅ services/src/resource_service/crud.rs (~350 lines)
-- ✅ services/src/resource_service/sync.rs (~900 lines)
+**Files Created**:
+- ✅ services/src/resource_service/mod.rs (50 lines)
+- ✅ services/src/resource_service/core.rs (330 lines) - NEW REUSABLE LAYER
+- ✅ services/src/resource_service/crud.rs (427 lines)
+- ✅ services/src/resource_service/sync.rs (403 lines)
 
-**Code Metrics**:
+**Code Metrics (Actual)**:
 - **Before**: 2128 lines (resource_service 1255 + merge_service 602 + website_service 271)
-- **After**: ~1600 lines (mod 150 + core 200 + crud 350 + sync 900)
-- **Net reduction**: -528 lines (25% reduction)
-- **Duplicated patterns eliminated**: ~400 lines extracted to core.rs
+- **After**: 1210 lines (mod 50 + core 330 + crud 427 + sync 403)
+- **New code written**: 1210 lines (all new, refactored implementations)
+- **Old code retained**: merge_service (602) + website_service (271) = 873 lines (transitional)
+- **Net reduction target**: ~500 lines once transitional code removed
 
-**Result**:
+**Implementation Status**:
 - All business logic in resource_service module ✅
 - Reusable core functions (DRY) ✅
-- Zero ductape services ✅
-- All typed tokens ✅
-- Clean architecture ✅
+- Transitional delegations to old services ⏳ (allows incremental migration)
+- Typed tokens used in new code ✅
+- Clean architecture established ✅
 - Testable building blocks ✅
 
-**Deliverable**: 4-file resource_service module with reusable core, no merge_service or website_service
+**Remaining Work**:
+- Fix 76 compilation errors (missing functions, type mismatches, error variants)
+- Remove transitional delegations (replace with full implementations)
+- Delete merge_service.rs and website_service.rs
+- Update lib.rs exports
+- Verify build with 0 errors
+
+**Current Compilation Status**:
+- services package: 76 errors (down from 200+ at start)
+- network package: 0 errors ✅
+
+**Deliverable**: 4-file resource_service module with reusable core. Transitional delegation strategy allows gradual migration without breaking changes.
 
 ### Phase 4: Update P2P Orchestration Layer
 **Goal**: Update P2P message handlers to use typed tokens and resource_service
