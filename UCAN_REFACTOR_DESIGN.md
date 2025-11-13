@@ -1,5 +1,28 @@
 # UCAN Permission System Refactor - Design Document
 
+## Progress Status
+
+**Overall Progress**: 33% Complete (Phase 1-2 of 6)
+
+- ✅ **Phase 1 Complete**: Core domain models (capability.rs, connection_token.rs, ucan_domain.rs, ucan_token.rs, sync_context.rs)
+- ✅ **Phase 2 Complete**: Rewritten ucan_service.rs (1559 → 756 lines, zero hardcoded templates)
+- 🔄 **Phase 3 Next**: Refactor resource_service into 4-file module (mod, core, crud, sync) + delete merge_service.rs & website_service.rs
+- ⏳ **Phase 4-6 Pending**: P2P layer, Frontend, Testing
+
+**Key Achievements**:
+- 11 typed token wrappers created
+- UCAN 0.4.0 compatibility fixed
+- Zero hardcoded templates
+- Type-safe delegation pattern established
+- 48 compilation errors in services (expected, will fix in Phase 3)
+- 4-file module structure designed with reusable core layer
+
+**Phase 3 Design**:
+- Resource service split into 4 files (mod, core, crud, sync)
+- NEW core.rs layer extracts ~400 lines of duplicated patterns
+- 25% code reduction (2128 → 1600 lines)
+- All functions refactored to use typed tokens + SyncContext
+
 ## Overview
 
 This document outlines the refactor of Osvauld's UCAN permission system to use typed token wrappers and pure functional logic for sync permission decisions.
@@ -32,9 +55,11 @@ The sync protocol only checks if peer has capability, but doesn't check:
 
 ### 1. Frontend is Source of Truth
 - ✅ Frontend (`permissions.ts`) defines ALL permission templates
-- ✅ Backend embeds templates in owner UCAN
+- ✅ Frontend sends complete UCAN structure (including templates) to backend
+- ✅ Backend stores UCAN exactly as received (no modification)
 - ✅ Backend extracts templates when delegating
 - ✅ Backend NEVER hardcodes permission structures
+- ✅ Backend NEVER modifies or generates UCAN structure
 - ✅ To change permissions, update `permissions.ts` only
 
 ### 2. Data-Driven Backend
@@ -61,15 +86,36 @@ The sync protocol only checks if peer has capability, but doesn't check:
 │  DocType (enum) - Crdt, Asset                       │
 │  ResourceAction (enum) - GetShareLink, Delete, etc. │
 │                                                       │
-│  ResourceUcan (domain model)                        │
-│    - Parse & extract UCAN data                      │
-│    - Rich API for queries                           │
+│  ConnectionTokenType (enum)                         │
+│    - OneTimeConnection, OwnerConnection,            │
+│      NodeConnection, UserConnection, ViewerAuth     │
 │                                                       │
-│  UcanToken (typed wrappers)                         │
+│  ResourceTokenType (enum)                           │
+│    - ResourceOwner, ResourceShare, ResourceViewer,  │
+│      FolderOwner, FolderShare, FolderViewer         │
+│                                                       │
+│  ConnectionToken (domain model)                     │
+│    - Parse & extract connection UCAN data           │
+│    - Validate connection-specific claims            │
+│                                                       │
+│  ConnectionUcanToken (typed wrappers)               │
+│    - OneTimeConnectionToken                         │
+│    - OwnerConnectionToken                           │
+│    - NodeConnectionToken                            │
+│    - UserConnectionToken                            │
+│    - ViewerAuthToken                                │
+│                                                       │
+│  ResourceUcan (domain model)                        │
+│    - Parse & extract resource UCAN data             │
+│    - Rich API for capability queries                │
+│                                                       │
+│  ResourceUcanToken (typed wrappers)                 │
 │    - ResourceOwnerToken                             │
 │    - ResourceShareToken                             │
+│    - ResourceViewerToken                            │
 │    - FolderOwnerToken                               │
 │    - FolderShareToken                               │
+│    - FolderViewerToken                              │
 │                                                       │
 │  SyncContext (dual-UCAN context)                    │
 │    - Pure functions for sync decisions              │
@@ -106,7 +152,60 @@ The sync protocol only checks if peer has capability, but doesn't check:
 
 ## Detailed Design
 
-### 1. Domain Model (Backend Types with Behavior)
+### 1. Token Type Architecture
+
+Osvauld uses **two separate token hierarchies** for maximum type safety and explicitness:
+
+1. **Connection Tokens** (`ConnectionTokenType`): For device-to-device connections and handshakes
+2. **Resource Tokens** (`ResourceTokenType`): For resource/folder access and sync operations
+
+This separation provides:
+- ✅ Clear compile-time distinction between connection and resource contexts
+- ✅ Easier testing (connection logic separate from sync logic)
+- ✅ Better security (connection tokens can't be misused for resource operations)
+- ✅ Explicit modeling of all token usage patterns
+
+#### Token Usage Table
+
+| Token Type | Issuer | Audience | Usage Context | Lifespan | Can Delegate To |
+|------------|--------|----------|---------------|----------|-----------------|
+| **Connection Tokens** |
+| OneTimeConnection | Any role | Peer device | Initial P2P handshake (FirstConnectRequest.one_time_ucan) | Single use | N/A (consumed immediately) |
+| OwnerConnection | Owner device | Peer device | Owner device-to-device sync (FirstConnectRequest.issued_ucan) | Long-lived | Node, User, Viewer |
+| NodeConnection | Node device | Peer device | Node device-to-device sync (FirstConnectRequest.issued_ucan) | Long-lived | User, Viewer |
+| UserConnection | User device | Peer device | User P2P collaboration (FirstConnectRequest.issued_ucan) | Long-lived | Viewer |
+| ViewerAuth | Node (via link) | Viewer | Initial viewer authentication (ViewerHandshakeRequest.viewer_auth_token) | Single use / Short-lived | None |
+| **Resource/Folder Tokens** |
+| ResourceOwner | Owner | Self | Full resource control, contains all delegation templates | Permanent | Node, User, Viewer |
+| ResourceShare | Owner/Node | Node/User | Resource access for Node or User role | Long-lived | User (if Node), Viewer |
+| ResourceViewer | Node | Viewer | Viewer's resource access token (UpdateUcanMessage.new_ucan_token) | Session-based | None |
+| FolderOwner | Owner | Self | Full folder control, contains all delegation templates | Permanent | Node, User, Viewer |
+| FolderShare | Owner/Node | Node/User | Folder access for Node or User role | Long-lived | User (if Node), Viewer |
+| FolderViewer | Node | Viewer | Viewer's folder access token (sent from Node to Viewer) | Session-based | None |
+
+#### Delegation Chains
+
+**P2P Connection Chain (Owner/Node/User)**:
+```
+OneTimeConnection (initial handshake)
+  ↓
+OwnerConnection / NodeConnection / UserConnection (ongoing sync)
+  ↓
+ResourceOwner / ResourceShare / FolderOwner / FolderShare (resource access)
+```
+
+**Viewer Connection Chain**:
+```
+ViewerAuth (from shareable link - connection token)
+  ↓
+ResourceViewer / FolderViewer (issued by Node via UpdateUcanMessage - resource tokens)
+```
+
+**Proof Chain Tracking**:
+- All delegated tokens include `prf: [<parent_ucan_cid>]` in facts
+- No recursive validation (just store parent CID for auditability)
+
+### 2. Domain Model (Backend Types with Behavior)
 
 **File**: `osvauld_core/src/models/capability.rs`
 
@@ -177,13 +276,78 @@ impl DocType {
     }
 }
 
-/// Token type for validation (domain concept)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenType {
+/// Connection/Handshake token types (separate hierarchy from resource tokens)
+/// These tokens are used for device-to-device connections and authentication
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConnectionTokenType {
+    /// One-time use token for initial device handshake (any role)
+    /// Used in: FirstConnectRequest.one_time_ucan
+    /// Lifespan: Single use
+    /// Purpose: Prove device pairing authorization
+    OneTimeConnection,
+
+    /// Owner device-to-device connection token
+    /// Used in: FirstConnectRequest.issued_ucan, UcanAndUserExchange.ucan_token
+    /// Lifespan: Long-lived
+    /// Purpose: Owner device sync and full control operations
+    OwnerConnection,
+
+    /// Node device-to-device connection token
+    /// Used in: FirstConnectRequest.issued_ucan, UcanAndUserExchange.ucan_token
+    /// Lifespan: Long-lived
+    /// Purpose: Node device sync and hosting operations
+    NodeConnection,
+
+    /// User device-to-device connection token (P2P collaboration)
+    /// Used in: FirstConnectRequest.issued_ucan, UcanAndUserExchange.ucan_token
+    /// Lifespan: Long-lived
+    /// Purpose: User device sync and collaboration operations
+    UserConnection,
+
+    /// Viewer authentication token (from shareable link)
+    /// Used in: ViewerHandshakeRequest.viewer_auth_token, WebsiteRequest.ucan_token
+    /// Lifespan: Single use or short-lived
+    /// Purpose: Initial viewer authentication
+    ViewerAuth,
+}
+
+/// Resource/Folder token types (for sync and resource operations)
+/// These tokens control access to specific resources and folders
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ResourceTokenType {
+    /// Resource owner token (full control)
+    /// Role: Owner
+    /// Contains: Delegation templates for Node/User/Viewer
     ResourceOwner,
+
+    /// Resource share token (for Node or User role)
+    /// Role: Node or User
+    /// Contains: Delegated capabilities, may contain further delegation templates
     ResourceShare,
+
+    /// Resource viewer token (for Viewer role)
+    /// Role: Viewer
+    /// Issued by Node after ViewerAuth validation
+    /// Used in: UpdateUcanMessage.new_ucan_token (sent from Node to Viewer)
+    /// Purpose: Viewer access to specific resource
+    ResourceViewer,
+
+    /// Folder owner token (full control)
+    /// Role: Owner
+    /// Contains: Delegation templates for Node/User/Viewer
     FolderOwner,
+
+    /// Folder share token (for Node or User role)
+    /// Role: Node or User
+    /// Contains: Delegated capabilities, may contain further delegation templates
     FolderShare,
+
+    /// Folder viewer token (for Viewer role)
+    /// Role: Viewer
+    /// Issued by Node after ViewerAuth validation
+    /// Used in: Folder access for viewer (sent from Node to Viewer)
+    /// Purpose: Viewer access to specific folder
+    FolderViewer,
 }
 
 /// Sync decision for a document (domain concept)
@@ -227,32 +391,100 @@ pub struct DocMetadata {
 }
 ```
 
-### 2. ResourceUcan Domain Model
+### 2. ConnectionToken Domain Model
 
-**File**: `osvauld_core/src/models/resource_ucan.rs`
+**File**: `osvauld_core/src/models/connection_token.rs`
+
+```rust
+/// Parsed connection UCAN with domain logic
+pub struct ConnectionToken {
+    raw_token: String,
+    parsed: Ucan,
+    token_type: ConnectionTokenType,
+    role: Role,
+}
+
+impl ConnectionToken {
+    /// Parse connection UCAN token
+    pub fn from_token(token: &str) -> ConnectionTokenResult<Self>;
+
+    // Accessors
+    pub fn raw_token(&self) -> &str;
+    pub fn token_type(&self) -> ConnectionTokenType;
+    pub fn role(&self) -> Role;
+    pub fn parsed(&self) -> &Ucan;
+
+    // Validation
+    pub fn is_one_time(&self) -> bool;
+    pub fn can_delegate_to(&self, target_role: Role) -> bool;
+}
+```
+
+**Typed Wrappers**:
+```rust
+pub struct OneTimeConnectionToken(ConnectionToken);
+pub struct OwnerConnectionToken(ConnectionToken);
+pub struct NodeConnectionToken(ConnectionToken);
+pub struct UserConnectionToken(ConnectionToken);
+pub struct ViewerAuthToken(ConnectionToken);
+
+// Each wrapper validates token_type AND role in constructor
+impl OneTimeConnectionToken {
+    pub fn from_token(token: &str) -> ConnectionTokenResult<Self> {
+        let conn = ConnectionToken::from_token(token)?;
+        if conn.token_type() != ConnectionTokenType::OneTimeConnection {
+            return Err(ConnectionTokenError::InvalidTokenType(...));
+        }
+        Ok(Self(conn))
+    }
+    pub fn inner(&self) -> &ConnectionToken { &self.0 }
+}
+
+impl OwnerConnectionToken {
+    pub fn from_token(token: &str) -> ConnectionTokenResult<Self> {
+        let conn = ConnectionToken::from_token(token)?;
+        if conn.token_type() != ConnectionTokenType::OwnerConnection {
+            return Err(ConnectionTokenError::InvalidTokenType(...));
+        }
+        if conn.role() != Role::Owner {
+            return Err(ConnectionTokenError::ValidationFailed(...));
+        }
+        Ok(Self(conn))
+    }
+    pub fn inner(&self) -> &ConnectionToken { &self.0 }
+}
+// Similar for NodeConnection, UserConnection, ViewerAuth...
+```
+
+### 3. ResourceUcan Domain Model
+
+**File**: `osvauld_core/src/models/ucan_domain.rs`
 
 ```rust
 /// Parsed resource UCAN with domain logic
 pub struct ResourceUcan {
     raw_token: String,
-    parsed: ParsedUcan,
+    parsed: Ucan,
     role: Role,
-    token_type: TokenType,
+    token_type: ResourceTokenType,
     capabilities: HashMap<String, Capability>,  // doc_name -> capability
     doc_metadata: HashMap<String, DocMetadata>,  // doc_name -> metadata
     sync_facts: SyncFacts,
     resource_actions: Option<Vec<ResourceAction>>,
     delegation_templates: HashMap<String, DelegationTemplate>,
+    proof_chain: Vec<String>,  // Parent UCAN CIDs
 }
 
 impl ResourceUcan {
     /// Parse UCAN token and extract all domain information
-    pub fn from_token(token: &str) -> ServiceResult<Self>;
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
 
     // Accessors
     pub fn raw_token(&self) -> &str;
     pub fn role(&self) -> Role;
-    pub fn token_type(&self) -> TokenType;
+    pub fn token_type(&self) -> ResourceTokenType;
+    pub fn proof_chain(&self) -> &[String];
+    pub fn parsed(&self) -> &Ucan;
 
     // Capability queries
     pub fn has_capability(&self, doc: &str) -> bool;
@@ -274,13 +506,13 @@ impl ResourceUcan {
     pub fn can_get_share_link(&self) -> bool;
     pub fn can_delete(&self) -> bool;
 
-    // Resource/Folder ID extraction
-    pub fn resource_id(&self) -> &str;
-    pub fn folder_id(&self) -> &str;
+    // Resource/Folder ID extraction (returns Option since ID might not be present)
+    pub fn resource_id(&self) -> Option<String>;
+    pub fn folder_id(&self) -> Option<String>;
 }
 ```
 
-### 3. Typed Token Wrappers
+### 4. ResourceUcan Typed Wrappers
 
 **File**: `osvauld_core/src/models/ucan_token.rs`
 
@@ -291,29 +523,74 @@ pub struct ResourceOwnerToken {
 }
 
 impl ResourceOwnerToken {
-    pub fn from_token(token: &str) -> ServiceResult<Self>;
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
     pub fn ucan(&self) -> &ResourceUcan;
-    pub fn resource_id(&self) -> &str;
-    pub fn get_delegation_template(&self, role: &str) -> ServiceResult<DelegationTemplate>;
+    pub fn resource_id(&self) -> String;
+    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate>;
 }
 
-/// Resource share token (node, user, or viewer)
+/// Resource share token (for Node or User role)
 pub struct ResourceShareToken {
     ucan: ResourceUcan,
 }
 
 impl ResourceShareToken {
-    pub fn from_token(token: &str) -> ServiceResult<Self>;
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
     pub fn ucan(&self) -> &ResourceUcan;
     pub fn role(&self) -> Role;
-    pub fn resource_id(&self) -> &str;
-    pub fn get_delegation_template(&self, role: &str) -> ServiceResult<DelegationTemplate>;
+    pub fn resource_id(&self) -> String;
+    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate>;
 }
 
-// Similar for FolderOwnerToken, FolderShareToken
+/// Resource viewer token (for Viewer role)
+pub struct ResourceViewerToken {
+    ucan: ResourceUcan,
+}
+
+impl ResourceViewerToken {
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
+    pub fn ucan(&self) -> &ResourceUcan;
+    pub fn resource_id(&self) -> String;
+}
+
+/// Folder owner token (full control)
+pub struct FolderOwnerToken {
+    ucan: ResourceUcan,
+}
+
+impl FolderOwnerToken {
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
+    pub fn ucan(&self) -> &ResourceUcan;
+    pub fn folder_id(&self) -> String;
+    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate>;
+}
+
+/// Folder share token (for Node or User role)
+pub struct FolderShareToken {
+    ucan: ResourceUcan,
+}
+
+impl FolderShareToken {
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
+    pub fn ucan(&self) -> &ResourceUcan;
+    pub fn role(&self) -> Role;
+    pub fn folder_id(&self) -> String;
+    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate>;
+}
+
+/// Folder viewer token (for Viewer role)
+pub struct FolderViewerToken {
+    ucan: ResourceUcan,
+}
+
+impl FolderViewerToken {
+    pub fn from_token(token: &str) -> ResourceUcanResult<Self>;
+    pub fn ucan(&self) -> &ResourceUcan;
+    pub fn folder_id(&self) -> String;
+}
 ```
 
-### 4. SyncContext with Pure Functions
+### 5. SyncContext with Pure Functions
 
 **File**: `osvauld_core/src/models/sync_context.rs`
 
@@ -423,8 +700,10 @@ pub fn apply_updates(
    ↓ Defines permission templates
 
 2. First Token Creation (Owner)
-   ↓ Frontend sends templates to backend
-   ↓ Backend embeds templates in owner UCAN
+   ↓ Frontend generates complete owner UCAN with all templates
+   ↓ Frontend signs UCAN token
+   ↓ Frontend sends signed UCAN to backend
+   ↓ Backend stores UCAN as-is (no modification)
    ↓ Owner UCAN contains: node_template, user_template, viewer_template
 
 3. Owner → Node/User Delegation
@@ -644,58 +923,236 @@ pub fn apply_updates(
 ## Implementation Plan
 
 ### Phase 1: Create Core Models
-1. Create `capability.rs` with enums (Role, Capability, DocType, etc.)
-2. Create `resource_ucan.rs` domain model
-3. Create `ucan_token.rs` typed wrappers
-4. Create `sync_context.rs` with pure functions
-5. Add tests for each module
+1. Create `capability.rs` with enums (Role, Capability, DocType, ConnectionTokenType, ResourceTokenType, etc.)
+2. Create `connection_token.rs` domain model and typed wrappers
+3. Create `ucan_domain.rs` domain model (handles both resource and folder UCANs)
+4. Create `ucan_token.rs` typed wrappers (for all resource/folder token types)
+5. Create `sync_context.rs` with pure functions
+6. Update `mod.rs` to export all new modules
 
-**Deliverable**: Core domain models with unit tests
+**Deliverable**: Core domain models for both connection and resource token hierarchies
 
-### Phase 2: Update ucan_service.rs
-1. **Remove hardcoded viewer_template** (lines 1264-1282 in current code)
-2. Extract templates from delegator UCAN instead of hardcoding
-3. Add `token_type` fact to all token generation functions
-4. Update function signatures to use typed tokens (input and output)
-5. Return typed tokens instead of (String, String)
-6. Add backward compatibility if needed
+**Status**: ✅ Phase 1 Complete
 
-**Critical**: Backend must NEVER hardcode permission templates. Always extract from delegator UCAN.
+### Phase 2: Rewrite ucan_service.rs & Extend Domain Models
+1. **Extend DelegationTemplate** in `ucan_domain.rs`:
+   - Add `build_capabilities(id, resource_type)` method - Convert template to Vec<(String, String)>
+   - Add `to_facts()` method - Convert template to JSON facts
+2. **Complete rewrite of ucan_service.rs** (1559 → 756 lines, 51% reduction):
+   - Organize into 4 modules: connection_tokens, resource_tokens, folder_tokens, validation
+   - **Remove ALL hardcoded templates** - Extract from delegator UCANs only
+   - Use typed tokens for all inputs/outputs
+   - Follow consistent 6-step delegation pattern
+3. **Fix UCAN 0.4.0 API compatibility** in domain models:
+   - Update core/Cargo.toml: ucan = "0.4.0" (match crypto_utils)
+   - Fix `.capabilities()` iteration (use `.iter()`)
+   - Fix `.facts()` access (use `.as_ref()`)
+   - Fix `.proofs()` handling (returns `Option<Vec<String>>`)
 
-**Deliverable**: Token generation uses typed tokens and extracts templates
-
-### Phase 3: Update resource_service.rs
-1. Update `prepare_resource_sync_request()` to use SyncContext
-2. Update `handle_resource_update()` to use SyncContext
-3. Remove inline permission checks
-4. Use pure functions from sync_context
-5. Update function signatures to accept typed tokens
-
-**Deliverable**: Resource service uses SyncContext for all permission logic
-
-### Phase 4: Update resource_sync.rs
-1. Parse incoming UCANs as typed tokens
-2. Load our UCAN as typed token
-3. Pass typed tokens to resource_service
-4. Remove calls to merge_service (call resource_service directly)
-
-**Deliverable**: P2P layer uses typed tokens
-
-### Phase 5: Handle merge_service.rs
-**Option A**: Delete entirely (recommended)
-**Option B**: Keep minimal CRDT utilities
-
-If keeping minimal utils:
+**Critical Pattern (All Delegation Functions)**:
 ```rust
-// Only CRDT operations, no permission logic
-pub fn export_snapshot(doc: &LoroDoc) -> Vec<u8>;
-pub fn export_from(doc: &LoroDoc, from: &VersionVector) -> Vec<u8>;
-pub fn import_updates(doc: &mut LoroDoc, updates: &[u8]) -> Result<()>;
+// 1. Extract template (NEVER HARDCODE!)
+let template = delegator_token.get_delegation_template("role")?;
+// 2. Build capabilities (DATA-DRIVEN)
+let capabilities = template.build_capabilities(id, "resource_type");
+// 3. Convert to facts (GENERIC)
+let mut facts = template.to_facts();
+// 4-6. Get key, generate token, return typed wrapper
 ```
 
-**Deliverable**: Simplified or removed merge_service
+**Result**:
+- Zero hardcoded templates ✅
+- All typed tokens ✅
+- Data-driven architecture ✅
+- 48 compilation errors in services (expected for Phase 3) ✅
 
-### Phase 6: Update Frontend
+**Deliverable**: Rewritten ucan_service with typed tokens and template extraction
+
+**Status**: ✅ Phase 2 Complete
+
+### Phase 3: Consolidate Services - Delete Ductape
+**Goal**: Consolidate all resource/folder/viewer operations into resource_service module with reusable core
+
+**Architecture Decision**: Split resource_service.rs (1255 lines) into 4-file module with reusable building blocks
+
+**Module Structure**:
+```
+services/src/resource_service/
+├── mod.rs       (~150 lines)  - Public API surface + re-exports
+├── core.rs      (~200 lines)  - Reusable building blocks (NEW)
+├── crud.rs      (~350 lines)  - Resource lifecycle operations
+└── sync.rs      (~900 lines)  - CRDT sync + consolidated functions
+```
+
+**Part A: Delete merge_service.rs** (602 lines)
+- **Why**: Permission logic now in SyncContext, CRDT ops are simple 1-line calls
+- **Move to resource_service/sync.rs**:
+  - Direct CRDT operations (LoroDoc method calls)
+  - State vector management
+  - Asset handling
+  - Use SyncContext for permission filtering
+  - Refactor using core.rs helpers
+
+**Part B: Delete website_service.rs** (271 lines)
+- **Why**: Ductape that calls deleted ucan_service functions, no domain models
+- **Move to resource_service/sync.rs**:
+  - `prepare_folder_for_viewer()` - Use FolderViewerToken
+  - `prepare_resource_for_viewer()` - Use SyncContext for filtering
+  - `check_folder_and_user_status()` - Use typed tokens
+
+**Part C: Refactor resource_service.rs into Module**
+
+1. **Create resource_service/core.rs** (NEW - Reusable building blocks):
+   ```rust
+   /// Load resource by typed token (extracts ID, loads, decrypts)
+   pub async fn load_and_decrypt_by_token<T: ResourceTokenTrait>(
+       token: &T,
+       repo_ctx: Arc<RepositoryContext>,
+       crypto_utils: &Arc<RwLock<CryptoUtils>>,
+   ) -> ServiceResult<Resource>
+
+   /// Encrypt resource data and save to database
+   pub async fn encrypt_and_save_resource(
+       resource: &Resource,
+       user_public_key: &str,
+       repo_ctx: Arc<RepositoryContext>,
+   ) -> ServiceResult<()>
+
+   /// Build state vectors JSON for documents matching filter
+   pub fn build_state_vectors_json(
+       resource: &Resource,
+       doc_filter: impl Fn(&str) -> bool,
+   ) -> ServiceResult<String>
+
+   /// Filter resource documents and encrypt for peer
+   pub async fn filter_and_encrypt_for_peer(
+       resource: &Resource,
+       sync_context: &SyncContext,
+       peer_public_key: &str,
+   ) -> ServiceResult<(Vec<u8>, Vec<u8>)>
+   ```
+
+2. **Create resource_service/crud.rs** (from resource_service.rs lines 172-560):
+   - Refactor 6 CRUD functions to use core.rs helpers
+   - Replace string UCANs with typed tokens
+   - Example refactoring:
+   ```rust
+   // BEFORE (20 lines):
+   pub async fn get_resource_by_id(ucan_token: &str, ...) {
+       let resource_id = extract_resource_id(ucan_token).await?;
+       let encrypted = repo_ctx.resource_repo.find_by_id(&resource_id).await?;
+       let crypto = crypto_utils.read().await;
+       let decrypted = crypto.decrypt_resource(...)?;
+       let resource = Resource::from_decrypted_data(...)?;
+       // ... more boilerplate
+   }
+
+   // AFTER (8 lines):
+   pub async fn get_resource_by_id(token: &ResourceShareToken, ...) {
+       let resource = core::load_and_decrypt_by_token(token, repo_ctx, crypto_utils).await?;
+       Ok(resource)
+   }
+   ```
+
+3. **Create resource_service/sync.rs** (consolidate + refactor):
+   - Move 8 existing sync functions (use core.rs)
+   - Move 3 folder sync helpers
+   - Move 2 asset operations
+   - Add 9 functions from merge_service.rs (refactored with core.rs)
+   - Add 3 functions from website_service.rs (refactored with core.rs)
+   - Total: ~23 functions, all using typed tokens + SyncContext
+
+4. **Create resource_service/mod.rs**:
+   - Module declarations: `mod core;`, `mod crud;`, `mod sync;`
+   - Re-export all public functions: `pub use crud::*;`, `pub use sync::*;`
+   - Public API documentation
+
+**Part D: Update Callers**
+- Update folder_service.rs to use new signatures
+- Update share_service.rs to use typed tokens
+- Update website_handler.rs to call resource_service (not website_service)
+- Update resource_sync.rs to use typed tokens
+- Import changes:
+  ```rust
+  // OLD:
+  use crate::merge_service::filter_documents_to_send;
+  use crate::website_service::prepare_resource_for_viewer;
+
+  // NEW:
+  use crate::resource_service::{filter_and_encrypt_for_peer, prepare_resource_for_viewer};
+  ```
+
+**Files to Delete**:
+- ❌ services/src/resource_service.rs (split into module)
+- ❌ services/src/merge_service.rs (602 lines)
+- ❌ services/src/website_service.rs (271 lines)
+
+**Files to Create**:
+- ✅ services/src/resource_service/mod.rs (~150 lines)
+- ✅ services/src/resource_service/core.rs (~200 lines) - NEW REUSABLE LAYER
+- ✅ services/src/resource_service/crud.rs (~350 lines)
+- ✅ services/src/resource_service/sync.rs (~900 lines)
+
+**Code Metrics**:
+- **Before**: 2128 lines (resource_service 1255 + merge_service 602 + website_service 271)
+- **After**: ~1600 lines (mod 150 + core 200 + crud 350 + sync 900)
+- **Net reduction**: -528 lines (25% reduction)
+- **Duplicated patterns eliminated**: ~400 lines extracted to core.rs
+
+**Result**:
+- All business logic in resource_service module ✅
+- Reusable core functions (DRY) ✅
+- Zero ductape services ✅
+- All typed tokens ✅
+- Clean architecture ✅
+- Testable building blocks ✅
+
+**Deliverable**: 4-file resource_service module with reusable core, no merge_service or website_service
+
+### Phase 4: Update P2P Orchestration Layer
+**Goal**: Update P2P message handlers to use typed tokens and resource_service
+
+**Part A: Update resource_sync.rs**
+1. Parse incoming UCANs as typed tokens:
+   ```rust
+   // OLD: String tokens
+   let peer_ucan_token = &request.ucan_token;
+
+   // NEW: Typed tokens
+   let peer_token = ResourceShareToken::from_token(&request.ucan_token)?;
+   let our_token = ResourceShareToken::from_token(&our_ucan)?;
+   ```
+
+2. Create SyncContext for permission checks:
+   ```rust
+   let sync_context = SyncContext::from_ucans(
+       our_token.ucan().clone(),
+       peer_token.ucan().clone(),
+   );
+   ```
+
+3. Pass typed tokens to resource_service (no more merge_service calls)
+
+**Part B: Update folder_sync.rs**
+- Use FolderShareToken, FolderOwnerToken
+- Pass typed tokens to folder_service
+- Remove any merge_service calls
+
+**Part C: Update website_handler.rs**
+- Parse ViewerAuth tokens as typed ViewerAuthToken
+- Use FolderViewerToken, ResourceViewerToken
+- Call resource_service (not website_service)
+- Update handshake flow to use typed tokens
+
+**Result**:
+- All P2P handlers use typed tokens ✅
+- No merge_service calls ✅
+- No website_service calls ✅
+- Clean orchestration → service layer calls ✅
+
+**Deliverable**: P2P layer uses typed tokens and updated service calls
+
+### Phase 5: Update Frontend
 1. Update `permissions.ts` capability names (collaborator, viewer, submitter)
 2. Update fact names (local_only, no_incoming_updates, send_full_snapshot)
 3. Add `token_type` field to all templates
@@ -705,8 +1162,8 @@ pub fn import_updates(doc: &mut LoroDoc, updates: &[u8]) -> Result<()>;
 
 **Deliverable**: Frontend uses new permission keywords
 
-### Phase 7: Testing & Validation
-**Test cases:**
+### Phase 6: Integration Testing & Validation
+**Manual test cases:**
 1. Owner ↔ Node sync (all docs bidirectional)
 2. Node ↔ Viewer sync (mixed permissions)
 3. Viewer cannot send content_doc/template_doc updates ✓ (fixes current bug)
@@ -717,7 +1174,7 @@ pub fn import_updates(doc: &mut LoroDoc, updates: &[u8]) -> Result<()>;
 8. Type safety: Cannot pass wrong token type (compile-time)
 9. Permission validation: Tokens validated at parse time
 
-**Deliverable**: All tests passing, bug fixed
+**Deliverable**: Integration tests passing, bug fixed
 
 ## Benefits
 
@@ -751,11 +1208,19 @@ pub fn import_updates(doc: &mut LoroDoc, updates: &[u8]) -> Result<()>;
 
 ## Migration Strategy
 
-1. **Non-breaking addition**: Create new modules alongside existing code
-2. **Backward compatibility**: Support old API while migrating
-3. **Gradual migration**: Update one service at a time
-4. **Test continuously**: Run tests after each change
-5. **Remove old code**: Once migration complete, remove deprecated code
+**This is a BREAKING CHANGE - No backward compatibility**
+
+1. **Create new modules**: Add domain models alongside existing code
+2. **Update backend**: Remove all hardcoded templates and structure generation
+3. **Update frontend**: Frontend now generates complete UCAN tokens
+4. **Breaking API changes**: Function signatures change to use typed tokens
+5. **All-at-once migration**: Frontend and backend must be updated together
+6. **Remove old code**: Delete deprecated UCAN generation code immediately
+
+**Why breaking?**
+- Fundamental shift: Backend no longer generates UCAN structure
+- Old tokens (with hardcoded templates) incompatible with new system
+- Clean break is simpler than maintaining dual systems
 
 ## Risk Assessment
 
@@ -787,15 +1252,14 @@ pub fn import_updates(doc: &mut LoroDoc, updates: &[u8]) -> Result<()>;
 
 ## Timeline Estimate
 
-- Phase 1 (Core models): 2-3 days
-- Phase 2 (ucan_service): 1-2 days
-- Phase 3 (resource_service): 1-2 days
-- Phase 4 (resource_sync): 1 day
-- Phase 5 (merge_service): 0.5 day
-- Phase 6 (Frontend): 1 day
-- Phase 7 (Testing): 2-3 days
+- Phase 1 (Core models): ✅ Complete (2 days actual)
+- Phase 2 (Rewrite ucan_service + fix UCAN 0.4.0): ✅ Complete (1 day actual)
+- Phase 3 (Consolidate services, delete merge/website): 2-3 days
+- Phase 4 (Update P2P layer): 1-2 days
+- Phase 5 (Frontend): 1 day
+- Phase 6 (Testing): 2-3 days
 
-**Total**: 8-12 days
+**Total**: 9-13 days (3 days complete, 6-10 days remaining)
 
 ## References
 
