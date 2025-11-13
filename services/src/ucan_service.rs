@@ -1,1145 +1,52 @@
-//! UCAN service - centralized UCAN validation, issuance, and extraction
+//! UCAN Token Service
 //!
-//! This module provides:
-//! - **Validation**: Business-level validation functions combining crypto_utils with app rules
-//! - **Issuance**: Common token generation workflows to eliminate boilerplate
-//! - **Extraction**: Utilities for parsing UCAN claims and capabilities
+//! Handles ALL token generation and delegation for the UCAN authorization system.
+//!
+//! ## Core Principle: NEVER HARDCODE TEMPLATES
+//!
+//! This service follows a strict data-driven approach:
+//! 1. Templates are ALWAYS extracted from delegator UCANs (never hardcoded)
+//! 2. All delegation uses `DelegationTemplate::build_capabilities()` and `to_facts()`
+//! 3. Typed tokens enforce correctness at compile time
+//!
+//! ## Architecture
+//!
+//! - **Private utilities**: Key management (get_decrypted_ucan_keys)
+//! - **Public utilities**: Key access (get_ucan_public_key)
+//! - **connection_tokens**: Device-to-device connection token issuance
+//! - **resource_tokens**: Resource delegation (Owner → Node → User → Viewer)
+//! - **folder_tokens**: Folder delegation (Owner → Node → User → Viewer)
+//! - **validation**: Business-level validation combining crypto with app rules
 
 use crate::errors::ServiceResult;
-use crypto_utils::{self, CryptoUtils};
-use ed25519_dalek::{SigningKey, VerifyingKey};
+use crypto_utils::CryptoUtils;
+use osvauld_core::models::{
+    ConnectionToken, FolderOwnerToken, FolderShareToken, FolderViewerToken, NodeConnectionToken,
+    OneTimeConnectionToken, OwnerConnectionToken, ResourceOwnerToken, ResourceShareToken,
+    ResourceViewerToken, UserConnectionToken, ViewerAuthToken,
+};
 use persistance::database::RepositoryContext;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-// ==================== PRIVATE HELPERS ====================
+// ==================== PRIVATE UTILITIES ====================
 
-/// Get decrypted UCAN keys from repository
-async fn get_decrypted_ucan_keys(
-    repo_ctx: &Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-) -> ServiceResult<(String, SigningKey, VerifyingKey)> {
+/// Get encrypted UCAN key from repository
+///
+/// Internal utility for accessing the encrypted UCAN key.
+/// Returns the encrypted key string which is passed to crypto_utils methods.
+async fn get_decrypted_ucan_keys(repo_ctx: &Arc<RepositoryContext>) -> ServiceResult<String> {
     let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    let crypto = crypto_utils.read().await;
-    let (signing_key, verifying_key) = crypto.decrypt_ucan_key(&encrypted_ucan_key)?;
-
-    Ok((encrypted_ucan_key, signing_key, verifying_key))
+    Ok(encrypted_ucan_key)
 }
 
-// ==================== VALIDATION FUNCTIONS ====================
-
-/// Validate that a peer has the capability to add folders
-///
-/// This validates:
-/// - The peer connection token structure is valid
-/// - The peer has `{domain}:add_folder` capability with `use` ability
-///
-/// # Arguments
-/// * `peer_connection_token` - The peer's connection UCAN token
-/// * `domain` - The domain to check (e.g., "sthalam")
-///
-/// # Returns
-/// * `Ok(())` if validation succeeds
-/// * `Err` with descriptive error if validation fails
-pub async fn validate_peer_can_add_folder(
-    peer_connection_token: &str,
-    domain: &str,
-) -> ServiceResult<()> {
-    tracing::info!("🔍 Validating peer can add folder");
-    tracing::info!("  - Token length: {} chars", peer_connection_token.len());
-    tracing::info!("  - Domain: {}", domain);
-
-    // 1. Validate token structure
-    tracing::debug!("  - Step 1: Parsing UCAN token structure...");
-    let peer_ucan = crypto_utils::ucan_utils::validate_structure(peer_connection_token)
-        .await
-        .map_err(|e| {
-            tracing::error!("❌ Failed to parse peer connection token: {}", e);
-            tracing::error!(
-                "   Token preview: {}",
-                if peer_connection_token.len() > 50 {
-                    &peer_connection_token[..50]
-                } else {
-                    peer_connection_token
-                }
-            );
-            crate::errors::FolderServiceError::Validation(format!(
-                "Invalid peer connection token: {}",
-                e
-            ))
-        })?;
-
-    tracing::info!("  ✓ Token structure valid");
-
-    // 2. Check for add_folder capability
-    let add_folder_resource = format!("{}:add_folder", domain);
-    tracing::debug!(
-        "  - Step 2: Checking for capability: {}",
-        add_folder_resource
-    );
-
-    crypto_utils::ucan_utils::check_capability(&peer_ucan, &add_folder_resource, "use").map_err(
-        |_| {
-            tracing::error!("❌ Peer lacks {} capability", add_folder_resource);
-            tracing::error!("   Available capabilities: {:?}", peer_ucan.capabilities());
-            crate::errors::FolderServiceError::Validation(format!(
-                "Peer lacks {} capability",
-                add_folder_resource
-            ))
-        },
-    )?;
-
-    tracing::info!("  ✅ Peer has {} capability", add_folder_resource);
-    Ok(())
-}
-
-/// Validate that a peer can add resources to a folder
-///
-/// This validates:
-/// - The owner's folder UCAN structure is valid
-/// - The owner has `add_resources` capability for the specific folder
-/// - The folder_id in the UCAN matches the expected folder_id
-///
-/// # Arguments
-/// * `owner_folder_ucan` - The owner's folder UCAN token
-/// * `expected_folder_id` - The folder_id that should match the UCAN
-/// * `domain` - The domain to check (e.g., "sthalam")
-///
-/// # Returns
-/// * `Ok(())` if all validations pass
-/// * `Err` with descriptive error if any validation fails
-pub async fn validate_peer_can_add_resources(
-    owner_folder_ucan: &str,
-    expected_folder_id: &str,
-    domain: &str,
-) -> ServiceResult<()> {
-    // 1. Validate owner's folder UCAN structure
-    let folder_ucan = crypto_utils::ucan_utils::validate_structure(owner_folder_ucan)
-        .await
-        .map_err(|e| {
-            crate::errors::ResourceServiceError::UcanError(format!(
-                "Invalid owner folder UCAN: {}",
-                e
-            ))
-        })?;
-
-    // 2. Extract folder_id with add_resources capability (business logic)
-    let folder_pattern = format!("{}:folder:", domain);
-    let mut folder_id_from_ucan = None;
-
-    for capability in folder_ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        if cap_resource.starts_with(&folder_pattern) && capability.ability == "add_resources" {
-            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
-                if !folder_id.is_empty() && folder_id != "*" {
-                    folder_id_from_ucan = Some(folder_id.to_string());
-                    break;
-                }
-            }
-        }
-    }
-
-    let folder_id_from_ucan = folder_id_from_ucan.ok_or_else(|| {
-        crate::errors::ResourceServiceError::UcanError(
-            "Owner's folder UCAN lacks add_resources capability or no folder found".to_string(),
-        )
-    })?;
-
-    // 3. Verify folder_id matches expected folder_id
-    if folder_id_from_ucan != expected_folder_id {
-        return Err(crate::errors::ResourceServiceError::UcanError(format!(
-            "Folder ID mismatch: UCAN has {}, expected {}",
-            folder_id_from_ucan, expected_folder_id
-        ))
-        .into());
-    }
-
-    Ok(())
-}
-
-/// Validate that a peer can request a share link for a folder
-///
-/// This validates:
-/// - Peer's folder UCAN is valid
-/// - Peer has get_share_link capability for the specific folder
-/// - Folder ID in UCAN matches expected folder ID
-pub async fn validate_peer_can_request_link(
-    peer_folder_ucan: &str,
-    expected_folder_id: &str,
-    domain: &str,
-) -> ServiceResult<()> {
-    // 1. Validate peer's folder UCAN structure
-    let folder_ucan = crypto_utils::ucan_utils::validate_structure(peer_folder_ucan)
-        .await
-        .map_err(|e| {
-            crate::errors::FolderServiceError::UcanError(format!("Invalid peer folder UCAN: {}", e))
-        })?;
-
-    // 2. Extract folder_id with get_share_link capability
-    let folder_pattern = format!("{}:folder:", domain);
-    let mut folder_id_from_ucan = None;
-
-    for capability in folder_ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        if cap_resource.starts_with(&folder_pattern) && capability.ability == "get_share_link" {
-            if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
-                if !folder_id.is_empty() && folder_id != "*" {
-                    folder_id_from_ucan = Some(folder_id.to_string());
-                    break;
-                }
-            }
-        }
-    }
-
-    let folder_id_from_ucan = folder_id_from_ucan.ok_or_else(|| {
-        crate::errors::FolderServiceError::UcanError(
-            "Peer's folder UCAN lacks get_share_link capability or no folder found".to_string(),
-        )
-    })?;
-
-    // 3. Verify folder_id matches expected folder_id
-    if folder_id_from_ucan != expected_folder_id {
-        return Err(crate::errors::FolderServiceError::UcanError(format!(
-            "Folder ID mismatch: UCAN has {}, expected {}",
-            folder_id_from_ucan, expected_folder_id
-        ))
-        .into());
-    }
-
-    Ok(())
-}
-
-/// Generate a viewer connection token for folder access
-///
-/// This function:
-/// 1. Validates the requester has get_share_link capability for the folder
-/// 2. Generates a viewer connection token with appropriate capabilities
-/// 3. Returns the token string for the requester to share with viewers
-///
-/// # Arguments
-/// * `requester_folder_ucan` - The requester's folder UCAN (must have get_share_link capability)
-/// * `folder_id` - The folder ID to generate viewer access for
-/// * `domain` - The domain prefix (e.g., "sthalam")
-/// * `repo_ctx` - Repository context for accessing encrypted UCAN keys
-/// * `crypto_utils` - Crypto utilities for token generation
-///
-/// # Returns
-/// * `Ok(token_string)` - The generated viewer connection token
-/// * `Err` if validation fails or token generation fails
-pub async fn generate_viewer_token_for_folder(
-    requester_folder_ucan: &str,
-    folder_id: &str,
-    domain: &str,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
-) -> ServiceResult<String> {
-    // 1. Validate requester has get_share_link capability
-    validate_peer_can_request_link(requester_folder_ucan, folder_id, domain).await?;
-
-    // 2. Get encrypted UCAN key from store
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 3. Build capabilities for viewer token
-    let capabilities = vec![
-        // Universal connection capability
-        (format!("{}:user-connect:*", domain), "use".to_string()),
-        // Folder-level capabilities
-        (
-            format!("{}:folder:{}", domain, folder_id),
-            "request_resources".to_string(),
-        ),
-        (
-            format!("{}:folder:{}", domain, folder_id),
-            "get_share_link".to_string(),
-        ),
-        // Resource-level wildcard capabilities
-        (
-            format!("{}:resource:{}/*", domain, folder_id),
-            "request_resources".to_string(),
-        ),
-        (
-            format!("{}:resource:{}/*", domain, folder_id),
-            "get_share_link".to_string(),
-        ),
-    ];
-
-    // 4. Build facts for viewer token
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), serde_json::json!("viewer"));
-    facts.insert("folder_id".to_string(), serde_json::json!(folder_id));
-
-    // 5. Generate viewer token (30 days expiry)
-    let crypto = crypto_utils.read().await;
-    let viewer_token = crypto
-        .generate_viewer_connection_token(
-            &encrypted_ucan_key,
-            capabilities,
-            Some(facts),
-            "*",                     // Wildcard audience
-            Some(30 * 24 * 60 * 60), // 30 days
-        )
-        .await
-        .map_err(|e| {
-            crate::errors::FolderServiceError::UcanError(format!(
-                "Failed to generate viewer token: {}",
-                e
-            ))
-        })?;
-
-    Ok(viewer_token)
-}
-
-/// Validate that a requester has access to a resource via their folder UCAN
-///
-/// This validates:
-/// - The folder UCAN structure is valid
-/// - The folder UCAN has proper capabilities (add_resources)
-/// - The resource's folder_id matches the folder_id in the UCAN
-///
-/// Used when a peer requests a resource - validates they should have access
-/// based on folder permissions.
-///
-/// # Arguments
-/// * `folder_ucan` - Requester's folder UCAN token
-/// * `resource_folder_id` - The folder_id that the resource belongs to
-/// * `domain` - The domain to check (e.g., "sthalam")
-///
-/// # Returns
-/// * `Ok(())` if requester has valid folder access
-/// * `Err` with descriptive error if validation fails
-pub async fn validate_folder_access_for_resource(
-    folder_ucan: &str,
-    resource_folder_id: &str,
-    domain: &str,
-) -> ServiceResult<()> {
-    // Reuse existing validation - folder UCAN must have add_resources capability
-    // and folder_id must match the resource's folder
-    validate_peer_can_add_resources(folder_ucan, resource_folder_id, domain).await
-}
-
-/// Validate a connect token (moved from crypto_utils::ucan_operations)
-///
-/// This validates:
-/// - One-time tokens: issuer matches verifier, has user-connect capability
-/// - Delegated tokens: validates audience and embedded proof chain
-///
-/// # Arguments
-/// * `token` - The connect token to validate
-/// * `presenter_ucan_pub` - The presenter's UCAN public key
-/// * `verifier_ucan_pub` - The verifier's UCAN public key
-/// * `verifier_user_id` - The verifier's user ID
-/// * `domain` - The domain to check
-///
-/// # Returns
-/// * `Ok(())` if validation succeeds
-/// * `Err` with descriptive error if validation fails
-pub async fn validate_connect_token(
-    token: &str,
-    presenter_ucan_pub: &str,
-    verifier_ucan_pub: &str,
-    verifier_user_id: &str,
-    domain: &str,
-) -> ServiceResult<()> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(token).await?;
-    let required_resource = format!("{}:user-connect:{}", domain, verifier_user_id);
-
-    if crypto_utils::ucan_utils::is_one_time_connect_token(&ucan, domain) {
-        crypto_utils::ucan_utils::verify_did_key_match(ucan.issuer(), verifier_ucan_pub)?;
-        crypto_utils::ucan_utils::check_capability(&ucan, &required_resource, "use")?;
-    } else {
-        crypto_utils::ucan_utils::validate_audience(&ucan, presenter_ucan_pub)?;
-        crypto_utils::ucan_utils::validate_embedded_proof_chain(
-            token,
-            verifier_user_id,
-            verifier_ucan_pub,
-            domain,
-            None,
-        )
-        .await?;
-    }
-
-    Ok(())
-}
-
-/// Validate authority for update operations (moved from crypto_utils::ucan_operations)
-///
-/// This validates:
-/// - Token structure is valid
-/// - Audience matches peer's UCAN public key
-/// - Has proper "crud/update" permission via proof chain
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to validate
-/// * `peer_ucan_pub` - The peer's UCAN public key (audience)
-/// * `root_ucan_pub` - The root authority's UCAN public key
-/// * `resource_id` - The resource ID to check permissions for
-/// * `domain` - The domain to check
-/// * `proof_resolver` - Function to resolve proof CIDs to UCAN tokens
-///
-/// # Returns
-/// * `Ok(())` if validation succeeds
-/// * `Err` with descriptive error if validation fails
-pub async fn validate_authority_for_update<F, Fut>(
-    ucan_token: &str,
-    peer_ucan_pub: &str,
-    root_ucan_pub: &str,
-    resource_id: &str,
-    domain: &str,
-    proof_resolver: &F,
-) -> ServiceResult<()>
-where
-    F: Fn(&str) -> Fut + Send + Sync,
-    Fut: std::future::Future<Output = Result<String, crypto_utils::errors::UcanError>>
-        + Send
-        + 'static,
-{
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-    crypto_utils::ucan_utils::validate_audience(&ucan, peer_ucan_pub)?;
-
-    let resource_uri = format!("{}:resource:{}", domain, resource_id);
-    crypto_utils::ucan_utils::validate_ucan_permission(
-        &ucan,
-        root_ucan_pub,
-        proof_resolver,
-        &resource_uri,
-        "crud/update",
-    )
-    .await?;
-
-    Ok(())
-}
-
-// ==================== EXTRACTION FUNCTIONS ====================
-
-/// Extract folder_id that has add_resources capability from UCAN token
-///
-/// This enforces the business rule that folder access requires add_resources capability.
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to extract from
-/// * `domain` - The domain (e.g., "sthalam")
-///
-/// # Returns
-/// * `Ok(folder_id)` - The extracted folder_id
-/// * `Err` if no folder with add_resources capability found
-pub async fn extract_folder_id_with_add_resources(
-    ucan_token: &str,
-    domain: &str,
-) -> ServiceResult<String> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-    crypto_utils::ucan_extractors::extract_id_with_capability(
-        &ucan,
-        domain,
-        "folder",
-        "add_resources",
-    )
-    .map_err(|e| e.into())
-}
-
-/// Extract folder_id from viewer UCAN token (uses request_resources capability)
-///
-/// Viewer tokens have request_resources instead of add_resources.
-/// This function extracts the folder_id from viewer connection tokens.
-///
-/// # Arguments
-/// * `ucan_token` - The viewer UCAN token to extract from
-/// * `domain` - The domain (e.g., "sthalam")
-///
-/// # Returns
-/// * `Ok(folder_id)` - The extracted folder_id
-/// * `Err` if no folder with request_resources capability found
-pub async fn extract_folder_id_from_viewer_token(
-    ucan_token: &str,
-    domain: &str,
-) -> ServiceResult<String> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-    crypto_utils::ucan_extractors::extract_id_with_capability(
-        &ucan,
-        domain,
-        "folder",
-        "request_resources",
-    )
-    .map_err(|e| e.into())
-}
-
-/// Extract resource_id from UCAN token (business logic)
-///
-/// Parses the UCAN and extracts the first resource ID found in capabilities.
-/// Supports multiple formats:
-/// - "domain:resource:resource_id" (standard)
-/// - "domain:resource:resource_id:doc_type" (3-doc architecture)
-/// - "domain:resource:folder_id/resource_id" (folder-scoped)
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to extract from
-///
-/// # Returns
-/// * `Ok(resource_id)` - The extracted resource ID
-/// * `Err` if no resource capability found
-pub async fn extract_resource_id(ucan_token: &str) -> ServiceResult<String> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        if cap_resource.contains(":resource:") {
-            let parts: Vec<&str> = cap_resource.split(':').collect();
-
-            if parts.len() >= 3 && parts[1] == "resource" {
-                let resource_id = parts[2];
-
-                // Handle folder-scoped pattern: "folder_id/resource_id"
-                let final_resource_id = if let Some(slash_pos) = resource_id.find('/') {
-                    &resource_id[slash_pos + 1..]
-                } else {
-                    resource_id
-                };
-
-                // Make sure it's not wildcard or empty
-                if !final_resource_id.is_empty()
-                    && final_resource_id != "*"
-                    && final_resource_id != "**"
-                {
-                    return Ok(final_resource_id.to_string());
-                }
-            }
-        }
-    }
-
-    Err(crate::errors::ServiceError::Ucan(
-        crypto_utils::errors::UcanError::CapabilityNotFound,
-    ))
-}
-
-/// Get role from UCAN token (convenience wrapper)
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to extract role from
-///
-/// # Returns
-/// * `Ok(role)` - The role string from the UCAN facts
-pub async fn get_role(ucan_token: &str) -> ServiceResult<String> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-    Ok(crypto_utils::ucan_utils::get_role_from_token(&ucan))
-}
-
-/// Get CID from UCAN token (convenience wrapper)
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to get CID from
-///
-/// # Returns
-/// * `Ok(cid)` - The CID string
-pub fn get_cid(ucan_token: &str) -> ServiceResult<String> {
-    Ok(crypto_utils::ucan_utils::get_ucan_cid(ucan_token)?)
-}
-
-// ==================== ISSUANCE FUNCTIONS ====================
-
-/// Issue a one-time connection token
-///
-/// Used for initial user connection setup (QR codes, connection strings, etc.)
-///
-/// # Arguments
-/// * `capability_str` - The capability/domain string (e.g., "sthalam")
-/// * `role` - The role for this connection ("owner", "node", "viewer")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, public_key))` - The generated UCAN token and its public key
-pub async fn issue_one_time_connection_token(
-    capability_str: &str,
-    role: &str,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    let crypto = crypto_utils.read().await;
-    let (token, pub_key) = crypto
-        .generate_one_time_user_connect_token(&encrypted_ucan_key, capability_str, role)
-        .await?;
-
-    Ok((token, pub_key))
-}
-
-/// Issue a peer connection token with role-based capabilities
-///
-/// Used when establishing connections between peers (owner ↔ node, owner ↔ viewer, etc.)
-///
-/// # Arguments
-/// * `domain` - The application domain (e.g., "sthalam")
-/// * `peer_ucan_pub_key` - The peer's UCAN public key (audience)
-/// * `role` - The peer's role ("node", "viewer", etc.)
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok(token)` - The generated connection UCAN token
-pub async fn issue_peer_connection_token(
-    domain: &str,
-    peer_ucan_pub_key: &str,
-    role: &str,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<String> {
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // Determine role-based additional capabilities
-    let additional_capabilities = match role {
-        "node" => vec![(format!("{}:add_folder", domain), "use".to_string())],
-        "viewer" => vec![],
-        "owner" => vec![(format!("{}:add_folder", domain), "use".to_string())],
-        _ => vec![],
-    };
-
-    let crypto = crypto_utils.read().await;
-    let token = crypto
-        .issue_connect_and_share_user_token(
-            &encrypted_key,
-            domain,
-            peer_ucan_pub_key,
-            role,
-            additional_capabilities,
-        )
-        .await?;
-
-    Ok(token)
-}
-
-/// Issue a folder owner UCAN token with template
-///
-/// Used when creating a new folder - generates the root owner UCAN.
-/// Parses template JSON, builds capabilities and facts, then calls generic crypto function.
-///
-/// # Arguments
-/// * `folder_id` - The folder ID
-/// * `domain` - The application domain
-/// * `folder_template_json` - JSON template defining folder capabilities
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, cid))` - The generated UCAN token and its CID
-pub async fn issue_folder_owner_token(
-    folder_id: &str,
-    domain: &str,
-    folder_template_json: &str,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Parse template JSON (BUSINESS LOGIC - moved from ucan_utils)
-    let template_value: serde_json::Value =
-        serde_json::from_str(folder_template_json).map_err(|e| {
-            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-                format!("Failed to parse folder template JSON: {}", e),
-            ))
-        })?;
-
-    let template_obj = template_value.as_object().ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Folder template must be an object".to_string(),
-        ))
-    })?;
-
-    // 2. Extract owner_template
-    let owner_template_value = template_obj.get("owner_template").ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Missing 'owner_template'".to_string(),
-        ))
-    })?;
-
-    let owner_template_obj = owner_template_value.as_object().ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "owner_template must be an object".to_string(),
-        ))
-    })?;
-
-    let owner_capabilities_obj = owner_template_obj
-        .get("capabilities")
-        .and_then(|c| c.as_object())
-        .ok_or_else(|| {
-            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-                "owner_template missing 'capabilities'".to_string(),
-            ))
-        })?;
-
-    // 3. Build capabilities list for folder
-    let folder_uri = format!("{}:folder:{}", domain, folder_id);
-    let mut capabilities = Vec::new();
-
-    for (capability_name, _) in owner_capabilities_obj {
-        capabilities.push((folder_uri.clone(), capability_name.clone()));
-    }
-
-    // 4. Build facts map with all three templates
-    let mut facts = serde_json::Map::new();
-    facts.insert("owner_template".to_string(), owner_template_value.clone());
-
-    let node_template_value = template_obj.get("node_template").ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Missing 'node_template'".to_string(),
-        ))
-    })?;
-    facts.insert("node_template".to_string(), node_template_value.clone());
-
-    let viewer_template_value = template_obj.get("viewer_template").ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Missing 'viewer_template'".to_string(),
-        ))
-    })?;
-    facts.insert("viewer_template".to_string(), viewer_template_value.clone());
-
-    // 5. Get owner's public key for audience (self-issued token)
-    let owner_pub_key = get_ucan_public_key(crypto_utils, repo_ctx).await?;
-
-    // 6. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 7. Call generic crypto function (ONLY CRYPTO OPERATION)
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            &owner_pub_key, // Audience is self (owner)
-            capabilities,
-            Some(facts),
-            None, // Default 30 years
-        )
-        .await?;
-
-    Ok((token, cid))
-}
-
-/// Issue a delegated folder UCAN token
-///
-/// Used when sharing a folder with another user - creates delegated token with subset of capabilities.
-/// Builds folder + resource wildcard capabilities, then calls generic crypto function.
-///
-/// # Arguments
-/// * `folder_id` - The folder ID
-/// * `domain` - The application domain
-/// * `folder_capabilities` - List of capability resources (just the keys)
-/// * `recipient_ucan_pub_key` - The recipient's UCAN public key
-/// * `recipient_role` - The recipient's role
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, cid))` - The generated delegated UCAN token and its CID
-pub async fn issue_delegated_folder_token(
-    folder_id: &str,
-    domain: &str,
-    folder_capabilities: Vec<String>,
-    recipient_ucan_pub_key: &str,
-    recipient_role: &str,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Build capabilities list (folder + resource wildcard pattern)
-    let folder_uri = format!("{}:folder:{}", domain, folder_id);
-    let resource_wildcard = format!("{}:resource:{}/*", domain, folder_id);
-
-    let mut capabilities = Vec::new();
-    for capability in folder_capabilities {
-        capabilities.push((folder_uri.clone(), capability.clone()));
-        capabilities.push((resource_wildcard.clone(), capability));
-    }
-
-    // 2. Build facts
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!(recipient_role));
-
-    // Add static viewer_template for folder delegation
-    // This allows nodes to delegate to viewers (viewer can extract viewer_template)
-    facts.insert(
-        "viewer_template".to_string(),
-        json!({
-            "capabilities": {
-                "crud/read": "crud/read",
-                "request_resources": "request_resources",
-                "get_share_link": "get_share_link"
-            }
-        }),
-    );
-
-    // 3. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 4. Call generic crypto function (ONLY CRYPTO OPERATION)
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            recipient_ucan_pub_key,
-            capabilities,
-            Some(facts),
-            None, // 30 years
-        )
-        .await?;
-
-    Ok((token, cid)) // Now returns CID too!
-}
-
-/// Issue a resource owner UCAN token with template
-///
-/// Used when creating a new resource - generates the root owner UCAN.
-/// Parses template JSON, builds capabilities and facts, then calls generic crypto function.
-///
-/// # Arguments
-/// * `resource_id` - The resource ID
-/// * `domain` - The application domain
-/// * `ucan_template_json` - JSON template defining resource capabilities
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, cid))` - The generated UCAN token and its CID
-pub async fn issue_resource_owner_token(
-    resource_id: &str,
-    domain: &str,
-    ucan_template_json: &str,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Parse template JSON (BUSINESS LOGIC - moved from ucan_utils)
-    let template_value: serde_json::Value =
-        serde_json::from_str(ucan_template_json).map_err(|e| {
-            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-                format!("Failed to parse resource template JSON: {}", e),
-            ))
-        })?;
-
-    let template_obj = template_value.as_object().ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Resource template must be an object".to_string(),
-        ))
-    })?;
-
-    // 2. Extract owner_template
-    let owner_template_value = template_obj.get("owner_template").ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Missing 'owner_template'".to_string(),
-        ))
-    })?;
-
-    let owner_template_obj = owner_template_value.as_object().ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "owner_template must be an object".to_string(),
-        ))
-    })?;
-
-    let owner_capabilities_obj = owner_template_obj
-        .get("capabilities")
-        .and_then(|c| c.as_object())
-        .ok_or_else(|| {
-            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-                "owner_template missing 'capabilities'".to_string(),
-            ))
-        })?;
-
-    // 3. Build capabilities list with full resource URIs
-    let mut capabilities = Vec::new();
-    let mut doc_names = Vec::new();
-
-    for (doc_name, ability_value) in owner_capabilities_obj {
-        let ability = ability_value.as_str().ok_or_else(|| {
-            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-                format!("Ability for {} must be a string", doc_name),
-            ))
-        })?;
-
-        let resource_uri = format!("{}:resource:{}:{}", domain, resource_id, doc_name);
-        capabilities.push((resource_uri, ability.to_string()));
-        doc_names.push(doc_name.clone());
-    }
-
-    // 4. Build facts map
-    let mut facts = serde_json::Map::new();
-    facts.insert("owner_template".to_string(), owner_template_value.clone());
-
-    let viewer_template_value = template_obj.get("viewer_template").ok_or_else(|| {
-        crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::TemplateInvalid(
-            "Missing 'viewer_template'".to_string(),
-        ))
-    })?;
-    facts.insert("viewer_template".to_string(), viewer_template_value.clone());
-
-    facts.insert("role".to_string(), json!("owner"));
-    facts.insert("docs".to_string(), json!(doc_names));
-
-    // Add doc_types if present in owner_template
-    if let Some(doc_types) = owner_template_obj.get("doc_types") {
-        facts.insert("doc_types".to_string(), doc_types.clone());
-    }
-
-    // 5. Get owner's public key for audience (self-issued token)
-    let owner_pub_key = get_ucan_public_key(crypto_utils, repo_ctx).await?;
-
-    // 6. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 7. Call generic crypto function (ONLY CRYPTO OPERATION)
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            &owner_pub_key, // Audience is self (owner)
-            capabilities,
-            Some(facts),
-            None, // Default 30 years
-        )
-        .await?;
-
-    Ok((token, cid))
-}
-
-// ==================== VIEWER TOKEN FUNCTIONS ====================
-
-/// Generate public folder view token - for shareable links
-///
-/// Creates a token with wildcard audience ("*") and "view/public" capability
-/// for public folder sharing. Used when generating shareable folder links.
-///
-/// # Arguments
-/// * `folder_id` - Folder ID
-/// * `domain` - Domain prefix (e.g., "sthalam")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, public_key))` - Encoded UCAN token and owner's public key
-pub async fn generate_public_folder_view_token(
-    folder_id: &str,
-    domain: &str,
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Build capabilities for public folder view (BUSINESS LOGIC)
-    let folder_uri = format!("{}:folder:{}", domain, folder_id);
-    let resource_wildcard = format!("{}:resource:{}/*", domain, folder_id);
-
-    let capabilities = vec![
-        (folder_uri, "view/public".to_string()),
-        (resource_wildcard, "view/public".to_string()),
-    ];
-
-    // 2. Build facts
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!("viewer"));
-
-    // 3. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 4. Get owner's public key (to return to caller)
-    let owner_pub_key = get_ucan_public_key(crypto_utils, repo_ctx).await?;
-
-    // 5. Call generic crypto function (ONLY CRYPTO)
-    let crypto = crypto_utils.read().await;
-    let (token, _cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            "*", // Wildcard audience for public access
-            capabilities,
-            Some(facts),
-            Some(30 * 24 * 60 * 60), // 30 days
-        )
-        .await?;
-
-    Ok((token, owner_pub_key))
-}
-
-/// Create viewer connect token - fresh root token from node owner
-///
-/// This token allows the viewer to maintain a connection with the node.
-/// Contains basic connect capability and folder_id in facts for context.
-///
-/// # Arguments
-/// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience DID)
-/// * `folder_id` - Folder ID to store in facts for context
-/// * `domain` - Application domain (e.g., "sthalam")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, cid))` - Connect token and its CID for database storage
-/// * `Err` - If key retrieval or token generation fails
-pub async fn create_viewer_connect_token(
-    viewer_pub_key: &str,
-    folder_id: &str,
-    domain: &str,
-    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Build capabilities (business logic)
-    let connect_resource = format!("{}:connect", domain);
-    let capabilities = vec![(connect_resource, "use".to_string())];
-
-    // 2. Build facts (business logic)
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!("viewer"));
-    facts.insert("folder_id".to_string(), json!(folder_id));
-
-    // 3. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 4. Call generic crypto function (ONLY crypto operation)
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            viewer_pub_key,
-            capabilities,
-            Some(facts),
-            Some(30 * 24 * 60 * 60), // 30 days
-        )
-        .await?;
-
-    Ok((token, cid))
-}
-
-/// Create viewer folder token - grants request_resources capability
-///
-/// This token allows the viewer to request folder contents.
-/// Uses folder and resource wildcard pattern for comprehensive access.
-///
-/// # Arguments
-/// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience DID)
-/// * `folder_id` - Folder ID
-/// * `domain` - Application domain (e.g., "sthalam")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, cid))` - Folder token and its CID for database storage
-/// * `Err` - If key retrieval or token generation fails
-pub async fn create_viewer_folder_token(
-    viewer_pub_key: &str,
-    folder_id: &str,
-    domain: &str,
-    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Build capabilities (business logic - folder-specific pattern)
-    let folder_uri = format!("{}:folder:{}", domain, folder_id);
-    let resource_wildcard = format!("{}:resource:{}/*", domain, folder_id);
-
-    let capabilities = vec![
-        (folder_uri, "request_resources".to_string()),
-        (resource_wildcard, "request_resources".to_string()),
-    ];
-
-    // 2. Build facts (business logic)
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!("viewer"));
-
-    // 3. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 4. Call generic crypto function
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            viewer_pub_key,
-            capabilities,
-            Some(facts),
-            None, // Default 30 years
-        )
-        .await?;
-
-    Ok((token, cid))
-}
-
-/// Create viewer resource token - extracts viewer_template and generates token
-///
-/// Gets the resource from database, parses owner UCAN, extracts viewer_template,
-/// builds document-specific capabilities, and generates viewer token.
-///
-/// # Arguments
-/// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience DID)
-/// * `resource_id` - Resource ID
-/// * `domain` - Application domain (e.g., "sthalam")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys and resources
-///
-/// # Returns
-/// * `Ok((token, cid))` - Resource token and its CID for database storage
-/// * `Err` - If resource not found, template extraction fails, or token generation fails
-pub async fn create_viewer_resource_token(
-    viewer_pub_key: &str,
-    resource_id: &str,
-    domain: &str,
-    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Get resource from database (business logic)
-    let resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
-
-    // 2. Parse owner's UCAN token (uses existing atomic functions)
-    let owner_ucan = crypto_utils::ucan_utils::validate_structure(&resource.ucan_token).await?;
-
-    // 3. Extract viewer_template using atomic functions (business logic)
-    let template_obj =
-        crypto_utils::ucan_extractors::get_template_object(&owner_ucan, "viewer_template")?;
-
-    let capabilities_map =
-        crypto_utils::ucan_extractors::extract_capabilities_from_template(&template_obj)?;
-
-    // 4. Build capability list with full resource URIs (business logic)
-    let mut capabilities = Vec::new();
-    let doc_names: Vec<String> = capabilities_map.keys().cloned().collect();
-
-    for (doc_name, ability) in capabilities_map {
-        let resource_uri = format!("{}:resource:{}:{}", domain, resource_id, doc_name);
-        capabilities.push((resource_uri, ability));
-    }
-
-    // 5. Build facts (business logic)
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!("viewer"));
-    facts.insert("docs".to_string(), json!(doc_names));
-
-    // Extract and include doc_types, no_update_from_node, dont_send_to_node, full_doc_send from template
-    if let Some(doc_types) = template_obj.get("doc_types") {
-        facts.insert("doc_types".to_string(), doc_types.clone());
-    }
-    if let Some(no_update) = template_obj.get("no_update_from_node") {
-        facts.insert("no_update_from_node".to_string(), no_update.clone());
-    }
-    if let Some(dont_send) = template_obj.get("dont_send_to_node") {
-        facts.insert("dont_send_to_node".to_string(), dont_send.clone());
-    }
-    if let Some(full_doc_send) = template_obj.get("full_doc_send") {
-        facts.insert("full_doc_send".to_string(), full_doc_send.clone());
-    }
-
-    // 6. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
-
-    // 7. Call generic crypto function (ONLY crypto operation)
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            viewer_pub_key,
-            capabilities,
-            Some(facts),
-            None, // Default 30 years
-        )
-        .await?;
-
-    Ok((token, cid))
-}
+// ==================== PUBLIC UTILITIES ====================
 
 /// Get UCAN public key
 ///
-/// Helper to retrieve the public key corresponding to the encrypted UCAN private key
+/// Helper to retrieve the public key corresponding to the encrypted UCAN private key.
+/// Used by callers who need the owner's public key for audience/issuer validation.
 ///
 /// # Arguments
 /// * `crypto_utils` - Crypto utilities instance
@@ -1148,412 +55,1208 @@ pub async fn create_viewer_resource_token(
 /// # Returns
 /// * `Ok(public_key)` - The UCAN public key as base64 string
 pub async fn get_ucan_public_key(
-    crypto_utils: &Arc<RwLock<crypto_utils::CryptoUtils>>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: &Arc<RepositoryContext>,
 ) -> ServiceResult<String> {
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+    let encrypted_key = get_decrypted_ucan_keys(repo_ctx).await?;
     let crypto = crypto_utils.read().await;
-    Ok(crypto.get_public_ucan_key(&encrypted_key).await?)
+    Ok(crypto.get_ucan_public_key(&encrypted_key).await?)
 }
 
-/// Issue viewer-side connection token for node (LOCAL ONLY - not sent)
+// ==================== RE-EXPORTS FOR BACKWARDS COMPATIBILITY ====================
+
+// Re-export commonly used functions for easier access
+pub use connection_tokens::{issue_one_time_connection_token, generate_public_folder_view_token, issue_peer_connection_token};
+pub use folder_tokens::{issue_folder_owner_token, issue_delegated_folder_token};
+pub use resource_tokens::{create_viewer_resource_token};
+pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
+pub use validation::{validate_folder_access_for_resource, validate_ucan_structure};
+
+// ==================== CONNECTION TOKENS MODULE ====================
+
+/// Connection token issuance functions
 ///
-/// Viewer issues this token locally during handshake to identify peer as "viewer_node".
-/// This token is NOT sent to the node - viewer just stores it as peer_user.ucan_token.
+/// These tokens establish device-to-device connections and authentication.
+/// Used for initial handshakes and peer relationship management.
 ///
-/// # Arguments
-/// * `node_ucan_pub_key` - Node's UCAN public key (becomes audience DID)
-/// * `domain` - Application domain (e.g., "sthalam")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok(token)` - Viewer-issued connection token with role="viewer_node"
-/// * `Err` - If key retrieval or token generation fails
-pub async fn issue_viewer_to_node_token(
-    node_ucan_pub_key: &str,
-    domain: &str,
-    crypto_utils: Arc<RwLock<crypto_utils::CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<String> {
-    // 1. Build minimal capabilities
-    let connect_resource = format!("{}:connect", domain);
-    let add_folder_resource = format!("{}:add_folder", domain);
-    let capabilities = vec![
-        (connect_resource, "use".to_string()),
-        (add_folder_resource, "use".to_string()),
-    ];
+/// Note: These functions use legacy crypto_utils methods for backwards compatibility.
+/// They will be migrated to use generate_ucan_with_cid() in the future.
+pub mod connection_tokens {
+    use super::*;
 
-    // 2. Build facts with role="viewer_node"
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!("viewer_node"));
+    /// Issue a one-time connection token
+    ///
+    /// Used for initial device pairing (QR codes, connection strings).
+    /// Single-use token that proves authorization to connect.
+    ///
+    /// # Arguments
+    /// * `capability_str` - Domain (e.g., "sthalam")
+    /// * `role` - Role for this connection ("owner", "node", "viewer")
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context for accessing encrypted keys
+    ///
+    /// # Returns
+    /// * `Ok((token, public_key))` - Generated UCAN token and its public key
+    pub async fn issue_one_time(
+        capability_str: &str,
+        role: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<(String, String)> {
+        let encrypted_ucan_key = get_decrypted_ucan_keys(repo_ctx).await?;
 
-    // 3. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+        let crypto = crypto_utils.read().await;
+        let (token, pub_key) = crypto
+            .generate_one_time_user_connect_token(&encrypted_ucan_key, capability_str, role)
+            .await?;
 
-    // 4. Generate token
-    let crypto = crypto_utils.read().await;
-    let (token, _cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            node_ucan_pub_key,
-            capabilities,
-            Some(facts),
-            Some(30 * 24 * 60 * 60), // 30 days
-        )
-        .await?;
-
-    Ok(token)
-}
-
-/// Issue resource UCAN for node (owner → node delegation)
-///
-/// This function creates a delegated resource UCAN for a node user.
-/// Extracts node_template from owner's resource UCAN and adds static viewer_template.
-/// Does NOT use proof resolver (simplified delegation).
-///
-/// # Arguments
-/// * `resource_id` - The resource ID
-/// * `owner_resource_ucan` - Owner's resource UCAN token (contains templates)
-/// * `recipient_ucan_pub_key` - Node's UCAN public key (becomes audience DID)
-/// * `domain` - Application domain (e.g., "sthalam")
-/// * `crypto_utils` - Crypto utilities instance
-/// * `repo_ctx` - Repository context for accessing encrypted keys
-///
-/// # Returns
-/// * `Ok((token, cid))` - Delegated resource UCAN and its CID
-/// * `Err` - If template extraction or token generation fails
-pub async fn issue_resource_ucan_for_node(
-    resource_id: &str,
-    owner_resource_ucan: &str,
-    recipient_ucan_pub_key: &str,
-    domain: &str,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-    repo_ctx: &Arc<RepositoryContext>,
-) -> ServiceResult<(String, String)> {
-    // 1. Parse owner's resource UCAN
-    let owner_ucan = crypto_utils::ucan_utils::validate_structure(owner_resource_ucan).await?;
-
-    // 2. Extract node_template (not owner_template - we want node capabilities)
-    let node_template_obj =
-        crypto_utils::ucan_extractors::get_template_object(&owner_ucan, "owner_template")?;
-
-    let capabilities_map =
-        crypto_utils::ucan_extractors::extract_capabilities_from_template(&node_template_obj)?;
-
-    // 3. Build capability list with full resource URIs
-    let mut capabilities = Vec::new();
-    let doc_names: Vec<String> = capabilities_map.keys().cloned().collect();
-
-    for (doc_name, ability) in capabilities_map {
-        let resource_uri = format!("{}:resource:{}:{}", domain, resource_id, doc_name);
-        capabilities.push((resource_uri, ability));
+        Ok((token, pub_key))
     }
 
-    // 4. Build facts with role="node" and templates
-    let mut facts = serde_json::Map::new();
-    facts.insert("role".to_string(), json!("node"));
-    facts.insert("docs".to_string(), json!(doc_names));
+    /// Issue a peer connection token with role-based capabilities
+    ///
+    /// Used when establishing long-lived connections between peers.
+    /// Grants appropriate capabilities based on role (owner/node/user/viewer).
+    ///
+    /// # Arguments
+    /// * `domain` - Application domain (e.g., "sthalam")
+    /// * `peer_ucan_pub_key` - Peer's UCAN public key (audience)
+    /// * `role` - Peer's role ("owner", "node", "user", "viewer")
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context for accessing encrypted keys
+    ///
+    /// # Returns
+    /// * `Ok(token)` - Generated connection UCAN token
+    pub async fn issue_peer_connection(
+        domain: &str,
+        peer_ucan_pub_key: &str,
+        role: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<String> {
+        let encrypted_key = get_decrypted_ucan_keys(repo_ctx).await?;
 
-    // Extract doc_types from owner_template if present
-    if let Some(doc_types) = node_template_obj.get("doc_types") {
-        facts.insert("doc_types".to_string(), doc_types.clone());
+        // Role-based additional capabilities
+        let additional_capabilities = match role {
+            "node" | "owner" => vec![(format!("{}:add_folder", domain), "use".to_string())],
+            "viewer" | "user" => vec![],
+            _ => vec![],
+        };
+
+        let crypto = crypto_utils.read().await;
+        let token = crypto
+            .issue_connect_and_share_user_token(
+                &encrypted_key,
+                domain,
+                peer_ucan_pub_key,
+                role,
+                additional_capabilities,
+            )
+            .await?;
+
+        Ok(token)
     }
 
-    // Add static viewer_template (from permissions.ts - RESOURCE_TEMPLATE.viewer_template)
-    facts.insert("viewer_template".to_string(), json!({
-        "capabilities": {
-            "template_doc": "crud/readonly",
-            "content_doc": "crud/readonly",
-            "collaborative_doc": "crud/merge",
-            "submissions_doc": "crud/submit",
-            "static_assets": "crud/readonly"
-        },
-        "doc_types": {
-            "static_assets": "asset",
-            "template_doc": "crdt",
-            "content_doc": "crdt",
-            "collaborative_doc": "crdt",
-            "submissions_doc": "crdt"
-        },
-        "no_update_from_node": ["submissions_doc"],
-        "dont_send_to_node": ["user_content_doc"],
-        "full_doc_send": ["submissions_doc"]
-    }));
+    /// Issue viewer authentication token for folder access
+    ///
+    /// Generates a connection token with viewer capabilities for a specific folder.
+    /// Used for shareable links - allows viewers to authenticate and request resources.
+    ///
+    /// # Arguments
+    /// * `folder_id` - Folder ID to grant access to
+    /// * `domain` - Domain prefix (e.g., "sthalam")
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context for accessing encrypted keys
+    ///
+    /// # Returns
+    /// * `Ok(token)` - Viewer authentication token
+    pub async fn issue_viewer_auth(
+        folder_id: &str,
+        domain: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<String> {
+        let encrypted_ucan_key = get_decrypted_ucan_keys(repo_ctx).await?;
 
-    // 5. Get encrypted key
-    let encrypted_key = repo_ctx.store_repo.get_ucan_key().await?;
+        // Build capabilities for viewer authentication
+        let capabilities = vec![
+            (format!("{}:user-connect:*", domain), "use".to_string()),
+            (format!("{}:folder:{}", domain, folder_id), "request_resources".to_string()),
+            (format!("{}:folder:{}", domain, folder_id), "get_share_link".to_string()),
+            (format!("{}:resource:{}/*", domain, folder_id), "request_resources".to_string()),
+            (format!("{}:resource:{}/*", domain, folder_id), "get_share_link".to_string()),
+        ];
 
-    // 6. Generate token (NO PROOF RESOLVER - simplified delegation)
-    let crypto = crypto_utils.read().await;
-    let (token, cid) = crypto
-        .generate_ucan_with_cid(
-            &encrypted_key,
-            recipient_ucan_pub_key,
-            capabilities,
-            Some(facts),
-            None, // Default 30 years
-        )
-        .await?;
+        // Build facts
+        let mut facts = serde_json::Map::new();
+        facts.insert("token_type".to_string(), json!("viewer_auth"));
+        facts.insert("role".to_string(), json!("viewer"));
+        facts.insert("folder_id".to_string(), json!(folder_id));
 
-    Ok((token, cid))
+        // Generate token (30 days expiry)
+        let crypto = crypto_utils.read().await;
+        let (viewer_token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_ucan_key,
+                "*", // Wildcard audience
+                capabilities,
+                Some(facts),
+                Some(30 * 24 * 60 * 60), // 30 days
+            )
+            .await?;
+
+        Ok(viewer_token)
+    }
+
+    /// Issue one-time connection token (wrapper for backwards compatibility)
+    ///
+    /// Alias for issue_one_time() with more explicit naming.
+    ///
+    /// # Arguments
+    /// * `capability_str` - Domain (e.g., "sthalam")
+    /// * `role` - Role for this connection ("owner", "node", "viewer")
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context for accessing encrypted keys
+    ///
+    /// # Returns
+    /// * `Ok((token, public_key))` - Generated UCAN token and its public key
+    pub async fn issue_one_time_connection_token(
+        capability_str: &str,
+        role: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<(String, String)> {
+        issue_one_time(capability_str, role, crypto_utils, repo_ctx).await
+    }
+
+    /// Generate public folder view token (alias for issue_viewer_auth)
+    ///
+    /// Wrapper for generating viewer authentication tokens via shareable links.
+    ///
+    /// # Arguments
+    /// * `folder_id` - Folder ID to grant access to
+    /// * `domain` - Domain prefix (e.g., "sthalam")
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context for accessing encrypted keys
+    ///
+    /// # Returns
+    /// * `Ok(token)` - Viewer authentication token
+    pub async fn generate_public_folder_view_token(
+        folder_id: &str,
+        domain: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<String> {
+        issue_viewer_auth(folder_id, domain, crypto_utils, repo_ctx).await
+    }
+
+    /// Issue peer connection token (alias for issue_peer_connection)
+    ///
+    /// Wrapper for backwards compatibility with legacy code.
+    ///
+    /// # Arguments
+    /// * `capability_str` - Capability string (domain)
+    /// * `role` - Role for this connection
+    /// * `peer_pub_key` - Peer's UCAN public key
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context
+    ///
+    /// # Returns
+    /// * `Ok((token, cid))` - Generated connection token and its CID
+    pub async fn issue_peer_connection_token(
+        capability_str: &str,
+        role: &str,
+        peer_pub_key: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<(String, String)> {
+        issue_peer_connection(capability_str, role, peer_pub_key, crypto_utils, repo_ctx).await
+    }
 }
 
-// ==================== EXTRACTION FUNCTIONS ====================
-// Note: Extraction functions that work with parsed UCAN objects are domain-specific
-// and remain in crypto_utils::ucan_utils. Services can call them directly as needed.
+// ==================== RESOURCE TOKENS MODULE ====================
 
-/// Extract folder capabilities from folder UCAN template based on role
+/// Resource token delegation functions
 ///
-/// Parses the folder UCAN, extracts facts, finds the appropriate template
-/// (owner_template or node_template), and returns the capabilities list.
+/// These tokens control access to specific resources (documents).
+/// Delegation chain: Owner → Node → User → Viewer
 ///
-/// # Arguments
-/// * `folder_ucan_token` - The folder owner's UCAN token
-/// * `recipient_role` - Role for recipient ("owner" or "node")
+/// **CRITICAL**: All delegation MUST extract templates from delegator UCANs.
+/// NEVER hardcode capabilities - always use `DelegationTemplate::build_capabilities()`.
+pub mod resource_tokens {
+    use super::*;
+
+    /// Issue owner token for a new resource
+    ///
+    /// Creates the initial owner token with all delegation templates.
+    /// Frontend sends the complete UCAN structure via ucan_template_json.
+    ///
+    /// # Arguments
+    /// * `resource_id` - Resource ID
+    /// * `domain` - Domain (e.g., "sthalam.com")
+    /// * `ucan_template_json` - JSON containing owner_template with capabilities and delegation templates
+    /// * `crypto_utils` - Crypto utilities instance
+    /// * `repo_ctx` - Repository context
+    ///
+    /// # Returns
+    /// * `Ok((token, cid))` - Generated UCAN token and its CID
+    pub async fn issue_owner_token(
+        resource_id: &str,
+        domain: &str,
+        ucan_template_json: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<(String, String)> {
+        // Parse the template JSON from frontend
+        let template_data: serde_json::Value = serde_json::from_str(ucan_template_json)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(format!("Invalid template JSON: {}", e)))?;
+
+        let owner_template = template_data.get("owner_template")
+            .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Missing owner_template".to_string()))?;
+
+        // Extract capabilities from template
+        let caps = owner_template.get("capabilities")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Missing capabilities in owner_template".to_string()))?;
+
+        // Build capability strings
+        let mut capabilities = Vec::new();
+        for (doc_name, cap_value) in caps.iter() {
+            let cap_str = cap_value.as_str()
+                .ok_or_else(|| crate::errors::ServiceError::InvalidUcan(format!("Invalid capability value for {}", doc_name)))?;
+            capabilities.push((
+                format!("{}:resource:{}:{}:{}", domain, resource_id, doc_name, cap_str),
+                String::new(), // No caveat
+            ));
+        }
+
+        // Build facts from template
+        let mut facts = serde_json::Map::new();
+        facts.insert("token_type".to_string(), json!("resource_owner"));
+        facts.insert("role".to_string(), json!("owner"));
+        facts.insert("resource_id".to_string(), json!(resource_id));
+
+        // Copy sync facts if present
+        if let Some(sync) = owner_template.get("sync") {
+            facts.insert("sync".to_string(), sync.clone());
+        }
+
+        // Copy doc_metadata if present
+        if let Some(doc_metadata) = owner_template.get("doc_metadata") {
+            facts.insert("doc_metadata".to_string(), doc_metadata.clone());
+        }
+
+        // Copy delegation templates
+        if let Some(delegation) = owner_template.get("delegation") {
+            facts.insert("delegation".to_string(), delegation.clone());
+        }
+
+        // Get keys
+        let encrypted_key = get_decrypted_ucan_keys(repo_ctx).await?;
+        let crypto = crypto_utils.read().await;
+        let our_pub_key = crypto.get_ucan_public_key(&encrypted_key).await?;
+
+        // Generate self-signed token
+        let (token, cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                &our_pub_key, // Self-signed
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        Ok((token, cid))
+    }
+
+    /// Delegate resource to node (Owner → Node)
+    ///
+    /// Extracts node delegation template from owner token and generates node share token.
+    /// The template defines which capabilities the node receives (data-driven delegation).
+    ///
+    /// # Arguments
+    /// * `owner_token` - Owner's resource token (contains delegation templates)
+    /// * `node_pub_key` - Node's UCAN public key (becomes audience)
+    /// * `resource_id` - Resource ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(ResourceShareToken)` - Node's delegated resource token
+    pub async fn delegate_to_node(
+        owner_token: &ResourceOwnerToken,
+        node_pub_key: &str,
+        resource_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<ResourceShareToken> {
+        // 1. Extract template (NEVER HARDCODE!)
+        let template = owner_token.get_delegation_template("node").map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get node template: {}", e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (DATA-DRIVEN)
+        let capabilities = template.build_capabilities(resource_id, "resource");
+
+        // 3. Convert template to facts (GENERIC)
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!("resource_share"));
+        facts.insert("role".to_string(), json!("node"));
+        facts.insert("resource_id".to_string(), json!(resource_id));
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                node_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Return typed wrapper
+        Ok(ResourceShareToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid ResourceShareToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Delegate resource to user (Node → User or Owner → User)
+    ///
+    /// Extracts user delegation template and generates user share token.
+    ///
+    /// # Arguments
+    /// * `delegator_token` - Node or Owner's resource token (contains delegation templates)
+    /// * `user_pub_key` - User's UCAN public key (becomes audience)
+    /// * `resource_id` - Resource ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(ResourceShareToken)` - User's delegated resource token
+    pub async fn delegate_to_user(
+        delegator_token: &ResourceShareToken,
+        user_pub_key: &str,
+        resource_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<ResourceShareToken> {
+        // 1. Extract template (NEVER HARDCODE!)
+        let template = delegator_token.get_delegation_template("user").map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get user template: {}", e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (DATA-DRIVEN)
+        let capabilities = template.build_capabilities(resource_id, "resource");
+
+        // 3. Convert template to facts (GENERIC)
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!("resource_share"));
+        facts.insert("role".to_string(), json!("user"));
+        facts.insert("resource_id".to_string(), json!(resource_id));
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                user_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Return typed wrapper
+        Ok(ResourceShareToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid ResourceShareToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Delegate resource to viewer (Node → Viewer)
+    ///
+    /// Extracts viewer delegation template and generates viewer token.
+    ///
+    /// # Arguments
+    /// * `node_token` - Node's resource token (contains delegation templates)
+    /// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience)
+    /// * `resource_id` - Resource ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(ResourceViewerToken)` - Viewer's resource token
+    pub async fn delegate_to_viewer(
+        node_token: &ResourceShareToken,
+        viewer_pub_key: &str,
+        resource_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<ResourceViewerToken> {
+        // 1. Extract template (NEVER HARDCODE!)
+        let template = node_token.get_delegation_template("viewer").map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get viewer template: {}", e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (DATA-DRIVEN)
+        let capabilities = template.build_capabilities(resource_id, "resource");
+
+        // 3. Convert template to facts (GENERIC)
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!("resource_viewer"));
+        facts.insert("role".to_string(), json!("viewer"));
+        facts.insert("resource_id".to_string(), json!(resource_id));
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                viewer_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Return typed wrapper
+        Ok(ResourceViewerToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid ResourceViewerToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Create viewer resource token (backwards compatibility wrapper)
+    ///
+    /// Legacy function that creates a viewer token from a resource UCAN.
+    /// Maps to delegate_to_viewer.
+    ///
+    /// # Arguments
+    /// * `resource_ucan` - Resource share token (node or user)
+    /// * `viewer_pub_key` - Viewer's UCAN public key
+    /// * `resource_id` - Resource ID
+    /// * `_domain` - Domain (unused in new implementation)
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok((token, cid))` - Generated viewer token and its CID
+    pub async fn create_viewer_resource_token(
+        resource_ucan: &str,
+        viewer_pub_key: &str,
+        resource_id: &str,
+        _domain: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<(String, String)> {
+        // Parse delegator token (should be share token with viewer template)
+        let delegator_token = ResourceShareToken::from_token(resource_ucan)?;
+
+        // Delegate to viewer
+        let viewer_token = delegate_to_viewer(&delegator_token, viewer_pub_key, resource_id, repo_ctx, crypto_utils).await?;
+
+        Ok((viewer_token.ucan().raw_token().to_string(), String::new()))
+    }
+}
+
+// ==================== FOLDER TOKENS MODULE ====================
+
+/// Folder token delegation functions
 ///
-/// # Returns
-/// * `Vec<String>` - List of capability keys (e.g., ["add_resources", "view_folder"])
-pub async fn extract_folder_capabilities(
-    folder_ucan_token: &str,
-    recipient_role: &str,
-) -> ServiceResult<Vec<String>> {
-    // Determine template key based on role
-    let template_key = match recipient_role {
-        "owner" => "owner_template",
-        "node" => "node_template",
-        "viewer" => "viewer_template",
-        _ => {
-            return Err(crate::errors::FolderServiceError::InvalidRole {
-                role: recipient_role.to_string(),
+/// These tokens control access to folders (collections of resources).
+/// Delegation chain: Owner → Node → User → Viewer
+///
+/// **CRITICAL**: All delegation MUST extract templates from delegator UCANs.
+/// NEVER hardcode capabilities - always use `DelegationTemplate::build_capabilities()`.
+pub mod folder_tokens {
+    use super::*;
+
+    /// Delegate folder to node (Owner → Node)
+    ///
+    /// Extracts node delegation template from owner token and generates node share token.
+    /// Includes both folder and resource wildcard capabilities.
+    ///
+    /// # Arguments
+    /// * `owner_token` - Owner's folder token (contains delegation templates)
+    /// * `node_pub_key` - Node's UCAN public key (becomes audience)
+    /// * `folder_id` - Folder ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(FolderShareToken)` - Node's delegated folder token
+    pub async fn delegate_to_node(
+        owner_token: &FolderOwnerToken,
+        node_pub_key: &str,
+        folder_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<FolderShareToken> {
+        // 1. Extract template (NEVER HARDCODE!)
+        let template = owner_token.get_delegation_template("node").map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get node template: {}", e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (DATA-DRIVEN)
+        let mut capabilities = template.build_capabilities(folder_id, "folder");
+
+        // Add resource wildcard capabilities (folder pattern)
+        let resource_wildcard_capabilities =
+            template.build_capabilities(&format!("{}/*", folder_id), "resource");
+        capabilities.extend(resource_wildcard_capabilities);
+
+        // 3. Convert template to facts (GENERIC)
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!("folder_share"));
+        facts.insert("role".to_string(), json!("node"));
+        facts.insert("folder_id".to_string(), json!(folder_id));
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                node_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Return typed wrapper
+        Ok(FolderShareToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid FolderShareToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Delegate folder to user (Node → User or Owner → User)
+    ///
+    /// Extracts user delegation template and generates user share token.
+    ///
+    /// # Arguments
+    /// * `delegator_token` - Node or Owner's folder token (contains delegation templates)
+    /// * `user_pub_key` - User's UCAN public key (becomes audience)
+    /// * `folder_id` - Folder ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(FolderShareToken)` - User's delegated folder token
+    pub async fn delegate_to_user(
+        delegator_token: &FolderShareToken,
+        user_pub_key: &str,
+        folder_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<FolderShareToken> {
+        // 1. Extract template (NEVER HARDCODE!)
+        let template = delegator_token.get_delegation_template("user").map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get user template: {}", e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (DATA-DRIVEN)
+        let mut capabilities = template.build_capabilities(folder_id, "folder");
+
+        // Add resource wildcard capabilities (folder pattern)
+        let resource_wildcard_capabilities =
+            template.build_capabilities(&format!("{}/*", folder_id), "resource");
+        capabilities.extend(resource_wildcard_capabilities);
+
+        // 3. Convert template to facts (GENERIC)
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!("folder_share"));
+        facts.insert("role".to_string(), json!("user"));
+        facts.insert("folder_id".to_string(), json!(folder_id));
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                user_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Return typed wrapper
+        Ok(FolderShareToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid FolderShareToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Delegate folder to viewer (Node → Viewer)
+    ///
+    /// Extracts viewer delegation template and generates viewer token.
+    ///
+    /// # Arguments
+    /// * `node_token` - Node's folder token (contains delegation templates)
+    /// * `viewer_pub_key` - Viewer's UCAN public key (becomes audience)
+    /// * `folder_id` - Folder ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(FolderViewerToken)` - Viewer's folder token
+    pub async fn delegate_to_viewer(
+        node_token: &FolderShareToken,
+        viewer_pub_key: &str,
+        folder_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<FolderViewerToken> {
+        // 1. Extract template (NEVER HARDCODE!)
+        let template = node_token.get_delegation_template("viewer").map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get viewer template: {}", e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (DATA-DRIVEN)
+        let mut capabilities = template.build_capabilities(folder_id, "folder");
+
+        // Add resource wildcard capabilities (folder pattern)
+        let resource_wildcard_capabilities =
+            template.build_capabilities(&format!("{}/*", folder_id), "resource");
+        capabilities.extend(resource_wildcard_capabilities);
+
+        // 3. Convert template to facts (GENERIC)
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!("folder_viewer"));
+        facts.insert("role".to_string(), json!("viewer"));
+        facts.insert("folder_id".to_string(), json!(folder_id));
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                viewer_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Return typed wrapper
+        Ok(FolderViewerToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid FolderViewerToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Issue initial folder owner token
+    ///
+    /// Creates a self-signed folder owner token containing all delegation templates.
+    /// This is called when a user creates a new folder - the frontend provides
+    /// the complete UCAN structure with all permissions and templates.
+    ///
+    /// # Arguments
+    /// * `folder_id` - Folder ID
+    /// * `capabilities` - Vec of (resource, capability) pairs from frontend
+    /// * `facts` - UCAN facts including delegation templates from frontend
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok(FolderOwnerToken)` - Self-signed owner token
+    pub async fn issue_folder_owner_token(
+        folder_id: &str,
+        capabilities: Vec<(String, String)>,
+        facts: serde_json::Map<String, serde_json::Value>,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<FolderOwnerToken> {
+        // Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // Get our own public key (self-signed)
+        let crypto = crypto_utils.read().await;
+        let our_pub_key = crypto.get_ucan_public_key(&encrypted_key).await?;
+
+        // Generate token via crypto layer (self-signed)
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                &our_pub_key, // Self-signed
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // Return typed wrapper
+        Ok(FolderOwnerToken::from_token(&token).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::ValidationError(
+                format!("Generated invalid FolderOwnerToken: {}", e),
+            ))
+        })?)
+    }
+
+    /// Issue delegated folder token (backwards compatibility wrapper)
+    ///
+    /// Legacy function that delegates folder access. Maps to delegate_to_node or delegate_to_viewer.
+    ///
+    /// # Arguments
+    /// * `folder_owner_token` - Owner's folder token
+    /// * `peer_pub_key` - Peer's UCAN public key
+    /// * `folder_id` - Folder ID
+    /// * `role` - Role to delegate ("node", "user", or "viewer")
+    /// * `domain` - Domain (unused in new implementation)
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok((token, cid))` - Generated folder token and its CID
+    pub async fn issue_delegated_folder_token(
+        folder_owner_token: &str,
+        peer_pub_key: &str,
+        folder_id: &str,
+        role: &str,
+        _domain: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<(String, String)> {
+        // Parse owner token
+        let owner_token = FolderOwnerToken::from_token(folder_owner_token)?;
+
+        match role {
+            "node" => {
+                let node_token = delegate_to_node(&owner_token, peer_pub_key, folder_id, repo_ctx, crypto_utils).await?;
+                Ok((node_token.ucan().raw_token().to_string(), String::new()))
             }
+            "viewer" => {
+                // For viewer, we need to go through node first (Owner → Node → Viewer delegation chain)
+                // This is a simplification for backwards compatibility
+                let node_token = delegate_to_node(&owner_token, peer_pub_key, folder_id, repo_ctx.clone(), crypto_utils.clone()).await?;
+                let viewer_token = delegate_to_viewer(&node_token, peer_pub_key, folder_id, repo_ctx, crypto_utils).await?;
+                Ok((viewer_token.ucan().raw_token().to_string(), String::new()))
+            }
+            _ => Err(crate::errors::ServiceError::InvalidUcan(format!("Unknown role: {}", role)))
+        }
+    }
+}
+
+// ==================== VALIDATION MODULE ====================
+
+/// Validation functions combining crypto checks with business rules
+///
+/// These functions validate UCAN tokens and enforce application-level permissions.
+pub mod validation {
+    use super::*;
+
+    /// Validate that a peer has the capability to add folders
+    ///
+    /// This validates:
+    /// - The peer connection token structure is valid
+    /// - The peer has `{domain}:add_folder` capability with `use` ability
+    ///
+    /// # Arguments
+    /// * `peer_token` - Peer's connection token (typed)
+    /// * `domain` - Domain to check (e.g., "sthalam")
+    ///
+    /// # Returns
+    /// * `Ok(())` if validation succeeds
+    /// * `Err` with descriptive error if validation fails
+    pub async fn validate_peer_can_add_folder(
+        peer_token: &NodeConnectionToken,
+        domain: &str,
+    ) -> ServiceResult<()> {
+        tracing::info!("🔍 Validating peer can add folder");
+        tracing::info!("  - Domain: {}", domain);
+
+        // Check for add_folder capability using crypto utils
+        let add_folder_resource = format!("{}:add_folder", domain);
+        crypto_utils::ucan_utils::check_capability(
+            peer_token.inner().parsed(),
+            &add_folder_resource,
+            "use",
+        )
+        .map_err(|_| {
+            tracing::error!("❌ Peer lacks {} capability", add_folder_resource);
+            crate::errors::FolderServiceError::Validation(format!(
+                "Peer lacks {} capability",
+                add_folder_resource
+            ))
+        })?;
+
+        tracing::info!("  ✅ Peer has {} capability", add_folder_resource);
+        Ok(())
+    }
+
+    /// Validate that a peer can add resources to a folder
+    ///
+    /// This validates:
+    /// - The folder UCAN structure is valid
+    /// - The UCAN has `add_resources` capability for the specific folder
+    /// - The folder_id in the UCAN matches the expected folder_id
+    ///
+    /// # Arguments
+    /// * `folder_token` - Folder token (typed)
+    /// * `expected_folder_id` - The folder_id that should match the UCAN
+    /// * `domain` - Domain to check (e.g., "sthalam")
+    ///
+    /// # Returns
+    /// * `Ok(())` if all validations pass
+    /// * `Err` with descriptive error if any validation fails
+    pub async fn validate_peer_can_add_resources(
+        folder_token: &FolderShareToken,
+        expected_folder_id: &str,
+        domain: &str,
+    ) -> ServiceResult<()> {
+        // 1. Extract folder_id from token capabilities
+        let folder_pattern = format!("{}:folder:", domain);
+        let mut folder_id_from_ucan = None;
+
+        for capability in folder_token.ucan().parsed().capabilities().iter() {
+            let cap_resource = capability.resource;
+
+            if cap_resource.starts_with(&folder_pattern) && capability.ability == "add_resources" {
+                if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
+                    if !folder_id.is_empty() && folder_id != "*" {
+                        folder_id_from_ucan = Some(folder_id.to_string());
+                        break;
+                    }
+                }
+            }
+        }
+
+        let folder_id_from_ucan = folder_id_from_ucan.ok_or_else(|| {
+            crate::errors::ResourceServiceError::UcanError(
+                "Folder UCAN lacks add_resources capability or no folder found".to_string(),
+            )
+        })?;
+
+        // 2. Verify folder_id matches expected folder_id
+        if folder_id_from_ucan != expected_folder_id {
+            return Err(crate::errors::ResourceServiceError::UcanError(format!(
+                "Folder ID mismatch: UCAN has {}, expected {}",
+                folder_id_from_ucan, expected_folder_id
+            ))
             .into());
         }
-    };
 
-    // Parse and validate UCAN structure
-    let folder_ucan_parsed = crypto_utils::ucan_utils::validate_structure(folder_ucan_token)
-        .await
-        .map_err(|e| {
-            crate::errors::FolderServiceError::UcanError(format!(
-                "Failed to parse folder UCAN: {}",
-                e
-            ))
-        })?;
+        Ok(())
+    }
 
-    // Extract facts
-    let facts = folder_ucan_parsed.facts().clone().ok_or_else(|| {
-        crate::errors::FolderServiceError::UcanError("Missing facts in folder UCAN".into())
-    })?;
+    /// Validate that a peer can request a share link for a folder
+    ///
+    /// This validates:
+    /// - Peer's folder UCAN is valid
+    /// - Peer has get_share_link capability for the specific folder
+    /// - Folder ID in UCAN matches expected folder ID
+    ///
+    /// # Arguments
+    /// * `folder_token` - Peer's folder token (typed)
+    /// * `expected_folder_id` - The folder_id that should match
+    /// * `domain` - Domain to check (e.g., "sthalam")
+    ///
+    /// # Returns
+    /// * `Ok(())` if validation succeeds
+    pub async fn validate_peer_can_request_link(
+        folder_token: &FolderShareToken,
+        expected_folder_id: &str,
+        domain: &str,
+    ) -> ServiceResult<()> {
+        // Extract folder_id with get_share_link capability
+        let folder_pattern = format!("{}:folder:", domain);
+        let mut folder_id_from_ucan = None;
 
-    // Get template by key
-    let template = facts.get(template_key).ok_or_else(|| {
-        crate::errors::FolderServiceError::UcanError(format!(
-            "Missing {} in folder UCAN",
-            template_key
-        ))
-    })?;
+        for capability in folder_token.ucan().parsed().capabilities().iter() {
+            let cap_resource = capability.resource;
 
-    // Extract capabilities map
-    let capabilities_map = template
-        .get("capabilities")
-        .and_then(|c| c.as_object())
-        .ok_or_else(|| {
-            crate::errors::FolderServiceError::UcanError("Missing capabilities in template".into())
-        })?;
-
-    // Convert keys to Vec<String>
-    let folder_capabilities: Vec<String> = capabilities_map.keys().map(|k| k.clone()).collect();
-
-    Ok(folder_capabilities)
-}
-
-/// Validate UCAN token structure and signature
-///
-/// Checks that the UCAN is well-formed and has a valid signature.
-/// Discards the parsed result - only used for validation.
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to validate
-///
-/// # Returns
-/// * `Ok(())` - UCAN is valid
-/// * `Err` - UCAN is invalid or malformed
-pub async fn validate_ucan_structure(ucan_token: &str) -> ServiceResult<()> {
-    crypto_utils::ucan_utils::validate_structure(ucan_token)
-        .await
-        .map_err(|e| {
-            crate::errors::FolderServiceError::UcanError(format!("Invalid UCAN structure: {}", e))
-        })?;
-    Ok(())
-}
-
-/// Validate UCAN token issuer and structure
-///
-/// Performs complete validation:
-/// 1. Validates token structure (expiry, format, signature)
-/// 2. Validates issuer DID matches expected public key
-///
-/// # Arguments
-/// * `token` - UCAN token to validate
-/// * `expected_issuer_pub_key` - Expected issuer's public key
-///
-/// # Returns
-/// * `Ok(())` - Token is valid with correct issuer
-/// * `Err` - If validation fails
-pub async fn validate_ucan_issuer(token: &str, expected_issuer_pub_key: &str) -> ServiceResult<()> {
-    // 1. Validate structure (expiry, format, signature) and get parsed UCAN
-    let ucan = crypto_utils::ucan_utils::validate_structure(token).await?;
-
-    // 2. Verify issuer DID matches expected public key
-    crypto_utils::ucan_utils::verify_did_key_match(ucan.issuer(), expected_issuer_pub_key)?;
-
-    Ok(())
-}
-
-/// Extract document capabilities from UCAN token
-///
-/// Wrapper for crypto_utils function - returns doc_name -> ability map.
-/// Used by merge_service for CRDT sync permission checking.
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to parse
-///
-/// # Returns
-/// HashMap of doc_name to ability (e.g., "main_doc" -> "crud/merge")
-pub async fn extract_doc_capabilities(
-    ucan_token: &str,
-) -> ServiceResult<std::collections::HashMap<String, String>> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-
-    let mut doc_capabilities = std::collections::HashMap::new();
-
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        // Look for resource pattern with doc name: "domain:resource:resource_id:doc_name"
-        if cap_resource.contains(":resource:") {
-            let parts: Vec<&str> = cap_resource.split(':').collect();
-
-            // Must have exactly 4 parts: [domain, "resource", resource_id, doc_name]
-            if parts.len() == 4 && parts[1] == "resource" {
-                let doc_name = parts[3];
-                let ability = capability.ability;
-
-                doc_capabilities.insert(doc_name.to_string(), ability.to_string());
+            if cap_resource.starts_with(&folder_pattern) && capability.ability == "get_share_link"
+            {
+                if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
+                    if !folder_id.is_empty() && folder_id != "*" {
+                        folder_id_from_ucan = Some(folder_id.to_string());
+                        break;
+                    }
+                }
             }
         }
-    }
 
-    if doc_capabilities.is_empty() {
-        return Err(crate::errors::FolderServiceError::UcanError(
-            "No document capabilities found".to_string(),
-        )
-        .into());
-    }
-
-    Ok(doc_capabilities)
-}
-
-/// Extract facts from UCAN token
-///
-/// Returns facts JSON map directly from parsed UCAN.
-/// Used by merge_service to check dont_send_to_node and no_update_from_node rules.
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token to parse
-///
-/// # Returns
-/// Optional JSON map with facts section
-pub async fn extract_facts(
-    ucan_token: &str,
-) -> ServiceResult<Option<serde_json::Map<String, serde_json::Value>>> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token).await?;
-
-    Ok(ucan.facts().as_ref().map(|facts| {
-        // Convert BTreeMap to serde_json::Map
-        facts.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-    }))
-}
-
-/// Extract folder_id from folder UCAN token
-///
-/// Parses folder capability to extract folder ID.
-/// Format: "domain:folder:folder_id"
-///
-/// # Arguments
-/// * `folder_ucan` - The folder UCAN token
-///
-/// # Returns
-/// * Folder ID as String
-pub async fn extract_folder_id(folder_ucan: &str) -> ServiceResult<String> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(folder_ucan).await?;
-
-    // Look for folder capability
-    for capability in ucan.capabilities().iter() {
-        let cap_resource = capability.resource;
-
-        if cap_resource.contains(":folder:") {
-            let parts: Vec<&str> = cap_resource.split(':').collect();
-
-            // Format: [domain, "folder", folder_id]
-            if parts.len() == 3 && parts[1] == "folder" {
-                return Ok(parts[2].to_string());
-            }
-        }
-    }
-
-    Err(crate::errors::FolderServiceError::UcanError(
-        "No folder capability found in UCAN".to_string(),
-    )
-    .into())
-}
-
-/// Extract user_id from UCAN token facts
-///
-/// Gets the user ID from the UCAN facts section.
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token
-///
-/// # Returns
-/// * User ID as String
-pub async fn extract_user_id(ucan_token: &str) -> ServiceResult<String> {
-    let facts = extract_facts(ucan_token).await?;
-
-    let facts_map = facts.ok_or_else(|| {
-        crate::errors::FolderServiceError::UcanError("No facts found in UCAN".to_string())
-    })?;
-
-    let user_id = facts_map
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            crate::errors::FolderServiceError::UcanError("No user_id in UCAN facts".to_string())
+        let folder_id_from_ucan = folder_id_from_ucan.ok_or_else(|| {
+            crate::errors::FolderServiceError::UcanError(
+                "Peer's folder UCAN lacks get_share_link capability or no folder found".to_string(),
+            )
         })?;
 
-    Ok(user_id.to_string())
-}
-
-/// Extract audience (aud) from UCAN token
-///
-/// The audience is the DID of the intended recipient of the UCAN.
-/// For viewer UCANs, this is the viewer's UCAN public key as a DID.
-///
-/// # Arguments
-/// * `ucan_token` - The UCAN token string
-///
-/// # Returns
-/// * `String` - The audience DID
-pub async fn extract_audience(ucan_token: &str) -> ServiceResult<String> {
-    let ucan = crypto_utils::ucan_utils::validate_structure(ucan_token)
-        .await
-        .map_err(|e| {
-            crate::errors::FolderServiceError::UcanError(format!(
-                "Failed to parse UCAN: {}",
-                e
+        // Verify folder_id matches expected folder_id
+        if folder_id_from_ucan != expected_folder_id {
+            return Err(crate::errors::FolderServiceError::UcanError(format!(
+                "Folder ID mismatch: UCAN has {}, expected {}",
+                folder_id_from_ucan, expected_folder_id
             ))
+            .into());
+        }
+
+        Ok(())
+    }
+
+    /// Validate folder access for resource operations
+    ///
+    /// Verifies that a folder token has the appropriate permissions for resource operations.
+    /// This checks that the folder ID in the token matches the expected folder ID.
+    ///
+    /// # Arguments
+    /// * `folder_token` - Folder token to validate (typed)
+    /// * `expected_folder_id` - The folder_id that should match
+    ///
+    /// # Returns
+    /// * `Ok(())` if validation succeeds
+    /// * `Err` if folder ID mismatch or invalid token
+    pub async fn validate_folder_access_for_resource(
+        folder_token: &FolderShareToken,
+        expected_folder_id: &str,
+    ) -> ServiceResult<()> {
+        // Extract folder_id from token
+        let folder_id_from_ucan = folder_token.folder_id();
+
+        // Verify folder_id matches expected folder_id
+        if folder_id_from_ucan != expected_folder_id {
+            return Err(crate::errors::ServiceError::InvalidUcan(format!(
+                "Folder ID mismatch: UCAN has {}, expected {}",
+                folder_id_from_ucan, expected_folder_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Validate UCAN structure and basic fields
+    ///
+    /// Generic UCAN validation that checks for required fields and proper structure.
+    /// This is a basic validation that can be applied to any UCAN token.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - Raw UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(())` if UCAN structure is valid
+    /// * `Err` if parsing fails or required fields missing
+    pub async fn validate_ucan_structure(ucan_token: &str) -> ServiceResult<()> {
+        // Attempt to parse the UCAN
+        let _ucan = ResourceUcan::from_token(ucan_token).map_err(|e| {
+            crate::errors::ServiceError::InvalidUcan(format!("UCAN parsing failed: {}", e))
         })?;
 
-    Ok(ucan.audience().to_string())
+        // If parsing succeeds, the structure is valid
+        // (ResourceUcan::from_token() validates token_type, role, capabilities, etc.)
+        Ok(())
+    }
+}
+
+// ==================== UTILITIES MODULE ====================
+
+/// Extraction and parsing utilities for UCAN tokens
+///
+/// These functions provide backwards compatibility with the old ucan_service
+/// extraction patterns while using the new typed token infrastructure.
+pub mod utilities {
+    use super::*;
+    use osvauld_core::models::{ResourceUcan, Role};
+
+    /// Extract resource ID from UCAN token
+    ///
+    /// Parses a resource UCAN token and extracts the resource ID from capabilities.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - Raw UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(resource_id)` - Extracted resource ID
+    /// * `Err` - If parsing fails or resource ID not found
+    pub async fn extract_resource_id(ucan_token: &str) -> ServiceResult<String> {
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        ucan.resource_id()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::InvalidUcan(
+                    "No resource ID found in UCAN capabilities".to_string(),
+                )
+            })
+    }
+
+    /// Extract folder ID from viewer token
+    ///
+    /// Viewer tokens use a special capability format for folders.
+    /// This extracts the folder ID for viewer authentication.
+    ///
+    /// # Arguments
+    /// * `viewer_ucan_token` - Viewer's UCAN token
+    /// * `_domain` - Domain (unused, kept for backwards compatibility)
+    ///
+    /// # Returns
+    /// * `Ok(folder_id)` - Extracted folder ID
+    pub async fn extract_folder_id_from_viewer_token(
+        viewer_ucan_token: &str,
+        _domain: &str,
+    ) -> ServiceResult<String> {
+        let ucan = ResourceUcan::from_token(viewer_ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        ucan.folder_id()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::InvalidUcan(
+                    "No folder ID found in viewer UCAN capabilities".to_string(),
+                )
+            })
+    }
+
+    /// Extract folder ID with add_resources capability check
+    ///
+    /// Used for validating folder access with specific permissions.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - UCAN token string
+    /// * `_domain` - Domain (unused, kept for backwards compatibility)
+    ///
+    /// # Returns
+    /// * `Ok(folder_id)` - Extracted folder ID if has add_resources capability
+    pub async fn extract_folder_id_with_add_resources(
+        ucan_token: &str,
+        _domain: &str,
+    ) -> ServiceResult<String> {
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        // Check if has resource actions (implies add_resources capability)
+        if ucan.resource_actions().is_none() {
+            return Err(crate::errors::ServiceError::InvalidUcan(
+                "UCAN does not have add_resources capability".to_string(),
+            ));
+        }
+
+        ucan.folder_id()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::InvalidUcan(
+                    "No folder ID found in UCAN capabilities".to_string(),
+                )
+            })
+    }
+
+    /// Extract document capabilities from UCAN token
+    ///
+    /// Returns a map of document names to their capability strings.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(HashMap<doc_name, capability_string>)` - Document capabilities
+    pub async fn extract_doc_capabilities(
+        ucan_token: &str,
+    ) -> ServiceResult<std::collections::HashMap<String, String>> {
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        let capabilities = ucan
+            .capabilities()
+            .iter()
+            .map(|(doc_name, cap)| (doc_name.clone(), cap.to_string()))
+            .collect();
+
+        Ok(capabilities)
+    }
+
+    /// Extract UCAN facts
+    ///
+    /// Returns the raw facts JSON from the UCAN token.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(Some(facts))` - UCAN facts as JSON value
+    /// * `Ok(None)` - If no facts present
+    pub async fn extract_facts(
+        ucan_token: &str,
+    ) -> ServiceResult<Option<serde_json::Map<String, serde_json::Value>>> {
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        Ok(ucan.parsed().facts().as_ref().cloned())
+    }
+
+    /// Extract folder capabilities from UCAN token
+    ///
+    /// Similar to extract_doc_capabilities but for folder tokens.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - Folder UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(Vec<capability_strings>)` - List of folder capabilities
+    pub async fn extract_folder_capabilities(
+        ucan_token: &str,
+    ) -> ServiceResult<Vec<String>> {
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        let capabilities = ucan
+            .capabilities()
+            .values()
+            .map(|cap| cap.to_string())
+            .collect();
+
+        Ok(capabilities)
+    }
+
+    /// Get CID from UCAN token
+    ///
+    /// Extracts the CID (content identifier) from a UCAN token.
+    /// Currently returns empty string as CID tracking is not yet implemented.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(cid)` - The CID string (empty for now)
+    pub fn get_cid(_ucan_token: &str) -> ServiceResult<String> {
+        // TODO: Implement actual CID extraction when we add CID tracking
+        Ok(String::new())
+    }
 }

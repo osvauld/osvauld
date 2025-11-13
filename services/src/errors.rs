@@ -1,4 +1,5 @@
 use crypto_utils::errors::{CryptoError, UcanError};
+use osvauld_core::models::{ConnectionTokenError, ResourceUcanError};
 use osvauld_core::repositories::RepositoryError;
 use thiserror::Error;
 
@@ -22,8 +23,17 @@ pub enum ServiceError {
     #[error("UCAN error: {0}")]
     Ucan(#[from] UcanError),
 
+    #[error(transparent)]
+    ResourceUcan(#[from] ResourceUcanError),
+
+    #[error(transparent)]
+    ConnectionToken(#[from] ConnectionTokenError),
+
     #[error("Repository error: {0}")]
     Repository(#[from] RepositoryError),
+
+    #[error("Invalid UCAN: {0}")]
+    InvalidUcan(String),
 
     #[error("Validation error in {field}: {reason}")]
     Validation { field: String, reason: String },
@@ -144,6 +154,15 @@ pub enum ResourceServiceError {
 
     #[error("Share record not found")]
     ShareRecordNotFound,
+
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+
+    #[error(transparent)]
+    ResourceUcan(#[from] ResourceUcanError),
+
+    #[error(transparent)]
+    ConnectionToken(#[from] ConnectionTokenError),
 
     #[error(transparent)]
     Crypto(#[from] CryptoError),

@@ -98,6 +98,33 @@ pub struct DocUpdate {
 // ============================================================================
 
 impl Resource {
+    /// Create a new empty Resource
+    ///
+    /// # Arguments
+    /// * `id` - Resource ID
+    ///
+    /// # Returns
+    /// * Empty Resource with given ID
+    pub fn new(id: String) -> Self {
+        Resource {
+            id,
+            folder_id: String::new(),
+            ucan_token: String::new(),
+            metadata: Value::Null,
+            docs: HashMap::new(),
+            static_assets: HashMap::new(),
+        }
+    }
+
+    /// Add or replace a document
+    ///
+    /// # Arguments
+    /// * `doc_name` - Document name
+    /// * `doc` - LoroDoc instance
+    pub fn add_doc(&mut self, doc_name: String, doc: LoroDoc) {
+        self.docs.insert(doc_name, doc);
+    }
+
     /// Create a new Resource from decrypted data
     ///
     /// # Arguments
