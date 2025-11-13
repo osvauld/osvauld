@@ -302,7 +302,7 @@ pub async fn accept_folder_from_peer(
 
     // Validate that peer has add_folder capability
     tracing::info!("  Step 1: Validating peer connection token...");
-    crate::validate_peer_can_add_folder(peer_connection_token, domain).await?;
+    crate::ucan_service::validation::validate_peer_can_add_folder(peer_connection_token, domain).await?;
 
     // Validate folder share UCAN token structure
     tracing::info!("  Step 2: Validating folder share UCAN structure...");

@@ -121,7 +121,7 @@ pub async fn get_ucan_pub_key(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<String> {
-    crate::ucan_service::get_ucan_public_key(crypto_utils, &repo_ctx).await
+    crate::ucan_service::get_public_ucan_key(crypto_utils, &repo_ctx).await
 }
 
 pub async fn issue_connect_ucan_token(

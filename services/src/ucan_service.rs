@@ -12,7 +12,7 @@
 //! ## Architecture
 //!
 //! - **Private utilities**: Key management (get_decrypted_ucan_keys)
-//! - **Public utilities**: Key access (get_ucan_public_key)
+//! - **Public utilities**: Key access (get_public_ucan_key)
 //! - **connection_tokens**: Device-to-device connection token issuance
 //! - **resource_tokens**: Resource delegation (Owner → Node → User → Viewer)
 //! - **folder_tokens**: Folder delegation (Owner → Node → User → Viewer)
@@ -23,7 +23,7 @@ use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
     ConnectionToken, FolderOwnerToken, FolderShareToken, FolderViewerToken, NodeConnectionToken,
     OneTimeConnectionToken, OwnerConnectionToken, ResourceOwnerToken, ResourceShareToken,
-    ResourceViewerToken, UserConnectionToken, ViewerAuthToken,
+    ResourceUcan, ResourceViewerToken, UserConnectionToken, ViewerAuthToken,
 };
 use persistance::database::RepositoryContext;
 use serde_json::json;
@@ -54,23 +54,23 @@ async fn get_decrypted_ucan_keys(repo_ctx: &Arc<RepositoryContext>) -> ServiceRe
 ///
 /// # Returns
 /// * `Ok(public_key)` - The UCAN public key as base64 string
-pub async fn get_ucan_public_key(
+pub async fn get_public_ucan_key(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: &Arc<RepositoryContext>,
 ) -> ServiceResult<String> {
     let encrypted_key = get_decrypted_ucan_keys(repo_ctx).await?;
     let crypto = crypto_utils.read().await;
-    Ok(crypto.get_ucan_public_key(&encrypted_key).await?)
+    Ok(crypto.get_public_ucan_key(&encrypted_key).await?)
 }
 
-// ==================== RE-EXPORTS FOR BACKWARDS COMPATIBILITY ====================
+// ==================== RE-EXPORTS ====================
 
 // Re-export commonly used functions for easier access
-pub use connection_tokens::{issue_one_time_connection_token, generate_public_folder_view_token, issue_peer_connection_token};
-pub use folder_tokens::{issue_folder_owner_token, issue_delegated_folder_token};
-pub use resource_tokens::{create_viewer_resource_token};
+pub use connection_tokens::{issue_one_time, issue_peer_connection, issue_viewer_auth};
+pub use folder_tokens::{issue_folder_owner_token, delegate_to_node as delegate_folder_to_node, delegate_to_viewer as delegate_folder_to_viewer};
+pub use resource_tokens::{issue_owner_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer};
 pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
-pub use validation::{validate_folder_access_for_resource, validate_ucan_structure};
+pub use validation::{validate_folder_access_for_resource, validate_ucan_structure, validate_peer_can_add_folder};
 
 // ==================== CONNECTION TOKENS MODULE ====================
 
@@ -272,6 +272,26 @@ pub mod connection_tokens {
     ) -> ServiceResult<(String, String)> {
         issue_peer_connection(capability_str, role, peer_pub_key, crypto_utils, repo_ctx).await
     }
+
+    /// Issue one-time connection token (wrapper)
+    pub async fn issue_one_time_connection_token(
+        capability_str: &str,
+        role: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<(String, String)> {
+        issue_one_time(capability_str, role, crypto_utils, repo_ctx).await
+    }
+
+    /// Generate public folder view token (wrapper)
+    pub async fn generate_public_folder_view_token(
+        folder_id: &str,
+        domain: &str,
+        crypto_utils: &Arc<RwLock<CryptoUtils>>,
+        repo_ctx: &Arc<RepositoryContext>,
+    ) -> ServiceResult<String> {
+        issue_viewer_auth(folder_id, domain, crypto_utils, repo_ctx).await
+    }
 }
 
 // ==================== RESOURCE TOKENS MODULE ====================
@@ -354,7 +374,7 @@ pub mod resource_tokens {
         // Get keys
         let encrypted_key = get_decrypted_ucan_keys(repo_ctx).await?;
         let crypto = crypto_utils.read().await;
-        let our_pub_key = crypto.get_ucan_public_key(&encrypted_key).await?;
+        let our_pub_key = crypto.get_public_ucan_key(&encrypted_key).await?;
 
         // Generate self-signed token
         let (token, cid) = crypto
@@ -813,7 +833,7 @@ pub mod folder_tokens {
 
         // Get our own public key (self-signed)
         let crypto = crypto_utils.read().await;
-        let our_pub_key = crypto.get_ucan_public_key(&encrypted_key).await?;
+        let our_pub_key = crypto.get_public_ucan_key(&encrypted_key).await?;
 
         // Generate token via crypto layer (self-signed)
         let (token, _cid) = crypto
@@ -1196,7 +1216,7 @@ pub mod utilities {
         let capabilities = ucan
             .capabilities()
             .iter()
-            .map(|(doc_name, cap)| (doc_name.clone(), cap.to_string()))
+            .map(|(doc_name, cap)| (doc_name.clone(), cap.as_str().to_string()))
             .collect();
 
         Ok(capabilities)
@@ -1239,7 +1259,7 @@ pub mod utilities {
         let capabilities = ucan
             .capabilities()
             .values()
-            .map(|cap| cap.to_string())
+            .map(|cap| cap.as_str().to_string())
             .collect();
 
         Ok(capabilities)
