@@ -1026,7 +1026,9 @@ pub async fn accept_resource_from_peer(
     info!("Accepting resource {} from peer", resource.id);
 
     // Validate owner's folder UCAN has add_resources capability for this folder
-    crate::validate_peer_can_add_resources(owner_folder_ucan, &resource.folder_id, domain).await?;
+    let folder_token = osvauld_core::models::FolderShareToken::from_token(owner_folder_ucan)
+        .map_err(|e| ResourceServiceError::UcanError(format!("Failed to parse folder token: {}", e)))?;
+    crate::ucan_service::validation::validate_peer_can_add_resources(&folder_token, &resource.folder_id, domain).await?;
 
     // Save resource with all share records in transaction
     repo_ctx

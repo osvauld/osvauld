@@ -68,8 +68,8 @@ pub async fn get_public_ucan_key(
 // Re-export commonly used functions for easier access
 pub use connection_tokens::{issue_one_time, issue_peer_connection, issue_viewer_auth};
 pub use folder_tokens::{issue_folder_owner_token, issue_delegated_folder_token, delegate_to_node as delegate_folder_to_node, delegate_to_viewer as delegate_folder_to_viewer};
-pub use resource_tokens::{issue_owner_token, create_viewer_resource_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer};
-pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
+pub use resource_tokens::{issue_owner_token, create_viewer_resource_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer, delegate_by_role as delegate_resource_by_role};
+pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, validate_folder_ucan_and_get_id, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
 pub use validation::{validate_folder_access_for_resource, validate_ucan_structure, validate_peer_can_add_folder};
 
 // ==================== CONNECTION TOKENS MODULE ====================
@@ -637,6 +637,96 @@ pub mod resource_tokens {
         let viewer_token = delegate_to_viewer(&delegator_token, viewer_pub_key, resource_id, repo_ctx, crypto_utils).await?;
 
         Ok((viewer_token.ucan().raw_token().to_string(), String::new()))
+    }
+
+    /// Delegate resource token by role (UNIFIED DELEGATION)
+    ///
+    /// Single function that handles delegation to any role based on the peer's role string.
+    /// Extracts the appropriate delegation template from the delegator token and generates
+    /// a new token with the peer's public key as audience.
+    ///
+    /// **UCAN-First Design**: All logic is driven by templates in the token, not hardcoded.
+    ///
+    /// # Arguments
+    /// * `delegator_resource_ucan` - Delegator's resource UCAN (Owner or Share token)
+    /// * `delegator_did` - Current user's DID/public key (added to facts as origin)
+    /// * `peer_role` - Role to delegate to ("node", "viewer", "user")
+    /// * `peer_pub_key` - Peer's UCAN public key (becomes audience)
+    /// * `resource_id` - Resource ID
+    /// * `repo_ctx` - Repository context
+    /// * `crypto_utils` - Crypto utilities instance
+    ///
+    /// # Returns
+    /// * `Ok((token_string, cid))` - Generated token string and its CID
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Works for any role - logic is in the UCAN template!
+    /// let (token, cid) = delegate_by_role(
+    ///     &owner_ucan,
+    ///     &current_user.public_key,  // Origin DID (who is delegating)
+    ///     "viewer",                   // Could be "node", "user", "viewer"
+    ///     viewer_pub_key,             // Audience (who receives)
+    ///     resource_id,
+    ///     repo_ctx,
+    ///     crypto_utils
+    /// ).await?;
+    /// ```
+    pub async fn delegate_by_role(
+        delegator_resource_ucan: &str,
+        delegator_did: &str,
+        peer_role: &str,
+        peer_pub_key: &str,
+        resource_id: &str,
+        repo_ctx: Arc<RepositoryContext>,
+        crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ) -> ServiceResult<(String, String)> {
+        use tracing::info;
+
+        info!("Delegating resource UCAN to role: {}", peer_role);
+        info!("  Origin DID (delegator): {}", delegator_did);
+
+        // Parse delegator token
+        let parsed_ucan = ResourceUcan::from_token(delegator_resource_ucan)?;
+
+        // 1. Extract delegation template for peer's role (DATA-DRIVEN)
+        let template = parsed_ucan.get_delegation_template(peer_role).map_err(|e| {
+            crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                format!("Failed to get {} template: {}", peer_role, e),
+            ))
+        })?;
+
+        // 2. Build capabilities from template (NEVER HARDCODED)
+        let capabilities = template.build_capabilities(resource_id, "resource");
+
+        // 3. Convert template to facts + add origin DID
+        let mut facts = template.to_facts();
+        facts.insert("token_type".to_string(), json!(format!("resource_{}", peer_role)));
+        facts.insert("role".to_string(), json!(peer_role));
+        facts.insert("resource_id".to_string(), json!(resource_id));
+        facts.insert("origin".to_string(), json!(delegator_did)); // DID of delegator
+
+        // 4. Get encrypted key
+        let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
+
+        // 5. Generate token via crypto layer
+        let crypto = crypto_utils.read().await;
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &encrypted_key,
+                peer_pub_key,
+                capabilities,
+                Some(facts),
+                None, // Default 30 years
+            )
+            .await?;
+
+        // 6. Get CID
+        let cid = get_cid(&token)?;
+
+        info!("✓ Generated {} resource token with origin DID", peer_role);
+
+        Ok((token, cid))
     }
 }
 
@@ -1314,6 +1404,28 @@ pub mod utilities {
                     "No folder ID found in UCAN capabilities".to_string(),
                 )
             })
+    }
+
+    /// Validate folder UCAN and extract folder_id
+    ///
+    /// Validates that a folder UCAN token is valid and extracts the folder_id from it.
+    /// Works with any folder token type (Owner, Share, or Viewer).
+    ///
+    /// # Arguments
+    /// * `folder_ucan` - Folder UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(folder_id)` - The folder ID from the token
+    /// * `Err` - If token is invalid or doesn't contain a folder ID
+    pub async fn validate_folder_ucan_and_get_id(folder_ucan: &str) -> ServiceResult<String> {
+        // Validate UCAN structure
+        validate_ucan_structure(folder_ucan).await?;
+
+        // Try to parse as FolderShareToken (works for Owner, Share, and Viewer tokens)
+        let folder_token = FolderShareToken::from_token(folder_ucan)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(format!("Invalid folder token: {}", e)))?;
+
+        Ok(folder_token.folder_id())
     }
 
     /// Extract document capabilities from UCAN token

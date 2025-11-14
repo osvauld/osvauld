@@ -89,21 +89,16 @@ async fn send_folder_impl(
         }
     };
 
-    // 3. TODO: Delegate to folder_sync (does all the heavy lifting)
-    // folder_sync::send_folder_with_resources(
-    //     &folder_id,
-    //     &recipient_user_id,
-    //     &current_user,
-    //     peer_conn,
-    //     repo_ctx,
-    //     crypto_utils,
-    // )
-    // .await
-    // .map_err(|e| e.into())
-
-    let _ = (folder_id, recipient_user_id, current_user, peer_conn, repo_ctx, crypto_utils);
-    info!("TODO: Folder sync not yet implemented");
-    Ok(())
+    // 3. Delegate to folder_sync (does all the heavy lifting)
+    crate::p2p::folder_sync::send_folder_with_resources(
+        &folder_id,
+        &recipient_user_id,
+        &current_user,
+        peer_conn,
+        repo_ctx,
+        crypto_utils,
+    )
+    .await
 }
 
 /// Sync a resource with peers who have access
@@ -143,19 +138,29 @@ pub async fn sync_resource(
     drop(user_guard);
 
     // 1. Get all share records for this resource to find users with access
-    let share_records = services::get_all_share_records_for_resource(&resource_id, repo_ctx.clone())
-        .await
-        .map_err(|e| {
-            error!("Failed to get share records for resource {}: {}", resource_id, e);
-            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get share records: {}", e))
-        })?;
+    let share_records =
+        services::get_all_share_records_for_resource(&resource_id, repo_ctx.clone())
+            .await
+            .map_err(|e| {
+                error!(
+                    "Failed to get share records for resource {}: {}",
+                    resource_id, e
+                );
+                crate::p2p::errors::P2PError::InvalidState(format!(
+                    "Failed to get share records: {}",
+                    e
+                ))
+            })?;
 
     if share_records.is_empty() {
         error!("No share records found for resource {}", resource_id);
         return Ok(());
     }
 
-    info!("Found {} users with access to resource", share_records.len());
+    info!(
+        "Found {} users with access to resource",
+        share_records.len()
+    );
 
     // 2. TODO: Prepare complete sync request (stubbed for now)
     // let (resource_ucan, folder_ucan, state_vectors, full_docs) =
@@ -174,7 +179,13 @@ pub async fn sync_resource(
     //     })?;
 
     info!("TODO: Resource sync not yet implemented");
-    let _ = (share_records, current_user, repo_ctx, crypto_utils, p2p_service);
+    let _ = (
+        share_records,
+        current_user,
+        repo_ctx,
+        crypto_utils,
+        p2p_service,
+    );
     return Ok(());
 
     // info!("✓ Prepared sync request with state_vectors and full_docs");
@@ -292,8 +303,14 @@ pub async fn sync_folder(
     let folder_share_records = services::get_all_folder_share_records(&folder_id, repo_ctx.clone())
         .await
         .map_err(|e| {
-            error!("Failed to get folder share records for {}: {}", folder_id, e);
-            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder share records: {}", e))
+            error!(
+                "Failed to get folder share records for {}: {}",
+                folder_id, e
+            );
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to get folder share records: {}",
+                e
+            ))
         })?;
 
     if folder_share_records.is_empty() {
@@ -351,7 +368,10 @@ pub async fn sync_folder(
         };
 
         // TODO: Delegate to folder_sync handler
-        info!("TODO: Folder sync not yet implemented for peer: {}", device.id);
+        info!(
+            "TODO: Folder sync not yet implemented for peer: {}",
+            device.id
+        );
         let _ = (&folder_id, &peer_conn);
         // match folder_sync::sync_folder_handler(
         //     &folder_id,
@@ -471,7 +491,9 @@ pub async fn request_folder_token(
     );
 
     peer_conn
-        .send_message(Message::Folder(osvauld_core::models::FolderMessage::FolderTokenRequest(request)))
+        .send_message(Message::Folder(
+            osvauld_core::models::FolderMessage::FolderTokenRequest(request),
+        ))
         .await?;
 
     info!("✓ Folder token request sent successfully");
@@ -487,11 +509,7 @@ pub async fn request_folder_token(
 /// * `device_id` - Node's device ID
 /// * `ucan_token` - UCAN token for folder access (from connection string)
 /// * `p2p_service` - P2P service
-pub fn connect_to_website(
-    device_id: String,
-    ucan_token: String,
-    p2p_service: Arc<P2PService>,
-) {
+pub fn connect_to_website(device_id: String, ucan_token: String, p2p_service: Arc<P2PService>) {
     tokio::spawn(async move {
         info!("🌐 Connecting viewer to node device: {}", device_id);
 
@@ -502,7 +520,10 @@ pub fn connect_to_website(
                 conn
             }
             Ok(None) => {
-                error!("⚠️ Connection already in progress for device: {}", device_id);
+                error!(
+                    "⚠️ Connection already in progress for device: {}",
+                    device_id
+                );
                 return;
             }
             Err(e) => {

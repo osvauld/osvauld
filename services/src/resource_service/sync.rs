@@ -146,24 +146,63 @@ pub async fn apply_peer_updates(
 /// Get resource UCANs for sync
 pub async fn get_resource_ucans_for_sync(
     resource_id: &str,
-    _folder_ucan: &str,
-    peer_ucan_pub_key: &str,
-    domain: &str,
+    current_user: &User,
+    peer_folder_ucan: &str,
+    peer_role: &str,
+    peer_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> Result<(String, String, String), ResourceServiceError> {
     info!("Getting resource UCANs for sync: {}", resource_id);
+    info!("  Peer role: {}", peer_role);
+    info!("  Current user: {}", current_user.id);
 
-    // Get resource from database
+    // Extract DIDs (UCAN public keys) from User models
+    let current_user_did = &current_user.ucan_pub_key; // DID is the UCAN public key
+    let peer_did = &peer_user.ucan_pub_key;             // Peer's DID for audience
+
+    // Get resource from database to get our UCAN and folder_id
     let encrypted_resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
-
-    // Get our UCAN token (owner's token)
     let our_ucan = encrypted_resource.ucan_token.clone();
+    let folder_id = &encrypted_resource.folder_id;
 
-    // Generate delegated UCAN for peer
-    // TODO: Use typed tokens and proper delegation
-    let peer_ucan = our_ucan.clone(); // Placeholder
-    let cid = String::new();
+    // Validate peer has folder access and get folder_id from their folder UCAN
+    info!("  Validating peer folder UCAN");
+    let peer_folder_id = crate::ucan_service::validate_folder_ucan_and_get_id(peer_folder_ucan)
+        .await
+        .map_err(|e| {
+            error!("Invalid peer folder UCAN: {}", e);
+            ResourceServiceError::UcanError(format!("Invalid peer folder UCAN: {}", e))
+        })?;
+
+    // Verify peer's folder UCAN is for the same folder as the resource
+    if &peer_folder_id != folder_id {
+        error!(
+            "Folder ID mismatch: resource folder {} vs peer folder {}",
+            folder_id, peer_folder_id
+        );
+        return Err(ResourceServiceError::UcanError(format!(
+            "Peer folder UCAN is for folder {} but resource is in folder {}",
+            peer_folder_id, folder_id
+        )));
+    }
+
+    info!("  ✓ Peer has valid folder access for folder {}", folder_id);
+
+    // Delegate resource UCAN using unified UCAN-first function
+    info!("  Delegating resource UCAN by role: {}", peer_role);
+    let (peer_ucan, cid) = crate::ucan_service::delegate_resource_by_role(
+        &our_ucan,
+        current_user_did,
+        peer_role,
+        peer_did,
+        resource_id,
+        repo_ctx,
+        crypto_utils.clone(),
+    )
+    .await?;
+
+    info!("  ✓ Generated peer resource UCAN");
 
     Ok((our_ucan, peer_ucan, cid))
 }
@@ -400,39 +439,76 @@ pub async fn prepare_resource_for_viewer(
 // =============================================================================
 
 /// Prepare resource transfer
+///
+/// Prepares a complete EncryptedResource for sending to a peer.
+/// Validates folder access, delegates resource UCAN, filters and re-encrypts data.
+///
+/// # Arguments
+/// * `resource_id` - Resource ID to transfer
+/// * `current_user` - Current user (delegator)
+/// * `peer_folder_ucan` - Peer's folder UCAN (proves folder access)
+/// * `peer_role` - Peer's role ("node", "viewer", etc.)
+/// * `peer_user` - Peer user (recipient)
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Ok(EncryptedResource)` - Complete encrypted resource with peer's UCAN
 pub async fn prepare_resource_transfer(
     resource_id: &str,
-    folder_ucan: &str,
-    peer_ucan_pub_key: &str,
-    domain: &str,
+    current_user: &User,
+    peer_folder_ucan: &str,
+    peer_role: &str,
+    peer_user: &User,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> Result<(String, String, String, Vec<u8>, Vec<u8>), ResourceServiceError> {
+) -> Result<EncryptedResource, ResourceServiceError> {
     info!("Preparing resource transfer: {}", resource_id);
+    info!("  Current user: {}", current_user.id);
+    info!("  Peer user: {}, role: {}", peer_user.id, peer_role);
 
-    // Get UCANs
-    let (our_ucan, peer_ucan, cid) = get_resource_ucans_for_sync(
+    // Get original resource for metadata and timestamps
+    let original_resource = repo_ctx.resource_repo.find_by_id(resource_id).await?;
+
+    // Get UCANs (validates folder access, delegates resource UCAN)
+    let (our_ucan, peer_ucan, _cid) = get_resource_ucans_for_sync(
         resource_id,
-        folder_ucan,
-        peer_ucan_pub_key,
-        domain,
+        current_user,
+        peer_folder_ucan,
+        peer_role,
+        peer_user,
         repo_ctx.clone(),
         crypto_utils,
     )
     .await?;
 
-    // Prepare resource data
+    // Prepare resource data (filter and encrypt using peer's UCAN)
+    let peer_did = &peer_user.ucan_pub_key;
     let (encrypted_data, encrypted_key) = prepare_resource_for_peer(
         resource_id,
         &our_ucan,
         &peer_ucan,
-        peer_ucan_pub_key,
+        peer_did,
         repo_ctx,
         crypto_utils,
     )
     .await?;
 
-    Ok((our_ucan, peer_ucan, cid, encrypted_data, encrypted_key))
+    // Construct EncryptedResource with peer's UCAN
+    let peer_encrypted_resource = EncryptedResource {
+        id: original_resource.id,
+        folder_id: original_resource.folder_id,
+        created_at: original_resource.created_at,
+        updated_at: original_resource.updated_at,
+        encrypted_data,
+        encrypted_key,
+        ucan_token: peer_ucan,  // Peer's delegated UCAN
+        metadata: original_resource.metadata,
+    };
+
+    info!("✓ Resource transfer prepared");
+
+    Ok(peer_encrypted_resource)
 }
 
 /// Save resource transfer
@@ -449,17 +525,97 @@ pub async fn save_resource_transfer(
     Ok(())
 }
 
-/// Accept resource from peer
+/// Accept resource from peer (node receives from owner)
+///
+/// Validates that the owner has add_resources permission and saves the resource
+/// with all share_records in a transaction.
+///
+/// # Arguments
+/// * `resource` - EncryptedResource to save (contains peer's delegated UCAN)
+/// * `share_records` - ALL share_records for this resource (for forwarding to viewers)
+/// * `owner_folder_ucan` - Owner's folder UCAN (proves add_resources capability)
+/// * `domain` - Domain for UCAN validation
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `Ok(())` - Resource and share_records saved successfully
+/// * `Err` - If validation fails or database save fails
 pub async fn accept_resource_from_peer(
-    _resource_id: &str,
-    _encrypted_data: Vec<u8>,
-    _encrypted_key: Vec<u8>,
-    _ucan_token: String,
-    _folder_id: String,
-    _metadata: serde_json::Value,
-    _repo_ctx: Arc<RepositoryContext>,
-) -> Result<(), ResourceServiceError> {
-    // TODO: Implement accept logic
-    info!("Accepting resource from peer");
+    resource: &EncryptedResource,
+    share_records: &[ShareRecord],
+    owner_folder_ucan: &str,
+    domain: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<()> {
+    info!("📥 Accepting resource {} from peer", resource.id);
+    info!("  Folder: {}", resource.folder_id);
+    info!("  Share records: {}", share_records.len());
+
+    // 1. Validate owner_folder_ucan has add_resources capability
+    info!("  Step 1: Validating owner folder UCAN has add_resources capability");
+    let folder_id = crate::ucan_service::extract_folder_id_with_add_resources(
+        owner_folder_ucan,
+        domain,
+    )
+    .await
+    .map_err(|e| {
+        error!("❌ Owner folder UCAN validation failed: {}", e);
+        ResourceServiceError::UcanError(format!(
+            "Owner folder UCAN doesn't have add_resources: {}",
+            e
+        ))
+    })?;
+
+    // 2. Verify the folder_id matches the resource's folder
+    if folder_id != resource.folder_id {
+        error!(
+            "❌ Folder ID mismatch: UCAN folder {} vs resource folder {}",
+            folder_id, resource.folder_id
+        );
+        return Err(ResourceServiceError::UcanError(format!(
+            "Owner folder UCAN is for folder {} but resource is in folder {}",
+            folder_id, resource.folder_id
+        )));
+    }
+
+    info!("  ✓ Owner has add_resources capability for folder {}", folder_id);
+
+    // 3. Validate resource UCAN structure
+    info!("  Step 2: Validating resource UCAN structure");
+    crate::ucan_service::validate_ucan_structure(&resource.ucan_token)
+        .await
+        .map_err(|e| {
+            error!("❌ Invalid resource UCAN: {}", e);
+            ResourceServiceError::UcanError(format!("Invalid resource UCAN: {}", e))
+        })?;
+
+    info!("  ✓ Resource UCAN structure valid");
+
+    // 4. Validate all share_record UCANs
+    info!("  Step 3: Validating {} share_record UCANs", share_records.len());
+    for (i, share_record) in share_records.iter().enumerate() {
+        crate::ucan_service::validate_ucan_structure(&share_record.ucan_token)
+            .await
+            .map_err(|e| {
+                error!("❌ Invalid share_record[{}] UCAN: {}", i, e);
+                ResourceServiceError::UcanError(format!("Invalid share_record UCAN: {}", e))
+            })?;
+    }
+
+    info!("  ✓ All share_record UCANs valid");
+
+    // 5. Save resource + share_records in transaction
+    info!("  Step 4: Saving resource and share_records to database");
+    repo_ctx
+        .resource_repo
+        .save_resource_with_share_records(resource, share_records)
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to save resource with share records: {}", e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
+
+    info!("✅ Successfully accepted resource {} with {} share_records", resource.id, share_records.len());
+
     Ok(())
 }
