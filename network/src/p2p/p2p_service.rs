@@ -1,4 +1,5 @@
 use crate::p2p::{
+    auth,
     connection_manager::ConnectionManager,
     constants::*,
     emitter::{P2PEvent, P2PEventEmitter},
@@ -178,7 +179,7 @@ impl P2PService {
 
         // Perform handshake and create peer connection
         info!("Starting handshake");
-        let handshake_result = self.perform_handshake_and_create_peer(&conn, true).await;
+        let handshake_result = self.perform_handshake_and_create_peer(&conn, true, Some(device_id)).await;
 
         match handshake_result {
             Ok(peer_connection) => {
@@ -231,11 +232,17 @@ impl P2PService {
     }
 
     /// Perform handshake and create peer connection
-    /// Used by p2p_init module for incoming connections
+    /// Used by both outgoing (initiator) and incoming connections
+    ///
+    /// # Arguments
+    /// * `conn` - The established connection
+    /// * `is_initiator` - True if we initiated the connection
+    /// * `device_id` - Required if is_initiator=true to look up peer's token
     pub async fn perform_handshake_and_create_peer(
         &self,
         conn: &Connection,
         is_initiator: bool,
+        device_id: Option<&str>,
     ) -> P2PResult<Arc<PeerConnection>> {
         let current_user = self.get_current_user().await?;
         let current_device = self.get_current_device().await?;
@@ -277,8 +284,30 @@ impl P2PService {
 
         // Initiate handshake if we're the initiator
         if is_initiator {
-            peer_connection
-                .initiate_handshake(current_user, current_device)
+            // Get the peer's user record to retrieve their UCAN token
+            // The token could be either one-time (first connection) or persistent (reconnection)
+            // The receiving side will parse it and determine the flow
+
+            let device_id = device_id.ok_or_else(|| {
+                P2PError::InvalidState("device_id required for initiator handshake".to_string())
+            })?;
+
+            // Look up device to get user_id
+            let devices = self.repo_ctx.device_repo.get_devices_by_ids(&[device_id.to_string()]).await
+                .map_err(|e| P2PError::InvalidState(format!("Failed to get device: {}", e)))?;
+
+            let device = devices.into_iter().next()
+                .ok_or_else(|| P2PError::InvalidState(format!("Device {} not found", device_id)))?;
+
+            // Get user to retrieve their ucan_token
+            let peer_user = self.repo_ctx.user_repo.get_user_by_id(&device.user_id).await
+                .map_err(|e| P2PError::InvalidState(format!("Failed to get user: {}", e)))?;
+
+            info!("🔐 Initiating handshake with token from database");
+            info!("  - Peer user: {}", peer_user.id);
+            info!("  - Peer device: {}", device.id);
+
+            auth::initiate_handshake(&peer_connection, peer_user.ucan_token, current_user, current_device)
                 .await?;
         }
 

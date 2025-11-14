@@ -118,22 +118,22 @@ pub async fn share_folder(
         .into());
     }
 
-    // 4. Extract capabilities from folder UCAN template based on role
-    let folder_capabilities = crate::ucan_service::extract_folder_capabilities(
-        &folder.ucan,
-        recipient_role,
-    )
-    .await?;
+    // 4. Get current user's folder share record to get the folder owner token
+    let current_user_folder_share = repo_ctx
+        .folder_share_repo
+        .find_by_folder_and_user(folder_id, &current_user.id)
+        .await?
+        .ok_or_else(|| FolderServiceError::Validation("Current user doesn't have access to folder".into()))?;
 
     // 6 & 7. Generate delegated folder UCAN for recipient using ucan_service
     let (folder_ucan_token, folder_ucan_cid) = crate::ucan_service::issue_delegated_folder_token(
-        folder_id,
-        domain,
-        folder_capabilities,
-        &recipient_user.ucan_pub_key,
-        recipient_role,
-        crypto_utils,
-        &repo_ctx,
+        &current_user_folder_share.ucan_token,  // folder_owner_token
+        &recipient_user.ucan_pub_key,            // peer_pub_key
+        folder_id,                                // folder_id
+        recipient_role,                           // role
+        domain,                                   // domain
+        repo_ctx.clone(),                         // repo_ctx
+        crypto_utils.clone(),                     // crypto_utils
     )
     .await?;
 
@@ -302,7 +302,9 @@ pub async fn accept_folder_from_peer(
 
     // Validate that peer has add_folder capability
     tracing::info!("  Step 1: Validating peer connection token...");
-    crate::ucan_service::validation::validate_peer_can_add_folder(peer_connection_token, domain).await?;
+    let peer_token = osvauld_core::models::NodeConnectionToken::from_token(peer_connection_token)
+        .map_err(|e| FolderServiceError::Validation(format!("Invalid peer connection token: {}", e)))?;
+    crate::ucan_service::validation::validate_peer_can_add_folder(&peer_token, domain).await?;
 
     // Validate folder share UCAN token structure
     tracing::info!("  Step 2: Validating folder share UCAN structure...");
@@ -322,5 +324,106 @@ pub async fn accept_folder_from_peer(
         .await?;
 
     tracing::info!("✅ Successfully accepted and saved folder {}", folder.id);
+    Ok(())
+}
+
+/// Prepare folder data for viewer first connection
+///
+/// Loads the folder, issues a FolderViewer token, and creates a FolderShareRecord
+/// so the viewer can reconnect. This is used during viewer's first handshake to
+/// provide immediate access and enable future reconnections.
+///
+/// # Arguments
+/// * `folder_id` - ID of folder to prepare
+/// * `viewer_user_id` - Viewer's user ID (for share record)
+/// * `node_user_id` - Node's user ID (owner of the folder, for share record)
+/// * `viewer_ucan_pub_key` - Viewer's UCAN public key (for token audience)
+/// * `crypto_utils` - Crypto utilities for token generation
+/// * `repo_ctx` - Repository context for database access
+/// * `domain` - Domain for UCAN validation
+///
+/// # Returns
+/// * `Ok(())` - FolderShareRecord created successfully
+pub async fn prepare_viewer_folder_data(
+    folder_id: &str,
+    viewer_user_id: &str,
+    node_user_id: &str,
+    viewer_ucan_pub_key: &str,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    repo_ctx: &Arc<RepositoryContext>,
+    domain: &str,
+) -> ServiceResult<()> {
+    // 1. Load folder from database
+    let folder = repo_ctx
+        .folder_repo
+        .find_by_id(folder_id)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to load folder {}: {}", folder_id, e);
+            FolderServiceError::FolderNotFound {
+                folder_id: folder_id.to_string(),
+            }
+        })?;
+
+    tracing::info!("Loaded folder: {} ({})", folder.name, folder.id);
+
+    // 2. Get node's folder share token (we need this to delegate from)
+    let node_folder_share = repo_ctx
+        .folder_share_repo
+        .find_by_folder_and_user(folder_id, node_user_id)
+        .await?
+        .ok_or_else(|| {
+            FolderServiceError::Validation(format!(
+                "Node {} doesn't have access to folder {}",
+                node_user_id, folder_id
+            ))
+        })?;
+
+    // 3. Parse node's folder token for delegation
+    use osvauld_core::models::FolderShareToken;
+    let node_folder_token = FolderShareToken::from_token(&node_folder_share.ucan_token)
+        .map_err(|e| FolderServiceError::UcanError(format!("Invalid folder token: {}", e)))?;
+
+    // 4. Delegate FolderViewer token from node's token
+    let viewer_folder_token = crate::ucan_service::delegate_folder_to_viewer(
+        &node_folder_token,
+        viewer_ucan_pub_key,
+        folder_id,
+        repo_ctx.clone(),
+        crypto_utils.clone(),
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to delegate folder token to viewer: {}", e);
+        FolderServiceError::UcanError(format!("Failed to issue FolderViewer token: {}", e))
+    })?;
+
+    let folder_ucan = viewer_folder_token.ucan().raw_token().to_string();
+    let folder_ucan_cid = crate::ucan_service::get_cid(&folder_ucan)
+        .map_err(|e| FolderServiceError::UcanError(format!("Failed to get CID: {}", e)))?;
+
+    tracing::info!("✓ Issued FolderViewer token for folder {}", folder_id);
+
+    // 3. Create and save FolderShareRecord so viewer can reconnect
+    let folder_share_record = FolderShareRecord::prepare_folder_share_record(
+        folder_id.to_string(),
+        node_user_id.to_string(),      // shared_by (the node/owner)
+        viewer_user_id.to_string(),     // recipient (the viewer)
+        PermissionLevel::Admin,         // viewer gets admin access
+        folder_ucan.clone(),
+        folder_ucan_cid,
+    );
+
+    repo_ctx
+        .folder_share_repo
+        .save(&folder_share_record)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to save folder share record: {}", e);
+            FolderServiceError::Validation(format!("Failed to save share record: {}", e))
+        })?;
+
+    tracing::info!("✓ Saved FolderShareRecord for viewer {}", viewer_user_id);
+
     Ok(())
 }

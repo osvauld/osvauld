@@ -188,65 +188,12 @@ pub async fn handle_folder_token_request(
 ) -> P2PResult<()> {
     info!("📨 Handling FolderTokenRequest for folder: {}", payload.folder_id);
 
-    // 1. Generate viewer token
-    let viewer_token = services::ucan_service::generate_viewer_token_for_folder(
-        &payload.folder_ucan,
-        &payload.folder_id,
-        &peer_conn.domain,
-        peer_conn.repo_ctx.clone(),
-        peer_conn.crypto_utils.clone(),
-    )
-    .await
-    .map_err(|e| {
-        error!("❌ Failed to generate viewer token: {}", e);
-        crate::p2p::errors::P2PError::InvalidState(format!(
-            "Failed to generate viewer token: {}",
-            e
-        ))
-    })?;
-
-    info!("✓ Generated viewer token");
-
-    // 2. Get current user and device info
-    let current_user = peer_conn.get_local_user().await?;
-    let current_device = peer_conn.get_local_device().await
-        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No device loaded".to_string()))?;
-
-    // 3. Get UCAN public key
-    let encrypted_ucan_key = peer_conn.repo_ctx.store_repo.get_ucan_key().await
-        .map_err(|e| crate::p2p::errors::P2PError::InvalidState(format!("Failed to get UCAN key: {}", e)))?;
-
-    let crypto = peer_conn.crypto_utils.read().await;
-    let ucan_pub_key = crypto.get_public_ucan_key(&encrypted_ucan_key).await
-        .map_err(|e| crate::p2p::errors::P2PError::InvalidState(format!("Failed to get UCAN public key: {}", e)))?;
-
-    // 4. Create connection details JSON
-    let connection_details = serde_json::json!({
-        "user_public_key": current_user.public_key,
-        "device_public_key": current_device.device_key,
-        "username": current_user.username,
-        "ucan_token": viewer_token,
-        "ucan_pub_key": ucan_pub_key,
-        "folder_id": payload.folder_id,
-    });
-
-    // 5. Base64 encode connection string
-    use base64::{Engine as _, engine::general_purpose};
-    let connection_json = connection_details.to_string();
-    let connection_string = general_purpose::STANDARD.encode(connection_json.as_bytes());
-
-    info!("✓ Generated connection string");
-
-    // 6. Send response back to requester
-    let response = osvauld_core::models::FolderTokenResponse {
-        folder_id: payload.folder_id.clone(),
-        connection_string,
-    };
-
-    peer_conn.send_message(Message::Folder(FolderMessage::FolderTokenResponse(response))).await?;
-
-    info!("✅ Sent FolderTokenResponse for folder: {}", payload.folder_id);
-    Ok(())
+    // TODO: Implement viewer token generation
+    let _ = (payload, peer_conn);
+    error!("❌ Viewer support not yet implemented");
+    Err(crate::p2p::errors::P2PError::InvalidState(
+        "Viewer support not implemented".to_string()
+    ))
 }
 
 /// Handle FolderTokenResponse - emit event to frontend

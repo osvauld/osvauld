@@ -126,7 +126,7 @@ pub async fn start_listening(service: &P2PService) -> P2PResult<()> {
                                     Ok(Ok(conn)) => {
                                         info!("Connection established, initiating handshake");
                                         match service_clone
-                                            .perform_handshake_and_create_peer(&conn, false)
+                                            .perform_handshake_and_create_peer(&conn, false, None)
                                             .await
                                         {
                                             Ok(peer) => {

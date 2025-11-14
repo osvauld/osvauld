@@ -88,7 +88,7 @@ pub async fn generate_updates_for_peer(
     let resource = core::load_and_decrypt_resource(&resource_id, repo_ctx, crypto_utils).await?;
 
     // Use merge_service for now
-    crate::merge_service::generate_updates_for_peer(&resource, ucan_token, peer_state_vectors_json)
+    crate::merge_service::generate_updates_for_peer(&resource, ucan_token, &peer_state_vectors_json)
         .await
         .map_err(|e| match e {
             ServiceError::Resource(err) => err,
@@ -126,7 +126,7 @@ pub async fn apply_peer_updates(
         core::load_and_decrypt_resource(&resource_id, repo_ctx.clone(), crypto_utils).await?;
 
     // Use merge_service for now
-    crate::merge_service::apply_peer_updates(&mut resource, ucan_token, peer_updates_json)
+    crate::merge_service::apply_peer_updates(&mut resource, ucan_token, &peer_updates_json)
         .await
         .map_err(|e| match e {
             ServiceError::Resource(err) => err,
@@ -187,7 +187,12 @@ pub async fn prepare_resource_for_peer(
     let sync_context = core::create_sync_context(our_ucan, peer_ucan).await?;
 
     // Filter and encrypt for peer
-    core::filter_and_encrypt_for_peer(&resource, &sync_context, peer_public_key).await
+    core::filter_and_encrypt_for_peer(&resource, &sync_context, peer_public_key)
+        .await
+        .map_err(|e| match e {
+            ServiceError::Resource(err) => err,
+            _ => ResourceServiceError::InvalidState(format!("Unexpected error: {}", e)),
+        })
 }
 
 // =============================================================================
@@ -212,7 +217,7 @@ pub async fn get_resource_list_for_folder(
 
     repo_ctx
         .resource_repo
-        .get_all_resources_for_folder(folder_id)
+        .get_all_resources(folder_id)
         .await
         .map_err(|e| ResourceServiceError::DatabaseError(e.to_string()))
 }
@@ -270,27 +275,50 @@ pub use crate::merge_service::{
 };
 
 // =============================================================================
-// Website Service Functions (Viewer Operations)
+// Viewer Connection Helper Functions (Temporary - P2P layer needs refactoring)
 // =============================================================================
+//
+// TODO: These functions exist only for backwards compatibility with the current P2P layer.
+// The P2P layer (website_handler.rs) should be refactored to use the standard sync pipeline
+// functions above (prepare_resource_for_peer, etc.) which already handle permissions via UCAN.
+//
+// The website_handler should:
+// 1. Use standard folder_service functions for folder operations
+// 2. Use prepare_resource_for_peer() for resource sync
+// 3. Stop treating "viewer mode" as special - it's just another peer with UCAN permissions
 
 /// Check user and folder status for viewer connection
+///
+/// TODO: Remove this - P2P layer should use standard folder queries
 pub async fn check_user_and_folder_status(
     viewer_ucan_token: &str,
     node_user_id: &str,
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(bool, bool)> {
-    // Delegate to website_service for now
-    crate::website_service::check_user_and_folder_status(
-        viewer_ucan_token,
-        node_user_id,
-        domain,
-        repo_ctx,
-    )
-    .await
+    info!("Checking user and folder status for viewer connection");
+
+    // Extract folder_id from UCAN token
+    let folder_id = crate::ucan_service::extract_folder_id_from_viewer_token(viewer_ucan_token, domain)
+        .await?;
+
+    // Check if folder exists
+    let folder_exists = repo_ctx.folder_repo.find_by_id(&folder_id).await.is_ok();
+
+    // Check first_sync status
+    let first_sync_done = repo_ctx
+        .user_repo
+        .get_user_by_id(node_user_id)
+        .await
+        .map(|user| user.first_sync)
+        .unwrap_or(false);
+
+    Ok((first_sync_done, folder_exists))
 }
 
 /// Get folder to send to viewer
+///
+/// TODO: Remove this - Use standard folder delegation via folder_service
 pub async fn get_folder_to_send(
     folder_id: &str,
     node_user_id: &str,
@@ -299,37 +327,72 @@ pub async fn get_folder_to_send(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(Folder, Vec<u8>, Vec<u8>, String)> {
-    // Delegate to website_service for now
-    crate::website_service::get_folder_to_send(
-        folder_id,
-        node_user_id,
+    info!("Preparing folder {} for viewer", folder_id);
+
+    // Get folder
+    let folder = repo_ctx.folder_repo.find_by_id(folder_id).await?;
+
+    // Issue delegated folder UCAN for viewer
+    let (folder_ucan_token, _folder_ucan_cid) = crate::ucan_service::issue_delegated_folder_token(
+        &folder.ucan,
         viewer_public_key,
+        folder_id,
+        "viewer",
         domain,
-        repo_ctx,
-        crypto_utils,
+        repo_ctx.clone(),
+        crypto_utils.clone(),
     )
-    .await
+    .await?;
+
+    // TODO: Properly serialize FolderShareRecord
+    let encrypted_data = vec![];
+    let encrypted_key = vec![];
+
+    Ok((folder, encrypted_data, encrypted_key, folder_ucan_token))
 }
 
 /// Prepare resource for viewer
+///
+/// TODO: Remove this - Use prepare_resource_for_peer() which already handles UCAN permissions
 pub async fn prepare_resource_for_viewer(
     resource_id: &str,
     node_user_id: &str,
     viewer_public_key: &str,
-    domain: &str,
+    _domain: &str,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(Vec<u8>, Vec<u8>, String)> {
-    // Delegate to website_service for now
-    crate::website_service::prepare_resource_for_viewer(
+    info!("Preparing resource {} for viewer", resource_id);
+
+    // Get node user's share record to get their UCAN
+    let node_share = repo_ctx
+        .share_repo
+        .find_by_resource_and_operation_and_user(resource_id, "share", node_user_id)
+        .await?;
+
+    let node_ucan = &node_share.ucan_token;
+
+    // Get viewer user
+    let viewer_user_id = crypto_utils::get_key_id(viewer_public_key)?;
+    let viewer_user = repo_ctx.user_repo.get_user_by_id(&viewer_user_id).await?;
+
+    // Issue viewer UCAN
+    let (viewer_ucan, _cid) = crate::ucan_service::create_viewer_resource_token(
+        node_ucan,
+        &viewer_user.ucan_pub_key,
         resource_id,
-        node_user_id,
-        viewer_public_key,
-        domain,
-        repo_ctx,
-        crypto_utils,
+        "",
+        repo_ctx.clone(),
+        crypto_utils.clone(),
     )
-    .await
+    .await?;
+
+    // Use standard prepare_resource_for_peer with proper UCAN context
+    let (encrypted_data, encrypted_key) =
+        prepare_resource_for_peer(resource_id, node_ucan, &viewer_ucan, viewer_public_key, repo_ctx, &crypto_utils)
+            .await?;
+
+    Ok((encrypted_data, encrypted_key, viewer_ucan))
 }
 
 // =============================================================================

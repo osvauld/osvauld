@@ -1,7 +1,7 @@
 use crate::p2p::{
+    auth,
     emitter::{P2PEvent, P2PEventEmitter},
     errors::{MessageError, P2PError, P2PResult},
-    folder_sync, resource_sync, website_handler,
 };
 use crypto_utils::CryptoUtils;
 use iroh::endpoint::Connection;
@@ -300,27 +300,19 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::Resource(resource_msg) => {
-                resource_sync::process_message(
-                    Arc::new(self.clone()),
-                    resource_msg.clone(),
-                    self.repo_ctx.clone(),
-                    self.crypto_utils.clone(),
-                )
-                .await
+            Message::Resource(_resource_msg) => {
+                // TODO: Re-enable resource sync later
+                info!("Resource sync not yet implemented");
+                Ok(())
             }
-            Message::Handshake(payload) => self.handle_handshake_message(payload).await,
-            Message::Folder(folder_msg) => {
-                folder_sync::process_message(
-                    Arc::new(self.clone()),
-                    folder_msg.clone(),
-                    self.repo_ctx.clone(),
-                    self.crypto_utils.clone(),
-                )
-                .await
+            Message::Handshake(handshake_msg) => {
+                // Single entry point for all handshake messages
+                auth::process_handshake_message(self, handshake_msg).await
             }
-            Message::Website(website_msg) => {
-                website_handler::process_message(Arc::new(self.clone()), website_msg.clone()).await
+            Message::Folder(_folder_msg) => {
+                // TODO: Re-enable folder sync later
+                info!("Folder sync not yet implemented");
+                Ok(())
             }
         }
     }

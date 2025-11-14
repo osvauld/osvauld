@@ -131,7 +131,7 @@ pub async fn issue_connect_ucan_token(
     peer_ucan_pub_key: &str,
     role: &str,
 ) -> ServiceResult<String> {
-    crate::ucan_service::issue_peer_connection_token(
+    crate::ucan_service::connection_tokens::issue_peer_connection(
         domain,
         peer_ucan_pub_key,
         role,

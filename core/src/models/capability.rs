@@ -141,6 +141,12 @@ pub enum ConnectionTokenType {
     /// Lifespan: Single use or short-lived
     /// Purpose: Initial viewer authentication
     ViewerAuth,
+
+    /// Viewer connection token (persistent after first connection)
+    /// Used in: HandshakeResponse.issued_ucan (after ViewerAuth validation)
+    /// Lifespan: Indefinite (long-lived)
+    /// Purpose: Persistent viewer connection, can delete self
+    ViewerConnection,
 }
 
 impl ConnectionTokenType {
@@ -151,6 +157,7 @@ impl ConnectionTokenType {
             "node_connection" => Ok(ConnectionTokenType::NodeConnection),
             "user_connection" => Ok(ConnectionTokenType::UserConnection),
             "viewer_auth" => Ok(ConnectionTokenType::ViewerAuth),
+            "viewer_connection" => Ok(ConnectionTokenType::ViewerConnection),
             _ => Err(format!("Unknown connection token type: {}", s)),
         }
     }
@@ -162,6 +169,7 @@ impl ConnectionTokenType {
             ConnectionTokenType::NodeConnection => "node_connection",
             ConnectionTokenType::UserConnection => "user_connection",
             ConnectionTokenType::ViewerAuth => "viewer_auth",
+            ConnectionTokenType::ViewerConnection => "viewer_connection",
         }
     }
 

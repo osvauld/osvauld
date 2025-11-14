@@ -7,7 +7,7 @@ mod resource_service;
 mod share_service;
 pub mod ucan_service;
 mod user_service;
-mod website_service;
+// website_service removed - all operations consolidated into resource_service
 
 pub use auth_service::*;
 pub use errors::*;
@@ -17,5 +17,3 @@ pub use resource_service::*;
 pub use share_service::*;
 pub use ucan_service::*;
 pub use user_service::*;
-pub use website_service::*;
-pub use website_service::*;

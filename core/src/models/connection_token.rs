@@ -34,6 +34,7 @@ pub struct ConnectionToken {
     parsed: Ucan,
     token_type: ConnectionTokenType,
     role: Role,
+    first_connection: bool,
 }
 
 impl ConnectionToken {
@@ -66,11 +67,18 @@ impl ConnectionToken {
         let role = Role::from_str(role_str)
             .map_err(|e| ConnectionTokenError::ParsingFailed(format!("Invalid role: {}", e)))?;
 
+        // Extract first_connection flag (defaults to false if not present)
+        let first_connection = facts
+            .get("first_connection")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         Ok(Self {
             raw_token: token.to_string(),
             parsed,
             token_type,
             role,
+            first_connection,
         })
     }
 
@@ -91,6 +99,10 @@ impl ConnectionToken {
         &self.parsed
     }
 
+    pub fn is_first_connection(&self) -> bool {
+        self.first_connection
+    }
+
     // Validation
     pub fn is_one_time(&self) -> bool {
         self.token_type.is_one_time()
@@ -102,7 +114,8 @@ impl ConnectionToken {
             ConnectionTokenType::OwnerConnection => true,   // Owner can delegate to anyone
             ConnectionTokenType::NodeConnection => matches!(target_role, Role::User | Role::Viewer),
             ConnectionTokenType::UserConnection => matches!(target_role, Role::Viewer),
-            ConnectionTokenType::ViewerAuth => false,        // Viewer can't delegate
+            ConnectionTokenType::ViewerAuth => false,        // Viewer auth can't delegate
+            ConnectionTokenType::ViewerConnection => false,  // Viewer connection can't delegate
         }
     }
 }
@@ -217,6 +230,31 @@ impl ViewerAuthToken {
         if conn.role() != Role::Viewer {
             return Err(ConnectionTokenError::ValidationFailed(
                 format!("ViewerAuth must have Viewer role, got {:?}", conn.role())
+            ));
+        }
+        Ok(Self(conn))
+    }
+
+    pub fn inner(&self) -> &ConnectionToken {
+        &self.0
+    }
+}
+
+/// Viewer connection token (persistent after first connection)
+#[derive(Debug, Clone)]
+pub struct ViewerConnectionToken(ConnectionToken);
+
+impl ViewerConnectionToken {
+    pub fn from_token(token: &str) -> ConnectionTokenResult<Self> {
+        let conn = ConnectionToken::from_token(token)?;
+        if conn.token_type() != ConnectionTokenType::ViewerConnection {
+            return Err(ConnectionTokenError::InvalidTokenType(
+                format!("Expected ViewerConnection, got {:?}", conn.token_type())
+            ));
+        }
+        if conn.role() != Role::Viewer {
+            return Err(ConnectionTokenError::ValidationFailed(
+                format!("ViewerConnection must have Viewer role, got {:?}", conn.role())
             ));
         }
         Ok(Self(conn))

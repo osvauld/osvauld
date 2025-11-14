@@ -3,7 +3,7 @@
 //! Lightweight orchestration layer for folder sync and resource sync.
 //! Gets connection and delegates to appropriate sync modules.
 
-use crate::p2p::{errors::P2PResult, folder_sync, P2PService};
+use crate::p2p::{errors::P2PResult, P2PService};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{FolderTokenRequest, Message, ResourceSyncRequestMsg, User};
 use persistance::database::RepositoryContext;
@@ -89,17 +89,21 @@ async fn send_folder_impl(
         }
     };
 
-    // 3. Delegate to folder_sync (does all the heavy lifting)
-    folder_sync::send_folder_with_resources(
-        &folder_id,
-        &recipient_user_id,
-        &current_user,
-        peer_conn,
-        repo_ctx,
-        crypto_utils,
-    )
-    .await
-    .map_err(|e| e.into())
+    // 3. TODO: Delegate to folder_sync (does all the heavy lifting)
+    // folder_sync::send_folder_with_resources(
+    //     &folder_id,
+    //     &recipient_user_id,
+    //     &current_user,
+    //     peer_conn,
+    //     repo_ctx,
+    //     crypto_utils,
+    // )
+    // .await
+    // .map_err(|e| e.into())
+
+    let _ = (folder_id, recipient_user_id, current_user, peer_conn, repo_ctx, crypto_utils);
+    info!("TODO: Folder sync not yet implemented");
+    Ok(())
 }
 
 /// Sync a resource with peers who have access
@@ -153,98 +157,101 @@ pub async fn sync_resource(
 
     info!("Found {} users with access to resource", share_records.len());
 
-    // 2. Prepare complete sync request (UCANs + state_vectors + full_docs)
-    let (resource_ucan, folder_ucan, state_vectors, full_docs) =
-        services::prepare_resource_sync_request(
-            &resource_id,
-            &current_user.id,
-            repo_ctx.clone(),
-            &crypto_utils,
-        )
-        .await
-        .map_err(|e| {
-            error!("Failed to prepare resource sync request: {}", e);
-            crate::p2p::errors::P2PError::InvalidState(format!(
-                "Failed to prepare sync data: {}",
-                e
-            ))
-        })?;
+    // 2. TODO: Prepare complete sync request (stubbed for now)
+    // let (resource_ucan, folder_ucan, state_vectors, full_docs) =
+    //     services::prepare_resource_sync_request(
+    //         &resource_id,
+    //         repo_ctx.clone(),
+    //         &crypto_utils,
+    //     )
+    //     .await
+    //     .map_err(|e| {
+    //         error!("Failed to prepare resource sync request: {}", e);
+    //         crate::p2p::errors::P2PError::InvalidState(format!(
+    //             "Failed to prepare sync data: {}",
+    //             e
+    //         ))
+    //     })?;
 
-    info!("✓ Prepared sync request with state_vectors and full_docs");
+    info!("TODO: Resource sync not yet implemented");
+    let _ = (share_records, current_user, repo_ctx, crypto_utils, p2p_service);
+    return Ok(());
 
-    // Create ResourceSyncRequest message
-    let sync_request = ResourceSyncRequestMsg {
-        resource_ucan,
-        folder_ucan,
-        state_vectors,
-        full_docs,
-    };
-
-    // 3. For each user with access, get their devices and sync
-    for share_record in share_records {
-        // Skip syncing with ourselves
-        if share_record.recipient_user_id == current_user.id {
-            continue;
-        }
-
-        info!("Syncing with user: {}", share_record.recipient_user_id);
-
-        // Get recipient's devices
-        let devices = repo_ctx
-            .device_repo
-            .get_devices_by_user_id(&share_record.recipient_user_id)
-            .await
-            .map_err(|e| crate::p2p::errors::P2PError::InvalidState(e.to_string()))?;
-
-        if devices.is_empty() {
-            error!("No devices found for user {}", share_record.recipient_user_id);
-            continue;
-        }
-
-        let device = &devices[0];
-
-        // 4. Get or establish peer connection
-        let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
-            Ok(conn) => conn,
-            Err(_) => {
-                // No active connection, try to establish one
-                info!(
-                    "No active connection to device {} for user {}, attempting to connect",
-                    device.id, share_record.recipient_user_id
-                );
-
-                match p2p_service.connect_with_ticket(&device.id).await? {
-                    Some(conn) => conn,
-                    None => {
-                        error!(
-                            "Failed to establish connection to device {} for user {}",
-                            device.id, share_record.recipient_user_id
-                        );
-                        continue;
-                    }
-                }
-            }
-        };
-
-        // 5. Send sync request
-        info!("Sending ResourceSyncRequest to peer: {}", device.id);
-
-        match peer_conn
-            .send_message(Message::Resource(osvauld_core::models::ResourceMessage::ResourceSyncRequest(sync_request.clone())))
-            .await
-        {
-            Ok(_) => {
-                info!("✓ Sent sync request to peer: {}", device.id);
-            }
-            Err(e) => {
-                error!("Failed to send sync request to peer {}: {}", device.id, e);
-                continue;
-            }
-        }
-    }
-
-    info!("✓ Resource sync initiated for: {}", resource_id);
-    Ok(())
+    // info!("✓ Prepared sync request with state_vectors and full_docs");
+    //
+    // // Create ResourceSyncRequest message
+    // let sync_request = ResourceSyncRequestMsg {
+    //     resource_ucan,
+    //     folder_ucan,
+    //     state_vectors,
+    //     full_docs,
+    // };
+    //
+    // // 3. For each user with access, get their devices and sync
+    // for share_record in share_records {
+    //     // Skip syncing with ourselves
+    //     if share_record.recipient_user_id == current_user.id {
+    //         continue;
+    //     }
+    //
+    //     info!("Syncing with user: {}", share_record.recipient_user_id);
+    //
+    //     // Get recipient's devices
+    //     let devices = repo_ctx
+    //         .device_repo
+    //         .get_devices_by_user_id(&share_record.recipient_user_id)
+    //         .await
+    //         .map_err(|e| crate::p2p::errors::P2PError::InvalidState(e.to_string()))?;
+    //
+    //     if devices.is_empty() {
+    //         error!("No devices found for user {}", share_record.recipient_user_id);
+    //         continue;
+    //     }
+    //
+    //     let device = &devices[0];
+    //
+    //     // 4. Get or establish peer connection
+    //     let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
+    //         Ok(conn) => conn,
+    //         Err(_) => {
+    //             // No active connection, try to establish one
+    //             info!(
+    //                 "No active connection to device {} for user {}, attempting to connect",
+    //                 device.id, share_record.recipient_user_id
+    //             );
+    //
+    //             match p2p_service.connect_with_ticket(&device.id).await? {
+    //                 Some(conn) => conn,
+    //                 None => {
+    //                     error!(
+    //                         "Failed to establish connection to device {} for user {}",
+    //                         device.id, share_record.recipient_user_id
+    //                     );
+    //                     continue;
+    //                 }
+    //             }
+    //         }
+    //     };
+    //
+    //     // 5. Send sync request
+    //     info!("Sending ResourceSyncRequest to peer: {}", device.id);
+    //
+    //     match peer_conn
+    //         .send_message(Message::Resource(osvauld_core::models::ResourceMessage::ResourceSyncRequest(sync_request.clone())))
+    //         .await
+    //     {
+    //         Ok(_) => {
+    //             info!("✓ Sent sync request to peer: {}", device.id);
+    //         }
+    //         Err(e) => {
+    //             error!("Failed to send sync request to peer {}: {}", device.id, e);
+    //             continue;
+    //         }
+    //     }
+    // }
+    //
+    // info!("✓ Resource sync initiated for: {}", resource_id);
+    // Ok(())
 }
 
 /// Sync folder with all recipients (CRDT merge sync)
@@ -343,25 +350,25 @@ pub async fn sync_folder(
             }
         };
 
-        // Delegate to folder_sync handler
-        info!("Calling folder_sync handler for peer: {}", device.id);
-
-        match folder_sync::sync_folder_handler(
-            &folder_id,
-            peer_conn,
-            repo_ctx.clone(),
-            crypto_utils.clone(),
-        )
-        .await
-        {
-            Ok(_) => {
-                info!("✓ Folder sync sent to peer: {}", device.id);
-            }
-            Err(e) => {
-                error!("Failed to sync folder with peer {}: {}", device.id, e);
-                continue;
-            }
-        }
+        // TODO: Delegate to folder_sync handler
+        info!("TODO: Folder sync not yet implemented for peer: {}", device.id);
+        let _ = (&folder_id, &peer_conn);
+        // match folder_sync::sync_folder_handler(
+        //     &folder_id,
+        //     peer_conn,
+        //     repo_ctx.clone(),
+        //     crypto_utils.clone(),
+        // )
+        // .await
+        // {
+        //     Ok(_) => {
+        //         info!("✓ Folder sync sent to peer: {}", device.id);
+        //     }
+        //     Err(e) => {
+        //         error!("Failed to sync folder with peer {}: {}", device.id, e);
+        //         continue;
+        //     }
+        // }
     }
 
     info!("✓ Folder sync initiated for: {}", folder_id);
@@ -504,16 +511,19 @@ pub fn connect_to_website(
             }
         };
 
+        // TODO: Re-implement viewer/website support later
         // Delegate to website_handler to send WebsiteRequest
-        if let Err(e) = crate::p2p::website_handler::initiate_website_request(
-            peer_conn,
-            ucan_token,
-            device_id,
-            p2p_service,
-        )
-        .await
-        {
-            error!("❌ Failed to initiate website request: {}", e);
-        }
+        // if let Err(e) = crate::p2p::website_handler::initiate_website_request(
+        //     peer_conn,
+        //     ucan_token,
+        //     device_id,
+        //     p2p_service,
+        // )
+        // .await
+        // {
+        //     error!("❌ Failed to initiate website request: {}", e);
+        // }
+        info!("TODO: Viewer/website support not yet implemented");
+        let _ = (peer_conn, ucan_token, device_id, p2p_service); // Suppress warnings
     });
 }

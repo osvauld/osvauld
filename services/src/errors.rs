@@ -86,6 +86,12 @@ pub enum AuthServiceError {
     #[error("Already signed up")]
     AlreadySignedUp,
 
+    #[error("Invalid UCAN token: {0}")]
+    InvalidUcanToken(String),
+
+    #[error("Database error: {0}")]
+    DatabaseError(String),
+
     #[error("Not signed up")]
     NotSignedUp,
 
@@ -169,6 +175,20 @@ pub enum ResourceServiceError {
 
     #[error(transparent)]
     Repository(#[from] RepositoryError),
+}
+
+impl From<ServiceError> for ResourceServiceError {
+    fn from(err: ServiceError) -> Self {
+        match err {
+            ServiceError::Resource(e) => e,
+            ServiceError::InvalidUcan(msg) => ResourceServiceError::UcanError(msg),
+            ServiceError::Crypto(e) => ResourceServiceError::Crypto(e),
+            ServiceError::Repository(e) => ResourceServiceError::Repository(e),
+            ServiceError::ResourceUcan(e) => ResourceServiceError::ResourceUcan(e),
+            ServiceError::ConnectionToken(_) => ResourceServiceError::UcanError("Connection token error".to_string()),
+            _ => ResourceServiceError::InvalidState(format!("Service error: {}", err)),
+        }
+    }
 }
 
 #[derive(Error, Debug)]

@@ -116,7 +116,7 @@ async fn decrypt_encrypted_resource(
             "Failed to parse resource {} JSON: {}",
             encrypted_resource.id, e
         );
-        ResourceServiceError::InvalidResourceData(encrypted_resource.id.clone())
+        ServiceError::Resource(ResourceServiceError::InvalidResourceData(encrypted_resource.id.clone()))
     })
 }
 
@@ -224,12 +224,12 @@ pub fn build_state_vectors_json(
 
     for doc_name in resource.doc_names() {
         // Apply filter
-        if !doc_filter(doc_name) {
+        if !doc_filter(doc_name.as_str()) {
             continue;
         }
 
         // Get state vector for this doc
-        if let Some(doc) = resource.get_doc(doc_name) {
+        if let Some(doc) = resource.get_doc(doc_name.as_str()) {
             let state_vector = state_frontiers(doc);
 
             let vector_array: Vec<Value> = state_vector
@@ -246,10 +246,10 @@ pub fn build_state_vectors_json(
 
     serde_json::to_string(&result).map_err(|e| {
         error!("Failed to serialize state vectors: {}", e);
-        ResourceServiceError::SerializationError(format!(
+        ServiceError::Resource(ResourceServiceError::SerializationError(format!(
             "Failed to serialize state vectors: {}",
             e
-        ))
+        )))
     })
 }
 
@@ -278,13 +278,13 @@ pub async fn filter_and_encrypt_for_peer(
     let mut filtered_resource = Resource::new(resource.id.clone());
 
     for doc_name in resource.doc_names() {
-        let decision = osvauld_core::models::should_send_updates(sync_context, doc_name);
+        let decision = osvauld_core::models::should_send_updates(sync_context, doc_name.as_str());
 
         // Include document if we should send it
         if decision != SyncDecision::DontSend {
-            if let Some(doc) = resource.get_doc(doc_name) {
+            if let Some(doc) = resource.get_doc(doc_name.as_str()) {
                 // Clone the document for the filtered resource
-                filtered_resource.add_doc(doc_name.to_string(), create_doc(doc_name));
+                filtered_resource.add_doc(doc_name.to_string(), create_doc());
                 // TODO: Copy document data properly (needs LoroDoc clone)
             }
         }
@@ -299,9 +299,20 @@ pub async fn filter_and_encrypt_for_peer(
         ))
     })?;
 
-    // Encrypt for peer
-    encrypt_data_for_user(&filtered_json, peer_public_key)
-        .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))
+    // Encrypt for peer (returns base64 strings)
+    let (encrypted_data_b64, encrypted_key_b64) = encrypt_data_for_user(&filtered_json, peer_public_key)
+        .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
+
+    // Convert base64 strings to Vec<u8>
+    use base64::{Engine as _, engine::general_purpose};
+    let encrypted_data = general_purpose::STANDARD
+        .decode(&encrypted_data_b64)
+        .map_err(|e| ResourceServiceError::EncryptionFailed(format!("Failed to decode encrypted data: {}", e)))?;
+    let encrypted_key = general_purpose::STANDARD
+        .decode(&encrypted_key_b64)
+        .map_err(|e| ResourceServiceError::EncryptionFailed(format!("Failed to decode encrypted key: {}", e)))?;
+
+    Ok((encrypted_data, encrypted_key))
 }
 
 // =============================================================================

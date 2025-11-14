@@ -53,9 +53,6 @@ pub enum Message {
 
     // Folder sync protocol (simple push and token management)
     Folder(FolderMessage),
-
-    // Website viewer connection protocol
-    Website(WebsiteMessage),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -116,85 +113,71 @@ pub enum FolderMessage {
     FolderTokenResponse(FolderTokenResponse),
 }
 
+/// Unified handshake protocol for all roles (owner, node, user, viewer)
+/// Three-way handshake for first connection, two-way for reconnection
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum HandshakeMessage {
-    HandshakeFirstConnectRequest(FirstConnectRequest),
-    HandshakeFirstConnectResponse(FirstConnectResponse),
-    HandshakeExchange(UcanAndUserExchange),
-    ViewerHandshakeRequest(ViewerHandshakeRequest),
-    ViewerHandshakeResponse(ViewerHandshakeResponse),
+    // Step 1: Initiator → Responder (all connections)
+    HandshakeRequest(HandshakeRequest),
+
+    // Step 2 & 3: First connection (3-way handshake)
+    FirstConnectionResponse(FirstConnectionResponse),
+    FirstConnectionComplete(FirstConnectionComplete),
+
+    // Step 2: Reconnection (2-way handshake)
+    ReconnectionResponse(ReconnectionResponse),
 }
 
+/// Step 1: Handshake request for all connection types
+/// Token contents (token_type, role, first_connection) determine behavior
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FirstConnectRequest {
-    pub devices: Vec<Device>,
+pub struct HandshakeRequest {
+    /// UCAN token (OneTimeConnection, ViewerAuth, or persistent connection token)
+    pub ucan_token: String,
+    /// Peer user information
+    pub peer_user: User,
+    /// Peer device information
+    pub peer_device: Device,
+    /// Signed UCAN public key for validation
+    pub signed_ucan_pub: String,
+}
+
+/// Step 2: First connection response (responder issues token to initiator)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FirstConnectionResponse {
+    /// NEW persistent token for initiator
     pub issued_ucan: String,
-    pub signed_ucan_pub: String,
-    pub one_time_ucan: String,
-    pub peer_device: Device,
+    /// Peer user information
     pub peer_user: User,
-    // Note: connection_type removed - inferred from UCAN token role
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct FirstConnectResponse {
+    /// Peer device information
+    pub peer_device: Device,
+    /// Device list
     pub devices: Vec<Device>,
+    /// Signed UCAN public key for validation
+    pub signed_ucan_pub: String,
+}
+
+/// Step 3: First connection complete (initiator issues token to responder)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FirstConnectionComplete {
+    /// NEW persistent token for responder
     pub issued_ucan: String,
-    pub signed_ucan_pub: String,
-    pub ucan_token: String,
+    /// Peer user ID (initiator's user ID) so responder knows which user to update
+    pub peer_user_id: String,
+}
+
+/// Step 2: Reconnection response (no token exchange needed)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReconnectionResponse {
+    /// Peer user information
     pub peer_user: User,
+    /// Peer device information
     pub peer_device: Device,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UcanAndUserExchange {
+    /// Device list
+    pub devices: Vec<Device>,
+    /// Signed UCAN public key for validation
     pub signed_ucan_pub: String,
-    pub ucan_token: String,
-    pub peer_user: User,
-    pub peer_device: Device,
-    // Note: connection_type removed - inferred from UCAN token role
 }
-
-/// Viewer handshake request from viewer to node
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ViewerHandshakeRequest {
-    pub viewer_user: User,
-    pub viewer_device: Device,
-    pub viewer_auth_token: String,  // Token from connection string (for authentication)
-}
-
-/// Viewer handshake response from node to viewer
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ViewerHandshakeResponse {
-    pub node_user: User,
-    pub node_device: Device,
-}
-
-/// Website viewer connection messages (separate from handshake protocol)
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum WebsiteMessage {
-    WebsiteRequest(WebsiteRequest),
-    UpdateUcan(UpdateUcanMessage),
-}
-
-/// Initial request from viewer to node with connection details
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct WebsiteRequest {
-    pub ucan_token: String,
-    pub viewer_user: User,
-    pub viewer_device: Device,
-    pub first_sync: bool,
-}
-
-/// Update UCAN token message from node to viewer
-///
-/// Sent by node when viewer connects with first_sync=false.
-/// Contains new viewer-specific connection token for future use.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct UpdateUcanMessage {
-    pub new_ucan_token: String,
-    pub new_ucan_cid: String,
-}
-
 
 /// Asset transfer messages for static files (non-CRDT)
 #[derive(Clone, Debug, Serialize, Deserialize)]
