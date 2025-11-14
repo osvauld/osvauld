@@ -300,9 +300,9 @@ pub async fn accept_folder_from_peer(
     tracing::info!("  - Share record recipient: {}", folder_share_record.recipient_user_id);
     tracing::info!("  - Share record shared_by: {}", folder_share_record.shared_by_user_id);
 
-    // Validate that peer has add_folder capability
+    // Validate that peer has add_folder capability (UCAN-first: check capability, not role)
     tracing::info!("  Step 1: Validating peer connection token...");
-    let peer_token = osvauld_core::models::NodeConnectionToken::from_token(peer_connection_token)
+    let peer_token = osvauld_core::models::ConnectionToken::from_token(peer_connection_token)
         .map_err(|e| FolderServiceError::Validation(format!("Invalid peer connection token: {}", e)))?;
     crate::ucan_service::validation::validate_peer_can_add_folder(&peer_token, domain).await?;
 

@@ -243,7 +243,17 @@ async fn handle_reconnection(
 
     info!("✓ User exists, reconnection authorized");
 
-    // 2. Send ReconnectionResponse (no token exchange needed)
+    // 2. Update peer user in connection state with their UCAN token
+    let mut peer_user = request.peer_user.clone();
+    peer_user.ucan_token = request.ucan_token.clone();
+
+    let mut user_guard = conn.user.write().await;
+    *user_guard = peer_user;
+    drop(user_guard);
+
+    info!("✓ Updated peer user with connection UCAN token");
+
+    // 3. Send ReconnectionResponse (no token exchange needed)
     send_reconnection_response(conn).await?;
 
     info!("✅ Reconnection handshake Step 2 complete");

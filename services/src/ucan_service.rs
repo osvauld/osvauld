@@ -68,7 +68,7 @@ pub async fn get_public_ucan_key(
 // Re-export commonly used functions for easier access
 pub use connection_tokens::{issue_one_time, issue_peer_connection, issue_viewer_auth};
 pub use folder_tokens::{issue_folder_owner_token, issue_delegated_folder_token, delegate_to_node as delegate_folder_to_node, delegate_to_viewer as delegate_folder_to_viewer};
-pub use resource_tokens::{issue_owner_token, create_viewer_resource_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer, delegate_by_role as delegate_resource_by_role};
+pub use resource_tokens::{issue_owner_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer, delegate_by_role as delegate_resource_by_role};
 pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, validate_folder_ucan_and_get_id, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
 pub use validation::{validate_folder_access_for_resource, validate_ucan_structure, validate_peer_can_add_folder};
 
@@ -607,38 +607,6 @@ pub mod resource_tokens {
         })?)
     }
 
-    /// Create viewer resource token (backwards compatibility wrapper)
-    ///
-    /// Legacy function that creates a viewer token from a resource UCAN.
-    /// Maps to delegate_to_viewer.
-    ///
-    /// # Arguments
-    /// * `resource_ucan` - Resource share token (node or user)
-    /// * `viewer_pub_key` - Viewer's UCAN public key
-    /// * `resource_id` - Resource ID
-    /// * `_domain` - Domain (unused in new implementation)
-    /// * `repo_ctx` - Repository context
-    /// * `crypto_utils` - Crypto utilities instance
-    ///
-    /// # Returns
-    /// * `Ok((token, cid))` - Generated viewer token and its CID
-    pub async fn create_viewer_resource_token(
-        resource_ucan: &str,
-        viewer_pub_key: &str,
-        resource_id: &str,
-        _domain: &str,
-        repo_ctx: Arc<RepositoryContext>,
-        crypto_utils: Arc<RwLock<CryptoUtils>>,
-    ) -> ServiceResult<(String, String)> {
-        // Parse delegator token (should be share token with viewer template)
-        let delegator_token = ResourceShareToken::from_token(resource_ucan)?;
-
-        // Delegate to viewer
-        let viewer_token = delegate_to_viewer(&delegator_token, viewer_pub_key, resource_id, repo_ctx, crypto_utils).await?;
-
-        Ok((viewer_token.ucan().raw_token().to_string(), String::new()))
-    }
-
     /// Delegate resource token by role (UNIFIED DELEGATION)
     ///
     /// Single function that handles delegation to any role based on the peer's role string.
@@ -690,9 +658,9 @@ pub mod resource_tokens {
         let parsed_ucan = ResourceUcan::from_token(delegator_resource_ucan)?;
 
         // 1. Extract delegation template for peer's role (DATA-DRIVEN)
-        let template = parsed_ucan.get_delegation_template(peer_role).map_err(|e| {
+        let template = parsed_ucan.get_delegation_template(peer_role).ok_or_else(|| {
             crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
-                format!("Failed to get {} template: {}", peer_role, e),
+                format!("No delegation template found for role: {}", peer_role),
             ))
         })?;
 
@@ -1114,42 +1082,45 @@ pub mod folder_tokens {
 pub mod validation {
     use super::*;
 
-    /// Validate that a peer has the capability to add folders
+    /// Validate that a peer has the capability to add folders (UCAN-first)
     ///
-    /// This validates:
-    /// - The peer connection token structure is valid
-    /// - The peer has `{domain}:add_folder` capability with `use` ability
+    /// This validates based on capabilities in the token, not the token type or role.
+    /// This follows the UCAN-first design principle: authorization is based on what
+    /// capabilities the token has, not what role or type it claims to be.
     ///
     /// # Arguments
-    /// * `peer_token` - Peer's connection token (typed)
+    /// * `peer_token` - Peer's connection token (any type - Owner, Node, User, etc.)
     /// * `domain` - Domain to check (e.g., "sthalam")
     ///
     /// # Returns
-    /// * `Ok(())` if validation succeeds
-    /// * `Err` with descriptive error if validation fails
+    /// * `Ok(())` if peer has add_folder capability
+    /// * `Err` if peer lacks add_folder capability
     pub async fn validate_peer_can_add_folder(
-        peer_token: &NodeConnectionToken,
+        peer_token: &ConnectionToken,
         domain: &str,
     ) -> ServiceResult<()> {
-        tracing::info!("🔍 Validating peer can add folder");
+        tracing::info!("🔍 Validating peer can add folder (UCAN-first)");
         tracing::info!("  - Domain: {}", domain);
+        tracing::info!("  - Token role: {:?}", peer_token.role());
 
         // Check for add_folder capability using crypto utils
-        let add_folder_resource = format!("{}:add_folder", domain);
+        // The capability is what matters, not the token type or role
+        // The token capability structure is: "domain:folder:*" with ability "add_folder"
+        let folder_resource = format!("{}:folder:*", domain);
         crypto_utils::ucan_utils::check_capability(
-            peer_token.inner().parsed(),
-            &add_folder_resource,
-            "use",
+            peer_token.parsed(),
+            &folder_resource,
+            "add_folder",
         )
         .map_err(|_| {
-            tracing::error!("❌ Peer lacks {} capability", add_folder_resource);
+            tracing::error!("❌ Peer lacks {}:add_folder capability", folder_resource);
             crate::errors::FolderServiceError::Validation(format!(
-                "Peer lacks {} capability",
-                add_folder_resource
+                "Peer lacks {}:add_folder capability",
+                folder_resource
             ))
         })?;
 
-        tracing::info!("  ✅ Peer has {} capability", add_folder_resource);
+        tracing::info!("  ✅ Peer has {}:add_folder capability (role: {:?})", folder_resource, peer_token.role());
         Ok(())
     }
 

@@ -139,13 +139,56 @@ async fn send_folder_data(
     Ok(())
 }
 
+/// Process folder messages (central dispatcher)
+///
+/// Single entry point for all folder-related messages.
+/// Matches on FolderMessage variants and delegates to appropriate handlers.
+///
+/// # Arguments
+/// * `folder_msg` - FolderMessage variant to process
+/// * `peer_conn` - Peer connection
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Ok(())` - Message processed successfully
+/// * `Err` - If processing fails
+pub async fn process_folder_message(
+    folder_msg: &FolderMessage,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    match folder_msg {
+        FolderMessage::FolderDataSync(payload) => {
+            handle_folder_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        FolderMessage::FolderSyncRequest(_) => {
+            info!("FolderSyncRequest not yet implemented (CRDT sync)");
+            Ok(())
+        }
+        FolderMessage::FolderSyncResponse(_) => {
+            info!("FolderSyncResponse not yet implemented (CRDT sync)");
+            Ok(())
+        }
+        FolderMessage::FolderTokenRequest(_) => {
+            info!("FolderTokenRequest not yet implemented (shareable links)");
+            Ok(())
+        }
+        FolderMessage::FolderTokenResponse(_) => {
+            info!("FolderTokenResponse not yet implemented (shareable links)");
+            Ok(())
+        }
+    }
+}
+
 /// Handle folder data sync from owner (node side)
 ///
 /// Receives a folder and folder_share_record from the owner and saves it.
 /// Validates the peer has add_folder capability and the UCAN structure is valid.
 ///
 /// # Arguments
-/// * `payload` - FolderDataSync containing folder and folder_share_record
+/// * `payload` - Reference to FolderDataSync containing folder and folder_share_record
 /// * `peer_conn` - Peer connection (for getting peer user info)
 /// * `repo_ctx` - Database repository context
 /// * `_crypto_utils` - Crypto utilities (unused for now)
@@ -154,7 +197,7 @@ async fn send_folder_data(
 /// * `Ok(())` - Folder accepted and saved successfully
 /// * `Err` - If validation fails or database save fails
 pub async fn handle_folder_data_sync(
-    payload: FolderDataSync,
+    payload: &FolderDataSync,
     peer_conn: Arc<PeerConnection>,
     repo_ctx: Arc<RepositoryContext>,
     _crypto_utils: Arc<RwLock<CryptoUtils>>,

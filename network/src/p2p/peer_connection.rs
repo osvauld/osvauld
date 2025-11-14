@@ -300,19 +300,29 @@ impl PeerConnection {
                 });
                 Ok(())
             }
-            Message::Resource(_resource_msg) => {
-                // TODO: Re-enable resource sync later
-                info!("Resource sync not yet implemented");
-                Ok(())
+            Message::Resource(resource_msg) => {
+                // Delegate to resource_sync for processing
+                crate::p2p::resource_sync::process_resource_message(
+                    resource_msg,
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
             }
             Message::Handshake(handshake_msg) => {
                 // Single entry point for all handshake messages
                 auth::process_handshake_message(self, handshake_msg).await
             }
-            Message::Folder(_folder_msg) => {
-                // TODO: Re-enable folder sync later
-                info!("Folder sync not yet implemented");
-                Ok(())
+            Message::Folder(folder_msg) => {
+                // Delegate to folder_sync for processing
+                crate::p2p::folder_sync::process_folder_message(
+                    folder_msg,
+                    Arc::new(self.clone()),
+                    self.repo_ctx.clone(),
+                    self.crypto_utils.clone(),
+                )
+                .await
             }
         }
     }

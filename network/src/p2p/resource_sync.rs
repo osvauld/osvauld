@@ -10,10 +10,7 @@ use osvauld_core::models::{
     EncryptedResource, ShareRecord, User,
 };
 use persistance::database::RepositoryContext;
-use services::{
-    folder_publish_helpers::{accept_resource_from_peer, prepare_resource_for_peer},
-    get_all_share_records_for_resource, get_resource_share_records_for_folder,
-};
+use services;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -71,7 +68,7 @@ pub async fn send_all_resources_for_folder(
 
     // 2. Get recipient's share records to know which resources to send
     let recipient_share_records =
-        get_resource_share_records_for_folder(folder_id, recipient_user_id, repo_ctx.clone())
+        services::get_resource_share_records_for_folder(folder_id, recipient_user_id, repo_ctx.clone())
             .await
             .map_err(|e| {
                 error!(
@@ -89,7 +86,7 @@ pub async fn send_all_resources_for_folder(
         recipient_share_records.len()
     );
 
-    // 3. Get recipient user for public key
+    // 3. Get recipient user
     let recipient = repo_ctx
         .user_repo
         .get_user_by_id(recipient_user_id)
@@ -102,13 +99,38 @@ pub async fn send_all_resources_for_folder(
             ))
         })?;
 
-    // 4. Loop through recipient's share records and send each resource
+    // 4. Get recipient's folder_share_record (contains their folder UCAN and role)
+    let recipient_folder_share = services::get_folder_share_record(folder_id, recipient_user_id, repo_ctx.clone())
+        .await
+        .map_err(|e| {
+            error!("Failed to get recipient folder share record: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!(
+                "Failed to get folder share record: {}",
+                e
+            ))
+        })?;
+
+    let recipient_folder_ucan = &recipient_folder_share.ucan_token;
+
+    // Extract role from folder UCAN (stored in facts)
+    let peer_role = services::ucan_service::extract_facts(recipient_folder_ucan)
+        .await?
+        .and_then(|facts| {
+            facts.get("role")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| "node".to_string()); // Default to "node" for Owner → Node sync
+
+    info!("  Recipient role: {}", peer_role);
+
+    // 5. Loop through recipient's share records and send each resource
     for recipient_share in recipient_share_records {
         info!("   Sending resource: {}", recipient_share.resource_id);
 
         // Get ALL share records for this resource (for forwarding viewer updates)
         let all_share_records =
-            get_all_share_records_for_resource(&recipient_share.resource_id, repo_ctx.clone())
+            services::get_all_share_records_for_resource(&recipient_share.resource_id, repo_ctx.clone())
                 .await
                 .map_err(|e| {
                     error!(
@@ -126,12 +148,13 @@ pub async fn send_all_resources_for_folder(
             all_share_records.len()
         );
 
-        // Prepare resource for peer (decrypt, filter, re-encrypt using recipient's UCAN)
-        let peer_encrypted_resource = match prepare_resource_for_peer(
+        // Prepare resource for peer (UCAN-first: validates folder access, delegates, filters, encrypts)
+        let peer_encrypted_resource = match services::prepare_resource_transfer(
             &recipient_share.resource_id,
-            recipient_user_id,
-            &recipient_share.ucan_token,
-            &recipient.public_key,
+            current_user,
+            recipient_folder_ucan,
+            &peer_role,
+            &recipient,
             repo_ctx.clone(),
             &crypto_utils,
         )
@@ -195,13 +218,64 @@ async fn send_resource_data(
         .await
 }
 
+/// Process resource messages (central dispatcher)
+///
+/// Single entry point for all resource-related messages.
+/// Matches on ResourceMessage variants and delegates to appropriate handlers.
+///
+/// # Arguments
+/// * `resource_msg` - ResourceMessage variant to process
+/// * `peer_conn` - Peer connection
+/// * `repo_ctx` - Database repository context
+/// * `crypto_utils` - Crypto utilities
+///
+/// # Returns
+/// * `Ok(())` - Message processed successfully
+/// * `Err` - If processing fails
+pub async fn process_resource_message(
+    resource_msg: &ResourceMessage,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    match resource_msg {
+        ResourceMessage::ResourceDataSync(payload) => {
+            handle_resource_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
+        }
+        ResourceMessage::MergeUpdate(_) => {
+            info!("MergeUpdate not yet implemented (CRDT merge)");
+            Ok(())
+        }
+        ResourceMessage::ResourceSyncRequest(_) => {
+            info!("ResourceSyncRequest not yet implemented (CRDT sync)");
+            Ok(())
+        }
+        ResourceMessage::ResourceNotFoundRequest(_) => {
+            info!("ResourceNotFoundRequest not yet implemented");
+            Ok(())
+        }
+        ResourceMessage::ResourceTransfer(_) => {
+            info!("ResourceTransfer not yet implemented");
+            Ok(())
+        }
+        ResourceMessage::ResourceTransferAck => {
+            info!("ResourceTransferAck not yet implemented");
+            Ok(())
+        }
+        ResourceMessage::AssetTransfer(_) => {
+            info!("AssetTransfer not yet implemented");
+            Ok(())
+        }
+    }
+}
+
 /// Handle resource data sync from owner (node side)
 ///
 /// Receives a resource and its share_records from the owner and saves them.
 /// Validates the owner's folder UCAN has add_resources capability.
 ///
 /// # Arguments
-/// * `payload` - ResourceDataSync containing resource, share_records, and owner_folder_ucan
+/// * `payload` - Reference to ResourceDataSync containing resource, share_records, and owner_folder_ucan
 /// * `peer_conn` - Peer connection (for emitting events)
 /// * `repo_ctx` - Database repository context
 /// * `_crypto_utils` - Crypto utilities (unused for now)
@@ -210,7 +284,7 @@ async fn send_resource_data(
 /// * `Ok(())` - Resource accepted and saved successfully
 /// * `Err` - If validation fails or database save fails
 pub async fn handle_resource_data_sync(
-    payload: ResourceDataSync,
+    payload: &ResourceDataSync,
     peer_conn: Arc<PeerConnection>,
     repo_ctx: Arc<RepositoryContext>,
     _crypto_utils: Arc<RwLock<CryptoUtils>>,
@@ -220,7 +294,7 @@ pub async fn handle_resource_data_sync(
     let domain = &peer_conn.domain;
 
     // Delegate to resource_service for validation and saving
-    accept_resource_from_peer(
+    services::accept_resource_from_peer(
         &payload.resource,
         &payload.share_records,
         &payload.owner_folder_ucan,

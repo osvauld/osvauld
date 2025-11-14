@@ -268,12 +268,12 @@ pub fn build_state_vectors_json(
 /// * `peer_public_key` - Peer's public key for encryption
 ///
 /// # Returns
-/// * `(encrypted_data, encrypted_key)` - Encrypted filtered resource
+/// * `(encrypted_data, encrypted_key)` - Base64-encoded encrypted filtered resource
 pub async fn filter_and_encrypt_for_peer(
     resource: &Resource,
     sync_context: &SyncContext,
     peer_public_key: &str,
-) -> ServiceResult<(Vec<u8>, Vec<u8>)> {
+) -> ServiceResult<(String, String)> {
     // Create filtered resource with only documents peer can access
     let mut filtered_resource = Resource::new(resource.id.clone());
 
@@ -299,18 +299,9 @@ pub async fn filter_and_encrypt_for_peer(
         ))
     })?;
 
-    // Encrypt for peer (returns base64 strings)
-    let (encrypted_data_b64, encrypted_key_b64) = encrypt_data_for_user(&filtered_json, peer_public_key)
+    // Encrypt for peer (returns base64 strings directly - no need to decode/re-encode)
+    let (encrypted_data, encrypted_key) = encrypt_data_for_user(&filtered_json, peer_public_key)
         .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
-
-    // Convert base64 strings to Vec<u8>
-    use base64::{Engine as _, engine::general_purpose};
-    let encrypted_data = general_purpose::STANDARD
-        .decode(&encrypted_data_b64)
-        .map_err(|e| ResourceServiceError::EncryptionFailed(format!("Failed to decode encrypted data: {}", e)))?;
-    let encrypted_key = general_purpose::STANDARD
-        .decode(&encrypted_key_b64)
-        .map_err(|e| ResourceServiceError::EncryptionFailed(format!("Failed to decode encrypted key: {}", e)))?;
 
     Ok((encrypted_data, encrypted_key))
 }
