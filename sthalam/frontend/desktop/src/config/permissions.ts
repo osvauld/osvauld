@@ -37,12 +37,12 @@ export const FOLDER_TEMPLATE = {
 export const RESOURCE_TEMPLATE = {
   owner_template: {
     capabilities: {
-      "template_doc": "crud/merge",
-      "content_doc": "crud/merge",
-      "user_content_doc": "crud/merge",
-      "collaborative_doc": "crud/merge",
-      "submissions_doc": "crud/merge",
-      "static_assets": "crud/merge",
+      "template_doc": "collaborator",
+      "content_doc": "collaborator",
+      "user_content_doc": "collaborator",
+      "collaborative_doc": "collaborator",
+      "submissions_doc": "collaborator",
+      "static_assets": "collaborator",
     },
     doc_types: {
       "static_assets": "asset",
@@ -55,11 +55,11 @@ export const RESOURCE_TEMPLATE = {
   },
   viewer_template: {
     capabilities: {
-      "template_doc": "crud/readonly",
-      "content_doc": "crud/readonly",
-      "collaborative_doc": "crud/merge",
-      "submissions_doc": "crud/submit",
-      "static_assets": "crud/readonly",
+      "template_doc": "viewer",
+      "content_doc": "viewer",
+      "collaborative_doc": "collaborator",
+      "submissions_doc": "submitter",
+      "static_assets": "viewer",
     },
     doc_types: {
       "static_assets": "asset",

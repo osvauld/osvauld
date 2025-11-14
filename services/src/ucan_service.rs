@@ -885,10 +885,14 @@ pub mod folder_tokens {
         let template_data: serde_json::Value = serde_json::from_str(folder_template_json)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(format!("Invalid folder template JSON: {}", e)))?;
 
-        // Extract capabilities
-        let caps = template_data.get("capabilities")
+        // Extract owner_template (consistent with resource token pattern)
+        let owner_template = template_data.get("owner_template")
+            .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Missing owner_template in folder template".to_string()))?;
+
+        // Extract capabilities from owner_template
+        let caps = owner_template.get("capabilities")
             .and_then(|v| v.as_object())
-            .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Missing capabilities in folder template".to_string()))?;
+            .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Missing capabilities in owner_template".to_string()))?;
 
         // Build capability strings for folder operations
         let mut capabilities = Vec::new();
@@ -905,9 +909,14 @@ pub mod folder_tokens {
         facts.insert("role".to_string(), json!("owner"));
         facts.insert("folder_id".to_string(), json!(folder_id));
 
-        // Copy any additional facts from template
-        if let Some(metadata) = template_data.get("metadata") {
+        // Copy any additional facts from owner_template
+        if let Some(metadata) = owner_template.get("metadata") {
             facts.insert("metadata".to_string(), metadata.clone());
+        }
+
+        // Copy delegation templates (enables delegation chain)
+        if let Some(delegation) = owner_template.get("delegation") {
+            facts.insert("delegation".to_string(), delegation.clone());
         }
 
         // Call the low-level function
