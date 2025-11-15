@@ -7,27 +7,27 @@ use ucan::Ucan;
 
 /// Error type for UCAN token operations (generic for any capability token)
 #[derive(Debug)]
-pub enum GenericUcanError {
+pub enum UcanTokenError {
     InvalidTokenType(String),
     ParsingFailed(String),
     MissingField(String),
     ValidationFailed(String),
 }
 
-impl std::fmt::Display for GenericUcanError {
+impl std::fmt::Display for UcanTokenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            GenericUcanError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
-            GenericUcanError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
-            GenericUcanError::MissingField(msg) => write!(f, "Missing field: {}", msg),
-            GenericUcanError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
+            UcanTokenError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
+            UcanTokenError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
+            UcanTokenError::MissingField(msg) => write!(f, "Missing field: {}", msg),
+            UcanTokenError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
         }
     }
 }
 
-impl std::error::Error for GenericUcanError {}
+impl std::error::Error for UcanTokenError {}
 
-pub type GenericUcanResult<T> = StdResult<T, GenericUcanError>;
+pub type UcanTokenResult<T> = StdResult<T, UcanTokenError>;
 
 // ============================================================================
 // UcanCore<T> - Generic core for all UCAN tokens with parsed capabilities
@@ -67,7 +67,7 @@ impl<T: Clone> UcanCore<T> {
     ///
     /// # Returns
     /// * `Ok(UcanCore)` - Successfully parsed and initialized
-    /// * `Err(GenericUcanError)` - If parsing fails
+    /// * `Err(UcanTokenError)` - If parsing fails
     pub fn new(token: String, parsed: Ucan, role: Role, token_type: T) -> Self {
         // Parse all capabilities once and cache them
         let parsed_capabilities: Vec<ParsedCapabilityUri> = parsed
@@ -281,33 +281,33 @@ pub struct GenericUcan {
 
 impl GenericUcan {
     /// Parse UCAN token and extract all domain information
-    pub fn from_token(token: &str) -> GenericUcanResult<Self> {
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
         // Parse UCAN token
         let parsed = Ucan::try_from(token)
-            .map_err(|e| GenericUcanError::ParsingFailed(format!("UCAN parsing error: {}", e)))?;
+            .map_err(|e| UcanTokenError::ParsingFailed(format!("UCAN parsing error: {}", e)))?;
 
         // Extract facts
         let facts = parsed.facts().as_ref().ok_or_else(|| {
-            GenericUcanError::MissingField("UCAN facts not found".to_string())
+            UcanTokenError::MissingField("UCAN facts not found".to_string())
         })?;
 
         // Extract token_type from facts
         let token_type_str = facts
             .get("token_type")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| GenericUcanError::MissingField("token_type not found in facts".to_string()))?;
+            .ok_or_else(|| UcanTokenError::MissingField("token_type not found in facts".to_string()))?;
 
         let token_type = ResourceTokenType::from_str(token_type_str)
-            .map_err(|e| GenericUcanError::InvalidTokenType(e))?;
+            .map_err(|e| UcanTokenError::InvalidTokenType(e))?;
 
         // Extract role from facts
         let role_str = facts
             .get("role")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| GenericUcanError::MissingField("role not found in facts".to_string()))?;
+            .ok_or_else(|| UcanTokenError::MissingField("role not found in facts".to_string()))?;
 
         let role = Role::from_str(role_str)
-            .map_err(|e| GenericUcanError::ParsingFailed(format!("Invalid role: {}", e)))?;
+            .map_err(|e| UcanTokenError::ParsingFailed(format!("Invalid role: {}", e)))?;
 
         // Extract capabilities from UCAN cap field
         let mut capabilities = HashMap::new();

@@ -10,14 +10,13 @@
 ### Implementation Status
 - **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** - Current status, what's working, phase-by-phase progress
 
-### Architecture Documentation
-- **[UCAN_ARCHITECTURE.md](UCAN_ARCHITECTURE.md)** - UCAN token types, permission system, delegation patterns
+### Core Documentation
+- **[UCAN_AUTHORIZATION.md](UCAN_AUTHORIZATION.md)** - Complete UCAN permission system (token types, delegation, data-driven design)
 - **[NETWORK_LAYER.md](NETWORK_LAYER.md)** - P2P orchestration, message handling, handshake protocol
-- **[SERVICE_LAYER.md](SERVICE_LAYER.md)** - Business logic, ucan_service, folder_service, resource_service
+- **[SERVICE_LAYER.md](SERVICE_LAYER.md)** - Business logic layer (ucan_service, folder_service, resource_service)
 
-### Design Specifications
-- **[SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md)** - Complete sync protocol specification (bidirectional, viewer, assets)
-- **[UCAN_REFACTOR_DESIGN.md](../UCAN_REFACTOR_DESIGN.md)** - UCAN refactor design (typed tokens, data-driven backend)
+### Specifications
+- **[SYNC_PROTOCOL.md](SYNC_PROTOCOL.md)** - Complete sync protocol specification (bidirectional, viewer, assets)
 
 ---
 
@@ -27,13 +26,13 @@
 docs/
 ├── README.md                        (this file)
 ├── IMPLEMENTATION_STATUS.md         Current status & phase progress
-├── UCAN_ARCHITECTURE.md             UCAN token types and permissions
+├── UCAN_AUTHORIZATION.md            Complete UCAN system (consolidated)
 ├── NETWORK_LAYER.md                 P2P orchestration layer
-└── SERVICE_LAYER.md                 Business logic layer
+├── SERVICE_LAYER.md                 Business logic layer
+└── SYNC_PROTOCOL.md                 Protocol specification
 
-Root:
-├── SYNC_PROTOCOL_DESIGN.md          Complete protocol specification
-└── UCAN_REFACTOR_DESIGN.md          UCAN refactor design
+Root (Historical References):
+└── UCAN_REFACTOR_DESIGN.md          UCAN refactor design (historical)
 ```
 
 ---
@@ -46,7 +45,7 @@ Root:
 - Template extraction (frontend is source of truth)
 - Zero hardcoded templates in backend
 
-**Read:** [UCAN_ARCHITECTURE.md](UCAN_ARCHITECTURE.md)
+**Read:** [UCAN_AUTHORIZATION.md](UCAN_AUTHORIZATION.md)
 
 ---
 
@@ -75,7 +74,7 @@ Root:
 - 2-round protocol (ResourceSyncRequest → UpdatesResponse)
 - Asset ID comparison
 
-**Read:** [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) section 5.1
+**Read:** [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) section 5.1
 
 ---
 
@@ -88,7 +87,7 @@ Root:
 - Submission isolation (viewer namespaces)
 - `no_incoming_updates` and `send_full_snapshot` handling
 
-**Read:** [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) sections 5.2, 8
+**Read:** [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) sections 5.2, 8
 
 ---
 
@@ -100,7 +99,7 @@ Root:
 - Resource discovery (which resources are missing)
 - Parallel incremental sync (for existing resources)
 
-**Read:** [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) section 7
+**Read:** [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) section 7
 
 ---
 
@@ -113,7 +112,7 @@ Root:
 - AssetTransfer message handling
 - Binary asset storage and retrieval
 
-**Read:** [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) section 6
+**Read:** [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) section 6
 
 ---
 
@@ -128,7 +127,7 @@ Root:
 4. Read [SERVICE_LAYER.md](SERVICE_LAYER.md) - Understand business logic
 
 **Then:**
-- Browse [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) for protocol details
+- Browse [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) for protocol details
 - Check phase progress in [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)
 
 ---
@@ -136,12 +135,11 @@ Root:
 ### For Understanding Specific Areas
 
 **UCAN Tokens and Permissions:**
-- [UCAN_ARCHITECTURE.md](UCAN_ARCHITECTURE.md) - Token types, delegation patterns
-- [UCAN_REFACTOR_DESIGN.md](../UCAN_REFACTOR_DESIGN.md) - Design principles and refactor
+- [UCAN_AUTHORIZATION.md](UCAN_AUTHORIZATION.md) - Complete authorization system with token types and delegation patterns
 
 **P2P Network Layer:**
 - [NETWORK_LAYER.md](NETWORK_LAYER.md) - Handshake, folder sync, resource sync
-- [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) - Message protocol specifications
+- [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) - Message protocol specifications
 
 **Service Layer (Business Logic):**
 - [SERVICE_LAYER.md](SERVICE_LAYER.md) - ucan_service, folder_service, resource_service
@@ -155,7 +153,7 @@ Root:
 ### For Implementing New Features
 
 **Before Starting:**
-1. Check [SYNC_PROTOCOL_DESIGN.md](../SYNC_PROTOCOL_DESIGN.md) for protocol specification
+1. Check [SYNC_PROTOCOL.md](SYNC_PROTOCOL.md) for protocol specification
 2. Check [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for current phase and next steps
 
 **During Implementation:**
@@ -191,7 +189,7 @@ if peer_role == "owner" || peer_role == "node" {
 }
 ```
 
-**Read:** [UCAN_ARCHITECTURE.md](UCAN_ARCHITECTURE.md)
+**Read:** [UCAN_AUTHORIZATION.md](UCAN_AUTHORIZATION.md)
 
 ---
 
@@ -206,7 +204,7 @@ if peer_role == "owner" || peer_role == "node" {
 4. Backend extracts templates when delegating
 ```
 
-**Read:** [UCAN_ARCHITECTURE.md](UCAN_ARCHITECTURE.md) section "Template Extraction Pattern"
+**Read:** [UCAN_AUTHORIZATION.md](UCAN_AUTHORIZATION.md) section "Template Extraction Pattern"
 
 ---
 
@@ -224,7 +222,7 @@ let viewer_token = ResourceViewerToken::from_token(&token)?;
 let node_token = delegate_resource_to_node(&viewer_token, ...)?;  // ❌ Compile error!
 ```
 
-**Read:** [UCAN_ARCHITECTURE.md](UCAN_ARCHITECTURE.md) section "Token Type Hierarchy"
+**Read:** [UCAN_AUTHORIZATION.md](UCAN_AUTHORIZATION.md) section "Token Type Hierarchy"
 
 ---
 
