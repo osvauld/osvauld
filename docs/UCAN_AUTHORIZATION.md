@@ -1,22 +1,23 @@
 # UCAN Authorization Architecture - Complete Guide
 
-**Last Updated:** 2025-11-15
-**Status:** Production Ready (Phases 1-6+ Complete)
+**Last Updated:** 2025-11-16
+**Status:** Production Ready (Complete with Gurkha Migration)
 **Comprehensive Scope:** Architecture principles, implementation status, design decisions, and code cross-references
 
 ---
 
 ## Executive Summary
 
-Osvauld uses a **three-tier UCAN token architecture** for authorization with **11 typed token wrappers** organized in a unified module:
+Osvauld uses a **three-tier UCAN token architecture** for authorization with **11 typed token wrappers** organized in the standalone `gurkha` library:
 
 ### Core Achievements ✅
-- **Unified UCAN module** - All code in `core/src/ucan/` with explicit traits
+- **Standalone gurkha library** - Pure domain logic with zero infrastructure dependencies
 - **Data-driven design** - Frontend (permissions.ts) is source of truth, backend executes as data
 - **Type safety** - 11 typed token wrappers prevent wrong token usage at compile time
 - **Zero hardcoded templates** - All delegation templates extracted from tokens, never hardcoded
 - **Self-documenting code** - Explicit URI parsing, clear naming (GenericUcan not ResourceUcan)
-- **Pure functions** - SyncContext with deterministic permission logic
+- **Pure functions** - Separation of decision logic from crypto operations
+- **Thread-safe** - Proper RwLock management for async contexts
 
 ### Three-Tier Architecture
 1. **Connection Tokens** - Device-to-device handshakes (OneTime, Owner, Node, User, ViewerAuth)
@@ -25,60 +26,280 @@ Osvauld uses a **three-tier UCAN token architecture** for authorization with **1
 
 ---
 
-## Unified UCAN Module Structure
+## Gurkha Library Structure
 
-### Module Organization (core/src/ucan/)
+### Module Organization (gurkha/src/)
 
-**Code Location:** `/home/abe/osvauld/core/src/ucan/`
+**Code Location:** `/home/abe/osvauld/gurkha/src/`
 
 ```
-core/src/ucan/
-├── mod.rs          # Public API & re-exports (lines 1-47)
+gurkha/src/
+├── lib.rs          # Public API & re-exports
 ├── types.rs        # Domain types & enums
 ├── parser.rs       # GenericUcan domain model & DelegationTemplate
 ├── token.rs        # 11 typed token wrappers + trait implementations
-└── uri.rs          # URI building & parsing (explicit format extraction)
+├── uri.rs          # URI building & parsing (explicit format extraction)
+├── crypto.rs       # UCAN signing & verification (crypto operations)
+├── decision.rs     # Token generation & delegation logic (pure logic)
+├── extractors.rs   # ID extraction & capability validation
+├── service.rs      # UcanService - high-level public API
+└── errors.rs       # GurkhaError types
 ```
+
+### Design Principles
+
+**From `gurkha/src/lib.rs`:**
+- **Pure domain logic** - No database, no infrastructure dependencies
+- **Raw key input** - Receives Ed25519 SigningKey/VerifyingKey directly
+- **OCaml-ready** - Can be replaced with OCaml implementation
+- **Type-safe** - 11 typed token wrappers prevent misuse
+- **Separation of concerns** - Decision logic separate from crypto operations
 
 ### Public API Surface
 
-**File: `core/src/ucan/mod.rs` (lines 1-47)**
-- Re-exports all public types for convenient importing
-- Prelude module for `use osvauld_core::ucan::prelude::*`
+**File: `gurkha/src/lib.rs`**
+```rust
+pub mod types;       // Domain types
+pub mod uri;         // URI parsing
+pub mod token;       // Typed wrappers
+pub mod parser;      // GenericUcan, DelegationTemplate
+pub mod decision;    // Pure logic (no crypto)
+pub mod crypto;      // Crypto operations
+pub mod extractors;  // Extraction utilities
+pub mod service;     // Public API
+pub mod errors;      // Error types
 
-**Types: `core/src/ucan/types.rs`**
-- Domain enums: `Capability`, `Role`, `DocType`, `ResourceAction`
-- Token type enums: `ConnectionTokenType`, `ResourceTokenType`
-- Data structures: `SyncFacts`, `SyncDecision`, `DocMetadata`
+// Re-exports
+pub use types::*;
+pub use token::*;
+pub use parser::{GenericUcan, DelegationTemplate};
+pub use decision::{TokenDecision, DelegationDecision, SyncContext,
+                   should_send_updates, can_receive_updates};
+pub use service::UcanService;
+```
 
-**Parser: `core/src/ucan/parser.rs`**
-- `GenericUcan` - Universal UCAN parser for any token type
-- `DelegationTemplate` - Encodes delegation rules and token types
-- `UcanTokenError`, `UcanTokenResult` - Error handling
+---
 
-**Tokens: `core/src/ucan/token.rs`**
-- **Traits**: `UcanToken`, `HasId`, `CanDelegate`, `ResourceOps`, `FolderOps`
-- **Connection tokens** (5 types):
-  - `OneTimeConnectionToken` ✓ single-use handshake
-  - `OwnerConnectionToken` ✓ owner device sync
-  - `NodeConnectionToken` ✓ node device sync
-  - `UserConnectionToken` ✓ P2P user collaboration
-  - `ViewerAuthToken` ✓ viewer link authentication
-- **Resource tokens** (3 types):
-  - `ResourceOwnerToken` ✓ full resource control
-  - `ResourceShareToken` ✓ node/user resource access
-  - `ResourceViewerToken` ✓ viewer resource access
-- **Folder tokens** (3 types):
-  - `FolderOwnerToken` ✓ full folder control
-  - `FolderShareToken` ✓ node/user folder access
-  - `FolderViewerToken` ✓ viewer folder access
+## UcanService Architecture
 
-**URI Parsing: `core/src/ucan/uri.rs`**
-- `ParsedCapabilityUri` enum with explicit format-specific extraction
-- Formats (from `sthalam/frontend/desktop/src/config/permissions.ts`):
-  - Folder: `domain:folder:id:operation`
-  - Resource: `domain:resource:id:doc_name`
-  - User: `domain:user:capability_type:user_id`
+### Service Structure
+
+**Code Location:** `gurkha/src/service.rs`
+
+```rust
+pub struct UcanService {
+    signing_key: Option<SigningKey>,
+    verifying_key: Option<VerifyingKey>,
+}
+
+impl UcanService {
+    /// Create new service (keys not loaded yet)
+    pub fn new() -> Self {
+        Self {
+            signing_key: None,
+            verifying_key: None,
+        }
+    }
+
+    /// Load keys after login (typically during auth flow)
+    pub fn load_keys(&mut self, signing_key: SigningKey, verifying_key: VerifyingKey) {
+        self.signing_key = Some(signing_key);
+        self.verifying_key = Some(verifying_key);
+    }
+
+    /// Private validation - ensures keys loaded before any operation
+    fn get_keys(&self) -> ServiceResult<(&SigningKey, &VerifyingKey)> {
+        match (&self.signing_key, &self.verifying_key) {
+            (Some(sk), Some(vk)) => Ok((sk, vk)),
+            _ => Err(ServiceError::KeysNotLoaded),
+        }
+    }
+
+    // Public API methods...
+    pub async fn issue_folder_owner_token(&self, ...) -> ServiceResult<T>;
+    pub async fn delegate_folder_to_node(&self, ...) -> ServiceResult<T>;
+    // ... etc
+}
+```
+
+### Thread-Safe Wrapping
+
+**Pattern used throughout:**
+```rust
+Arc<RwLock<gurkha::UcanService>>
+```
+
+**IMPORTANT:** Use `tokio::sync::RwLock`, NOT `std::sync::RwLock`
+
+**Reason:** Tauri commands and async contexts require types to be `Send + Sync`. The `std::sync::RwLockReadGuard` is NOT `Send`, causing compilation errors.
+
+**Example Error (if using std::sync::RwLock):**
+```
+error[E0277]: `std::sync::RwLockReadGuard<'_, UcanService>` cannot be sent
+              between threads safely
+```
+
+**Correct Import:**
+```rust
+use tokio::sync::RwLock;  // ✅ Correct
+// NOT: use std::sync::RwLock;  // ❌ Wrong in async contexts
+```
+
+---
+
+## Integration Patterns
+
+### 1. Application Initialization
+
+**sthalam (Tauri App):**
+```rust
+// sthalam/src-tauri/src/lib.rs
+use tokio::sync::RwLock;  // IMPORTANT: tokio, not std!
+
+let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
+let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
+
+// Pass to P2P service
+let (p2p_service, p2p_receiver) = P2PService::new(
+    repo_ctx.clone(),
+    crypto_utils.clone(),
+    ucan_service.clone(),  // Add this
+    domain,
+);
+
+// Manage as Tauri state
+app.manage(crypto_utils);
+app.manage(ucan_service);
+```
+
+**kunki (CLI App):**
+```rust
+// kunki/src/main.rs
+let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
+let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
+
+// Pass to service functions
+handle_start(&pass, repo_ctx, crypto_utils, ucan_service, domain).await?;
+```
+
+### 2. Key Loading (Login Flow)
+
+```rust
+// In auth/login service
+pub async fn login(
+    passphrase: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+) -> ServiceResult<User> {
+    // Load certificate and decrypt keys
+    let (user, device) = load_certificate(passphrase, repo_ctx, crypto_utils).await?;
+
+    // Load UCAN keys into service
+    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+    let (signing_key, verifying_key) = {
+        let crypto = crypto_utils.read().await;
+        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
+    };
+
+    // Load keys into UcanService
+    {
+        let mut ucan_guard = ucan_service.write().await;
+        ucan_guard.load_keys(signing_key, verifying_key);
+    }
+
+    Ok(user)
+}
+```
+
+### 3. Tauri Command Handlers
+
+```rust
+#[tauri::command]
+pub async fn handle_add_folder(
+    input: AddFolderInput,
+    config: State<'_, HandlerConfig>,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,  // Add this
+    user_state: State<'_, UserState>,
+) -> Result<BaseCryptoResponse, String> {
+    let user = user_state.get_user().await?;
+
+    let folder = create_folder(
+        input.name,
+        Some(input.description),
+        input.folder_template_json,
+        repo_ctx.inner().clone(),
+        &crypto_utils,
+        &config.domain,
+        &user,
+        &ucan_service,  // Pass it
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(BaseCryptoResponse::FolderCreated(folder))
+}
+```
+
+### 4. Service Layer Functions
+
+```rust
+pub async fn create_folder(
+    name: String,
+    description: Option<String>,
+    folder_template_json: String,
+    repo_ctx: Arc<RepositoryContext>,
+    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    domain: &str,
+    user: &User,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,  // Add this parameter
+) -> ServiceResult<Folder> {
+    let mut folder = Folder::new(name, description, false, String::new());
+
+    // Lock, use, and release
+    let ucan_service_guard = ucan_service.read().await;
+    let (folder_root_ucan_key, ucan_cid) = ucan_service_guard
+        .issue_folder_owner_token(&folder.id, domain, &folder_template_json)
+        .await?;
+    drop(ucan_service_guard);  // Explicit drop (optional but clear)
+
+    folder.ucan = folder_root_ucan_key.clone();
+    // ... rest of function
+
+    Ok(folder)
+}
+```
+
+### 5. P2P Message Handlers
+
+```rust
+pub async fn handle_resource_data_sync(
+    payload: &ResourceDataSync,
+    peer_conn: Arc<PeerConnection>,
+    repo_ctx: Arc<RepositoryContext>,
+    _crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    let domain = &peer_conn.domain;
+
+    services::accept_resource_from_peer(
+        &payload.resource,
+        &payload.share_records,
+        &payload.folder_ucan,
+        domain,
+        repo_ctx,
+        &peer_conn.ucan_service,  // Use from peer_conn
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to accept resource from peer: {}", e);
+        P2PError::InvalidState(format!("Failed to accept resource: {}", e))
+    })?;
+
+    Ok(())
+}
+```
 
 ---
 
@@ -93,7 +314,7 @@ core/src/ucan/
 - **What**: Defines token types, capabilities, delegation templates, and sync rules
 - **Implementation**: Backend extracts templates from tokens and executes them as data
 
-**Code Pattern** (services/src/ucan_service.rs:724):
+**Code Pattern** (gurkha/src/decision.rs):
 ```rust
 let mut facts = template.to_facts();  // token_type comes from template!
 facts.insert("role".to_string(), json!(peer_role));
@@ -106,7 +327,7 @@ facts.insert("role".to_string(), json!(peer_role));
 **Manifestation**:
 - No hardcoded document names
 - No hardcoded capability mappings
-- No hardcoded token types (removed in Phase 5+)
+- No hardcoded token types
 - All data flows from frontend templates
 
 **Example**:
@@ -118,7 +339,7 @@ facts.insert("role".to_string(), json!(peer_role));
 
 **Philosophy**: Wrong token type = compiler error, not runtime bug
 
-**Code Example** (services/src/ucan_service.rs):
+**Code Example** (gurkha/src/service.rs):
 ```rust
 // Can't pass wrong token type - compiler error!
 pub async fn delegate_to_node(
@@ -131,9 +352,9 @@ pub async fn delegate_to_node(
 
 **Philosophy**: Code should clearly show what it's doing
 
-**URI Parsing** (core/src/ucan/uri.rs - Phase 6+ improvement):
+**URI Parsing** (gurkha/src/uri.rs):
 ```rust
-// ✅ After: Explicit per-format extraction
+// ✅ Explicit per-format extraction
 match parts.get(1) {
     Some(&"folder") => {
         // Folder format: domain:folder:id:operation
@@ -141,14 +362,6 @@ match parts.get(1) {
             // Clear naming shows structure
         }
     }
-}
-```
-
-**Naming** (core/src/models/p2p.rs - Phase 6+ improvement):
-```rust
-// ✅ After: Name describes content, not usage
-pub struct Message {
-    pub folder_ucan: String,  // Contains folder capabilities, used by any role
 }
 ```
 
@@ -160,7 +373,7 @@ pub struct Message {
 
 **Purpose:** Authenticate devices and establish P2P connections
 
-**Code Location**: `core/src/ucan/token.rs`
+**Code Location**: `gurkha/src/token.rs`
 
 ```rust
 pub enum ConnectionTokenType {
@@ -185,7 +398,7 @@ pub struct ViewerAuthToken(ConnectionToken);
 
 **Purpose:** Control access to folders and their contents
 
-**Code Location**: `core/src/ucan/token.rs`
+**Code Location**: `gurkha/src/token.rs`
 
 ```rust
 pub struct FolderOwnerToken {
@@ -216,7 +429,7 @@ FolderViewerToken (Viewer)
 
 **Purpose:** Control access to individual resources and their documents
 
-**Code Location**: `core/src/ucan/token.rs`
+**Code Location**: `gurkha/src/token.rs`
 
 ```rust
 pub struct ResourceOwnerToken {
@@ -249,7 +462,7 @@ ResourceViewerToken (Viewer)
 
 ### GenericUcan (Universal UCAN Parser)
 
-**Code Location**: `core/src/ucan/parser.rs`
+**Code Location**: `gurkha/src/parser.rs`
 
 ```rust
 pub struct GenericUcan {
@@ -292,7 +505,7 @@ impl GenericUcan {
 
 ### DelegationTemplate
 
-**Code Location**: `core/src/ucan/parser.rs`
+**Code Location**: `gurkha/src/parser.rs`
 
 ```rust
 pub struct DelegationTemplate {
@@ -310,7 +523,7 @@ impl DelegationTemplate {
 
 ### Domain Types
 
-**Code Location**: `core/src/ucan/types.rs`
+**Code Location**: `gurkha/src/types.rs`
 
 ```rust
 pub enum Capability {
@@ -362,10 +575,13 @@ Connection capabilities:
 - sthalam:user:*:share         (can share with users)
 
 Folder capabilities:
-- sthalam:folder:xyz:add_resources  (can add resources to folder)
-- sthalam:folder:xyz:share_folder   (can share folder)
+- sthalam:folder:xyz:own               (owns folder)
+- sthalam:folder:xyz:add_resources     (can add resources to folder)
+- sthalam:folder:xyz:share_folder      (can share folder)
+- sthalam:folder:xyz:get_share_link    (can get share link)
 
 Resource capabilities:
+- sthalam:resource:abc:share_resource  (can share this resource)
 - sthalam:resource:abc:collaborative_doc:collaborator  (full access)
 - sthalam:resource:abc:content_doc:viewer              (read-only)
 - sthalam:resource:abc:submissions_doc:submitter       (submit-only)
@@ -373,23 +589,36 @@ Resource capabilities:
 
 ### Validation Pattern
 
-**Code Location**: `crypto_utils::ucan_utils` (called from services)
+**Code Location**: `gurkha/src/extractors.rs`
 
 ```rust
-// Check if peer can add folders (services/src/ucan_service.rs)
-let folder_resource = format!("{}:folder:*", domain);
-crypto_utils::ucan_utils::check_capability(
-    peer_token.parsed(),
-    &folder_resource,
-    "add_folder",
+// Extract folder ID from folder token
+let folder_id = gurkha::extractors::extract_id_from_resource_type(
+    ucan.parsed(),
+    domain,
+    "folder",
 )?;
 
-// Check if user has collaborator access
-let doc_resource = format!("{}:resource:{}:collaborative_doc", domain, resource_id);
-crypto_utils::ucan_utils::check_capability(
-    user_token.parsed(),
-    &doc_resource,
-    "collaborator",
+// Validate folder token has add_resources capability
+gurkha::extractors::validate_has_capability(
+    ucan.parsed(),
+    domain,
+    "folder",
+    "add_resources",
+)?;
+
+// Extract resource ID and validate share capability
+let resource_id = gurkha::extractors::extract_id_from_resource_type(
+    ucan.parsed(),
+    domain,
+    "resource",
+)?;
+
+gurkha::extractors::validate_has_capability(
+    ucan.parsed(),
+    domain,
+    "resource",
+    "share_resource",
 )?;
 ```
 
@@ -399,145 +628,17 @@ crypto_utils::ucan_utils::check_capability(
 
 ### Delegation Flow (NEVER HARDCODE!)
 
-**Code Location**: `services/src/ucan_service.rs` (lines 680-750)
+**Code Location**: `gurkha/src/service.rs`
 
 **Pattern used in all delegation functions**:
-
-```rust
-// 1. Extract template from delegator UCAN (NEVER HARDCODE!)
-let template = delegator_token.get_delegation_template("viewer")
-    .ok_or_else(|| ServiceError::MissingTemplate("viewer"))?;
-
-// 2. Build capabilities (DATA-DRIVEN)
-let capabilities = template.build_capabilities(&resource_id, "resource");
-
-// 3. Convert to facts (GENERIC)
-let mut facts = template.to_facts();
-facts.insert("role".to_string(), json!("viewer"));
-
-// 4. Get delegatee's public key
-let delegatee_pub_key = repo_ctx.user_repo.get_user_by_id(delegatee_user_id).await?.ucan_pub_key;
-
-// 5. Generate UCAN token
-let ucan_token = crypto_utils.write().await.generate_ucan(
-    &delegatee_pub_key,
-    capabilities,
-    facts,
-    None,  // No expiration
-)?;
-
-// 6. Return typed wrapper
-Ok(ResourceViewerToken::from_token(&ucan_token)?)
-```
-
-**Key Points**:
-- ✅ Template extracted from delegator's UCAN (frontend-defined)
-- ✅ No hardcoded document names or capabilities
-- ✅ Generic code works with any document structure
-- ✅ Frontend changes don't require backend code changes
-
----
-
-## Data-Driven Token Type System
-
-### Problem: Hardcoded Token Type Logic
-
-**Before** (services/src/ucan_service.rs - historical):
-```rust
-// ❌ Hardcoded logic - requires backend code changes for new types
-let token_type = match peer_role {
-    "node" | "user" => "resource_share",
-    "viewer" => "resource_viewer",
-    _ => "resource_share",
-};
-facts.insert("token_type".to_string(), json!(token_type));
-```
-
-**Issues**:
-1. Not extensible - Adding new token types requires backend code changes
-2. Tight coupling - Business logic in technical code
-3. Implicit semantics - Relationship between role and token type not declared
-4. Duplication - Same logic repeated in multiple functions
-
-### Solution: Data-Driven Token Types
-
-**Architecture**:
-- **Frontend** (`sthalam/frontend/desktop/src/config/permissions.ts`) defines token types
-- **Backend** (`services/src/ucan_service.rs`) executes templates as data
-
-**Implementation**:
-
-1. **DelegationTemplate** (core/src/ucan/parser.rs):
-```rust
-pub struct DelegationTemplate {
-    pub token_type: String,                      // ← Data-driven!
-    pub capabilities: HashMap<String, String>,
-    pub sync: Option<SyncFacts>,
-}
-
-impl DelegationTemplate {
-    pub fn to_facts(&self) -> serde_json::Map<String, serde_json::Value> {
-        let mut facts = serde_json::Map::new();
-        facts.insert("token_type".to_string(),
-                     serde_json::Value::String(self.token_type.clone()));
-        // Rest of facts...
-    }
-}
-```
-
-2. **Frontend Templates** (sthalam/frontend/desktop/src/config/permissions.ts):
-```typescript
-export const RESOURCE_TEMPLATE = {
-  owner_template: {
-    delegation: {
-      node: {
-        token_type: "resource_share",        // ← Explicitly defined
-        capabilities: { ... }
-      },
-      viewer: {
-        token_type: "resource_viewer",       // ← Different behavior
-        capabilities: { ... }
-      }
-    }
-  }
-};
-```
-
-3. **Backend Service** (services/src/ucan_service.rs:724):
-```rust
-// ✅ Now: Using template.to_facts() which includes token_type
-let mut facts = template.to_facts();  // token_type already included!
-facts.insert("role".to_string(), json!(peer_role));
-```
-
-### Benefits
-
-1. **Extensibility Without Code Changes**
-   - New token type? Update frontend template, done
-   - No backend deployment needed
-
-2. **Explicit Authorization Model**
-   - What token types exist is declared in frontend
-   - Single source of truth
-
-3. **Separation of Concerns**
-   - Frontend owns authorization policy
-   - Backend executes policy as data
-
----
-
-## Usage Examples
-
-### Example 1: Folder Publishing (Owner → Node)
-
-**Code Location**: `services/src/ucan_service.rs` (lines 115-195)
 
 ```rust
 // 1. Parse owner token (validates type)
 let owner_token = FolderOwnerToken::from_token(&owner_folder_ucan)?;
 
 // 2. Extract template from owner's UCAN (DATA-DRIVEN)
-let template = owner_token.ucan().get_delegation_template("node")?;
+let template = owner_token.ucan().get_delegation_template("node")
+    .ok_or_else(|| ServiceError::MissingTemplate("node"))?;
 
 // 3. Build capabilities (generic, no hardcoding)
 let capabilities = template.build_capabilities(&folder_id, "folder");
@@ -546,68 +647,26 @@ let capabilities = template.build_capabilities(&folder_id, "folder");
 let mut facts = template.to_facts();
 facts.insert("role".to_string(), json!("node"));
 
-// 5. Generate UCAN
-let node_ucan = crypto_utils.write().await.generate_ucan(
-    &node_pub_key,
+// 5. Get delegatee's public key
+let delegatee_pub_key = /* get from database */;
+
+// 6. Generate UCAN token (using internal crypto)
+let node_ucan = self.generate_ucan_internal(
+    &delegatee_pub_key,
     capabilities,
     facts,
-    None,
+    None,  // No expiration
 )?;
 
-// 6. Return typed token
+// 7. Return typed wrapper
 Ok(FolderShareToken::from_token(&node_ucan)?)
 ```
 
-### Example 2: Resource Delegation (Owner → Node)
-
-**Code Location**: `services/src/ucan_service.rs` (lines 679-750)
-
-```rust
-// 1. Parse owner token (compile-time type safety)
-let owner_token = ResourceOwnerToken::from_token(&owner_ucan)?;
-
-// 2. Extract template from owner (data-driven)
-let template = owner_token.ucan().get_delegation_template("node")?;
-
-// 3. Build capabilities using template
-let capabilities = template.build_capabilities(&resource_id, "resource");
-
-// 4. Create facts with token_type from template
-let mut facts = template.to_facts();
-facts.insert("role".to_string(), json!("node"));
-
-// 5. Generate and return typed token
-let node_ucan = crypto_utils.write().await.generate_ucan(...)?;
-Ok(ResourceShareToken::from_token(&node_ucan)?)
-```
-
-### Example 3: Capability Check During Sync
-
-**Code Location**: `services/src/merge_service.rs`
-
-```rust
-// 1. Parse both tokens
-let our_ucan = GenericUcan::from_token(&our_token)?;
-let peer_ucan = GenericUcan::from_token(&peer_token)?;
-
-// 2. Check our capability (can WE write?)
-if our_ucan.get_capability("content_doc") != Some(Capability::Collaborator) {
-    return Ok(SyncDecision::DontSend);
-}
-
-// 3. Check peer's no_incoming_updates (do THEY accept?)
-if peer_ucan.has_no_incoming_updates("content_doc") {
-    return Ok(SyncDecision::DontSend);
-}
-
-// 4. Check peer capability (can THEY receive?)
-match peer_ucan.get_capability("content_doc") {
-    Some(Capability::Collaborator) | Some(Capability::Viewer) => {
-        Ok(SyncDecision::SendIncrementalUpdates)
-    }
-    _ => Ok(SyncDecision::DontSend),
-}
-```
+**Key Points**:
+- ✅ Template extracted from delegator's UCAN (frontend-defined)
+- ✅ No hardcoded document names or capabilities
+- ✅ Generic code works with any document structure
+- ✅ Frontend changes don't require backend code changes
 
 ---
 
@@ -620,18 +679,18 @@ match peer_ucan.get_capability("content_doc") {
 ```typescript
 export const RESOURCE_TEMPLATE = {
   owner_template: {
-    token_type: "resource_owner",
     capabilities: {
+      "share_resource": "allow",
       "template_doc": "collaborator",
       "content_doc": "collaborator",
       "collaborative_doc": "collaborator",
       "submissions_doc": "collaborator",
       "static_assets": "collaborator",
     },
-    doc_metadata: {
-      "static_assets": { "type": "asset", "allowed_mimes": ["image/*"] },
-      "template_doc": { "type": "crdt" },
-      // ... rest of metadata
+    doc_types: {
+      "static_assets": "asset",
+      "template_doc": "crdt",
+      // ... rest
     },
     sync: {
       local_only: ["user_content_doc"],
@@ -639,7 +698,11 @@ export const RESOURCE_TEMPLATE = {
     delegation: {
       node: {
         token_type: "resource_share",
-        capabilities: { /* node template */ },
+        capabilities: {
+          "share_resource": "allow",
+          "template_doc": "collaborator",
+          // ...
+        },
         sync: { local_only: ["user_content_doc"] },
       },
       viewer: {
@@ -660,6 +723,54 @@ export const RESOURCE_TEMPLATE = {
 
 ---
 
+## Common Pitfalls & Solutions
+
+### ❌ Problem: Threading Error
+
+```
+error[E0277]: `std::sync::RwLockReadGuard<'_, UcanService>` cannot be sent
+              between threads safely
+```
+
+**Cause:** Using `std::sync::RwLock` instead of `tokio::sync::RwLock`
+
+**Solution:**
+```rust
+// ❌ WRONG
+use std::sync::RwLock;
+
+// ✅ CORRECT
+use tokio::sync::RwLock;
+```
+
+### ❌ Problem: Keys Not Loaded Error
+
+```
+ServiceError::KeysNotLoaded
+```
+
+**Cause:** Trying to use UcanService before calling `load_keys()`
+
+**Solution:** Ensure keys are loaded during login:
+```rust
+// In auth/login flow
+let (signing_key, verifying_key) = crypto.decrypt_ucan_key(&certificate.private_key)?;
+let mut ucan_guard = ucan_service.write().await;
+ucan_guard.load_keys(signing_key, verifying_key);
+```
+
+### ❌ Problem: Missing Parameter in Function Call
+
+```
+error[E0061]: this function takes 8 arguments but 7 arguments were supplied
+```
+
+**Cause:** Forgot to add `&ucan_service` parameter after refactoring
+
+**Solution:** Add `&ucan_service` (or `&peer_conn.ucan_service` in P2P context)
+
+---
+
 ## Architecture Diagram
 
 ```
@@ -674,17 +785,26 @@ export const RESOURCE_TEMPLATE = {
               [Token Generation]
                         ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ BACKEND: Dumb Executor                                      │
-│ services/src/ucan_service.rs                               │
-│ • Extract template from delegator UCAN                     │
-│ • Build capabilities from template                         │
-│ • Generate new token with template data                    │
-│ • No business logic - just data flow                       │
+│ GURKHA: Pure Domain Logic                                   │
+│ gurkha/src/                                                  │
+│ • decision.rs - Token generation logic (pure)               │
+│ • crypto.rs - UCAN signing/verification                     │
+│ • service.rs - Public API orchestration                     │
+│ • extractors.rs - ID extraction & capability validation     │
+│ • No infrastructure dependencies                            │
 └─────────────────────────────────────────────────────────────┘
                         ↓
 ┌─────────────────────────────────────────────────────────────┐
-│ TOKEN VALIDATION: Core Module                               │
-│ core/src/ucan/                                              │
+│ SERVICES LAYER: Business Logic                              │
+│ services/src/                                                │
+│ • Accept &Arc<RwLock<UcanService>>                          │
+│ • Coordinate between repo, crypto, and UCAN                 │
+│ • No business logic - just orchestration                    │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ TOKEN VALIDATION: Type-Safe Wrappers                        │
+│ gurkha/src/token.rs, parser.rs                               │
 │ • Parse token with GenericUcan                             │
 │ • Type-safe wrappers (ResourceOwnerToken, etc)             │
 │ • Trait-based queries (get_capability, is_local_only, etc) │
@@ -714,17 +834,18 @@ export const RESOURCE_TEMPLATE = {
 
 ## Implementation Status
 
-**Phases Completed:**
-- ✅ Phase 1: Core domain models (capability.rs, types.rs, etc)
-- ✅ Phase 2: Rewritten ucan_service.rs (zero hardcoded templates)
-- ✅ Phase 3: Consolidated services (resource_service module)
-- ✅ Phase 5+: Data-driven token type system
-- ✅ Phase 6+: URI parsing architecture & naming clarity
+**Migration Complete:**
+- ✅ Gurkha library created with pure domain logic
+- ✅ UcanService with optional key loading
+- ✅ Thread-safe integration across all layers
+- ✅ Zero infrastructure dependencies in gurkha
+- ✅ All services updated to use Arc<RwLock<UcanService>>
 
 **Build Status:**
 - ✅ All crates compile successfully
 - ✅ No type errors in UCAN module
 - ✅ All services layer integrated
+- ✅ P2P layer updated
 
 **Testing:**
 - ✅ Folder sync with UCAN-first publishing
@@ -737,10 +858,9 @@ export const RESOURCE_TEMPLATE = {
 ## References
 
 **Core Implementation Files:**
-- `/home/abe/osvauld/core/src/ucan/` - UCAN module (mod.rs, types.rs, parser.rs, token.rs, uri.rs)
-- `/home/abe/osvauld/services/src/ucan_service.rs` - Token generation (756 lines, zero hardcoded)
+- `/home/abe/osvauld/gurkha/src/` - UCAN library (lib.rs, types.rs, parser.rs, token.rs, uri.rs, crypto.rs, decision.rs, extractors.rs, service.rs, errors.rs)
 - `/home/abe/osvauld/sthalam/frontend/desktop/src/config/permissions.ts` - Frontend templates
-- `/home/abe/osvauld/core/src/models/sync_context.rs` - Pure sync decision logic
+- `/home/abe/osvauld/services/src/*` - Service layer using UcanService
 
 **Related Documentation:**
 - `SYNC_PROTOCOL.md` - Complete P2P sync protocol specification
@@ -751,4 +871,4 @@ export const RESOURCE_TEMPLATE = {
 
 **Status:** Production Ready
 **Owner:** Core Authorization System
-**Last Verified:** 2025-11-15
+**Last Verified:** 2025-11-16
