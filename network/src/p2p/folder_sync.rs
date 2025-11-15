@@ -6,11 +6,10 @@
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection, resource_sync};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
-    p2p::{FolderDataSync, FolderMessage, FolderResourcesRequest, Message},
-    Folder, FolderShareRecord, User,
+    p2p::{FolderDataSync, FolderMessage, FolderResourcesRequest, Message}, User,
 };
 use persistance::database::RepositoryContext;
-use services::{get_folder_by_id, get_folder_share_record, ucan_service};
+use services::{get_folder_by_id, get_folder_share_record};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info};
@@ -214,13 +213,11 @@ pub async fn handle_folder_data_sync(
     let peer_user_guard = peer_conn.user.read().await;
     let peer_user_id = &peer_user_guard.id;
     let peer_connection_token = &peer_user_guard.ucan_token;
-    let domain = &peer_conn.domain;
 
     services::accept_folder_from_peer(
         &payload.folder,
         &payload.folder_share_record,
         peer_connection_token,
-        domain,
         repo_ctx,
     )
     .await
@@ -285,15 +282,26 @@ pub async fn handle_folder_resources_request(
     // Note: We validate that the folder token has add_resources capability because
     // we're about to use it to send resources back to the peer
     let domain = &peer_conn.domain;
-    let folder_id =
-        ucan_service::validate_folder_token_has_add_resources(&payload.folder_token, domain)
-            .map_err(|e| {
-                error!(
-                    "Failed to validate folder token has add_resources capability: {}",
-                    e
-                );
-                crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
-            })?;
+
+    // Parse the UCAN token
+    let parsed_ucan = gurkha::parser::GenericUcan::from_token(&payload.folder_token)
+        .map_err(|e| {
+            error!("Failed to parse folder token: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
+        })?;
+
+    let folder_id = gurkha::extractors::extract_id_from_resource_type(
+        parsed_ucan.parsed(),
+        domain,
+        "folder",
+    )
+    .map_err(|e| {
+        error!(
+            "Failed to validate folder token has add_resources capability: {}",
+            e
+        );
+        crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
+    })?;
 
     info!("  Folder ID from token: {}", folder_id);
 
@@ -304,13 +312,11 @@ pub async fn handle_folder_resources_request(
 
     // 3. Get peer user
     let peer_user_guard = peer_conn.user.read().await;
-    let peer_user_id = &peer_user_guard.id;
     drop(peer_user_guard);
 
     // 4. Extract peer role from folder_token
-    let peer_role = ucan_service::utilities::extract_role_from_token(&payload.folder_token)
-        .await
-        .unwrap_or_else(|_| "node".to_string());
+    let peer_role = gurkha::extractors::get_role(parsed_ucan.parsed())
+        .unwrap_or_else(|| "node".to_string());
 
     info!("  Peer role: {}", peer_role);
 
@@ -390,6 +396,7 @@ pub async fn handle_folder_resources_request(
             &peer_user,
             repo_ctx.clone(),
             &crypto_utils,
+            &peer_conn.ucan_service,
         )
         .await
         {

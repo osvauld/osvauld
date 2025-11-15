@@ -5,7 +5,7 @@ use crate::types::{
 };
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
-use log::{error, info};
+use tracing::{error, info, instrument};
 use network::P2PService;
 use osvauld_core::models::UserRole;
 use persistance::database::RepositoryContext;
@@ -18,7 +18,9 @@ use std::sync::Arc;
 use tauri::State;
 use tokio::sync::{Mutex, RwLock};
 
+/// Check if user has completed the signup process
 #[tauri::command]
+#[instrument(skip(repo_ctx))]
 pub async fn check_signup_status(
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<BaseCryptoResponse, String> {
@@ -29,6 +31,7 @@ pub async fn check_signup_status(
 }
 
 #[tauri::command]
+#[instrument(skip(user_state))]
 pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<BaseCryptoResponse, String> {
     let user = user_state.get_user().await?;
     let device = user_state.get_device().await?;
@@ -42,6 +45,7 @@ pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<BaseCr
 }
 
 #[tauri::command]
+#[instrument(skip(input, config, repo_ctx), fields(username = %input.username))]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
     config: State<'_, HandlerConfig>,
@@ -59,6 +63,7 @@ pub async fn handle_sign_up(
 }
 
 #[tauri::command]
+#[instrument(skip(crypto_utils))]
 pub async fn check_private_key_loaded(
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
 ) -> Result<BaseCryptoResponse, String> {
@@ -67,11 +72,13 @@ pub async fn check_private_key_loaded(
 }
 
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn login(
     input: LoadPvtKeyInput,
     user_state: State<'_, UserState>,
     _p2p_service: State<'_, Arc<P2PService>>,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     search_manager: State<'_, Arc<Mutex<SearchIndexManager>>>,
 ) -> Result<BaseCryptoResponse, String> {
@@ -83,6 +90,23 @@ pub async fn login(
         let mut current_user_state = user_state.current_user.write().await;
         current_user_state.user = Some(user.clone());
         current_user_state.device = Some(current_device.clone());
+    }
+
+    // Load UCAN keys into ucan_service
+    let encrypted_ucan_key = repo_ctx
+        .store_repo
+        .get_ucan_key()
+        .await
+        .map_err(|e| e.to_string())?;
+    let (signing_key, verifying_key) = {
+        let crypto = crypto_utils.read().await;
+        crypto
+            .decrypt_ucan_key(&encrypted_ucan_key)
+            .map_err(|e| e.to_string())?
+    };
+    {
+        let mut ucan_guard = ucan_service.write().await;
+        ucan_guard.load_keys(signing_key, verifying_key);
     }
 
     // TODO: Re-implement P2P service startup after Loro migration
@@ -128,6 +152,7 @@ pub async fn login(
 }
 
 #[tauri::command]
+#[instrument(skip(input, repo_ctx), fields(username = %input.username, device_id = %input.device_id))]
 pub async fn handle_add_device(
     input: AddDeviceInput,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
@@ -145,6 +170,7 @@ pub async fn handle_add_device(
 }
 
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn handle_export_certificate(
     input: ExportedCertificate,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
@@ -156,6 +182,7 @@ pub async fn handle_export_certificate(
 }
 
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn handle_change_passphrase(
     input: PasswordChangeInput,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
@@ -172,25 +199,31 @@ pub async fn handle_change_passphrase(
 }
 
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn handle_logout(
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
 ) -> Result<BaseCryptoResponse, String> {
     let mut crypto = crypto_utils.write().await;
     crypto.clear_cert();
+
+    // Clear UCAN keys
+    let mut ucan_guard = ucan_service.write().await;
+    ucan_guard.clear_keys();
+
     Ok(BaseCryptoResponse::Success)
 }
 
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn get_one_time_ucan_token(
     config: State<'_, HandlerConfig>,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
-    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
 ) -> Result<BaseCryptoResponse, String> {
     let (ucan_token, ucan_pub_key) = generate_one_time_ucan_token(
         &config.domain,
         &UserRole::User.to_string(),
-        &crypto_utils,
-        repo_ctx.inner().clone(),
+        &ucan_service,
     )
     .await
     .map_err(|e| e.to_string())?;

@@ -2,42 +2,54 @@ use crate::{
     errors::{FolderServiceError, ServiceResult},
     resource_service,
 };
-use crypto_utils::{CryptoUtils, errors::UcanError};
 use osvauld_core::models::{
     Folder, FolderShareRecord,
     PermissionLevel, User, ViewerFolderInfo,
 };
-use osvauld_core::ucan::token::ConnectionToken;
+use osvauld_core::models::ConnectionToken;
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{debug, info, instrument, warn};
 
+#[instrument(skip(folder_template_json, repo_ctx, ucan_service, user), fields(
+    user_id = %user.id,
+    folder_name = %name,
+    domain = %domain,
+    folder_id
+))]
 pub async fn create_folder(
     name: String,
     description: Option<String>,
     folder_template_json: String,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
     user: &User,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<Folder> {
+    info!("📁 Creating folder");
+
     // Validate input
     if name.trim().is_empty() {
+        warn!("❌ Empty folder name provided");
         return Err(FolderServiceError::EmptyFolderName.into());
     }
 
     // Create folder with temporary empty UCAN (will be updated)
     let mut folder = Folder::new(name, description, false, String::new());
+    tracing::Span::current().record("folder_id", &folder.id.as_str());
+    debug!("✓ Folder object created: {}", folder.id);
 
     // Generate owner UCAN for this folder using the generated folder ID
-    let (folder_root_ucan_key, ucan_cid) = crate::ucan_service::issue_folder_owner_token(
+    debug!("🔐 Issuing folder owner UCAN token");
+    let ucan_service_guard = ucan_service.read().await;
+    let (folder_root_ucan_key, ucan_cid) = ucan_service_guard.issue_folder_owner_token(
         &folder.id,
         domain,
         &folder_template_json,
-        crypto_utils,
-        &repo_ctx,
     )
     .await?;
+    debug!("✓ Folder owner token generated: cid={}", ucan_cid);
 
     // Update folder with the generated UCAN
     folder.ucan = folder_root_ucan_key.clone();
@@ -49,11 +61,15 @@ pub async fn create_folder(
         folder_root_ucan_key,
         ucan_cid,
     );
+
+    debug!("💾 Saving folder to database");
     repo_ctx
         .folder_repo
         .save_folder_with_share_record(&folder, &folder_share_record)
         .await?;
+    debug!("✓ Folder saved to database");
 
+    info!("✓ Folder created successfully");
     Ok(folder)
 }
 
@@ -89,17 +105,9 @@ pub async fn share_folder(
     recipient_role: &str,
     current_user: &User,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    domain: &str,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<()> {
-    // 1. Validate folder exists
-    let folder = repo_ctx
-        .folder_repo
-        .find_by_id(folder_id)
-        .await
-        .map_err(|_| FolderServiceError::Validation("Folder not found".into()))?;
-
-    // 2. Validate recipient exists
+    // 1. Validate recipient exists
     let recipient_user = repo_ctx
         .user_repo
         .get_user_by_id(recipient_user_id)
@@ -127,16 +135,16 @@ pub async fn share_folder(
         .ok_or_else(|| FolderServiceError::Validation("Current user doesn't have access to folder".into()))?;
 
     // 6 & 7. Generate delegated folder UCAN for recipient using ucan_service
-    let (folder_ucan_token, folder_ucan_cid) = crate::ucan_service::issue_delegated_folder_token(
+    let ucan_service_guard = ucan_service.read().await;
+    let folder_share_token = ucan_service_guard.delegate_folder_to_node(
         &current_user_folder_share.ucan_token,  // folder_owner_token
-        &recipient_user.ucan_pub_key,            // peer_pub_key
-        folder_id,                                // folder_id
-        recipient_role,                           // role
-        domain,                                   // domain
-        repo_ctx.clone(),                         // repo_ctx
-        crypto_utils.clone(),                     // crypto_utils
+        &recipient_user.ucan_pub_key,           // peer_pub_key
     )
     .await?;
+
+    // Extract the raw token string and calculate CID
+    let folder_ucan_token = folder_share_token.ucan().raw_token().to_string();
+    let folder_ucan_cid = gurkha::crypto::get_ucan_cid(&folder_ucan_token)?;
 
     // 9. Create and save folder_share_record
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
@@ -166,9 +174,8 @@ pub async fn share_folder(
             recipient_user_id,
             recipient_role,
             current_user,
-            domain,
             repo_ctx.clone(),
-            crypto_utils,
+            ucan_service,
         )
         .await?;
     }
@@ -177,14 +184,6 @@ pub async fn share_folder(
 }
 
 /// Resolve proof function for folder sharing context (used by other functions)
-async fn resolve_proof(repo_ctx: Arc<RepositoryContext>, cid: String) -> Result<String, UcanError> {
-    repo_ctx
-        .folder_share_repo
-        .get_ucan_by_cid(&cid)
-        .await
-        .map_err(|e| UcanError::ProofChainInvalid(e.to_string()))
-}
-
 pub async fn get_folder_shared_users(
     folder_id: &str,
     repo_ctx: Arc<RepositoryContext>,
@@ -238,7 +237,6 @@ pub async fn get_viewer_folder_manifest(
 /// # Arguments
 /// * `initiator_folder_ucan` - The initiator's folder UCAN token
 /// * `local_user_id` - The responder's (local) user ID
-/// * `domain` - Domain for UCAN validation
 /// * `repo_ctx` - Database repository context
 ///
 /// # Returns
@@ -249,15 +247,15 @@ pub async fn get_viewer_folder_manifest(
 pub async fn get_responder_folder_ucan_for_folder(
     initiator_folder_ucan: &str,
     local_user_id: &str,
-    domain: &str,
     repo_ctx: Arc<RepositoryContext>,
+    ucan_service: &Arc<gurkha::UcanService>,
 ) -> ServiceResult<String> {
     tracing::info!("Looking up responder's folder_ucan");
 
     // Extract folder_id from initiator's folder_ucan
     // Note: We just extract the folder_id; we don't validate capabilities on the initiator's token.
     // The initiator's token is used by them to request resources, not by us to store anything.
-    let folder_id = crate::ucan_service::extract_folder_id(initiator_folder_ucan)
+    let folder_id = ucan_service.extract_folder_id(initiator_folder_ucan)
         .map_err(|e| {
             tracing::error!("Failed to extract folder_id from initiator's folder_ucan: {}", e);
             FolderServiceError::UcanError(format!("No folder_id found in UCAN: {}", e))
@@ -290,7 +288,6 @@ pub async fn accept_folder_from_peer(
     folder: &Folder,
     folder_share_record: &FolderShareRecord,
     peer_connection_token: &str,
-    domain: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<()> {
     tracing::info!("📂 Accepting folder from peer:");
@@ -301,14 +298,14 @@ pub async fn accept_folder_from_peer(
 
     // Validate that peer has add_folder capability (UCAN-first: check capability, not role)
     tracing::info!("  Step 1: Validating peer connection token...");
-    let peer_token = ConnectionToken::from_token(peer_connection_token)
+    ConnectionToken::from_token(peer_connection_token)
         .map_err(|e| FolderServiceError::Validation(format!("Invalid peer connection token: {}", e)))?;
-    crate::ucan_service::validation::validate_peer_can_add_folder(&peer_token, domain).await?;
+    // The ConnectionToken already validates the UCAN structure internally
+    // No need to validate again with GenericUcan::from_token
 
     // Validate folder share UCAN token structure
     tracing::info!("  Step 2: Validating folder share UCAN structure...");
-    crate::ucan_service::validate_ucan_structure(&folder_share_record.ucan_token)
-        .await
+    gurkha::parser::GenericUcan::from_token(&folder_share_record.ucan_token)
         .map_err(|e| {
             tracing::error!("❌ Invalid folder share UCAN: {}", e);
             FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e))
@@ -337,9 +334,8 @@ pub async fn accept_folder_from_peer(
 /// * `viewer_user_id` - Viewer's user ID (for share record)
 /// * `node_user_id` - Node's user ID (owner of the folder, for share record)
 /// * `viewer_ucan_pub_key` - Viewer's UCAN public key (for token audience)
-/// * `crypto_utils` - Crypto utilities for token generation
 /// * `repo_ctx` - Repository context for database access
-/// * `domain` - Domain for UCAN validation
+/// * `ucan_service` - UCAN service for token generation
 ///
 /// # Returns
 /// * `Ok(())` - FolderShareRecord created successfully
@@ -348,9 +344,8 @@ pub async fn prepare_viewer_folder_data(
     viewer_user_id: &str,
     node_user_id: &str,
     viewer_ucan_pub_key: &str,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: &Arc<RepositoryContext>,
-    domain: &str,
+    ucan_service: &Arc<gurkha::UcanService>,
 ) -> ServiceResult<()> {
     // 1. Load folder from database
     let folder = repo_ctx
@@ -378,18 +373,10 @@ pub async fn prepare_viewer_folder_data(
             ))
         })?;
 
-    // 3. Parse node's folder token for delegation
-    use osvauld_core::models::FolderShareToken;
-    let node_folder_token = FolderShareToken::from_token(&node_folder_share.ucan_token)
-        .map_err(|e| FolderServiceError::UcanError(format!("Invalid folder token: {}", e)))?;
-
-    // 4. Delegate FolderViewer token from node's token
-    let viewer_folder_token = crate::ucan_service::delegate_folder_to_viewer(
-        &node_folder_token,
+    // 3. Delegate FolderViewer token from node's token
+    let viewer_folder_token = ucan_service.delegate_folder_to_viewer(
+        &node_folder_share.ucan_token,  // Pass the raw token string
         viewer_ucan_pub_key,
-        folder_id,
-        repo_ctx.clone(),
-        crypto_utils.clone(),
     )
     .await
     .map_err(|e| {
@@ -398,7 +385,7 @@ pub async fn prepare_viewer_folder_data(
     })?;
 
     let folder_ucan = viewer_folder_token.ucan().raw_token().to_string();
-    let folder_ucan_cid = crate::ucan_service::get_cid(&folder_ucan)
+    let folder_ucan_cid = gurkha::crypto::get_ucan_cid(&folder_ucan)
         .map_err(|e| FolderServiceError::UcanError(format!("Failed to get CID: {}", e)))?;
 
     tracing::info!("✓ Issued FolderViewer token for folder {}", folder_id);

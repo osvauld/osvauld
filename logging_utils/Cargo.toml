@@ -1,0 +1,14 @@
+[package]
+name = "logging_utils"
+version = "0.1.0"
+edition = "2021"
+description = "Rich logging infrastructure for Osvauld with hierarchical tree output"
+authors = ["Osvauld Team"]
+license = "MIT"
+
+[dependencies]
+tracing = { version = "0.1", features = ["attributes", "valuable"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+tracing-tree = "0.3"
+tracing-log = "0.2"

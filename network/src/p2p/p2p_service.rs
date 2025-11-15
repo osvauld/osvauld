@@ -28,6 +28,7 @@ pub struct P2PState {
 pub struct P2PService {
     pub state: Arc<Mutex<Option<P2PState>>>,
     pub crypto_utils: Arc<RwLock<CryptoUtils>>,
+    pub ucan_service: Arc<RwLock<gurkha::UcanService>>,
     pub repo_ctx: Arc<RepositoryContext>,
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
@@ -41,6 +42,7 @@ impl P2PService {
     pub fn new(
         repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
+        ucan_service: Arc<RwLock<gurkha::UcanService>>,
         domain: Arc<String>,
     ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>) {
         let (emitter, receiver) = P2PEventEmitter::new();
@@ -53,6 +55,7 @@ impl P2PService {
             current_device: Arc::new(RwLock::new(None)),
             repo_ctx,
             crypto_utils,
+            ucan_service,
             domain,
         };
 
@@ -99,7 +102,7 @@ impl P2PService {
             .connections
             .get_peer_connection(connection_id)
             .await
-            .map_err(|e| {
+            .map_err(|_| {
                 P2PError::Connection(ConnectionError::NotFound {
                     connection_id: connection_id.to_string(),
                 })
@@ -265,6 +268,7 @@ impl P2PService {
             self.event_emitter.clone(),
             None, // on_close callback
             self.crypto_utils.clone(),
+            self.ucan_service.clone(),
             self.repo_ctx.clone(),
             connection_id.clone(),
             current_user.clone(),

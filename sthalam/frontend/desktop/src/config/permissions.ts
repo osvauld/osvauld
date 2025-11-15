@@ -53,6 +53,7 @@ export const RESOURCE_TEMPLATE = {
   owner_template: {
     // Documents in this resource and their access levels for owner
     capabilities: {
+      "share_resource": "allow",  // Permission to share this resource with others
       "template_doc": "collaborator",
       "content_doc": "collaborator",
       "user_content_doc": "collaborator",
@@ -78,6 +79,7 @@ export const RESOURCE_TEMPLATE = {
       node: {
         token_type: "resource_share",  // Data-driven: backend uses this for delegated token
         capabilities: {
+          "share_resource": "allow",  // Node can also share resources
           "template_doc": "collaborator",
           "content_doc": "collaborator",
           "user_content_doc": "collaborator",

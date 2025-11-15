@@ -5,7 +5,7 @@
 
 use crate::p2p::{errors::P2PResult, P2PService};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{FolderTokenRequest, Message, ResourceSyncRequestMsg, User};
+use osvauld_core::models::{FolderTokenRequest, Message, User};
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -286,7 +286,6 @@ pub async fn sync_resource(
 pub async fn sync_folder(
     folder_id: String,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
     p2p_service: Arc<P2PService>,
 ) -> P2PResult<()> {
     info!("Initiating folder sync for: {}", folder_id);
@@ -421,12 +420,11 @@ pub async fn request_folder_token(
         folder_id, user_id
     );
 
-    // 1. Get current user
+    // 1. Validate current user is logged in
     let user_guard = p2p_service.current_user.read().await;
-    let current_user = user_guard
+    user_guard
         .as_ref()
-        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No user logged in".to_string()))?
-        .clone();
+        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No user logged in".to_string()))?;
     drop(user_guard);
 
     // 2. Get folder to extract UCAN

@@ -1,4 +1,4 @@
-use log::{error, info};
+use log::{debug, error};
 use std::path::PathBuf;
 use tauri::{Manager, UriSchemeContext, UriSchemeResponder};
 
@@ -28,13 +28,13 @@ pub fn handle_asset_request<R: tauri::Runtime>(
 
         match file_path {
             Some(path) => {
-                info!("[Asset Protocol] Resolved path: {}", path.display());
+                debug!("[Asset Protocol] Resolved path: {}", path.display());
 
                 match std::fs::read(&path) {
                     Ok(content) => {
                         let mime_type = get_mime_type(&path_str);
 
-                        info!(
+                        debug!(
                             "[Asset Protocol] ✓ Serving {} ({} bytes, MIME: {})",
                             path_str,
                             content.len(),
@@ -84,7 +84,7 @@ fn resolve_asset_path<R: tauri::Runtime>(
         let workspace = current_dir.parent().unwrap_or(&current_dir);
         let dev_path = workspace.join("frontend/desktop/public").join(path_str);
 
-        info!(
+        debug!(
             "[Asset Protocol] Dev mode - workspace: {}, path: {}",
             workspace.display(),
             dev_path.display()
@@ -99,7 +99,7 @@ fn resolve_asset_path<R: tauri::Runtime>(
         let prod_path = resource_dir.join(path_str);
 
         if prod_path.exists() {
-            info!(
+            debug!(
                 "[Asset Protocol] Production mode - found at: {}",
                 prod_path.display()
             );
@@ -113,7 +113,7 @@ fn resolve_asset_path<R: tauri::Runtime>(
             .join(path_str);
 
         if alt_path.exists() {
-            info!(
+            debug!(
                 "[Asset Protocol] Production mode - found at alternate path: {}",
                 alt_path.display()
             );

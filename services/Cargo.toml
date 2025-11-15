@@ -8,6 +8,7 @@ description = "Service layer for Osvauld application"
 osvauld_core = { path = "../core" }
 crypto_utils = { path = "../crypto_utils" }
 persistance = { path = "../persistance" }
+gurkha = { path = "../gurkha" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
@@ -20,10 +21,9 @@ chrono = "0.4"
 loro = "1.1.2"
 ed25519-dalek = "2.1.1"
 ucan = "0.4.0"
+hex = "0.4"
 
-tracing = "0.1.41"
+tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-appender = "0.2.3"
-
-
 tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 tracing-log = "0.2.0"

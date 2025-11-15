@@ -18,6 +18,8 @@ use osvauld_core::models::{
     },
     resource::Resource,
 };
+use std::sync::Arc;
+
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -37,10 +39,12 @@ pub async fn filter_documents_to_send(
     resource: &Resource,
     our_ucan: &str,
     peer_ucan: &str,
+    ucan_service: &Arc<gurkha::UcanService>,
 ) -> ServiceResult<HashMap<String, Vec<u8>>> {
     // 1. Extract our facts to check dont_send_to_node
-    let our_facts = crate::ucan_service::extract_facts(our_ucan)
-        .await?
+    let our_ucan_parsed = gurkha::parser::GenericUcan::from_token(our_ucan)
+        .map_err(|e| ResourceServiceError::UcanError(e.to_string()))?;
+    let our_facts = gurkha::extractors::get_facts(our_ucan_parsed.parsed())
         .unwrap_or_default();
 
     let dont_send: Vec<String> = our_facts
@@ -54,7 +58,7 @@ pub async fn filter_documents_to_send(
         .unwrap_or_default();
 
     // 2. Extract peer's document capabilities
-    let peer_doc_caps = crate::ucan_service::extract_doc_capabilities(peer_ucan).await?;
+    let peer_doc_caps = ucan_service.extract_capabilities(peer_ucan).await?;
 
     // 3. Filter and export snapshots
     let mut filtered_snapshots = HashMap::new();
@@ -90,12 +94,15 @@ pub async fn filter_documents_to_send(
 pub async fn get_state_vectors_for_ucan(
     resource: &Resource,
     ucan_token: &str,
+    ucan_service: &Arc<gurkha::UcanService>,
 ) -> ServiceResult<String> {
     // 1. Extract document capabilities
-    let doc_capabilities = crate::ucan_service::extract_doc_capabilities(ucan_token).await?;
+    let doc_capabilities = ucan_service.extract_capabilities(ucan_token).await?;
 
     // 2. Extract facts for dont_send_to_node
-    let facts = crate::ucan_service::extract_facts(ucan_token).await?;
+    let ucan_parsed = gurkha::parser::GenericUcan::from_token(ucan_token)
+        .map_err(|e| ResourceServiceError::UcanError(e.to_string()))?;
+    let facts = gurkha::extractors::get_facts(ucan_parsed.parsed());
 
     let dont_send_to_node: Vec<String> = facts
         .as_ref()
@@ -113,7 +120,7 @@ pub async fn get_state_vectors_for_ucan(
 
     for doc_name in resource.doc_names() {
         // Skip if not in capabilities
-        if !doc_capabilities.contains_key(&doc_name) {
+        if !doc_capabilities.iter().any(|(name, _)| name == &doc_name) {
             continue;
         }
 
@@ -155,6 +162,7 @@ pub async fn generate_updates_for_peer(
     resource: &Resource,
     peer_ucan: &str,
     peer_state_vectors_json: &str,
+    ucan_service: &Arc<gurkha::UcanService>,
 ) -> ServiceResult<String> {
     // 1. Parse peer state vectors
     let peer_vectors: HashMap<String, serde_json::Map<String, Value>> =
@@ -162,11 +170,12 @@ pub async fn generate_updates_for_peer(
             .map_err(|e| ResourceServiceError::InvalidResourceData(e.to_string()))?;
 
     // 2. Extract peer capabilities
-    let peer_doc_caps = crate::ucan_service::extract_doc_capabilities(peer_ucan).await?;
+    let peer_doc_caps = ucan_service.extract_capabilities(peer_ucan).await?;
 
     // 3. Check peer's dont_send_to_node
-    let peer_facts = crate::ucan_service::extract_facts(peer_ucan)
-        .await?
+    let peer_ucan_parsed = gurkha::parser::GenericUcan::from_token(peer_ucan)
+        .map_err(|e| ResourceServiceError::UcanError(e.to_string()))?;
+    let peer_facts = gurkha::extractors::get_facts(peer_ucan_parsed.parsed())
         .unwrap_or_default();
 
     let dont_send_to_peer: Vec<String> = peer_facts
@@ -184,7 +193,7 @@ pub async fn generate_updates_for_peer(
 
     for (doc_name, doc_data) in peer_vectors {
         // Skip if peer doesn't have capability
-        if !peer_doc_caps.contains_key(&doc_name) {
+        if !peer_doc_caps.iter().any(|(name, _)| name == &doc_name) {
             continue;
         }
 
@@ -243,6 +252,7 @@ pub async fn generate_updates_for_peer(
 /// * `peer_ucan` - Peer's UCAN token
 /// * `updates_json` - Updates from peer
 pub async fn apply_peer_updates(
+    ucan_service: &Arc<gurkha::UcanService>,
     resource: &mut Resource,
     peer_ucan: &str,
     updates_json: &str,
@@ -252,17 +262,21 @@ pub async fn apply_peer_updates(
         .map_err(|e| ResourceServiceError::InvalidResourceData(e.to_string()))?;
 
     // 2. Extract peer capabilities
-    let peer_doc_caps = crate::ucan_service::extract_doc_capabilities(peer_ucan).await?;
+    let peer_doc_caps = ucan_service.extract_capabilities(peer_ucan).await?;
 
     // 3. Apply updates for each doc
     for (doc_name, doc_data) in input {
         // Check peer capability
-        let ability = peer_doc_caps.get(&doc_name).ok_or_else(|| {
-            ResourceServiceError::UcanError(format!(
-                "Peer does not have capability for doc: {}",
-                doc_name
-            ))
-        })?;
+        let ability = peer_doc_caps
+            .iter()
+            .find(|(name, _)| name == &doc_name)
+            .map(|(_, ability)| ability)
+            .ok_or_else(|| {
+                ResourceServiceError::UcanError(format!(
+                    "Peer does not have capability for doc: {}",
+                    doc_name
+                ))
+            })?;
 
         // Reject if peer only has readonly
         if ability == "crud/readonly" {
@@ -314,45 +328,6 @@ pub async fn apply_peer_updates(
 /// * `our_ucan` - Our UCAN token (checks no_update_from_node)
 /// * `peer_ucan` - Peer's UCAN token
 /// * `updates_json` - Updates from peer
-pub async fn apply_peer_updates_filtered(
-    resource: &mut Resource,
-    our_ucan: &str,
-    peer_ucan: &str,
-    updates_json: &str,
-) -> ServiceResult<()> {
-    // 1. Extract our facts for no_update_from_node
-    let our_facts = crate::ucan_service::extract_facts(our_ucan)
-        .await?
-        .unwrap_or_default();
-
-    let no_update: Vec<String> = our_facts
-        .get("no_update_from_node")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // 2. Parse and filter updates
-    let input: HashMap<String, serde_json::Map<String, Value>> = serde_json::from_str(updates_json)
-        .map_err(|e| ResourceServiceError::InvalidResourceData(e.to_string()))?;
-
-    let mut filtered_input = serde_json::Map::new();
-    for (doc_name, doc_data) in input {
-        if !no_update.contains(&doc_name) {
-            filtered_input.insert(doc_name, Value::Object(doc_data));
-        }
-    }
-
-    // 3. Apply filtered updates
-    let filtered_json = serde_json::to_string(&filtered_input)
-        .map_err(|e| ResourceServiceError::InvalidResourceData(e.to_string()))?;
-
-    apply_peer_updates(resource, peer_ucan, &filtered_json).await
-}
-
 /// Extract state vectors from updates JSON
 ///
 /// Utility function to convert updates format to state vectors format
@@ -420,7 +395,6 @@ pub async fn extract_asset_ids(resource: &Resource) -> ServiceResult<Vec<String>
 
     Ok(asset_ids)
 }
-
 /// Apply viewer submission with per-viewer isolation
 ///
 /// Viewer submissions use full document protocol (not incremental CRDT updates).
@@ -436,19 +410,24 @@ pub async fn extract_asset_ids(resource: &Resource) -> ServiceResult<Vec<String>
 /// * `Ok(())` - Submission applied successfully
 /// * `Err` - If validation fails or document operations fail
 pub async fn apply_submission(
-    resource: &mut Resource,
+    ucan_service: &Arc<gurkha::UcanService>,
+    _resource: &mut Resource,
     viewer_user_id: &str,
     submission_doc_bytes: &[u8],
     viewer_ucan: &str,
 ) -> ServiceResult<()> {
     // 1. Validate viewer has crud/submit capability for submissions_doc
-    let peer_doc_caps = crate::ucan_service::extract_doc_capabilities(viewer_ucan).await?;
+    let peer_doc_caps = ucan_service.extract_capabilities(viewer_ucan).await?;
 
-    let submissions_capability = peer_doc_caps.get("submissions_doc").ok_or_else(|| {
-        ResourceServiceError::UcanError(
-            "Viewer does not have capability for submissions_doc".to_string(),
-        )
-    })?;
+    let submissions_capability = peer_doc_caps
+        .iter()
+        .find(|(name, _)| name == "submissions_doc")
+        .map(|(_, ability)| ability)
+        .ok_or_else(|| {
+            ResourceServiceError::UcanError(
+                "Viewer does not have capability for submissions_doc".to_string(),
+            )
+        })?;
 
     if submissions_capability != "crud/submit" {
         return Err(ResourceServiceError::UcanError(format!(
@@ -464,23 +443,16 @@ pub async fn apply_submission(
         ResourceServiceError::Loro(format!("Failed to import viewer submission: {}", e))
     })?;
 
-    // 3. Get or create submissions_doc in resource
-    let submissions_doc = match resource.get_doc_mut("submissions_doc") {
-        Some(doc) => doc,
-        None => {
-            // Create new submissions doc if it doesn't exist
-            let new_doc = create_doc();
-            resource.insert_doc("submissions_doc".to_string(), new_doc);
-            resource.get_doc_mut("submissions_doc").unwrap()
-        }
-    };
-
-    // TODO: Implement proper Loro map operations
-    // Need to figure out correct Loro 1.x API for nested maps
+    // TODO: Implement submission application logic
+    // Need to:
+    // 1. Get or create submissions_doc in resource
+    // 2. Apply viewer_submission_doc updates to submissions_doc
+    // 3. Implement proper Loro map operations
+    // 4. Figure out correct Loro 1.x API for nested maps
     // Stubbed for now to allow compilation
 
     info!(
-        "apply_submission called for viewer: {} (STUB)",
+        "apply_submission called for viewer: {} (STUB - viewer_submission_doc created but not applied)",
         viewer_user_id
     );
 
@@ -500,13 +472,15 @@ pub async fn apply_submission(
 /// # Returns
 /// * `(state_vectors_json, full_docs_json)` - State vectors and full docs as JSON strings
 pub async fn prepare_sync_data(
+    ucan_service: &Arc<gurkha::UcanService>,
     resource: &Resource,
     ucan_token: &str,
 ) -> ServiceResult<(String, String)> {
     // 1. Extract capabilities and facts from UCAN
-    let doc_capabilities = crate::ucan_service::extract_doc_capabilities(ucan_token).await?;
-    let facts = crate::ucan_service::extract_facts(ucan_token)
-        .await?
+    let doc_capabilities = ucan_service.extract_capabilities(ucan_token).await?;
+    let ucan_parsed = gurkha::parser::GenericUcan::from_token(ucan_token)
+        .map_err(|e| ResourceServiceError::UcanError(e.to_string()))?;
+    let facts = gurkha::extractors::get_facts(ucan_parsed.parsed())
         .unwrap_or_default();
 
     // 2. Extract fact lists
@@ -546,7 +520,7 @@ pub async fn prepare_sync_data(
 
     for doc_name in resource.doc_names() {
         // Skip if not in capabilities
-        if !doc_capabilities.contains_key(&doc_name) {
+        if !doc_capabilities.iter().any(|(name, _)| name == &doc_name) {
             continue;
         }
 

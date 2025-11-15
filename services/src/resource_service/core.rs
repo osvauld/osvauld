@@ -14,13 +14,11 @@ use crypto_utils::{encrypt_data_for_user, CryptoUtils};
 use log::{error, info};
 use osvauld_core::models::{
     document::{create_doc, state_frontiers},
-    resource::{EncryptedResource, Resource},
-    ResourceOwnerToken, ResourceShareToken, ResourceViewerToken,
-    GenericUcan, SyncContext, SyncDecision,
+    resource::{EncryptedResource, Resource}, ResourceShareToken,
+    SyncContext, SyncDecision,
 };
 use persistance::database::RepositoryContext;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -29,28 +27,9 @@ use tokio::sync::RwLock;
 // =============================================================================
 
 /// Load resource by ResourceOwnerToken
-pub async fn load_and_decrypt_by_owner_token(
-    token: &ResourceOwnerToken,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<Resource> {
-    let resource_id = token.resource_id();
-    load_and_decrypt_resource(&resource_id, repo_ctx, crypto_utils).await
-}
-
 /// Load resource by ResourceShareToken
 pub async fn load_and_decrypt_by_share_token(
     token: &ResourceShareToken,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<Resource> {
-    let resource_id = token.resource_id();
-    load_and_decrypt_resource(&resource_id, repo_ctx, crypto_utils).await
-}
-
-/// Load resource by ResourceViewerToken
-pub async fn load_and_decrypt_by_viewer_token(
-    token: &ResourceViewerToken,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<Resource> {
@@ -130,20 +109,6 @@ async fn decrypt_encrypted_resource(
 ///
 /// # Returns
 /// * `Vec<Resource>` - Decrypted resources
-pub async fn decrypt_resources(
-    encrypted_resources: Vec<EncryptedResource>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<Vec<Resource>> {
-    let mut decrypted_resources = Vec::new();
-
-    for encrypted_resource in encrypted_resources {
-        let resource = decrypt_encrypted_resource(&encrypted_resource, crypto_utils).await?;
-        decrypted_resources.push(resource);
-    }
-
-    Ok(decrypted_resources)
-}
-
 // =============================================================================
 // PATTERN 2: Update-Encrypt-Save
 // =============================================================================
@@ -282,7 +247,7 @@ pub async fn filter_and_encrypt_for_peer(
 
         // Include document if we should send it
         if decision != SyncDecision::DontSend {
-            if let Some(doc) = resource.get_doc(doc_name.as_str()) {
+            if resource.get_doc(doc_name.as_str()).is_some() {
                 // Clone the document for the filtered resource
                 filtered_resource.add_doc(doc_name.to_string(), create_doc());
                 // TODO: Copy document data properly (needs LoroDoc clone)

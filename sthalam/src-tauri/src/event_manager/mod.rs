@@ -23,6 +23,7 @@ pub struct EventManager {
     p2p_service: Arc<P2PService>,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
+    _ucan_service: Arc<RwLock<gurkha::UcanService>>,
 }
 
 impl EventManager {
@@ -32,6 +33,7 @@ impl EventManager {
         p2p_service: Arc<P2PService>,
         repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
+        ucan_service: Arc<RwLock<gurkha::UcanService>>,
     ) -> Self {
         info!("Creating EventManager");
         Self {
@@ -39,6 +41,7 @@ impl EventManager {
             p2p_service,
             repo_ctx,
             crypto_utils,
+            _ucan_service: ucan_service,
         }
     }
 

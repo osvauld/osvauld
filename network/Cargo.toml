@@ -26,6 +26,7 @@ iroh-base = "0.91.1"
 osvauld_core = { version = "0.1.0", path = "../core" }
 services = { version = "0.1.0", path = "../services" }
 crypto_utils = { path = "../crypto_utils" }
+gurkha = { path = "../gurkha" }
 persistance = { path = "../persistance" }
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-appender = "0.2.3"

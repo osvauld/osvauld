@@ -76,7 +76,7 @@ export default defineConfig({
   },
   server: {
     port: 1422,
-    open: true,
+    open: false,
     fs: {
       strict: false
     }

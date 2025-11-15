@@ -7,6 +7,7 @@ use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use network::P2PService;
 use persistance::database::RepositoryContext;
+use tracing::instrument;
 use services::{
     create_folder, get_all_folders, get_folder_shared_users, share_folder,
     soft_delete_folder,
@@ -16,11 +17,12 @@ use tauri::State;
 use tokio::sync::RwLock;
 
 #[tauri::command]
+#[instrument(skip(input, config, repo_ctx, ucan_service, user_state), fields(folder_name = %input.name))]
 pub async fn handle_add_folder(
     input: AddFolderInput,
     config: State<'_, HandlerConfig>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
     user_state: State<'_, UserState>,
 ) -> Result<BaseCryptoResponse, String> {
     let user = user_state.get_user().await?;
@@ -29,9 +31,9 @@ pub async fn handle_add_folder(
         Some(input.description),
         input.folder_template_json,
         repo_ctx.inner().clone(),
-        &crypto_utils,
         &config.domain,
         &user,
+        &ucan_service,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -40,6 +42,7 @@ pub async fn handle_add_folder(
 }
 
 #[tauri::command]
+#[instrument(skip(repo_ctx))]
 pub async fn handle_get_folders(
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<BaseCryptoResponse, String> {
@@ -61,6 +64,7 @@ pub async fn handle_get_folders(
 }
 
 #[tauri::command]
+#[instrument(skip(input, repo_ctx), fields(folder_id = %input.folder_id))]
 pub async fn handle_soft_delete_folder(
     input: SoftDeleteFolder,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
@@ -72,6 +76,7 @@ pub async fn handle_soft_delete_folder(
 }
 
 #[tauri::command]
+#[instrument(skip(input, repo_ctx), fields(folder_id = %input.folder_id))]
 pub async fn handle_get_shared_folder_users(
     input: FolderShareUsersInput,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
@@ -83,12 +88,13 @@ pub async fn handle_get_shared_folder_users(
 }
 
 #[tauri::command]
+#[instrument(skip(input, repo_ctx, user_state, crypto_utils, ucan_service, p2p_service), fields(folder_id = %input.folder_id, recipient = %input.user_id, role = %input.recipient_role))]
 pub async fn handle_share_folder(
     input: ShareFolder,
-    config: State<'_, HandlerConfig>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     user_state: State<'_, UserState>,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<BaseCryptoResponse, String> {
     let user = user_state.get_user().await?;
@@ -100,8 +106,7 @@ pub async fn handle_share_folder(
         &input.recipient_role,
         &user,
         repo_ctx.inner().clone(),
-        &crypto_utils,
-        &config.domain,
+        &ucan_service,
     )
     .await
     .map_err(|e| e.to_string())?;

@@ -1,4 +1,4 @@
-use log::error;
+use tracing::{error, info};
 use persistance::{DbConnection, database::initialize_repositories, initialize_database};
 use tauri::Manager;
 pub mod asset_protocol;
@@ -42,29 +42,16 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
-        .plugin(
-            tauri_plugin_log::Builder::new()
-                .filter(|metadata| {
-                    !metadata.target().contains("tracing::span")
-                        && !metadata.target().contains("tokio_tungstenite")
-                        && !metadata.target().contains("tungstenite")
-                        && !metadata.target().contains("iroh")
-                        && !metadata.target().contains("hyper_util")
-                        && !metadata.target().contains("netwatch")
-                        && !metadata.target().contains("iroh_net_report")
-                        && !metadata.target().contains("iroh_quinn_proto::connection")
-                        && !metadata.target().contains("hickory_")
-                        && !metadata.target().contains("iroh_relay")
-                        && !metadata.target().contains("portmapper")
-                        && !metadata.target().contains("igd_next::aio::tokio")
-                        && !metadata.target().contains("igd_next::aio::tokio")
-                        && !metadata.target().contains("rustls::client")
-                })
-                .build(),
-        )
+        // Removed tauri_plugin_log - now using logging_utils with tracing-tree
         .setup(move |app| {
-            let handle = app.handle();
             let app_dir = app.path().app_data_dir().unwrap();
+
+            // Initialize rich tracing for backend logging
+            let log_dir = app_dir.join("logs");
+            let _guard = logging_utils::init_prod(
+                log_dir.to_str().unwrap_or("./logs")
+            ).expect("Failed to initialize logging");
+            info!("🚀 Sthalam desktop app starting");
 
             if !app_dir.exists() {
                 if let Err(e) = fs::create_dir_all(&app_dir) {
@@ -98,9 +85,10 @@ pub fn run() {
                     app.manage(connection.clone());
                     let repo_ctx = Arc::new(initialize_repositories(connection.clone()));
                     let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
+                    let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
                     let domain = Arc::new("sthalam".to_string());
                     let (p2p_service, p2p_receiver) =
-                        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain);
+                        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone(), domain);
                     let p2p_service = Arc::new(p2p_service);
 
                     // Create config for shared handlers (domain injection)
@@ -113,12 +101,14 @@ pub fn run() {
                         p2p_service.clone(),
                         repo_ctx.clone(),
                         crypto_utils.clone(),
+                        ucan_service.clone(),
                     );
                     event_manager.start(p2p_receiver, rt.handle());
 
                     app.manage(handler_config);
                     app.manage(user_state);
                     app.manage(crypto_utils);
+                    app.manage(ucan_service);
                     app.manage(p2p_service.clone());
                     app.manage(repo_ctx.clone());
                 }

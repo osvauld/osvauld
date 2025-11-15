@@ -67,7 +67,7 @@ impl SearchIndexManager {
             folder_id_field,
             comments_field,
         );
-        let extractor = ContentExtractor::new(yjs_field_name);
+        let extractor = ContentExtractor::new();
 
         Ok(Self {
             index: Arc::new(RwLock::new(None)),

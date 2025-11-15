@@ -7,10 +7,10 @@
 use super::core;
 use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::{encrypt_data_for_user, CryptoUtils};
-use log::{error, info};
+use tracing::{debug, error, info, instrument};
 use osvauld_core::models::{
     resource::{EncryptedResource, Resource},
-    PermissionLevel, ResourceOwnerToken, ResourceShareToken, ShareOperation, ShareRecord, User,
+    PermissionLevel, ResourceShareToken, ShareOperation, ShareRecord, User,
 };
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
@@ -36,6 +36,13 @@ use uuid::Uuid;
 ///
 /// # Returns
 /// * `Resource` - The created resource (decrypted)
+#[instrument(skip(resource_payload, ucan_template_json, metadata_json, user, ucan_service, repo_ctx), fields(
+    user_id = %user.id,
+    folder_id = %folder_id,
+    domain = %domain,
+    resource_id,
+    payload_size = resource_payload.len()
+))]
 pub async fn create_resource(
     resource_payload: String,
     ucan_template_json: String,
@@ -45,39 +52,44 @@ pub async fn create_resource(
     _current_device_id: &str,
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<Resource> {
-    info!(
-        "Creating resource for user {} in folder {}",
-        user.id, folder_id
-    );
+    info!("📦 Creating resource");
 
     // Generate resource ID
     let resource_id = Uuid::new_v4().to_string();
+    tracing::Span::current().record("resource_id", &resource_id.as_str());
+    debug!("✓ Resource ID generated: {}", resource_id);
 
     // Parse metadata JSON
+    debug!("🔍 Parsing metadata JSON");
     let metadata: serde_json::Value = serde_json::from_str(&metadata_json).map_err(|e| {
+        error!("❌ Invalid metadata JSON: {}", e);
         ResourceServiceError::InvalidResourceData(format!("Invalid metadata JSON: {}", e))
     })?;
+    debug!("✓ Metadata parsed successfully");
 
     // Encrypt the resource payload
+    debug!("🔐 Encrypting resource payload");
     let (encrypted_data, encrypted_key) =
         encrypt_data_for_user(&resource_payload, &user.public_key)
-            .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
+            .map_err(|e| {
+                error!("❌ Encryption failed: {}", e);
+                ResourceServiceError::EncryptionFailed(e.to_string())
+            })?;
+    debug!("✓ Resource payload encrypted");
 
     // Generate owner UCAN with templates from frontend
-    let (ucan_token, ucan_cid) = crate::ucan_service::resource_tokens::issue_owner_token(
-        &resource_id,
-        domain,
-        &ucan_template_json,
-        crypto_utils,
-        &repo_ctx,
-    )
-    .await
-    .map_err(|e| {
-        error!("Failed to generate owner UCAN: {}", e);
-        ResourceServiceError::UcanError(e.to_string())
-    })?;
+    debug!("🔐 Generating resource owner UCAN token");
+    let ucan_service_guard = ucan_service.read().await;
+    let (ucan_token, ucan_cid) = ucan_service_guard
+        .issue_owner_token(&resource_id, domain, &ucan_template_json)
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to generate owner UCAN: {}", e);
+            ResourceServiceError::UcanError(e.to_string())
+        })?;
+    debug!("✓ Owner UCAN token generated: cid={}", ucan_cid);
 
     // Get current timestamp
     let now = chrono::Utc::now().timestamp();
@@ -95,16 +107,19 @@ pub async fn create_resource(
     };
 
     // Save to database
+    debug!("💾 Saving encrypted resource to database");
     repo_ctx
         .resource_repo
         .save_encrypted(&encrypted_resource)
         .await
         .map_err(|e| {
-            error!("Failed to create resource in database: {}", e);
+            error!("❌ Failed to create resource in database: {}", e);
             ResourceServiceError::DatabaseError(e.to_string())
         })?;
+    debug!("✓ Encrypted resource saved");
 
     // Create owner's ShareRecord
+    debug!("💾 Creating owner share record");
     let share_record = ShareRecord {
         id: Uuid::new_v4().to_string(),
         resource_id: resource_id.clone(),
@@ -119,11 +134,12 @@ pub async fn create_resource(
     };
 
     repo_ctx.share_repo.save(&share_record).await.map_err(|e| {
-        error!("Failed to create share record: {}", e);
+        error!("❌ Failed to create share record: {}", e);
         ResourceServiceError::DatabaseError(e.to_string())
     })?;
+    debug!("✓ Share record saved");
 
-    info!("Successfully created resource {}", resource_id);
+    info!("✓ Resource created successfully");
 
     // Return decrypted Resource
     let resource = Resource::from_decrypted_data(
@@ -329,9 +345,8 @@ pub async fn share_resource(
     recipient_user_id: &str,
     recipient_role: &str,
     current_user: &User,
-    domain: &str,
     repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<()> {
     info!(
         "Sharing resource {} with user {} (role: {})",
@@ -363,31 +378,40 @@ pub async fn share_resource(
         resource.ucan_token.len()
     );
 
-    // 3. Parse owner token as typed token
-    let owner_token = ResourceOwnerToken::from_token(&resource.ucan_token)
-        .map_err(|e| {
-            error!("Failed to parse owner UCAN token: {}", e);
-            ResourceServiceError::UcanError(e.to_string())
-        })?;
-
-    // 4. Generate delegated UCAN for recipient using typed tokens
+    // 3. Generate delegated UCAN for recipient using typed tokens
     info!(
         "Delegating resource UCAN to {} with role: {}",
         recipient_user_id, recipient_role
     );
 
-    let delegated_token = crate::ucan_service::resource_tokens::delegate_to_node(
-        &owner_token,
-        &recipient_user.ucan_pub_key,
-        resource_id,
-        repo_ctx.clone(),
-        crypto_utils.clone(),
-    )
-    .await
-    .map_err(|e| {
-        error!("Failed to generate delegated UCAN: {}", e);
-        ResourceServiceError::UcanError(e.to_string())
-    })?;
+    // Delegate to the appropriate role based on recipient_role
+    let ucan_service_guard = ucan_service.read().await;
+    let delegated_token = match recipient_role {
+        "node" => ucan_service_guard
+            .delegate_resource_to_node(&resource.ucan_token, &recipient_user.ucan_pub_key)
+            .await
+            .map_err(|e| {
+                error!("Failed to generate delegated UCAN: {}", e);
+                ResourceServiceError::UcanError(e.to_string())
+            })?,
+        "viewer" => {
+            let viewer_token = ucan_service_guard
+                .delegate_resource_to_viewer(&resource.ucan_token, &recipient_user.ucan_pub_key)
+                .await
+                .map_err(|e| {
+                    error!("Failed to generate delegated UCAN: {}", e);
+                    ResourceServiceError::UcanError(e.to_string())
+                })?;
+            // Convert ResourceViewerToken to ResourceShareToken for consistency
+            ResourceShareToken::from_token(viewer_token.ucan().raw_token())
+                .map_err(|e| ResourceServiceError::UcanError(e.to_string()))?
+        },
+        _ => {
+            return Err(ServiceError::Resource(ResourceServiceError::InvalidResourceData(
+                format!("Invalid recipient role: {}", recipient_role),
+            )))
+        }
+    };
 
     let resource_ucan_token = delegated_token.ucan().raw_token().to_string();
     let resource_ucan_cid = String::new(); // TODO: Get CID from token

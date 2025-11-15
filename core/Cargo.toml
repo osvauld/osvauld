@@ -20,4 +20,5 @@ anyhow = "1.0.98"
 rand = "0.8.5"
 chrono = "0.4.41"
 crypto_utils = { path = "../crypto_utils" }
+gurkha = { path = "../gurkha" }
 ucan = "0.4.0"

@@ -1,139 +1,38 @@
-use super::search_types::{IndexError, IndexResult};
-use quick_xml::events::Event;
-use quick_xml::Reader;
+use super::search_types::IndexResult;
 use serde_json::Value;
-use yrs::{updates::decoder::Decode, Doc as YDoc, GetString, Map, Transact};
 
-pub struct ContentExtractor {
-    yjs_field_name: String,
-}
+pub struct ContentExtractor;
 
 impl ContentExtractor {
-    /// Create a new content extractor with the specified YJS field name
-    /// For livnote, use "main_doc". For chat, use "chat"
-    pub fn new(yjs_field_name: String) -> Self {
-        Self { yjs_field_name }
+    /// Create a new content extractor
+    pub fn new() -> Self {
+        Self
     }
 
     /// Extract text and comments from note content JSON
+    /// STUBBED: YJS extraction removed, migrating to Loro
     pub fn extract_content_from_note(
         &self,
-        note_content: &Value,
+        _note_content: &Value,
     ) -> IndexResult<(String, String, Vec<String>)> {
-        // Extract main_doc bytes from JSON
-        let main_doc_array = note_content
-            .get(&self.yjs_field_name)
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| {
-                IndexError::ParsingError(format!(
-                    "{} field not found or not an array",
-                    self.yjs_field_name
-                ))
-            })?;
-
-        // Convert JSON array to bytes
-        let yjs_bytes: Vec<u8> = main_doc_array
-            .iter()
-            .filter_map(|v| v.as_u64().map(|n| n as u8))
-            .collect();
-
-        // Extract title from JSON if available
-        let json_title = note_content
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Untitled Note")
-            .to_string();
-
-        // Create temporary YDoc to apply updates
-        let ydoc = YDoc::new();
-
-        // Apply the update
-        ydoc.transact_mut()
-            .apply_update(
-                yrs::Update::decode_v2(&yjs_bytes)
-                    .map_err(|e| IndexError::ParsingError(e.to_string()))?,
-            )
-            .map_err(|e| IndexError::ParsingError(format!("Failed to apply update: {}", e)))?;
-
-        // Get the XML fragment (ProseMirror content)
-        let xml_fragment = ydoc.get_or_insert_xml_fragment("prosemirror");
-
-        // Convert to XML string for parsing
-        let xml_string = xml_fragment.get_string(&ydoc.transact());
-
-        // Parse XML to extract text
-        let (content, extracted_title) = self.extract_text_from_prosemirror_xml(&xml_string)?;
-
-        // Extract comments from YJS document
-        let comments = self.extract_comments_from_comment_state(note_content)?;
-        // Use JSON title if available, otherwise use extracted title
-        let final_title = if json_title != "Untitled Note" {
-            json_title
-        } else {
-            extracted_title
-        };
-
-        Ok((content, final_title, comments))
+        // TODO: Implement Loro-based content extraction
+        Ok((String::new(), "Untitled Note".to_string(), Vec::new()))
     }
+}
 
-    /// Extract comments from the separate comment_state document
-    fn extract_comments_from_comment_state(
-        &self,
-        note_content: &Value,
-    ) -> IndexResult<Vec<String>> {
-        let mut comments = Vec::new();
+// Dead code removed - these methods are not used anymore:
+// - extract_comments_from_comment_state
+// - extract_text_from_prosemirror_xml
 
-        // Get comment_state bytes
-        let comment_state_array = match note_content.get("comment_state").and_then(|v| v.as_array())
-        {
-            Some(arr) => arr,
-            None => return Ok(comments), // No comments
-        };
+#[allow(dead_code)]
+fn _legacy_xml_parser() {
+    // Keeping imports for future Loro-based implementation
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+    use super::search_types::IndexError;
 
-        if comment_state_array.is_empty() {
-            return Ok(comments);
-        }
-
-        let comment_bytes: Vec<u8> = comment_state_array
-            .iter()
-            .filter_map(|v| v.as_u64().map(|n| n as u8))
-            .collect();
-
-        // Create separate YDoc for comments
-        let comment_doc = YDoc::new();
-        comment_doc
-            .transact_mut()
-            .apply_update(
-                yrs::Update::decode_v2(&comment_bytes)
-                    .map_err(|e| IndexError::ParsingError(e.to_string()))?,
-            )
-            .map_err(|e| {
-                IndexError::ParsingError(format!("Failed to apply comment update: {}", e))
-            })?;
-
-        // Get the replyContents map
-        let reply_contents = comment_doc.get_or_insert_map("replyContents");
-        let txn = comment_doc.transact();
-
-        // Extract text from each reply's XML content
-        for (_reply_id, content_value) in reply_contents.iter(&txn) {
-            if let yrs::Out::YXmlFragment(fragment) = content_value {
-                // Get XML string from fragment
-                let xml_string = fragment.get_string(&txn);
-
-                // Reuse existing XML parser - just extract content, ignore title
-                let (comment_text, _) = self.extract_text_from_prosemirror_xml(&xml_string)?;
-
-                if !comment_text.is_empty() {
-                    comments.push(comment_text);
-                }
-            }
-        }
-
-        Ok(comments)
-    }
-    /// Extract text from ProseMirror XML structure
-    fn extract_text_from_prosemirror_xml(&self, xml: &str) -> IndexResult<(String, String)> {
+    /// Extract text from ProseMirror XML structure (legacy, not used)
+    fn extract_text_from_prosemirror_xml(xml: &str) -> IndexResult<(String, String)> {
         let mut reader = Reader::from_str(xml);
         reader.config_mut().check_end_names = false;
         reader.config_mut().check_comments = false;

@@ -1,14 +1,12 @@
 use crate::crypto_core;
-use crate::errors::{CryptoError, CryptoUtilsError, UcanError};
-use crate::key_management::{encrypt_string_with_public_key, get_key_id};
+use crate::errors::{CryptoError, CryptoUtilsError};
+use crate::key_management::encrypt_string_with_public_key;
 use crate::signature_utils;
 use crate::types::EncryptedResource;
-use crate::ucan_utils;
 use aes_gcm::{Aes256Gcm, Key as Aes_Key};
 use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{SecretKey, SigningKey, VerifyingKey};
 use sequoia_openpgp::{policy::StandardPolicy, Cert};
-use std::future::Future;
 use std::time::Duration;
 
 /// Stateful Certificate Operations
@@ -219,7 +217,7 @@ impl CryptoUtils {
         Ok(key_array)
     }
 
-    /// Generate and encrypt UCAN keys
+    /// Generate and encrypt UCAN keys derived from PGP certificate
     pub fn generate_and_encrypt_ucan_key(&self) -> Result<(String, String), CryptoError> {
         let cert = self
             .get_cert()
@@ -227,7 +225,7 @@ impl CryptoUtils {
         let pub_key = self.get_public_key()?;
 
         let (signing_key, verifying_key) =
-            ucan_utils::derive_ucan_keys_from_pgp(cert).map_err(|e| CryptoError::UcanError(e))?;
+            derive_ucan_keys_from_pgp(cert).map_err(|e| CryptoError::Other(e.to_string()))?;
 
         let private_key_b64 = general_purpose::STANDARD.encode(signing_key.to_bytes());
         let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
@@ -271,56 +269,60 @@ impl CryptoUtils {
         Ok((signing_key, verifying_key))
     }
 
-    /// Generate a one-time user connect token with specified role
-    pub async fn generate_one_time_user_connect_token(
-        &self,
-        encrypted_private_key: &str,
-        domain: &str,
-        role: &str,
-    ) -> Result<(String, String), CryptoError> {
-        let public_key = self.get_public_key()?;
-        let user_id = get_key_id(&public_key)?;
-        let capability = format!("{}:user-connect:{}", domain, user_id);
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+    // NOTE: These UCAN-related methods are deprecated and should use gurkha::UcanService instead.
+    // They are kept for backward compatibility but should not be called in new code.
+    // See: services/src/auth_service.rs for the new UcanService pattern.
 
-        let token = ucan_utils::generate_one_time_connection_token(
-            &signing_key,
-            &verifying_key,
-            &capability,
-            role,
-        )
-        .await?;
+    // /// Generate a one-time user connect token with specified role
+    // pub async fn generate_one_time_user_connect_token(
+    //     &self,
+    //     encrypted_private_key: &str,
+    //     domain: &str,
+    //     role: &str,
+    // ) -> Result<(String, String), CryptoError> {
+    //     let public_key = self.get_public_key()?;
+    //     let user_id = get_key_id(&public_key)?;
+    //     let capability = format!("{}:user-connect:{}", domain, user_id);
+    //     let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
 
-        let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
-        Ok((token, public_key_b64))
-    }
+    //     let token = ucan_utils::generate_one_time_connection_token(
+    //         &signing_key,
+    //         &verifying_key,
+    //         &capability,
+    //         role,
+    //     )
+    //     .await?;
 
-    /// Issue connect and share user token
-    pub async fn issue_connect_and_share_user_token(
-        &self,
-        encrypted_private_key: &str,
-        domain: &str,
-        audience_ucan_pub_key: &str,
-        role: &str,
-        additional_capabilities: Vec<(String, String)>,
-    ) -> Result<String, CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
-        let public_key = self.get_public_key()?;
-        let user_id = get_key_id(&public_key)?;
-        let lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
-        let token = ucan_utils::generate_delegation_and_connection_token(
-            &signing_key,
-            &verifying_key,
-            &user_id,
-            audience_ucan_pub_key,
-            domain,
-            lifetime,
-            role,
-            additional_capabilities,
-        )
-        .await?;
-        Ok(token)
-    }
+    //     let public_key_b64 = general_purpose::STANDARD.encode(verifying_key.to_bytes());
+    //     Ok((token, public_key_b64))
+    // }
+
+    // /// Issue connect and share user token
+    // pub async fn issue_connect_and_share_user_token(
+    //     &self,
+    //     encrypted_private_key: &str,
+    //     domain: &str,
+    //     audience_ucan_pub_key: &str,
+    //     role: &str,
+    //     additional_capabilities: Vec<(String, String)>,
+    // ) -> Result<String, CryptoError> {
+    //     let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_private_key)?;
+    //     let public_key = self.get_public_key()?;
+    //     let user_id = get_key_id(&public_key)?;
+    //     let lifetime = 30 * 365 * 24 * 60 * 60; // 30 years in seconds
+    //     let token = ucan_utils::generate_delegation_and_connection_token(
+    //         &signing_key,
+    //         &verifying_key,
+    //         &user_id,
+    //         audience_ucan_pub_key,
+    //         domain,
+    //         lifetime,
+    //         role,
+    //         additional_capabilities,
+    //     )
+    //     .await?;
+    //     Ok(token)
+    // }
 
     /// Get public UCAN key from encrypted private key
     pub async fn get_public_ucan_key(
@@ -344,81 +346,58 @@ impl CryptoUtils {
         Ok(signed_message)
     }
 
-    /// Generic UCAN token generator - decrypts key and calls core crypto function
-    ///
-    /// This is a thin wrapper that:
-    /// 1. Decrypts the UCAN private key
-    /// 2. Calls the generic ucan_utils::generate_ucan_with_cid()
-    ///
-    /// ALL business logic (template parsing, capability building, role decisions)
-    /// should be done in the service layer before calling this function.
-    ///
-    /// # Arguments
-    /// * `encrypted_ucan_private_key` - Encrypted UCAN private key
-    /// * `audience` - Target audience DID or "*" for wildcard
-    /// * `capabilities` - Pre-built list of (resource_uri, ability) tuples
-    /// * `facts` - Optional pre-built facts map
-    /// * `expiry_seconds` - Token lifetime in seconds (None = 30 years default)
-    ///
-    /// # Returns
-    /// * `Ok((token_string, cid_string))` - Encoded UCAN token and its CID
-    /// * `Err(CryptoError)` - Key decryption, signing, or encoding error
-    pub async fn generate_ucan_with_cid(
-        &self,
-        encrypted_ucan_private_key: &str,
-        audience: &str,
-        capabilities: Vec<(String, String)>,
-        facts: Option<serde_json::Map<String, serde_json::Value>>,
-        expiry_seconds: Option<u64>,
-    ) -> Result<(String, String), CryptoError> {
-        let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+    // NOTE: This UCAN method is deprecated - use gurkha::UcanService instead.
+    // /// Generic UCAN token generator - decrypts key and calls core crypto function
+    // ///
+    // /// This is a thin wrapper that:
+    // /// 1. Decrypts the UCAN private key
+    // /// 2. Calls the generic ucan_utils::generate_ucan_with_cid()
+    // ///
+    // /// ALL business logic (template parsing, capability building, role decisions)
+    // /// should be done in the service layer before calling this function.
+    // pub async fn generate_ucan_with_cid(
+    //     &self,
+    //     encrypted_ucan_private_key: &str,
+    //     audience: &str,
+    //     capabilities: Vec<(String, String)>,
+    //     facts: Option<serde_json::Map<String, serde_json::Value>>,
+    //     expiry_seconds: Option<u64>,
+    // ) -> Result<(String, String), CryptoError> {
+    //     let (signing_key, verifying_key) = self.decrypt_ucan_key(encrypted_ucan_private_key)?;
+    //
+    //     ucan_utils::generate_ucan_with_cid(
+    //         &signing_key,
+    //         &verifying_key,
+    //         audience,
+    //         capabilities,
+    //         facts,
+    //         expiry_seconds,
+    //     )
+    //     .await
+    //     .map_err(|e| e.into())
+    // }
 
-        ucan_utils::generate_ucan_with_cid(
-            &signing_key,
-            &verifying_key,
-            audience,
-            capabilities,
-            facts,
-            expiry_seconds,
-        )
-        .await
-        .map_err(|e| e.into())
-    }
-
-    /// Generate viewer connection token - simple wrapper that returns only token
-    ///
-    /// This is a thin wrapper around generate_ucan_with_cid() that only returns
-    /// the token (not CID) for backward compatibility with code that builds
-    /// capabilities in the service layer and doesn't need CID.
-    ///
-    /// # Arguments
-    /// * `encrypted_ucan_private_key` - Encrypted UCAN private key
-    /// * `capabilities` - Pre-built list of (resource_uri, ability) tuples
-    /// * `facts` - Optional pre-built facts map
-    /// * `audience` - Target audience DID or "*" for wildcard
-    /// * `expiry_seconds` - Token lifetime in seconds
-    ///
-    /// # Returns
-    /// * `Ok(token_string)` - Encoded UCAN token only (no CID)
-    pub async fn generate_viewer_connection_token(
-        &self,
-        encrypted_ucan_private_key: &str,
-        capabilities: Vec<(String, String)>,
-        facts: Option<serde_json::Map<String, serde_json::Value>>,
-        audience: &str,
-        expiry_seconds: Option<u64>,
-    ) -> Result<String, CryptoError> {
-        let (token, _cid) = self
-            .generate_ucan_with_cid(
-                encrypted_ucan_private_key,
-                audience,
-                capabilities,
-                facts,
-                expiry_seconds,
-            )
-            .await?;
-        Ok(token)
-    }
+    // NOTE: This UCAN method is deprecated - use gurkha::UcanService instead.
+    // /// Generate viewer connection token - simple wrapper that returns only token
+    // pub async fn generate_viewer_connection_token(
+    //     &self,
+    //     encrypted_ucan_private_key: &str,
+    //     capabilities: Vec<(String, String)>,
+    //     facts: Option<serde_json::Map<String, serde_json::Value>>,
+    //     audience: &str,
+    //     expiry_seconds: Option<u64>,
+    // ) -> Result<String, CryptoError> {
+    //     let (token, _cid) = self
+    //         .generate_ucan_with_cid(
+    //             encrypted_ucan_private_key,
+    //             audience,
+    //             capabilities,
+    //             facts,
+    //             expiry_seconds,
+    //         )
+    //         .await?;
+    //     Ok(token)
+    // }
 }
 
 /// Implement Default for CryptoUtils
@@ -426,4 +405,119 @@ impl Default for CryptoUtils {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Derive Ed25519 UCAN keys from PGP certificate using deterministic derivation
+///
+/// This function extracts the Ed25519 secret key from a PGP certificate and derives
+/// UCAN keys using Argon2 key derivation for domain separation.
+///
+/// The derivation is deterministic - the same certificate always produces the same UCAN keys.
+pub fn derive_ucan_keys_from_pgp(cert: &Cert) -> Result<(SigningKey, VerifyingKey), String> {
+    use sequoia_openpgp::{policy::StandardPolicy, types::PublicKeyAlgorithm};
+
+    let policy = &StandardPolicy::new();
+
+    // Get the primary key - this should be Ed25519 with Cv25519 cipher suite
+    let primary_key = cert.primary_key();
+
+    // Verify it's Ed25519
+    if primary_key.key().pk_algo() != PublicKeyAlgorithm::EdDSA {
+        return Err("Primary key is not Ed25519".to_string());
+    }
+
+    // Get the secret key material from primary key
+    for key_amalgamation in cert.keys().with_policy(policy, None) {
+        let key = key_amalgamation.key();
+
+        // Check if this is the primary key
+        if key.fingerprint() == primary_key.key().fingerprint() {
+            // Try to convert to secret key
+            if let Ok(secret_key) = key.clone().parts_into_secret() {
+                if secret_key.has_unencrypted_secret() {
+                    return derive_ucan_key_from_pgp_secret(&secret_key);
+                } else {
+                    return Err("Primary key is encrypted - decrypt certificate first".to_string());
+                }
+            }
+        }
+    }
+
+    Err("Could not access primary key secret material".to_string())
+}
+
+/// Derive UCAN Ed25519 key from PGP secret key using deterministic derivation
+fn derive_ucan_key_from_pgp_secret(
+    secret_key: &sequoia_openpgp::packet::Key<
+        sequoia_openpgp::packet::key::SecretParts,
+        sequoia_openpgp::packet::key::UnspecifiedRole,
+    >,
+) -> Result<(SigningKey, VerifyingKey), String> {
+    use sequoia_openpgp::crypto::mpi::SecretKeyMaterial;
+
+    // Get the secret key material
+    let secret_material = secret_key.secret();
+
+    // Check if it's unencrypted
+    if let sequoia_openpgp::packet::key::SecretKeyMaterial::Unencrypted(unencrypted) =
+        secret_material
+    {
+        // Map over the secret material to extract Ed25519 keys
+        let result = unencrypted.map(|mpis| match mpis {
+            SecretKeyMaterial::EdDSA { scalar } => {
+                // Get the PGP private key bytes
+                let pgp_private_key = scalar.value();
+
+                if pgp_private_key.len() != 32 {
+                    return Err(format!(
+                        "Expected 32 bytes for Ed25519 secret key, got {}",
+                        pgp_private_key.len()
+                    ));
+                }
+
+                // Derive UCAN key from PGP key using Argon2
+                derive_ucan_signing_key(pgp_private_key)
+            }
+            _ => Err("Not an Ed25519 key".to_string()),
+        });
+
+        result
+    } else {
+        Err("Secret key is encrypted".to_string())
+    }
+}
+
+/// Derive UCAN Ed25519 signing key from PGP private key using Argon2
+///
+/// This uses Argon2 key derivation with domain separation to derive a distinct
+/// Ed25519 key for UCAN signing from the PGP private key material.
+fn derive_ucan_signing_key(pgp_private_key: &[u8]) -> Result<(SigningKey, VerifyingKey), String> {
+    use argon2::Argon2;
+
+    // Use Argon2 for key derivation with domain separation
+    let info = b"osvauld-ucan-ed25519-v1";
+    let salt = b"osvauld-ucan-salt-v1-16bytes"; // Argon2 needs at least 8 bytes, 16 is good
+
+    // Ensure salt is exactly 16 bytes for Argon2
+    let mut salt_array = [0u8; 16];
+    let salt_len = salt.len().min(16);
+    salt_array[..salt_len].copy_from_slice(&salt[..salt_len]);
+
+    // Derive 32 bytes for Ed25519 private key using Argon2
+    let mut derived_key = [0u8; 32];
+
+    // Use info as additional input by combining with pgp_private_key
+    let mut input = Vec::with_capacity(pgp_private_key.len() + info.len());
+    input.extend_from_slice(pgp_private_key);
+    input.extend_from_slice(info);
+
+    Argon2::default()
+        .hash_password_into(&input, &salt_array, &mut derived_key)
+        .map_err(|e| format!("Argon2 derivation failed: {}", e))?;
+
+    // Create Ed25519 signing key from derived bytes
+    let signing_key = SigningKey::from_bytes(&derived_key);
+    let verifying_key = signing_key.verifying_key();
+
+    Ok((signing_key, verifying_key))
 }

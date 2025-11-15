@@ -5,9 +5,20 @@ members = [
   "sthalam/src-tauri",
   "core",
   "persistance",
+  "gurkha",
   "services",
   "network",
   "kunki",
   "search_indexer",
   "tauri_handlers",
+  "logging_utils",
 ]
+
+# Speed up dev builds
+[profile.dev]
+split-debuginfo = "unpacked"  # Faster debug info on Linux
+incremental = true
+
+# Optimize dependencies but not our code (speeds up without losing debuggability)
+[profile.dev.package."*"]
+opt-level = 1

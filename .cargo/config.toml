@@ -1,0 +1,8 @@
+# Use mold linker for faster linking times during development
+[target.x86_64-unknown-linux-gnu]
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=/usr/bin/mold"]
+
+# Optional: Enable parallel frontend for faster compilation
+[build]
+jobs = 8  # Adjust based on your CPU cores

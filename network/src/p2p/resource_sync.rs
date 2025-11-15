@@ -6,14 +6,14 @@
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
-    p2p::{Message, ResourceDataSync, ResourceMessage},
-    EncryptedResource, ShareRecord, User,
+    p2p::{Message, ResourceDataSync, ResourceMessage}, User,
 };
 use persistance::database::RepositoryContext;
 use services;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{debug, error, info, instrument};
 
 /// Send all resources in a folder to the recipient
 ///
@@ -35,6 +35,14 @@ use tracing::{error, info};
 /// # Returns
 /// * `Ok(())` - All resources sent successfully (partial failures are logged but not returned)
 /// * `Err` - If critical errors occur (database access, etc.)
+#[instrument(skip(current_user, folder_ucan, peer_conn, repo_ctx, crypto_utils), fields(
+    folder_id = %folder_id,
+    recipient_user_id = %recipient_user_id,
+    resources_sent,
+    total_bytes,
+    avg_speed_mbps,
+    total_duration_ms
+))]
 pub async fn send_all_resources_for_folder(
     folder_id: &str,
     recipient_user_id: &str,
@@ -44,10 +52,11 @@ pub async fn send_all_resources_for_folder(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
 ) -> P2PResult<()> {
-    info!(
-        "📦 Sending all resources for folder {} to user {}",
-        folder_id, recipient_user_id
-    );
+    let start = Instant::now();
+    let mut total_bytes = 0u64;
+    let mut resources_sent = 0usize;
+
+    info!("📦 Sending all resources for folder to user");
 
     // 1. Get all resources in folder
     let resources = repo_ctx
@@ -113,9 +122,13 @@ pub async fn send_all_resources_for_folder(
     let recipient_folder_ucan = &recipient_folder_share.ucan_token;
 
     // Extract role from folder UCAN (stored in facts)
-    let peer_role = services::ucan_service::utilities::extract_role_from_token(recipient_folder_ucan)
-        .await
-        .unwrap_or_else(|_| "node".to_string()); // Default to "node" for Owner → Node sync
+    let parsed_ucan = gurkha::parser::GenericUcan::from_token(recipient_folder_ucan)
+        .map_err(|e| {
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to parse folder UCAN: {}", e))
+        })?;
+
+    let peer_role = gurkha::extractors::get_role(parsed_ucan.parsed())
+        .unwrap_or_else(|| "node".to_string()); // Default to "node" for Owner → Node sync
 
     info!("  Recipient role: {}", peer_role);
 
@@ -152,6 +165,7 @@ pub async fn send_all_resources_for_folder(
             &recipient,
             repo_ctx.clone(),
             &crypto_utils,
+            &peer_conn.ucan_service,
         )
         .await
         {
@@ -164,6 +178,9 @@ pub async fn send_all_resources_for_folder(
                 continue; // Partial success - continue with other resources
             }
         };
+
+        // Track resource size for metrics (before moving)
+        let resource_bytes = peer_encrypted_resource.encrypted_data.len() as u64;
 
         // Create ResourceDataSync message with ALL share records
         let resource_data = ResourceDataSync {
@@ -180,13 +197,35 @@ pub async fn send_all_resources_for_folder(
             );
             // Continue with other resources even if one fails
         } else {
-            info!("     ✓ Successfully sent resource");
+            total_bytes += resource_bytes;
+            resources_sent += 1;
+            debug!(
+                "✓ Resource sent: {} bytes",
+                resource_bytes
+            );
         }
     }
 
+    // Calculate and record metrics
+    let duration = start.elapsed();
+    let avg_speed_mbps = if duration.as_secs_f64() > 0.0 {
+        (total_bytes as f64 / duration.as_secs_f64()) / 1_000_000.0
+    } else {
+        0.0
+    };
+
+    // Record to span
+    tracing::Span::current().record("resources_sent", resources_sent);
+    tracing::Span::current().record("total_bytes", total_bytes);
+    tracing::Span::current().record("avg_speed_mbps", format!("{:.2}", avg_speed_mbps).as_str());
+    tracing::Span::current().record("total_duration_ms", duration.as_millis());
+
     info!(
-        "✅ Finished sending resources for folder {} to user {}",
-        folder_id, recipient_user_id
+        "✅ Folder sync complete: {} resources, {:.2} MB, {:.2} MB/s in {}ms",
+        resources_sent,
+        total_bytes as f64 / 1_000_000.0,
+        avg_speed_mbps,
+        duration.as_millis()
     );
     Ok(())
 }
@@ -286,15 +325,13 @@ pub async fn handle_resource_data_sync(
 ) -> P2PResult<()> {
     info!("📥 Received resource {} from peer", payload.resource.id);
 
-    let domain = &peer_conn.domain;
-
     // Delegate to resource_service for validation and saving
     services::accept_resource_from_peer(
         &payload.resource,
         &payload.share_records,
         &payload.folder_ucan,
-        domain,
         repo_ctx,
+        &peer_conn.ucan_service,
     )
     .await
     .map_err(|e| {

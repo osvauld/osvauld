@@ -7,7 +7,6 @@ pub mod p2p;
 pub mod resource;
 pub mod share_record;
 pub mod user;
-pub mod sync_context;
 
 pub use certificate::*;
 pub use device::*;
@@ -19,23 +18,19 @@ pub use resource::*;
 pub use share_record::*;
 pub use user::*;
 
-// UCAN exports - all sourced from new core::ucan module
-pub use crate::ucan::types::{
+// Re-export commonly used UCAN types from gurkha
+// These are convenience re-exports for backward compatibility
+pub use gurkha::{
+    // Types
     Capability, Role, DocType, ConnectionTokenType, ResourceTokenType,
     ResourceAction, SyncFacts, SyncDecision, DocMetadata,
-};
-
-pub use crate::ucan::parser::{
-    GenericUcan, DelegationTemplate, UcanTokenError, UcanTokenResult,
-};
-
-pub use crate::ucan::token::{
+    // Parser
+    GenericUcan, DelegationTemplate,
+    // Tokens
     ConnectionToken, OneTimeConnectionToken, OwnerConnectionToken,
     NodeConnectionToken, UserConnectionToken, ViewerAuthToken,
-    ViewerConnectionToken,
-    ConnectionTokenError, ConnectionTokenResult,
-    ResourceOwnerToken, ResourceShareToken, ResourceViewerToken,
-    FolderOwnerToken, FolderShareToken, FolderViewerToken,
+    ViewerConnectionToken, ResourceOwnerToken, ResourceShareToken,
+    ResourceViewerToken, FolderOwnerToken, FolderShareToken, FolderViewerToken,
+    // Sync context and decision functions
+    SyncContext, should_send_updates, can_receive_updates,
 };
-
-pub use sync_context::*;

@@ -1,5 +1,6 @@
 use crypto_utils::errors::{CryptoError, UcanError};
-use osvauld_core::models::{ConnectionTokenError, UcanTokenError};
+use gurkha::parser::UcanTokenError;
+use gurkha::errors::GurkhaError;
 use osvauld_core::repositories::RepositoryError;
 use thiserror::Error;
 
@@ -27,7 +28,7 @@ pub enum ServiceError {
     GenericUcan(#[from] UcanTokenError),
 
     #[error(transparent)]
-    ConnectionToken(#[from] ConnectionTokenError),
+    Gurkha(#[from] GurkhaError),
 
     #[error("Repository error: {0}")]
     Repository(#[from] RepositoryError),
@@ -168,13 +169,13 @@ pub enum ResourceServiceError {
     GenericUcan(#[from] UcanTokenError),
 
     #[error(transparent)]
-    ConnectionToken(#[from] ConnectionTokenError),
-
-    #[error(transparent)]
     Crypto(#[from] CryptoError),
 
     #[error(transparent)]
     Repository(#[from] RepositoryError),
+
+    #[error(transparent)]
+    Gurkha(#[from] GurkhaError),
 }
 
 impl From<ServiceError> for ResourceServiceError {
@@ -185,7 +186,7 @@ impl From<ServiceError> for ResourceServiceError {
             ServiceError::Crypto(e) => ResourceServiceError::Crypto(e),
             ServiceError::Repository(e) => ResourceServiceError::Repository(e),
             ServiceError::GenericUcan(e) => ResourceServiceError::GenericUcan(e),
-            ServiceError::ConnectionToken(_) => ResourceServiceError::UcanError("Connection token error".to_string()),
+            ServiceError::Gurkha(_) => ResourceServiceError::UcanError("Gurkha error".to_string()),
             _ => ResourceServiceError::InvalidState(format!("Service error: {}", err)),
         }
     }

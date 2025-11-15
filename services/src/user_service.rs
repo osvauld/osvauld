@@ -1,12 +1,16 @@
 use std::sync::Arc;
 
-use crate::errors::ServiceResult;
+use crate::errors::{ServiceResult, ServiceError};
 use crypto_utils::{CryptoUtils, get_key_id};
-use log::{error, info};
+use tracing::{debug, error, info, instrument, warn};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};
 use persistance::database::RepositoryContext;
 use tokio::sync::RwLock;
 
+#[instrument(skip(crypto_utils, repo_ctx), fields(
+    username = %username,
+    user_id
+))]
 pub async fn add_known_user(
     username: String,
     user_public_key: String,
@@ -16,15 +20,23 @@ pub async fn add_known_user(
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<(User, Device)> {
-    let user_id = get_key_id(&user_public_key)?;
+    info!("👤 Adding known user");
 
+    let user_id = get_key_id(&user_public_key)?;
+    tracing::Span::current().record("user_id", &user_id.as_str());
+    debug!("✓ Generated user ID from public key: {}", user_id);
+
+    debug!("🔐 Signing user public key");
     let signature = {
         let crypto = crypto_utils.read().await;
         crypto.sign_message(&user_public_key)?
     };
+    debug!("✓ Public key signed");
 
-    let ucan_cid = crate::ucan_service::get_cid(&one_time_token)?;
+    // TODO: Get CID from token if needed
+    let ucan_cid = String::new();
 
+    debug!("📝 Creating User object");
     let user = User::new(
         username,
         user_id.clone(),
@@ -37,6 +49,7 @@ pub async fn add_known_user(
         ucan_pub_key,
     );
 
+    debug!("📱 Creating Device object");
     let device = Device::new(device_public_key.clone(), device_public_key, user_id);
 
     let user_data = UserWithDevices {
@@ -44,25 +57,50 @@ pub async fn add_known_user(
         devices: vec![device.clone()],
     };
 
+    debug!("💾 Saving user and device to database");
     repo_ctx
         .user_repo
         .add_users_with_devices_bulk(&[user_data])
         .await?;
+    debug!("✓ User and device saved");
 
+    info!("✓ Known user added successfully");
     Ok((user, device))
 }
 
+#[instrument(skip(repo_ctx), fields(users_count))]
 pub async fn get_known_users(repo_ctx: Arc<RepositoryContext>) -> ServiceResult<Vec<User>> {
-    Ok(repo_ctx.user_repo.get_known_users().await?)
+    info!("📋 Fetching known users");
+    let users = repo_ctx.user_repo.get_known_users().await?;
+    tracing::Span::current().record("users_count", users.len());
+    info!("✓ Found {} known users", users.len());
+    Ok(users)
 }
 
+#[instrument(skip(repo_ctx), fields(
+    user_id = %user_id,
+    devices_count
+))]
 pub async fn get_my_user_devices(
     user_id: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<Vec<Device>> {
-    Ok(repo_ctx.device_repo.get_devices_by_user_id(user_id).await?)
+    info!("📱 Fetching devices for user");
+    let devices = repo_ctx.device_repo.get_devices_by_user_id(user_id).await?;
+    tracing::Span::current().record("devices_count", devices.len());
+    info!("✓ Found {} devices", devices.len());
+    Ok(devices)
 }
 
+#[instrument(skip(repo_ctx), fields(
+    note_id = %note_id,
+    current_user_id = %current_user_id,
+    current_device_id = %current_device_id,
+    skip_current_user = %skip_current_user,
+    share_records_count,
+    devices_count,
+    users_count
+))]
 pub async fn get_shared_user_devices_for_note(
     note_id: &str,
     current_user_id: &str,
@@ -70,17 +108,16 @@ pub async fn get_shared_user_devices_for_note(
     skip_current_user: bool,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<(Vec<String>, Vec<User>)> {
+    info!("🔗 Fetching shared user devices for note");
+
     // Get all share records for this note - direct use of ?
     let share_records = repo_ctx
         .share_repo
         .find_by_resource_and_operation(note_id, &ShareOperation::Share.to_string())
         .await?;
 
-    info!(
-        "Found {} share records for note {}",
-        share_records.len(),
-        note_id
-    );
+    tracing::Span::current().record("share_records_count", share_records.len());
+    debug!("Found {} share records for note", share_records.len());
 
     let mut shared_device_ids = Vec::new();
     let shared_user_ids: Vec<String> = share_records
@@ -88,19 +125,23 @@ pub async fn get_shared_user_devices_for_note(
         .map(|sr| sr.recipient_user_id.clone())
         .collect();
 
+    debug!("📥 Fetching user details");
     let shared_users = repo_ctx
         .user_repo
         .get_users_by_ids(&shared_user_ids)
         .await?;
 
+    debug!("📱 Collecting devices from {} users", shared_user_ids.len());
     for user_id in shared_user_ids {
         if skip_current_user && user_id == current_user_id {
+            debug!("⏭️ Skipping current user: {}", user_id);
             continue;
         }
 
         // Get all devices for this user
         match repo_ctx.device_repo.get_devices_by_user_id(&user_id).await {
             Ok(devices) => {
+                debug!("Found {} devices for user {}", devices.len(), user_id);
                 for device in devices {
                     if current_device_id != device.id {
                         shared_device_ids.push(device.id.clone());
@@ -114,61 +155,94 @@ pub async fn get_shared_user_devices_for_note(
         }
     }
 
+    tracing::Span::current().record("devices_count", shared_device_ids.len());
+    tracing::Span::current().record("users_count", shared_users.len());
+    info!("✓ Found {} devices from {} users", shared_device_ids.len(), shared_users.len());
+
     Ok((shared_device_ids, shared_users))
 }
 
+#[instrument(skip_all)]
 pub async fn get_ucan_pub_key(
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    _repo_ctx: Arc<RepositoryContext>,
+    _crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<String> {
-    crate::ucan_service::get_public_ucan_key(crypto_utils, &repo_ctx).await
+    info!("🔑 Getting UCAN public key");
+    let pub_key = ucan_service.read().await.get_public_key()?;
+    debug!("✓ UCAN public key retrieved");
+    Ok(pub_key)
 }
 
+#[instrument(skip_all, fields(
+    domain = %domain,
+    role = %role
+))]
 pub async fn issue_connect_ucan_token(
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
+    _repo_ctx: Arc<RepositoryContext>,
+    _crypto_utils: &Arc<RwLock<CryptoUtils>>,
     domain: &str,
     peer_ucan_pub_key: &str,
     role: &str,
+    ucan_service: &Arc<gurkha::UcanService>,
 ) -> ServiceResult<String> {
-    crate::ucan_service::connection_tokens::issue_peer_connection(
-        domain,
+    info!("🔐 Issuing connection UCAN token");
+
+    let token = ucan_service.issue_peer_connection(
         peer_ucan_pub_key,
+        domain,
         role,
-        crypto_utils,
-        &repo_ctx,
     )
     .await
     .map_err(|e| {
-        error!("Failed to issue connect and share token: {}", e);
-        e
-    })
+        error!("❌ Failed to issue connect and share token: {}", e);
+        ServiceError::from(e)
+    })?;
+
+    debug!("✓ Connection token issued");
+    Ok(token)
 }
 
+#[instrument(skip_all)]
 pub async fn sign_ucan_pub_key(
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
     repo_ctx: Arc<RepositoryContext>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<String> {
-    let ucan_pub_key = get_ucan_pub_key(repo_ctx, crypto_utils).await?;
+    info!("✍️ Signing UCAN public key");
 
+    debug!("🔑 Retrieving UCAN public key");
+    let ucan_pub_key = get_ucan_pub_key(repo_ctx, crypto_utils, ucan_service).await?;
+
+    debug!("🔐 Signing public key");
     let crypto = crypto_utils.read().await;
-    crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
-        error!("Failed to sign local UCAN public key: {}", e);
-        e.into()
-    })
+    let signature = crypto.sign_clear_text_message(&ucan_pub_key).map_err(|e| {
+        error!("❌ Failed to sign local UCAN public key: {}", e);
+        ServiceError::Crypto(e)
+    })?;
+
+    debug!("✓ UCAN public key signed");
+    Ok(signature)
 }
 
 /// Update user's UCAN token and CID
+#[instrument(skip(repo_ctx, new_ucan_token), fields(
+    user_id = %user_id
+))]
 pub async fn update_ucan(
     user_id: &str,
     new_ucan_token: String,
     new_ucan_cid: String,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<()> {
+    info!("🔄 Updating UCAN token for user");
+
     repo_ctx
         .user_repo
         .update_ucan(user_id, new_ucan_token, new_ucan_cid)
         .await?;
+
+    info!("✓ UCAN token updated");
     Ok(())
 }
 
@@ -185,36 +259,52 @@ pub struct ConnectionStringData {
 
 /// Parse and decode a connection string (base64-encoded JSON)
 /// Returns all fields needed for both sovereign node and viewer connections
+#[instrument(skip(connection_string), fields(has_folder_id))]
 pub fn parse_connection_string(
     connection_string: &str
 ) -> ServiceResult<ConnectionStringData> {
     use base64::{Engine as _, engine::general_purpose};
     use crate::errors::UserServiceError;
 
+    info!("🔍 Parsing connection string");
+
     // 1. Decode base64
+    debug!("📥 Decoding base64");
     let decoded = general_purpose::STANDARD
         .decode(connection_string)
-        .map_err(|e| UserServiceError::InvalidUserData {
-            field: "connection_string".into(),
-            reason: format!("Failed to decode base64: {}", e),
+        .map_err(|e| {
+            error!("❌ Failed to decode base64: {}", e);
+            UserServiceError::InvalidUserData {
+                field: "connection_string".into(),
+                reason: format!("Failed to decode base64: {}", e),
+            }
         })?;
 
     // 2. Convert to UTF-8
+    debug!("📄 Converting to UTF-8");
     let json_str = String::from_utf8(decoded)
-        .map_err(|e| UserServiceError::InvalidUserData {
-            field: "connection_string".into(),
-            reason: format!("Invalid UTF-8: {}", e),
+        .map_err(|e| {
+            error!("❌ Invalid UTF-8: {}", e);
+            UserServiceError::InvalidUserData {
+                field: "connection_string".into(),
+                reason: format!("Invalid UTF-8: {}", e),
+            }
         })?;
 
     // 3. Parse JSON
+    debug!("📋 Parsing JSON");
     let details: serde_json::Value = serde_json::from_str(&json_str)
-        .map_err(|e| UserServiceError::InvalidUserData {
-            field: "connection_string".into(),
-            reason: format!("Invalid JSON: {}", e),
+        .map_err(|e| {
+            error!("❌ Invalid JSON: {}", e);
+            UserServiceError::InvalidUserData {
+                field: "connection_string".into(),
+                reason: format!("Invalid JSON: {}", e),
+            }
         })?;
 
     // 4. Extract all fields
-    Ok(ConnectionStringData {
+    debug!("🔍 Extracting fields from JSON");
+    let data = ConnectionStringData {
         username: details["username"].as_str()
             .ok_or_else(|| UserServiceError::InvalidUserData {
                 field: "username".into(),
@@ -246,5 +336,11 @@ pub fn parse_connection_string(
             })?
             .to_string(),
         folder_id: details["folder_id"].as_str().map(|s| s.to_string()),
-    })
+    };
+
+    tracing::Span::current().record("has_folder_id", data.folder_id.is_some());
+    info!("✓ Connection string parsed successfully (username: {}, has_folder_id: {})",
+        data.username, data.folder_id.is_some());
+
+    Ok(data)
 }

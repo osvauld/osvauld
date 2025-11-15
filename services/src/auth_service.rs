@@ -5,12 +5,12 @@ use crypto_utils::{
 };
 use osvauld_core::models::device::Device;
 use osvauld_core::models::user::User;
-use osvauld_core::models::{Certificate, UserRole};
+use osvauld_core::models::Certificate;
 use persistance::database::RepositoryContext;
 use rand::{RngCore, rngs::OsRng};
-use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tracing::{debug, info, instrument, warn};
 
 async fn create_certificate(username: &str, passphrase: &str) -> ServiceResult<Certificate> {
     let primary_key = generate_keys(passphrase, username)?;
@@ -41,20 +41,26 @@ async fn create_device(
 }
 
 /// Complete signup process - combines user creation and device setup
+#[instrument(skip(passphrase, repo_context), fields(username = %username, domain = %domain, user_id))]
 pub async fn handle_signup(
     username: &str,
     passphrase: &str,
     repo_context: Arc<RepositoryContext>,
     domain: &str,
 ) -> ServiceResult<()> {
+    info!("👤 Creating new user");
+
     let is_already_signed_up = repo_context.store_repo.is_signed_up().await?;
 
     if is_already_signed_up {
+        warn!("❌ User already signed up");
         return Err(AuthServiceError::AlreadySignedUp.into());
     }
 
     // Create user and primary certificate
+    debug!("🔐 Generating PGP certificate");
     let primary_certificate = create_certificate(username, passphrase).await?;
+    debug!("✓ Certificate created");
     let mut crypto = CryptoUtils::new();
 
     // For specific error types, we still need to map
@@ -67,33 +73,36 @@ pub async fn handle_signup(
         .map_err(|_| AuthServiceError::InvalidPassphrase)?;
 
     let user_id = get_key_id(&primary_certificate.public_key)?;
+    tracing::Span::current().record("user_id", &user_id.as_str());
+    debug!("✓ User ID derived: {}", user_id);
+
+    debug!("🔐 Generating UCAN keys");
     let ucan_certificate = generate_ucan_key(&crypto).await?;
+    debug!("✓ UCAN keys generated");
 
     // Generate owner connection token for the new user
     // This gives the user the ability to create folders and resources
+    debug!("🔐 Generating owner connection token");
     let owner_token = {
+        // Create a temporary UcanService with the newly generated UCAN keys
+        let temp_ucan_service = {
+            // Decrypt the encrypted UCAN private key
+            let (ucan_signing_key, ucan_verifying_key) = crypto.decrypt_ucan_key(&ucan_certificate.private_key)?;
+
+            let mut service = gurkha::UcanService::new();
+            service.load_keys(ucan_signing_key, ucan_verifying_key);
+            Arc::new(RwLock::new(service))
+        };
+
+        // Use the UcanService to issue an owner connection token
+        // For the owner, we use their own public key as the audience
         let domain = "sthalam";
-        let (token, _cid) = crypto
-            .generate_ucan_with_cid(
-                &ucan_certificate.private_key,
-                &ucan_certificate.public_key,
-                vec![
-                    (format!("{}:user:*", domain), "connect".to_string()),
-                    (format!("{}:user:*", domain), "share".to_string()),
-                    (format!("{}:folder:*", domain), "add_folder".to_string()),
-                ],
-                Some({
-                    let mut facts = serde_json::Map::new();
-                    facts.insert("token_type".to_string(), json!("owner_connection"));
-                    facts.insert("role".to_string(), json!("owner"));
-                    facts.insert("first_connection".to_string(), json!(false));
-                    facts
-                }),
-                Some(30 * 365 * 24 * 60 * 60), // 30 years expiry
-            )
+        let token = temp_ucan_service.read().await
+            .issue_peer_connection(&ucan_certificate.public_key, domain, "owner")
             .await?;
         token
     };
+    debug!("✓ Owner token generated");
 
     crypto.clear_cert();
 
@@ -110,8 +119,11 @@ pub async fn handle_signup(
     );
 
     // Create device and device certificate
+    debug!("📱 Creating device");
     let (device, device_certificate) = create_device(&user.public_key, &user.id).await?;
+    debug!("✓ Device created: {}", device.id);
 
+    debug!("💾 Committing signup transaction");
     repo_context
         .user_repo
         .commit_signup_transaction(
@@ -124,6 +136,7 @@ pub async fn handle_signup(
         )
         .await?;
 
+    info!("✓ User created successfully");
     Ok(())
 }
 
@@ -330,40 +343,50 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> ServiceResult<Certific
     Ok(ucan_certificate)
 }
 
+#[instrument(skip(ucan_service), fields(capability = %capability_str, role = %role))]
 pub async fn generate_one_time_ucan_token(
     capability_str: &str,
     role: &str,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    repo_ctx: Arc<RepositoryContext>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<(String, String)> {
-    crate::ucan_service::connection_tokens::issue_one_time(
+    info!("🔐 Generating one-time UCAN token");
+    let ucan_service_guard = ucan_service.read().await;
+    let result = ucan_service_guard.issue_one_time(
         capability_str,
         role,
-        crypto_utils,
-        &repo_ctx,
     )
-    .await
+    .await?;
+    info!("✓ One-time token generated");
+    Ok(result)
 }
 
+#[instrument(skip(ucan_service), fields(folder_id = %folder_id, capability = %capability_str))]
 pub async fn generate_folder_share_token(
     folder_id: &str,
     capability_str: &str,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-    repo_ctx: Arc<RepositoryContext>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<(String, String)> {
+    info!("🔐 Generating folder share token");
     // Call ucan_service function which has the business logic
-    crate::ucan_service::connection_tokens::issue_viewer_auth(
+    // Note: issue_viewer_auth expects resource_id, but we have folder_id
+    // For viewer auth, we use folder_id as the "resource" identifier
+    let domain = "sthalam"; // Use default domain
+    let ucan_service_guard = ucan_service.read().await;
+    let token = ucan_service_guard.issue_viewer_auth(
         folder_id,
-        capability_str,
-        crypto_utils,
-        &repo_ctx,
+        domain,
     )
-    .await
+    .await?;
+
+    // Calculate CID for the token
+    let cid = gurkha::crypto::get_ucan_cid(&token)?;
+
+    Ok((token, cid))
 }
 
 // ==================== UNIFIED HANDSHAKE SUPPORT ====================
 
-use osvauld_core::models::{ConnectionToken, ConnectionTokenType, Role, ViewerAuthToken};
+use osvauld_core::models::{ConnectionToken, ConnectionTokenType, Role};
 
 /// Handshake type classification
 #[derive(Debug, Clone)]
@@ -397,6 +420,7 @@ pub async fn parse_and_validate_handshake_token(
     ucan_token: &str,
     signed_ucan_pub: &str,
     peer_ucan_pub_key: &str,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<ParsedHandshakeToken> {
     // 1. Parse connection token
     let conn_token = ConnectionToken::from_token(ucan_token)
@@ -410,8 +434,8 @@ pub async fn parse_and_validate_handshake_token(
     // 3. Extract folder_id if ViewerAuth token
     let folder_id = if conn_token.token_type() == ConnectionTokenType::ViewerAuth {
         // Extract folder_id from token (function is not async, just returns Result)
-        let folder_id = crate::ucan_service::extract_folder_id_from_viewer_token(ucan_token, "sthalam")
-            .await
+        let ucan_service_guard = ucan_service.read().await;
+        let folder_id = ucan_service_guard.extract_folder_id(ucan_token)
             .map_err(|e| AuthServiceError::InvalidUcanToken(format!("Failed to extract folder_id: {}", e)))?;
 
         Some(folder_id)

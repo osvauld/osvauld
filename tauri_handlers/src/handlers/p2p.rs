@@ -1,7 +1,7 @@
 use crate::types::BaseCryptoResponse;
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
-use log::{error, info};
+use tracing::{error, info, instrument};
 use network::p2p_init;
 use network::P2PService;
 use persistance::database::RepositoryContext;
@@ -19,11 +19,11 @@ use tokio::sync::RwLock;
 ///
 /// Note: Does NOT auto-connect to known peers (manual connection only)
 #[tauri::command]
+#[instrument(skip(user_state, p2p_service))]
 pub async fn start_p2p_listener(
     user_state: State<'_, UserState>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Initializing P2P network");
 
     // Get user and device from state
     let user = user_state.get_user().await?;
@@ -33,7 +33,7 @@ pub async fn start_p2p_listener(
     p2p_init::initialize_p2p(&p2p_service, &user, &device)
         .await
         .map_err(|e| {
-            error!("Failed to initialize P2P: {}", e);
+            error!(error = %e, "Failed to initialize P2P");
             format!("P2P initialization failed: {}", e)
         })?;
 
@@ -54,19 +54,19 @@ pub async fn start_p2p_listener(
 /// 3. Initiate P2P connection immediately (happy path - no error handling)
 /// 4. Handshake will exchange tokens with reciprocal roles
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn handle_add_sovereign_node(
     input: String,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Adding sovereign node");
 
     // 1. Parse connection string using shared service function
     let connection_data = services::parse_connection_string(&input)
         .map_err(|e| e.to_string())?;
 
-    info!("Parsed sovereign node details for user: {}", connection_data.username);
+    info!(username = %connection_data.username, "Parsed sovereign node details");
 
     // 2. Save node to database (first_sync=false)
     let (_user, device) = add_known_user(
@@ -104,19 +104,19 @@ pub async fn handle_add_sovereign_node(
 /// 5. Delegate to sync_handler to initiate P2P connection (fire-and-forget)
 /// 6. Return success immediately (handshake happens in background)
 #[tauri::command]
+#[instrument(skip_all)]
 pub async fn handle_connect_to_website(
     input: String,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Viewer connecting to website");
 
     // 1. Parse connection string
     let connection_data = services::parse_connection_string(&input)
         .map_err(|e| e.to_string())?;
 
-    info!("Viewer connecting to node: {}", connection_data.username);
+    info!(username = %connection_data.username, "Viewer connecting to node");
 
     // 3. Derive user_id from public key (same as auth_service.rs:68)
     let user_id = crypto_utils::get_key_id(&connection_data.user_public_key)
@@ -133,7 +133,7 @@ pub async fn handle_connect_to_website(
 
     let device_id = if existing_user.is_ok() {
         // Node exists, get first device
-        info!("Node already exists in database, reusing connection");
+        info!(user_id = %user_id, "Node already exists in database, reusing connection");
         let devices = repo_ctx
             .device_repo
             .get_devices_by_user_id(&user_id)
@@ -147,7 +147,7 @@ pub async fn handle_connect_to_website(
             .clone()
     } else {
         // 5. Add node to viewer's database (first_sync=false)
-        info!("Adding new node to viewer database");
+        info!(user_id = %user_id, "Adding new node to viewer database");
         let (_, device) = add_known_user(
             connection_data.username,
             connection_data.user_public_key,
@@ -163,7 +163,7 @@ pub async fn handle_connect_to_website(
         device.id
     };
 
-    info!("Node device_id: {}", device_id);
+    info!(device_id = %device_id, "Initiating viewer connection to node");
 
     // 6. Delegate to sync_handler to initiate connection (fire-and-forget)
     network::p2p::sync_handler::connect_to_website(
@@ -172,7 +172,7 @@ pub async fn handle_connect_to_website(
         p2p_service.inner().clone(),
     );
 
-    info!("Viewer connection initiated, returning success");
+    info!("Viewer connection task spawned, returning success");
 
     // 7. Return success immediately (handshake happens in background)
     Ok(BaseCryptoResponse::Success)

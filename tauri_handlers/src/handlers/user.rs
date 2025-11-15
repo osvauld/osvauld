@@ -8,8 +8,10 @@ use std::sync::Arc;
 use sys_locale::get_locale;
 use tauri::State;
 use tokio::sync::RwLock;
+use tracing::instrument;
 
 #[tauri::command]
+#[instrument(skip(input, crypto_utils, repo_ctx, _p2p_service))]
 pub async fn handle_add_user(
     input: String,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
@@ -61,6 +63,7 @@ pub async fn handle_add_user(
 }
 
 #[tauri::command]
+#[instrument(skip(repo_ctx))]
 pub async fn handle_get_known_users(
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<BaseCryptoResponse, String> {

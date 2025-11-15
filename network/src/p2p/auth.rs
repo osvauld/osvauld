@@ -9,7 +9,6 @@ use osvauld_core::models::{
     Message, ReconnectionResponse, User,
 };
 use services::{HandshakeType, ParsedHandshakeToken};
-use std::sync::Arc;
 use tracing::{error, info};
 
 /// Initiate handshake with peer
@@ -116,6 +115,7 @@ pub async fn process_handshake_request(
         &request.ucan_token,
         &request.signed_ucan_pub,
         &request.peer_user.ucan_pub_key,
+        &conn.ucan_service,
     )
     .await
     .map_err(|e| {
@@ -173,18 +173,17 @@ async fn handle_peer_first_connection(
 
     // 2. Issue persistent connection token BEFORE saving user
     // This ensures we never store the one-time token in the database
-    let issued_ucan = services::ucan_service::issue_peer_connection(
-        &conn.domain,
-        &request.peer_user.ucan_pub_key,
-        role_str,
-        &conn.crypto_utils,
-        &conn.repo_ctx,
-    )
-    .await
-    .map_err(|e| {
-        error!("❌ Failed to issue persistent connection token: {}", e);
-        crate::p2p::errors::P2PError::InvalidState(format!("Failed to issue token: {}", e))
-    })?;
+    let issued_ucan = conn.ucan_service.read().await
+        .issue_peer_connection(
+            &request.peer_user.ucan_pub_key,
+            &conn.domain,
+            role_str,
+        )
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to issue persistent connection token: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to issue token: {}", e))
+        })?;
 
     info!("✓ Issued {} connection token for peer", role_str);
 
@@ -310,18 +309,17 @@ async fn process_first_connection_response(
 
     // 4. Issue NEW persistent connection token FOR the peer (node)
     // They will save this and present it when connecting TO us
-    let issued_ucan = services::ucan_service::issue_peer_connection(
-        &conn.domain,
-        &response.peer_user.ucan_pub_key,
-        role_str,
-        &conn.crypto_utils,
-        &conn.repo_ctx,
-    )
-    .await
-    .map_err(|e| {
-        error!("❌ Failed to issue persistent connection token: {}", e);
-        crate::p2p::errors::P2PError::InvalidState(format!("Failed to issue token: {}", e))
-    })?;
+    let issued_ucan = conn.ucan_service.read().await
+        .issue_peer_connection(
+            &response.peer_user.ucan_pub_key,
+            &conn.domain,
+            role_str,
+        )
+        .await
+        .map_err(|e| {
+            error!("❌ Failed to issue persistent connection token: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to issue token: {}", e))
+        })?;
 
     info!("✓ Issued {} connection token for peer", role_str);
 

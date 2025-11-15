@@ -5,7 +5,7 @@ use crate::config::HandlerConfig;
 use crate::types::{AddResourceInput, BaseCryptoResponse, GetResource, ResourceMetadata, ResourceResponse, SyncResourceInput, UpdateResourceInput};
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
-use log::{error, info};
+use tracing::{error, info, instrument};
 use network::P2PService;
 use persistance::database::RepositoryContext;
 use services::{create_resource, get_all_resources_metadata, get_resource_by_id_direct, update_resource};
@@ -14,14 +14,14 @@ use tauri::State;
 use tokio::sync::RwLock;
 
 #[tauri::command]
+#[instrument(skip(input, user_state, repo_ctx, ucan_service, config), fields(folder_id = %input.folder_id, resource_type = %input.resource_type))]
 pub async fn handle_add_resource(
     input: AddResourceInput,
     user_state: State<'_, UserState>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
-    crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
+    ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
     config: State<'_, HandlerConfig>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Adding resource to folder {}", input.folder_id);
 
     // Get current user and device
     let user = user_state.get_user().await?;
@@ -46,7 +46,7 @@ pub async fn handle_add_resource(
         &device.id,
         &config.domain,
         repo_ctx.inner().clone(),
-        &crypto_utils,
+        &ucan_service,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -65,17 +65,17 @@ pub async fn handle_add_resource(
         preview: None,
     };
 
-    info!("Resource created successfully: {}", response.id);
+    info!(resource_id = %response.id, title = %response.title, "Resource created successfully");
     Ok(BaseCryptoResponse::ResourceCreated(response))
 }
 
 #[tauri::command]
+#[instrument(skip(input, repo_ctx, crypto_utils), fields(resource_id = %input.resource_id))]
 pub async fn handle_get_resource(
     input: GetResource,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Fetching resource: {}", input.resource_id);
 
     // Fetch and decrypt resource
     let resource = get_resource_by_id_direct(
@@ -105,16 +105,16 @@ pub async fn handle_get_resource(
         folder_id: resource.folder_id,
     };
 
-    info!("Resource fetched successfully: {}", response.id);
+    info!(resource_id = %response.id, "Resource fetched successfully");
     Ok(BaseCryptoResponse::SelectedResourceResponse(response))
 }
 
 #[tauri::command]
+#[instrument(skip(user_state, repo_ctx))]
 pub async fn handle_get_all_resources_metadata(
     user_state: State<'_, UserState>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Fetching all resources metadata");
 
     // Get current user
     let user = user_state.get_user().await?;
@@ -160,17 +160,17 @@ pub async fn handle_get_all_resources_metadata(
         })
         .collect();
 
-    info!("Returning {} resources metadata", metadata_list.len());
+    info!(count = metadata_list.len(), "Returning resources metadata");
     Ok(BaseCryptoResponse::ResourcesMetadata(metadata_list))
 }
 
 #[tauri::command]
+#[instrument(skip(input, user_state, repo_ctx), fields(resource_id = %input.id))]
 pub async fn handle_update_resource(
     input: UpdateResourceInput,
     user_state: State<'_, UserState>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Updating resource: {}", input.id);
 
     // Get current user
     let user = user_state.get_user().await?;
@@ -223,7 +223,7 @@ pub async fn handle_update_resource(
         preview: None,    // TODO: Generate previews
     };
 
-    info!("Resource updated successfully: {}", response.id);
+    info!(resource_id = %response.id, title = %response.title, "Resource updated successfully");
     Ok(BaseCryptoResponse::ResourceUpdated(response))
 }
 
@@ -237,13 +237,13 @@ pub async fn handle_update_resource(
 ///
 /// This is fire-and-forget - spawned as async task.
 #[tauri::command]
+#[instrument(skip(input, repo_ctx, crypto_utils, p2p_service), fields(resource_id = %input.resource_id))]
 pub async fn handle_sync_resource(
     input: SyncResourceInput,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     crypto_utils: State<'_, Arc<RwLock<CryptoUtils>>>,
     p2p_service: State<'_, Arc<P2PService>>,
 ) -> Result<BaseCryptoResponse, String> {
-    info!("Syncing resource: {}", input.resource_id);
 
     // Spawn async task for sync
     let resource_id = input.resource_id.clone();
@@ -264,7 +264,7 @@ pub async fn handle_sync_resource(
         }
     });
 
-    info!("✓ Resource sync task spawned for: {}", input.resource_id);
+    info!("Resource sync task spawned");
     Ok(BaseCryptoResponse::Success)
 }
 
