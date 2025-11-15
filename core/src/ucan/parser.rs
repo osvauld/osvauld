@@ -5,29 +5,29 @@ use std::collections::HashMap;
 use std::result::Result as StdResult;
 use ucan::Ucan;
 
-/// Error type for resource UCAN operations
+/// Error type for UCAN token operations (generic for any capability token)
 #[derive(Debug)]
-pub enum ResourceUcanError {
+pub enum GenericUcanError {
     InvalidTokenType(String),
     ParsingFailed(String),
     MissingField(String),
     ValidationFailed(String),
 }
 
-impl std::fmt::Display for ResourceUcanError {
+impl std::fmt::Display for GenericUcanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ResourceUcanError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
-            ResourceUcanError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
-            ResourceUcanError::MissingField(msg) => write!(f, "Missing field: {}", msg),
-            ResourceUcanError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
+            GenericUcanError::InvalidTokenType(msg) => write!(f, "Invalid token type: {}", msg),
+            GenericUcanError::ParsingFailed(msg) => write!(f, "Parsing failed: {}", msg),
+            GenericUcanError::MissingField(msg) => write!(f, "Missing field: {}", msg),
+            GenericUcanError::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
         }
     }
 }
 
-impl std::error::Error for ResourceUcanError {}
+impl std::error::Error for GenericUcanError {}
 
-pub type ResourceUcanResult<T> = StdResult<T, ResourceUcanError>;
+pub type GenericUcanResult<T> = StdResult<T, GenericUcanError>;
 
 // ============================================================================
 // UcanCore<T> - Generic core for all UCAN tokens with parsed capabilities
@@ -35,7 +35,7 @@ pub type ResourceUcanResult<T> = StdResult<T, ResourceUcanError>;
 
 /// Generic core structure containing all common UCAN token fields
 ///
-/// This struct is composed into all specific token types (ResourceUcan, ConnectionToken, etc.)
+/// This struct is composed into all specific token types via the UcanToken trait
 /// to eliminate duplication. It handles:
 /// - Raw token and parsed UCAN from the ucan library
 /// - Role and token type (generic parameter T)
@@ -67,7 +67,7 @@ impl<T: Clone> UcanCore<T> {
     ///
     /// # Returns
     /// * `Ok(UcanCore)` - Successfully parsed and initialized
-    /// * `Err(ResourceUcanError)` - If parsing fails
+    /// * `Err(GenericUcanError)` - If parsing fails
     pub fn new(token: String, parsed: Ucan, role: Role, token_type: T) -> Self {
         // Parse all capabilities once and cache them
         let parsed_capabilities: Vec<ParsedCapabilityUri> = parsed
@@ -262,12 +262,12 @@ impl DelegationTemplate {
     }
 }
 
-/// Parsed resource UCAN with domain logic
+/// Parsed UCAN token with domain logic (generic for resources and folders)
 ///
 /// Composes UcanCore<ResourceTokenType> with resource-specific fields
 /// to eliminate duplication while providing type-safe access.
 #[derive(Debug, Clone)]
-pub struct ResourceUcan {
+pub struct GenericUcan {
     /// Core UCAN data (raw token, parsed UCAN, role, token_type, parsed_capabilities)
     core: UcanCore<ResourceTokenType>,
     /// Domain-specific fields below
@@ -279,35 +279,35 @@ pub struct ResourceUcan {
     proof_chain: Vec<String>,  // Parent UCAN CIDs
 }
 
-impl ResourceUcan {
+impl GenericUcan {
     /// Parse UCAN token and extract all domain information
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
+    pub fn from_token(token: &str) -> GenericUcanResult<Self> {
         // Parse UCAN token
         let parsed = Ucan::try_from(token)
-            .map_err(|e| ResourceUcanError::ParsingFailed(format!("UCAN parsing error: {}", e)))?;
+            .map_err(|e| GenericUcanError::ParsingFailed(format!("UCAN parsing error: {}", e)))?;
 
         // Extract facts
         let facts = parsed.facts().as_ref().ok_or_else(|| {
-            ResourceUcanError::MissingField("UCAN facts not found".to_string())
+            GenericUcanError::MissingField("UCAN facts not found".to_string())
         })?;
 
         // Extract token_type from facts
         let token_type_str = facts
             .get("token_type")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ResourceUcanError::MissingField("token_type not found in facts".to_string()))?;
+            .ok_or_else(|| GenericUcanError::MissingField("token_type not found in facts".to_string()))?;
 
         let token_type = ResourceTokenType::from_str(token_type_str)
-            .map_err(|e| ResourceUcanError::InvalidTokenType(e))?;
+            .map_err(|e| GenericUcanError::InvalidTokenType(e))?;
 
         // Extract role from facts
         let role_str = facts
             .get("role")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ResourceUcanError::MissingField("role not found in facts".to_string()))?;
+            .ok_or_else(|| GenericUcanError::MissingField("role not found in facts".to_string()))?;
 
         let role = Role::from_str(role_str)
-            .map_err(|e| ResourceUcanError::ParsingFailed(format!("Invalid role: {}", e)))?;
+            .map_err(|e| GenericUcanError::ParsingFailed(format!("Invalid role: {}", e)))?;
 
         // Extract capabilities from UCAN cap field
         let mut capabilities = HashMap::new();

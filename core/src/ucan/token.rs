@@ -1,4 +1,4 @@
-use super::parser::{DelegationTemplate, ResourceUcan, ResourceUcanError, ResourceUcanResult, UcanCore};
+use super::parser::{DelegationTemplate, GenericUcan, UcanTokenError, UcanTokenResult, UcanCore};
 use super::uri::ParsedCapabilityUri;
 use super::types::{Capability, ConnectionTokenType, ResourceTokenType, Role};
 use std::collections::HashMap;
@@ -31,12 +31,12 @@ pub trait UcanToken {
 
 /// Tokens with extractable IDs (from facts)
 pub trait HasId: UcanToken {
-    fn id(&self) -> Result<String, ResourceUcanError>;
+    fn id(&self) -> Result<String, UcanTokenError>;
 }
 
 /// Tokens that can delegate to child tokens
 pub trait CanDelegate: UcanToken {
-    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, ResourceUcanError>;
+    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, UcanTokenError>;
 
     fn can_delegate_to(&self, role: Role) -> bool {
         self.delegation_template(role).is_ok()
@@ -45,7 +45,7 @@ pub trait CanDelegate: UcanToken {
 
 /// Resource-specific operations
 pub trait ResourceOps: HasId {
-    fn resource_id(&self) -> Result<String, ResourceUcanError> {
+    fn resource_id(&self) -> Result<String, UcanTokenError> {
         self.id()
     }
 
@@ -61,7 +61,7 @@ pub trait ResourceOps: HasId {
 
 /// Folder-specific operations
 pub trait FolderOps: HasId {
-    fn folder_id(&self) -> Result<String, ResourceUcanError> {
+    fn folder_id(&self) -> Result<String, UcanTokenError> {
         self.id()
     }
 
@@ -365,21 +365,21 @@ impl ViewerConnectionToken {
 /// Resource owner token (full control)
 #[derive(Debug, Clone)]
 pub struct ResourceOwnerToken {
-    ucan: ResourceUcan,
+    ucan: GenericUcan,
 }
 
 impl ResourceOwnerToken {
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
-        let ucan = ResourceUcan::from_token(token)?;
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
+        let ucan = GenericUcan::from_token(token)?;
 
         if ucan.token_type() != ResourceTokenType::ResourceOwner {
-            return Err(ResourceUcanError::InvalidTokenType(
+            return Err(UcanTokenError::InvalidTokenType(
                 format!("Expected ResourceOwner, got {:?}", ucan.token_type())
             ));
         }
 
         if ucan.role() != Role::Owner {
-            return Err(ResourceUcanError::ValidationFailed(
+            return Err(UcanTokenError::ValidationFailed(
                 format!("ResourceOwner must have Owner role, got {:?}", ucan.role())
             ));
         }
@@ -387,7 +387,7 @@ impl ResourceOwnerToken {
         Ok(Self { ucan })
     }
 
-    pub fn ucan(&self) -> &ResourceUcan {
+    pub fn ucan(&self) -> &GenericUcan {
         &self.ucan
     }
 
@@ -395,9 +395,9 @@ impl ResourceOwnerToken {
         self.ucan.resource_id().expect("ResourceOwner must have resource_id")
     }
 
-    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate> {
+    pub fn get_delegation_template(&self, role: &str) -> UcanTokenResult<&DelegationTemplate> {
         self.ucan.get_delegation_template(role).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role))
         })
     }
 
@@ -426,17 +426,17 @@ impl UcanToken for ResourceOwnerToken {
 }
 
 impl HasId for ResourceOwnerToken {
-    fn id(&self) -> Result<String, ResourceUcanError> {
+    fn id(&self) -> Result<String, UcanTokenError> {
         self.ucan.resource_id().ok_or_else(|| {
-            ResourceUcanError::MissingField("resource_id not found in token facts".to_string())
+            UcanTokenError::MissingField("resource_id not found in token facts".to_string())
         })
     }
 }
 
 impl CanDelegate for ResourceOwnerToken {
-    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, ResourceUcanError> {
+    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, UcanTokenError> {
         self.ucan.get_delegation_template(role.as_str()).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role.as_str()))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role.as_str()))
         })
     }
 }
@@ -450,21 +450,21 @@ impl ResourceOps for ResourceOwnerToken {
 /// Resource share token (for Node or User role)
 #[derive(Debug, Clone)]
 pub struct ResourceShareToken {
-    ucan: ResourceUcan,
+    ucan: GenericUcan,
 }
 
 impl ResourceShareToken {
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
-        let ucan = ResourceUcan::from_token(token)?;
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
+        let ucan = GenericUcan::from_token(token)?;
 
         if ucan.token_type() != ResourceTokenType::ResourceShare {
-            return Err(ResourceUcanError::InvalidTokenType(
+            return Err(UcanTokenError::InvalidTokenType(
                 format!("Expected ResourceShare, got {:?}", ucan.token_type())
             ));
         }
 
         if !matches!(ucan.role(), Role::Node | Role::User) {
-            return Err(ResourceUcanError::ValidationFailed(
+            return Err(UcanTokenError::ValidationFailed(
                 format!("ResourceShare must have Node or User role, got {:?}", ucan.role())
             ));
         }
@@ -472,7 +472,7 @@ impl ResourceShareToken {
         Ok(Self { ucan })
     }
 
-    pub fn ucan(&self) -> &ResourceUcan {
+    pub fn ucan(&self) -> &GenericUcan {
         &self.ucan
     }
 
@@ -484,9 +484,9 @@ impl ResourceShareToken {
         self.ucan.resource_id().expect("ResourceShare must have resource_id")
     }
 
-    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate> {
+    pub fn get_delegation_template(&self, role: &str) -> UcanTokenResult<&DelegationTemplate> {
         self.ucan.get_delegation_template(role).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role))
         })
     }
 
@@ -515,17 +515,17 @@ impl UcanToken for ResourceShareToken {
 }
 
 impl HasId for ResourceShareToken {
-    fn id(&self) -> Result<String, ResourceUcanError> {
+    fn id(&self) -> Result<String, UcanTokenError> {
         self.ucan.resource_id().ok_or_else(|| {
-            ResourceUcanError::MissingField("resource_id not found in token facts".to_string())
+            UcanTokenError::MissingField("resource_id not found in token facts".to_string())
         })
     }
 }
 
 impl CanDelegate for ResourceShareToken {
-    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, ResourceUcanError> {
+    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, UcanTokenError> {
         self.ucan.get_delegation_template(role.as_str()).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role.as_str()))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role.as_str()))
         })
     }
 }
@@ -539,21 +539,21 @@ impl ResourceOps for ResourceShareToken {
 /// Resource viewer token (for Viewer role)
 #[derive(Debug, Clone)]
 pub struct ResourceViewerToken {
-    ucan: ResourceUcan,
+    ucan: GenericUcan,
 }
 
 impl ResourceViewerToken {
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
-        let ucan = ResourceUcan::from_token(token)?;
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
+        let ucan = GenericUcan::from_token(token)?;
 
         if ucan.token_type() != ResourceTokenType::ResourceViewer {
-            return Err(ResourceUcanError::InvalidTokenType(
+            return Err(UcanTokenError::InvalidTokenType(
                 format!("Expected ResourceViewer, got {:?}", ucan.token_type())
             ));
         }
 
         if ucan.role() != Role::Viewer {
-            return Err(ResourceUcanError::ValidationFailed(
+            return Err(UcanTokenError::ValidationFailed(
                 format!("ResourceViewer must have Viewer role, got {:?}", ucan.role())
             ));
         }
@@ -561,7 +561,7 @@ impl ResourceViewerToken {
         Ok(Self { ucan })
     }
 
-    pub fn ucan(&self) -> &ResourceUcan {
+    pub fn ucan(&self) -> &GenericUcan {
         &self.ucan
     }
 
@@ -594,9 +594,9 @@ impl UcanToken for ResourceViewerToken {
 }
 
 impl HasId for ResourceViewerToken {
-    fn id(&self) -> Result<String, ResourceUcanError> {
+    fn id(&self) -> Result<String, UcanTokenError> {
         self.ucan.resource_id().ok_or_else(|| {
-            ResourceUcanError::MissingField("resource_id not found in token facts".to_string())
+            UcanTokenError::MissingField("resource_id not found in token facts".to_string())
         })
     }
 }
@@ -610,21 +610,21 @@ impl ResourceOps for ResourceViewerToken {
 /// Folder owner token (full control)
 #[derive(Debug, Clone)]
 pub struct FolderOwnerToken {
-    ucan: ResourceUcan,
+    ucan: GenericUcan,
 }
 
 impl FolderOwnerToken {
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
-        let ucan = ResourceUcan::from_token(token)?;
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
+        let ucan = GenericUcan::from_token(token)?;
 
         if ucan.token_type() != ResourceTokenType::FolderOwner {
-            return Err(ResourceUcanError::InvalidTokenType(
+            return Err(UcanTokenError::InvalidTokenType(
                 format!("Expected FolderOwner, got {:?}", ucan.token_type())
             ));
         }
 
         if ucan.role() != Role::Owner {
-            return Err(ResourceUcanError::ValidationFailed(
+            return Err(UcanTokenError::ValidationFailed(
                 format!("FolderOwner must have Owner role, got {:?}", ucan.role())
             ));
         }
@@ -632,7 +632,7 @@ impl FolderOwnerToken {
         Ok(Self { ucan })
     }
 
-    pub fn ucan(&self) -> &ResourceUcan {
+    pub fn ucan(&self) -> &GenericUcan {
         &self.ucan
     }
 
@@ -640,9 +640,9 @@ impl FolderOwnerToken {
         self.ucan.folder_id().expect("FolderOwner must have folder_id")
     }
 
-    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate> {
+    pub fn get_delegation_template(&self, role: &str) -> UcanTokenResult<&DelegationTemplate> {
         self.ucan.get_delegation_template(role).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role))
         })
     }
 
@@ -671,17 +671,17 @@ impl UcanToken for FolderOwnerToken {
 }
 
 impl HasId for FolderOwnerToken {
-    fn id(&self) -> Result<String, ResourceUcanError> {
+    fn id(&self) -> Result<String, UcanTokenError> {
         self.ucan.folder_id().ok_or_else(|| {
-            ResourceUcanError::MissingField("folder_id not found in token facts".to_string())
+            UcanTokenError::MissingField("folder_id not found in token facts".to_string())
         })
     }
 }
 
 impl CanDelegate for FolderOwnerToken {
-    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, ResourceUcanError> {
+    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, UcanTokenError> {
         self.ucan.get_delegation_template(role.as_str()).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role.as_str()))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role.as_str()))
         })
     }
 }
@@ -697,21 +697,21 @@ impl FolderOps for FolderOwnerToken {
 /// Folder share token (for Node or User role)
 #[derive(Debug, Clone)]
 pub struct FolderShareToken {
-    ucan: ResourceUcan,
+    ucan: GenericUcan,
 }
 
 impl FolderShareToken {
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
-        let ucan = ResourceUcan::from_token(token)?;
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
+        let ucan = GenericUcan::from_token(token)?;
 
         if ucan.token_type() != ResourceTokenType::FolderShare {
-            return Err(ResourceUcanError::InvalidTokenType(
+            return Err(UcanTokenError::InvalidTokenType(
                 format!("Expected FolderShare, got {:?}", ucan.token_type())
             ));
         }
 
         if !matches!(ucan.role(), Role::Node | Role::User) {
-            return Err(ResourceUcanError::ValidationFailed(
+            return Err(UcanTokenError::ValidationFailed(
                 format!("FolderShare must have Node or User role, got {:?}", ucan.role())
             ));
         }
@@ -719,7 +719,7 @@ impl FolderShareToken {
         Ok(Self { ucan })
     }
 
-    pub fn ucan(&self) -> &ResourceUcan {
+    pub fn ucan(&self) -> &GenericUcan {
         &self.ucan
     }
 
@@ -731,9 +731,9 @@ impl FolderShareToken {
         self.ucan.folder_id().expect("FolderShare must have folder_id")
     }
 
-    pub fn get_delegation_template(&self, role: &str) -> ResourceUcanResult<&DelegationTemplate> {
+    pub fn get_delegation_template(&self, role: &str) -> UcanTokenResult<&DelegationTemplate> {
         self.ucan.get_delegation_template(role).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role))
         })
     }
 
@@ -762,17 +762,17 @@ impl UcanToken for FolderShareToken {
 }
 
 impl HasId for FolderShareToken {
-    fn id(&self) -> Result<String, ResourceUcanError> {
+    fn id(&self) -> Result<String, UcanTokenError> {
         self.ucan.folder_id().ok_or_else(|| {
-            ResourceUcanError::MissingField("folder_id not found in token facts".to_string())
+            UcanTokenError::MissingField("folder_id not found in token facts".to_string())
         })
     }
 }
 
 impl CanDelegate for FolderShareToken {
-    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, ResourceUcanError> {
+    fn delegation_template(&self, role: Role) -> Result<&DelegationTemplate, UcanTokenError> {
         self.ucan.get_delegation_template(role.as_str()).ok_or_else(|| {
-            ResourceUcanError::MissingField(format!("No delegation template for role: {}", role.as_str()))
+            UcanTokenError::MissingField(format!("No delegation template for role: {}", role.as_str()))
         })
     }
 }
@@ -788,21 +788,21 @@ impl FolderOps for FolderShareToken {
 /// Folder viewer token (for Viewer role)
 #[derive(Debug, Clone)]
 pub struct FolderViewerToken {
-    ucan: ResourceUcan,
+    ucan: GenericUcan,
 }
 
 impl FolderViewerToken {
-    pub fn from_token(token: &str) -> ResourceUcanResult<Self> {
-        let ucan = ResourceUcan::from_token(token)?;
+    pub fn from_token(token: &str) -> UcanTokenResult<Self> {
+        let ucan = GenericUcan::from_token(token)?;
 
         if ucan.token_type() != ResourceTokenType::FolderViewer {
-            return Err(ResourceUcanError::InvalidTokenType(
+            return Err(UcanTokenError::InvalidTokenType(
                 format!("Expected FolderViewer, got {:?}", ucan.token_type())
             ));
         }
 
         if ucan.role() != Role::Viewer {
-            return Err(ResourceUcanError::ValidationFailed(
+            return Err(UcanTokenError::ValidationFailed(
                 format!("FolderViewer must have Viewer role, got {:?}", ucan.role())
             ));
         }
@@ -810,7 +810,7 @@ impl FolderViewerToken {
         Ok(Self { ucan })
     }
 
-    pub fn ucan(&self) -> &ResourceUcan {
+    pub fn ucan(&self) -> &GenericUcan {
         &self.ucan
     }
 
@@ -843,9 +843,9 @@ impl UcanToken for FolderViewerToken {
 }
 
 impl HasId for FolderViewerToken {
-    fn id(&self) -> Result<String, ResourceUcanError> {
+    fn id(&self) -> Result<String, UcanTokenError> {
         self.ucan.folder_id().ok_or_else(|| {
-            ResourceUcanError::MissingField("folder_id not found in token facts".to_string())
+            UcanTokenError::MissingField("folder_id not found in token facts".to_string())
         })
     }
 }

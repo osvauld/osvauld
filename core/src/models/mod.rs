@@ -26,7 +26,7 @@ pub use crate::ucan::types::{
 };
 
 pub use crate::ucan::parser::{
-    ResourceUcan, DelegationTemplate, ResourceUcanError, ResourceUcanResult,
+    GenericUcan, DelegationTemplate, UcanTokenError, UcanTokenResult,
 };
 
 pub use crate::ucan::token::{

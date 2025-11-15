@@ -1,5 +1,5 @@
 use crypto_utils::errors::{CryptoError, UcanError};
-use osvauld_core::models::{ConnectionTokenError, ResourceUcanError};
+use osvauld_core::models::{ConnectionTokenError, UcanTokenError};
 use osvauld_core::repositories::RepositoryError;
 use thiserror::Error;
 
@@ -24,7 +24,7 @@ pub enum ServiceError {
     Ucan(#[from] UcanError),
 
     #[error(transparent)]
-    ResourceUcan(#[from] ResourceUcanError),
+    GenericUcan(#[from] UcanTokenError),
 
     #[error(transparent)]
     ConnectionToken(#[from] ConnectionTokenError),
@@ -165,7 +165,7 @@ pub enum ResourceServiceError {
     SerializationError(String),
 
     #[error(transparent)]
-    ResourceUcan(#[from] ResourceUcanError),
+    GenericUcan(#[from] UcanTokenError),
 
     #[error(transparent)]
     ConnectionToken(#[from] ConnectionTokenError),
@@ -184,7 +184,7 @@ impl From<ServiceError> for ResourceServiceError {
             ServiceError::InvalidUcan(msg) => ResourceServiceError::UcanError(msg),
             ServiceError::Crypto(e) => ResourceServiceError::Crypto(e),
             ServiceError::Repository(e) => ResourceServiceError::Repository(e),
-            ServiceError::ResourceUcan(e) => ResourceServiceError::ResourceUcan(e),
+            ServiceError::GenericUcan(e) => ResourceServiceError::GenericUcan(e),
             ServiceError::ConnectionToken(_) => ResourceServiceError::UcanError("Connection token error".to_string()),
             _ => ResourceServiceError::InvalidState(format!("Service error: {}", err)),
         }

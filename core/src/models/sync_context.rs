@@ -1,34 +1,34 @@
 use crate::ucan::types::SyncDecision;
-use crate::ucan::parser::ResourceUcan;
+use crate::ucan::parser::GenericUcan;
 
 /// Context for dual-UCAN sync decisions
 #[derive(Debug, Clone)]
 pub struct SyncContext {
-    our_ucan: ResourceUcan,
-    peer_ucan: ResourceUcan,
+    our_ucan: GenericUcan,
+    peer_ucan: GenericUcan,
 }
 
 impl SyncContext {
     /// Create sync context from two raw tokens
     pub fn new(our_token: &str, peer_token: &str) -> Result<Self, String> {
-        let our_ucan = ResourceUcan::from_token(our_token)
+        let our_ucan = GenericUcan::from_token(our_token)
             .map_err(|e| format!("Failed to parse our token: {}", e))?;
-        let peer_ucan = ResourceUcan::from_token(peer_token)
+        let peer_ucan = GenericUcan::from_token(peer_token)
             .map_err(|e| format!("Failed to parse peer token: {}", e))?;
 
         Ok(Self { our_ucan, peer_ucan })
     }
 
     /// Create sync context from parsed UCANs
-    pub fn from_ucans(our_ucan: ResourceUcan, peer_ucan: ResourceUcan) -> Self {
+    pub fn from_ucans(our_ucan: GenericUcan, peer_ucan: GenericUcan) -> Self {
         Self { our_ucan, peer_ucan }
     }
 
-    pub fn our_ucan(&self) -> &ResourceUcan {
+    pub fn our_ucan(&self) -> &GenericUcan {
         &self.our_ucan
     }
 
-    pub fn peer_ucan(&self) -> &ResourceUcan {
+    pub fn peer_ucan(&self) -> &GenericUcan {
         &self.peer_ucan
     }
 }

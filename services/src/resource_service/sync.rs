@@ -361,14 +361,14 @@ pub async fn prepare_resource_transfer(
     )
     .await?;
 
-    // Prepare resource data (filter and encrypt using peer's UCAN)
+    // Prepare resource data (filter and encrypt using peer's PGP public key)
     // Returns base64-encoded strings ready for EncryptedResource
-    let peer_did = &peer_user.ucan_pub_key;
+    let peer_pgp_key = &peer_user.public_key;
     let (encrypted_data, encrypted_key) = prepare_resource_for_peer(
         resource_id,
         &our_ucan,
         &peer_ucan,
-        peer_did,
+        peer_pgp_key,
         repo_ctx,
         crypto_utils,
     )
@@ -413,7 +413,7 @@ pub async fn save_resource_transfer(
 /// # Arguments
 /// * `resource` - EncryptedResource to save (contains peer's delegated UCAN)
 /// * `share_records` - ALL share_records for this resource (for forwarding to viewers)
-/// * `owner_folder_ucan` - Owner's folder UCAN (proves add_resources capability)
+/// * `folder_ucan` - Owner's folder UCAN (proves add_resources capability)
 /// * `domain` - Domain for UCAN validation
 /// * `repo_ctx` - Database repository context
 ///
@@ -423,7 +423,7 @@ pub async fn save_resource_transfer(
 pub async fn accept_resource_from_peer(
     resource: &EncryptedResource,
     share_records: &[ShareRecord],
-    owner_folder_ucan: &str,
+    folder_ucan: &str,
     domain: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<()> {
@@ -431,10 +431,10 @@ pub async fn accept_resource_from_peer(
     info!("  Folder: {}", resource.folder_id);
     info!("  Share records: {}", share_records.len());
 
-    // 1. Validate owner_folder_ucan has add_resources capability
+    // 1. Validate folder_ucan has add_resources capability
     info!("  Step 1: Validating owner folder UCAN has add_resources capability");
     let folder_id = crate::ucan_service::validate_folder_token_has_add_resources(
-        owner_folder_ucan,
+        folder_ucan,
         domain,
     )
     .map_err(|e| {

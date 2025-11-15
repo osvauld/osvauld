@@ -206,6 +206,11 @@ pub enum ParsedCapabilityUri {
 
 impl ParsedCapabilityUri {
     /// Parse a capability URI string into a typed structure
+    ///
+    /// URI Formats (from permissions.ts):
+    /// - Folder:   `domain:folder:id:operation` (e.g., `sthalam:folder:xyz:add_resources`)
+    /// - Resource: `domain:resource:id:doc_name` (e.g., `sthalam:resource:abc:content_doc`)
+    /// - User:     `domain:user:capability_type:user_id` (e.g., `sthalam:user:connect:user123`)
     pub fn parse(uri: &str) -> Self {
         let parts: Vec<&str> = uri.split(':').collect();
 
@@ -213,43 +218,48 @@ impl ParsedCapabilityUri {
             return ParsedCapabilityUri::Other(uri.to_string());
         }
 
-        let domain = parts[0];
-        let resource_type = parts[1];
+        // Extract domain (always at index 0)
+        let domain = match parts.get(0) {
+            Some(d) => d.to_string(),
+            None => return ParsedCapabilityUri::Other(uri.to_string()),
+        };
 
-        match resource_type {
-            "folder" if parts.len() >= 5 => {
-                // Format: domain:folder:id:operation:permission
-                if let (Some(folder_id), Some(operation), Some(permission)) =
-                    (parts.get(2), parts.get(3), parts.get(4))
-                {
+        // Parse based on capability class (at index 1)
+        match parts.get(1) {
+            Some(&"folder") => {
+                // Folder format: domain:folder:id:operation
+                if let (Some(folder_id), Some(operation)) = (parts.get(2), parts.get(3)) {
                     return ParsedCapabilityUri::Folder(FolderCapabilityUri {
-                        domain: domain.to_string(),
+                        domain,
                         folder_id: folder_id.to_string(),
                         operation: operation.to_string(),
-                        permission: permission.to_string(),
+                        permission: "allow".to_string(), // Default: permission is in UCAN value map
                     });
                 }
             }
-            "resource" if parts.len() >= 4 => {
-                // Format: domain:resource:id:doc_name
+
+            Some(&"resource") => {
+                // Resource format: domain:resource:id:doc_name
                 if let (Some(resource_id), Some(doc_name)) = (parts.get(2), parts.get(3)) {
                     return ParsedCapabilityUri::Resource(ResourceCapabilityUri {
-                        domain: domain.to_string(),
+                        domain,
                         resource_id: resource_id.to_string(),
                         doc_name: doc_name.to_string(),
                     });
                 }
             }
-            "user" if parts.len() >= 3 => {
-                // Format: domain:user-type:user_id or domain:user-type:id:...
+
+            Some(&"user") => {
+                // User format: domain:user:capability_type:user_id
                 if let (Some(capability_type), Some(user_id)) = (parts.get(2), parts.get(3)) {
                     return ParsedCapabilityUri::User(UserCapabilityUri {
-                        domain: domain.to_string(),
+                        domain,
                         capability_type: capability_type.to_string(),
                         user_id: user_id.to_string(),
                     });
                 }
             }
+
             _ => {}
         }
 

@@ -55,7 +55,7 @@ pub async fn send_folder_with_resources(
             error!("Failed to get folder {}: {}", folder_id, e);
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
         })?;
-    let owner_folder_ucan = owner_folder.ucan.clone();
+    let folder_ucan = owner_folder.ucan.clone();
 
     // 2. Send folder first
     send_folder_data(
@@ -71,7 +71,7 @@ pub async fn send_folder_with_resources(
         folder_id,
         recipient_user_id,
         current_user,
-        owner_folder_ucan,
+        folder_ucan,
         peer_conn,
         repo_ctx,
         crypto_utils,
@@ -346,7 +346,7 @@ pub async fn handle_folder_resources_request(
             error!("Failed to get folder {}: {}", folder_id, e);
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
         })?;
-    let owner_folder_ucan = owner_folder.ucan.clone();
+    let folder_ucan = owner_folder.ucan.clone();
 
     // 7. Send each resource with appropriate share_records
     for resource_id in resource_ids {
@@ -407,7 +407,7 @@ pub async fn handle_folder_resources_request(
         let resource_data = osvauld_core::models::p2p::ResourceDataSync {
             resource: peer_encrypted_resource,
             share_records,
-            owner_folder_ucan: owner_folder_ucan.clone(),
+            folder_ucan: folder_ucan.clone(),
         };
 
         if let Err(e) = resource_sync::send_resource_data(peer_conn.clone(), resource_data).await {

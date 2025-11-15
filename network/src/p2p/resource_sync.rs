@@ -27,7 +27,7 @@ use tracing::{error, info};
 /// * `folder_id` - ID of the folder containing the resources
 /// * `recipient_user_id` - User ID of the recipient (node)
 /// * `current_user` - Current user (owner) sending the resources
-/// * `owner_folder_ucan` - Owner's folder UCAN token
+/// * `folder_ucan` - Owner's folder UCAN token
 /// * `peer_conn` - Peer connection to send through
 /// * `repo_ctx` - Database repository context
 /// * `crypto_utils` - Crypto utilities for encryption
@@ -39,7 +39,7 @@ pub async fn send_all_resources_for_folder(
     folder_id: &str,
     recipient_user_id: &str,
     current_user: &User,
-    owner_folder_ucan: String,
+    folder_ucan: String,
     peer_conn: Arc<PeerConnection>,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
@@ -169,7 +169,7 @@ pub async fn send_all_resources_for_folder(
         let resource_data = ResourceDataSync {
             resource: peer_encrypted_resource,
             share_records: all_share_records,
-            owner_folder_ucan: owner_folder_ucan.clone(),
+            folder_ucan: folder_ucan.clone(),
         };
 
         // Send to peer (fire-and-forget pattern, log errors)
@@ -270,7 +270,7 @@ pub async fn process_resource_message(
 /// Validates the owner's folder UCAN has add_resources capability.
 ///
 /// # Arguments
-/// * `payload` - Reference to ResourceDataSync containing resource, share_records, and owner_folder_ucan
+/// * `payload` - Reference to ResourceDataSync containing resource, share_records, and folder_ucan
 /// * `peer_conn` - Peer connection (for emitting events)
 /// * `repo_ctx` - Database repository context
 /// * `_crypto_utils` - Crypto utilities (unused for now)
@@ -292,7 +292,7 @@ pub async fn handle_resource_data_sync(
     services::accept_resource_from_peer(
         &payload.resource,
         &payload.share_records,
-        &payload.owner_folder_ucan,
+        &payload.folder_ucan,
         domain,
         repo_ctx,
     )

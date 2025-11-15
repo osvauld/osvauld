@@ -16,8 +16,8 @@ pub use types::{
 };
 
 pub use parser::{
-    ResourceUcan, DelegationTemplate,
-    ResourceUcanError, ResourceUcanResult,
+    GenericUcan, DelegationTemplate,
+    UcanTokenError, UcanTokenResult,
 };
 
 pub use token::{
@@ -40,7 +40,7 @@ pub use token::{
 /// Prelude for convenient importing
 pub mod prelude {
     pub use crate::ucan::types::*;
-    pub use crate::ucan::parser::{ResourceUcan, DelegationTemplate};
+    pub use crate::ucan::parser::{GenericUcan, DelegationTemplate};
     pub use crate::ucan::token::*;
     pub use crate::ucan::{UcanToken, HasId, CanDelegate, ResourceOps, FolderOps};
     pub use crate::ucan::uri;

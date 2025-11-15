@@ -16,7 +16,7 @@ use osvauld_core::models::{
     document::{create_doc, state_frontiers},
     resource::{EncryptedResource, Resource},
     ResourceOwnerToken, ResourceShareToken, ResourceViewerToken,
-    ResourceUcan, SyncContext, SyncDecision,
+    GenericUcan, SyncContext, SyncDecision,
 };
 use persistance::database::RepositoryContext;
 use serde_json::Value;

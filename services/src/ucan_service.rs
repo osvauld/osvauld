@@ -21,7 +21,7 @@
 use crate::errors::{ServiceError, ServiceResult};
 use crypto_utils::CryptoUtils;
 use osvauld_core::ucan::{
-    parser::{ResourceUcan, DelegationTemplate},
+    parser::{GenericUcan, DelegationTemplate},
     token::{
         ConnectionToken, FolderOwnerToken, FolderShareToken, FolderViewerToken,
         NodeConnectionToken, OneTimeConnectionToken, OwnerConnectionToken,
@@ -691,7 +691,7 @@ pub mod resource_tokens {
         info!("  Origin DID (delegator): {}", delegator_did);
 
         // Parse delegator token
-        let parsed_ucan = ResourceUcan::from_token(delegator_resource_ucan)?;
+        let parsed_ucan = GenericUcan::from_token(delegator_resource_ucan)?;
 
         // 1. Extract delegation template for peer's role (DATA-DRIVEN)
         let template = parsed_ucan.get_delegation_template(peer_role).ok_or_else(|| {
@@ -1359,12 +1359,12 @@ pub mod validation {
     /// * `Err` if parsing fails or required fields missing
     pub async fn validate_ucan_structure(ucan_token: &str) -> ServiceResult<()> {
         // Attempt to parse the UCAN
-        let _ucan = ResourceUcan::from_token(ucan_token).map_err(|e| {
+        let _ucan = GenericUcan::from_token(ucan_token).map_err(|e| {
             crate::errors::ServiceError::InvalidUcan(format!("UCAN parsing failed: {}", e))
         })?;
 
         // If parsing succeeds, the structure is valid
-        // (ResourceUcan::from_token() validates token_type, role, capabilities, etc.)
+        // (GenericUcan::from_token() validates token_type, role, capabilities, etc.)
         Ok(())
     }
 }
@@ -1377,7 +1377,7 @@ pub mod validation {
 /// extraction patterns while using the new typed token infrastructure.
 pub mod utilities {
     use super::*;
-    use osvauld_core::models::{ResourceUcan, Role};
+    use osvauld_core::models::{GenericUcan, Role};
 
     /// Extract resource ID from UCAN token
     ///
@@ -1390,7 +1390,7 @@ pub mod utilities {
     /// * `Ok(resource_id)` - Extracted resource ID
     /// * `Err` - If parsing fails or resource ID not found
     pub async fn extract_resource_id(ucan_token: &str) -> ServiceResult<String> {
-        let ucan = ResourceUcan::from_token(ucan_token)
+        let ucan = GenericUcan::from_token(ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
         ucan.resource_id()
@@ -1416,7 +1416,7 @@ pub mod utilities {
         viewer_ucan_token: &str,
         _domain: &str,
     ) -> ServiceResult<String> {
-        let ucan = ResourceUcan::from_token(viewer_ucan_token)
+        let ucan = GenericUcan::from_token(viewer_ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
         ucan.folder_id()
@@ -1452,7 +1452,7 @@ pub mod utilities {
     /// * `Err` - If token parsing fails or folder_id is not present
     pub fn extract_folder_id(ucan_token: &str) -> ServiceResult<String> {
         // Parse token
-        let ucan = ResourceUcan::from_token(ucan_token)
+        let ucan = GenericUcan::from_token(ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
         // Extract folder_id from facts
@@ -1482,18 +1482,21 @@ pub mod utilities {
         ucan_token: &str,
         domain: &str,
     ) -> ServiceResult<String> {
-        // Parse token
-        let ucan = ResourceUcan::from_token(ucan_token)
-            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+        use osvauld_core::ucan::token::{FolderOwnerToken, FolderShareToken, UcanToken};
 
-        // Extract folder_id from facts
-        let folder_id = ucan.folder_id().ok_or_else(|| {
-            crate::errors::ServiceError::InvalidUcan(
-                "No folder ID found in UCAN".to_string(),
+        // Try to parse as FolderOwnerToken or FolderShareToken
+        let (folder_id, ucan) = if let Ok(token) = FolderOwnerToken::from_token(ucan_token) {
+            (token.folder_id(), token.ucan().clone())
+        } else if let Ok(token) = FolderShareToken::from_token(ucan_token) {
+            (token.folder_id(), token.ucan().clone())
+        } else {
+            return Err(crate::errors::ServiceError::InvalidUcan(
+                "Invalid folder token - must be owner or share token".to_string(),
             )
-        })?;
+            .into());
+        };
 
-        // Check for add_resources capability using ParsedCapabilityUri
+        // Check for add_resources capability using parsed capabilities from the underlying GenericUcan
         let has_add_resources = ucan
             .parsed_capabilities()
             .iter()
@@ -1551,7 +1554,7 @@ pub mod utilities {
     pub async fn extract_doc_capabilities(
         ucan_token: &str,
     ) -> ServiceResult<std::collections::HashMap<String, String>> {
-        let ucan = ResourceUcan::from_token(ucan_token)
+        let ucan = GenericUcan::from_token(ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
         let capabilities = ucan
@@ -1576,7 +1579,7 @@ pub mod utilities {
     pub async fn extract_facts(
         ucan_token: &str,
     ) -> ServiceResult<Option<serde_json::Map<String, serde_json::Value>>> {
-        let ucan = ResourceUcan::from_token(ucan_token)
+        let ucan = GenericUcan::from_token(ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
         // Convert BTreeMap to serde_json::Map
@@ -1620,7 +1623,7 @@ pub mod utilities {
     pub async fn extract_folder_capabilities(
         ucan_token: &str,
     ) -> ServiceResult<Vec<String>> {
-        let ucan = ResourceUcan::from_token(ucan_token)
+        let ucan = GenericUcan::from_token(ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
         let capabilities = ucan

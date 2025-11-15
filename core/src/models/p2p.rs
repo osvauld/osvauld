@@ -233,7 +233,7 @@ pub struct ResourceDataSync {
     /// All share records for this resource (enables node to forward viewer updates)
     pub share_records: Vec<ShareRecord>,
     /// Owner's folder UCAN token (proves add_resources permission)
-    pub owner_folder_ucan: String,
+    pub folder_ucan: String,
 }
 
 // Resource request protocol - initiated when peer doesn't have resource

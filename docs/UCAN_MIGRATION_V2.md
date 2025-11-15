@@ -389,6 +389,195 @@ Files to update:
 
 ---
 
+### Phase 5+: Data-Driven Token Type System (COMPLETED)
+
+#### 5+.1 Problem: Hardcoded Token Type Logic
+
+**Before:** Token types were hardcoded in backend services with match statements:
+
+```rust
+// ❌ Hardcoded logic - makes backend changes required for new token types
+let token_type = match peer_role {
+    "node" | "user" => "resource_share",
+    "viewer" => "resource_viewer",
+    _ => "resource_share",
+};
+facts.insert("token_type".to_string(), json!(token_type));
+```
+
+This had several issues:
+1. **Not extensible**: Adding new token types requires backend code changes
+2. **Tight coupling**: Business logic (what token type is) in technical code
+3. **Implicit semantics**: Relationship between role and token type not declared anywhere
+4. **Duplication**: Same logic repeated in multiple delegation functions
+
+#### 5+.2 Solution: Data-Driven Token Types via DelegationTemplate
+
+**Architecture Change:**
+- **Frontend** (permissions.ts) defines token types in templates - source of truth for authorization semantics
+- **Backend** executes templates as data - no business logic, just data flow
+- **Benefits**: New token types without code changes, explicit authorization model
+
+**Implementation:**
+
+1. **DelegationTemplate Structure Update** (core/src/ucan/parser.rs):
+```rust
+pub struct DelegationTemplate {
+    pub token_type: String,                      // ← NEW: Data-driven token type
+    pub capabilities: HashMap<String, String>,  // doc_name -> capability
+    pub sync: Option<SyncFacts>,
+}
+
+impl DelegationTemplate {
+    pub fn to_facts(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut facts = serde_json::Map::new();
+
+        // ← NEW: Include token_type from template (data-driven)
+        facts.insert("token_type".to_string(), serde_json::Value::String(self.token_type.clone()));
+
+        // Rest of facts...
+    }
+}
+```
+
+2. **Frontend Templates** (sthalam/frontend/desktop/src/config/permissions.ts):
+```typescript
+export const RESOURCE_TEMPLATE = {
+  owner_template: {
+    delegation: {
+      node: {
+        token_type: "resource_share",  // ← Explicitly defined - source of truth
+        capabilities: { ... }
+      },
+      viewer: {
+        token_type: "resource_viewer",  // ← Different token type = different behavior
+        capabilities: { ... }
+      }
+    }
+  }
+};
+
+export const FOLDER_TEMPLATE = {
+  owner_template: {
+    delegation: {
+      node: {
+        token_type: "folder_share",    // ← Also defined here
+        capabilities: { ... }
+      },
+      viewer: {
+        token_type: "folder_viewer",   // ← Explicit mapping
+        capabilities: { ... }
+      }
+    }
+  }
+};
+```
+
+3. **Backend Service Layer** (services/src/ucan_service.rs):
+```rust
+// ✅ Before: Removed hardcoded match statements
+// ✅ Now: Using template.to_facts() which includes token_type
+let mut facts = template.to_facts();  // token_type already included!
+facts.insert("role".to_string(), json!(peer_role));
+
+// In delegate_to_node(), delegate_to_user(), delegate_to_viewer(), delegate_by_role():
+// - NO token_type insertion (it comes from template)
+// - NO match logic on role
+// - Just use template.to_facts()
+```
+
+4. **Parser with Backward Compatibility** (core/src/ucan/parser.rs):
+```rust
+// Extract token_type from delegation template
+let token_type = template_obj
+    .get("token_type")
+    .and_then(|v| v.as_str())
+    .map(String::from)
+    .unwrap_or_else(|| format!("resource_{}", role_key)); // Fallback for old tokens
+```
+
+#### 5+.3 Design Philosophy: Resource-Driven Authorization
+
+This implements the **resource-driven design pattern**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ FRONTEND: Source of Truth                                   │
+│                                                             │
+│ permissions.ts defines:                                     │
+│ • What operations exist (add_resources, share_folder, etc) │
+│ • What capabilities grant access (collaborator, viewer)    │
+│ • What token types are used (resource_share, folder_share) │
+│ • How to delegate to different roles                       │
+└─────────────────────────────────────────────────────────────┘
+                        ↓
+                   [API call]
+                        ↓
+┌─────────────────────────────────────────────────────────────┐
+│ BACKEND: Dumb Executor                                      │
+│                                                             │
+│ ucan_service executes templates:                           │
+│ • Read template from parsed token                          │
+│ • Extract token_type from template (NOT from code logic)  │
+│ • Build new token with template data                       │
+│ • Sign and encrypt                                         │
+│                                                             │
+│ No business logic - just data flow                         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 5+.4 Benefits
+
+1. **Extensibility Without Code Changes**
+   - New token type? Update frontend template, done
+   - No backend deployment needed
+   - System automatically handles new types
+
+2. **Explicit Authorization Model**
+   - What token types exist is declared in frontend
+   - Relationship between role and token type is visible
+   - Single source of truth for authorization semantics
+
+3. **Separation of Concerns**
+   - Frontend owns authorization policy
+   - Backend executes policy as data
+   - Decoupled, easier to understand and maintain
+
+4. **Backward Compatibility**
+   - Old tokens without token_type work via fallback
+   - Graceful degradation to old behavior
+   - No breaking changes
+
+#### 5+.5 Files Modified
+
+- **core/src/ucan/parser.rs**
+  - Added `token_type: String` to DelegationTemplate
+  - Updated `to_facts()` to include token_type
+  - Updated `from_token()` to extract token_type with fallback
+
+- **services/src/ucan_service.rs**
+  - Removed hardcoded token_type in delegate_to_node()
+  - Removed hardcoded token_type in delegate_to_user()
+  - Removed hardcoded token_type in delegate_to_viewer()
+  - Updated delegate_by_role() to use template.to_facts()
+  - Removed unused extract_folder_id_with_add_resources()
+
+- **sthalam/frontend/desktop/src/config/permissions.ts**
+  - Added token_type to RESOURCE_TEMPLATE.delegation.node: "resource_share"
+  - Added token_type to RESOURCE_TEMPLATE.delegation.viewer: "resource_viewer"
+  - Added token_type to FOLDER_TEMPLATE.delegation.node: "folder_share"
+  - Added token_type to FOLDER_TEMPLATE.delegation.viewer: "folder_viewer"
+
+#### 5+.6 Testing
+
+Tested resource delegation flow:
+- ✅ Folder sync with UCAN-first publishing
+- ✅ Resources delegated with correct token types
+- ✅ No more "invalid token type" errors
+- ✅ All services build successfully
+
+---
+
 ### Phase 6: Cleanup (Day 5)
 
 #### 6.1 Delete Old Files
