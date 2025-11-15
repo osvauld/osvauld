@@ -152,6 +152,7 @@ impl<T: Clone> UcanCore<T> {
 /// Delegation template for a specific role
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelegationTemplate {
+    pub token_type: String,                      // Token type for delegated token (e.g., "resource_share")
     pub capabilities: HashMap<String, String>,  // doc_name -> capability
     pub sync: Option<SyncFacts>,
 }
@@ -207,9 +208,12 @@ impl DelegationTemplate {
     /// Convert template to UCAN facts JSON
     ///
     /// This creates the facts structure that will be embedded in the delegated token.
-    /// Includes both capabilities and sync facts if present.
+    /// Includes token_type, capabilities, and sync facts if present.
     pub fn to_facts(&self) -> serde_json::Map<String, serde_json::Value> {
         let mut facts = serde_json::Map::new();
+
+        // Add token_type (data-driven from template)
+        facts.insert("token_type".to_string(), serde_json::Value::String(self.token_type.clone()));
 
         // Add capabilities as a map
         let caps_json: serde_json::Map<String, serde_json::Value> = self.capabilities
@@ -396,6 +400,13 @@ impl ResourceUcan {
         if let Some(delegation_obj) = facts.get("delegation").and_then(|v| v.as_object()) {
             for (role_key, template_val) in delegation_obj {
                 if let Some(template_obj) = template_val.as_object() {
+                    // Extract token_type (data-driven from template)
+                    let token_type = template_obj
+                        .get("token_type")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| format!("resource_{}", role_key)); // Fallback for backward compatibility
+
                     // Extract capabilities map
                     let mut capabilities_map = HashMap::new();
                     if let Some(caps_obj) = template_obj.get("capabilities").and_then(|v| v.as_object()) {
@@ -438,6 +449,7 @@ impl ResourceUcan {
                     delegation_templates.insert(
                         role_key.clone(),
                         DelegationTemplate {
+                            token_type,
                             capabilities: capabilities_map,
                             sync,
                         },

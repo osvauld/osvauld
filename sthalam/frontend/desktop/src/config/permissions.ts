@@ -26,6 +26,7 @@ export const FOLDER_TEMPLATE = {
     delegation: {
       // What operations can be delegated to a node
       node: {
+        token_type: "folder_share",  // Data-driven: backend uses this for delegated token
         capabilities: {
           "get_share_link": "allow",
           "add_resources": "allow",
@@ -34,6 +35,7 @@ export const FOLDER_TEMPLATE = {
       },
       // What operations can be delegated to a viewer
       viewer: {
+        token_type: "folder_viewer",  // Data-driven: backend uses this for delegated token
         capabilities: {
           "request_resources": "allow",
           "get_share_link": "allow",
@@ -74,6 +76,7 @@ export const RESOURCE_TEMPLATE = {
     delegation: {
       // What the node receives
       node: {
+        token_type: "resource_share",  // Data-driven: backend uses this for delegated token
         capabilities: {
           "template_doc": "collaborator",
           "content_doc": "collaborator",
@@ -88,6 +91,7 @@ export const RESOURCE_TEMPLATE = {
       },
       // What viewers receive
       viewer: {
+        token_type: "resource_viewer",  // Data-driven: backend uses this for delegated token
         capabilities: {
           "template_doc": "viewer",
           "content_doc": "viewer",

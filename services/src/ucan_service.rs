@@ -75,7 +75,7 @@ pub async fn get_public_ucan_key(
 pub use connection_tokens::{issue_one_time, issue_peer_connection, issue_viewer_auth};
 pub use folder_tokens::{issue_folder_owner_token, issue_delegated_folder_token, delegate_to_node as delegate_folder_to_node, delegate_to_viewer as delegate_folder_to_viewer};
 pub use resource_tokens::{issue_owner_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer, delegate_by_role as delegate_resource_by_role};
-pub use utilities::{extract_resource_id, extract_folder_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, validate_folder_token_has_add_resources, validate_folder_ucan_and_get_id, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
+pub use utilities::{extract_resource_id, extract_folder_id, extract_folder_id_from_viewer_token, validate_folder_token_has_add_resources, validate_folder_ucan_and_get_id, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
 pub use validation::{validate_folder_access_for_resource, validate_ucan_structure, validate_peer_can_add_folder};
 
 // ==================== CONNECTION TOKENS MODULE ====================
@@ -478,8 +478,8 @@ pub mod resource_tokens {
 
         // 3. Convert template to facts (GENERIC)
         // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
+        // NOTE: token_type is already included in template.to_facts() (data-driven)
         let mut facts = template.to_facts();
-        facts.insert("token_type".to_string(), json!("resource_share"));
         facts.insert("role".to_string(), json!("node"));
 
         // 4. Get encrypted key
@@ -547,8 +547,8 @@ pub mod resource_tokens {
 
         // 3. Convert template to facts (GENERIC)
         // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
+        // NOTE: token_type is already included in template.to_facts() (data-driven)
         let mut facts = template.to_facts();
-        facts.insert("token_type".to_string(), json!("resource_share"));
         facts.insert("role".to_string(), json!("user"));
 
         // 4. Get encrypted key
@@ -616,8 +616,8 @@ pub mod resource_tokens {
 
         // 3. Convert template to facts (GENERIC)
         // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
+        // NOTE: token_type is already included in template.to_facts() (data-driven)
         let mut facts = template.to_facts();
-        facts.insert("token_type".to_string(), json!("resource_viewer"));
         facts.insert("role".to_string(), json!("viewer"));
 
         // 4. Get encrypted key
@@ -720,8 +720,9 @@ pub mod resource_tokens {
 
         // 3. Convert template to facts + add origin DID
         // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
+        // NOTE: token_type is already included in template.to_facts() (data-driven)
         let mut facts = template.to_facts();
-        facts.insert("token_type".to_string(), json!(format!("resource_{}", peer_role)));
+
         facts.insert("role".to_string(), json!(peer_role));
         facts.insert("origin".to_string(), json!(delegator_did)); // DID of delegator
 
@@ -1512,33 +1513,6 @@ pub mod utilities {
             )
             .into());
         }
-
-        Ok(folder_id)
-    }
-
-    pub async fn extract_folder_id_with_add_resources(
-        ucan_token: &str,
-        domain: &str,
-    ) -> ServiceResult<String> {
-        use crypto_utils::ucan_utils::check_capability;
-
-        // Parse token
-        let ucan = ResourceUcan::from_token(ucan_token)
-            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
-
-        // Extract folder_id
-        let folder_id = ucan.folder_id().ok_or_else(|| {
-            crate::errors::ServiceError::InvalidUcan(
-                "No folder ID found in UCAN".to_string(),
-            )
-        })?;
-
-        // Validate add_resources capability using proper UCAN validation
-        let folder_resource = format!("{}:folder:{}:add_resources", domain, folder_id);
-        check_capability(ucan.parsed(), &folder_resource, "allow")
-            .map_err(|_| crate::errors::ServiceError::InvalidUcan(
-                "Folder token does not have add_resources capability".to_string(),
-            ))?;
 
         Ok(folder_id)
     }

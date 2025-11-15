@@ -10,11 +10,23 @@ use ucan::Ucan;
 // ============================================================================
 
 /// Base trait for all UCAN tokens
-/// Provides access to raw token, role, and parsed UCAN
+/// Provides access to raw token, role, parsed UCAN, and parsed capabilities
 pub trait UcanToken {
     fn raw_token(&self) -> &str;
     fn role(&self) -> Role;
     fn parsed(&self) -> &Ucan;
+
+    /// Get parsed capability URIs for this token
+    ///
+    /// Default implementation extracts capabilities from the parsed UCAN,
+    /// but token types can override for cached versions.
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.parsed()
+            .capabilities()
+            .iter()
+            .map(|cap| ParsedCapabilityUri::parse(&cap.resource))
+            .collect()
+    }
 }
 
 /// Tokens with extractable IDs (from facts)
@@ -194,6 +206,10 @@ impl UcanToken for ConnectionToken {
 
     fn parsed(&self) -> &Ucan {
         self.core.parsed()
+    }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.core.parsed_capabilities().to_vec()
     }
 }
 
@@ -403,6 +419,10 @@ impl UcanToken for ResourceOwnerToken {
     fn parsed(&self) -> &Ucan {
         self.ucan.parsed()
     }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.ucan.parsed_capabilities().to_vec()
+    }
 }
 
 impl HasId for ResourceOwnerToken {
@@ -488,6 +508,10 @@ impl UcanToken for ResourceShareToken {
     fn parsed(&self) -> &Ucan {
         self.ucan.parsed()
     }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.ucan.parsed_capabilities().to_vec()
+    }
 }
 
 impl HasId for ResourceShareToken {
@@ -563,6 +587,10 @@ impl UcanToken for ResourceViewerToken {
     fn parsed(&self) -> &Ucan {
         self.ucan.parsed()
     }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.ucan.parsed_capabilities().to_vec()
+    }
 }
 
 impl HasId for ResourceViewerToken {
@@ -635,6 +663,10 @@ impl UcanToken for FolderOwnerToken {
 
     fn parsed(&self) -> &Ucan {
         self.ucan.parsed()
+    }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.ucan.parsed_capabilities().to_vec()
     }
 }
 
@@ -723,6 +755,10 @@ impl UcanToken for FolderShareToken {
     fn parsed(&self) -> &Ucan {
         self.ucan.parsed()
     }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.ucan.parsed_capabilities().to_vec()
+    }
 }
 
 impl HasId for FolderShareToken {
@@ -799,6 +835,10 @@ impl UcanToken for FolderViewerToken {
 
     fn parsed(&self) -> &Ucan {
         self.ucan.parsed()
+    }
+
+    fn parsed_capabilities(&self) -> Vec<ParsedCapabilityUri> {
+        self.ucan.parsed_capabilities().to_vec()
     }
 }
 
