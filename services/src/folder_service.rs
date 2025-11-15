@@ -255,15 +255,13 @@ pub async fn get_responder_folder_ucan_for_folder(
     tracing::info!("Looking up responder's folder_ucan");
 
     // Extract folder_id from initiator's folder_ucan
-    let folder_id = crate::ucan_service::extract_folder_id_with_add_resources(
-        initiator_folder_ucan,
-        domain
-    )
-    .await
-    .map_err(|e| {
-        tracing::error!("Failed to extract folder_id from initiator's folder_ucan: {}", e);
-        FolderServiceError::UcanError(format!("No folder_id found in UCAN: {}", e))
-    })?;
+    // Note: We just extract the folder_id; we don't validate capabilities on the initiator's token.
+    // The initiator's token is used by them to request resources, not by us to store anything.
+    let folder_id = crate::ucan_service::extract_folder_id(initiator_folder_ucan)
+        .map_err(|e| {
+            tracing::error!("Failed to extract folder_id from initiator's folder_ucan: {}", e);
+            FolderServiceError::UcanError(format!("No folder_id found in UCAN: {}", e))
+        })?;
 
     tracing::info!("Looking up responder's folder_ucan for folder {}", folder_id);
 

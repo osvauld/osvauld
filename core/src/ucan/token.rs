@@ -1,4 +1,5 @@
-use super::parser::{DelegationTemplate, ResourceUcan, ResourceUcanError, ResourceUcanResult};
+use super::parser::{DelegationTemplate, ResourceUcan, ResourceUcanError, ResourceUcanResult, UcanCore};
+use super::uri::ParsedCapabilityUri;
 use super::types::{Capability, ConnectionTokenType, ResourceTokenType, Role};
 use std::collections::HashMap;
 use std::result::Result as StdResult;
@@ -90,10 +91,7 @@ pub type ConnectionTokenResult<T> = StdResult<T, ConnectionTokenError>;
 /// Parsed connection UCAN with domain logic
 #[derive(Debug, Clone)]
 pub struct ConnectionToken {
-    raw_token: String,
-    parsed: Ucan,
-    token_type: ConnectionTokenType,
-    role: Role,
+    core: UcanCore<ConnectionTokenType>,
     first_connection: bool,
 }
 
@@ -133,43 +131,47 @@ impl ConnectionToken {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        // Create UcanCore with parsed capabilities
+        let core = UcanCore::new(token.to_string(), parsed, role, token_type);
+
         Ok(Self {
-            raw_token: token.to_string(),
-            parsed,
-            token_type,
-            role,
+            core,
             first_connection,
         })
     }
 
     // Accessors
     pub fn raw_token(&self) -> &str {
-        &self.raw_token
+        self.core.raw_token()
     }
 
     pub fn token_type(&self) -> ConnectionTokenType {
-        self.token_type
+        self.core.token_type().clone()
     }
 
     pub fn role(&self) -> Role {
-        self.role
+        self.core.role()
     }
 
     pub fn parsed(&self) -> &Ucan {
-        &self.parsed
+        self.core.parsed()
     }
 
     pub fn is_first_connection(&self) -> bool {
         self.first_connection
     }
 
+    pub fn parsed_capabilities(&self) -> &[ParsedCapabilityUri] {
+        self.core.parsed_capabilities()
+    }
+
     // Validation
     pub fn is_one_time(&self) -> bool {
-        self.token_type.is_one_time()
+        self.token_type().is_one_time()
     }
 
     pub fn can_delegate_to(&self, target_role: Role) -> bool {
-        match self.token_type {
+        match self.token_type() {
             ConnectionTokenType::OneTimeConnection => false, // One-time tokens can't delegate
             ConnectionTokenType::OwnerConnection => true,   // Owner can delegate to anyone
             ConnectionTokenType::NodeConnection => matches!(target_role, Role::User | Role::Viewer),
@@ -183,15 +185,15 @@ impl ConnectionToken {
 // Implement UcanToken trait for ConnectionToken
 impl UcanToken for ConnectionToken {
     fn raw_token(&self) -> &str {
-        &self.raw_token
+        self.core.raw_token()
     }
 
     fn role(&self) -> Role {
-        self.role
+        self.core.role()
     }
 
     fn parsed(&self) -> &Ucan {
-        &self.parsed
+        self.core.parsed()
     }
 }
 

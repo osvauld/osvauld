@@ -433,11 +433,10 @@ pub async fn accept_resource_from_peer(
 
     // 1. Validate owner_folder_ucan has add_resources capability
     info!("  Step 1: Validating owner folder UCAN has add_resources capability");
-    let folder_id = crate::ucan_service::extract_folder_id_with_add_resources(
+    let folder_id = crate::ucan_service::validate_folder_token_has_add_resources(
         owner_folder_ucan,
         domain,
     )
-    .await
     .map_err(|e| {
         error!("❌ Owner folder UCAN validation failed: {}", e);
         ResourceServiceError::UcanError(format!(

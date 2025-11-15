@@ -75,7 +75,7 @@ pub async fn get_public_ucan_key(
 pub use connection_tokens::{issue_one_time, issue_peer_connection, issue_viewer_auth};
 pub use folder_tokens::{issue_folder_owner_token, issue_delegated_folder_token, delegate_to_node as delegate_folder_to_node, delegate_to_viewer as delegate_folder_to_viewer};
 pub use resource_tokens::{issue_owner_token, delegate_to_node as delegate_resource_to_node, delegate_to_viewer as delegate_resource_to_viewer, delegate_by_role as delegate_resource_by_role};
-pub use utilities::{extract_resource_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, validate_folder_ucan_and_get_id, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
+pub use utilities::{extract_resource_id, extract_folder_id, extract_folder_id_from_viewer_token, extract_folder_id_with_add_resources, validate_folder_token_has_add_resources, validate_folder_ucan_and_get_id, extract_doc_capabilities, extract_facts, extract_folder_capabilities, get_cid};
 pub use validation::{validate_folder_access_for_resource, validate_ucan_structure, validate_peer_can_add_folder};
 
 // ==================== CONNECTION TOKENS MODULE ====================
@@ -1437,6 +1437,85 @@ pub mod utilities {
     ///
     /// # Returns
     /// * `Ok(folder_id)` - Extracted folder ID if has add_resources capability
+    /// Extract folder ID from a folder UCAN token (no capability check)
+    ///
+    /// Parses a folder token and extracts the folder_id from the facts.
+    /// This is a simple extraction operation with no capability validation.
+    /// Use this when you just need the folder ID.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - Folder UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(folder_id)` - The extracted folder ID
+    /// * `Err` - If token parsing fails or folder_id is not present
+    pub fn extract_folder_id(ucan_token: &str) -> ServiceResult<String> {
+        // Parse token
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        // Extract folder_id from facts
+        let folder_id = ucan.folder_id().ok_or_else(|| {
+            crate::errors::ServiceError::InvalidUcan(
+                "No folder ID found in UCAN".to_string(),
+            )
+        })?;
+
+        Ok(folder_id)
+    }
+
+    /// Validate that a folder UCAN token has add_resources capability
+    ///
+    /// Checks if the folder token contains the add_resources capability
+    /// using ParsedCapabilityUri for type-safe, explicit validation.
+    /// Returns the folder_id if validation succeeds.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - Folder UCAN token string
+    /// * `domain` - Domain (e.g., "sthalam")
+    ///
+    /// # Returns
+    /// * `Ok(folder_id)` - If token has add_resources capability
+    /// * `Err` - If token parsing fails, no folder_id, or no add_resources capability
+    pub fn validate_folder_token_has_add_resources(
+        ucan_token: &str,
+        domain: &str,
+    ) -> ServiceResult<String> {
+        // Parse token
+        let ucan = ResourceUcan::from_token(ucan_token)
+            .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
+
+        // Extract folder_id from facts
+        let folder_id = ucan.folder_id().ok_or_else(|| {
+            crate::errors::ServiceError::InvalidUcan(
+                "No folder ID found in UCAN".to_string(),
+            )
+        })?;
+
+        // Check for add_resources capability using ParsedCapabilityUri
+        let has_add_resources = ucan
+            .parsed_capabilities()
+            .iter()
+            .any(|cap| {
+                if let osvauld_core::ucan::uri::ParsedCapabilityUri::Folder(folder_cap) = cap {
+                    folder_cap.folder_id() == folder_id
+                        && folder_cap.has_operation("add_resources")
+                        && folder_cap.has_permission("allow")
+                } else {
+                    false
+                }
+            });
+
+        if !has_add_resources {
+            return Err(crate::errors::ServiceError::InvalidUcan(
+                "Folder token does not have add_resources capability".to_string(),
+            )
+            .into());
+        }
+
+        Ok(folder_id)
+    }
+
     pub async fn extract_folder_id_with_add_resources(
         ucan_token: &str,
         domain: &str,
@@ -1609,12 +1688,6 @@ pub mod utilities {
         })
     }
 
-    /// Stub: Extract folder ID from viewer token
-    pub fn extract_folder_id(_token: &str) -> ServiceResult<String> {
-        Err(ServiceError::Internal {
-            message: "Viewer support not yet implemented".to_string(),
-        })
-    }
 
     /// Stub: Extract audience from UCAN token
     pub fn extract_audience(_token: &str) -> ServiceResult<String> {

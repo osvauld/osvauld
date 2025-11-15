@@ -282,13 +282,14 @@ pub async fn handle_folder_resources_request(
     info!("📦 Received FolderResourcesRequest from peer");
 
     // 1. Validate folder_token and extract folder_id
+    // Note: We validate that the folder token has add_resources capability because
+    // we're about to use it to send resources back to the peer
     let domain = &peer_conn.domain;
     let folder_id =
-        ucan_service::extract_folder_id_with_add_resources(&payload.folder_token, domain)
-            .await
+        ucan_service::validate_folder_token_has_add_resources(&payload.folder_token, domain)
             .map_err(|e| {
                 error!(
-                    "Failed to validate folder token and extract folder_id: {}",
+                    "Failed to validate folder token has add_resources capability: {}",
                     e
                 );
                 crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
