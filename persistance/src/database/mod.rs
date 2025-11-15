@@ -42,7 +42,7 @@ pub async fn connect_database(db_path: &str) -> Result<DbConnection, Box<dyn std
     Ok(Arc::new(pool))
 }
 
-// Custom connection customizer to enable WAL mode
+// Custom connection customizer for per-connection settings
 #[derive(Debug)]
 struct ConnectionCustomizer;
 
@@ -50,16 +50,32 @@ impl diesel::r2d2::CustomizeConnection<SqliteConnection, diesel::r2d2::Error> fo
     fn on_acquire(&self, conn: &mut SqliteConnection) -> Result<(), diesel::r2d2::Error> {
         use diesel::connection::SimpleConnection;
 
-        // Enable WAL mode for better concurrency
+        // Set connection-specific PRAGMAs
+        // Note: WAL mode is set once during initialization, not per-connection
         conn.batch_execute(
-            "PRAGMA journal_mode = WAL;
-             PRAGMA synchronous = NORMAL;
-             PRAGMA busy_timeout = 5000;
-             PRAGMA cache_size = -64000;"
+            "PRAGMA busy_timeout = 5000;
+             PRAGMA synchronous = NORMAL;"
         ).map_err(diesel::r2d2::Error::QueryError)?;
 
         Ok(())
     }
+}
+
+/// Initialize WAL mode and database-wide settings
+/// Should be called once after database creation
+async fn setup_wal_mode(pool: &DbConnection) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    use diesel::connection::SimpleConnection;
+
+    let mut conn = pool.get()?;
+
+    // Set WAL mode and other database-wide settings once
+    conn.batch_execute(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA cache_size = -64000;"
+    )?;
+
+    info!("WAL mode enabled for database");
+    Ok(())
 }
 pub fn initialize_repositories(connection: DbConnection) -> RepositoryContext {
     let folder_repo = Arc::new(SqliteFolderRepository::new(connection.clone()));
@@ -94,6 +110,12 @@ pub async fn initialize_database(
     db_path: &str,
 ) -> Result<DbConnection, Box<dyn std::error::Error + Send + Sync>> {
     let conn = connect_database(db_path).await?;
+
+    // Setup WAL mode first (one-time, database-wide setting)
+    setup_wal_mode(&conn).await?;
+
+    // Run migrations
     run_migrations(&conn).await?;
+
     Ok(conn)
 }

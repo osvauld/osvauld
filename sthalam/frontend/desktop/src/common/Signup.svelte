@@ -143,6 +143,16 @@
 			});
 			//TODO: add username to addDevice API for collecting username here and setting it on the dashboard
 			await sendMessage("login", { passphrase });
+
+			// Initialize P2P network after successful login
+			try {
+				await sendMessage("startP2PListener");
+				console.log("P2P network initialized after signup");
+			} catch (error) {
+				console.error("Failed to initialize P2P network:", error);
+				// Non-fatal error - user is logged in but P2P won't work
+			}
+
 			handleUserSignUpComplete(true);
 		} catch (error) {
 			console.error("Error during recovery password setup:", error);
@@ -162,6 +172,16 @@
 				username: collectedUsername,
 			});
 			const privatekey = await sendMessage("login", { passphrase });
+
+			// Initialize P2P network after successful login
+			try {
+				await sendMessage("startP2PListener");
+				console.log("P2P network initialized after new user signup");
+			} catch (error) {
+				console.error("Failed to initialize P2P network:", error);
+				// Non-fatal error - user is logged in but P2P won't work
+			}
+
 			const certificate = await sendMessage("exportCertificate", {
 				passphrase,
 			});

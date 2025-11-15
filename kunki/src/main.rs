@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use crypto_utils::CryptoUtils;
-use log::{error, info};
+use tracing::{error, info};
 use network::{P2PService, p2p_init};
 use osvauld_core::models::UserRole;
 use persistance::{database::initialize_repositories, initialize_database};
@@ -62,17 +62,6 @@ enum Commands {
         /// Passphrase to unlock the certificate (optional, will prompt if not provided)
         #[arg(short, long)]
         passphrase: Option<String>,
-
-        /// Generate and print a one-time connection token
-        #[arg(short = 't', long)]
-        print_token: bool,
-    },
-
-    /// Generate a connection token without starting the listener
-    Token {
-        /// Passphrase to unlock the certificate (optional, will prompt if not provided)
-        #[arg(short, long)]
-        passphrase: Option<String>,
     },
 
     /// Generate a folder share token for public viewing
@@ -89,12 +78,10 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize logging with filters to suppress noisy dependencies
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(
-            "debug,iroh=warn,tracing=warn,iroh::magicsock=warn,quinn=warn"
-        )
-    ).init();
+    // Initialize rich tracing with tree formatting
+    let _guard = logging_utils::init_dev()?;
+
+    info!("🚀 Kunki CLI starting");
 
     let cli = Cli::parse();
 
@@ -110,6 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             })?;
     let repo_ctx = Arc::new(initialize_repositories(db_connection.clone()));
     let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
+    let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
     let domain = Arc::new(cli.domain);
 
     match cli.command {
@@ -120,23 +108,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pass = get_passphrase(passphrase, "Enter passphrase:")?;
             handle_init(&username, &pass, repo_ctx.clone(), domain.clone()).await?;
         }
-        Commands::Start {
-            passphrase,
-            print_token,
-        } => {
+        Commands::Start { passphrase } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
             handle_start(
                 &pass,
-                print_token,
                 repo_ctx.clone(),
                 crypto_utils.clone(),
+                ucan_service.clone(),
                 domain.clone(),
             )
             .await?;
-        }
-        Commands::Token { passphrase } => {
-            let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
-            handle_token(&pass, repo_ctx.clone(), crypto_utils.clone(), &domain).await?;
         }
         Commands::FolderToken {
             passphrase,
@@ -148,6 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &folder_id,
                 repo_ctx.clone(),
                 crypto_utils.clone(),
+                ucan_service.clone(),
                 &domain,
             )
             .await?;
@@ -185,9 +167,9 @@ async fn handle_init(
 
 async fn handle_start(
     passphrase: &str,
-    print_token: bool,
     repo_ctx: Arc<persistance::database::RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ucan_service: Arc<RwLock<gurkha::UcanService>>,
     domain: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
@@ -205,45 +187,52 @@ async fn handle_start(
     info!("✔ User ID: {}", user.id);
     info!("✔ Device ID: {}", device.id);
 
-    // Generate and print connection token if requested
-    if print_token {
-        let (token, pub_key) = generate_one_time_ucan_token(
-            &domain,
-            &UserRole::Owner.to_string(),
-            &crypto_utils,
-            repo_ctx.clone(),
-        )
-        .await?;
-
-        println!("\n╔══════════════════════════════════════════╗");
-        println!("ONE-TIME CONNECTION TOKEN");
-        println!("╚══════════════════════════════════════════╝");
-        println!("Token: {}", token);
-        println!("╚══════════════════════════════════════════╝");
-        println!("Public Key: {}", pub_key);
-        println!("╚══════════════════════════════════════════╝");
-
-        // Create connection string JSON
-        let connection_details = json!({
-            "user_public_key": user.public_key,
-            "device_public_key": device.device_key,
-            "username": user.username,
-            "ucan_token": token,
-            "ucan_pub_key": pub_key,
-        });
-
-        // Convert to string and base64 encode
-        let connection_json = connection_details.to_string();
-        let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
-
-        println!("Connection String: {}", encoded_connection);
-        println!("╚══════════════════════════════════════════╝\n");
+    // Load UCAN keys into ucan_service
+    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+    let (signing_key, verifying_key) = {
+        let crypto = crypto_utils.read().await;
+        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
+    };
+    {
+        let mut ucan_guard = ucan_service.write().await;
+        ucan_guard.load_keys(signing_key, verifying_key);
     }
+
+    // Generate and print connection token (always)
+    let (token, pub_key) = generate_one_time_ucan_token(
+        &domain,
+        &UserRole::Owner.to_string(),
+        &ucan_service,
+    )
+    .await?;
+
+    println!("\n╔══════════════════════════════════════════╗");
+    println!("║     ONE-TIME CONNECTION STRING           ║");
+    println!("╚══════════════════════════════════════════╝");
+
+    // Create connection string JSON
+    let connection_details = json!({
+        "user_public_key": user.public_key,
+        "device_public_key": device.device_key,
+        "username": user.username,
+        "ucan_token": token,
+        "ucan_pub_key": pub_key,
+    });
+
+    // Convert to string and base64 encode
+    let connection_json = connection_details.to_string();
+    let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
+
+    println!("{}", encoded_connection);
+    println!("╚══════════════════════════════════════════╝");
+    println!("\nℹ️  User: {}", user.username);
+    println!("ℹ️  User ID: {}", user.id);
+    println!("╚══════════════════════════════════════════╝\n");
 
     // Initialize P2P service (CLI doesn't need event handling)
     info!("Starting P2P service...");
     let (p2p_service, _p2p_receiver) =
-        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), domain.clone());
+        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone(), domain.clone());
 
     let p2p_service = Arc::new(p2p_service);
 
@@ -275,65 +264,12 @@ async fn handle_start(
     Ok(())
 }
 
-async fn handle_token(
-    passphrase: &str,
-    repo_ctx: Arc<persistance::database::RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-    domain: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Check if user exists
-    if !is_signed_up(repo_ctx.clone()).await? {
-        error!("No user found. Please run 'init' first.");
-        return Ok(());
-    }
-
-    info!("Loading user certificate...");
-
-    // Load certificate to verify passphrase
-    let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
-
-    info!("✔ Authenticated as: {}", user.username);
-
-    // Generate connection token
-    let (token, pub_key) = generate_one_time_ucan_token(
-        domain,
-        &UserRole::Owner.to_string(),
-        &crypto_utils,
-        repo_ctx.clone(),
-    )
-    .await?;
-
-    // Create connection string JSON (same as in handle_start)
-    let connection_details = json!({
-        "user_public_key": user.public_key,
-        "device_public_key": device.device_key,
-        "username": user.username,
-        "ucan_token": token,
-        "ucan_pub_key": pub_key,
-    });
-
-    // Convert to string and base64 encode
-    let connection_json = connection_details.to_string();
-    let encoded_connection = general_purpose::STANDARD.encode(connection_json.as_bytes());
-
-    println!("\n╔══════════════════════════════════════════╗");
-    println!("║     ONE-TIME CONNECTION STRING           ║");
-    println!("╚══════════════════════════════════════════╝");
-    println!("{}", encoded_connection);
-    println!("╚══════════════════════════════════════════╝");
-    println!("\nℹ️  Copy the string above and paste it into your app");
-    println!("ℹ️  User: {}", user.username);
-    println!("ℹ️  User ID: {}", user.id);
-    println!("╚══════════════════════════════════════════╝\n");
-
-    Ok(())
-}
-
 async fn handle_folder_token(
     passphrase: &str,
     folder_id: &str,
     repo_ctx: Arc<persistance::database::RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
+    ucan_service: Arc<RwLock<gurkha::UcanService>>,
     domain: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
@@ -348,11 +284,23 @@ async fn handle_folder_token(
     let (user, device) = load_certificate(passphrase, repo_ctx.clone(), &crypto_utils).await?;
 
     info!("✔ Authenticated as: {}", user.username);
+
+    // Load UCAN keys into ucan_service
+    let encrypted_ucan_key = repo_ctx.store_repo.get_ucan_key().await?;
+    let (signing_key, verifying_key) = {
+        let crypto = crypto_utils.read().await;
+        crypto.decrypt_ucan_key(&encrypted_ucan_key)?
+    };
+    {
+        let mut ucan_guard = ucan_service.write().await;
+        ucan_guard.load_keys(signing_key, verifying_key);
+    }
+
     info!("Generating folder share token for folder: {}", folder_id);
 
     // Generate folder share token
     let (token, pub_key) =
-        generate_folder_share_token(folder_id, domain, &crypto_utils, repo_ctx.clone()).await?;
+        generate_folder_share_token(folder_id, domain, &ucan_service).await?;
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║     FOLDER SHARE TOKEN                   ║");
