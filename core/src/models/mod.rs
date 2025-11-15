@@ -7,12 +7,6 @@ pub mod p2p;
 pub mod resource;
 pub mod share_record;
 pub mod user;
-
-// UCAN domain models
-pub mod capability;
-pub mod connection_token;
-pub mod ucan_domain;
-pub mod ucan_token;
 pub mod sync_context;
 
 pub use certificate::*;
@@ -25,9 +19,23 @@ pub use resource::*;
 pub use share_record::*;
 pub use user::*;
 
-// UCAN exports
-pub use capability::*;
-pub use connection_token::*;
-pub use ucan_domain::*;
-pub use ucan_token::*;
+// UCAN exports - all sourced from new core::ucan module
+pub use crate::ucan::types::{
+    Capability, Role, DocType, ConnectionTokenType, ResourceTokenType,
+    ResourceAction, SyncFacts, SyncDecision, DocMetadata,
+};
+
+pub use crate::ucan::parser::{
+    ResourceUcan, DelegationTemplate, ResourceUcanError, ResourceUcanResult,
+};
+
+pub use crate::ucan::token::{
+    ConnectionToken, OneTimeConnectionToken, OwnerConnectionToken,
+    NodeConnectionToken, UserConnectionToken, ViewerAuthToken,
+    ViewerConnectionToken,
+    ConnectionTokenError, ConnectionTokenResult,
+    ResourceOwnerToken, ResourceShareToken, ResourceViewerToken,
+    FolderOwnerToken, FolderShareToken, FolderViewerToken,
+};
+
 pub use sync_context::*;

@@ -20,11 +20,17 @@
 
 use crate::errors::{ServiceError, ServiceResult};
 use crypto_utils::CryptoUtils;
-use osvauld_core::models::{
-    ConnectionToken, FolderOwnerToken, FolderShareToken, FolderViewerToken, NodeConnectionToken,
-    OneTimeConnectionToken, OwnerConnectionToken, ResourceOwnerToken, ResourceShareToken,
-    ResourceUcan, ResourceViewerToken, UserConnectionToken, ViewerAuthToken,
+use osvauld_core::ucan::{
+    parser::{ResourceUcan, DelegationTemplate},
+    token::{
+        ConnectionToken, FolderOwnerToken, FolderShareToken, FolderViewerToken,
+        NodeConnectionToken, OneTimeConnectionToken, OwnerConnectionToken,
+        ResourceOwnerToken, ResourceShareToken, ResourceViewerToken, UserConnectionToken,
+        ViewerAuthToken,
+    },
+    uri,
 };
+use osvauld_core::ucan::prelude::*;
 use persistance::database::RepositoryContext;
 use serde_json::json;
 use std::sync::Arc;
@@ -378,22 +384,24 @@ pub mod resource_tokens {
             .and_then(|v| v.as_object())
             .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Missing capabilities in owner_template".to_string()))?;
 
-        // Build capability strings
+        // Build capability URIs using standard uri module
+        // URI format: domain:resource:id:doc_name (capability value is in the URI)
         let mut capabilities = Vec::new();
         for (doc_name, cap_value) in caps.iter() {
             let cap_str = cap_value.as_str()
                 .ok_or_else(|| crate::errors::ServiceError::InvalidUcan(format!("Invalid capability value for {}", doc_name)))?;
+            let capability_uri = uri::resource_capability(domain, resource_id, doc_name);
             capabilities.push((
-                format!("{}:resource:{}:{}:{}", domain, resource_id, doc_name, cap_str),
+                format!("{}:{}", capability_uri, cap_str), // URI + capability level
                 String::new(), // No caveat
             ));
         }
 
         // Build facts from template
+        // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = serde_json::Map::new();
         facts.insert("token_type".to_string(), json!("resource_owner"));
         facts.insert("role".to_string(), json!("owner"));
-        facts.insert("resource_id".to_string(), json!(resource_id));
 
         // Copy sync facts if present
         if let Some(sync) = owner_template.get("sync") {
@@ -457,14 +465,22 @@ pub mod resource_tokens {
             ))
         })?;
 
-        // 2. Build capabilities from template (DATA-DRIVEN)
-        let capabilities = template.build_capabilities(resource_id, "resource");
+        // 2. Build capabilities from template using standard URI format (DATA-DRIVEN)
+        // Extract domain from token's capability URIs (source of truth)
+        let domain = owner_token
+            .domain()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                    "Cannot extract domain from owner token".to_string(),
+                ))
+            })?;
+        let capabilities = template.build_capabilities(&domain, resource_id, "resource");
 
         // 3. Convert template to facts (GENERIC)
+        // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = template.to_facts();
         facts.insert("token_type".to_string(), json!("resource_share"));
         facts.insert("role".to_string(), json!("node"));
-        facts.insert("resource_id".to_string(), json!(resource_id));
 
         // 4. Get encrypted key
         let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
@@ -516,14 +532,24 @@ pub mod resource_tokens {
             ))
         })?;
 
-        // 2. Build capabilities from template (DATA-DRIVEN)
-        let capabilities = template.build_capabilities(resource_id, "resource");
+        // 2. Build capabilities from template using standard URI format (DATA-DRIVEN)
+        // Extract domain from delegator token's capability URIs (source of truth)
+        let domain = delegator_token
+            .domain()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(
+                    crypto_utils::errors::UcanError::FormatError(
+                        "Cannot extract domain from delegator token".to_string(),
+                    ),
+                )
+            })?;
+        let capabilities = template.build_capabilities(&domain, resource_id, "resource");
 
         // 3. Convert template to facts (GENERIC)
+        // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = template.to_facts();
         facts.insert("token_type".to_string(), json!("resource_share"));
         facts.insert("role".to_string(), json!("user"));
-        facts.insert("resource_id".to_string(), json!(resource_id));
 
         // 4. Get encrypted key
         let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
@@ -575,14 +601,24 @@ pub mod resource_tokens {
             ))
         })?;
 
-        // 2. Build capabilities from template (DATA-DRIVEN)
-        let capabilities = template.build_capabilities(resource_id, "resource");
+        // 2. Build capabilities from template using standard URI format (DATA-DRIVEN)
+        // Extract domain from node token's capability URIs (source of truth)
+        let domain = node_token
+            .domain()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(
+                    crypto_utils::errors::UcanError::FormatError(
+                        "Cannot extract domain from node token".to_string(),
+                    ),
+                )
+            })?;
+        let capabilities = template.build_capabilities(&domain, resource_id, "resource");
 
         // 3. Convert template to facts (GENERIC)
+        // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = template.to_facts();
         facts.insert("token_type".to_string(), json!("resource_viewer"));
         facts.insert("role".to_string(), json!("viewer"));
-        facts.insert("resource_id".to_string(), json!(resource_id));
 
         // 4. Get encrypted key
         let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
@@ -664,14 +700,29 @@ pub mod resource_tokens {
             ))
         })?;
 
-        // 2. Build capabilities from template (NEVER HARDCODED)
-        let capabilities = template.build_capabilities(resource_id, "resource");
+        // 2. Build capabilities from template using standard URI format (NEVER HARDCODED)
+        // Extract domain from parsed UCAN's capability URIs (source of truth)
+        let domain = parsed_ucan
+            .parsed()
+            .capabilities()
+            .iter()
+            .next()
+            .and_then(|cap| {
+                let parts: Vec<&str> = cap.resource.split(':').collect();
+                parts.first().map(|d| d.to_string())
+            })
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(crypto_utils::errors::UcanError::FormatError(
+                    "Cannot extract domain from delegator token".to_string(),
+                ))
+            })?;
+        let capabilities = template.build_capabilities(&domain, resource_id, "resource");
 
         // 3. Convert template to facts + add origin DID
+        // NOTE: resource_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = template.to_facts();
         facts.insert("token_type".to_string(), json!(format!("resource_{}", peer_role)));
         facts.insert("role".to_string(), json!(peer_role));
-        facts.insert("resource_id".to_string(), json!(resource_id));
         facts.insert("origin".to_string(), json!(delegator_did)); // DID of delegator
 
         // 4. Get encrypted key
@@ -738,19 +789,29 @@ pub mod folder_tokens {
             ))
         })?;
 
-        // 2. Build capabilities from template (DATA-DRIVEN)
-        let mut capabilities = template.build_capabilities(folder_id, "folder");
+        // 2. Build capabilities from template using standard URI format (DATA-DRIVEN)
+        // Extract domain from owner token's capability URIs (source of truth)
+        let domain = owner_token
+            .domain()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(
+                    crypto_utils::errors::UcanError::FormatError(
+                        "Cannot extract domain from owner token".to_string(),
+                    ),
+                )
+            })?;
+        let mut capabilities = template.build_capabilities(&domain, folder_id, "folder");
 
-        // Add resource wildcard capabilities (folder pattern)
+        // Add resource wildcard capabilities (folder-scoped resources: folder_id/*)
         let resource_wildcard_capabilities =
-            template.build_capabilities(&format!("{}/*", folder_id), "resource");
+            template.build_capabilities(&domain, &format!("{}/*", folder_id), "resource");
         capabilities.extend(resource_wildcard_capabilities);
 
         // 3. Convert template to facts (GENERIC)
+        // NOTE: folder_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = template.to_facts();
         facts.insert("token_type".to_string(), json!("folder_share"));
         facts.insert("role".to_string(), json!("node"));
-        facts.insert("folder_id".to_string(), json!(folder_id));
 
         // 4. Get encrypted key
         let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
@@ -802,19 +863,29 @@ pub mod folder_tokens {
             ))
         })?;
 
-        // 2. Build capabilities from template (DATA-DRIVEN)
-        let mut capabilities = template.build_capabilities(folder_id, "folder");
+        // 2. Build capabilities from template using standard URI format (DATA-DRIVEN)
+        // Extract domain from delegator token's capability URIs (source of truth)
+        let domain = delegator_token
+            .domain()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(
+                    crypto_utils::errors::UcanError::FormatError(
+                        "Cannot extract domain from delegator token".to_string(),
+                    ),
+                )
+            })?;
+        let mut capabilities = template.build_capabilities(&domain, folder_id, "folder");
 
-        // Add resource wildcard capabilities (folder pattern)
+        // Add resource wildcard capabilities (folder-scoped resources: folder_id/*)
         let resource_wildcard_capabilities =
-            template.build_capabilities(&format!("{}/*", folder_id), "resource");
+            template.build_capabilities(&domain, &format!("{}/*", folder_id), "resource");
         capabilities.extend(resource_wildcard_capabilities);
 
         // 3. Convert template to facts (GENERIC)
+        // NOTE: folder_id is NOT stored in facts - it's encoded in capability URIs
         let mut facts = template.to_facts();
         facts.insert("token_type".to_string(), json!("folder_share"));
         facts.insert("role".to_string(), json!("user"));
-        facts.insert("folder_id".to_string(), json!(folder_id));
 
         // 4. Get encrypted key
         let encrypted_key = get_decrypted_ucan_keys(&repo_ctx).await?;
@@ -867,11 +938,21 @@ pub mod folder_tokens {
         })?;
 
         // 2. Build capabilities from template (DATA-DRIVEN)
-        let mut capabilities = template.build_capabilities(folder_id, "folder");
+        // Extract domain from node token's capability URIs (source of truth)
+        let domain = node_token
+            .domain()
+            .ok_or_else(|| {
+                crate::errors::ServiceError::Ucan(
+                    crypto_utils::errors::UcanError::FormatError(
+                        "Cannot extract domain from node token".to_string(),
+                    ),
+                )
+            })?;
+        let mut capabilities = template.build_capabilities(&domain, folder_id, "folder");
 
         // Add resource wildcard capabilities (folder pattern)
         let resource_wildcard_capabilities =
-            template.build_capabilities(&format!("{}/*", folder_id), "resource");
+            template.build_capabilities(&domain, &format!("{}/*", folder_id), "resource");
         capabilities.extend(resource_wildcard_capabilities);
 
         // 3. Convert template to facts (GENERIC)
@@ -1205,7 +1286,7 @@ pub mod validation {
         for capability in folder_token.ucan().parsed().capabilities().iter() {
             let cap_resource = capability.resource;
 
-            if cap_resource.starts_with(&folder_pattern) && capability.ability == "get_share_link"
+            if cap_resource.starts_with(&folder_pattern) && capability.ability == "allow"
             {
                 if let Some(folder_id) = cap_resource.strip_prefix(&folder_pattern) {
                     if !folder_id.is_empty() && folder_id != "*" {
@@ -1347,34 +1428,40 @@ pub mod utilities {
 
     /// Extract folder ID with add_resources capability check
     ///
-    /// Used for validating folder access with specific permissions.
+    /// Validates that the folder UCAN contains the add_resources capability
+    /// by checking the actual UCAN capabilities (cap field) using check_capability.
     ///
     /// # Arguments
-    /// * `ucan_token` - UCAN token string
-    /// * `_domain` - Domain (unused, kept for backwards compatibility)
+    /// * `ucan_token` - Folder UCAN token string
+    /// * `domain` - Domain (e.g., "sthalam")
     ///
     /// # Returns
     /// * `Ok(folder_id)` - Extracted folder ID if has add_resources capability
     pub async fn extract_folder_id_with_add_resources(
         ucan_token: &str,
-        _domain: &str,
+        domain: &str,
     ) -> ServiceResult<String> {
+        use crypto_utils::ucan_utils::check_capability;
+
+        // Parse token
         let ucan = ResourceUcan::from_token(ucan_token)
             .map_err(|e| crate::errors::ServiceError::InvalidUcan(e.to_string()))?;
 
-        // Check if has resource actions (implies add_resources capability)
-        if ucan.resource_actions().is_none() {
-            return Err(crate::errors::ServiceError::InvalidUcan(
-                "UCAN does not have add_resources capability".to_string(),
-            ));
-        }
+        // Extract folder_id
+        let folder_id = ucan.folder_id().ok_or_else(|| {
+            crate::errors::ServiceError::InvalidUcan(
+                "No folder ID found in UCAN".to_string(),
+            )
+        })?;
 
-        ucan.folder_id()
-            .ok_or_else(|| {
-                crate::errors::ServiceError::InvalidUcan(
-                    "No folder ID found in UCAN capabilities".to_string(),
-                )
-            })
+        // Validate add_resources capability using proper UCAN validation
+        let folder_resource = format!("{}:folder:{}:add_resources", domain, folder_id);
+        check_capability(ucan.parsed(), &folder_resource, "allow")
+            .map_err(|_| crate::errors::ServiceError::InvalidUcan(
+                "Folder token does not have add_resources capability".to_string(),
+            ))?;
+
+        Ok(folder_id)
     }
 
     /// Validate folder UCAN and extract folder_id
@@ -1447,6 +1534,25 @@ pub mod utilities {
             }
             map
         }))
+    }
+
+    /// Extract role from UCAN token
+    ///
+    /// Extracts the role from any UCAN token's facts field.
+    /// Works with connection tokens, folder tokens, and resource tokens.
+    ///
+    /// # Arguments
+    /// * `ucan_token` - UCAN token string
+    ///
+    /// # Returns
+    /// * `Ok(role_string)` - The role as a string ("owner", "node", "user", "viewer")
+    /// * `Err` - If token is invalid or doesn't contain a role
+    pub async fn extract_role_from_token(ucan_token: &str) -> ServiceResult<String> {
+        let facts = extract_facts(ucan_token).await?;
+
+        facts
+            .and_then(|f| f.get("role").and_then(|v| v.as_str()).map(String::from))
+            .ok_or_else(|| crate::errors::ServiceError::InvalidUcan("Role not found in token".to_string()))
     }
 
     /// Extract folder capabilities from UCAN token

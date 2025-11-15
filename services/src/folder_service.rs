@@ -7,6 +7,7 @@ use osvauld_core::models::{
     Folder, FolderShareRecord,
     PermissionLevel, User, ViewerFolderInfo,
 };
+use osvauld_core::ucan::token::ConnectionToken;
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -302,7 +303,7 @@ pub async fn accept_folder_from_peer(
 
     // Validate that peer has add_folder capability (UCAN-first: check capability, not role)
     tracing::info!("  Step 1: Validating peer connection token...");
-    let peer_token = osvauld_core::models::ConnectionToken::from_token(peer_connection_token)
+    let peer_token = ConnectionToken::from_token(peer_connection_token)
         .map_err(|e| FolderServiceError::Validation(format!("Invalid peer connection token: {}", e)))?;
     crate::ucan_service::validation::validate_peer_can_add_folder(&peer_token, domain).await?;
 

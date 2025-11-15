@@ -17,6 +17,8 @@ Learn more at [osvauld.com](https://osvauld.com)
 
 Documentation at [docs.osvauld.com](https://docs.osvauld.com)
 
+**Developer Documentation:** See [docs/README.md](docs/README.md) for implementation status, architecture, and technical documentation
+
 ## Core features
 
 - **Server-Free P2P Networking**: Direct device-to-device communication - no servers needed to host or maintain

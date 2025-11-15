@@ -1,16 +1,19 @@
 use serde::{Deserialize, Serialize};
 
 /// Permission level for document access (domain concept)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Hierarchy: Collaborator >= Submitter >= Viewer (for capability checking)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Capability {
-    /// Full bidirectional CRDT sync (was: crud/merge)
-    Collaborator,
-
     /// Receive-only, no sending updates (was: crud/readonly)
+    /// Lowest privilege
     Viewer,
 
     /// Send full snapshots to isolated namespace (was: crud/submit)
     Submitter,
+
+    /// Full bidirectional CRDT sync (was: crud/merge)
+    /// Highest privilege
+    Collaborator,
 }
 
 impl Capability {

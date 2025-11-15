@@ -1,4 +1,5 @@
-use super::capability::{Capability, DocMetadata, DocType, ResourceAction, ResourceTokenType, Role, SyncFacts};
+use super::types::{Capability, DocMetadata, DocType, ResourceAction, ResourceTokenType, Role, SyncFacts};
+use super::uri::{self, ParsedCapabilityUri};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::result::Result as StdResult;
@@ -28,6 +29,126 @@ impl std::error::Error for ResourceUcanError {}
 
 pub type ResourceUcanResult<T> = StdResult<T, ResourceUcanError>;
 
+// ============================================================================
+// UcanCore<T> - Generic core for all UCAN tokens with parsed capabilities
+// ============================================================================
+
+/// Generic core structure containing all common UCAN token fields
+///
+/// This struct is composed into all specific token types (ResourceUcan, ConnectionToken, etc.)
+/// to eliminate duplication. It handles:
+/// - Raw token and parsed UCAN from the ucan library
+/// - Role and token type (generic parameter T)
+/// - Parsed capabilities with type-safe methods
+///
+/// # Generic Parameter
+/// * `T` - The token type enum (ConnectionTokenType, ResourceTokenType, etc.)
+#[derive(Debug, Clone)]
+pub struct UcanCore<T> {
+    /// Raw UCAN token string
+    raw_token: String,
+    /// Parsed UCAN from ucan library
+    parsed: Ucan,
+    /// Role extracted from token facts
+    role: Role,
+    /// Token type (ConnectionTokenType, ResourceTokenType, etc.)
+    token_type: T,
+    /// Parsed capability URIs - cached for efficient access
+    parsed_capabilities: Vec<ParsedCapabilityUri>,
+}
+
+impl<T: Clone> UcanCore<T> {
+    /// Create UcanCore by parsing a token string
+    ///
+    /// # Arguments
+    /// * `token` - Raw UCAN token string
+    /// * `role` - Role extracted from token facts
+    /// * `token_type` - Token type value
+    ///
+    /// # Returns
+    /// * `Ok(UcanCore)` - Successfully parsed and initialized
+    /// * `Err(ResourceUcanError)` - If parsing fails
+    pub fn new(token: String, parsed: Ucan, role: Role, token_type: T) -> Self {
+        // Parse all capabilities once and cache them
+        let parsed_capabilities: Vec<ParsedCapabilityUri> = parsed
+            .capabilities()
+            .iter()
+            .map(|cap| ParsedCapabilityUri::parse(&cap.resource))
+            .collect();
+
+        Self {
+            raw_token: token,
+            parsed,
+            role,
+            token_type,
+            parsed_capabilities,
+        }
+    }
+
+    /// Get the raw token string
+    pub fn raw_token(&self) -> &str {
+        &self.raw_token
+    }
+
+    /// Get the parsed UCAN from ucan library
+    pub fn parsed(&self) -> &Ucan {
+        &self.parsed
+    }
+
+    /// Get the role
+    pub fn role(&self) -> Role {
+        self.role.clone()
+    }
+
+    /// Get the token type
+    pub fn token_type(&self) -> &T {
+        &self.token_type
+    }
+
+    /// Get parsed capabilities
+    ///
+    /// Returns cached, type-safe parsed capability URIs for explicit capability checking
+    pub fn parsed_capabilities(&self) -> &[ParsedCapabilityUri] {
+        &self.parsed_capabilities
+    }
+
+    /// Find a folder capability matching the given folder ID and operation
+    ///
+    /// Utility method for common folder capability checks
+    pub fn find_folder_capability(
+        &self,
+        folder_id: &str,
+        operation: &str,
+    ) -> Option<&uri::FolderCapabilityUri> {
+        for cap in &self.parsed_capabilities {
+            if let Some(folder_cap) = cap.as_folder() {
+                if folder_cap.folder_id() == folder_id && folder_cap.has_operation(operation) {
+                    return Some(folder_cap);
+                }
+            }
+        }
+        None
+    }
+
+    /// Find a resource capability matching the given resource ID and document
+    ///
+    /// Utility method for common resource capability checks
+    pub fn find_resource_capability(
+        &self,
+        resource_id: &str,
+        doc_name: &str,
+    ) -> Option<&uri::ResourceCapabilityUri> {
+        for cap in &self.parsed_capabilities {
+            if let Some(resource_cap) = cap.as_resource() {
+                if resource_cap.resource_id() == resource_id && resource_cap.doc_name() == doc_name {
+                    return Some(resource_cap);
+                }
+            }
+        }
+        None
+    }
+}
+
 /// Delegation template for a specific role
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DelegationTemplate {
@@ -36,20 +157,49 @@ pub struct DelegationTemplate {
 }
 
 impl DelegationTemplate {
-    /// Build UCAN capabilities list from this template
+    /// Build UCAN capabilities list from this template using standard URI format
+    ///
+    /// Uses the standard URI format from the uri module to construct capability URIs.
+    /// Supports wildcard patterns for folder-scoped resources.
     ///
     /// # Arguments
-    /// * `id` - The resource or folder ID
+    /// * `domain` - The domain (e.g., "sthalam")
+    /// * `id` - The resource or folder ID (can include `/*` for folder-scoped wildcards)
     /// * `resource_type` - Either "resource" or "folder"
     ///
     /// # Returns
-    /// Vector of (URI, capability) tuples for UCAN generation
-    pub fn build_capabilities(&self, id: &str, resource_type: &str) -> Vec<(String, String)> {
+    /// Vector of (capability_uri:level, capability_level) tuples for UCAN generation
+    ///
+    /// # Examples
+    /// Resource: `("sthalam:resource:abc123:document:collaborator", "collaborator")`
+    /// Folder: `("sthalam:folder:xyz789:add_resources:allow", "allow")`
+    /// Wildcard: `("sthalam:resource:folder123/*:document:collaborator", "collaborator")`
+    pub fn build_capabilities(
+        &self,
+        domain: &str,
+        id: &str,
+        resource_type: &str,
+    ) -> Vec<(String, String)> {
         self.capabilities
             .iter()
             .map(|(doc_name, cap_str)| {
-                let uri = format!("sthalam:{}:{}:{}", resource_type, id, doc_name);
-                (uri, cap_str.clone())
+                // Check if ID contains wildcard pattern for folder-scoped resources
+                let capability_uri = if id.ends_with("/*") && resource_type == "resource" {
+                    // Folder-scoped resource wildcard: domain:resource:folder_id/*:doc_name
+                    let folder_id = &id[..id.len() - 2]; // Remove the /*
+                    uri::resource_wildcard(domain, folder_id, doc_name)
+                } else if resource_type == "resource" {
+                    uri::resource_capability(domain, id, doc_name)
+                } else if resource_type == "folder" {
+                    uri::folder_operation(domain, id, doc_name)
+                } else {
+                    // Fallback for unknown types
+                    format!("{}:{}:{}:{}", domain, resource_type, id, doc_name)
+                };
+                (
+                    format!("{}:{}", capability_uri, cap_str), // URI + capability level
+                    cap_str.clone(),
+                )
             })
             .collect()
     }
@@ -109,12 +259,14 @@ impl DelegationTemplate {
 }
 
 /// Parsed resource UCAN with domain logic
+///
+/// Composes UcanCore<ResourceTokenType> with resource-specific fields
+/// to eliminate duplication while providing type-safe access.
 #[derive(Debug, Clone)]
 pub struct ResourceUcan {
-    raw_token: String,
-    parsed: Ucan,
-    role: Role,
-    token_type: ResourceTokenType,
+    /// Core UCAN data (raw token, parsed UCAN, role, token_type, parsed_capabilities)
+    core: UcanCore<ResourceTokenType>,
+    /// Domain-specific fields below
     capabilities: HashMap<String, Capability>,  // doc_name -> capability
     doc_metadata: HashMap<String, DocMetadata>,  // doc_name -> metadata
     sync_facts: SyncFacts,
@@ -297,11 +449,11 @@ impl ResourceUcan {
         // Extract proof chain
         let proof_chain = parsed.proofs().clone().unwrap_or_default();
 
+        // Create UcanCore with parsed data
+        let core = UcanCore::new(token.to_string(), parsed, role, token_type);
+
         Ok(Self {
-            raw_token: token.to_string(),
-            parsed,
-            role,
-            token_type,
+            core,
             capabilities,
             doc_metadata,
             sync_facts,
@@ -311,25 +463,29 @@ impl ResourceUcan {
         })
     }
 
-    // Accessors
+    // Accessors - delegate to core for common fields
     pub fn raw_token(&self) -> &str {
-        &self.raw_token
+        self.core.raw_token()
     }
 
     pub fn role(&self) -> Role {
-        self.role
+        self.core.role()
     }
 
     pub fn token_type(&self) -> ResourceTokenType {
-        self.token_type
+        self.core.token_type().clone()
+    }
+
+    pub fn parsed(&self) -> &Ucan {
+        self.core.parsed()
+    }
+
+    pub fn parsed_capabilities(&self) -> &[ParsedCapabilityUri] {
+        self.core.parsed_capabilities()
     }
 
     pub fn proof_chain(&self) -> &[String] {
         &self.proof_chain
-    }
-
-    pub fn parsed(&self) -> &Ucan {
-        &self.parsed
     }
 
     // Capability queries
@@ -405,24 +561,40 @@ impl ResourceUcan {
         self.resource_actions.as_ref()
     }
 
-    // Resource/Folder ID extraction from capabilities
+    // Resource/Folder ID extraction from capability URIs (source of truth)
+    // The URI standard is the canonical format for resource/folder identification
     pub fn resource_id(&self) -> Option<String> {
-        // Extract from first capability with format: "sthalam:resource:{id}:..."
-        for cap in self.parsed.capabilities().iter() {
-            let parts: Vec<&str> = cap.resource.split(':').collect();
-            if parts.len() >= 2 && parts[0] == "resource" {
-                return Some(parts[1].to_string());
+        // Extract from first capability URI with resource type
+        for cap in self.parsed().capabilities().iter() {
+            if let Ok(id) = uri::parse_resource_id(&cap.resource) {
+                return Some(id);
             }
         }
         None
     }
 
     pub fn folder_id(&self) -> Option<String> {
-        // Extract from first capability with format: "sthalam:folder:{id}:..."
-        for cap in self.parsed.capabilities().iter() {
+        // Try to extract from first capability URI with folder type
+        for cap in self.parsed().capabilities().iter() {
+            if let Ok(id) = uri::parse_folder_id(&cap.resource) {
+                return Some(id);
+            }
+            // Also check wildcard resource URIs (folder_id/*)
+            if let Ok(id) = uri::parse_folder_id_from_wildcard(&cap.resource) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// Extract domain from capability URIs (source of truth)
+    /// Format: domain:resource:id:doc_name or domain:folder:id:operation
+    pub fn domain(&self) -> Option<String> {
+        // Extract domain from first capability URI
+        for cap in self.parsed().capabilities().iter() {
             let parts: Vec<&str> = cap.resource.split(':').collect();
-            if parts.len() >= 2 && parts[0] == "folder" {
-                return Some(parts[1].to_string());
+            if !parts.is_empty() {
+                return Some(parts[0].to_string());
             }
         }
         None

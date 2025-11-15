@@ -104,6 +104,9 @@ pub enum FolderMessage {
     // Simple push sync
     FolderDataSync(FolderDataSync),
 
+    // Resource request for folder
+    FolderResourcesRequest(FolderResourcesRequest),
+
     // CRDT folder sync protocol
     FolderSyncRequest(FolderSyncRequestMsg),
     FolderSyncResponse(FolderSyncResponseMsg),
@@ -210,6 +213,16 @@ pub struct Asset {
 pub struct FolderDataSync {
     pub folder: Folder,
     pub folder_share_record: FolderShareRecord,
+}
+
+/// Request resources for a folder (pull-based sync)
+/// Used when Node receives a folder and wants to fetch all its resources
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FolderResourcesRequest {
+    /// Folder UCAN token proving access to folder resources
+    pub folder_token: String,
+    /// Resource IDs to sync (empty = send all resources in folder)
+    pub resource_ids: Vec<String>,
 }
 
 /// Resource data with share records for syncing to node

@@ -2,8 +2,6 @@
 resolver = "2"
 members = [
   "crypto_utils",
-  "livnote/src-tauri",
-  "libremot/src-tauri",
   "sthalam/src-tauri",
   "core",
   "persistance",

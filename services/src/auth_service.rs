@@ -8,6 +8,7 @@ use osvauld_core::models::user::User;
 use osvauld_core::models::{Certificate, UserRole};
 use persistance::database::RepositoryContext;
 use rand::{RngCore, rngs::OsRng};
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -67,6 +68,33 @@ pub async fn handle_signup(
 
     let user_id = get_key_id(&primary_certificate.public_key)?;
     let ucan_certificate = generate_ucan_key(&crypto).await?;
+
+    // Generate owner connection token for the new user
+    // This gives the user the ability to create folders and resources
+    let owner_token = {
+        let domain = "sthalam";
+        let (token, _cid) = crypto
+            .generate_ucan_with_cid(
+                &ucan_certificate.private_key,
+                &ucan_certificate.public_key,
+                vec![
+                    (format!("{}:user:*", domain), "connect".to_string()),
+                    (format!("{}:user:*", domain), "share".to_string()),
+                    (format!("{}:folder:*", domain), "add_folder".to_string()),
+                ],
+                Some({
+                    let mut facts = serde_json::Map::new();
+                    facts.insert("token_type".to_string(), json!("owner_connection"));
+                    facts.insert("role".to_string(), json!("owner"));
+                    facts.insert("first_connection".to_string(), json!(false));
+                    facts
+                }),
+                Some(30 * 365 * 24 * 60 * 60), // 30 years expiry
+            )
+            .await?;
+        token
+    };
+
     crypto.clear_cert();
 
     let user = User::new(
@@ -76,7 +104,7 @@ pub async fn handle_signup(
         "signature".to_string(),
         true,
         true,
-        "owner_token".to_string(),
+        owner_token,
         "owner_cid".to_string(),
         ucan_certificate.public_key.clone(),
     );

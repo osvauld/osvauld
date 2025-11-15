@@ -1,33 +1,42 @@
 // Permissions Configuration
 // Defines capability templates for folders and resources
+//
+// ⚠️  IMPORTANT: This is the source of truth for WHAT permissions exist.
+// HOW they are encoded (URIs) is handled by the backend using the uri module.
+//
+// URI Standard (backend responsibility):
+// - Folder operations: `domain:folder:id:operation`
+// - Resource capabilities: `domain:resource:id:doc_name`
+//
+// Frontend only specifies WHAT operations/documents exist and their access levels.
 
 // ========== FOLDER TEMPLATES ==========
+//
+// Folder operations (no document-based capabilities, only operations on the folder)
 
 export const FOLDER_TEMPLATE = {
   owner_template: {
+    // Operations available on this folder (owner has all of them)
     capabilities: {
-      "own": "own",
-      "get_share_link": "get_share_link",
-      "add_resources": "add_resources",
-      "crud/read": "crud/read",
-      "crud/update": "crud/update",
-      "crud/delete": "crud/delete",
-      "share_folder": "share_folder",
+      "own": "allow",
+      "get_share_link": "allow",
+      "add_resources": "allow",
+      "share_folder": "allow",
     },
     delegation: {
+      // What operations can be delegated to a node
       node: {
         capabilities: {
-          "get_share_link": "get_share_link",
-          "add_resources": "add_resources",
-          "crud/read": "crud/read",
-          "share_folder": "share_folder",
+          "get_share_link": "allow",
+          "add_resources": "allow",
+          "share_folder": "allow",
         },
       },
+      // What operations can be delegated to a viewer
       viewer: {
         capabilities: {
-          "crud/read": "crud/read",
-          "request_resources": "request_resources",
-          "get_share_link": "get_share_link",
+          "request_resources": "allow",
+          "get_share_link": "allow",
         },
       },
     },
@@ -35,9 +44,12 @@ export const FOLDER_TEMPLATE = {
 };
 
 // ========== RESOURCE TEMPLATES ==========
+//
+// Resource documents and their capabilities across different roles
 
 export const RESOURCE_TEMPLATE = {
   owner_template: {
+    // Documents in this resource and their access levels for owner
     capabilities: {
       "template_doc": "collaborator",
       "content_doc": "collaborator",
@@ -46,6 +58,7 @@ export const RESOURCE_TEMPLATE = {
       "submissions_doc": "collaborator",
       "static_assets": "collaborator",
     },
+    // Document types (CRDT or Asset)
     doc_types: {
       "static_assets": "asset",
       "template_doc": "crdt",
@@ -54,10 +67,12 @@ export const RESOURCE_TEMPLATE = {
       "collaborative_doc": "crdt",
       "submissions_doc": "crdt",
     },
+    // Sync behavior for owner
     sync: {
       local_only: ["user_content_doc"],
     },
     delegation: {
+      // What the node receives
       node: {
         capabilities: {
           "template_doc": "collaborator",
@@ -71,6 +86,7 @@ export const RESOURCE_TEMPLATE = {
           local_only: ["user_content_doc"],
         },
       },
+      // What viewers receive
       viewer: {
         capabilities: {
           "template_doc": "viewer",

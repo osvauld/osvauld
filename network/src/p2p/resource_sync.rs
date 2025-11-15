@@ -113,14 +113,9 @@ pub async fn send_all_resources_for_folder(
     let recipient_folder_ucan = &recipient_folder_share.ucan_token;
 
     // Extract role from folder UCAN (stored in facts)
-    let peer_role = services::ucan_service::extract_facts(recipient_folder_ucan)
-        .await?
-        .and_then(|facts| {
-            facts.get("role")
-                .and_then(|v| v.as_str())
-                .map(String::from)
-        })
-        .unwrap_or_else(|| "node".to_string()); // Default to "node" for Owner → Node sync
+    let peer_role = services::ucan_service::utilities::extract_role_from_token(recipient_folder_ucan)
+        .await
+        .unwrap_or_else(|_| "node".to_string()); // Default to "node" for Owner → Node sync
 
     info!("  Recipient role: {}", peer_role);
 
@@ -207,7 +202,7 @@ pub async fn send_all_resources_for_folder(
 /// # Returns
 /// * `Ok(())` - Message sent successfully
 /// * `Err` - If send fails
-async fn send_resource_data(
+pub async fn send_resource_data(
     peer_conn: Arc<PeerConnection>,
     resource_data: ResourceDataSync,
 ) -> P2PResult<()> {

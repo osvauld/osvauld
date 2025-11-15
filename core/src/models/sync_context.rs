@@ -1,5 +1,5 @@
-use super::capability::SyncDecision;
-use super::ucan_domain::ResourceUcan;
+use crate::ucan::types::SyncDecision;
+use crate::ucan::parser::ResourceUcan;
 
 /// Context for dual-UCAN sync decisions
 #[derive(Debug, Clone)]
