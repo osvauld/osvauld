@@ -176,13 +176,11 @@ pub async fn process_folder_message(
             info!("FolderSyncResponse not yet implemented (CRDT sync)");
             Ok(())
         }
-        FolderMessage::FolderTokenRequest(_) => {
-            info!("FolderTokenRequest not yet implemented (shareable links)");
-            Ok(())
+        FolderMessage::FolderTokenRequest(payload) => {
+            handle_folder_token_request(payload, peer_conn, repo_ctx, crypto_utils).await
         }
-        FolderMessage::FolderTokenResponse(_) => {
-            info!("FolderTokenResponse not yet implemented (shareable links)");
-            Ok(())
+        FolderMessage::FolderTokenResponse(payload) => {
+            handle_folder_token_response(payload, peer_conn).await
         }
     }
 }
@@ -428,5 +426,168 @@ pub async fn handle_folder_resources_request(
     }
 
     info!("✅ Finished sending resources for folder {}", folder_id);
+    Ok(())
+}
+
+/// Handle folder token request from peer (node side)
+///
+/// Receives a request for a shareable folder link. Validates the requester
+/// has get_share_link capability, generates a ViewerAuth token with wildcard
+/// audience, and sends back a connection string.
+///
+/// # Arguments
+/// * `payload` - FolderTokenRequest with folder_id and folder_ucan
+/// * `peer_conn` - Peer connection (for sending response)
+/// * `repo_ctx` - Database repository context
+/// * `_crypto_utils` - Crypto utilities (unused for now)
+///
+/// # Returns
+/// * `Ok(())` - Connection string generated and sent
+/// * `Err` - If validation fails or token generation fails
+pub async fn handle_folder_token_request(
+    payload: &osvauld_core::models::p2p::FolderTokenRequest,
+    peer_conn: Arc<PeerConnection>,
+    _repo_ctx: Arc<RepositoryContext>,
+    _crypto_utils: Arc<RwLock<CryptoUtils>>,
+) -> P2PResult<()> {
+    info!("📨 Received FolderTokenRequest for folder {}", payload.folder_id);
+
+    // 1. Parse and validate folder_ucan
+    let parsed_ucan = gurkha::parser::GenericUcan::from_token(&payload.folder_ucan)
+        .map_err(|e| {
+            error!("Failed to parse folder token: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
+        })?;
+
+    // 2. Check for get_share_link capability in folder token
+    if !parsed_ucan.can_get_folder_share_link() {
+        error!("Folder token does not have get_share_link capability");
+        return Err(crate::p2p::errors::P2PError::InvalidState(
+            "Permission denied: token lacks get_share_link capability".to_string()
+        ));
+    }
+
+    info!("  ✓ Folder token has get_share_link capability");
+
+    // 3. Verify folder_id from token matches request
+    let token_folder_id = parsed_ucan.folder_id()
+        .ok_or_else(|| {
+            error!("Cannot extract folder_id from token");
+            crate::p2p::errors::P2PError::InvalidState("Invalid folder token: no folder_id".to_string())
+        })?;
+
+    if token_folder_id != payload.folder_id {
+        error!("Folder ID mismatch: token={}, request={}", token_folder_id, payload.folder_id);
+        return Err(crate::p2p::errors::P2PError::InvalidState(
+            "Folder ID mismatch".to_string()
+        ));
+    }
+
+    info!("  ✓ Folder ID verified: {}", payload.folder_id);
+
+    // 4. Extract domain from token
+    let domain = parsed_ucan.domain()
+        .ok_or_else(|| {
+            error!("Cannot extract domain from token");
+            crate::p2p::errors::P2PError::InvalidState("Invalid folder token: no domain".to_string())
+        })?;
+
+    // 5. Get current user (node) info for connection string
+    let current_user_guard = peer_conn.user.read().await;
+    let current_user = current_user_guard.clone();
+    drop(current_user_guard);
+
+    let current_device_guard = peer_conn.context.current_device.read().await;
+    let current_device = current_device_guard.as_ref()
+        .ok_or_else(|| {
+            error!("No current device found");
+            crate::p2p::errors::P2PError::InvalidState("No device information".to_string())
+        })?
+        .clone();
+    drop(current_device_guard);
+
+    // 6. Generate ViewerAuth token with wildcard audience (aud:*)
+    let ucan_service_guard = peer_conn.ucan_service.read().await;
+    let (viewer_auth_token, _cid) = ucan_service_guard
+        .issue_folder_viewer_auth(&payload.folder_id, &domain)
+        .await
+        .map_err(|e| {
+            error!("Failed to generate viewer auth token: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Token generation failed: {}", e))
+        })?;
+    drop(ucan_service_guard);
+
+    info!("  ✓ Generated ViewerAuth token with aud:*");
+
+    // 7. Get node's UCAN public key for connection string
+    let ucan_service_guard = peer_conn.ucan_service.read().await;
+    let ucan_pub_key = ucan_service_guard.get_public_key()
+        .map_err(|e| {
+            error!("Failed to get UCAN public key: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Failed to get public key: {}", e))
+        })?;
+    drop(ucan_service_guard);
+
+    // 8. Build connection string
+    let connection_data = serde_json::json!({
+        "username": current_user.username,
+        "user_public_key": current_user.public_key,
+        "device_public_key": current_device.device_key,
+        "ucan_token": viewer_auth_token,
+        "ucan_pub_key": ucan_pub_key,
+        "folder_id": payload.folder_id,
+    });
+
+    let connection_json = serde_json::to_string(&connection_data)
+        .map_err(|e| {
+            error!("Failed to serialize connection data: {}", e);
+            crate::p2p::errors::P2PError::InvalidState(format!("Serialization failed: {}", e))
+        })?;
+
+    use base64::{Engine as _, engine::general_purpose};
+    let connection_string = general_purpose::STANDARD.encode(connection_json.as_bytes());
+
+    info!("  ✓ Connection string generated (length: {})", connection_string.len());
+
+    // 9. Send FolderTokenResponse
+    let response = osvauld_core::models::p2p::FolderTokenResponse {
+        folder_id: payload.folder_id.clone(),
+        connection_string: connection_string.clone(),
+    };
+
+    peer_conn
+        .send_message(Message::Folder(FolderMessage::FolderTokenResponse(response)))
+        .await?;
+
+    info!("✅ Sent FolderTokenResponse for folder {}", payload.folder_id);
+
+    Ok(())
+}
+
+/// Handle folder token response from node (requester side)
+///
+/// Receives the connection string from the node and emits an event
+/// for the frontend to display it to the user.
+///
+/// # Arguments
+/// * `payload` - FolderTokenResponse with folder_id and connection_string
+/// * `peer_conn` - Peer connection (for event emission)
+///
+/// # Returns
+/// * `Ok(())` - Event emitted successfully
+pub async fn handle_folder_token_response(
+    payload: &osvauld_core::models::p2p::FolderTokenResponse,
+    peer_conn: Arc<PeerConnection>,
+) -> P2PResult<()> {
+    info!("📬 Received FolderTokenResponse for folder {}", payload.folder_id);
+
+    // Emit event to frontend
+    peer_conn.event_emitter.emit(crate::p2p::emitter::P2PEvent::FolderTokenReceived {
+        folder_id: payload.folder_id.clone(),
+        connection_string: payload.connection_string.clone(),
+    });
+
+    info!("✓ Emitted FolderTokenReceived event");
+
     Ok(())
 }

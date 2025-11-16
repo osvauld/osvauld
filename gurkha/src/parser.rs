@@ -573,6 +573,16 @@ impl GenericUcan {
         self.resource_actions.as_ref()
     }
 
+    // Folder-level actions
+    /// Check if the token has get_share_link capability for a folder
+    /// This checks folder-level capabilities (not resource-level)
+    /// Folder capabilities have format: "domain:folder:folder_id:get_share_link"
+    pub fn can_get_folder_share_link(&self) -> bool {
+        self.parsed().capabilities().iter().any(|cap| {
+            cap.resource.contains(":folder:") && cap.resource.contains(":get_share_link")
+        })
+    }
+
     // Resource/Folder ID extraction from capability URIs (source of truth)
     // The URI standard is the canonical format for resource/folder identification
     pub fn resource_id(&self) -> Option<String> {

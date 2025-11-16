@@ -169,6 +169,43 @@ pub fn decide_viewer_auth(
     Ok(decision)
 }
 
+/// Decide what should be in a folder viewer authentication token
+///
+/// This is for shareable links - one-time use, wildcard audience.
+/// The viewer uses this token to initiate connection to the node.
+///
+/// Folder viewer auth tokens have:
+/// - Wildcard audience (for one-time shareable link)
+/// - Folder connect capability (allows establishing connection)
+/// - Folder access capability (allows accessing the folder)
+/// - 30 day expiry
+pub fn decide_folder_viewer_auth(
+    verifying_key: &VerifyingKey,
+    folder_id: &str,
+    domain: &str,
+) -> DecisionResult<TokenDecision> {
+    let _pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
+
+    let mut decision = TokenDecision::new("*"); // Wildcard audience for shareable link
+
+    // Connect capability - allows viewer to establish connection
+    let connect_capability = format!("{}:folder:{}:connect", domain, folder_id);
+    decision.add_capability(connect_capability, "use".to_string());
+
+    // Folder access capability - allows viewer to access folder
+    let folder_capability = uri::folder_operation(domain, folder_id, "access");
+    decision.add_capability(folder_capability, "allow".to_string());
+
+    decision.add_fact("token_type".into(), json!("viewer_auth"));
+    decision.add_fact("role".into(), json!("viewer"));
+    decision.add_fact("folder_id".into(), json!(folder_id));
+
+    // Short expiry for security (30 days like one-time connection)
+    decision.set_expiry(30 * 24 * 60 * 60);
+
+    Ok(decision)
+}
+
 // ==================== RESOURCE TOKEN DECISIONS ====================
 
 /// Decide what should be in a resource owner token

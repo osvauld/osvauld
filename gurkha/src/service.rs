@@ -168,6 +168,38 @@ impl UcanService {
         Ok(token)
     }
 
+    /// Issue a folder viewer authentication token (for shareable links)
+    ///
+    /// This is a one-time token with wildcard audience that viewers use to connect.
+    /// Used in the FolderTokenRequest flow to generate shareable connection strings.
+    #[instrument(skip(self), fields(folder_id = %folder_id, domain = %domain, token_type = "folder_viewer_auth"))]
+    pub async fn issue_folder_viewer_auth(
+        &self,
+        folder_id: &str,
+        domain: &str,
+    ) -> ServiceResult<(String, String)> {
+        debug!("🔐 Issuing folder viewer authentication token");
+
+        let (signing_key, verifying_key) = self.get_keys()?;
+        debug!("✓ Keys validated");
+
+        let decision = decision::decide_folder_viewer_auth(
+            verifying_key,
+            folder_id,
+            domain,
+        )?;
+        debug!("✓ Token decision created");
+
+        let (token, cid) = crypto::sign_ucan(
+            signing_key,
+            verifying_key,
+            &decision,
+        ).await?;
+
+        info!("✓ Folder viewer auth token generated: cid={}", cid);
+        Ok((token, cid))
+    }
+
     // ==================== RESOURCE TOKENS ====================
 
     /// Issue resource owner token
