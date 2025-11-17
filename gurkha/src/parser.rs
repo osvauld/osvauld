@@ -1,9 +1,10 @@
-use super::types::{Capability, DocMetadata, DocType, ResourceAction, ResourceTokenType, Role, SyncFacts};
-use super::uri::{self, ParsedCapabilityUri};
+use super::types::{Capability, DocMetadata, DocType, ResourceAction, SyncFacts};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 use ucan::Ucan;
+
+// Note: Role and ResourceTokenType removed - using facts-only approach
 
 /// Error type for UCAN token operations (generic for any capability token)
 #[derive(Debug)]
@@ -35,53 +36,41 @@ pub type UcanTokenResult<T> = StdResult<T, UcanTokenError>;
 
 /// Generic core structure containing all common UCAN token fields
 ///
-/// This struct is composed into all specific token types via the UcanToken trait
-/// to eliminate duplication. It handles:
+/// This struct is composed into all specific token types to eliminate duplication.
+/// It handles:
 /// - Raw token and parsed UCAN from the ucan library
-/// - Role and token type (generic parameter T)
 /// - Parsed capabilities with type-safe methods
+/// - Facts stored as raw JSON for flexible access
 ///
-/// # Generic Parameter
-/// * `T` - The token type enum (ConnectionTokenType, ResourceTokenType, etc.)
+/// # V3 Migration Note
+/// Role and token_type fields removed - identity derived from facts instead.
 #[derive(Debug, Clone)]
-pub struct UcanCore<T> {
+pub struct UcanCore {
     /// Raw UCAN token string
     raw_token: String,
     /// Parsed UCAN from ucan library
     parsed: Ucan,
-    /// Role extracted from token facts
-    role: Role,
-    /// Token type (ConnectionTokenType, ResourceTokenType, etc.)
-    token_type: T,
-    /// Parsed capability URIs - cached for efficient access
-    parsed_capabilities: Vec<ParsedCapabilityUri>,
+    /// Raw facts as JSON (source of truth)
+    facts: serde_json::Map<String, serde_json::Value>,
 }
 
-impl<T: Clone> UcanCore<T> {
+impl UcanCore {
     /// Create UcanCore by parsing a token string
+    ///
+    /// V3: No capability URI parsing - all authorization in facts
     ///
     /// # Arguments
     /// * `token` - Raw UCAN token string
-    /// * `role` - Role extracted from token facts
-    /// * `token_type` - Token type value
+    /// * `parsed` - Parsed UCAN from ucan library
+    /// * `facts` - Raw facts as JSON map
     ///
     /// # Returns
-    /// * `Ok(UcanCore)` - Successfully parsed and initialized
-    /// * `Err(UcanTokenError)` - If parsing fails
-    pub fn new(token: String, parsed: Ucan, role: Role, token_type: T) -> Self {
-        // Parse all capabilities once and cache them
-        let parsed_capabilities: Vec<ParsedCapabilityUri> = parsed
-            .capabilities()
-            .iter()
-            .map(|cap| ParsedCapabilityUri::parse(&cap.resource))
-            .collect();
-
+    /// * `UcanCore` - Successfully initialized core
+    pub fn new(token: String, parsed: Ucan, facts: serde_json::Map<String, serde_json::Value>) -> Self {
         Self {
             raw_token: token,
             parsed,
-            role,
-            token_type,
-            parsed_capabilities,
+            facts,
         }
     }
 
@@ -95,57 +84,57 @@ impl<T: Clone> UcanCore<T> {
         &self.parsed
     }
 
-    /// Get the role
-    pub fn role(&self) -> Role {
-        self.role.clone()
+    /// Get the raw facts (source of truth)
+    pub fn facts(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.facts
     }
 
-    /// Get the token type
-    pub fn token_type(&self) -> &T {
-        &self.token_type
+    /// Get a specific fact by key
+    pub fn get_fact(&self, key: &str) -> Option<&serde_json::Value> {
+        self.facts.get(key)
     }
 
-    /// Get parsed capabilities
-    ///
-    /// Returns cached, type-safe parsed capability URIs for explicit capability checking
-    pub fn parsed_capabilities(&self) -> &[ParsedCapabilityUri] {
-        &self.parsed_capabilities
+    /// Get a string fact by key
+    pub fn get_fact_string(&self, key: &str) -> Option<&str> {
+        self.get_fact(key).and_then(|v| v.as_str())
     }
 
-    /// Find a folder capability matching the given folder ID and operation
-    ///
-    /// Utility method for common folder capability checks
-    pub fn find_folder_capability(
-        &self,
-        folder_id: &str,
-        operation: &str,
-    ) -> Option<&uri::FolderCapabilityUri> {
-        for cap in &self.parsed_capabilities {
-            if let Some(folder_cap) = cap.as_folder() {
-                if folder_cap.folder_id() == folder_id && folder_cap.has_operation(operation) {
-                    return Some(folder_cap);
-                }
-            }
-        }
-        None
+    /// Get a bool fact by key
+    pub fn get_fact_bool(&self, key: &str) -> Option<bool> {
+        self.get_fact(key).and_then(|v| v.as_bool())
     }
 
-    /// Find a resource capability matching the given resource ID and document
-    ///
-    /// Utility method for common resource capability checks
-    pub fn find_resource_capability(
-        &self,
-        resource_id: &str,
-        doc_name: &str,
-    ) -> Option<&uri::ResourceCapabilityUri> {
-        for cap in &self.parsed_capabilities {
-            if let Some(resource_cap) = cap.as_resource() {
-                if resource_cap.resource_id() == resource_id && resource_cap.doc_name() == doc_name {
-                    return Some(resource_cap);
-                }
-            }
-        }
-        None
+    // ==================== Derived Identity Methods ====================
+    // Identity is derived from facts, not stored as enum
+
+    /// Check if token holder is owner (derived from operations.own == "allow")
+    pub fn is_owner(&self) -> bool {
+        self.get_fact("operations")
+            .and_then(|ops| ops.as_object())
+            .and_then(|obj| obj.get("own"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "allow")
+            .unwrap_or(false)
+    }
+
+    /// Check if token holder is host/node (derived from operations.add_resources == "allow")
+    pub fn is_host(&self) -> bool {
+        self.get_fact("operations")
+            .and_then(|ops| ops.as_object())
+            .and_then(|obj| obj.get("add_resources"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "allow")
+            .unwrap_or(false)
+    }
+
+    /// Check if this is a first connection token (derived from first_connection fact)
+    pub fn is_first_connection(&self) -> bool {
+        self.get_fact_bool("first_connection").unwrap_or(false)
+    }
+
+    /// Get relationship label (for logging/debugging, not for logic)
+    pub fn relationship(&self) -> Option<&str> {
+        self.get_fact_string("relationship")
     }
 }
 
@@ -155,72 +144,32 @@ pub struct DelegationTemplate {
     pub token_type: String,                      // Token type for delegated token (e.g., "resource_share")
     pub capabilities: HashMap<String, String>,  // doc_name -> capability
     pub sync: Option<SyncFacts>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_types: Option<HashMap<String, String>>,  // doc_name -> doc_type (crdt/asset)
+    // CEL-based authorization fields (v3)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_capabilities: Option<HashMap<String, serde_json::Value>>,  // CEL capabilities (can_connect, persist_share, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operations: Option<HashMap<String, serde_json::Value>>,          // Operations (own, read, write)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub relationship: Option<String>,                                     // Relationship label (owner, node, viewer)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cel_rules: Option<HashMap<String, String>>,                      // CEL expression rules
 }
 
 impl DelegationTemplate {
-    /// Build UCAN capabilities list from this template using standard URI format
-    ///
-    /// Uses the standard URI format from the uri module to construct capability URIs.
-    /// Supports wildcard patterns for folder-scoped resources.
-    ///
-    /// # Arguments
-    /// * `domain` - The domain (e.g., "sthalam")
-    /// * `id` - The resource or folder ID (can include `/*` for folder-scoped wildcards)
-    /// * `resource_type` - Either "resource" or "folder"
-    ///
-    /// # Returns
-    /// Vector of (capability_uri:level, capability_level) tuples for UCAN generation
-    ///
-    /// # Examples
-    /// Resource: `("sthalam:resource:abc123:document:collaborator", "collaborator")`
-    /// Folder: `("sthalam:folder:xyz789:add_resources:allow", "allow")`
-    /// Wildcard: `("sthalam:resource:folder123/*:document:collaborator", "collaborator")`
-    pub fn build_capabilities(
-        &self,
-        domain: &str,
-        id: &str,
-        resource_type: &str,
-    ) -> Vec<(String, String)> {
-        self.capabilities
-            .iter()
-            .map(|(doc_name, cap_str)| {
-                // Check if ID contains wildcard pattern for folder-scoped resources
-                let capability_uri = if id.ends_with("/*") && resource_type == "resource" {
-                    // Folder-scoped resource wildcard: domain:resource:folder_id/*:doc_name
-                    let folder_id = &id[..id.len() - 2]; // Remove the /*
-                    uri::resource_wildcard(domain, folder_id, doc_name)
-                } else if resource_type == "resource" {
-                    uri::resource_capability(domain, id, doc_name)
-                } else if resource_type == "folder" {
-                    uri::folder_operation(domain, id, doc_name)
-                } else {
-                    // Fallback for unknown types
-                    format!("{}:{}:{}:{}", domain, resource_type, id, doc_name)
-                };
-                (
-                    format!("{}:{}", capability_uri, cap_str), // URI + capability level
-                    cap_str.clone(),
-                )
-            })
-            .collect()
-    }
-
     /// Convert template to UCAN facts JSON
     ///
     /// This creates the facts structure that will be embedded in the delegated token.
-    /// Includes token_type, capabilities, and sync facts if present.
+    /// Includes token_type, sync facts, and CEL-related fields if present.
+    ///
+    /// Note: Document capabilities go into UCAN capability URIs (via build_capabilities()),
+    /// not into facts. The `capabilities` field in facts is for CEL auth capabilities.
     pub fn to_facts(&self) -> serde_json::Map<String, serde_json::Value> {
         let mut facts = serde_json::Map::new();
 
         // Add token_type (data-driven from template)
         facts.insert("token_type".to_string(), serde_json::Value::String(self.token_type.clone()));
-
-        // Add capabilities as a map
-        let caps_json: serde_json::Map<String, serde_json::Value> = self.capabilities
-            .iter()
-            .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-            .collect();
-        facts.insert("capabilities".to_string(), serde_json::Value::Object(caps_json));
 
         // Add sync facts if present
         if let Some(sync) = &self.sync {
@@ -258,70 +207,133 @@ impl DelegationTemplate {
             }
         }
 
+        // Add doc_types as doc_metadata (converts to DocMetadata format expected by parser)
+        if let Some(doc_types) = &self.doc_types {
+            let mut doc_metadata_json = serde_json::Map::new();
+            for (doc_name, doc_type_str) in doc_types {
+                let mut meta = serde_json::Map::new();
+                meta.insert("type".to_string(), serde_json::Value::String(doc_type_str.clone()));
+                doc_metadata_json.insert(doc_name.clone(), serde_json::Value::Object(meta));
+            }
+            if !doc_metadata_json.is_empty() {
+                facts.insert("doc_metadata".to_string(), serde_json::Value::Object(doc_metadata_json));
+            }
+        }
+
+        // Add documents map (combines capabilities and doc_types)
+        // Format: { doc_name: { capability: "collaborator"|"viewer", type: "crdt"|"asset" } }
+        if !self.capabilities.is_empty() {
+            let mut documents_json = serde_json::Map::new();
+            for (doc_name, capability) in &self.capabilities {
+                let mut doc_info = serde_json::Map::new();
+                doc_info.insert("capability".to_string(), serde_json::Value::String(capability.clone()));
+
+                // Add type if available from doc_types
+                if let Some(doc_types) = &self.doc_types {
+                    if let Some(doc_type) = doc_types.get(doc_name) {
+                        doc_info.insert("type".to_string(), serde_json::Value::String(doc_type.clone()));
+                    }
+                }
+
+                documents_json.insert(doc_name.clone(), serde_json::Value::Object(doc_info));
+            }
+            facts.insert("documents".to_string(), serde_json::Value::Object(documents_json));
+        }
+
+        // Add CEL-based authorization capabilities (v3)
+        // Fixed: Use "auth_capabilities" instead of "capabilities" to match CEL rules
+        if let Some(auth_caps) = &self.auth_capabilities {
+            let auth_caps_json: serde_json::Map<String, serde_json::Value> = auth_caps
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            facts.insert("auth_capabilities".to_string(), serde_json::Value::Object(auth_caps_json));
+        }
+
+        // Add operations
+        if let Some(ops) = &self.operations {
+            let ops_json: serde_json::Map<String, serde_json::Value> = ops
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            facts.insert("operations".to_string(), serde_json::Value::Object(ops_json));
+        }
+
+        // Add relationship
+        if let Some(rel) = &self.relationship {
+            facts.insert("relationship".to_string(), serde_json::Value::String(rel.clone()));
+        }
+
+        // Add CEL rules
+        if let Some(cel) = &self.cel_rules {
+            let cel_json: serde_json::Map<String, serde_json::Value> = cel
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect();
+            facts.insert("cel_rules".to_string(), serde_json::Value::Object(cel_json));
+        }
+
         facts
     }
 }
 
 /// Parsed UCAN token with domain logic (generic for resources and folders)
 ///
-/// Composes UcanCore<ResourceTokenType> with resource-specific fields
-/// to eliminate duplication while providing type-safe access.
+/// V3 Migration: Facts-only approach - no Role or ResourceTokenType enums
 #[derive(Debug, Clone)]
-pub struct GenericUcan {
-    /// Core UCAN data (raw token, parsed UCAN, role, token_type, parsed_capabilities)
-    core: UcanCore<ResourceTokenType>,
-    /// Domain-specific fields below
+pub struct Permit {
+    /// Core UCAN data (raw token, parsed UCAN, facts)
+    core: UcanCore,
+    /// Domain-specific fields below (backwards compat, will be removed)
     capabilities: HashMap<String, Capability>,  // doc_name -> capability
     doc_metadata: HashMap<String, DocMetadata>,  // doc_name -> metadata
     sync_facts: SyncFacts,
     resource_actions: Option<Vec<ResourceAction>>,
-    delegation_templates: HashMap<String, DelegationTemplate>,  // role -> template
+    delegation_templates: HashMap<String, DelegationTemplate>,  // template_key -> template
     proof_chain: Vec<String>,  // Parent UCAN CIDs
 }
 
-impl GenericUcan {
-    /// Parse UCAN token and extract all domain information
+impl Permit {
+    /// Parse UCAN token and extract all domain information (facts-only approach)
+    ///
+    /// # V3 Migration
+    /// No longer parses role or token_type enums - identity derived from facts
     pub fn from_token(token: &str) -> UcanTokenResult<Self> {
         // Parse UCAN token
         let parsed = Ucan::try_from(token)
             .map_err(|e| UcanTokenError::ParsingFailed(format!("UCAN parsing error: {}", e)))?;
 
-        // Extract facts
-        let facts = parsed.facts().as_ref().ok_or_else(|| {
+        // Extract facts as raw JSON (source of truth)
+        let facts_ref = parsed.facts().as_ref().ok_or_else(|| {
             UcanTokenError::MissingField("UCAN facts not found".to_string())
         })?;
 
-        // Extract token_type from facts
-        let token_type_str = facts
-            .get("token_type")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| UcanTokenError::MissingField("token_type not found in facts".to_string()))?;
+        // Clone facts for storage (we'll keep the raw JSON)
+        // Convert BTreeMap to serde_json::Map
+        let facts: serde_json::Map<String, serde_json::Value> = facts_ref
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
 
-        let token_type = ResourceTokenType::from_str(token_type_str)
-            .map_err(|e| UcanTokenError::InvalidTokenType(e))?;
-
-        // Extract role from facts
-        let role_str = facts
-            .get("role")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| UcanTokenError::MissingField("role not found in facts".to_string()))?;
-
-        let role = Role::from_str(role_str)
-            .map_err(|e| UcanTokenError::ParsingFailed(format!("Invalid role: {}", e)))?;
-
-        // Extract capabilities from UCAN cap field
+        // Extract capabilities from facts.documents (facts-only approach)
+        // Documents should be in facts, not in the cap field
         let mut capabilities = HashMap::new();
-        for cap in parsed.capabilities().iter() {
-            // Cap format: "sthalam:resource:{id}:{doc_name}:{capability}"
-            let cap_resource = &cap.resource;
-            let parts: Vec<&str> = cap_resource.split(':').collect();
-            if parts.len() >= 4 {
-                let doc_name = parts[2];
-                let cap_str = parts[3];
-                if let Ok(capability) = Capability::from_str(cap_str) {
-                    capabilities.insert(doc_name.to_string(), capability);
+        if let Some(documents_obj) = facts.get("documents").and_then(|v| v.as_object()) {
+            use tracing::debug;
+            debug!("📄 [Parser] Found documents in facts: {} documents", documents_obj.len());
+            for (doc_name, doc_val) in documents_obj {
+                if let Some(doc_obj) = doc_val.as_object() {
+                    if let Some(cap_str) = doc_obj.get("capability").and_then(|v| v.as_str()) {
+                        if let Ok(capability) = Capability::from_str(cap_str) {
+                            capabilities.insert(doc_name.clone(), capability);
+                            debug!("  ✓ Parsed capability for '{}': {:?}", doc_name, capability);
+                        }
+                    }
                 }
             }
+        } else {
+            use tracing::debug;
+            debug!("⚠️ [Parser] NO documents found in facts");
         }
 
         // Extract sync facts
@@ -407,12 +419,15 @@ impl GenericUcan {
                         .map(String::from)
                         .unwrap_or_else(|| format!("resource_{}", role_key)); // Fallback for backward compatibility
 
-                    // Extract capabilities map
+                    // Extract capabilities map from "documents" field
+                    // Frontend generates: { documents: { doc_name: { capability: "collaborator", type: "crdt" } } }
                     let mut capabilities_map = HashMap::new();
-                    if let Some(caps_obj) = template_obj.get("capabilities").and_then(|v| v.as_object()) {
-                        for (doc, cap_val) in caps_obj {
-                            if let Some(cap_str) = cap_val.as_str() {
-                                capabilities_map.insert(doc.clone(), cap_str.to_string());
+                    if let Some(docs_obj) = template_obj.get("documents").and_then(|v| v.as_object()) {
+                        for (doc_name, doc_val) in docs_obj {
+                            if let Some(doc_obj) = doc_val.as_object() {
+                                if let Some(cap_str) = doc_obj.get("capability").and_then(|v| v.as_str()) {
+                                    capabilities_map.insert(doc_name.clone(), cap_str.to_string());
+                                }
                             }
                         }
                     }
@@ -446,12 +461,69 @@ impl GenericUcan {
                         None
                     };
 
+                    // Extract doc_types from "documents" field (same source as capabilities)
+                    // Frontend generates: { documents: { doc_name: { capability: "collaborator", type: "crdt" } } }
+                    let doc_types = if let Some(docs_obj) = template_obj.get("documents").and_then(|v| v.as_object()) {
+                        let mut types_map = HashMap::new();
+                        for (doc_name, doc_val) in docs_obj {
+                            if let Some(doc_obj) = doc_val.as_object() {
+                                if let Some(type_str) = doc_obj.get("type").and_then(|v| v.as_str()) {
+                                    types_map.insert(doc_name.clone(), type_str.to_string());
+                                }
+                            }
+                        }
+                        if types_map.is_empty() { None } else { Some(types_map) }
+                    } else {
+                        None
+                    };
+
+                    // Extract CEL authorization capabilities (v3)
+                    let auth_capabilities = template_obj
+                        .get("auth_capabilities")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect()
+                        });
+
+                    // Extract operations
+                    let operations = template_obj
+                        .get("operations")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .map(|(k, v)| (k.clone(), v.clone()))
+                                .collect()
+                        });
+
+                    // Extract relationship
+                    let relationship = template_obj
+                        .get("relationship")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+
+                    // Extract CEL rules
+                    let cel_rules = template_obj
+                        .get("cel_rules")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                                .collect()
+                        });
+
                     delegation_templates.insert(
                         role_key.clone(),
                         DelegationTemplate {
                             token_type,
                             capabilities: capabilities_map,
                             sync,
+                            doc_types,
+                            auth_capabilities,
+                            operations,
+                            relationship,
+                            cel_rules,
                         },
                     );
                 }
@@ -461,8 +533,8 @@ impl GenericUcan {
         // Extract proof chain
         let proof_chain = parsed.proofs().clone().unwrap_or_default();
 
-        // Create UcanCore with parsed data
-        let core = UcanCore::new(token.to_string(), parsed, role, token_type);
+        // Create UcanCore with parsed data (facts-only, no role/token_type enums)
+        let core = UcanCore::new(token.to_string(), parsed, facts);
 
         Ok(Self {
             core,
@@ -480,24 +552,50 @@ impl GenericUcan {
         self.core.raw_token()
     }
 
-    pub fn role(&self) -> Role {
-        self.core.role()
-    }
-
-    pub fn token_type(&self) -> ResourceTokenType {
-        self.core.token_type().clone()
-    }
-
     pub fn parsed(&self) -> &Ucan {
         self.core.parsed()
     }
 
-    pub fn parsed_capabilities(&self) -> &[ParsedCapabilityUri] {
-        self.core.parsed_capabilities()
-    }
-
     pub fn proof_chain(&self) -> &[String] {
         &self.proof_chain
+    }
+
+    /// Get raw facts (source of truth)
+    pub fn facts(&self) -> &serde_json::Map<String, serde_json::Value> {
+        self.core.facts()
+    }
+
+    /// Get a specific fact by key
+    pub fn get_fact(&self, key: &str) -> Option<&serde_json::Value> {
+        self.core.get_fact(key)
+    }
+
+    /// Get a string fact by key
+    pub fn get_fact_string(&self, key: &str) -> Option<&str> {
+        self.core.get_fact_string(key)
+    }
+
+    // ==================== Derived Identity (V3) ====================
+    // These replace role() and token_type() methods
+
+    /// Check if token holder is owner (derived from operations.own)
+    pub fn is_owner(&self) -> bool {
+        self.core.is_owner()
+    }
+
+    /// Check if token holder is host/node (derived from operations.add_resources)
+    pub fn is_host(&self) -> bool {
+        self.core.is_host()
+    }
+
+    /// Check if this is a first connection token
+    pub fn is_first_connection(&self) -> bool {
+        self.core.is_first_connection()
+    }
+
+    /// Get relationship label (for logging only, not for business logic)
+    pub fn relationship(&self) -> Option<&str> {
+        self.core.relationship()
     }
 
     // Capability queries
@@ -574,51 +672,147 @@ impl GenericUcan {
     }
 
     // Folder-level actions
-    /// Check if the token has get_share_link capability for a folder
-    /// This checks folder-level capabilities (not resource-level)
-    /// Folder capabilities have format: "domain:folder:folder_id:get_share_link"
+    /// Check if the token has get_share_link operation (v3 facts-based)
+    /// Checks operations.get_share_link == "allow" in facts
     pub fn can_get_folder_share_link(&self) -> bool {
-        self.parsed().capabilities().iter().any(|cap| {
-            cap.resource.contains(":folder:") && cap.resource.contains(":get_share_link")
-        })
+        self.get_fact("operations")
+            .and_then(|ops| ops.as_object())
+            .and_then(|obj| obj.get("get_share_link"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "allow")
+            .unwrap_or(false)
     }
 
-    // Resource/Folder ID extraction from capability URIs (source of truth)
-    // The URI standard is the canonical format for resource/folder identification
+    // ==================== ID Extraction (V3: Facts-Only) ====================
+    // V3 Migration: These methods now read from facts instead of parsing URIs
+
+    /// Extract resource_id from token facts
+    ///
+    /// V3: Reads from facts.resource_id (facts-only architecture)
     pub fn resource_id(&self) -> Option<String> {
-        // Extract from first capability URI with resource type
-        for cap in self.parsed().capabilities().iter() {
-            if let Ok(id) = uri::parse_resource_id(&cap.resource) {
-                return Some(id);
-            }
-        }
-        None
+        self.get_fact_string("resource_id").map(String::from)
     }
 
+    /// Extract folder_id from token facts
+    ///
+    /// V3: Reads from facts.folder_id (facts-only architecture)
     pub fn folder_id(&self) -> Option<String> {
-        // Try to extract from first capability URI with folder type
-        for cap in self.parsed().capabilities().iter() {
-            if let Ok(id) = uri::parse_folder_id(&cap.resource) {
-                return Some(id);
-            }
-            // Also check wildcard resource URIs (folder_id/*)
-            if let Ok(id) = uri::parse_folder_id_from_wildcard(&cap.resource) {
-                return Some(id);
-            }
-        }
-        None
+        self.get_fact_string("folder_id").map(String::from)
     }
 
-    /// Extract domain from capability URIs (source of truth)
-    /// Format: domain:resource:id:doc_name or domain:folder:id:operation
-    pub fn domain(&self) -> Option<String> {
-        // Extract domain from first capability URI
-        for cap in self.parsed().capabilities().iter() {
-            let parts: Vec<&str> = cap.resource.split(':').collect();
-            if !parts.is_empty() {
-                return Some(parts[0].to_string());
-            }
-        }
-        None
+
+    // ==================== CEL-Based Authorization Helpers (V3) ====================
+    // These methods evaluate CEL rules from token facts to determine capabilities
+
+    /// Check if share_record should be persisted to database
+    ///
+    /// Evaluates the `persist_share` CEL rule from token facts.
+    /// Falls back to checking the boolean capability directly if no CEL rule exists.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// if permit.should_persist_share() {
+    ///     db.save_share_record(share_record).await?;
+    /// }
+    /// ```
+    pub fn should_persist_share(&self) -> bool {
+        self.evaluate_cel_rule("persist_share")
+            .or_else(|| {
+                // Fallback: check boolean capability directly
+                self.get_fact("capabilities")
+                    .and_then(|caps| caps.as_object())
+                    .and_then(|obj| obj.get("persist_share"))
+                    .and_then(|v| v.as_bool())
+            })
+            .unwrap_or(false)
+    }
+
+    /// Check if token can establish P2P connections
+    ///
+    /// Evaluates the `can_connect` CEL rule from token facts.
+    /// Falls back to checking the boolean capability directly if no CEL rule exists.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// if permit.can_connect() {
+    ///     establish_connection(peer_id).await?;
+    /// }
+    /// ```
+    pub fn can_connect(&self) -> bool {
+        self.evaluate_cel_rule("can_connect")
+            .or_else(|| {
+                // Fallback: check boolean capability directly
+                self.get_fact("capabilities")
+                    .and_then(|caps| caps.as_object())
+                    .and_then(|obj| obj.get("can_connect"))
+                    .and_then(|v| v.as_bool())
+            })
+            .unwrap_or(false)
+    }
+
+    /// Check if token can issue new delegated tokens
+    ///
+    /// Evaluates the `can_delegate` CEL rule from token facts.
+    /// Falls back to checking the boolean capability directly if no CEL rule exists.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// if permit.can_delegate() {
+    ///     let delegated_token = issue_delegated_token(permit).await?;
+    /// }
+    /// ```
+    pub fn can_delegate(&self) -> bool {
+        self.evaluate_cel_rule("can_delegate")
+            .or_else(|| {
+                // Fallback: check boolean capability directly
+                self.get_fact("capabilities")
+                    .and_then(|caps| caps.as_object())
+                    .and_then(|obj| obj.get("can_delegate"))
+                    .and_then(|v| v.as_bool())
+            })
+            .unwrap_or(false)
+    }
+
+    /// Check if token can sync updates with peers
+    ///
+    /// Evaluates the `sync_enabled` CEL rule from token facts.
+    /// Falls back to checking the boolean capability directly if no CEL rule exists.
+    ///
+    /// # Example
+    /// ```rust,ignore
+    /// if permit.sync_enabled() {
+    ///     sync_updates_with_peer(updates).await?;
+    /// }
+    /// ```
+    pub fn sync_enabled(&self) -> bool {
+        self.evaluate_cel_rule("sync_enabled")
+            .or_else(|| {
+                // Fallback: check boolean capability directly
+                self.get_fact("capabilities")
+                    .and_then(|caps| caps.as_object())
+                    .and_then(|obj| obj.get("sync_enabled"))
+                    .and_then(|v| v.as_bool())
+            })
+            .unwrap_or(false)
+    }
+
+    /// Helper method to evaluate a CEL rule from token facts
+    ///
+    /// # Arguments
+    /// * `rule_name` - Name of the rule to evaluate (e.g., "persist_share", "can_connect")
+    ///
+    /// # Returns
+    /// * `Some(true/false)` if CEL rule exists and evaluates successfully
+    /// * `None` if no CEL rule exists or evaluation fails
+    fn evaluate_cel_rule(&self, rule_name: &str) -> Option<bool> {
+        // Get cel_rules object from facts
+        let cel_rules = self.get_fact("cel_rules")?.as_object()?;
+
+        // Get the specific rule expression
+        let expression = cel_rules.get(rule_name)?.as_str()?;
+
+        // Create validator and evaluate
+        let mut validator = crate::cel::OperationValidator::new();
+        validator.validate(expression, self.facts()).ok()
     }
 }

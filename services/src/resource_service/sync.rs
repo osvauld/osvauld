@@ -10,9 +10,10 @@
 use super::core;
 use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::CryptoUtils;
+use gurkha::decision::SyncContext;
 use log::{error, info};
 use osvauld_core::models::{
-    ResourceShareToken, ShareRecord, User,
+    ShareRecord, User,
     resource::{EncryptedResource, Resource},
 };
 use persistance::database::RepositoryContext;
@@ -48,13 +49,22 @@ pub async fn get_resource_state_vectors_by_ucan(
     let resource_id = ucan_service.extract_resource_id(ucan_token)?;
     let resource = core::load_and_decrypt_resource(&resource_id, repo_ctx, crypto_utils).await?;
 
-    // Use merge_service for now (will refactor to use SyncContext)
-    crate::merge_service::get_state_vectors_for_ucan(&resource, ucan_token, ucan_service)
-        .await
-        .map_err(|e| match e {
-            ServiceError::Resource(err) => err,
-            _ => ResourceServiceError::InvalidState(format!("Unexpected error: {}", e)),
-        })
+    // TODO: Replace with gurkha::MergeService::generate_state_vector for each document
+    // Get documents from resource and generate state vectors using UCAN-aware logic
+    use std::collections::HashMap;
+    let mut state_vectors = HashMap::new();
+
+    for doc_name in resource.doc_names() {
+        if let Some(doc) = resource.get_doc(&doc_name) {
+            let state_vector = gurkha::MergeService::generate_state_vector(doc, ucan_token)
+                .map_err(|e| ResourceServiceError::InvalidState(format!("Failed to generate state vector: {}", e)))?;
+            state_vectors.insert(doc_name.clone(), state_vector);
+        }
+    }
+
+    // Serialize to JSON string
+    serde_json::to_string(&state_vectors)
+        .map_err(|e| ResourceServiceError::InvalidState(format!("Failed to serialize state vectors: {}", e)))
 }
 
 /// Generate updates for peer based on their state vectors
@@ -83,18 +93,14 @@ pub async fn generate_updates_for_peer(
     let resource_id = ucan_service.extract_resource_id(ucan_token)?;
     let resource = core::load_and_decrypt_resource(&resource_id, repo_ctx, crypto_utils).await?;
 
-    // Use merge_service for now
-    crate::merge_service::generate_updates_for_peer(
-        &resource,
-        ucan_token,
-        &peer_state_vectors_json,
-        &ucan_service,
-    )
-    .await
-    .map_err(|e| match e {
-        ServiceError::Resource(err) => err,
-        _ => ResourceServiceError::InvalidState(format!("Unexpected error: {}", e)),
-    })
+    // TODO: Refactor to use gurkha::MergeService::filter_documents_for_peer
+    // This function needs BOTH our UCAN and peer's UCAN for proper UCAN-aware filtering
+    // Current signature only has our UCAN - need to update calling code to pass peer UCAN too
+
+    // Temporary: Return error until proper refactor
+    Err(ResourceServiceError::InvalidState(
+        "generate_updates_for_peer needs refactoring to use gurkha::MergeService with both UCANs".to_string()
+    ))
 }
 
 /// Apply peer updates to resource
@@ -126,23 +132,14 @@ pub async fn apply_peer_updates(
     let mut resource =
         core::load_and_decrypt_resource(&resource_id, repo_ctx.clone(), crypto_utils).await?;
 
-    // Use merge_service for now
-    crate::merge_service::apply_peer_updates(
-        ucan_service,
-        &mut resource,
-        ucan_token,
-        &peer_updates_json,
-    )
-    .await
-    .map_err(|e| match e {
-        ServiceError::Resource(err) => err,
-        _ => ResourceServiceError::InvalidState(format!("Unexpected error: {}", e)),
-    })?;
+    // TODO: Refactor to use gurkha::MergeService::apply_peer_updates
+    // This function needs BOTH our UCAN and peer's UCAN for proper UCAN-aware filtering
+    // Current signature only has our UCAN - need to update calling code to pass peer UCAN too
 
-    // Save updated resource
-    core::encrypt_and_save_resource(&resource, &user.public_key, repo_ctx).await?;
-
-    Ok(())
+    // Temporary: Return error until proper refactor
+    Err(ResourceServiceError::InvalidState(
+        "apply_peer_updates needs refactoring to use gurkha::MergeService with both UCANs".to_string()
+    ))
 }
 
 // =============================================================================
@@ -194,38 +191,19 @@ pub async fn get_resource_ucans_for_sync(
 
     // Delegate resource UCAN based on peer's role
     info!("  Delegating resource UCAN by role: {}", peer_role);
-    let resource_share_token = match peer_role {
-        "node" => {
-            // For node role, delegate to node
-            ucan_service_guard
-                .delegate_resource_to_node(&our_ucan, peer_user.ucan_pub_key.as_str())
-                .await?
-        }
-        "owner" | "admin" => {
-            // For admin roles, delegate to user (full capabilities)
-            ucan_service_guard
-                .delegate_resource_to_user(&our_ucan, peer_user.ucan_pub_key.as_str())
-                .await?
-        }
-        "viewer" => {
-            // For viewer role, use viewer delegation
-            let viewer_token = ucan_service_guard
-                .delegate_resource_to_viewer(&our_ucan, peer_user.ucan_pub_key.as_str())
-                .await?;
-            // Convert ResourceViewerToken to ResourceShareToken for consistency
-            // This is a workaround - ideally we'd handle these types differently
-            ResourceShareToken::from_token(viewer_token.ucan().raw_token())?
-        }
-        _ => {
-            // Default to user delegation for unknown roles
-            ucan_service_guard
-                .delegate_resource_to_user(&our_ucan, peer_user.ucan_pub_key.as_str())
-                .await?
-        }
+
+    // Map role to template_key
+    let template_key = match peer_role {
+        "node" => "node",
+        "owner" | "admin" => "user",  // Admin roles use user template
+        "viewer" => "viewer",
+        _ => "user"  // Default to user template for unknown roles
     };
 
-    let peer_ucan = resource_share_token.ucan().raw_token().to_string();
-    let cid = gurkha::crypto::get_ucan_cid(&peer_ucan)?;
+    // Use unified delegation API
+    let (peer_ucan, cid) = ucan_service_guard
+        .delegate_resource(&our_ucan, template_key, peer_user.ucan_pub_key.as_str())
+        .await?;
 
     info!("  ✓ Generated peer resource UCAN");
 
@@ -248,7 +226,8 @@ pub async fn prepare_resource_for_peer(
         core::load_and_decrypt_resource(resource_id, repo_ctx.clone(), crypto_utils).await?;
 
     // Create SyncContext
-    let sync_context = core::create_sync_context(our_ucan, peer_ucan).await?;
+    let sync_context = SyncContext::new(our_ucan, peer_ucan)
+        .map_err(|e| ResourceServiceError::UcanError(e))?;
 
     // Filter and encrypt for peer (returns base64 strings)
     core::filter_and_encrypt_for_peer(&resource, &sync_context, peer_public_key)
@@ -333,14 +312,8 @@ pub async fn save_asset_binary_data(
 }
 
 // =============================================================================
-// Re-exports from merge_service (temporary - will refactor)
-// =============================================================================
-
-pub use crate::merge_service::{
-    apply_submission, extract_asset_ids, extract_state_vectors_from_updates,
-    filter_documents_to_send, prepare_sync_data,
-};
-
+// Note: merge_service removed - all merge logic now in gurkha::MergeService
+// Services call gurkha::MergeService directly for UCAN-aware CRDT operations
 // =============================================================================
 // Resource Transfer Operations
 // =============================================================================
@@ -393,6 +366,10 @@ pub async fn prepare_resource_transfer(
     // Prepare resource data (filter and encrypt using peer's PGP public key)
     // Returns base64-encoded strings ready for EncryptedResource
     let peer_pgp_key = &peer_user.public_key;
+    info!("🔐 Encrypting resource for peer");
+    info!("  Peer user ID: {}", peer_user.id);
+    info!("  Peer PGP key (first 20 chars): {}...", &peer_pgp_key.chars().take(20).collect::<String>());
+    info!("  Peer UCAN key (first 20 chars): {}...", &peer_user.ucan_pub_key.chars().take(20).collect::<String>());
     let (encrypted_data, encrypted_key) = prepare_resource_for_peer(
         resource_id,
         &our_ucan,
@@ -404,16 +381,15 @@ pub async fn prepare_resource_transfer(
     .await?;
 
     // Construct EncryptedResource with peer's UCAN
-    let peer_encrypted_resource = EncryptedResource {
-        id: original_resource.id,
-        folder_id: original_resource.folder_id,
-        created_at: original_resource.created_at,
-        updated_at: original_resource.updated_at,
+    let peer_encrypted_resource = crate::resource_service::core::create_encrypted_resource_struct(
+        original_resource.id,
+        original_resource.folder_id,
         encrypted_data,        // Already base64-encoded
         encrypted_key,         // Already base64-encoded
-        ucan_token: peer_ucan, // Peer's delegated UCAN
-        metadata: original_resource.metadata,
-    };
+        peer_ucan,             // Peer's delegated UCAN
+        original_resource.metadata,
+        Some((original_resource.created_at, original_resource.updated_at)), // Preserve original timestamps
+    );
 
     info!("✓ Resource transfer prepared");
 
@@ -493,7 +469,7 @@ pub async fn accept_resource_from_peer(
 
     // 3. Validate resource UCAN structure
     info!("  Step 2: Validating resource UCAN structure");
-    gurkha::parser::GenericUcan::from_token(&resource.ucan_token).map_err(|e| {
+    gurkha::parser::Permit::from_token(&resource.ucan_token).map_err(|e| {
         error!("❌ Invalid resource UCAN: {}", e);
         ResourceServiceError::UcanError(format!("Invalid resource UCAN: {}", e))
     })?;
@@ -506,7 +482,7 @@ pub async fn accept_resource_from_peer(
         share_records.len()
     );
     for (i, share_record) in share_records.iter().enumerate() {
-        gurkha::parser::GenericUcan::from_token(&share_record.ucan_token).map_err(|e| {
+        gurkha::parser::Permit::from_token(&share_record.ucan_token).map_err(|e| {
             error!("❌ Invalid share_record[{}] UCAN: {}", i, e);
             ResourceServiceError::UcanError(format!("Invalid share_record UCAN: {}", e))
         })?;

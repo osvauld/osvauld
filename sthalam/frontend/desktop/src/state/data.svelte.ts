@@ -358,15 +358,24 @@ class DataState {
       }
 
       // Load Loro documents from snapshots
-      // Note: user_content_doc may be missing for viewers (per UCAN dont_send_to_node policy)
+      // Note: Documents may be missing for viewers (per UCAN permission filtering)
+      // Create empty snapshots for missing documents to avoid Loro import errors
       const snapshots = {
-        template: new Uint8Array(loroData.template_doc),
-        content: new Uint8Array(loroData.content_doc),
+        template: loroData.template_doc
+          ? new Uint8Array(loroData.template_doc)
+          : loroCoordinator.createEmptyDocumentSnapshots().template,
+        content: loroData.content_doc
+          ? new Uint8Array(loroData.content_doc)
+          : loroCoordinator.createEmptyDocumentSnapshots().content,
         userContent: loroData.user_content_doc
           ? new Uint8Array(loroData.user_content_doc)
           : loroCoordinator.createEmptyDocumentSnapshots().userContent,
-        collaborative: new Uint8Array(loroData.collaborative_doc),
-        submissions: new Uint8Array(loroData.submissions_doc),
+        collaborative: loroData.collaborative_doc
+          ? new Uint8Array(loroData.collaborative_doc)
+          : loroCoordinator.createEmptyDocumentSnapshots().collaborative,
+        submissions: loroData.submissions_doc
+          ? new Uint8Array(loroData.submissions_doc)
+          : loroCoordinator.createEmptyDocumentSnapshots().submissions,
         staticAssets: staticAssetsObj
       };
 

@@ -10,7 +10,6 @@
 
 use crate::errors::GurkhaError;
 use crate::parser::DelegationTemplate;
-use crate::uri;
 use base64::{Engine as _, engine::general_purpose};
 use ed25519_dalek::VerifyingKey;
 use serde_json::{json, Map, Value};
@@ -31,6 +30,11 @@ pub struct TokenDecision {
     pub capabilities: Vec<(String, String)>,
     pub facts: Map<String, Value>,
     pub expiry: Option<u64>,
+    /// Proof chain: Array of CIDs for the `prf` field (UCAN standard)
+    pub proofs: Vec<String>,
+    /// Embedded proof tokens: CID -> full JWT token mapping for `fct.prf_tokens` (extension)
+    /// Enables stateless proof chain validation without database lookups
+    pub proof_tokens: HashMap<String, String>,
 }
 
 impl TokenDecision {
@@ -40,6 +44,8 @@ impl TokenDecision {
             capabilities: Vec::new(),
             facts: Map::new(),
             expiry: None,
+            proofs: Vec::new(),
+            proof_tokens: HashMap::new(),
         }
     }
 
@@ -63,6 +69,10 @@ pub struct DelegationDecision {
     pub capabilities: Vec<(String, String)>,
     pub facts: Map<String, Value>,
     pub template: Option<DelegationTemplate>,
+    /// Proof chain: Array of CIDs for the `prf` field (UCAN standard)
+    pub proofs: Vec<String>,
+    /// Embedded proof tokens: CID -> full JWT token mapping for `fct.prf_tokens` (extension)
+    pub proof_tokens: HashMap<String, String>,
 }
 
 // ==================== CONNECTION TOKEN DECISIONS ====================
@@ -71,23 +81,67 @@ pub struct DelegationDecision {
 ///
 /// One-time tokens have:
 /// - Wildcard audience (for first connection)
-/// - user-connect capability
+/// - Facts-based authorization (no URI capabilities)
+/// - Relationship determines permission level
 /// - 30 day expiry
 pub fn decide_one_time_token(
     verifying_key: &VerifyingKey,
-    capability_str: &str,
-    role: &str,
+    relationship: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
-    let capability = format!("{}:user-connect:{}", capability_str, pub_key_b64);
 
     let mut decision = TokenDecision::new("*"); // Wildcard audience
 
-    decision.add_capability(capability, "use".to_string());
-
+    // No URI capabilities - all authorization in facts
     decision.add_fact("token_type".into(), json!("one_time_connection"));
-    decision.add_fact("role".into(), json!(role));
     decision.add_fact("first_connection".into(), json!(true));
+    decision.add_fact("relationship".into(), json!(relationship));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+
+    // Add CEL rules and operations based on relationship
+    match relationship {
+        "owner" => {
+            // Owner: full admin capabilities
+            decision.add_fact("auth_capabilities".into(), json!({
+                "can_connect": true,
+                "persist_share": true,
+                "can_delegate": true,
+                "sync_enabled": true
+            }));
+            decision.add_fact("operations".into(), json!({
+                "own": "allow",
+                "read": "allow",
+                "write": "allow"
+            }));
+            decision.add_fact("cel_rules".into(), json!({
+                "persist_share": "auth_capabilities.persist_share == true && relationship == 'owner'",
+                "can_connect": "auth_capabilities.can_connect == true",
+                "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+                "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
+            }));
+        }
+        "viewer" => {
+            // Viewer: restricted capabilities
+            decision.add_fact("auth_capabilities".into(), json!({
+                "can_connect": true,
+                "persist_share": false,
+                "can_delegate": false,
+                "sync_enabled": true
+            }));
+            decision.add_fact("operations".into(), json!({
+                "own": "deny",
+                "read": "allow",
+                "write": "deny"
+            }));
+            decision.add_fact("cel_rules".into(), json!({
+                "persist_share": "auth_capabilities.persist_share == true && relationship == 'node'",
+                "can_connect": "auth_capabilities.can_connect == true",
+                "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+                "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
+            }));
+        }
+        _ => return Err(GurkhaError::ValidationError(format!("Unknown relationship: {}", relationship))),
+    }
 
     decision.set_expiry(30 * 24 * 60 * 60); // 30 days
 
@@ -98,51 +152,69 @@ pub fn decide_one_time_token(
 ///
 /// Peer tokens have:
 /// - Specific peer's pubkey as audience
-/// - Role-based capabilities (owner/node/user/viewer)
-/// - Longer expiry
+/// - Facts-based authorization (no URI capabilities)
+/// - Relationship-based permissions
+/// - No expiry (persistent connection)
 pub fn decide_peer_connection(
     verifying_key: &VerifyingKey,
-    domain: &str,
     peer_pubkey: &str,
-    role: &str,
+    relationship: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
-    let user_id = &pub_key_b64;
 
     let mut decision = TokenDecision::new(peer_pubkey);
 
-    // Role-based capabilities
-    match role {
+    // No URI capabilities - all authorization in facts
+    decision.add_fact("token_type".into(), json!(format!("{}_connection", relationship)));
+    decision.add_fact("relationship".into(), json!(relationship));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+
+    // Add relationship-based permissions
+    match relationship {
         "owner" => {
-            decision.add_capability(
-                format!("{}:peer-connection:*", domain),
-                "admin".to_string(),
-            );
+            decision.add_fact("auth_capabilities".into(), json!({
+                "can_connect": true,
+                "persist_share": true,
+                "can_delegate": true,
+                "sync_enabled": true
+            }));
+            decision.add_fact("operations".into(), json!({
+                "own": "allow",
+                "read": "allow",
+                "write": "allow",
+                "admin": "allow"
+            }));
         }
         "node" => {
-            decision.add_capability(
-                format!("{}:peer-connection:*", domain),
-                "sync".to_string(),
-            );
+            decision.add_fact("auth_capabilities".into(), json!({
+                "can_connect": true,
+                "persist_share": true,
+                "can_delegate": false,
+                "sync_enabled": true,
+                "add_folder": true
+            }));
+            decision.add_fact("operations".into(), json!({
+                "own": "deny",
+                "read": "allow",
+                "write": "allow",
+                "sync": "allow"
+            }));
         }
-        "user" => {
-            decision.add_capability(
-                format!("{}:peer-connection:*", domain),
-                "read".to_string(),
-            );
+        "user" | "viewer" => {
+            decision.add_fact("auth_capabilities".into(), json!({
+                "can_connect": true,
+                "persist_share": false,
+                "can_delegate": false,
+                "sync_enabled": false
+            }));
+            decision.add_fact("operations".into(), json!({
+                "own": "deny",
+                "read": "allow",
+                "write": "deny"
+            }));
         }
-        "viewer" => {
-            decision.add_capability(
-                format!("{}:peer-connection:*", domain),
-                "read".to_string(),
-            );
-        }
-        _ => return Err(GurkhaError::ValidationError(format!("Unknown role: {}", role))),
+        _ => return Err(GurkhaError::ValidationError(format!("Unknown relationship: {}", relationship))),
     }
-
-    decision.add_fact("token_type".into(), json!(format!("{}_connection", role)));
-    decision.add_fact("role".into(), json!(role));
-    decision.add_fact("user_id".into(), json!(user_id));
 
     Ok(decision)
 }
@@ -151,20 +223,29 @@ pub fn decide_peer_connection(
 pub fn decide_viewer_auth(
     verifying_key: &VerifyingKey,
     resource_id: &str,
-    domain: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
     let mut decision = TokenDecision::new(&pub_key_b64); // Self-signed initially
 
-    let capability_uri = uri::resource_capability(domain, resource_id, "viewer");
-    decision.add_capability(
-        format!("{}:crud/readonly", capability_uri),
-        String::new(),
-    );
-
+    // No URI capabilities - all authorization in facts
     decision.add_fact("token_type".into(), json!("viewer_auth"));
-    decision.add_fact("role".into(), json!("viewer"));
+    decision.add_fact("relationship".into(), json!("viewer"));
+    decision.add_fact("resource_id".into(), json!(resource_id));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+
+    // Viewer capabilities
+    decision.add_fact("auth_capabilities".into(), json!({
+        "can_connect": true,
+        "persist_share": false,
+        "can_delegate": false,
+        "sync_enabled": true
+    }));
+    decision.add_fact("operations".into(), json!({
+        "own": "deny",
+        "read": "allow",
+        "write": "deny"
+    }));
 
     Ok(decision)
 }
@@ -176,29 +257,43 @@ pub fn decide_viewer_auth(
 ///
 /// Folder viewer auth tokens have:
 /// - Wildcard audience (for one-time shareable link)
-/// - Folder connect capability (allows establishing connection)
-/// - Folder access capability (allows accessing the folder)
+/// - Facts-based authorization (no URI capabilities)
+/// - Folder context and viewer relationship
 /// - 30 day expiry
 pub fn decide_folder_viewer_auth(
     verifying_key: &VerifyingKey,
     folder_id: &str,
-    domain: &str,
 ) -> DecisionResult<TokenDecision> {
-    let _pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
+    let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
 
     let mut decision = TokenDecision::new("*"); // Wildcard audience for shareable link
 
-    // Connect capability - allows viewer to establish connection
-    let connect_capability = format!("{}:folder:{}:connect", domain, folder_id);
-    decision.add_capability(connect_capability, "use".to_string());
-
-    // Folder access capability - allows viewer to access folder
-    let folder_capability = uri::folder_operation(domain, folder_id, "access");
-    decision.add_capability(folder_capability, "allow".to_string());
-
+    // No URI capabilities - all authorization in facts
     decision.add_fact("token_type".into(), json!("viewer_auth"));
-    decision.add_fact("role".into(), json!("viewer"));
+    decision.add_fact("first_connection".into(), json!(true));
+    decision.add_fact("relationship".into(), json!("viewer"));
     decision.add_fact("folder_id".into(), json!(folder_id));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+
+    // Viewer capabilities for folder access
+    decision.add_fact("auth_capabilities".into(), json!({
+        "can_connect": true,
+        "persist_share": false,
+        "can_delegate": false,
+        "sync_enabled": true
+    }));
+    decision.add_fact("operations".into(), json!({
+        "own": "deny",
+        "read": "allow",
+        "write": "deny",
+        "folder_access": "allow"
+    }));
+    decision.add_fact("cel_rules".into(), json!({
+        "persist_share": "auth_capabilities.persist_share == true && relationship == 'node'",
+        "can_connect": "auth_capabilities.can_connect == true",
+        "can_delegate": "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+        "sync_enabled": "auth_capabilities.sync_enabled == true && operations.read == 'allow'"
+    }));
 
     // Short expiry for security (30 days like one-time connection)
     decision.set_expiry(30 * 24 * 60 * 60);
@@ -211,13 +306,13 @@ pub fn decide_folder_viewer_auth(
 /// Decide what should be in a resource owner token
 ///
 /// Parses template JSON and decides:
-/// - Which capabilities to include from template
+/// - Which documents and capabilities to include from template
 /// - Which facts to copy
 /// - Self-signed (audience is own pubkey)
+/// - Facts-based (no URI capabilities)
 pub fn decide_owner_token(
     verifying_key: &VerifyingKey,
     resource_id: &str,
-    domain: &str,
     template_json: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
@@ -232,35 +327,33 @@ pub fn decide_owner_token(
         .get("owner_template")
         .ok_or_else(|| GurkhaError::InvalidTemplate("Missing owner_template".to_string()))?;
 
-    // Extract and build capabilities from template
-    let caps = owner_template
-        .get("capabilities")
+    // Extract documents map from template
+    // Format: { doc_name: { capability: "collaborator"|"viewer", type: "crdt"|"asset" } }
+    let documents = owner_template
+        .get("documents")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing capabilities in owner_template".to_string()))?;
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing documents in owner_template".to_string()))?
+        .clone();
 
-    for (doc_name, cap_value) in caps.iter() {
-        let cap_str = cap_value.as_str().ok_or_else(|| {
-            GurkhaError::InvalidTemplate(format!("Invalid capability value for {}", doc_name))
-        })?;
-        let capability_uri = uri::resource_capability(domain, resource_id, doc_name);
-        decision.add_capability(
-            format!("{}:{}", capability_uri, cap_str),
-            String::new(),
-        );
-    }
-
-    // Build facts from template
+    // Build facts from template (no URI capabilities)
     decision.add_fact("token_type".into(), json!("resource_owner"));
-    decision.add_fact("role".into(), json!("owner"));
+    decision.add_fact("relationship".into(), json!("owner"));
+    decision.add_fact("resource_id".into(), json!(resource_id));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+    decision.add_fact("documents".into(), json!(documents));
+
+    // Extract operations from template
+    let ops = owner_template
+        .get("operations")
+        .and_then(|v| v.as_object())
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
+
+    // Keep operations as strings ("allow"/"deny") instead of converting to booleans
+    decision.add_fact("operations".into(), json!(ops));
 
     // Copy sync facts if present
     if let Some(sync) = owner_template.get("sync") {
         decision.add_fact("sync".into(), sync.clone());
-    }
-
-    // Copy doc_metadata if present
-    if let Some(doc_metadata) = owner_template.get("doc_metadata") {
-        decision.add_fact("doc_metadata".into(), doc_metadata.clone());
     }
 
     // Copy delegation templates
@@ -277,59 +370,86 @@ pub fn decide_owner_token(
 /// - Which capabilities the node should receive
 /// - Which facts to include
 /// - Audience is the node's pubkey
-pub fn decide_delegation_to_node(
+
+// ==================== UNIFIED DELEGATION API ====================
+
+/// Unified delegation decision (replaces role-specific functions)
+///
+/// Creates a delegation decision using a template key to lookup the delegation pattern.
+/// The template defines the capabilities and facts - no hardcoded role logic.
+/// Facts-only approach - no URI capabilities generated.
+///
+/// # Arguments
+/// * `template` - Delegation template defining capabilities and facts
+/// * `resource_id` - ID of the resource being delegated
+/// * `resource_type` - Type of resource ("resource" or "folder")
+/// * `audience_pubkey` - Public key of the delegatee (DID or base64)
+///
+/// # Returns
+/// * `DelegationDecision` - Decision describing what should be in the delegated token
+///
+/// # Example
+/// ```rust
+/// let template = extract_template_from_token(owner_token, "node")?;
+/// let decision = decide_delegation(&template, "res_123", "resource", "did:key:z...")?;
+/// ```
+pub fn decide_delegation(
     template: &DelegationTemplate,
-    domain: &str,
     resource_id: &str,
-    node_pubkey: &str,
+    resource_type: &str,
+    audience_pubkey: &str,
+    parent_token: Option<&str>,
 ) -> DecisionResult<DelegationDecision> {
-    let mut decision = DelegationDecision {
-        audience: node_pubkey.to_string(),
-        capabilities: template.build_capabilities(domain, resource_id, "resource"),
-        facts: template.to_facts(),
+    debug!(
+        "📋 Deciding delegation: resource_type={}, id={}, audience={}",
+        resource_type, resource_id, audience_pubkey
+    );
+
+    // Get facts from template (includes documents, operations, CEL rules, etc.)
+    let mut facts = template.to_facts();
+
+    debug!("📋 Template converted to facts:");
+    if let Some(documents) = facts.get("documents") {
+        debug!("  Documents in facts: {:?}", documents);
+    } else {
+        debug!("  ⚠️ NO documents in facts!");
+    }
+
+    // Add resource ID based on type
+    if resource_type == "resource" {
+        facts.insert("resource_id".to_string(), json!(resource_id));
+    } else if resource_type == "folder" {
+        facts.insert("folder_id".to_string(), json!(resource_id));
+    }
+
+    // Copy delegation templates from parent token (for further delegation)
+    if let Some(parent_token_str) = parent_token {
+        let parent_ucan = crate::parser::Permit::from_token(parent_token_str)
+            .map_err(|e| GurkhaError::ParseError(format!("Failed to parse parent token: {}", e)))?;
+
+        let delegation_templates = parent_ucan.delegation_templates();
+        if !delegation_templates.is_empty() {
+            // Convert delegation templates to JSON
+            let mut delegation_json = serde_json::Map::new();
+            for (key, template_obj) in delegation_templates {
+                let template_facts = template_obj.to_facts();
+                delegation_json.insert(key.clone(), json!(template_facts));
+            }
+            facts.insert("delegation".to_string(), json!(delegation_json));
+            debug!("✓ Copied {} delegation templates from parent token", delegation_templates.len());
+        }
+    }
+
+    let decision = DelegationDecision {
+        audience: audience_pubkey.to_string(),
+        capabilities: Vec::new(), // No URI capabilities - facts-only!
+        facts,
         template: Some(template.clone()),
+        proofs: Vec::new(),
+        proof_tokens: HashMap::new(),
     };
 
-    decision.facts.insert("role".into(), json!("node"));
-
-    Ok(decision)
-}
-
-/// Decide what capabilities should be delegated to user
-pub fn decide_delegation_to_user(
-    template: &DelegationTemplate,
-    domain: &str,
-    resource_id: &str,
-    user_pubkey: &str,
-) -> DecisionResult<DelegationDecision> {
-    let mut decision = DelegationDecision {
-        audience: user_pubkey.to_string(),
-        capabilities: template.build_capabilities(domain, resource_id, "resource"),
-        facts: template.to_facts(),
-        template: Some(template.clone()),
-    };
-
-    decision.facts.insert("role".into(), json!("user"));
-
-    Ok(decision)
-}
-
-/// Decide what capabilities should be delegated to viewer
-pub fn decide_delegation_to_viewer(
-    template: &DelegationTemplate,
-    domain: &str,
-    resource_id: &str,
-    viewer_pubkey: &str,
-) -> DecisionResult<DelegationDecision> {
-    let mut decision = DelegationDecision {
-        audience: viewer_pubkey.to_string(),
-        capabilities: template.build_capabilities(domain, resource_id, "resource"),
-        facts: template.to_facts(),
-        template: Some(template.clone()),
-    };
-
-    decision.facts.insert("role".into(), json!("viewer"));
-
+    info!("✓ Delegation decision created (facts-only)");
     Ok(decision)
 }
 
@@ -339,7 +459,6 @@ pub fn decide_delegation_to_viewer(
 pub fn decide_folder_owner_token(
     verifying_key: &VerifyingKey,
     folder_id: &str,
-    domain: &str,
     template_json: &str,
 ) -> DecisionResult<TokenDecision> {
     let pub_key_b64 = general_purpose::STANDARD.encode(verifying_key.as_bytes());
@@ -354,27 +473,19 @@ pub fn decide_folder_owner_token(
         .get("owner_template")
         .ok_or_else(|| GurkhaError::InvalidTemplate("Missing owner_template".to_string()))?;
 
-    // Extract and build capabilities from template
-    let caps = owner_template
-        .get("capabilities")
+    // Extract operations from template
+    let ops = owner_template
+        .get("operations")
         .and_then(|v| v.as_object())
-        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing capabilities in owner_template".to_string()))?;
+        .ok_or_else(|| GurkhaError::InvalidTemplate("Missing operations in owner_template".to_string()))?;
 
-    for (operation_name, cap_value) in caps.iter() {
-        let cap_str = cap_value.as_str().ok_or_else(|| {
-            GurkhaError::InvalidTemplate(format!("Invalid capability value for {}", operation_name))
-        })?;
-        let capability_uri = uri::folder_operation(domain, folder_id, operation_name);
-        decision.add_capability(
-            capability_uri,
-            cap_str.to_string(),
-        );
-    }
-
-    // Build facts from template
+    // Build facts from template (no URI capabilities)
     decision.add_fact("token_type".into(), json!("folder_owner"));
-    decision.add_fact("role".into(), json!("owner"));
+    decision.add_fact("relationship".into(), json!("owner"));
     decision.add_fact("folder_id".into(), json!(folder_id));
+    decision.add_fact("user_id".into(), json!(pub_key_b64));
+    // Keep operations as strings ("allow"/"deny") instead of converting to booleans
+    decision.add_fact("operations".into(), json!(ops));
 
     // Copy sync facts if present
     if let Some(sync) = owner_template.get("sync") {
@@ -389,26 +500,6 @@ pub fn decide_folder_owner_token(
     Ok(decision)
 }
 
-/// Decide what capabilities should be delegated for folder
-pub fn decide_folder_delegation(
-    template: &DelegationTemplate,
-    domain: &str,
-    folder_id: &str,
-    target_pubkey: &str,
-    target_role: &str,
-) -> DecisionResult<DelegationDecision> {
-    let mut decision = DelegationDecision {
-        audience: target_pubkey.to_string(),
-        capabilities: template.build_capabilities(domain, folder_id, "folder"),
-        facts: template.to_facts(),
-        template: Some(template.clone()),
-    };
-
-    decision.facts.insert("role".into(), json!(target_role));
-    decision.facts.insert("folder_id".into(), json!(folder_id));
-
-    Ok(decision)
-}
 
 // ==================== EXTRACTION/INFERENCE FUNCTIONS ====================
 
@@ -420,7 +511,7 @@ pub fn extract_template_from_token(
     role: &str,
 ) -> DecisionResult<DelegationTemplate> {
     // Parse the token
-    let ucan = crate::parser::GenericUcan::from_token(token_str)
+    let ucan = crate::parser::Permit::from_token(token_str)
         .map_err(|e| GurkhaError::ParseError(format!("Failed to parse token: {}", e)))?;
 
     // Extract template
@@ -429,60 +520,14 @@ pub fn extract_template_from_token(
         .ok_or_else(|| GurkhaError::InvalidTemplate(format!("Failed to get template for role: {}", role)))
 }
 
-/// Extract domain from token
-///
-/// Domain is encoded in capability URIs, not in facts.
-/// URI format: `domain:resource:id:doc_name` or `domain:folder:id:operation`
-/// We extract the domain from the first capability URI.
-#[instrument(skip(token_str))]
-pub fn extract_domain_from_token(token_str: &str) -> DecisionResult<String> {
-    debug!("🔍 Extracting domain from token");
-
-    let ucan = crate::parser::GenericUcan::from_token(token_str)
-        .map_err(|e| {
-            error!("❌ Failed to parse token: {}", e);
-            GurkhaError::ParseError(format!("Failed to parse token: {}", e))
-        })?;
-    debug!("✓ Token parsed successfully");
-
-    // Extract domain from the first capability URI
-    for cap in ucan.parsed().capabilities().iter() {
-        let parts: Vec<&str> = cap.resource.split(':').collect();
-        if !parts.is_empty() {
-            let domain = parts[0];
-            if !domain.is_empty() {
-                info!("✓ Domain extracted from capability URI: {}", domain);
-                return Ok(domain.to_string());
-            }
-        }
-    }
-
-    error!("❌ No valid domain found in token capabilities");
-    Err(GurkhaError::ValidationError(
-        "Cannot extract domain from token - no valid capabilities found".to_string()
-    ))
-}
-
-/// Extract capabilities from token as human-readable map
-pub fn extract_capabilities_from_token(token_str: &str) -> DecisionResult<HashMap<String, String>> {
-    let ucan = crate::parser::GenericUcan::from_token(token_str)
-        .map_err(|e| GurkhaError::ParseError(format!("Failed to parse token: {}", e)))?;
-
-    let mut caps = HashMap::new();
-    for cap in ucan.parsed().capabilities().iter() {
-        caps.insert(cap.resource.clone(), cap.ability.clone());
-    }
-
-    Ok(caps)
-}
-
 /// Extract facts from token
+///
+/// Facts-only approach - all authorization info is in facts field.
 pub fn extract_facts_from_token(token_str: &str) -> DecisionResult<Map<String, Value>> {
-    let ucan = crate::parser::GenericUcan::from_token(token_str)
+    let ucan = crate::parser::Permit::from_token(token_str)
         .map_err(|e| GurkhaError::ParseError(format!("Failed to parse token: {}", e)))?;
 
-    crate::extractors::get_facts(ucan.parsed())
-        .ok_or_else(|| GurkhaError::ValidationError("No facts in token".to_string()))
+    Ok(ucan.facts().clone())
 }
 
 /// Validate that a delegation template has required capabilities
@@ -498,31 +543,31 @@ pub fn validate_template_has_capability(
 /// Context for dual-UCAN sync decisions
 #[derive(Debug, Clone)]
 pub struct SyncContext {
-    our_ucan: crate::parser::GenericUcan,
-    peer_ucan: crate::parser::GenericUcan,
+    our_ucan: crate::parser::Permit,
+    peer_ucan: crate::parser::Permit,
 }
 
 impl SyncContext {
     /// Create sync context from two raw tokens
     pub fn new(our_token: &str, peer_token: &str) -> Result<Self, String> {
-        let our_ucan = crate::parser::GenericUcan::from_token(our_token)
+        let our_ucan = crate::parser::Permit::from_token(our_token)
             .map_err(|e| format!("Failed to parse our token: {}", e))?;
-        let peer_ucan = crate::parser::GenericUcan::from_token(peer_token)
+        let peer_ucan = crate::parser::Permit::from_token(peer_token)
             .map_err(|e| format!("Failed to parse peer token: {}", e))?;
 
         Ok(Self { our_ucan, peer_ucan })
     }
 
     /// Create sync context from parsed UCANs
-    pub fn from_ucans(our_ucan: crate::parser::GenericUcan, peer_ucan: crate::parser::GenericUcan) -> Self {
+    pub fn from_ucans(our_ucan: crate::parser::Permit, peer_ucan: crate::parser::Permit) -> Self {
         Self { our_ucan, peer_ucan }
     }
 
-    pub fn our_ucan(&self) -> &crate::parser::GenericUcan {
+    pub fn our_ucan(&self) -> &crate::parser::Permit {
         &self.our_ucan
     }
 
-    pub fn peer_ucan(&self) -> &crate::parser::GenericUcan {
+    pub fn peer_ucan(&self) -> &crate::parser::Permit {
         &self.peer_ucan
     }
 }
@@ -537,8 +582,9 @@ impl SyncContext {
 pub fn should_send_updates(context: &SyncContext, doc_name: &str) -> crate::types::SyncDecision {
     use crate::types::SyncDecision;
 
-    // 1. Check our local_only facts
-    if context.our_ucan.is_local_only(doc_name) {
+    // 1. Check local_only facts (ours OR peer's)
+    // Don't send if either we or the peer want to keep this doc local
+    if context.our_ucan.is_local_only(doc_name) || context.peer_ucan.is_local_only(doc_name) {
         return SyncDecision::DontSend;
     }
 

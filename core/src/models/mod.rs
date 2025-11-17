@@ -19,18 +19,15 @@ pub use share_record::*;
 pub use user::*;
 
 // Re-export commonly used UCAN types from gurkha
-// These are convenience re-exports for backward compatibility
+// V3 Migration: Simplified to just Permit + essential types
 pub use gurkha::{
-    // Types
-    Capability, Role, DocType, ConnectionTokenType, ResourceTokenType,
-    ResourceAction, SyncFacts, SyncDecision, DocMetadata,
-    // Parser
-    GenericUcan, DelegationTemplate,
-    // Tokens
-    ConnectionToken, OneTimeConnectionToken, OwnerConnectionToken,
-    NodeConnectionToken, UserConnectionToken, ViewerAuthToken,
-    ViewerConnectionToken, ResourceOwnerToken, ResourceShareToken,
-    ResourceViewerToken, FolderOwnerToken, FolderShareToken, FolderViewerToken,
-    // Sync context and decision functions
-    SyncContext, should_send_updates, can_receive_updates,
+    // Types (domain concepts)
+    Capability, DocType, ResourceAction, SyncFacts, SyncDecision, DocMetadata,
+    // Parser (single unified token type)
+    Permit, DelegationTemplate, UcanCore,
+    // Token errors
+    UcanTokenError, UcanTokenResult,
 };
+
+// Note: Role, ConnectionTokenType, ResourceTokenType enums removed in V3
+// Note: All typed token wrappers removed in V3 - use Permit directly

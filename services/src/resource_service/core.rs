@@ -11,11 +11,12 @@
 
 use crate::errors::{ResourceServiceError, ServiceError, ServiceResult};
 use crypto_utils::{encrypt_data_for_user, CryptoUtils};
+use gurkha::decision::{SyncContext, should_send_updates};
 use log::{error, info};
 use osvauld_core::models::{
     document::{create_doc, state_frontiers},
-    resource::{EncryptedResource, Resource}, ResourceShareToken,
-    SyncContext, SyncDecision,
+    resource::{EncryptedResource, Resource},
+    Permit, SyncDecision,
 };
 use persistance::database::RepositoryContext;
 use serde_json::Value;
@@ -26,14 +27,14 @@ use tokio::sync::RwLock;
 // PATTERN 1: Load-Decrypt-Parse
 // =============================================================================
 
-/// Load resource by ResourceOwnerToken
-/// Load resource by ResourceShareToken
+/// Load resource by share permit
 pub async fn load_and_decrypt_by_share_token(
-    token: &ResourceShareToken,
+    permit: &Permit,
     repo_ctx: Arc<RepositoryContext>,
     crypto_utils: &Arc<RwLock<CryptoUtils>>,
 ) -> ServiceResult<Resource> {
-    let resource_id = token.resource_id();
+    let resource_id = permit.resource_id()
+        .ok_or_else(|| ResourceServiceError::ParseError("No resource_id in permit facts".to_string()))?;
     load_and_decrypt_resource(&resource_id, repo_ctx, crypto_utils).await
 }
 
@@ -83,7 +84,7 @@ async fn decrypt_encrypted_resource(
         })?;
 
     // Parse JSON into Resource struct
-    Resource::from_decrypted_data(
+    let resource = Resource::from_decrypted_data(
         encrypted_resource.id.clone(),
         encrypted_resource.folder_id.clone(),
         encrypted_resource.ucan_token.clone(),
@@ -96,7 +97,13 @@ async fn decrypt_encrypted_resource(
             encrypted_resource.id, e
         );
         ServiceError::Resource(ResourceServiceError::InvalidResourceData(encrypted_resource.id.clone()))
-    })
+    })?;
+
+    let doc_names: Vec<String> = resource.doc_names();
+    info!("📂 [decrypt_encrypted_resource] Decrypted resource {} has {} documents: {:?}",
+        resource.id, doc_names.len(), doc_names);
+
+    Ok(resource)
 }
 
 /// Batch decrypt resources
@@ -239,21 +246,48 @@ pub async fn filter_and_encrypt_for_peer(
     sync_context: &SyncContext,
     peer_public_key: &str,
 ) -> ServiceResult<(String, String)> {
+    let doc_names: Vec<String> = resource.doc_names();
+    info!("🔍 [filter_and_encrypt_for_peer] Source resource {} has {} documents: {:?}",
+        resource.id, doc_names.len(), doc_names);
+
     // Create filtered resource with only documents peer can access
     let mut filtered_resource = Resource::new(resource.id.clone());
 
-    for doc_name in resource.doc_names() {
-        let decision = osvauld_core::models::should_send_updates(sync_context, doc_name.as_str());
+    for doc_name in doc_names {
+        let decision = should_send_updates(sync_context, doc_name.as_str());
+        info!("📊 [filter_and_encrypt_for_peer] Document '{}' → decision: {:?}", doc_name, decision);
 
         // Include document if we should send it
         if decision != SyncDecision::DontSend {
-            if resource.get_doc(doc_name.as_str()).is_some() {
-                // Clone the document for the filtered resource
-                filtered_resource.add_doc(doc_name.to_string(), create_doc());
-                // TODO: Copy document data properly (needs LoroDoc clone)
+            if let Some(doc) = resource.get_doc(doc_name.as_str()) {
+                // Export document as snapshot based on decision type
+                let snapshot = match decision {
+                    SyncDecision::SendFullSnapshot => gurkha::MergeService::export_snapshot(doc),
+                    SyncDecision::SendIncrementalUpdates => gurkha::MergeService::export_shallow_snapshot(doc),
+                    _ => unreachable!(), // We already checked != DontSend
+                };
+
+                info!("📦 [filter_and_encrypt_for_peer] Cloning document '{}' with snapshot size: {} bytes",
+                    doc_name, snapshot.len());
+
+                // Import snapshot into new document for filtered resource
+                let cloned_doc = gurkha::MergeService::import_snapshot(&snapshot)
+                    .map_err(|e| {
+                        error!("Failed to clone document {}: {}", doc_name, e);
+                        ResourceServiceError::InvalidState(format!("Failed to clone document: {}", e))
+                    })?;
+
+                filtered_resource.add_doc(doc_name.to_string(), cloned_doc);
+                info!("✅ [filter_and_encrypt_for_peer] Added document '{}' to filtered resource", doc_name);
+            } else {
+                error!("⚠️ [filter_and_encrypt_for_peer] Document '{}' not found in resource.get_doc()!", doc_name);
             }
         }
     }
+
+    let filtered_doc_names: Vec<String> = filtered_resource.doc_names();
+    info!("🎯 [filter_and_encrypt_for_peer] Filtered resource has {} documents: {:?}",
+        filtered_doc_names.len(), filtered_doc_names);
 
     // Serialize filtered resource
     let filtered_json = filtered_resource.to_json().map_err(|e| {
@@ -264,33 +298,168 @@ pub async fn filter_and_encrypt_for_peer(
         ))
     })?;
 
+    info!("📄 [filter_and_encrypt_for_peer] Serialized to {} bytes before encryption", filtered_json.len());
+
     // Encrypt for peer (returns base64 strings directly - no need to decode/re-encode)
     let (encrypted_data, encrypted_key) = encrypt_data_for_user(&filtered_json, peer_public_key)
         .map_err(|e| ResourceServiceError::EncryptionFailed(e.to_string()))?;
+
+    info!("🔐 [filter_and_encrypt_for_peer] Encrypted data size: {} bytes (base64)", encrypted_data.len());
 
     Ok((encrypted_data, encrypted_key))
 }
 
 // =============================================================================
-// HELPER: Create SyncContext
+// PATTERN 5: Delegate and Create Share
 // =============================================================================
 
-/// Create SyncContext from two raw UCAN tokens
+/// Delegate resource UCAN and create ShareRecord
 ///
-/// Convenience helper for creating sync contexts.
+/// Handles the complete flow of delegating a resource UCAN to a recipient
+/// and creating the corresponding ShareRecord (persisted or ephemeral based on CEL rules).
+///
+/// This abstraction eliminates ~90 lines of duplication between share_resource(),
+/// prepare_resource_transfer(), and on-the-fly network share record generation.
 ///
 /// # Arguments
-/// * `our_token` - Our UCAN token string
-/// * `peer_token` - Peer's UCAN token string
+/// * `resource_id` - Resource ID to share
+/// * `recipient_user_id` - User ID to share with
+/// * `recipient_role` - Role/template key for recipient ("node", "viewer", "user")
+/// * `current_user` - Current user (delegator)
+/// * `persist` - Whether to save to database (overrides CEL if needed)
+/// * `repo_ctx` - Database repository context
+/// * `ucan_service` - UCAN service for delegation
 ///
 /// # Returns
-/// * `SyncContext` - Context for sync permission decisions
-pub async fn create_sync_context(
-    our_token: &str,
-    peer_token: &str,
-) -> ServiceResult<SyncContext> {
-    SyncContext::new(our_token, peer_token).map_err(|e| {
-        error!("Failed to create SyncContext: {}", e);
-        ServiceError::InvalidUcan(format!("Failed to create SyncContext: {}", e))
-    })
+/// * `Ok((ShareRecord, delegated_ucan_token, ucan_cid))` - Created share record and token
+/// * `Err` - If delegation or database save fails
+pub async fn delegate_and_create_share_record(
+    resource_id: &str,
+    recipient_user_id: &str,
+    recipient_role: &str,
+    current_user: &osvauld_core::models::User,
+    persist: bool,
+    repo_ctx: Arc<RepositoryContext>,
+    ucan_service: &Arc<RwLock<gurkha::UcanService>>,
+) -> ServiceResult<(osvauld_core::models::ShareRecord, String, String)> {
+    // 1. Get recipient user
+    let recipient_user = repo_ctx
+        .user_repo
+        .get_user_by_id(recipient_user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to find recipient user {}: {}", recipient_user_id, e);
+            ResourceServiceError::UserNotFound(recipient_user_id.to_string())
+        })?;
+
+    // 2. Get resource to read current UCAN
+    let resource = repo_ctx
+        .resource_repo
+        .find_by_id(resource_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to fetch resource {}: {}", resource_id, e);
+            ResourceServiceError::DatabaseError(e.to_string())
+        })?;
+
+    // 3. Delegate UCAN using unified API
+    let (delegated_ucan_token, ucan_cid) = {
+        let ucan_guard = ucan_service.read().await;
+        ucan_guard
+            .delegate_resource(
+                &resource.ucan_token,
+                recipient_role,
+                &recipient_user.ucan_pub_key,
+            )
+            .await
+            .map_err(|e| {
+                error!("Failed to generate delegated UCAN: {}", e);
+                ResourceServiceError::UcanError(e.to_string())
+            })?
+    };
+
+    // 4. Parse delegated token to check CEL rules
+    let permit = Permit::from_token(&delegated_ucan_token).map_err(|e| {
+        error!("Failed to parse delegated UCAN: {}", e);
+        ResourceServiceError::ParseError(e.to_string())
+    })?;
+
+    // 5. Create ShareRecord
+    let now = chrono::Utc::now().timestamp();
+    let share_record = osvauld_core::models::ShareRecord {
+        id: uuid::Uuid::new_v4().to_string(),
+        resource_id: resource_id.to_string(),
+        shared_by_user_id: current_user.id.clone(),
+        recipient_user_id: recipient_user_id.to_string(),
+        ucan_token: delegated_ucan_token.clone(),
+        ucan_cid: ucan_cid.clone(),
+        permission_level: osvauld_core::models::PermissionLevel::Read,
+        operation_type: osvauld_core::models::ShareOperation::Share,
+        created_at: now,
+        updated_at: now,
+    };
+
+    // 6. Save to database if persist is true AND CEL allows
+    if persist && permit.should_persist_share() {
+        repo_ctx
+            .share_repo
+            .save(&share_record)
+            .await
+            .map_err(|e| {
+                error!("Failed to save share record: {}", e);
+                ResourceServiceError::DatabaseError(e.to_string())
+            })?;
+        info!("✅ Share record persisted to database");
+    } else if persist && !permit.should_persist_share() {
+        info!("⚠️ CEL rule prevented share record persistence (ephemeral token)");
+    } else {
+        info!("✅ Share record created (ephemeral, not persisted)");
+    }
+
+    Ok((share_record, delegated_ucan_token, ucan_cid))
+}
+
+/// Create EncryptedResource struct from components
+///
+/// Helper to construct EncryptedResource with proper timestamp handling.
+/// Reduces boilerplate and ensures consistent field ordering.
+///
+/// This abstraction eliminates ~20 lines of duplication between create_resource()
+/// and prepare_resource_transfer().
+///
+/// # Arguments
+/// * `resource_id` - Resource ID
+/// * `folder_id` - Folder ID
+/// * `encrypted_data` - Base64 encrypted data
+/// * `encrypted_key` - Base64 encrypted AES key
+/// * `ucan_token` - UCAN token for this resource
+/// * `metadata` - Resource metadata JSON
+/// * `timestamps` - Optional (created_at, updated_at) tuple. If None, uses current time.
+///
+/// # Returns
+/// * `EncryptedResource` - Constructed struct ready to save or send
+pub fn create_encrypted_resource_struct(
+    resource_id: String,
+    folder_id: String,
+    encrypted_data: String,
+    encrypted_key: String,
+    ucan_token: String,
+    metadata: serde_json::Value,
+    timestamps: Option<(i64, i64)>,
+) -> EncryptedResource {
+    let (created_at, updated_at) = timestamps.unwrap_or_else(|| {
+        let now = chrono::Utc::now().timestamp();
+        (now, now)
+    });
+
+    EncryptedResource {
+        id: resource_id,
+        folder_id,
+        created_at,
+        updated_at,
+        encrypted_data,
+        encrypted_key,
+        ucan_token,
+        metadata,
+    }
 }

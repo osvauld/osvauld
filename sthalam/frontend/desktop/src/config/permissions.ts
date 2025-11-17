@@ -1,14 +1,15 @@
-// Permissions Configuration
+// Permissions Configuration - UCAN v3 Facts-Only Architecture
 // Defines capability templates for folders and resources
 //
-// ⚠️  IMPORTANT: This is the source of truth for WHAT permissions exist.
-// HOW they are encoded (URIs) is handled by the backend using the uri module.
+// ⚠️  IMPORTANT: This is the source of truth for permissions in UCAN tokens.
+// All authorization is stored in token facts - no URI capabilities are used.
 //
-// URI Standard (backend responsibility):
-// - Folder operations: `domain:folder:id:operation`
-// - Resource capabilities: `domain:resource:id:doc_name`
+// Facts-Only Architecture:
+// - All permissions stored in facts.operations, facts.documents, facts.auth_capabilities
+// - CEL rules in facts.cel_rules provide dynamic authorization
+// - Relationships (owner/node/viewer) stored in facts.relationship
 //
-// Frontend only specifies WHAT operations/documents exist and their access levels.
+// Backend transforms these templates into UCAN token facts.
 
 // ========== FOLDER TEMPLATES ==========
 //
@@ -17,7 +18,7 @@
 export const FOLDER_TEMPLATE = {
   owner_template: {
     // Operations available on this folder (owner has all of them)
-    capabilities: {
+    operations: {
       "own": "allow",
       "get_share_link": "allow",
       "add_resources": "allow",
@@ -27,18 +28,46 @@ export const FOLDER_TEMPLATE = {
       // What operations can be delegated to a node
       node: {
         token_type: "folder_share",  // Data-driven: backend uses this for delegated token
-        capabilities: {
+        operations: {
           "get_share_link": "allow",
           "add_resources": "allow",
           "share_folder": "allow",
+        },
+        // CEL-based authorization capabilities
+        auth_capabilities: {
+          can_connect: true,
+          persist_share: true,
+          can_delegate: false,
+          sync_enabled: true,
+        },
+        relationship: "node",
+        cel_rules: {
+          persist_share: "auth_capabilities.persist_share == true && relationship == 'node'",
+          can_connect: "auth_capabilities.can_connect == true",
+          can_delegate: "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+          sync_enabled: "auth_capabilities.sync_enabled == true && operations.get_share_link == 'allow'",
         },
       },
       // What operations can be delegated to a viewer
       viewer: {
         token_type: "folder_viewer",  // Data-driven: backend uses this for delegated token
-        capabilities: {
+        operations: {
           "request_resources": "allow",
           "get_share_link": "allow",
+        },
+        // CEL-based authorization capabilities
+        auth_capabilities: {
+          can_connect: true,
+          persist_share: false,
+          can_delegate: false,
+          sync_enabled: false,
+        },
+        relationship: "viewer",
+        cel_rules: {
+          persist_share: "auth_capabilities.persist_share == true && relationship == 'node'",
+          can_connect: "auth_capabilities.can_connect == true",
+          can_delegate: "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+          sync_enabled: "auth_capabilities.sync_enabled == true && operations.get_share_link == 'allow'",
         },
       },
     },
@@ -51,24 +80,37 @@ export const FOLDER_TEMPLATE = {
 
 export const RESOURCE_TEMPLATE = {
   owner_template: {
-    // Documents in this resource and their access levels for owner
-    capabilities: {
+    // Operations on the resource itself
+    operations: {
+      "own": "allow",
       "share_resource": "allow",  // Permission to share this resource with others
-      "template_doc": "collaborator",
-      "content_doc": "collaborator",
-      "user_content_doc": "collaborator",
-      "collaborative_doc": "collaborator",
-      "submissions_doc": "collaborator",
-      "static_assets": "collaborator",
     },
-    // Document types (CRDT or Asset)
-    doc_types: {
-      "static_assets": "asset",
-      "template_doc": "crdt",
-      "content_doc": "crdt",
-      "user_content_doc": "crdt",
-      "collaborative_doc": "crdt",
-      "submissions_doc": "crdt",
+    // Documents in this resource (map format: doc_name -> {capability, type})
+    documents: {
+      "template_doc": {
+        capability: "collaborator",
+        type: "crdt",
+      },
+      "content_doc": {
+        capability: "collaborator",
+        type: "crdt",
+      },
+      "user_content_doc": {
+        capability: "collaborator",
+        type: "crdt",
+      },
+      "collaborative_doc": {
+        capability: "collaborator",
+        type: "crdt",
+      },
+      "submissions_doc": {
+        capability: "collaborator",
+        type: "crdt",
+      },
+      "static_assets": {
+        capability: "collaborator",
+        type: "asset",
+      },
     },
     // Sync behavior for owner
     sync: {
@@ -78,33 +120,97 @@ export const RESOURCE_TEMPLATE = {
       // What the node receives
       node: {
         token_type: "resource_share",  // Data-driven: backend uses this for delegated token
-        capabilities: {
+        operations: {
           "share_resource": "allow",  // Node can also share resources
-          "template_doc": "collaborator",
-          "content_doc": "collaborator",
-          "user_content_doc": "collaborator",
-          "collaborative_doc": "collaborator",
-          "submissions_doc": "collaborator",
-          "static_assets": "collaborator",
+        },
+        documents: {
+          "template_doc": {
+            capability: "collaborator",
+            type: "crdt",
+          },
+          "content_doc": {
+            capability: "collaborator",
+            type: "crdt",
+          },
+          "user_content_doc": {
+            capability: "collaborator",
+            type: "crdt",
+          },
+          "collaborative_doc": {
+            capability: "collaborator",
+            type: "crdt",
+          },
+          "submissions_doc": {
+            capability: "collaborator",
+            type: "crdt",
+          },
+          "static_assets": {
+            capability: "collaborator",
+            type: "asset",
+          },
         },
         sync: {
           local_only: ["user_content_doc"],
+        },
+        // CEL-based authorization capabilities
+        auth_capabilities: {
+          can_connect: true,
+          persist_share: true,
+          can_delegate: false,
+          sync_enabled: true,
+        },
+        relationship: "node",
+        cel_rules: {
+          persist_share: "auth_capabilities.persist_share == true && relationship == 'node'",
+          can_connect: "auth_capabilities.can_connect == true",
+          can_delegate: "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+          sync_enabled: "auth_capabilities.sync_enabled == true",
         },
       },
       // What viewers receive
       viewer: {
         token_type: "resource_viewer",  // Data-driven: backend uses this for delegated token
-        capabilities: {
-          "template_doc": "viewer",
-          "content_doc": "viewer",
-          "collaborative_doc": "collaborator",
-          "submissions_doc": "submitter",
-          "static_assets": "viewer",
+        operations: {},  // Viewers have no resource-level operations
+        documents: {
+          "template_doc": {
+            capability: "viewer",
+            type: "crdt",
+          },
+          "content_doc": {
+            capability: "viewer",
+            type: "crdt",
+          },
+          "collaborative_doc": {
+            capability: "collaborator",
+            type: "crdt",
+          },
+          "submissions_doc": {
+            capability: "submitter",
+            type: "crdt",
+          },
+          "static_assets": {
+            capability: "viewer",
+            type: "asset",
+          },
         },
         sync: {
           local_only: ["user_content_doc"],
           no_incoming_updates: ["submissions_doc"],
           send_full_snapshot: ["submissions_doc"],
+        },
+        // CEL-based authorization capabilities
+        auth_capabilities: {
+          can_connect: true,
+          persist_share: false,
+          can_delegate: false,
+          sync_enabled: false,
+        },
+        relationship: "viewer",
+        cel_rules: {
+          persist_share: "auth_capabilities.persist_share == true && relationship == 'node'",
+          can_connect: "auth_capabilities.can_connect == true",
+          can_delegate: "auth_capabilities.can_delegate == true && operations.own == 'allow'",
+          sync_enabled: "auth_capabilities.sync_enabled == true",
         },
       },
     },
