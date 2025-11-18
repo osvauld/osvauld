@@ -9,7 +9,7 @@ use osvauld_core::models::{
     Message, ReconnectionResponse, User,
 };
 use services::{HandshakeType, ParsedHandshakeToken};
-use tracing::{error, info};
+use tracing::{error, info, instrument};
 
 /// Initiate handshake with peer
 ///
@@ -21,6 +21,7 @@ use tracing::{error, info};
 /// * `ucan_token` - UCAN token to send (OneTime or persistent connection token)
 /// * `local_user` - Local user information
 /// * `local_device` - Local device information
+#[instrument(skip(conn, ucan_token, local_user, local_device), fields(local_user_id = %local_user.id, local_device_id = %local_device.id), level = "info")]
 pub async fn initiate_handshake(
     conn: &PeerConnection,
     ucan_token: String,
@@ -67,6 +68,7 @@ pub async fn initiate_handshake(
 /// # Arguments
 /// * `conn` - Peer connection
 /// * `handshake_msg` - HandshakeMessage enum containing the specific message type
+#[instrument(skip(conn, handshake_msg), fields(message_type = ?std::mem::discriminant(handshake_msg)), level = "info")]
 pub async fn process_handshake_message(
     conn: &PeerConnection,
     handshake_msg: &HandshakeMessage,
@@ -102,6 +104,7 @@ pub async fn process_handshake_message(
 /// # Arguments
 /// * `conn` - Peer connection with the requesting peer
 /// * `request` - HandshakeRequest containing ucan_token, user, device, signed_ucan_pub
+#[instrument(skip(conn, request), fields(peer_user_id = %request.peer_user.id, peer_device_id = %request.peer_device.id), level = "info")]
 pub async fn process_handshake_request(
     conn: &PeerConnection,
     request: &HandshakeRequest,
@@ -124,27 +127,21 @@ pub async fn process_handshake_request(
     })?;
 
     info!(
-        "✓ Token parsed - Type: {:?}, Role: {:?}",
-        parsed.handshake_type, parsed.role
+        "✓ Token parsed - Type: {:?}, Relationship: {:?}",
+        parsed.handshake_type, parsed.relationship
     );
 
     // 2. Route to appropriate handler based on handshake type
     match parsed.handshake_type {
-        HandshakeType::PeerFirstConnection => {
+        HandshakeType::FirstConnection => {
+            // All relationships (owner, node, user, viewer) use same 3-way handshake
             handle_peer_first_connection(conn, request, parsed).await
         }
         HandshakeType::Reconnection => handle_reconnection(conn, request, parsed).await,
-        HandshakeType::ViewerFirstConnection => {
-            // TODO: Implement viewer handshake later
-            error!("❌ Viewer handshake not yet implemented");
-            Err(crate::p2p::errors::P2PError::InvalidState(
-                "Viewer handshake not implemented".to_string(),
-            ))
-        }
     }
 }
 
-/// Handle peer first connection handshake (owner/node/user)
+/// Handle peer first connection handshake (owner/node/user/viewer)
 ///
 /// Called when a peer connects for the first time with a OneTimeConnection token.
 ///
@@ -160,24 +157,20 @@ async fn handle_peer_first_connection(
 ) -> P2PResult<()> {
     info!("🔐 Handling peer first connection (3-way handshake - Step 2)");
     info!("  - Peer user: {}", request.peer_user.id);
-    info!("  - Role: {:?}", parsed.role);
+    info!("  - Relationship: {:?}", parsed.relationship);
 
-    // 1. Convert Role enum to string for token generation
-    // Role comes from the parsed OneTimeConnection token
-    let role_str = match parsed.role {
-        osvauld_core::models::Role::Owner => "owner",
-        osvauld_core::models::Role::Node => "node",
-        osvauld_core::models::Role::User => "user",
-        osvauld_core::models::Role::Viewer => "viewer",
-    };
+    // 1. Get relationship string from parsed token facts
+    // Relationship comes from the parsed OneTimeConnection token
+    let relationship_str = parsed.relationship
+        .as_deref()
+        .unwrap_or("user"); // Default to "user" if not specified
 
     // 2. Issue persistent connection token BEFORE saving user
     // This ensures we never store the one-time token in the database
     let issued_ucan = conn.ucan_service.read().await
         .issue_peer_connection(
             &request.peer_user.ucan_pub_key,
-            &conn.domain,
-            role_str,
+            relationship_str,
         )
         .await
         .map_err(|e| {
@@ -185,7 +178,7 @@ async fn handle_peer_first_connection(
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to issue token: {}", e))
         })?;
 
-    info!("✓ Issued {} connection token for peer", role_str);
+    info!("✓ Issued {} connection token for peer", relationship_str);
 
     // 3. Save peer user with the one-time token from request (temporary)
     // This will be updated in step 4 when we receive FirstConnectionComplete
@@ -203,7 +196,23 @@ async fn handle_peer_first_connection(
 
     info!("✓ Saved peer user (token will be updated in step 4)");
 
-    // 4. Send FirstConnectionResponse with issued token
+    // 4. Update peer user in connection state
+    // CRITICAL: Set conn.user to point to the peer's user, not our local user
+    // This ensures encryption uses the peer's PGP public key
+    let mut peer_user_with_token = request.peer_user.clone();
+    peer_user_with_token.ucan_token = request.ucan_token.clone();
+
+    let mut user_guard = conn.user.write().await;
+    *user_guard = peer_user_with_token;
+    drop(user_guard);
+
+    let mut device_guard = conn.device.write().await;
+    *device_guard = request.peer_device.clone();
+    drop(device_guard);
+
+    info!("✓ Updated connection state with peer user and device");
+
+    // 5. Send FirstConnectionResponse with issued token
     send_first_connection_response(conn, issued_ucan).await?;
 
     info!("✅ Peer first connection handshake Step 2 complete");
@@ -299,9 +308,9 @@ async fn process_first_connection_response(
     conn.set_peer_user_and_device(response.peer_user.clone(), response.peer_device.clone())
         .await;
 
-    // 3. Determine role for the peer (inverse of our role typically)
+    // 3. Determine relationship for the peer (inverse of our relationship typically)
     let local_user = conn.user.read().await.clone();
-    let role_str = if local_user.owner {
+    let relationship_str = if local_user.owner {
         "node" // If we're owner, peer is node
     } else {
         "owner" // If we're node, peer is owner
@@ -312,8 +321,7 @@ async fn process_first_connection_response(
     let issued_ucan = conn.ucan_service.read().await
         .issue_peer_connection(
             &response.peer_user.ucan_pub_key,
-            &conn.domain,
-            role_str,
+            relationship_str,
         )
         .await
         .map_err(|e| {
@@ -321,7 +329,7 @@ async fn process_first_connection_response(
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to issue token: {}", e))
         })?;
 
-    info!("✓ Issued {} connection token for peer", role_str);
+    info!("✓ Issued {} connection token for peer", relationship_str);
 
     // 5. Get local user ID to send with FirstConnectionComplete
     let local_user = conn.get_local_user().await?;
@@ -329,7 +337,10 @@ async fn process_first_connection_response(
     // 6. Send FirstConnectionComplete with the NEW token we issued FOR node
     send_first_connection_complete(conn, issued_ucan, local_user.id).await?;
 
-    info!("✅ FirstConnectionResponse processed, Step 3 complete");
+    // 7. Notify that handshake is complete (initiator side)
+    conn.handshake_complete.notify_one();
+
+    info!("✅ FirstConnectionResponse processed, Step 3 complete - handshake complete");
     Ok(())
 }
 
@@ -363,6 +374,10 @@ async fn process_first_connection_complete(
         "✓ Saved persistent token from peer {}",
         complete.peer_user_id
     );
+
+    // Notify that handshake is complete (responder side)
+    conn.handshake_complete.notify_one();
+
     info!("✅ Three-way handshake COMPLETE - both sides have persistent tokens");
     Ok(())
 }
@@ -385,6 +400,9 @@ async fn process_reconnection_response(
     // Update peer user and device info in connection state
     conn.set_peer_user_and_device(response.peer_user.clone(), response.peer_device.clone())
         .await;
+
+    // Notify that handshake is complete (reconnection)
+    conn.handshake_complete.notify_one();
 
     info!("✅ Reconnection handshake COMPLETE");
     Ok(())

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::errors::{ServiceResult, ServiceError};
+use crate::errors::{ServiceResult, ServiceError, UserServiceError};
 use crypto_utils::{CryptoUtils, get_key_id};
 use tracing::{debug, error, info, instrument, warn};
 use osvauld_core::models::{Device, ShareOperation, User, UserWithDevices};
@@ -190,7 +190,6 @@ pub async fn issue_connect_ucan_token(
 
     let token = ucan_service.issue_peer_connection(
         peer_ucan_pub_key,
-        domain,
         role,
     )
     .await
@@ -343,4 +342,56 @@ pub fn parse_connection_string(
         data.username, data.folder_id.is_some());
 
     Ok(data)
+}
+
+/// Get a user by ID
+///
+/// # Arguments
+/// * `user_id` - User ID
+/// * `repo_ctx` - Repository context
+///
+/// # Returns
+/// * `User` - The user
+pub async fn get_user_by_id(
+    user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<User> {
+    repo_ctx
+        .user_repo
+        .get_user_by_id(user_id)
+        .await
+        .map_err(|e| {
+            error!("Failed to get user {}: {}", user_id, e);
+            ServiceError::User(UserServiceError::UserNotFound { user_id: user_id.to_string() })
+        })
+}
+
+/// Get a device by ID
+///
+/// # Arguments
+/// * `device_id` - Device ID
+/// * `repo_ctx` - Repository context
+///
+/// # Returns
+/// * `Device` - The device
+pub async fn get_device_by_id(
+    device_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Device> {
+    let devices = repo_ctx
+        .device_repo
+        .get_devices_by_ids(&[device_id.to_string()])
+        .await
+        .map_err(|e| {
+            error!("Failed to get device {}: {}", device_id, e);
+            ServiceError::User(UserServiceError::DeviceNotFound { device_id: device_id.to_string() })
+        })?;
+
+    devices
+        .into_iter()
+        .next()
+        .ok_or_else(|| {
+            error!("Device {} not found in results", device_id);
+            ServiceError::User(UserServiceError::DeviceNotFound { device_id: device_id.to_string() })
+        })
 }

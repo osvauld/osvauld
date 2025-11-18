@@ -12,7 +12,39 @@ use persistance::database::RepositoryContext;
 use services::{get_folder_by_id, get_folder_share_record};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, instrument};
+
+/// Send FolderResourcesRequest to pull folder data
+///
+/// This is called by viewers to request a folder and all its resources.
+/// The folder_token (ViewerAuth) proves the viewer has access to the folder.
+///
+/// # Arguments
+/// * `peer_conn` - Peer connection to the node
+/// * `folder_token` - ViewerAuth token proving folder access
+///
+/// # Returns
+/// * `Ok(())` - Request sent successfully
+/// * `Err` - If send fails
+#[instrument(skip(peer_conn, folder_token), level = "info")]
+pub async fn send_folder_resources_request(
+    peer_conn: Arc<PeerConnection>,
+    folder_token: String,
+) -> P2PResult<()> {
+    info!("📤 Sending FolderResourcesRequest");
+
+    let folder_request = FolderResourcesRequest {
+        folder_token,
+        resource_ids: vec![], // Empty = request all resources
+    };
+
+    let message = Message::Folder(FolderMessage::FolderResourcesRequest(folder_request));
+
+    peer_conn.send_message(message).await?;
+
+    info!("✅ FolderResourcesRequest sent");
+    Ok(())
+}
 
 /// Send folder and all its resources to a node
 ///
@@ -34,6 +66,7 @@ use tracing::{error, info};
 /// # Returns
 /// * `Ok(())` - Folder and all resources sent successfully
 /// * `Err` - If folder not found, share records missing, or send fails
+#[instrument(skip(current_user, peer_conn, repo_ctx, crypto_utils), fields(folder_id, recipient_user_id), level = "info")]
 pub async fn send_folder_with_resources(
     folder_id: &str,
     recipient_user_id: &str,
@@ -155,6 +188,7 @@ async fn send_folder_data(
 /// # Returns
 /// * `Ok(())` - Message processed successfully
 /// * `Err` - If processing fails
+#[instrument(skip(folder_msg, peer_conn, repo_ctx, crypto_utils), fields(message_type = ?std::mem::discriminant(folder_msg)), level = "info")]
 pub async fn process_folder_message(
     folder_msg: &FolderMessage,
     peer_conn: Arc<PeerConnection>,
@@ -199,6 +233,7 @@ pub async fn process_folder_message(
 /// # Returns
 /// * `Ok(())` - Folder accepted and saved successfully
 /// * `Err` - If validation fails or database save fails
+#[instrument(skip(payload, peer_conn, repo_ctx, _crypto_utils), fields(folder_id = %payload.folder.id), level = "info")]
 pub async fn handle_folder_data_sync(
     payload: &FolderDataSync,
     peer_conn: Arc<PeerConnection>,
@@ -236,21 +271,6 @@ pub async fn handle_folder_data_sync(
             folder_name: payload.folder.name.clone(),
         });
 
-    // Request all resources for this folder (pull-based sync)
-    info!("📦 Requesting resources for folder {}", payload.folder.id);
-    let resources_request = FolderResourcesRequest {
-        folder_token: payload.folder_share_record.ucan_token.clone(),
-        resource_ids: vec![], // Empty = send all resources
-    };
-
-    peer_conn
-        .send_message(Message::Folder(FolderMessage::FolderResourcesRequest(
-            resources_request,
-        )))
-        .await?;
-
-    info!("✓ Sent FolderResourcesRequest");
-
     Ok(())
 }
 
@@ -268,6 +288,7 @@ pub async fn handle_folder_data_sync(
 /// # Returns
 /// * `Ok(())` - Resources sent successfully
 /// * `Err` - If validation fails or resource send fails
+#[instrument(skip(payload, peer_conn, repo_ctx, crypto_utils), level = "info")]
 pub async fn handle_folder_resources_request(
     payload: &FolderResourcesRequest,
     peer_conn: Arc<PeerConnection>,
@@ -279,44 +300,31 @@ pub async fn handle_folder_resources_request(
     // 1. Validate folder_token and extract folder_id
     // Note: We validate that the folder token has add_resources capability because
     // we're about to use it to send resources back to the peer
-    let domain = &peer_conn.domain;
 
     // Parse the UCAN token
-    let parsed_ucan = gurkha::parser::GenericUcan::from_token(&payload.folder_token)
+    let parsed_ucan = gurkha::parser::Permit::from_token(&payload.folder_token)
         .map_err(|e| {
             error!("Failed to parse folder token: {}", e);
             crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
         })?;
 
-    let folder_id = gurkha::extractors::extract_id_from_resource_type(
-        parsed_ucan.parsed(),
-        domain,
-        "folder",
-    )
-    .map_err(|e| {
-        error!(
-            "Failed to validate folder token has add_resources capability: {}",
-            e
-        );
-        crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
-    })?;
+    let folder_id = parsed_ucan.folder_id()
+        .ok_or_else(|| {
+            error!("Failed to extract folder_id from token facts");
+            crate::p2p::errors::P2PError::InvalidState("No folder_id in token facts".to_string())
+        })?;
 
     info!("  Folder ID from token: {}", folder_id);
 
-    // 2. Get current user (owner)
-    let current_user_guard = peer_conn.user.read().await;
-    let current_user = current_user_guard.clone();
-    drop(current_user_guard);
+    // 2. Get current user (the local node user)
+    // IMPORTANT: peer_conn.user now points to the PEER, so we must get local user from context
+    let current_user = peer_conn.get_local_user().await?;
 
-    // 3. Get peer user
-    let peer_user_guard = peer_conn.user.read().await;
-    drop(peer_user_guard);
+    // 3. Extract peer relationship from folder_token facts
+    let peer_relationship = parsed_ucan.relationship()
+        .unwrap_or("node");
 
-    // 4. Extract peer role from folder_token
-    let peer_role = gurkha::extractors::get_role(parsed_ucan.parsed())
-        .unwrap_or_else(|| "node".to_string());
-
-    info!("  Peer role: {}", peer_role);
+    info!("  Peer relationship: {}", peer_relationship);
 
     // 5. Get all resources in folder (or specific ones if resource_ids is not empty)
     let resource_ids = if payload.resource_ids.is_empty() {
@@ -352,45 +360,78 @@ pub async fn handle_folder_resources_request(
         })?;
     let folder_ucan = owner_folder.ucan.clone();
 
+    // 6.5. Send FolderDataSync if ephemeral (on-the-fly generation)
+    if !parsed_ucan.should_persist_share() {
+        info!("  Token ephemeral - generating folder share on-the-fly");
+
+        // Get peer user for delegation
+        let peer_user_guard = peer_conn.user.read().await;
+        let peer_user = peer_user_guard.clone();
+        drop(peer_user_guard);
+
+        // Delegate folder UCAN to peer using relationship as template key
+        let (peer_folder_ucan, cid) = {
+            let ucan = peer_conn.ucan_service.read().await;
+            ucan.delegate_folder(&owner_folder.ucan, &peer_relationship, &peer_user.ucan_pub_key)
+                .await
+                .map_err(|e| {
+                    error!("Failed to delegate folder UCAN: {}", e);
+                    crate::p2p::errors::P2PError::InvalidState(format!("Failed to delegate folder: {}", e))
+                })?
+        };
+
+        // Create ephemeral folder share record (not persisted)
+        let folder_share_record = osvauld_core::models::FolderShareRecord::prepare_folder_share_record(
+            folder_id.clone(),
+            current_user.id.clone(),
+            peer_user.id.clone(),
+            osvauld_core::models::PermissionLevel::Read,
+            peer_folder_ucan.clone(),
+            cid,
+        );
+
+        info!("  Sending FolderDataSync with on-the-fly folder UCAN");
+
+        // Send folder data with the ephemeral folder_share_record
+        // Don't call send_folder_data() as it would try to fetch from DB
+        let mut folder = owner_folder.clone();
+        folder.ucan = peer_folder_ucan; // Use the peer's delegated folder UCAN
+
+        let data = osvauld_core::models::FolderDataSync {
+            folder,
+            folder_share_record,
+        };
+
+        peer_conn
+            .send_message(osvauld_core::models::Message::Folder(
+                osvauld_core::models::FolderMessage::FolderDataSync(data)
+            ))
+            .await?;
+
+        info!("✓ Sent ephemeral FolderDataSync to viewer");
+    }
+
     // 7. Send each resource with appropriate share_records
     for resource_id in resource_ids {
         info!("   Sending resource: {}", resource_id);
-
-        // Get share_records based on peer_role
-        let share_records = if peer_role == "node" {
-            // For node: fetch ALL share_records from DB
-            services::get_all_share_records_for_resource(&resource_id, repo_ctx.clone())
-                .await
-                .map_err(|e| {
-                    error!(
-                        "Failed to get share records for resource {}: {}",
-                        resource_id, e
-                    );
-                    crate::p2p::errors::P2PError::InvalidState(format!(
-                        "Failed to get share records: {}",
-                        e
-                    ))
-                })?
-        } else {
-            // For other roles: create share_records on-the-fly
-            // TODO: Implement on-the-fly share_record creation for viewers
-            info!("     On-the-fly share_record creation not yet implemented, skipping");
-            continue;
-        };
-
-        info!("     Including {} share records", share_records.len());
 
         // Get peer user for encryption
         let peer_user_guard = peer_conn.user.read().await;
         let peer_user = peer_user_guard.clone();
         drop(peer_user_guard);
 
-        // Prepare resource for peer
+        info!("👤 Peer user for resource encryption:");
+        info!("   User ID: {}", peer_user.id);
+        info!("   Username: {}", peer_user.username);
+        info!("   PGP key: {}...", &peer_user.public_key.chars().take(40).collect::<String>());
+        info!("   UCAN key: {}...", &peer_user.ucan_pub_key.chars().take(40).collect::<String>());
+
+        // Prepare resource for peer (delegates UCAN using template)
         let peer_encrypted_resource = match services::prepare_resource_transfer(
             &resource_id,
             &current_user,
             &payload.folder_token,
-            &peer_role,
+            &peer_relationship,
             &peer_user,
             repo_ctx.clone(),
             &crypto_utils,
@@ -407,6 +448,51 @@ pub async fn handle_folder_resources_request(
                 continue;
             }
         };
+
+        // Get share_records based on CEL rule (should_persist_share)
+        let share_records = if parsed_ucan.should_persist_share() {
+            // Token allows persistence: fetch ALL share_records from DB
+            info!("     Token allows persistence - fetching share records from DB");
+            services::get_all_share_records_for_resource(&resource_id, repo_ctx.clone())
+                .await
+                .map_err(|e| {
+                    error!(
+                        "Failed to get share records for resource {}: {}",
+                        resource_id, e
+                    );
+                    crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Failed to get share records: {}",
+                        e
+                    ))
+                })?
+        } else {
+            // Token ephemeral: create share_records on-the-fly
+            info!("     Token ephemeral - generating share record on-the-fly");
+
+            // Create viewer's share record (shared_by=node, recipient=viewer)
+            // The shared_by_user_id provides routing info for viewer to connect back to node
+            let viewer_ucan_cid = gurkha::crypto::get_ucan_cid(&peer_encrypted_resource.ucan_token)
+                .map_err(|e| {
+                    error!("Failed to compute UCAN CID: {}", e);
+                    crate::p2p::errors::P2PError::InvalidState(format!("CID computation failed: {}", e))
+                })?;
+
+            let viewer_share_record = osvauld_core::models::ShareRecord::prepare_share_record(
+                resource_id.clone(),
+                current_user.id.clone(),  // shared_by = node (routing info)
+                peer_user.id.clone(),      // recipient = viewer
+                osvauld_core::models::PermissionLevel::Read,
+                peer_encrypted_resource.ucan_token.clone(),
+                viewer_ucan_cid,
+            );
+
+            info!("     Created viewer share record (shared_by=node, recipient=viewer)");
+
+            // Return ONLY viewer's share record (avoids FK constraint on owner user)
+            vec![viewer_share_record]
+        };
+
+        info!("     Including {} share records", share_records.len());
 
         // Send ResourceDataSync
         let resource_data = osvauld_core::models::p2p::ResourceDataSync {
@@ -444,6 +530,7 @@ pub async fn handle_folder_resources_request(
 /// # Returns
 /// * `Ok(())` - Connection string generated and sent
 /// * `Err` - If validation fails or token generation fails
+#[instrument(skip(payload, peer_conn, _repo_ctx, _crypto_utils), fields(folder_id = %payload.folder_id), level = "info")]
 pub async fn handle_folder_token_request(
     payload: &osvauld_core::models::p2p::FolderTokenRequest,
     peer_conn: Arc<PeerConnection>,
@@ -453,7 +540,7 @@ pub async fn handle_folder_token_request(
     info!("📨 Received FolderTokenRequest for folder {}", payload.folder_id);
 
     // 1. Parse and validate folder_ucan
-    let parsed_ucan = gurkha::parser::GenericUcan::from_token(&payload.folder_ucan)
+    let parsed_ucan = gurkha::parser::Permit::from_token(&payload.folder_ucan)
         .map_err(|e| {
             error!("Failed to parse folder token: {}", e);
             crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
@@ -485,17 +572,9 @@ pub async fn handle_folder_token_request(
 
     info!("  ✓ Folder ID verified: {}", payload.folder_id);
 
-    // 4. Extract domain from token
-    let domain = parsed_ucan.domain()
-        .ok_or_else(|| {
-            error!("Cannot extract domain from token");
-            crate::p2p::errors::P2PError::InvalidState("Invalid folder token: no domain".to_string())
-        })?;
-
-    // 5. Get current user (node) info for connection string
-    let current_user_guard = peer_conn.user.read().await;
-    let current_user = current_user_guard.clone();
-    drop(current_user_guard);
+    // 4. Get current user (node) info for connection string
+    // IMPORTANT: peer_conn.user now points to the PEER, so we must get local user from context
+    let current_user = peer_conn.get_local_user().await?;
 
     let current_device_guard = peer_conn.context.current_device.read().await;
     let current_device = current_device_guard.as_ref()
@@ -506,10 +585,10 @@ pub async fn handle_folder_token_request(
         .clone();
     drop(current_device_guard);
 
-    // 6. Generate ViewerAuth token with wildcard audience (aud:*)
+    // 5. Generate ViewerAuth token with wildcard audience (aud:*)
     let ucan_service_guard = peer_conn.ucan_service.read().await;
     let (viewer_auth_token, _cid) = ucan_service_guard
-        .issue_folder_viewer_auth(&payload.folder_id, &domain)
+        .issue_folder_viewer_auth(&payload.folder_id)
         .await
         .map_err(|e| {
             error!("Failed to generate viewer auth token: {}", e);
@@ -575,6 +654,7 @@ pub async fn handle_folder_token_request(
 ///
 /// # Returns
 /// * `Ok(())` - Event emitted successfully
+#[instrument(skip(payload, peer_conn), fields(folder_id = %payload.folder_id), level = "info")]
 pub async fn handle_folder_token_response(
     payload: &osvauld_core::models::p2p::FolderTokenResponse,
     peer_conn: Arc<PeerConnection>,

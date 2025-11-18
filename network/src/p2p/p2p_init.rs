@@ -45,8 +45,7 @@ pub async fn ensure_initialized(service: &P2PService) -> P2PResult<()> {
         return Ok(());
     }
 
-    let key = service.repo_ctx.store_repo.get_node_key().await?;
-    let node_public_key = service.repo_ctx.store_repo.get_device_key().await?;
+    let (key, node_public_key) = services::get_node_credentials(&service.repo_ctx).await?;
     let node_id = crypto_utils::derive_node_id_from_public_key(&node_public_key)?;
     let node_id = NodeId::try_from(&node_id)
         .map_err(|e| P2PError::Configuration(format!("Invalid node ID: {}", e)))?;

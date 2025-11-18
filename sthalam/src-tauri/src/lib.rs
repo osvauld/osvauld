@@ -11,7 +11,7 @@ use tauri_handlers::handlers::folder::*;
 use tauri_handlers::handlers::p2p::*;
 use tauri_handlers::handlers::resource::*;
 use tauri_handlers::handlers::user::*;
-use tauri_handlers::{HandlerConfig, UserState};
+use tauri_handlers::UserState;
 use clap::Parser;
 use crypto_utils::CryptoUtils;
 use network::P2PService;
@@ -47,10 +47,18 @@ pub fn run() {
             let app_dir = app.path().app_data_dir().unwrap();
 
             // Initialize rich tracing for backend logging
-            let log_dir = app_dir.join("logs");
-            let _guard = logging_utils::init_prod(
-                log_dir.to_str().unwrap_or("./logs")
-            ).expect("Failed to initialize logging");
+            #[cfg(debug_assertions)]
+            let _guard = logging_utils::init_dev()
+                .expect("Failed to initialize logging");
+
+            #[cfg(not(debug_assertions))]
+            let _guard = {
+                let log_dir = app_dir.join("logs");
+                logging_utils::init_prod(
+                    log_dir.to_str().unwrap_or("./logs")
+                ).expect("Failed to initialize logging")
+            };
+
             info!("🚀 Sthalam desktop app starting");
 
             if !app_dir.exists() {
@@ -86,13 +94,11 @@ pub fn run() {
                     let repo_ctx = Arc::new(initialize_repositories(connection.clone()));
                     let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
                     let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
-                    let domain = Arc::new("sthalam".to_string());
                     let (p2p_service, p2p_receiver) =
-                        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone(), domain);
+                        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone());
                     let p2p_service = Arc::new(p2p_service);
 
-                    // Create config for shared handlers (domain injection)
-                    let handler_config = HandlerConfig::new("sthalam");
+                    // Create user state for handlers
                     let user_state = UserState::new();
 
                     // Create and start EventManager for bidirectional event communication
@@ -105,7 +111,6 @@ pub fn run() {
                     );
                     event_manager.start(p2p_receiver, rt.handle());
 
-                    app.manage(handler_config);
                     app.manage(user_state);
                     app.manage(crypto_utils);
                     app.manage(ucan_service);

@@ -2,7 +2,6 @@ use clap::{Parser, Subcommand};
 use crypto_utils::CryptoUtils;
 use tracing::{error, info};
 use network::{P2PService, p2p_init};
-use osvauld_core::models::UserRole;
 use persistance::{database::initialize_repositories, initialize_database};
 
 use base64::{Engine as _, engine::general_purpose};
@@ -38,10 +37,6 @@ struct Cli {
     /// Database path
     #[arg(short, long, default_value = "cli.db")]
     db_path: String,
-
-    /// Domain for UCAN tokens
-    #[arg(short = 'o', long, default_value = "sthalam")]
-    domain: String,
 }
 
 #[derive(Subcommand)]
@@ -98,7 +93,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let repo_ctx = Arc::new(initialize_repositories(db_connection.clone()));
     let crypto_utils = Arc::new(RwLock::new(CryptoUtils::new()));
     let ucan_service = Arc::new(RwLock::new(gurkha::UcanService::new()));
-    let domain = Arc::new(cli.domain);
 
     match cli.command {
         Commands::Init {
@@ -106,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             passphrase,
         } => {
             let pass = get_passphrase(passphrase, "Enter passphrase:")?;
-            handle_init(&username, &pass, repo_ctx.clone(), domain.clone()).await?;
+            handle_init(&username, &pass, repo_ctx.clone()).await?;
         }
         Commands::Start { passphrase } => {
             let pass = get_passphrase(passphrase, "Enter passphrase to unlock certificate:")?;
@@ -115,7 +109,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 repo_ctx.clone(),
                 crypto_utils.clone(),
                 ucan_service.clone(),
-                domain.clone(),
             )
             .await?;
         }
@@ -130,7 +123,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 repo_ctx.clone(),
                 crypto_utils.clone(),
                 ucan_service.clone(),
-                &domain,
             )
             .await?;
         }
@@ -143,7 +135,6 @@ async fn handle_init(
     username: &str,
     passphrase: &str,
     repo_ctx: Arc<persistance::database::RepositoryContext>,
-    domain: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if already signed up
     if is_signed_up(repo_ctx.clone()).await? {
@@ -154,7 +145,7 @@ async fn handle_init(
     info!("Initializing new user: {}", username);
 
     // Create user and certificates
-    handle_signup(username, passphrase, repo_ctx.clone(), &domain).await?;
+    handle_signup(username, passphrase, repo_ctx.clone()).await?;
 
     // Create default folder
 
@@ -170,7 +161,6 @@ async fn handle_start(
     repo_ctx: Arc<persistance::database::RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
     ucan_service: Arc<RwLock<gurkha::UcanService>>,
-    domain: Arc<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
     if !is_signed_up(repo_ctx.clone()).await? {
@@ -200,8 +190,7 @@ async fn handle_start(
 
     // Generate and print connection token (always)
     let (token, pub_key) = generate_one_time_ucan_token(
-        &domain,
-        &UserRole::Owner.to_string(),
+        "owner",  // relationship for one-time token
         &ucan_service,
     )
     .await?;
@@ -232,7 +221,7 @@ async fn handle_start(
     // Initialize P2P service (CLI doesn't need event handling)
     info!("Starting P2P service...");
     let (p2p_service, _p2p_receiver) =
-        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone(), domain.clone());
+        P2PService::new(repo_ctx.clone(), crypto_utils.clone(), ucan_service.clone());
 
     let p2p_service = Arc::new(p2p_service);
 
@@ -270,7 +259,6 @@ async fn handle_folder_token(
     repo_ctx: Arc<persistance::database::RepositoryContext>,
     crypto_utils: Arc<RwLock<CryptoUtils>>,
     ucan_service: Arc<RwLock<gurkha::UcanService>>,
-    domain: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Check if user exists
     if !is_signed_up(repo_ctx.clone()).await? {
@@ -300,7 +288,7 @@ async fn handle_folder_token(
 
     // Generate folder share token
     let (token, pub_key) =
-        generate_folder_share_token(folder_id, domain, &ucan_service).await?;
+        generate_folder_share_token(folder_id, &ucan_service).await?;
 
     println!("\n╔══════════════════════════════════════════╗");
     println!("║     FOLDER SHARE TOKEN                   ║");

@@ -511,38 +511,45 @@ pub fn connect_to_website(device_id: String, ucan_token: String, p2p_service: Ar
     tokio::spawn(async move {
         info!("🌐 Connecting viewer to node device: {}", device_id);
 
-        // Establish P2P connection
-        let peer_conn = match p2p_service.connect_with_ticket(&device_id).await {
-            Ok(Some(conn)) => {
-                info!("✅ P2P connection established");
+        // Check if connection already exists, otherwise establish new connection
+        let peer_conn = match p2p_service.get_connection_by_id(&device_id).await {
+            Ok(conn) => {
+                info!("✅ Using existing P2P connection");
                 conn
             }
-            Ok(None) => {
-                error!(
-                    "⚠️ Connection already in progress for device: {}",
-                    device_id
-                );
-                return;
-            }
-            Err(e) => {
-                error!("❌ Failed to connect to node: {}", e);
-                return;
+            Err(_) => {
+                // Establish P2P connection (handshake happens automatically)
+                match p2p_service.connect_with_ticket(&device_id).await {
+                    Ok(Some(conn)) => {
+                        info!("✅ P2P connection established with handshake");
+                        conn
+                    }
+                    Ok(None) => {
+                        error!("⚠️ Connection already in progress for device: {}", device_id);
+                        return;
+                    }
+                    Err(e) => {
+                        error!("❌ Failed to connect to node: {}", e);
+                        return;
+                    }
+                }
             }
         };
 
-        // TODO: Re-implement viewer/website support later
-        // Delegate to website_handler to send WebsiteRequest
-        // if let Err(e) = crate::p2p::website_handler::initiate_website_request(
-        //     peer_conn,
-        //     ucan_token,
-        //     device_id,
-        //     p2p_service,
-        // )
-        // .await
-        // {
-        //     error!("❌ Failed to initiate website request: {}", e);
-        // }
-        info!("TODO: Viewer/website support not yet implemented");
-        let _ = (peer_conn, ucan_token, device_id, p2p_service); // Suppress warnings
+        info!("🔄 Sending FolderResourcesRequest to pull folder data");
+
+        // Send FolderResourcesRequest using ViewerAuth token
+        if let Err(e) = crate::p2p::folder_sync::send_folder_resources_request(
+            peer_conn,
+            ucan_token,
+        )
+        .await
+        {
+            error!("❌ Failed to send FolderResourcesRequest: {}", e);
+            return;
+        }
+
+        info!("✅ FolderResourcesRequest sent - waiting for folder data");
+        let _ = (device_id, p2p_service); // Suppress warnings
     });
 }

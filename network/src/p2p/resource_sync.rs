@@ -122,15 +122,15 @@ pub async fn send_all_resources_for_folder(
     let recipient_folder_ucan = &recipient_folder_share.ucan_token;
 
     // Extract role from folder UCAN (stored in facts)
-    let parsed_ucan = gurkha::parser::GenericUcan::from_token(recipient_folder_ucan)
+    let parsed_ucan = gurkha::parser::Permit::from_token(recipient_folder_ucan)
         .map_err(|e| {
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to parse folder UCAN: {}", e))
         })?;
 
-    let peer_role = gurkha::extractors::get_role(parsed_ucan.parsed())
-        .unwrap_or_else(|| "node".to_string()); // Default to "node" for Owner → Node sync
+    let peer_relationship = parsed_ucan.relationship()
+        .unwrap_or("node"); // Default to "node" for Owner → Node sync
 
-    info!("  Recipient role: {}", peer_role);
+    info!("  Recipient relationship: {}", peer_relationship);
 
     // 5. Loop through recipient's share records and send each resource
     for recipient_share in recipient_share_records {
@@ -161,7 +161,7 @@ pub async fn send_all_resources_for_folder(
             &recipient_share.resource_id,
             current_user,
             recipient_folder_ucan,
-            &peer_role,
+            &peer_relationship,
             &recipient,
             repo_ctx.clone(),
             &crypto_utils,
@@ -241,6 +241,7 @@ pub async fn send_all_resources_for_folder(
 /// # Returns
 /// * `Ok(())` - Message sent successfully
 /// * `Err` - If send fails
+#[instrument(skip(peer_conn, resource_data), fields(resource_id = %resource_data.resource.id), level = "info")]
 pub async fn send_resource_data(
     peer_conn: Arc<PeerConnection>,
     resource_data: ResourceDataSync,
@@ -266,6 +267,7 @@ pub async fn send_resource_data(
 /// # Returns
 /// * `Ok(())` - Message processed successfully
 /// * `Err` - If processing fails
+#[instrument(skip(resource_msg, peer_conn, repo_ctx, crypto_utils), fields(message_type = ?std::mem::discriminant(resource_msg)), level = "info")]
 pub async fn process_resource_message(
     resource_msg: &ResourceMessage,
     peer_conn: Arc<PeerConnection>,
@@ -317,6 +319,7 @@ pub async fn process_resource_message(
 /// # Returns
 /// * `Ok(())` - Resource accepted and saved successfully
 /// * `Err` - If validation fails or database save fails
+#[instrument(skip(payload, peer_conn, repo_ctx, _crypto_utils), fields(resource_id = %payload.resource.id), level = "info")]
 pub async fn handle_resource_data_sync(
     payload: &ResourceDataSync,
     peer_conn: Arc<PeerConnection>,

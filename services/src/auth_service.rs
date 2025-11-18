@@ -41,12 +41,11 @@ async fn create_device(
 }
 
 /// Complete signup process - combines user creation and device setup
-#[instrument(skip(passphrase, repo_context), fields(username = %username, domain = %domain, user_id))]
+#[instrument(skip(passphrase, repo_context), fields(username = %username, user_id))]
 pub async fn handle_signup(
     username: &str,
     passphrase: &str,
     repo_context: Arc<RepositoryContext>,
-    domain: &str,
 ) -> ServiceResult<()> {
     info!("👤 Creating new user");
 
@@ -96,9 +95,8 @@ pub async fn handle_signup(
 
         // Use the UcanService to issue an owner connection token
         // For the owner, we use their own public key as the audience
-        let domain = "sthalam";
         let token = temp_ucan_service.read().await
-            .issue_peer_connection(&ucan_certificate.public_key, domain, "owner")
+            .issue_peer_connection(&ucan_certificate.public_key, "owner")
             .await?;
         token
     };
@@ -343,56 +341,40 @@ async fn generate_ucan_key(crypto_utils: &CryptoUtils) -> ServiceResult<Certific
     Ok(ucan_certificate)
 }
 
-#[instrument(skip(ucan_service), fields(capability = %capability_str, role = %role))]
+#[instrument(skip(ucan_service), fields(relationship = %relationship))]
 pub async fn generate_one_time_ucan_token(
-    capability_str: &str,
-    role: &str,
+    relationship: &str,
     ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<(String, String)> {
     info!("🔐 Generating one-time UCAN token");
     let ucan_service_guard = ucan_service.read().await;
-    let result = ucan_service_guard.issue_one_time(
-        capability_str,
-        role,
-    )
-    .await?;
+    let result = ucan_service_guard.issue_one_time(relationship).await?;
     info!("✓ One-time token generated");
     Ok(result)
 }
 
-#[instrument(skip(ucan_service), fields(folder_id = %folder_id, capability = %capability_str))]
+#[instrument(skip(ucan_service), fields(folder_id = %folder_id))]
 pub async fn generate_folder_share_token(
     folder_id: &str,
-    capability_str: &str,
     ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<(String, String)> {
     info!("🔐 Generating folder share token");
-    // Call ucan_service function which has the business logic
-    // Note: issue_viewer_auth expects resource_id, but we have folder_id
-    // For viewer auth, we use folder_id as the "resource" identifier
-    let domain = "sthalam"; // Use default domain
     let ucan_service_guard = ucan_service.read().await;
-    let token = ucan_service_guard.issue_viewer_auth(
-        folder_id,
-        domain,
-    )
-    .await?;
-
-    // Calculate CID for the token
-    let cid = gurkha::crypto::get_ucan_cid(&token)?;
-
-    Ok((token, cid))
+    let result = ucan_service_guard.issue_folder_viewer_auth(folder_id).await?;
+    info!("✓ Folder share token generated");
+    Ok(result)
 }
 
 // ==================== UNIFIED HANDSHAKE SUPPORT ====================
 
-use osvauld_core::models::{ConnectionToken, ConnectionTokenType, Role};
+use osvauld_core::models::Permit;
 
-/// Handshake type classification
+/// Handshake type classification (v3 simplified)
+///
+/// Viewer vs Peer distinction is determined by relationship field, not enum variant
 #[derive(Debug, Clone)]
 pub enum HandshakeType {
-    ViewerFirstConnection,
-    PeerFirstConnection,
+    FirstConnection,
     Reconnection,
 }
 
@@ -400,13 +382,13 @@ pub enum HandshakeType {
 #[derive(Debug, Clone)]
 pub struct ParsedHandshakeToken {
     pub handshake_type: HandshakeType,
-    pub role: Role,
+    pub relationship: Option<String>,
     pub folder_id: Option<String>,
 }
 
 /// Parse and validate handshake token
 ///
-/// Extracts token type, role, and folder_id (for viewers) from UCAN token.
+/// Extracts token type, relationship, and folder_id from UCAN token.
 /// Validates the signed UCAN public key matches the peer's public key.
 ///
 /// # Arguments
@@ -423,7 +405,7 @@ pub async fn parse_and_validate_handshake_token(
     ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<ParsedHandshakeToken> {
     // 1. Parse connection token
-    let conn_token = ConnectionToken::from_token(ucan_token)
+    let conn_permit = Permit::from_token(ucan_token)
         .map_err(|e| AuthServiceError::InvalidUcanToken(format!("Failed to parse token: {}", e)))?;
 
     // 2. Validate signature (reuse existing validation if available)
@@ -431,28 +413,22 @@ pub async fn parse_and_validate_handshake_token(
     // For now, we trust the signature is validated elsewhere
     let _ = (signed_ucan_pub, peer_ucan_pub_key);
 
-    // 3. Extract folder_id if ViewerAuth token
-    let folder_id = if conn_token.token_type() == ConnectionTokenType::ViewerAuth {
-        // Extract folder_id from token (function is not async, just returns Result)
-        let ucan_service_guard = ucan_service.read().await;
-        let folder_id = ucan_service_guard.extract_folder_id(ucan_token)
-            .map_err(|e| AuthServiceError::InvalidUcanToken(format!("Failed to extract folder_id: {}", e)))?;
+    // 3. Extract folder_id from facts (for viewer tokens with folder context)
+    let folder_id = conn_permit.folder_id();
 
-        Some(folder_id)
+    // 4. Determine handshake type based on facts (simplified in v3)
+    let relationship = conn_permit.relationship().map(|s| s.to_string());
+    let is_first_connection = conn_permit.is_first_connection();
+
+    let handshake_type = if is_first_connection {
+        HandshakeType::FirstConnection
     } else {
-        None
-    };
-
-    // 4. Determine handshake type based on token
-    let handshake_type = match (conn_token.is_first_connection(), conn_token.role()) {
-        (true, Role::Viewer) => HandshakeType::ViewerFirstConnection,
-        (true, _) => HandshakeType::PeerFirstConnection,
-        (false, _) => HandshakeType::Reconnection,
+        HandshakeType::Reconnection
     };
 
     Ok(ParsedHandshakeToken {
         handshake_type,
-        role: conn_token.role(),
+        relationship,
         folder_id,
     })
 }
@@ -559,4 +535,29 @@ pub async fn update_user_token(
 
     tracing::info!("✓ Updated UCAN token for user {}", user_id);
     Ok(())
+}
+
+/// Get node credentials (node key and device key) for P2P initialization
+///
+/// # Arguments
+/// * `repo_ctx` - Repository context for database access
+///
+/// # Returns
+/// * `(node_key, device_key)` - Node private key and device public key
+pub async fn get_node_credentials(
+    repo_ctx: &Arc<RepositoryContext>,
+) -> ServiceResult<(String, String)> {
+    let node_key = repo_ctx
+        .store_repo
+        .get_node_key()
+        .await
+        .map_err(|e| AuthServiceError::DatabaseError(format!("Failed to get node key: {}", e)))?;
+
+    let device_key = repo_ctx
+        .store_repo
+        .get_device_key()
+        .await
+        .map_err(|e| AuthServiceError::DatabaseError(format!("Failed to get device key: {}", e)))?;
+
+    Ok((node_key, device_key))
 }

@@ -66,11 +66,21 @@ impl KeyMaterial for Ed25519KeyMaterial {
 }
 
 /// Sign a UCAN token based on a decision structure
+///
+/// FACTS-ONLY ARCHITECTURE (v3):
+/// All authorization is stored in the facts field. The capabilities vec should be empty.
+/// The decision layer (decision.rs) ensures this by never adding URI capabilities.
 pub async fn sign_ucan(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
     decision: &crate::decision::TokenDecision,
 ) -> Result<(String, String), GurkhaError> {
+    // Enforce facts-only architecture - capabilities should always be empty
+    debug_assert!(
+        decision.capabilities.is_empty(),
+        "UCAN v3 uses facts-only architecture. Capabilities vec should be empty. All authorization must be in facts."
+    );
+
     generate_ucan_with_cid(
         signing_key,
         verifying_key,
@@ -78,11 +88,21 @@ pub async fn sign_ucan(
         decision.capabilities.clone(),
         Some(decision.facts.clone()),
         decision.expiry,
+        decision.proofs.clone(),
+        decision.proof_tokens.clone(),
     )
     .await
 }
 
 /// Generate a UCAN token with its CID hash
+///
+/// # UCAN v3 Architecture Note
+/// The `capabilities` parameter exists for UCAN spec compliance but should be empty in v3.
+/// All authorization is stored in the `facts` field using CEL-based rules.
+///
+/// # Arguments
+/// * `capabilities` - Should be empty vec in v3 (all auth in facts)
+/// * `facts` - Contains all authorization: operations, documents, cel_rules, etc.
 pub async fn generate_ucan_with_cid(
     signing_key: &SigningKey,
     verifying_key: &VerifyingKey,
@@ -90,6 +110,8 @@ pub async fn generate_ucan_with_cid(
     capabilities: Vec<(String, String)>,
     facts: Option<serde_json::Map<String, serde_json::Value>>,
     expiry_seconds: Option<u64>,
+    proofs: Vec<String>,
+    proof_tokens: std::collections::HashMap<String, String>,
 ) -> Result<(String, String), GurkhaError> {
     // 1. Create KeyMaterial
     let key_material = Ed25519KeyMaterial::new(signing_key.clone(), verifying_key.clone());
@@ -97,29 +119,41 @@ pub async fn generate_ucan_with_cid(
     // 2. Set lifetime (default to 30 years if None)
     let lifetime = expiry_seconds.unwrap_or(30 * 365 * 24 * 60 * 60);
 
-    // 3. Build UCAN with capabilities
+    // 3. Build UCAN base
     let mut builder = UcanBuilder::default()
         .issued_by(&key_material)
         .for_audience(audience)
         .with_lifetime(lifetime);
 
-    // 4. Add capabilities
+    // 4. Add capabilities (should be empty in v3 - all auth in facts)
     for (resource, ability) in capabilities {
         let cap = Capability::from((resource.as_str(), ability.as_str(), &json!({})));
         builder = builder.claiming_capability(cap);
     }
 
-    // 5. Add facts if provided
-    if let Some(facts_map) = facts {
-        for (key, value) in facts_map {
-            builder = builder.with_fact(&key, value);
-        }
+    // 5. Add facts (v3: contains all authorization)
+    // Facts structure: operations, documents, cel_rules, relationship, auth_capabilities, etc.
+    let mut facts_map = facts.unwrap_or_default();
+
+    // Add prf_tokens if not empty (extension for self-contained validation)
+    if !proof_tokens.is_empty() {
+        facts_map.insert("prf_tokens".to_string(), json!(proof_tokens));
     }
 
-    // 6. Build and sign UCAN
-    let ucan = builder
+    for (key, value) in facts_map {
+        builder = builder.with_fact(&key, value);
+    }
+
+    // 6. Build signable with proofs
+    let mut signable = builder
         .build()
-        .map_err(|e| GurkhaError::CreationError(e.to_string()))?
+        .map_err(|e| GurkhaError::CreationError(e.to_string()))?;
+
+    // Add proofs to the signable (will go into prf field)
+    signable.proofs = proofs;
+
+    // 7. Sign UCAN
+    let ucan = signable
         .sign()
         .await
         .map_err(|e| GurkhaError::SignatureError(e.to_string()))?;

@@ -9,7 +9,7 @@ use iroh_quinn::VarInt;
 use osvauld_core::models::{Device, Message, PeerRole, User};
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::{Mutex, Notify, RwLock};
 use tracing::{debug, error, info, info_span, instrument, trace, warn, Instrument};
 
 /// Connection type inferred from UCAN token role
@@ -47,7 +47,7 @@ pub struct PeerConnection {
     pub node_id: String,
     pub user: Arc<RwLock<User>>,
     pub is_initiator: bool,
-    pub handshake_complete: Arc<Mutex<bool>>,
+    pub handshake_complete: Arc<Notify>,
     pub task_handle: tokio::task::JoinHandle<()>,
     pub context: Arc<ServiceContext>,
     pub event_emitter: P2PEventEmitter,
@@ -57,7 +57,6 @@ pub struct PeerConnection {
     pub ucan_service: Arc<RwLock<gurkha::UcanService>>,
     pub repo_ctx: Arc<RepositoryContext>,
     pub challenge: String,
-    pub domain: String,
 }
 
 impl PeerConnection {
@@ -76,7 +75,6 @@ impl PeerConnection {
         local_user: User,
         local_device: Device,
         challenge: String,
-        domain: String,
     ) -> Self {
         info!("Creating new peer connection");
 
@@ -89,7 +87,7 @@ impl PeerConnection {
             node_id,
             user: Arc::new(RwLock::new(local_user)),
             is_initiator,
-            handshake_complete: Arc::new(Mutex::new(false)),
+            handshake_complete: Arc::new(Notify::new()),
             task_handle,
             context,
             event_emitter,
@@ -99,7 +97,6 @@ impl PeerConnection {
             crypto_utils,
             ucan_service,
             challenge,
-            domain,
         };
 
         debug!("Starting message handler for the connection");
@@ -395,7 +392,6 @@ impl PeerConnection {
             ucan_service: self.ucan_service.clone(),
             handshake_complete: self.handshake_complete.clone(),
             challenge: self.challenge.clone(),
-            domain: self.domain.clone(),
         }
     }
 

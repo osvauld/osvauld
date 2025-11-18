@@ -25,7 +25,7 @@ pub enum ServiceError {
     Ucan(#[from] UcanError),
 
     #[error(transparent)]
-    GenericUcan(#[from] UcanTokenError),
+    Permit(#[from] UcanTokenError),
 
     #[error(transparent)]
     Gurkha(#[from] GurkhaError),
@@ -166,7 +166,7 @@ pub enum ResourceServiceError {
     SerializationError(String),
 
     #[error(transparent)]
-    GenericUcan(#[from] UcanTokenError),
+    Permit(#[from] UcanTokenError),
 
     #[error(transparent)]
     Crypto(#[from] CryptoError),
@@ -185,7 +185,7 @@ impl From<ServiceError> for ResourceServiceError {
             ServiceError::InvalidUcan(msg) => ResourceServiceError::UcanError(msg),
             ServiceError::Crypto(e) => ResourceServiceError::Crypto(e),
             ServiceError::Repository(e) => ResourceServiceError::Repository(e),
-            ServiceError::GenericUcan(e) => ResourceServiceError::GenericUcan(e),
+            ServiceError::Permit(e) => ResourceServiceError::Permit(e),
             ServiceError::Gurkha(_) => ResourceServiceError::UcanError("Gurkha error".to_string()),
             _ => ResourceServiceError::InvalidState(format!("Service error: {}", err)),
         }

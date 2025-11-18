@@ -17,10 +17,9 @@ use tauri::State;
 use tokio::sync::RwLock;
 
 #[tauri::command]
-#[instrument(skip(input, config, repo_ctx, ucan_service, user_state), fields(folder_name = %input.name))]
+#[instrument(skip(input, repo_ctx, ucan_service, user_state), fields(folder_name = %input.name))]
 pub async fn handle_add_folder(
     input: AddFolderInput,
-    config: State<'_, HandlerConfig>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
     user_state: State<'_, UserState>,
@@ -31,7 +30,6 @@ pub async fn handle_add_folder(
         Some(input.description),
         input.folder_template_json,
         repo_ctx.inner().clone(),
-        &config.domain,
         &user,
         &ucan_service,
     )

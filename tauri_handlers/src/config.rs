@@ -1,13 +1,10 @@
 /// Configuration for handlers, injected via Tauri's managed state
-#[derive(Clone, Debug)]
-pub struct HandlerConfig {
-    pub domain: String,
-}
+/// Currently unused but kept for future configuration needs
+#[derive(Clone, Debug, Default)]
+pub struct HandlerConfig {}
 
 impl HandlerConfig {
-    pub fn new(domain: impl Into<String>) -> Self {
-        Self {
-            domain: domain.into(),
-        }
+    pub fn new() -> Self {
+        Self {}
     }
 }

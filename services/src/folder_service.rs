@@ -6,7 +6,7 @@ use osvauld_core::models::{
     Folder, FolderShareRecord,
     PermissionLevel, User, ViewerFolderInfo,
 };
-use osvauld_core::models::ConnectionToken;
+use osvauld_core::models::Permit;
 use persistance::database::RepositoryContext;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -15,7 +15,6 @@ use tracing::{debug, info, instrument, warn};
 #[instrument(skip(folder_template_json, repo_ctx, ucan_service, user), fields(
     user_id = %user.id,
     folder_name = %name,
-    domain = %domain,
     folder_id
 ))]
 pub async fn create_folder(
@@ -23,7 +22,6 @@ pub async fn create_folder(
     description: Option<String>,
     folder_template_json: String,
     repo_ctx: Arc<RepositoryContext>,
-    domain: &str,
     user: &User,
     ucan_service: &Arc<RwLock<gurkha::UcanService>>,
 ) -> ServiceResult<Folder> {
@@ -45,7 +43,6 @@ pub async fn create_folder(
     let ucan_service_guard = ucan_service.read().await;
     let (folder_root_ucan_key, ucan_cid) = ucan_service_guard.issue_folder_owner_token(
         &folder.id,
-        domain,
         &folder_template_json,
     )
     .await?;
@@ -136,17 +133,21 @@ pub async fn share_folder(
 
     // 6 & 7. Generate delegated folder UCAN for recipient using ucan_service
     let ucan_service_guard = ucan_service.read().await;
-    let folder_share_token = ucan_service_guard.delegate_folder_to_node(
-        &current_user_folder_share.ucan_token,  // folder_owner_token
-        &recipient_user.ucan_pub_key,           // peer_pub_key
+    let (folder_ucan_token, folder_ucan_cid) = ucan_service_guard.delegate_folder(
+        &current_user_folder_share.ucan_token,  // delegator_token
+        "node",                                   // template_key
+        &recipient_user.ucan_pub_key,           // audience_pubkey
     )
     .await?;
 
-    // Extract the raw token string and calculate CID
-    let folder_ucan_token = folder_share_token.ucan().raw_token().to_string();
-    let folder_ucan_cid = gurkha::crypto::get_ucan_cid(&folder_ucan_token)?;
+    // 8. Parse the token to check if it should be persisted (CEL-based decision)
+    let folder_permit = Permit::from_token(&folder_ucan_token)
+        .map_err(|e| {
+            tracing::error!("Failed to parse delegated folder token: {}", e);
+            FolderServiceError::Validation(format!("Token parsing failed: {}", e))
+        })?;
 
-    // 9. Create and save folder_share_record
+    // 9. Create folder_share_record
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
         folder_id.to_string(),
         current_user.id.clone(),
@@ -156,10 +157,18 @@ pub async fn share_folder(
         folder_ucan_cid.clone(),
     );
 
-    repo_ctx
-        .folder_share_repo
-        .save(&folder_share_record)
-        .await?;
+    // 10. Save folder_share_record only if CEL rule allows
+    if folder_permit.should_persist_share() {
+        tracing::debug!("✓ Token allows folder share persistence - saving to database");
+        repo_ctx
+            .folder_share_repo
+            .save(&folder_share_record)
+            .await?;
+        tracing::info!("✓ Folder share record persisted to database");
+    } else {
+        tracing::debug!("⊘ Token does not allow persistence - folder share record will be ephemeral");
+        tracing::info!("✓ Folder share record created (ephemeral, not persisted)");
+    }
 
     // 10. Get all resources in folder
     let resources = repo_ctx
@@ -298,14 +307,13 @@ pub async fn accept_folder_from_peer(
 
     // Validate that peer has add_folder capability (UCAN-first: check capability, not role)
     tracing::info!("  Step 1: Validating peer connection token...");
-    ConnectionToken::from_token(peer_connection_token)
+    Permit::from_token(peer_connection_token)
         .map_err(|e| FolderServiceError::Validation(format!("Invalid peer connection token: {}", e)))?;
-    // The ConnectionToken already validates the UCAN structure internally
-    // No need to validate again with GenericUcan::from_token
+    // The Permit validates the UCAN structure internally
 
     // Validate folder share UCAN token structure
     tracing::info!("  Step 2: Validating folder share UCAN structure...");
-    gurkha::parser::GenericUcan::from_token(&folder_share_record.ucan_token)
+    gurkha::parser::Permit::from_token(&folder_share_record.ucan_token)
         .map_err(|e| {
             tracing::error!("❌ Invalid folder share UCAN: {}", e);
             FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e))
@@ -374,9 +382,10 @@ pub async fn prepare_viewer_folder_data(
         })?;
 
     // 3. Delegate FolderViewer token from node's token
-    let viewer_folder_token = ucan_service.delegate_folder_to_viewer(
-        &node_folder_share.ucan_token,  // Pass the raw token string
-        viewer_ucan_pub_key,
+    let (folder_ucan, folder_ucan_cid) = ucan_service.delegate_folder(
+        &node_folder_share.ucan_token,  // delegator_token
+        "viewer",                        // template_key
+        viewer_ucan_pub_key,            // audience_pubkey
     )
     .await
     .map_err(|e| {
@@ -384,13 +393,16 @@ pub async fn prepare_viewer_folder_data(
         FolderServiceError::UcanError(format!("Failed to issue FolderViewer token: {}", e))
     })?;
 
-    let folder_ucan = viewer_folder_token.ucan().raw_token().to_string();
-    let folder_ucan_cid = gurkha::crypto::get_ucan_cid(&folder_ucan)
-        .map_err(|e| FolderServiceError::UcanError(format!("Failed to get CID: {}", e)))?;
-
     tracing::info!("✓ Issued FolderViewer token for folder {}", folder_id);
 
-    // 3. Create and save FolderShareRecord so viewer can reconnect
+    // 3. Parse the token to check if it should be persisted (CEL-based decision)
+    let viewer_permit = Permit::from_token(&folder_ucan)
+        .map_err(|e| {
+            tracing::error!("Failed to parse viewer folder token: {}", e);
+            FolderServiceError::Validation(format!("Token parsing failed: {}", e))
+        })?;
+
+    // 4. Create FolderShareRecord
     let folder_share_record = FolderShareRecord::prepare_folder_share_record(
         folder_id.to_string(),
         node_user_id.to_string(),      // shared_by (the node/owner)
@@ -400,16 +412,22 @@ pub async fn prepare_viewer_folder_data(
         folder_ucan_cid,
     );
 
-    repo_ctx
-        .folder_share_repo
-        .save(&folder_share_record)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to save folder share record: {}", e);
-            FolderServiceError::Validation(format!("Failed to save share record: {}", e))
-        })?;
-
-    tracing::info!("✓ Saved FolderShareRecord for viewer {}", viewer_user_id);
+    // 5. Save FolderShareRecord only if CEL rule allows
+    if viewer_permit.should_persist_share() {
+        tracing::debug!("✓ Token allows viewer folder share persistence - saving to database");
+        repo_ctx
+            .folder_share_repo
+            .save(&folder_share_record)
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to save folder share record: {}", e);
+                FolderServiceError::Validation(format!("Failed to save share record: {}", e))
+            })?;
+        tracing::info!("✓ Saved FolderShareRecord for viewer {}", viewer_user_id);
+    } else {
+        tracing::debug!("⊘ Token does not allow persistence - viewer folder share will be ephemeral");
+        tracing::info!("✓ FolderShareRecord created for viewer {} (ephemeral, not persisted)", viewer_user_id);
+    }
 
     Ok(())
 }

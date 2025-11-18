@@ -7,7 +7,6 @@ use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
 use tracing::{error, info, instrument};
 use network::P2PService;
-use osvauld_core::models::UserRole;
 use persistance::database::RepositoryContext;
 use search_indexer::SearchIndexManager;
 use services::{
@@ -45,17 +44,15 @@ pub async fn get_user_details(user_state: State<'_, UserState>) -> Result<BaseCr
 }
 
 #[tauri::command]
-#[instrument(skip(input, config, repo_ctx), fields(username = %input.username))]
+#[instrument(skip(input, repo_ctx), fields(username = %input.username))]
 pub async fn handle_sign_up(
     input: SavePassphraseInput,
-    config: State<'_, HandlerConfig>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
 ) -> Result<BaseCryptoResponse, String> {
     let _result = handle_signup(
         &input.username,
         &input.passphrase,
         repo_ctx.inner().clone(),
-        &config.domain,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -217,12 +214,10 @@ pub async fn handle_logout(
 #[tauri::command]
 #[instrument(skip_all)]
 pub async fn get_one_time_ucan_token(
-    config: State<'_, HandlerConfig>,
     ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
 ) -> Result<BaseCryptoResponse, String> {
     let (ucan_token, ucan_pub_key) = generate_one_time_ucan_token(
-        &config.domain,
-        &UserRole::User.to_string(),
+        "owner",  // relationship for one-time token
         &ucan_service,
     )
     .await

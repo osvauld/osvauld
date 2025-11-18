@@ -33,7 +33,6 @@ pub struct P2PService {
     pub event_emitter: P2PEventEmitter,
     pub current_user: Arc<RwLock<Option<User>>>,
     pub current_device: Arc<RwLock<Option<Device>>>,
-    pub domain: Arc<String>,
 }
 
 impl P2PService {
@@ -43,7 +42,6 @@ impl P2PService {
         repo_ctx: Arc<RepositoryContext>,
         crypto_utils: Arc<RwLock<CryptoUtils>>,
         ucan_service: Arc<RwLock<gurkha::UcanService>>,
-        domain: Arc<String>,
     ) -> (Self, mpsc::UnboundedReceiver<P2PEvent>) {
         let (emitter, receiver) = P2PEventEmitter::new();
         info!("Creating new P2P service instance");
@@ -56,7 +54,6 @@ impl P2PService {
             repo_ctx,
             crypto_utils,
             ucan_service,
-            domain,
         };
 
         debug!("P2P service instance created successfully");
@@ -274,7 +271,6 @@ impl P2PService {
             current_user.clone(),
             current_device.clone(),
             challenge,
-            self.domain.to_string(),
         );
 
         let peer_connection = Arc::new(peer_connection);
@@ -297,14 +293,11 @@ impl P2PService {
             })?;
 
             // Look up device to get user_id
-            let devices = self.repo_ctx.device_repo.get_devices_by_ids(&[device_id.to_string()]).await
+            let device = services::get_device_by_id(&device_id, self.repo_ctx.clone()).await
                 .map_err(|e| P2PError::InvalidState(format!("Failed to get device: {}", e)))?;
 
-            let device = devices.into_iter().next()
-                .ok_or_else(|| P2PError::InvalidState(format!("Device {} not found", device_id)))?;
-
             // Get user to retrieve their ucan_token
-            let peer_user = self.repo_ctx.user_repo.get_user_by_id(&device.user_id).await
+            let peer_user = services::get_user_by_id(&device.user_id, self.repo_ctx.clone()).await
                 .map_err(|e| P2PError::InvalidState(format!("Failed to get user: {}", e)))?;
 
             info!("🔐 Initiating handshake with token from database");
@@ -313,6 +306,23 @@ impl P2PService {
 
             auth::initiate_handshake(&peer_connection, peer_user.ucan_token, current_user, current_device)
                 .await?;
+
+            // Wait for handshake to complete before returning
+            info!("⏳ Waiting for handshake to complete...");
+            let peer_conn_clone = peer_connection.clone();
+            tokio::select! {
+                _ = peer_conn_clone.handshake_complete.notified() => {
+                    info!("✅ Handshake completed successfully");
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(10)) => {
+                    error!("❌ Handshake timeout after 10 seconds");
+                    state.connections.remove_from_connecting(&connection_id).await;
+                    return Err(P2PError::Connection(ConnectionError::EstablishmentFailed {
+                        node_id: connection_id,
+                        reason: "Handshake timeout".to_string(),
+                    }));
+                }
+            }
         }
 
         Ok(peer_connection)

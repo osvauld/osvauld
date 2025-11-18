@@ -14,13 +14,12 @@ use tauri::State;
 use tokio::sync::RwLock;
 
 #[tauri::command]
-#[instrument(skip(input, user_state, repo_ctx, ucan_service, config), fields(folder_id = %input.folder_id, resource_type = %input.resource_type))]
+#[instrument(skip(input, user_state, repo_ctx, ucan_service), fields(folder_id = %input.folder_id, resource_type = %input.resource_type))]
 pub async fn handle_add_resource(
     input: AddResourceInput,
     user_state: State<'_, UserState>,
     repo_ctx: State<'_, Arc<RepositoryContext>>,
     ucan_service: State<'_, Arc<RwLock<gurkha::UcanService>>>,
-    config: State<'_, HandlerConfig>,
 ) -> Result<BaseCryptoResponse, String> {
 
     // Get current user and device
@@ -44,7 +43,6 @@ pub async fn handle_add_resource(
         input.folder_id.clone(),
         &user,
         &device.id,
-        &config.domain,
         repo_ctx.inner().clone(),
         &ucan_service,
     )

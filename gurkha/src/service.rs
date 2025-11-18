@@ -10,10 +10,7 @@
 //! ```
 
 use crate::errors::{ServiceError, ServiceResult};
-use crate::parser::GenericUcan;
-use crate::token::{
-    FolderShareToken, FolderViewerToken, ResourceShareToken, ResourceViewerToken,
-};
+use crate::parser::Permit;
 use crate::decision;
 use crate::crypto;
 use base64::{Engine as _, engine::general_purpose};
@@ -81,11 +78,11 @@ impl UcanService {
 
     /// Issue a one-time connection token
     /// Used for initial device pairing (QR codes, connection strings).
-    #[instrument(skip(self), fields(capability = %capability_str, role = %role, token_type = "one_time"))]
+    /// Facts-only approach - relationship determines permissions.
+    #[instrument(skip(self), fields(relationship = %relationship, token_type = "one_time"))]
     pub async fn issue_one_time(
         &self,
-        capability_str: &str,
-        role: &str,
+        relationship: &str,
     ) -> ServiceResult<(String, String)> {
         debug!("🔐 Issuing one-time connection token");
 
@@ -94,8 +91,7 @@ impl UcanService {
 
         let decision = decision::decide_one_time_token(
             verifying_key,
-            capability_str,
-            role,
+            relationship,
         )?;
         debug!("✓ Token decision created");
 
@@ -111,12 +107,12 @@ impl UcanService {
 
     /// Issue a peer connection token
     /// Establishes bidirectional peer connection with signed UCAN.
-    #[instrument(skip(self, peer_pubkey), fields(domain = %domain, role = %role, token_type = "peer_connection"))]
+    /// Facts-only approach - no domain needed, relationship determines permissions.
+    #[instrument(skip(self, peer_pubkey), fields(relationship = %relationship, token_type = "peer_connection"))]
     pub async fn issue_peer_connection(
         &self,
         peer_pubkey: &str,
-        domain: &str,
-        role: &str,
+        relationship: &str,
     ) -> ServiceResult<String> {
         debug!("🔐 Issuing peer connection token");
 
@@ -125,9 +121,8 @@ impl UcanService {
 
         let decision = decision::decide_peer_connection(
             verifying_key,
-            domain,
             peer_pubkey,
-            role,
+            relationship,
         )?;
 
         let (token, _cid) = crypto::sign_ucan(
@@ -141,11 +136,11 @@ impl UcanService {
     }
 
     /// Issue a viewer authentication token
-    #[instrument(skip(self), fields(resource_id = %resource_id, domain = %domain, token_type = "viewer_auth"))]
+    /// Facts-only approach - no domain needed.
+    #[instrument(skip(self), fields(resource_id = %resource_id, token_type = "viewer_auth"))]
     pub async fn issue_viewer_auth(
         &self,
         resource_id: &str,
-        domain: &str,
     ) -> ServiceResult<String> {
         debug!("🔐 Issuing viewer authentication token");
 
@@ -155,7 +150,6 @@ impl UcanService {
         let decision = decision::decide_viewer_auth(
             verifying_key,
             resource_id,
-            domain,
         )?;
 
         let (token, _cid) = crypto::sign_ucan(
@@ -172,11 +166,11 @@ impl UcanService {
     ///
     /// This is a one-time token with wildcard audience that viewers use to connect.
     /// Used in the FolderTokenRequest flow to generate shareable connection strings.
-    #[instrument(skip(self), fields(folder_id = %folder_id, domain = %domain, token_type = "folder_viewer_auth"))]
+    /// Facts-only approach - no domain needed.
+    #[instrument(skip(self), fields(folder_id = %folder_id, token_type = "folder_viewer_auth"))]
     pub async fn issue_folder_viewer_auth(
         &self,
         folder_id: &str,
-        domain: &str,
     ) -> ServiceResult<(String, String)> {
         debug!("🔐 Issuing folder viewer authentication token");
 
@@ -186,7 +180,6 @@ impl UcanService {
         let decision = decision::decide_folder_viewer_auth(
             verifying_key,
             folder_id,
-            domain,
         )?;
         debug!("✓ Token decision created");
 
@@ -203,11 +196,11 @@ impl UcanService {
     // ==================== RESOURCE TOKENS ====================
 
     /// Issue resource owner token
-    #[instrument(skip(self, ucan_template_json), fields(resource_id = %resource_id, domain = %domain, token_type = "resource_owner"))]
+    /// Facts-only approach - no domain needed.
+    #[instrument(skip(self, ucan_template_json), fields(resource_id = %resource_id, token_type = "resource_owner"))]
     pub async fn issue_owner_token(
         &self,
         resource_id: &str,
-        domain: &str,
         ucan_template_json: &str,
     ) -> ServiceResult<(String, String)> {
         debug!("🔐 Issuing resource owner token");
@@ -219,7 +212,6 @@ impl UcanService {
         let decision = decision::decide_owner_token(
             verifying_key,
             resource_id,
-            domain,
             ucan_template_json,
         )?;
         debug!("✓ Token decision created");
@@ -234,153 +226,81 @@ impl UcanService {
         Ok((token, cid))
     }
 
-    /// Delegate resource to node (Owner → Node)
-    pub async fn delegate_resource_to_node(
-        &self,
-        owner_token: &str,
-        node_pub_key: &str,
-    ) -> ServiceResult<ResourceShareToken> {
-        let (signing_key, verifying_key) = self.get_keys()?;
-
-        // Extract delegation template from owner token
-        let template = decision::extract_template_from_token(owner_token, "node")?;
-        let domain = decision::extract_domain_from_token(owner_token)?;
-
-        let parsed_ucan = GenericUcan::from_token(owner_token)?;
-        let ucan_ref = parsed_ucan.parsed();
-
-        // Extract resource ID from token
-        let resource_id = crate::extractors::extract_id_from_resource_type(
-            ucan_ref,
-            &domain,
-            "resource",
-        )?;
-
-        // Validate token has share_resource permission
-        crate::extractors::validate_has_capability(
-            ucan_ref,
-            &domain,
-            "resource",
-            "share_resource",
-        )?;
-
-        let delegation_decision = decision::decide_delegation_to_node(
-            &template,
-            &domain,
-            &resource_id,
-            node_pub_key,
-        )?;
-
-        let (token, _cid) = crypto::sign_ucan(
-            signing_key,
-            verifying_key,
-            &delegation_decision.into(),
-        ).await?;
-
-        ResourceShareToken::from_token(&token)
-            .map_err(|e| ServiceError::InvalidUcan(format!("Invalid ResourceShareToken: {}", e)))
-    }
-
-    /// Delegate resource to user (Node → User or Owner → User)
-    pub async fn delegate_resource_to_user(
+    /// Unified resource delegation (replaces role-specific methods)
+    ///
+    /// Delegates a resource to any audience using a template key.
+    /// Template key determines the delegation pattern (e.g., "node", "user", "viewer").
+    ///
+    /// # Arguments
+    /// * `delegator_token` - Token of the delegator (must have share_resource capability)
+    /// * `template_key` - Template key to use for delegation ("node", "user", "viewer", etc.)
+    /// * `audience_pubkey` - Public key of the delegatee
+    ///
+    /// # Returns
+    /// * `Ok((token_string, cid))` - The delegated token and its CID
+    pub async fn delegate_resource(
         &self,
         delegator_token: &str,
-        user_pub_key: &str,
-    ) -> ServiceResult<ResourceShareToken> {
+        template_key: &str,
+        audience_pubkey: &str,
+    ) -> ServiceResult<(String, String)> {
         let (signing_key, verifying_key) = self.get_keys()?;
 
-        let template = decision::extract_template_from_token(delegator_token, "user")?;
-        let domain = decision::extract_domain_from_token(delegator_token)?;
+        // Extract delegation template from delegator token
+        let template = decision::extract_template_from_token(delegator_token, template_key)?;
 
-        let parsed_ucan = GenericUcan::from_token(delegator_token)?;
-        let ucan_ref = parsed_ucan.parsed();
+        let parsed_ucan = Permit::from_token(delegator_token)?;
 
-        // Extract resource ID from token
-        let resource_id = crate::extractors::extract_id_from_resource_type(
-            ucan_ref,
-            &domain,
-            "resource",
-        )?;
+        // Extract resource ID from facts (facts-only approach)
+        let resource_id = parsed_ucan
+            .get_fact("resource_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ServiceError::InvalidUcan("Missing resource_id in token facts".to_string())
+            })?
+            .to_string();
 
-        // Validate token has share_resource permission
-        crate::extractors::validate_has_capability(
-            ucan_ref,
-            &domain,
-            "resource",
-            "share_resource",
-        )?;
+        // Validate token has share_resource permission (from facts.operations)
+        // Operations are now strings: "allow"/"deny" instead of booleans
+        let has_share = parsed_ucan
+            .get_fact("operations")
+            .and_then(|ops| ops.as_object())
+            .and_then(|ops| ops.get("share_resource"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "allow")
+            .unwrap_or(false);
 
-        let delegation_decision = decision::decide_delegation_to_user(
+        if !has_share {
+            return Err(ServiceError::ValidationError(
+                "Token does not have share_resource permission".to_string()
+            ));
+        }
+
+        // Create delegation decision (no domain needed)
+        let delegation_decision = decision::decide_delegation(
             &template,
-            &domain,
             &resource_id,
-            user_pub_key,
+            "resource",
+            audience_pubkey,
+            Some(delegator_token),
         )?;
 
-        let (token, _cid) = crypto::sign_ucan(
-            signing_key,
-            verifying_key,
-            &delegation_decision.into(),
-        ).await?;
+        // Use builder to create token
+        let builder = crate::builder::GurkhaUcanBuilder::new(signing_key, verifying_key);
+        let (token, cid) = builder.build(delegation_decision.into()).await?;
 
-        ResourceShareToken::from_token(&token)
-            .map_err(|e| ServiceError::InvalidUcan(format!("Invalid ResourceShareToken: {}", e)))
+        Ok((token, cid))
     }
 
-    /// Delegate resource to viewer (User → Viewer)
-    pub async fn delegate_resource_to_viewer(
-        &self,
-        delegator_token: &str,
-        viewer_pub_key: &str,
-    ) -> ServiceResult<ResourceViewerToken> {
-        let template = decision::extract_template_from_token(delegator_token, "viewer")?;
-        let domain = decision::extract_domain_from_token(delegator_token)?;
-
-        let parsed_ucan = GenericUcan::from_token(delegator_token)?;
-        let ucan_ref = parsed_ucan.parsed();
-
-        // Extract resource ID from token
-        let resource_id = crate::extractors::extract_id_from_resource_type(
-            ucan_ref,
-            &domain,
-            "resource",
-        )?;
-
-        // Validate token has share_resource permission
-        crate::extractors::validate_has_capability(
-            ucan_ref,
-            &domain,
-            "resource",
-            "share_resource",
-        )?;
-
-        let (signing_key, verifying_key) = self.get_keys()?;
-
-        let delegation_decision = decision::decide_delegation_to_viewer(
-            &template,
-            &domain,
-            &resource_id,
-            viewer_pub_key,
-        )?;
-
-        let (token, _cid) = crypto::sign_ucan(
-            signing_key,
-            verifying_key,
-            &delegation_decision.into(),
-        ).await?;
-
-        ResourceViewerToken::from_token(&token)
-            .map_err(|e| ServiceError::InvalidUcan(format!("Invalid ResourceViewerToken: {}", e)))
-    }
 
     // ==================== FOLDER TOKENS ====================
 
     /// Issue folder owner token
-    #[instrument(skip(self, ucan_template_json), fields(folder_id = %folder_id, domain = %domain, token_type = "folder_owner"))]
+    /// Facts-only approach - no domain needed.
+    #[instrument(skip(self, ucan_template_json), fields(folder_id = %folder_id, token_type = "folder_owner"))]
     pub async fn issue_folder_owner_token(
         &self,
         folder_id: &str,
-        domain: &str,
         ucan_template_json: &str,
     ) -> ServiceResult<(String, String)> {
         debug!("🔐 Issuing folder owner token");
@@ -392,7 +312,6 @@ impl UcanService {
         let decision = decision::decide_folder_owner_token(
             verifying_key,
             folder_id,
-            domain,
             ucan_template_json,
         )?;
         debug!("✓ Token decision created");
@@ -407,152 +326,70 @@ impl UcanService {
         Ok((token, cid))
     }
 
-    /// Delegate folder to node (Owner → Node)
-    #[instrument(skip(self, delegator_token, node_pub_key), fields(node_pub_key = %node_pub_key))]
-    pub async fn delegate_folder_to_node(
+    /// Unified folder delegation (replaces role-specific methods)
+    ///
+    /// Delegates a folder to any audience using a template key.
+    /// Template key determines the delegation pattern (e.g., "node", "user", "viewer").
+    ///
+    /// # Arguments
+    /// * `delegator_token` - Token of the delegator (must have add_resources capability)
+    /// * `template_key` - Template key to use for delegation ("node", "user", "viewer", etc.)
+    /// * `audience_pubkey` - Public key of the delegatee
+    ///
+    /// # Returns
+    /// * `Ok((token_string, cid))` - The delegated token and its CID
+    pub async fn delegate_folder(
         &self,
         delegator_token: &str,
-        node_pub_key: &str,
-    ) -> ServiceResult<FolderShareToken> {
-        debug!("🔐 Delegating folder to node");
-        debug!("Delegator token (first 100 chars): {}...", &delegator_token[..delegator_token.len().min(100)]);
-
+        template_key: &str,
+        audience_pubkey: &str,
+    ) -> ServiceResult<(String, String)> {
         let (signing_key, verifying_key) = self.get_keys()?;
 
-        let template = decision::extract_template_from_token(delegator_token, "node")?;
-        debug!("✓ Template extracted for role: node");
+        // Extract delegation template from delegator token
+        let template = decision::extract_template_from_token(delegator_token, template_key)?;
 
-        let domain = decision::extract_domain_from_token(delegator_token)?;
-        debug!("✓ Domain extracted: {}", domain);
+        let parsed_ucan = Permit::from_token(delegator_token)?;
 
-        let parsed_ucan = GenericUcan::from_token(delegator_token)?;
-        let ucan_ref = parsed_ucan.parsed();
+        // Extract folder ID from facts (facts-only approach)
+        let folder_id = parsed_ucan
+            .get_fact("folder_id")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                ServiceError::InvalidUcan("Missing folder_id in token facts".to_string())
+            })?
+            .to_string();
 
-        debug!("Attempting to extract folder_id from token...");
-        let folder_id = crate::extractors::extract_id_from_resource_type(
-            ucan_ref,
-            &domain,
-            "folder",
-        )?;
-        debug!("✓ Folder ID extracted: {}", folder_id);
+        // Validate token has add_resources permission (from facts.operations)
+        // Operations are now strings: "allow"/"deny" instead of booleans
+        let has_add_resources = parsed_ucan
+            .get_fact("operations")
+            .and_then(|ops| ops.as_object())
+            .and_then(|ops| ops.get("add_resources"))
+            .and_then(|v| v.as_str())
+            .map(|s| s == "allow")
+            .unwrap_or(false);
 
-        // Validate token has add_resources permission for folder operations
-        crate::extractors::validate_has_capability(
-            ucan_ref,
-            &domain,
-            "folder",
-            "add_resources",
-        )?;
-        debug!("✓ Token has add_resources permission");
+        if !has_add_resources {
+            return Err(ServiceError::ValidationError(
+                "Token does not have add_resources permission".to_string()
+            ));
+        }
 
-        let delegation_decision = decision::decide_folder_delegation(
+        // Create delegation decision (no domain needed, folder_id added by decide_delegation)
+        let delegation_decision = decision::decide_delegation(
             &template,
-            &domain,
             &folder_id,
-            node_pub_key,
-            "node",
-        )?;
-
-        let (token, _cid) = crypto::sign_ucan(
-            signing_key,
-            verifying_key,
-            &delegation_decision.into(),
-        ).await?;
-
-        FolderShareToken::from_token(&token)
-            .map_err(|e| ServiceError::InvalidUcan(format!("Invalid FolderShareToken: {}", e)))
-    }
-
-    /// Delegate folder to user (Node → User or Owner → User)
-    pub async fn delegate_folder_to_user(
-        &self,
-        delegator_token: &str,
-        user_pub_key: &str,
-    ) -> ServiceResult<FolderShareToken> {
-        let (signing_key, verifying_key) = self.get_keys()?;
-
-        let template = decision::extract_template_from_token(delegator_token, "user")?;
-        let domain = decision::extract_domain_from_token(delegator_token)?;
-
-        let parsed_ucan = GenericUcan::from_token(delegator_token)?;
-        let ucan_ref = parsed_ucan.parsed();
-
-        let folder_id = crate::extractors::extract_id_from_resource_type(
-            ucan_ref,
-            &domain,
             "folder",
+            audience_pubkey,
+            Some(delegator_token),
         )?;
 
-        // Validate token has add_resources permission
-        crate::extractors::validate_has_capability(
-            ucan_ref,
-            &domain,
-            "folder",
-            "add_resources",
-        )?;
+        // Use builder to create token
+        let builder = crate::builder::GurkhaUcanBuilder::new(signing_key, verifying_key);
+        let (token, cid) = builder.build(delegation_decision.into()).await?;
 
-        let delegation_decision = decision::decide_folder_delegation(
-            &template,
-            &domain,
-            &folder_id,
-            user_pub_key,
-            "user",
-        )?;
-
-        let (token, _cid) = crypto::sign_ucan(
-            signing_key,
-            verifying_key,
-            &delegation_decision.into(),
-        ).await?;
-
-        FolderShareToken::from_token(&token)
-            .map_err(|e| ServiceError::InvalidUcan(format!("Invalid FolderShareToken: {}", e)))
-    }
-
-    /// Delegate folder to viewer (User → Viewer)
-    pub async fn delegate_folder_to_viewer(
-        &self,
-        delegator_token: &str,
-        viewer_pub_key: &str,
-    ) -> ServiceResult<FolderViewerToken> {
-        let (signing_key, verifying_key) = self.get_keys()?;
-
-        let template = decision::extract_template_from_token(delegator_token, "viewer")?;
-        let domain = decision::extract_domain_from_token(delegator_token)?;
-
-        let parsed_ucan = GenericUcan::from_token(delegator_token)?;
-        let ucan_ref = parsed_ucan.parsed();
-
-        let folder_id = crate::extractors::extract_id_from_resource_type(
-            ucan_ref,
-            &domain,
-            "folder",
-        )?;
-
-        // Validate token has add_resources permission
-        crate::extractors::validate_has_capability(
-            ucan_ref,
-            &domain,
-            "folder",
-            "add_resources",
-        )?;
-
-        let delegation_decision = decision::decide_folder_delegation(
-            &template,
-            &domain,
-            &folder_id,
-            viewer_pub_key,
-            "viewer",
-        )?;
-
-        let (token, _cid) = crypto::sign_ucan(
-            signing_key,
-            verifying_key,
-            &delegation_decision.into(),
-        ).await?;
-
-        FolderViewerToken::from_token(&token)
-            .map_err(|e| ServiceError::InvalidUcan(format!("Invalid FolderViewerToken: {}", e)))
+        Ok((token, cid))
     }
 
     // ==================== EXTRACTION & UTILITIES ====================
@@ -571,7 +408,7 @@ impl UcanService {
     #[instrument(skip(self, ucan_token))]
     pub fn extract_resource_id(&self, ucan_token: &str) -> ServiceResult<String> {
         debug!("🔍 Extracting resource ID from token");
-        let ucan = GenericUcan::from_token(ucan_token).map_err(|e| {
+        let ucan = Permit::from_token(ucan_token).map_err(|e| {
             error!("❌ Failed to parse token: {}", e);
             e
         })?;
@@ -590,7 +427,7 @@ impl UcanService {
     #[instrument(skip(self, ucan_token))]
     pub fn extract_folder_id(&self, ucan_token: &str) -> ServiceResult<String> {
         debug!("🔍 Extracting folder ID from token");
-        let ucan = GenericUcan::from_token(ucan_token).map_err(|e| {
+        let ucan = Permit::from_token(ucan_token).map_err(|e| {
             error!("❌ Failed to parse token: {}", e);
             e
         })?;
@@ -606,24 +443,28 @@ impl UcanService {
     }
 
     /// Extract document capabilities from token
+    ///
+    /// V3: Reads from facts.documents map instead of parsing URI capabilities
     #[instrument(skip(self, ucan_token))]
     pub async fn extract_capabilities(&self, ucan_token: &str) -> ServiceResult<Vec<(String, String)>> {
-        use crate::uri::ParsedCapabilityUri;
-
-        debug!("🔍 Extracting document capabilities from token");
-        let ucan = GenericUcan::from_token(ucan_token).map_err(|e| {
+        debug!("🔍 Extracting document capabilities from token facts");
+        let ucan = Permit::from_token(ucan_token).map_err(|e| {
             error!("❌ Failed to parse token: {}", e);
             e
         })?;
 
         let mut doc_capabilities = Vec::new();
 
-        // Extract capabilities that are resource-specific (documents)
-        for cap in ucan.parsed_capabilities() {
-            if let ParsedCapabilityUri::Resource(resource_cap) = cap {
-                // For resources, the doc_name is the document identifier
-                // and we'll use "write" as the default ability for now
-                doc_capabilities.push((resource_cap.doc_name().to_string(), "write".to_string()));
+        // V3: Extract from facts.documents map
+        // Format: { doc_name: { type: "crdt"|"asset", capability: "collaborator"|"viewer" } }
+        if let Some(documents) = ucan.get_fact("documents").and_then(|v| v.as_object()) {
+            for (doc_name, doc_info) in documents {
+                if let Some(capability) = doc_info.as_object()
+                    .and_then(|obj| obj.get("capability"))
+                    .and_then(|v| v.as_str())
+                {
+                    doc_capabilities.push((doc_name.clone(), capability.to_string()));
+                }
             }
         }
 
@@ -635,7 +476,7 @@ impl UcanService {
     #[instrument(skip(self, ucan_token))]
     pub async fn validate_ucan_structure(&self, ucan_token: &str) -> ServiceResult<()> {
         debug!("🔍 Validating UCAN structure");
-        GenericUcan::from_token(ucan_token).map_err(|e| {
+        Permit::from_token(ucan_token).map_err(|e| {
             error!("❌ Invalid UCAN structure: {}", e);
             e
         })?;
@@ -652,6 +493,8 @@ impl From<crate::decision::DelegationDecision> for crate::decision::TokenDecisio
             capabilities: dd.capabilities,
             facts: dd.facts,
             expiry: None,
+            proofs: dd.proofs,
+            proof_tokens: dd.proof_tokens,
         }
     }
 }
