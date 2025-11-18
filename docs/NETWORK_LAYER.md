@@ -1,7 +1,7 @@
 # Network Layer - P2P Orchestration
 
-**Last Updated:** 2025-01-15
-**Status:** Folder Publishing Complete
+**Last Updated:** 2025-11-18
+**Status:** Permit-Based Network Layer Implemented
 
 ---
 
@@ -10,10 +10,15 @@
 The network layer (`network/src/p2p/`) orchestrates peer-to-peer communication between devices. It handles:
 - WebSocket connection management
 - Message routing and dispatching
-- Handshake protocols
+- Permit-based handshake protocols
 - Folder and resource synchronization
 
-**Key Principle:** Network layer is pure orchestration - all business logic lives in service layer.
+**Key Principle:** Network layer is pure orchestration - all business logic (including Permit validation) lives in service layer.
+
+**See Also:**
+- [PERMITS_OVERVIEW.md](./PERMITS_OVERVIEW.md) - Permit architecture
+- [DELEGATION.md](./DELEGATION.md) - Trust chain and handshake flow
+- [SYNC_PROTOCOL.md](./SYNC_PROTOCOL.md) - Permit-driven sync
 
 ---
 
@@ -84,7 +89,11 @@ pub async fn handle_message(
 
 **File:** `network/src/p2p/handshake.rs`
 
-### Three-Way Handshake (Owner → Node)
+### Bearer Token Handshake (Owner → Node)
+
+**Handshake uses Permits** for mutual authentication - both sides exchange bearer tokens that prove authorization.
+
+**See:** [DELEGATION.md](./DELEGATION.md#adding-hosting-node) for complete handshake flow and Permit structure.
 
 ```
 ┌──────┐                              ┌──────┐
@@ -92,21 +101,21 @@ pub async fn handle_message(
 └──┬───┘                              └───┬──┘
    │                                      │
    │ 1. FirstConnectRequest               │
-   │    - one_time_ucan                   │
-   │    - issued_ucan (OwnerConnection)   │
+   │    - one_time_ucan (Permit)          │
+   │    - issued_ucan (Permit for Owner)  │
    ├──────────────────────────────────────>
    │                                      │
-   │                                      │ Validates one_time_ucan
-   │                                      │ Stores issued_ucan
+   │                                      │ Validates one_time_ucan Permit
+   │                                      │ Stores issued_ucan Permit
    │                                      │ Creates Node user record
    │                                      │
    │              2. UcanAndUserExchange  │
    │                 - node_user          │
-   │                 - ucan_token (Node)  │
+   │                 - ucan_token (Permit)│
    <──────────────────────────────────────┤
    │                                      │
    │ Stores node_user                     │
-   │ Stores node's ucan_token             │
+   │ Stores node's Permit                 │
    │                                      │
    │ 3. UserInfoConfirmation              │
    │    - owner_user                      │
@@ -118,7 +127,13 @@ pub async fn handle_message(
    │           HANDSHAKE COMPLETE         │
 ```
 
+**Key Concept:** One-time bearer token (`one_time_ucan`) proves authorization to pair. Node creates this with `operations.own = "allow"` - anyone holding this token is considered owner for the handshake.
+
+**Code:** `kunki/src/main.rs` (node's one-time token generation)
+
 ### Message Handlers
+
+**Network layer delegates Permit validation to service layer** - handlers only orchestrate message flow.
 
 ```rust
 /// Handle FirstConnectRequest (step 1)
@@ -127,18 +142,12 @@ pub async fn handle_first_connect_request(
     peer_conn: Arc<PeerConnection>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> P2PResult<()> {
-    // 1. Validate one_time_ucan (proves pairing authorization)
-    let one_time_token = OneTimeConnectionToken::from_token(&request.one_time_ucan)?;
-
-    // 2. Parse and store issued_ucan (long-lived connection token)
-    let peer_connection_token = ConnectionToken::from_token(&request.issued_ucan)?;
-
-    // 3. Update peer connection with validated token
+    // 1. Validate one_time_ucan Permit (service layer checks operations.own)
+    // 2. Parse and store issued_ucan Permit (long-lived connection Permit)
+    // 3. Update peer connection with validated Permit
     peer_conn.update_token(request.issued_ucan.clone()).await;
 
     // 4. Create user record for peer (if needed)
-    let peer_user = extract_or_create_user(&peer_connection_token, repo_ctx).await?;
-
     // 5. Send UcanAndUserExchange response
     send_ucan_and_user_exchange(peer_conn, repo_ctx).await?;
 
@@ -151,9 +160,7 @@ pub async fn handle_ucan_and_user_exchange(
     peer_conn: Arc<PeerConnection>,
     repo_ctx: Arc<RepositoryContext>,
 ) -> P2PResult<()> {
-    // 1. Parse peer's connection token
-    let peer_connection_token = ConnectionToken::from_token(&exchange.ucan_token)?;
-
+    // 1. Parse peer's Permit (service layer validates)
     // 2. Store peer user info
     repo_ctx.user_repo.save_user(&exchange.node_user).await?;
 
@@ -191,11 +198,13 @@ pub async fn handle_user_info_confirmation(
 }
 ```
 
-### Handshake Token Update (Reconnection)
+**Note:** Actual implementation includes full Permit parsing and validation - omitted here for clarity. See `network/src/p2p/handshake.rs` for complete code.
 
-**Problem:** If owner reconnects after token rotation, node has stale token
+### Handshake Permit Update (Reconnection)
 
-**Solution:** Update stored token during handshake
+**Problem:** If owner reconnects after Permit rotation, node has stale Permit
+
+**Solution:** Update stored Permit during handshake
 
 ```rust
 // In handle_first_connect_request:
@@ -206,7 +215,7 @@ pub async fn handle_first_connect_request(
 ) -> P2PResult<()> {
     // ...
 
-    // Update peer connection with NEW token (fixes reconnection issue)
+    // Update peer connection with NEW Permit (fixes reconnection issue)
     peer_conn.update_token(request.issued_ucan.clone()).await;
 
     // ...
@@ -223,6 +232,10 @@ pub async fn handle_first_connect_request(
 
 ### Folder Publishing Flow
 
+**Folder publishing is Permit-driven** - node validates Permits before accepting folder/resources.
+
+**See:** [DELEGATION.md](./DELEGATION.md#publishing-folder-to-node) for complete Permit flow.
+
 ```
 ┌──────┐                              ┌──────┐
 │Owner │                              │ Node │
@@ -232,23 +245,23 @@ pub async fn handle_first_connect_request(
    │                                      │
    │ 1. Send FolderDataSync               │
    │    - folder metadata                 │
-   │    - folder_share_record (Node UCAN) │
+   │    - folder_share_record (Node Permit)│
    ├──────────────────────────────────────>
    │                                      │
    │                                      │ handle_folder_data_sync()
-   │                                      │ - Validate add_folder capability
+   │                                      │ - Validate Permit (add_folder)
    │                                      │ - Save folder + share record
    │                                      │
    │ 2. Send ResourceDataSync (for each)  │
    │    - encrypted resource              │
    │    - ALL share records               │
-   │    - owner_folder_ucan                │
+   │    - owner_folder_ucan (Permit)      │
    ├──────────────────────────────────────>
    ├──────────────────────────────────────>
    ├──────────────────────────────────────>
    │                                      │
    │                                      │ handle_resource_data_sync()
-   │                                      │ - Validate add_resources
+   │                                      │ - Validate Permit (add_resources)
    │                                      │ - Save resource + share records
    │                                      │
    │         FOLDER PUBLISHING COMPLETE   │
@@ -378,6 +391,10 @@ pub async fn handle_folder_data_sync(
 ## Resource Sync
 
 **File:** `network/src/p2p/resource_sync.rs`
+
+**Resource sync uses Permit-based filtering** - service layer filters documents based on dual-Permit validation.
+
+**See:** [SYNC_PROTOCOL.md](./SYNC_PROTOCOL.md#document-filtering) for complete filtering logic.
 
 ### Send All Resources for Folder
 
@@ -694,22 +711,36 @@ peer_conn.event_emitter.emit(P2PEvent::FolderSynced {
 
 **Network Layer Principles:**
 - ✅ Pure orchestration (no business logic)
-- ✅ Delegates to service layer for validation
+- ✅ Delegates to service layer for Permit validation
 - ✅ Fire-and-forget for partial failures
 - ✅ Event emission for UI updates
 - ✅ Type-safe message handling
+- ✅ Permit-based authentication and authorization
 
 **Current Implementation:**
-- ✅ Three-way handshake (with token update)
-- ✅ Folder publishing (Owner → Node)
-- ✅ Resource publishing (with ALL share records)
-- ⏳ Bidirectional sync (not yet implemented)
-- ⏳ Viewer sync (not yet implemented)
+- ✅ Three-way handshake with bearer tokens (Permit update on reconnection)
+- ✅ Folder publishing (Owner → Node) with Permit validation
+- ✅ Resource publishing with Permit-driven document filtering
+- ✅ Dual-Permit validation (SyncContext in service layer)
+- ⏳ Bidirectional sync (partially implemented)
+- ⏳ Viewer sync (in progress)
+
+**Key Concepts:**
+- **Bearer tokens**: Handshake uses one-time Permits for mutual authentication
+- **Permit validation**: Service layer validates operations using Permit facts
+- **Document filtering**: Resources filtered based on document-level permissions
+- **No hardcoded roles**: All authorization decisions from Permit facts
 
 **Files:**
 - `network/src/p2p/mod.rs` - Central dispatcher (150 lines)
-- `network/src/p2p/handshake.rs` - Handshake protocol (400 lines)
-- `network/src/p2p/folder_sync.rs` - Folder sync (238 lines)
-- `network/src/p2p/resource_sync.rs` - Resource sync (345 lines)
+- `network/src/p2p/handshake.rs` - Bearer token handshake (400 lines)
+- `network/src/p2p/folder_sync.rs` - Folder sync with Permits (238 lines)
+- `network/src/p2p/resource_sync.rs` - Resource sync with filtering (345 lines)
 
-**Status:** ✅ **Folder Publishing Working**
+**Status:** ✅ **Permit-Based Network Layer Working**
+
+**See Also:**
+- [PERMITS_OVERVIEW.md](./PERMITS_OVERVIEW.md) - Core Permit architecture
+- [DELEGATION.md](./DELEGATION.md) - Complete delegation flows
+- [SYNC_PROTOCOL.md](./SYNC_PROTOCOL.md) - Permit-driven sync mechanics
+- [SERVICE_LAYER.md](./SERVICE_LAYER.md) - Service integration patterns

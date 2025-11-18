@@ -1,1298 +1,670 @@
-# Sync Protocol Design - IMPLEMENTATION READY
+# Sync Protocol - Permit-Driven Synchronization
 
-**Status:** READY FOR IMPLEMENTATION
-**Date:** 2025-11-12
-**Version:** 2.0
-**Context:** Complete sync protocol specification with CRDT merge, folder sync, asset handling, and viewer isolation
+**Status**: Implemented (reflects current system)
+**Last Updated**: 2025-11-18
 
 ---
 
 ## Table of Contents
-1. [Current State & Requirements](#current-state--requirements)
-2. [Core Decisions](#core-decisions)
-3. [Message Protocol](#message-protocol)
-4. [UCAN Structure](#ucan-structure)
-5. [Sync Flows](#sync-flows)
-6. [Asset Sync Protocol](#asset-sync-protocol)
-7. [Folder Sync Protocol](#folder-sync-protocol)
-8. [Viewer Submission Isolation](#viewer-submission-isolation)
-9. [Implementation Plan](#implementation-plan)
+
+1. [Overview](#overview)
+2. [Sync is Permit-Driven](#sync-is-permit-driven)
+3. [Publishing Resources](#publishing-resources)
+4. [Dual-Permit Validation (SyncContext)](#dual-permit-validation-synccontext)
+5. [Document Filtering Logic](#document-filtering-logic)
+6. [Sync Facts](#sync-facts)
+7. [Document Capabilities & Sync Behavior](#document-capabilities--sync-behavior)
+8. [Bidirectional Filtering](#bidirectional-filtering)
+9. [CRDT Merge Operations](#crdt-merge-operations)
+10. [CEL Expressions](#cel-expressions)
+11. [Forward Secrecy](#forward-secrecy)
 
 ---
 
-## Current State & Requirements
+## Overview
 
-### What We Found
+**Osvauld's sync protocol is entirely driven by Permits.** Every sync decision - what to send, who can receive, how to merge - comes from Permit facts, not hardcoded logic.
 
-1. **Owner ↔ Node sync is NOT bidirectional**
-   - Current implementation uses `ResourceSyncRequest` protocol
-   - Responder sends updates to initiator
-   - Initiator generates response updates but **DISCARDS them** (see TODO at `network/src/p2p/resource_sync.rs:711-712`)
-   - Result: **ONE-WAY sync only** (Responder → Initiator)
+### Key Principles
 
-2. **Initial folder share uses simple push**
-   - Uses `ResourceDataSync` message (not CRDT merge)
-   - Owner → Node: Complete resource transfer
-   - No state vectors, no incremental updates
-   - Result: **ONE-WAY push**
+1. **Permits control everything** - All sync decisions read from Permit facts
+2. **Dual-Permit validation** - Both sides' Permits must agree
+3. **Document-level filtering** - Per-document sync behavior
+4. **Bidirectional filtering** - Both sender and receiver filter
+5. **CRDT-based** - Loro documents merge automatically
+6. **CEL-extensible** - Complex rules via expressions (future)
 
-3. **Viewer sync not yet implemented**
-   - Viewer handshake and initial folder/resource transfer exists
-   - No incremental sync protocol for viewers
-   - No handling for special document behaviors (submissions, read-only, etc.)
+### Terminology
 
-4. **Asset handling is placeholder**
-   - `missing_asset_ids` field exists but not used
-   - No asset ID extraction or transfer protocol
-   - `static_assets` treated like regular CRDT document
+**Publish vs Fetch**: Describes sync direction with node as center of star topology:
+- **Publish** = toward node (owner → node)
+- **Fetch** = from node (node → viewer)
 
-### Requirements
-
-#### Owner ↔ Node Sync
-- **Bidirectional CRDT merge** for ALL documents
-- Both owner and node can edit simultaneously
-- Changes merge automatically using Loro CRDT
-- Incremental updates (state vectors)
-- **Always 2 round trips** for proper convergence
-
-#### Node ↔ Viewer Sync
-- **Mixed behavior** depending on document type:
-  - `collaborative_doc`: Bidirectional CRDT merge (viewer + node can both edit)
-  - `content_doc`, `template_doc`: Read-only (node → viewer only)
-  - `static_assets`: Read-only asset collection with ID-based sync
-  - `submissions_doc`: **Special** - viewer sends full document, node never sends back
-- **Always 2 round trips** for proper convergence (viewer may have collaborative_doc edits)
-
-#### Viewer Submission Isolation
-- Viewer creates submission work locally
-- Viewer sends **FULL document** (not incremental CRDT updates)
-- Node merges viewer's submission with submissions from other viewers
-- Node **NEVER sends submissions back to viewer**
-- Each viewer isolated in their own namespace: `viewer:{user_id}`
-- Rationale: Viewers shouldn't see each other's submissions
+Both are the same underlying sync protocol, just different directions.
 
 ---
 
-## Core Decisions
+## Sync is Permit-Driven
 
-### Decision 1: Submission Capability Name
-**CHOSEN:** `crud/submit` (NOT `crud/appendonly` or `crud/full_send`)
-
-**Rationale:**
-- Semantic clarity: "submit" conveys one-way, immutable action
-- Consistent naming: Matches `crud/merge`, `crud/readonly` pattern
-- Security: Node validates submission schema before accepting
-- Viewer isolation: Each submission namespaced by viewer ID
-
-### Decision 2: UCAN Structure
-**CHOSEN:** Remove `viewer_template` from viewer's own UCAN
-
-**Rationale:**
-- `viewer_template` is delegation metadata (belongs in owner/node UCANs only)
-- Viewer's UCAN should only contain their concrete capabilities
-- Reduces token size and prevents viewer from modifying delegation rules
-- Architecturally cleaner separation
-
-### Decision 3: Round Trips
-**CHOSEN:** Always 2 rounds for everyone (owner/node/viewer)
-
-**Rationale:**
-- Viewers may have `collaborative_doc` edits to send back
-- Viewer can't generate updates until they see node's state vectors
-- Fixed rounds = predictable, testable behavior
-- Simpler than dynamic round detection
-
-### Decision 4: Folder Sync Strategy
-**CHOSEN:** 3-step process (discovery → missing resources → incremental sync)
-
-**Rationale:**
-- Step 1: FolderSyncRequest identifies which resources are missing
-- Step 2: Missing resources get full ResourceDataSync transfer
-- Step 3: Existing resources sync via parallel ResourceSyncRequests
-- Efficient: Only transfers missing resources in full
-- Scalable: Parallel sync for existing resources
-
-### Decision 5: Asset Handling
-**CHOSEN:** Asset IDs included in state_vectors JSON, separate AssetTransfer messages
-
-**Rationale:**
-- `static_assets` is a **JSON map** (NOT a Loro CRDT) stored in encrypted resource data
-- Format: `{"asset_id": "base64_binary_data", ...}`
-- Asset IDs extracted by parsing JSON keys and included in state_vectors for comparison
-- Set operations (HashSet difference) determine which assets are missing
-- Binary asset data transferred via separate AssetTransfer messages
-- Keeps CRDT documents small, assets transferred on-demand
-- **NO state vectors for static_assets** - only asset_ids list
-
----
-
-## Message Protocol
-
-### ResourceSyncRequestMsg (Updated)
+Traditional sync protocols have hardcoded rules:
 
 ```rust
-pub struct ResourceSyncRequestMsg {
-    pub resource_ucan: String,      // Initiator's resource UCAN
-    pub folder_ucan: String,        // Initiator's folder UCAN
-    pub state_vectors: String,      // NEW: JSON of initiator's state vectors
-    pub full_docs: String,          // NEW: JSON of full documents (for crud/submit)
+// ❌ Hardcoded sync logic
+if user.role == "owner" {
+    send_all_documents();
+} else if user.role == "viewer" {
+    send_only_public_documents();
 }
 ```
 
-#### state_vectors JSON Format
+**Osvauld reads Permit facts dynamically:**
 
-**For CRDT documents:**
-```json
-{
-  "collaborative_doc": {
-    "state_vector": [1, 150, 82, 223, ...]
-  },
-  "content_doc": {
-    "state_vector": [0, 230, 15, ...]
-  },
-  "template_doc": {
-    "state_vector": [1, 67, ...]
-  },
-  "submissions_doc": {
-    "state_vector": [1, 89, ...]
-  }
+```rust
+// ✅ Permit-driven sync
+let sync_context = SyncContext::new(our_permit, peer_permit)?;
+
+for doc_name in resource.doc_names() {
+    let decision = should_send_updates(&sync_context, doc_name);
+
+    match decision {
+        SyncDecision::DontSend => continue,
+        SyncDecision::SendFullSnapshot => send_full(doc),
+        SyncDecision::SendIncrementalUpdates => send_shallow(doc),
+    }
 }
 ```
 
-**For static_assets (special handling - NO CRDT):**
-```json
-{
-  "static_assets": {
-    "asset_ids": ["asset-123", "asset-456"]  // Asset IDs viewer currently has
-    // NOTE: NO state_vector field - static_assets is JSON, not a CRDT!
-  }
-}
-```
+**Benefits**:
+- No backend changes for new permission models
+- Per-document sync behavior
+- CEL expressions for complex rules
+- Application-agnostic
 
-**Key Points:**
-- Asset IDs are nested inside the static_assets entry, NOT a separate top-level field
-- **NO state_vector for static_assets** - it's a JSON map, not a Loro CRDT document
-- Asset IDs are extracted by parsing the JSON keys from the static_assets map
-
-#### full_docs JSON Format
-
-```json
-{
-  "submissions_doc": [1, 2, 3, 4, ...]  // Full Loro document snapshot bytes as array
-}
-```
-
-Only contains documents where:
-- Viewer has `crud/submit` capability, AND
-- Document is in `full_doc_send` list in UCAN facts
+**Code**: Permit-driven sync
+**See**: `services/src/resource_service/core.rs:244-310` (filter_and_encrypt_for_peer)
 
 ---
 
-### UpdatesResponse (Existing, with clarification)
+## Publishing Resources
 
-```rust
-pub struct ResourceUpdateMsg::UpdatesResponse {
-    pub resource_id: String,
-    pub updates: String,                    // JSON: {"doc_name": {"updates": [...], "state_vector": [...]}}
-    pub state_vectors: String,              // Responder's current state
-    pub missing_asset_ids: Vec<String>,     // Assets peer needs to download
-    pub ucan_token: String,
-}
-```
+When owner publishes a resource to node:
 
-#### missing_asset_ids Usage
+### The Flow
 
-Result of set operations comparing asset IDs:
-```rust
-// Extract peer's asset IDs from state_vectors JSON
-let peer_asset_ids: HashSet<String> = extract_from_state_vectors(peer_state_vectors_json);
+1. **Owner initiates** sync_folder (publish)
+2. **Owner's service** calls `filter_and_encrypt_for_peer()`
+3. **Dual-Permit validation** (owner's + node's Permits)
+4. **For each document** in resource:
+   - Check: Should we send this document?
+   - If yes: Export snapshot (full or shallow)
+   - Clone document via import/export
+   - Add to filtered resource
+5. **Serialize** filtered resource to JSON
+6. **Re-encrypt** for node's PGP public key
+7. **Send** encrypted resource + Permit to node
+8. **Node validates** using folder Permit operations
+9. **Node stores** encrypted resource
 
-// Extract our asset IDs by parsing static_assets JSON map
-let node_asset_ids: HashSet<String> = parse_static_assets_json(&resource.static_assets);
+### Why Send Permit with Resource?
 
-let missing_on_peer: Vec<String> = node_asset_ids
-    .difference(&peer_asset_ids)
-    .cloned()
-    .collect();
+Each resource transfer includes the **resource Permit** because:
+1. Node needs to **validate** authorization
+2. Node uses Permit to **delegate** to viewers later
+3. Node reads **document capabilities** from Permit
+4. Node checks **sync facts** from Permit
 
-// Include in response
-missing_asset_ids: missing_on_peer
-```
+**No Permit = no authorization = no sync.**
 
-**Note:** `static_assets` is NOT a Loro document - it's parsed as JSON to get asset IDs.
-
----
-
-### FolderSyncRequestMsg (NEW)
-
-```rust
-pub struct FolderSyncRequestMsg {
-    pub folder_ucan: String,           // Folder-level UCAN
-    pub resources: String,             // JSON array of resource metadata
-}
-```
-
-#### resources JSON Format
-
-```json
-[
-  {
-    "resource_id": "abc123",
-    "resource_ucan": "eyJ...",
-    "last_modified": 1699564800
-  },
-  {
-    "resource_id": "def456",
-    "resource_ucan": "eyJ...",
-    "last_modified": 1699564900
-  }
-]
-```
+**Code**: Publishing flow
+**See**:
+- `network/src/p2p/folder_sync.rs` (folder sync handler)
+- `services/src/resource_service/sync.rs` (prepare_resource_transfer)
 
 ---
 
-### FolderSyncResponseMsg (NEW)
+## Dual-Permit Validation (SyncContext)
+
+**Key insight**: Sync requires **TWO Permits** - ours and theirs.
+
+### Why Two Permits?
+
+We need to answer:
+1. **Can WE send?** (check our Permit)
+2. **Can THEY receive?** (check their Permit)
+
+If either says "no" → don't send.
+
+### SyncContext
+
+`SyncContext` holds both Permits and provides dual-validation:
 
 ```rust
-pub struct FolderSyncResponseMsg {
-    pub folder_id: String,
-    pub missing_resource_ids: Vec<String>,  // Resources responder doesn't have
-    pub existing_resource_ids: Vec<String>, // Resources responder has
+pub struct SyncContext {
+    pub our_ucan: UcanCore,   // Our Permit
+    pub peer_ucan: UcanCore,  // Peer's Permit
+}
+
+impl SyncContext {
+    pub fn new(our_permit: Permit, peer_permit: Permit) -> Result<Self> {
+        Ok(Self {
+            our_ucan: our_permit.into_inner(),
+            peer_ucan: peer_permit.into_inner(),
+        })
+    }
 }
 ```
 
+**Code**: SyncContext implementation
+**See**: `gurkha/src/decision.rs:20-50` (SyncContext struct)
+
+### Intersection Logic
+
+Sync is an **intersection** of permissions:
+
+```
+Owner's Permit says: "I can send template_doc"
+Node's Permit says: "I can receive template_doc"
+→ Send template_doc ✅
+
+Owner's Permit says: "I can send user_content_doc"
+Node's Permit says: "I cannot receive user_content_doc"
+→ Don't send user_content_doc ❌
+
+Owner's Permit says: "user_content_doc is local_only"
+Node's Permit says: "I can receive user_content_doc"
+→ Don't send user_content_doc ❌ (our restriction wins)
+```
+
+**Both must agree** for sync to happen.
+
+**Code**: Dual-validation logic
+**See**: `gurkha/src/decision.rs:575-624` (should_send_updates)
+
 ---
 
-### AssetTransferMsg (NEW)
+## Document Filtering Logic
+
+The heart of sync is `should_send_updates()` - **pure function** that reads Permit facts and decides.
+
+### Decision Tree
+
+```
+should_send_updates(sync_context, doc_name) → SyncDecision
+
+Step 1: Check local_only
+├─ our_ucan.is_local_only(doc) OR peer_ucan.is_local_only(doc)?
+│  └─ YES → DontSend ❌
+│
+Step 2: Check our capability
+├─ our_ucan.get_capability(doc)?
+│  ├─ None → DontSend ❌
+│  ├─ Viewer → DontSend ❌ (can't write)
+│  └─ Collaborator/Submitter → Continue
+│
+Step 3: Check send_full_snapshot flag
+├─ our_ucan.should_send_full_snapshot(doc)?
+│  └─ YES → SendFullSnapshot ✅ (for submitters)
+│
+Step 4: Check peer's no_incoming_updates
+├─ peer_ucan.has_no_incoming_updates(doc)?
+│  └─ YES → DontSend ❌
+│
+Step 5: Check peer's capability
+└─ peer_ucan.get_capability(doc)?
+   ├─ None → DontSend ❌
+   ├─ Collaborator → SendIncrementalUpdates ✅ (bidirectional)
+   ├─ Viewer → SendIncrementalUpdates ✅ (read-only)
+   └─ Submitter → DontSend ❌
+```
+
+### SyncDecision
 
 ```rust
-pub struct AssetTransferMsg {
-    pub resource_id: String,
-    pub asset_id: String,
-    pub asset_data: Vec<u8>,           // Actual asset bytes
-    pub metadata: String,              // JSON: {"mime_type": "image/png", "size": 12345, ...}
+pub enum SyncDecision {
+    SendIncrementalUpdates,  // Send shallow snapshot (current state)
+    SendFullSnapshot,         // Send full snapshot (complete history)
+    DontSend,                 // Don't send anything
 }
 ```
 
+**SendIncrementalUpdates**: For most syncs - viewer/collaborator receives current state
+
+**SendFullSnapshot**: For submitters - send complete history for proper merge
+
+**DontSend**: Document is filtered out (permissions don't allow)
+
+**Code**: Decision logic
+**See**: `gurkha/src/decision.rs:575-624` (should_send_updates implementation)
+
 ---
 
-## UCAN Structure
+## Sync Facts
 
-### Owner/Node UCAN (contains viewer_template)
+Sync facts are **per-document flags** in Permit that control sync behavior.
+
+### Structure
 
 ```json
 {
-  "cap": {
-    "sthalam:folder:xyz": {"crud/merge": [{}]},
-    "sthalam:resource:abc:collaborative_doc": {"crud/merge": [{}]},
-    "sthalam:resource:abc:content_doc": {"crud/merge": [{}]},
-    "sthalam:resource:abc:template_doc": {"crud/merge": [{}]},
-    "sthalam:resource:abc:static_assets": {"crud/merge": [{}]},
-    "sthalam:resource:abc:submissions_doc": {"crud/merge": [{}]},
-    "sthalam:resource:abc:user_content_doc": {"crud/merge": [{}]}
-  },
   "fct": {
-    "role": "owner",
-    "docs": ["collaborative_doc", "content_doc", "template_doc", "static_assets",
-             "submissions_doc", "user_content_doc"],
-    "doc_types": {
-      "collaborative_doc": "crdt",
-      "content_doc": "crdt",
-      "template_doc": "crdt",
-      "static_assets": "asset",
-      "submissions_doc": "crdt",
-      "user_content_doc": "crdt"
-    },
-    "viewer_template": {
-      "capabilities": {
-        "collaborative_doc": "crud/merge",
-        "content_doc": "crud/readonly",
-        "template_doc": "crud/readonly",
-        "static_assets": "crud/readonly",
-        "submissions_doc": "crud/submit"
-      },
-      "doc_types": {
-        "collaborative_doc": "crdt",
-        "content_doc": "crdt",
-        "template_doc": "crdt",
-        "static_assets": "asset",
-        "submissions_doc": "crdt"
-      },
-      "no_update_from_node": ["submissions_doc"],
-      "dont_send_to_node": ["user_content_doc"],
-      "full_doc_send": ["submissions_doc"]
+    "sync": {
+      "local_only": ["user_content_doc"],
+      "no_incoming_updates": ["template_doc"],
+      "send_full_snapshot": ["submissions_doc"]
     }
   }
 }
 ```
 
-**Key Points:**
-- `viewer_template` is ONLY in owner/node UCANs (for delegation)
-- Used when creating viewer UCANs to derive viewer capabilities
-- `crud/submit` for submissions_doc (NOT `crud/appendonly` or `crud/full_send`)
-- `doc_types` includes `"static_assets": "asset"` for special handling
-- `full_doc_send: ["submissions_doc"]` indicates full document protocol
+### local_only
+
+```json
+"local_only": ["user_content_doc"]
+```
+
+**Meaning**: This document is **private to this device**.
+- Don't send to anyone
+- Don't receive from anyone
+- Stays completely local
+
+**Use case**: User's private workspace, drafts, personal notes
+
+**Check**: If **either our OR peer's** Permit has `local_only` for a document → DontSend
+
+**Code**: `gurkha/src/parser.rs:615-617` (is_local_only check)
+
+### no_incoming_updates
+
+```json
+"no_incoming_updates": ["template_doc"]
+```
+
+**Meaning**: This document is **one-way outgoing only**.
+- We can send updates
+- We don't accept incoming updates
+- Protects from unwanted changes
+
+**Use case**: Template definitions that shouldn't be modified by viewers
+
+**Check**: If **peer's** Permit has `no_incoming_updates` → DontSend (they don't want it)
+
+**Code**: `gurkha/src/parser.rs:619-621` (has_no_incoming_updates check)
+
+### send_full_snapshot
+
+```json
+"send_full_snapshot": ["submissions_doc"]
+```
+
+**Meaning**: Send **full CRDT history**, not just current state.
+- Used for submitters (append-only merge)
+- Ensures proper isolated namespace merging
+- Larger payload but correct semantics
+
+**Use case**: Form submissions where viewer's writes go to isolated namespace
+
+**Check**: If **our** Permit has `send_full_snapshot` → SendFullSnapshot
+
+**Code**: `gurkha/src/parser.rs:623-625` (should_send_full_snapshot check)
 
 ---
 
-### Viewer UCAN (NO viewer_template)
+## Document Capabilities & Sync Behavior
+
+Each document has a **capability** that determines sync behavior.
+
+### Viewer (Read-Only)
+
+```json
+{ "capability": "viewer" }
+```
+
+**Sync behavior**:
+- **Receive** updates from source
+- **Cannot send** updates back
+- One-way: source → viewer
+
+**Implementation**:
+```rust
+capability.can_write() == false
+→ DontSend (step 2 of decision tree)
+```
+
+**Use case**: Website content, published documents
+
+**Code**: `gurkha/src/types.rs:16-44` (Capability::Viewer, can_write returns false)
+
+### Submitter (Append-Only)
+
+```json
+{ "capability": "submitter" }
+```
+
+**Sync behavior**:
+- **Send** full snapshots (not incremental)
+- Writes go to **isolated namespace**: `viewer:{user_id}`
+- **Append-only merge** at destination
+- One-way: submitter → host
+
+**Implementation**:
+```rust
+capability.can_write() == true
+→ Continue to step 3
+should_send_full_snapshot == true
+→ SendFullSnapshot
+```
+
+**Use case**: Form submissions, user-generated content isolation
+
+**Code**:
+- `gurkha/src/types.rs:16-44` (Capability::Submitter)
+- `gurkha/src/decision.rs:595-605` (send_full_snapshot check)
+
+### Collaborator (Bidirectional CRDT)
+
+```json
+{ "capability": "collaborator" }
+```
+
+**Sync behavior**:
+- **Send AND receive** updates
+- **Bidirectional CRDT merge**
+- Changes merge automatically via Loro
+- Both sides: peer ↔ peer
+
+**Implementation**:
+```rust
+capability.can_write() == true
+→ Continue to step 3
+should_send_full_snapshot == false
+→ Continue to step 5
+peer.capability.can_sync_bidirectional() == true
+→ SendIncrementalUpdates
+```
+
+**Use case**: Collaborative editing, public comments, shared documents
+
+**Code**: `gurkha/src/types.rs:16-44` (can_sync_bidirectional returns true)
+
+---
+
+## Bidirectional Filtering
+
+**Critical insight**: **Both sides filter** what they send based on their Permits.
+
+### Example: Owner ↔ Node
+
+**Owner's Permit**:
+```json
+{
+  "documents": {
+    "template_doc": { "capability": "collaborator" },
+    "user_content_doc": { "capability": "collaborator" }
+  },
+  "sync": {
+    "local_only": ["user_content_doc"]
+  }
+}
+```
+
+**Node's Permit**:
+```json
+{
+  "documents": {
+    "template_doc": { "capability": "collaborator" },
+    "user_content_doc": { "capability": "collaborator" }
+  }
+}
+```
+
+**Owner → Node sync**:
+- `template_doc`: ✅ Both allow, owner can write, node can receive → Send
+- `user_content_doc`: ❌ Owner has `local_only` → Don't send
+
+**Node → Owner sync** (if initiated):
+- `template_doc`: ✅ Both allow → Send
+- `user_content_doc`: ❌ Owner has `local_only` → Don't send
+
+**Both sides respect `local_only`** even though only owner's Permit has it.
+
+### Example: Node ↔ Viewer
+
+**Node's Permit**:
+```json
+{
+  "documents": {
+    "template_doc": { "capability": "collaborator" },
+    "collaborative_doc": { "capability": "collaborator" },
+    "submissions_doc": { "capability": "collaborator" }
+  }
+}
+```
+
+**Viewer's Permit**:
+```json
+{
+  "documents": {
+    "template_doc": { "capability": "viewer" },
+    "collaborative_doc": { "capability": "collaborator" }
+    // submissions_doc NOT included!
+  }
+}
+```
+
+**Node → Viewer sync**:
+- `template_doc`: ✅ Node can send, viewer can receive (read-only) → Send
+- `collaborative_doc`: ✅ Both collaborators → Send
+- `submissions_doc`: ❌ Viewer's Permit doesn't include it → Don't send
+
+**Viewer → Node sync**:
+- `template_doc`: ❌ Viewer is read-only (can't write) → Don't send
+- `collaborative_doc`: ✅ Both collaborators → Send
+
+**Each side filters independently** based on its own Permit!
+
+**Code**: Bidirectional filtering implementation
+**See**: `services/src/resource_service/core.rs:244-310` (both sides call filter_and_encrypt_for_peer)
+
+---
+
+## CRDT Merge Operations
+
+Osvauld uses **Loro CRDT** for document merging.
+
+### Export Operations
+
+**Full Snapshot**:
+```rust
+pub fn export_snapshot(doc: &LoroDoc) -> Vec<u8> {
+    doc.export(ExportMode::Snapshot)
+}
+```
+
+- Exports **complete CRDT history**
+- All operations from document creation
+- Can be imported into empty LoroDoc
+- Larger size (includes operation log)
+
+**Shallow Snapshot**:
+```rust
+pub fn export_shallow_snapshot(doc: &LoroDoc) -> Vec<u8> {
+    let frontiers = doc.state_frontiers();
+    doc.export(ExportMode::shallow_snapshot(&frontiers))
+}
+```
+
+- Exports **current state only** at specific frontier
+- No operation history
+- Smaller size
+- **Requires receiver to have prior state** (for incremental updates)
+
+**Code**: Export operations
+**See**: `gurkha/src/merge.rs:69-95` (export functions)
+
+### Import Operation
+
+```rust
+pub fn import_snapshot(snapshot_bytes: &[u8]) -> Result<LoroDoc> {
+    let doc = LoroDoc::new();
+    doc.import(snapshot_bytes)?;
+    Ok(doc)
+}
+```
+
+- Creates new LoroDoc
+- Imports snapshot (full or shallow)
+- **Note**: Shallow snapshots require context (receiver must have base state)
+
+**Code**: Import operation
+**See**: `gurkha/src/merge.rs:33-41` (import_snapshot)
+
+### Merge Behavior
+
+**Automatic merge**: When both sides have changes, Loro merges automatically:
+
+```
+Owner's doc:         Node's doc:
+  Content: "A"         Content: "B"
+  State: [1,0]         State: [0,1]
+         ↓                    ↓
+    Export snapshot    Export snapshot
+         ↓                    ↓
+       Send →          ← Send
+         ↓                    ↓
+     Import            Import
+         ↓                    ↓
+      Merge!           Merge!
+         ↓                    ↓
+  Content: "AB"      Content: "AB"
+  State: [1,1]       State: [1,1]
+```
+
+**Eventual consistency**: After all updates exchanged, both sides converge to same state.
+
+**Code**: Loro library handles merging internally
+
+---
+
+## CEL Expressions
+
+CEL (Common Expression Language) enables **dynamic permission evaluation** without code changes.
+
+### Structure
 
 ```json
 {
-  "cap": {
-    "sthalam:folder:xyz": {"crud/readonly": [{}]},
-    "sthalam:resource:abc:collaborative_doc": {"crud/merge": [{}]},
-    "sthalam:resource:abc:content_doc": {"crud/readonly": [{}]},
-    "sthalam:resource:abc:template_doc": {"crud/readonly": [{}]},
-    "sthalam:resource:abc:static_assets": {"crud/readonly": [{}]},
-    "sthalam:resource:abc:submissions_doc": {"crud/submit": [{}]}
-  },
   "fct": {
-    "role": "viewer",
-    "docs": ["collaborative_doc", "content_doc", "template_doc", "static_assets", "submissions_doc"],
-    "doc_types": {
-      "collaborative_doc": "crdt",
-      "content_doc": "crdt",
-      "template_doc": "crdt",
-      "static_assets": "asset",
-      "submissions_doc": "crdt"
-    },
-    "no_update_from_node": ["submissions_doc"],
-    "dont_send_to_node": ["user_content_doc"],
-    "full_doc_send": ["submissions_doc"]
+    "cel_rules": {
+      "moderate": "request.time < token.exp && user.verified == true",
+      "delete": "user.role == 'admin' || resource.owner == user.id"
+    }
   }
 }
 ```
 
-**Key Points:**
-- NO `viewer_template` in viewer's own UCAN
-- Viewer reads its own `no_update_from_node` to ignore certain updates
-- Viewer reads its own `capabilities` to determine what to send
-- Viewer reads its own `full_doc_send` to know which docs to send as full snapshots
+### How CEL Works
 
----
+1. **Permit contains CEL expressions** in facts
+2. **Gurkha evaluates expressions** at decision time
+3. **Context provided**: request, token, user, resource, document
+4. **Result**: true (allow) or false (deny)
 
-### UCAN Facts Explained
+### Example Use Case
 
-#### `no_update_from_node: ["submissions_doc"]`
-- Viewer NEVER accepts updates for these docs from node
-- Even if node sends updates, viewer ignores them
-- Ensures viewer isolation (can't see other submissions)
-
-#### `dont_send_to_node: ["user_content_doc"]`
-- Viewer NEVER sends these docs to node
-- These docs stay local to viewer
-- Not included in state_vectors or full_docs
-
-#### `full_doc_send: ["submissions_doc"]`
-- Viewer sends FULL document (not incremental updates)
-- Used with `crud/submit` capability
-- Node merges full submission from viewer
-
-#### `doc_types: {"static_assets": "asset"}`
-- Identifies which documents are asset collections
-- Asset-type docs include `asset_ids` in state_vectors
-- Binary asset data transferred separately via AssetTransfer
-
----
-
-## Sync Flows
-
-### Flow 1: Owner ↔ Node Bidirectional Sync (2 Rounds)
-
-#### Round 1: Initiator → Responder
-
-**Initiator prepares and sends:**
-```rust
-ResourceSyncRequest {
-    resource_ucan: "owner's UCAN",
-    folder_ucan: "owner's folder UCAN",
-    state_vectors: json!({
-        "collaborative_doc": {"state_vector": [1, 200, 100, ...]},
-        "content_doc": {"state_vector": [0, 300, 50, ...]},
-        "template_doc": {"state_vector": [1, 80, ...]},
-        "user_content_doc": {"state_vector": [2, 45, ...]},
-        "submissions_doc": {"state_vector": [1, 120, ...]},
-        "static_assets": {
-            "state_vector": [0, 20, ...],
-            "asset_ids": ["asset-1", "asset-2", "asset-3"]
-        }
-    }).to_string(),
-    full_docs: json!({}).to_string()  // Empty - all docs use CRDT merge
-}
-```
-
-**Responder processes:**
-1. No full docs to apply (all use CRDT merge)
-2. For each doc in state_vectors:
-   - Compare initiator's state vs responder's state
-   - Generate incremental updates: `export_updates(responder_doc, initiator_state_vector)`
-3. For static_assets:
-   - Extract initiator's asset_ids
-   - Compare with responder's asset_ids using set operations
-   - Determine missing_asset_ids
-
-**Responder sends:**
-```rust
-UpdatesResponse {
-    resource_id: "abc",
-    updates: json!({
-        "collaborative_doc": {"updates": [201, 202, ...], "state_vector": [1, 250, 120, ...]},
-        "content_doc": {"updates": [301, 302, ...], "state_vector": [0, 350, 60, ...]},
-        "template_doc": {"updates": [], "state_vector": [1, 80, ...]},
-        "user_content_doc": {"updates": [46, 47, ...], "state_vector": [2, 50, ...]},
-        "submissions_doc": {"updates": [121, 122, ...], "state_vector": [1, 125, ...]}
-        // NOTE: static_assets NOT included - it's JSON, not a CRDT with updates
-    }).to_string(),
-    state_vectors: json!({...}).to_string(),
-    missing_asset_ids: vec!["asset-99", "asset-100"],  // Assets initiator needs
-    ucan_token: "owner's UCAN"
-}
-```
-
-**Initiator applies responder's updates:**
-1. Applies all incremental updates (CRDT merge)
-2. Saves updated resource
-3. **Continues to Round 2** (always, for proper convergence)
-
-#### Round 2: Initiator → Responder (Convergence)
-
-**Initiator processes:**
-1. Generates response updates (initiator's changes responder doesn't have)
-2. Compares new state vectors
-
-**Initiator sends:**
-```rust
-UpdatesResponse {
-    resource_id: "abc",
-    updates: json!({
-        // Only docs where initiator has changes responder doesn't have
-        "collaborative_doc": {"updates": [210, 211, ...], "state_vector": [1, 255, 125, ...]},
-        "user_content_doc": {"updates": [48, 49, ...], "state_vector": [2, 55, ...]}
-        // Other docs omitted if no updates
-    }).to_string(),
-    state_vectors: json!({...}).to_string(),
-    missing_asset_ids: vec![],  // Already handled in Round 1
-    ucan_token: "owner's UCAN"
-}
-```
-
-**Responder applies initiator's Round 2 updates:**
-1. Applies incremental updates (CRDT merge)
-2. Saves merged resource
-3. **Sync complete** - both peers now converged
-
-**Termination:** Always stop after 2 rounds (sufficient for CRDT convergence)
-
----
-
-### Flow 2: Node ↔ Viewer Sync (2 Rounds, Mixed Mode)
-
-#### Round 1: Viewer → Node
-
-**Viewer analyzes its own UCAN:**
-- `crud/merge` → Bidirectional CRDT merge (send state vector, apply updates)
-- `crud/readonly` → Node → Viewer only (send state vector, apply updates, but don't send updates back)
-- `crud/submit` → Viewer → Node only (send full document, ignore updates from node)
-- `no_update_from_node` → Filter out when applying updates
-- `dont_send_to_node` → Don't include in request at all
-
-**Viewer prepares:**
-1. State vectors for all docs (except those in `dont_send_to_node`)
-2. Full document for `submissions_doc` (has `crud/submit` in `full_doc_send`)
-3. Current asset_ids for `static_assets`
-
-**Viewer sends:**
-```rust
-ResourceSyncRequest {
-    resource_ucan: "viewer's UCAN",
-    folder_ucan: "viewer's folder UCAN",
-    state_vectors: json!({
-        "collaborative_doc": {"state_vector": [1, 150, 82, ...]},
-        "content_doc": {"state_vector": [0, 230, 15, ...]},
-        "template_doc": {"state_vector": [1, 67, ...]},
-        "static_assets": {
-            "state_vector": [0, 12, ...],
-            "asset_ids": ["asset-123", "asset-456"]
-        },
-        "submissions_doc": {"state_vector": [1, 89, ...]}
-        // NO user_content_doc (in dont_send_to_node)
-    }).to_string(),
-    full_docs: json!({
-        "submissions_doc": [1, 2, 3, 4, ...]  // Full document bytes
-    }).to_string()
-}
-```
-
-**Node processes:**
-1. **Validate viewer's UCAN** (capabilities, folder access)
-2. **Apply full documents:**
-   - Extract viewer's `user_id` from UCAN
-   - `submissions_doc`: Call `merge_service::apply_submission(resource, viewer_user_id, full_doc_bytes, viewer_ucan)`
-   - Merges into isolated namespace: `viewer:{user_id}`
-3. **Generate incremental updates for viewer:**
-   - Check viewer's `no_update_from_node` in UCAN → Skip `submissions_doc`
-   - For other docs: Generate updates based on state vectors
-4. **Process assets:**
-   - Extract viewer's asset_ids from state_vectors
-   - Compare with node's asset_ids
-   - Determine missing_asset_ids
-
-**Node sends:**
-```rust
-UpdatesResponse {
-    resource_id: "abc",
-    updates: json!({
-        "collaborative_doc": {
-            "updates": [151, 152, ...],
-            "state_vector": [1, 155, 85, ...]
-        },
-        "content_doc": {
-            "updates": [231, 232, ...],
-            "state_vector": [0, 235, 18, ...]
-        },
-        "template_doc": {
-            "updates": [],
-            "state_vector": [1, 67, ...]
-        },
-        "static_assets": {
-            "updates": [13, 14, ...],
-            "state_vector": [0, 15, ...]
-        }
-        // NO submissions_doc (filtered by no_update_from_node)
-    }).to_string(),
-    state_vectors: json!({...}).to_string(),
-    missing_asset_ids: vec!["asset-789", "asset-999"],  // Assets viewer needs
-    ucan_token: "viewer's UCAN"
-}
-```
-
-#### Round 2: Viewer → Node (Convergence)
-
-**Viewer processes node's updates:**
-1. **Check `no_update_from_node`** from own UCAN
-   - Skip `submissions_doc` even if received
-2. **Apply updates by capability:**
-   - `crud/merge` (collaborative_doc): CRDT merge, generate response updates
-   - `crud/readonly` (content_doc, template_doc, static_assets): Apply updates only (don't generate response)
-   - `crud/submit` (submissions_doc): Ignore (in no_update_from_node)
-3. **Generate response updates** (only for `crud/merge` docs)
-
-**Viewer sends:**
-```rust
-UpdatesResponse {
-    resource_id: "abc",
-    updates: json!({
-        // Only collaborative_doc (has crud/merge)
-        "collaborative_doc": {
-            "updates": [160, 161, ...],
-            "state_vector": [1, 165, 90, ...]
-        }
-        // NO content_doc, template_doc, static_assets (crud/readonly - one-way only)
-        // NO submissions_doc (in no_update_from_node)
-    }).to_string(),
-    state_vectors: json!({...}).to_string(),
-    missing_asset_ids: vec![],
-    ucan_token: "viewer's UCAN"
-}
-```
-
-**Node applies viewer's Round 2 updates:**
-1. Applies collaborative_doc updates (CRDT merge)
-2. Saves merged resource
-3. **Sync complete** - viewer isolation maintained
-
-**Termination:** Always stop after 2 rounds
-
----
-
-## Asset Sync Protocol
-
-### Overview
-
-`static_assets` is a **JSON map** (NOT a Loro CRDT) containing binary asset data as base64 strings. Asset IDs are extracted from the JSON keys and included in state_vectors for comparison. Binary asset data is transferred separately via AssetTransfer messages when needed.
-
-### static_assets Storage Structure
-
-**IMPORTANT:** `static_assets` is **NOT a Loro CRDT document**. It's a JSON map stored in the encrypted resource blob.
-
+**Time-based permissions**:
 ```json
-// JSON structure stored in EncryptedResource.encrypted_data:
-{
-  "template_doc": [1, 2, 3, ...],          // Loro CRDT snapshot
-  "content_doc": [4, 5, 6, ...],           // Loro CRDT snapshot
-  "user_content_doc": [7, 8, 9, ...],      // Loro CRDT snapshot
-  "collaborative_doc": [10, 11, 12, ...],  // Loro CRDT snapshot
-  "submissions_doc": [13, 14, 15, ...],    // Loro CRDT snapshot
-  "static_assets": {                        // JSON map (NOT Loro)
-    "asset_image_1762958880043_2ba91eae": "/9j/4AAQSkZJRgABAQAAAQABAAD...",
-    "asset_file_1762958880044_3cd02cbf": "JVBERi0xLjQKJeLjz9MKMy...",
-    "asset_image_1762958880045_4de13dc0": "iVBORw0KGgoAAAANSUhEUg..."
-  }
+"cel_rules": {
+  "edit_template": "request.time < token.exp - 86400"
+}
+```
+(Allow editing template only if token expires in more than 24 hours)
+
+**Verified user requirement**:
+```json
+"cel_rules": {
+  "collaborate": "user.verified == true && user.reputation > 10"
 }
 ```
 
-**Asset metadata** (filename, mime_type, etc.) may be stored in a separate Loro CRDT document like `content_doc`, but the **binary data itself** is in the JSON map as base64 strings.
+### Current Status
 
-**Key Points:**
-- Asset IDs are the keys of the static_assets JSON object
-- Asset data is **base64-encoded string** (NOT raw binary array)
-- NO Loro operations on static_assets - just JSON parse/stringify
-- NO state vectors for static_assets
-- Extract IDs via: `Object.keys(static_assets)` in JS or `static_assets.keys()` in Rust
-- Asset ID format: `asset_{type}_{timestamp}_{random}`
+**CEL is implemented but not extensively used yet.** It's an **important future feature** for:
+- Complex conditional permissions
+- Time-based rules
+- User reputation/verification checks
+- Dynamic document access patterns
 
-### Asset ID Format
-```
-asset_{type}_{timestamp}_{random}
-Examples:
-  asset_image_1762958880043_2ba91eae
-  asset_file_1762958880044_3cd02cbf
-  asset_image_1762958880045_4de13dc0
-```
-
-### Asset Sync Flow
-
-#### Step 1: Include Asset IDs in ResourceSyncRequest
-
-**Viewer/Initiator:**
-```rust
-// Extract asset IDs from static_assets JSON map (NOT a Loro document)
-let asset_ids = merge_service::extract_asset_ids(resource)?;
-
-// Include in state_vectors JSON (nested under static_assets)
-state_vectors: json!({
-    "static_assets": {
-        // NO state_vector field - static_assets is NOT a CRDT!
-        "asset_ids": ["asset-123", "asset-456", "asset-789"]  // Asset IDs we have
-    }
-}).to_string()
-```
-
-#### Step 2: Node Compares Asset IDs (Set Operations)
-
-**Node logic:**
-```rust
-// Extract viewer's asset IDs from state_vectors
-let peer_state_vectors: HashMap<String, Value> = serde_json::from_str(&payload.state_vectors)?;
-let static_assets_data = peer_state_vectors.get("static_assets")?;
-let peer_asset_ids: Vec<String> = static_assets_data
-    .get("asset_ids")
-    .and_then(|v| v.as_array())
-    .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-    .unwrap_or_default();
-
-// Get node's asset IDs
-let node_asset_ids = merge_service::extract_asset_ids(&resource)?;
-
-// Set operations
-let peer_set: HashSet<String> = peer_asset_ids.into_iter().collect();
-let node_set: HashSet<String> = node_asset_ids.into_iter().collect();
-
-let missing_on_peer: Vec<String> = node_set.difference(&peer_set).cloned().collect();
-let missing_on_node: Vec<String> = peer_set.difference(&node_set).cloned().collect();
-```
-
-#### Step 3: Node Responds with Missing Asset IDs
-
-**Node sends:**
-```rust
-UpdatesResponse {
-    updates: json!({
-        "static_assets": {
-            "updates": [13, 14, ...],  // CRDT updates for metadata
-            "state_vector": [0, 15, ...]
-        }
-    }).to_string(),
-    missing_asset_ids: missing_on_peer,  // ["asset-999", "asset-1000"]
-    // ...
-}
-```
-
-#### Step 4: Asset Transfer (Separate Messages)
-
-**Node sends assets peer needs:**
-```rust
-for asset_id in missing_asset_ids {
-    // Load asset binary data from storage
-    let asset = resource_service::retrieve_asset(&resource_id, &asset_id, repo_ctx)?;
-
-    // Send AssetTransfer message
-    AssetTransfer {
-        resource_id: resource_id.clone(),
-        asset_id: asset.asset_id,
-        asset_data: asset.data,  // Binary bytes
-        metadata: json!({
-            "mime_type": asset.mime_type,
-            "size": asset.data.len(),
-            "filename": "logo.png"
-        }).to_string()
-    }
-}
-```
-
-**Peer stores received assets:**
-```rust
-// 1. Save binary data to storage
-resource_service::store_asset(&resource_id, &asset, repo_ctx)?;
-
-// 2. Update metadata in static_assets document
-let mut resource = resource_service::get_resource_by_id(&resource_id, repo_ctx)?;
-merge_service::apply_asset_metadata(&mut resource, vec![asset])?;
-resource_service::update_resource(&resource_id, resource.to_json()?, user, repo_ctx)?;
-```
-
-### Asset Storage Location
-
-```
-<data_dir>/resources/<resource_id>/assets/<asset_id>.<ext>
-```
-
-Example:
-```
-/home/user/.osvauld/resources/abc123/assets/asset-999.png
-/home/user/.osvauld/resources/abc123/assets/asset-1000.jpg
-/home/user/.osvauld/resources/abc123/assets/asset-1234.pdf
-```
+**Code**: CEL integration
+**See**: `gurkha/src/cel.rs` (OperationValidator, expression evaluation)
 
 ---
 
-## Folder Sync Protocol
+## Forward Secrecy
 
-### Overview
+Every sync operation **re-encrypts** data for the recipient.
 
-Folder sync involves 3 steps:
-1. **Resource Discovery:** Determine which resources are missing on peer
-2. **Missing Resources Transfer:** Full transfer of new resources
-3. **Incremental Sync:** Parallel sync of existing resources
+### Why Re-encrypt?
 
-### Step 1: Resource Discovery
+**Goal**: Each recipient should **only decrypt what's explicitly shared** with them.
 
-**Initiator prepares:**
-- List all resources in folder
-- For each resource: resource_id, resource_ucan, last_modified
-
-**Initiator sends:**
-```rust
-FolderSyncRequest {
-    folder_ucan: "initiator's folder UCAN",
-    resources: json!([
-        {
-            "resource_id": "abc123",
-            "resource_ucan": "eyJ...",
-            "last_modified": 1699564800
-        },
-        {
-            "resource_id": "def456",
-            "resource_ucan": "eyJ...",
-            "last_modified": 1699564900
-        }
-    ]).to_string()
-}
+**Bad approach** (what we DON'T do):
 ```
-
-**Responder processes:**
-1. Check which resources it has vs doesn't have
-2. Categorize: missing (need full transfer), existing (need incremental sync)
-
-**Responder sends:**
-```rust
-FolderSyncResponse {
-    folder_id: "xyz",
-    missing_resource_ids: vec!["ghi789"],  // Responder doesn't have these
-    existing_resource_ids: vec!["abc123", "def456"]  // Responder has these
-}
+Owner encrypts once → Send same ciphertext to everyone
 ```
+Problem: Compromised viewer key could decrypt owner's full dataset.
 
-### Step 2: Missing Resources Transfer
-
-**For each missing resource:**
-
-Initiator sends complete resource data:
-```rust
-ResourceDataSync {
-    resource_id: "ghi789",
-    resource_ucan: "resource UCAN",
-    folder_ucan: "folder UCAN",
-    resource_data: json!({
-        "collaborative_doc": [1, 2, 3, ...],  // Full Loro doc bytes
-        "content_doc": [4, 5, 6, ...],
-        "template_doc": [7, 8, 9, ...],
-        "static_assets": [10, 11, 12, ...],
-        "submissions_doc": [13, 14, 15, ...]
-    }).to_string(),
-    asset_data: json!({
-        "asset-123": {
-            "data": [/* base64 or bytes */],
-            "metadata": {"mime_type": "image/png", "size": 12345}
-        }
-    }).to_string()
-}
+**Good approach** (what we DO):
 ```
-
-**Responder processes:**
-1. Create new resource locally
-2. Import all Loro documents
-3. Save all assets
-4. Create share record
-
-### Step 3: Incremental Sync (Parallel)
-
-**For each existing resource (sent in parallel):**
-
-Use standard ResourceSyncRequest flow (2 rounds as described above).
-
-**Initiator sends multiple ResourceSyncRequests in parallel:**
-```rust
-// For abc123:
-ResourceSyncRequest {
-    resource_ucan: "resource UCAN for abc123",
-    folder_ucan: "folder UCAN",
-    state_vectors: json!({...}).to_string(),
-    full_docs: json!({...}).to_string()
-}
-
-// For def456 (sent at same time):
-ResourceSyncRequest {
-    resource_ucan: "resource UCAN for def456",
-    folder_ucan: "folder UCAN",
-    state_vectors: json!({...}).to_string(),
-    full_docs: json!({...}).to_string()
-}
+Owner encrypts → Node decrypts → Node filters → Node re-encrypts → Viewer decrypts
 ```
-
-Each resource syncs independently with 2 rounds each.
-
-**Performance:** All existing resources sync in parallel = faster than sequential.
-
----
-
-## Viewer Submission Isolation
-
-### Namespace Strategy
-
-**Key principle:** Each viewer gets isolated namespace using their `user_id`.
-
-**Structure:**
-```rust
-submissions_doc (LoroDoc)
-  └─ submissions (LoroMap)
-     ├─ "viewer:alice_user_id" → (LoroMap) {
-     │    "answers": [...],
-     │    "submitted_at": 1699564800,
-     │    "status": "submitted"
-     │  }
-     ├─ "viewer:bob_user_id" → (LoroMap) {
-     │    "answers": [...],
-     │    "submitted_at": 1699568400,
-     │    "status": "submitted"
-     │  }
-     └─ "viewer:charlie_user_id" → (LoroMap) {
-          "answers": [...],
-          "submitted_at": 1699572000,
-          "status": "draft"
-       }
-```
-
-### Isolation Guarantees
-
-1. **No cross-viewer visibility:** Viewers never receive submissions_doc updates from node
-   - Enforced by `no_update_from_node: ["submissions_doc"]` in viewer UCAN
-   - `generate_updates_for_peer()` filters out submissions_doc for viewers
-
-2. **Per-viewer namespacing:** Each viewer's data isolated by `viewer:{user_id}` key
-   - Node merges all submissions into single document
-   - Prevents overwrites between viewers
-
-3. **Owner visibility:** Owner/node can see all submissions
-   - Owner syncs normally (no no_update_from_node restriction)
-   - Can read all viewer namespaces for grading/review
-
-### Submission Workflow
-
-**Viewer side:**
-```rust
-// 1. Viewer creates submission locally
-let submission_doc = create_doc();
-let submission_map = submission_doc.get_or_create_map("data")?;
-submission_map.insert("answer1", "Response to question 1")?;
-submission_map.insert("submitted_at", chrono::Utc::now().timestamp())?;
-
-// 2. During sync, send full snapshot (not incremental updates)
-let snapshot = export_snapshot(&submission_doc);
-
-// 3. P2P layer includes in ResourceSyncRequest
-ResourceSyncRequestMsg {
-    full_docs: json!({
-        "submissions_doc": snapshot
-    }).to_string(),
-    ...
-}
-```
-
-**Node side:**
-```rust
-// 1. Receive full submission
-let full_docs: HashMap<String, Vec<u8>> = serde_json::from_str(&payload.full_docs)?;
-let submission_bytes = full_docs.get("submissions_doc").unwrap();
-
-// 2. Extract viewer user_id from UCAN
-let viewer_user_id = ucan_service::extract_user_id(&payload.resource_ucan).await?;
-
-// 3. Apply to isolated namespace
-merge_service::apply_submission(
-    &mut resource,
-    &viewer_user_id,
-    submission_bytes,
-    &payload.resource_ucan,
-).await?;
-
-// 4. Node does NOT send submissions_doc back to viewer
-// (filtered by no_update_from_node in generate_updates_for_peer)
-```
-
----
-
-## Implementation Plan
-
-### Phase 1: Message Protocol Updates
-
-**File:** `core/src/models/p2p.rs`
-
-**Changes:**
-1. Update `ResourceSyncRequestMsg`:
-   ```rust
-   pub struct ResourceSyncRequestMsg {
-       pub resource_ucan: String,
-       pub folder_ucan: String,
-       pub state_vectors: String,      // NEW
-       pub full_docs: String,          // NEW
-   }
-   ```
-
-2. Add new messages:
-   ```rust
-   pub struct FolderSyncRequestMsg {
-       pub folder_ucan: String,
-       pub resources: String,
-   }
-
-   pub struct FolderSyncResponseMsg {
-       pub folder_id: String,
-       pub missing_resource_ids: Vec<String>,
-       pub existing_resource_ids: Vec<String>,
-   }
-
-   pub struct AssetTransferMsg {
-       pub resource_id: String,
-       pub asset_id: String,
-       pub asset_data: Vec<u8>,
-       pub metadata: String,
-   }
-   ```
-
-3. Update message enums:
-   ```rust
-   pub enum FolderMessage {
-       FolderDataSync(FolderDataSync),
-       FolderTokenRequest(FolderTokenRequest),
-       FolderTokenResponse(FolderTokenResponse),
-       FolderSyncRequest(FolderSyncRequestMsg),      // NEW
-       FolderSyncResponse(FolderSyncResponseMsg),    // NEW
-   }
-
-   pub enum ResourceMessage {
-       // ... existing variants
-       AssetTransfer(AssetTransferMsg),              // NEW
-   }
-   ```
-
-### Phase 2: UCAN Template Updates
-
-**File:** `sthalam/frontend/desktop/src/config/permissions.ts`
-
-**Line 56-74 changes:**
-```typescript
-viewer_template: {
-  capabilities: {
-    "template_doc": "crud/readonly",
-    "content_doc": "crud/readonly",
-    "collaborative_doc": "crud/merge",
-    "submissions_doc": "crud/submit",      // CHANGED from crud/appendonly
-    "static_assets": "crud/readonly",
-  },
-  doc_types: {
-    "static_assets": "asset",
-    "template_doc": "crdt",
-    "content_doc": "crdt",
-    "collaborative_doc": "crdt",
-    "submissions_doc": "crdt",
-  },
-  no_update_from_node: ["submissions_doc"],     // CHANGED: was ["user_content_doc"]
-  dont_send_to_node: ["user_content_doc"],      // EXISTING
-  full_doc_send: ["submissions_doc"]            // NEW
-}
-```
-
-**File:** `services/src/ucan_service.rs`
-
-**Changes:**
-
-1. **Line 1109-1126:** REMOVE entire `viewer_template` block from `create_viewer_resource_token()`:
-   ```rust
-   // DELETE this entire block - viewer's own UCAN should NOT have viewer_template
-   ```
-
-2. **Line 1275 area:** Update `viewer_template` in `issue_resource_ucan_for_node()`:
-   ```rust
-   "viewer_template": {
-       "capabilities": {
-           "template_doc": "crud/readonly",
-           "content_doc": "crud/readonly",
-           "collaborative_doc": "crud/merge",
-           "submissions_doc": "crud/submit",  // Changed
-           "static_assets": "crud/readonly",
-       },
-       "doc_types": {
-           "static_assets": "asset",
-           "template_doc": "crdt",
-           "content_doc": "crdt",
-           "collaborative_doc": "crdt",
-           "submissions_doc": "crdt"
-       },
-       "no_update_from_node": ["submissions_doc"],
-       "dont_send_to_node": ["user_content_doc"],
-       "full_doc_send": ["submissions_doc"]
-   }
-   ```
-
-### Phase 3: Service Layer - Merge Service
-
-**File:** `services/src/merge_service.rs`
-
-**New functions:**
-
-1. **`apply_submission()`** (insert after line 395):
-   ```rust
-   /// Apply viewer submission with per-viewer isolation
-   pub async fn apply_submission(
-       resource: &mut Resource,
-       viewer_user_id: &str,
-       submission_doc_bytes: &[u8],
-       viewer_ucan: &str,
-   ) -> ServiceResult<()> {
-       // Validate crud/submit capability
-       // Import viewer's submission document
-       // Get or create submissions_doc
-       // Store in isolated namespace: viewer:{user_id}
-   }
-   ```
-
-2. **`extract_asset_ids()`** (insert after apply_submission):
-   ```rust
-   /// Extract asset IDs from static_assets HashMap
-   ///
-   /// NOTE: static_assets is NOT a Loro document!
-   /// It's a HashMap<String, String> where keys are asset IDs and values are base64 strings.
-   pub async fn extract_asset_ids(
-       resource: &Resource,
-   ) -> ServiceResult<Vec<String>> {
-       // Simply extract keys from resource.static_assets HashMap
-       Ok(resource.static_assets.keys().cloned().collect())
-   }
-   ```
-
-3. **`prepare_sync_data()`** (insert after extract_asset_ids):
-   ```rust
-   /// Prepare sync data, separating CRDTs from assets
-   pub async fn prepare_sync_data(
-       resource: &Resource,
-       ucan_token: &str,
-   ) -> ServiceResult<PreparedSyncData> {
-       // Extract doc_types, capabilities, full_doc_send from UCAN
-       // For CRDT docs: export state vectors
-       // For asset docs: export state vector + asset_ids
-       // For full_doc_send: export full snapshots
-   }
-   ```
-
-**Updated functions:**
-
-1. **`generate_updates_for_peer()`** (update around line 164-177):
-   ```rust
-   // ADD: Extract no_update_from_node
-   let no_update_from_node: Vec<String> = peer_facts
-       .get("no_update_from_node")
-       .and_then(|v| v.as_array())
-       .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
-       .unwrap_or_default();
-
-   // In loop: ADD check
-   if no_update_from_node.contains(&doc_name) {
-       continue;  // Skip docs in no_update_from_node
-   }
-   ```
-
-### Phase 4: Service Layer - Resource Service
-
-**File:** `services/src/resource_service.rs`
-
-**New functions:**
-
-1. **`prepare_resource_sync_request()`**:
-   ```rust
-   /// Prepare all data needed for ResourceSyncRequest
-   pub async fn prepare_resource_sync_request(
-       resource_id: &str,
-       user_id: &str,
-       repo_ctx: Arc<RepositoryContext>,
-       crypto_utils: &Arc<RwLock<CryptoUtils>>,
-   ) -> ServiceResult<ResourceSyncRequestData> {
-       // Get UCANs
-       // Load resource
-       // Call prepare_sync_data
-       // Return structured data
-   }
-   ```
-
-2. **`get_resource_list_for_folder()`**:
-   ```rust
-   /// Get list of resources in folder for folder sync
-   pub async fn get_resource_list_for_folder(
-       folder_id: &str,
-       user_id: &str,
-       repo_ctx: Arc<RepositoryContext>,
-   ) -> ServiceResult<Vec<ResourceSyncInfo>> {
-       // Get resource IDs in folder
-       // Get share records
-       // Return minimal sync info
-   }
-   ```
-
-3. **`compare_asset_ids()`**:
-   ```rust
-   /// Compare asset IDs using set operations
-   pub fn compare_asset_ids(
-       local_asset_ids: &[String],
-       peer_asset_ids: &[String],
-   ) -> AssetComparison {
-       // HashSet difference operations
-       // Return missing on each side
-   }
-   ```
-
-### Phase 5: P2P Orchestration - Resource Sync
-
-**File:** `network/src/p2p/resource_sync.rs`
-
-**Changes:**
-
-1. **`handle_resource_sync_request()` (line 323)** - UPDATE:
-   ```rust
-   async fn handle_resource_sync_request(...) -> Result<()> {
-       // 1. Load resource
-       // 2. Parse state_vectors, full_docs from payload
-       // 3. Apply full_docs (call apply_submission for submissions_doc)
-       // 4. Generate updates (call generate_updates_for_peer)
-       // 5. Compare asset IDs (call compare_asset_ids)
-       // 6. Send UpdatesResponse directly (no StateVectorRequest)
-   }
-   ```
-
-2. **`handle_updates_response()` (line 711-712)** - COMPLETE TODO:
-   ```rust
-   async fn handle_updates_response(...) -> Result<()> {
-       // 1. Apply peer's updates
-       // 2. Generate our response updates
-       // 3. Send second UpdatesResponse (always, for 2 rounds)
-   }
-   ```
-
-3. **`handle_asset_transfer()` (NEW)**:
-   ```rust
-   async fn handle_asset_transfer(
-       payload: AssetTransferMsg,
-       ...
-   ) -> Result<()> {
-       // 1. Save asset binary data
-       // 2. Update metadata in static_assets doc
-   }
-   ```
-
-### Phase 6: P2P Orchestration - Folder Sync
-
-**File:** `network/src/p2p/folder_sync.rs`
-
-**Changes:**
-
-1. **`sync_folder_handler()` (line 280)** - IMPLEMENT:
-   ```rust
-   pub async fn sync_folder_handler(...) -> Result<()> {
-       // 1. Get resource list
-       // 2. Send FolderSyncRequest
-       // 3. Wait for FolderSyncResponse
-       // 4. Parallel sync all resources
-   }
-   ```
-
-2. **`handle_folder_sync_request()` (NEW)**:
-   ```rust
-   async fn handle_folder_sync_request(...) -> Result<()> {
-       // 1. Categorize missing vs existing
-       // 2. Send FolderSyncResponse
-   }
-   ```
-
-3. **`handle_folder_sync_response()` (NEW)**:
-   ```rust
-   async fn handle_folder_sync_response(...) -> Result<()> {
-       // 1. Send ResourceDataSync for missing resources
-       // 2. Parallel ResourceSyncRequest for existing resources
-   }
-   ```
-
-### Phase 7: Testing
-
-**Unit Tests:**
-- `apply_submission()` - Viewer isolation
-- `extract_asset_ids()` - Asset extraction
-- `prepare_sync_data()` - CRDT vs asset separation
-- `compare_asset_ids()` - Set operations
-- `generate_updates_for_peer()` - no_update_from_node filtering
-
-**Integration Tests:**
-- Owner ↔ Node 2-round sync
-- Node ↔ Viewer 2-round sync with mixed modes
-- Folder sync 3-step flow
-- Asset transfer protocol
-- Parallel resource sync
-
-### Phase 8: Deployment
-
-1. Deploy message protocol changes (backward compatible)
-2. Deploy UCAN updates (regenerate viewer UCANs)
-3. Deploy service layer (with new merge logic)
-4. Deploy orchestration layer (enable bidirectional sync)
-5. Monitor and verify convergence behavior
+Benefit: Viewer only gets filtered subset, encrypted with unique keys.
+
+### The Flow
+
+1. **Owner** encrypts resource with AES key
+2. **Owner** encrypts AES key with owner's PGP public key
+3. **Send** to node
+4. **Node** decrypts using node's PGP private key
+5. **Node** filters documents based on viewer's Permit
+6. **Node** generates NEW AES key
+7. **Node** encrypts filtered resource with new AES key
+8. **Node** encrypts new AES key with viewer's PGP public key
+9. **Send** to viewer
+10. **Viewer** decrypts using viewer's PGP private key
+
+### Key Rotation
+
+**Each delegation = new encryption keys.**
+
+Benefits:
+1. **Forward secrecy** - Old keys can't decrypt new data
+2. **Permission-based filtering** - Only authorized data accessible
+3. **Isolation** - Compromised viewer doesn't expose owner data
+
+**Code**: Re-encryption
+**See**:
+- `crypto_utils/src/lib.rs` (encrypt_data_for_user)
+- `services/src/resource_service/core.rs:149-167` (encrypt_and_save_resource)
 
 ---
 
 ## Summary
 
-This design provides complete specifications for:
+**Osvauld's sync is entirely Permit-driven:**
 
-1. **Bidirectional CRDT sync** with 2-round convergence for all roles
-2. **Viewer isolation** using `crud/submit` and `no_update_from_node`
-3. **Asset handling** with IDs in state_vectors and separate binary transfer
-4. **3-step folder sync** with parallel resource syncing
-5. **Clean orchestration** with all logic in service layers
+1. **Dual-Permit validation** - Both sides' Permits must agree
+2. **Document-level filtering** - Per-document sync decisions
+3. **Dynamic interpretation** - Gurkha reads facts, no hardcoded logic
+4. **Bidirectional filtering** - Both sides filter independently
+5. **Three capabilities** - Viewer (read), Submitter (append), Collaborator (sync)
+6. **Sync facts** - local_only, no_incoming_updates, send_full_snapshot
+7. **CRDT merge** - Loro handles automatic conflict resolution
+8. **CEL-extensible** - Complex rules without code changes
+9. **Forward secrecy** - Re-encryption per delegation
 
-**Key Architectural Decisions:**
-- Always 2 rounds for everyone (owner/node/viewer)
-- `crud/submit` for submissions (NOT `crud/appendonly` or `crud/full_send`)
-- `viewer_template` only in owner/node UCANs, NOT in viewer's own UCAN
-- Asset IDs nested in state_vectors under static_assets entry
-- Binary assets transferred separately via AssetTransfer messages
-- All business logic in services, orchestration stays pure
+**Everything is driven by Permit facts** - change the Permit, change the sync behavior. No backend modifications required.
 
-**Ready for implementation:** Follow phase-by-phase plan for systematic rollout.
+---
+
+**Previous**: Read [DELEGATION.md](./DELEGATION.md) to understand the trust chain.
+**See also**: [PERMITS_OVERVIEW.md](./PERMITS_OVERVIEW.md) for core Permit architecture.

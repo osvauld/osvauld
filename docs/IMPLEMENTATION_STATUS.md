@@ -1,604 +1,424 @@
-# Osvauld Implementation Status
+# Implementation Status
 
-**Last Updated:** 2025-01-15
-**Current Phase:** Folder Publishing Complete
-
----
-
-## Overview
-
-This document tracks the actual implementation status of Osvauld's sync protocol and UCAN-first permission system. It reflects what has been **implemented and working**, not just designed.
+**Last Updated**: 2025-11-18
+**Status**: V3 Permits Architecture - IMPLEMENTED
 
 ---
 
-## Completed Work
+## Executive Summary
 
-### ✅ Phase 1: UCAN Infrastructure (Complete)
+Osvauld has successfully implemented the **V3 Permits Architecture** - a facts-only, data-driven authorization system built on UCAN tokens.
 
-**Objective:** Establish UCAN-first permission system with typed tokens
-
-**What Was Built:**
-- Three-token architecture (Connection, Folder, Resource)
-- Typed token wrappers for compile-time safety
-- UCAN domain models with rich query APIs
-- Template extraction (frontend is source of truth)
-
-**Key Files:**
-- `osvauld_core/src/models/capability.rs` - Domain types (Capability, Role, DocType)
-- `osvauld_core/src/models/connection_token.rs` - Connection token domain model
-- `osvauld_core/src/models/ucan_domain.rs` - ResourceUcan domain model
-- `osvauld_core/src/models/ucan_token.rs` - Typed token wrappers (11 types)
-- `services/src/ucan_service.rs` - Rewritten (1559 → 756 lines, zero hardcoded templates)
-
-**Token Types:**
-```
-Connection Tokens (handshake/auth):
-- OneTimeConnectionToken
-- OwnerConnectionToken
-- NodeConnectionToken
-- UserConnectionToken
-- ViewerAuthToken
-
-Folder Tokens (folder access):
-- FolderOwnerToken
-- FolderShareToken
-- FolderViewerToken
-
-Resource Tokens (resource access):
-- ResourceOwnerToken
-- ResourceShareToken
-- ResourceViewerToken
-```
-
-**Architecture Principles:**
-1. **Frontend is source of truth** - All permission templates in `permissions.ts`
-2. **Backend never hardcodes** - Extracts templates from delegator UCANs
-3. **Data-driven** - Document names are data, not code
-4. **Type-safe** - Typed wrappers prevent wrong token usage
-
-**Status:** ✅ **Production Ready**
+**Key achievements**:
+- ✅ Permits (facts-only UCAN extension) implemented
+- ✅ Document-level permissions working
+- ✅ Dual-Permit validation (SyncContext) functional
+- ✅ Owner → Node → Viewer delegation chain operational
+- ✅ Bidirectional document filtering working
+- ✅ CRDT-based sync with Loro
+- ✅ CEL integration (foundation, not extensively used yet)
+- ✅ Forward secrecy via re-encryption
 
 ---
 
-### ✅ Phase 2: Folder Publishing (Owner → Node) (Complete)
+## Table of Contents
 
-**Objective:** Implement simple one-way push of folders and resources from owner to node
-
-**What Was Built:**
-
-#### 2.1 Handshake Protocol (Three-Way)
-**File:** `network/src/p2p/handshake.rs`
-
-**Flow:**
-```
-1. Owner → Node: FirstConnectRequest
-   - one_time_ucan: OneTimeConnectionToken (proves pairing)
-   - issued_ucan: OwnerConnectionToken (long-lived sync token)
-
-2. Node → Owner: UcanAndUserExchange
-   - node_user: User info
-   - ucan_token: NodeConnectionToken (node's connection token)
-
-3. Owner → Node: UserInfoConfirmation
-   - owner_user: User info
-   - Completes handshake
-```
-
-**Key Features:**
-- ✅ Handshake token update during reconnection (fixes stale token bug)
-- ✅ Generic ConnectionToken support (works with Owner, Node, User tokens)
-- ✅ UCAN-first validation (capability-based, not role-based)
-
-**Status:** ✅ **Working**
-
----
-
-#### 2.2 Folder Sync Protocol
-**File:** `network/src/p2p/folder_sync.rs`
-
-**Flow:**
-```rust
-pub async fn send_folder_with_resources(
-    folder_id: &str,
-    recipient_user_id: &str,
-    current_user: &User,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-) -> P2PResult<()>
-```
-
-**Steps:**
-1. Get owner's folder (contains owner's folder UCAN)
-2. Send `FolderDataSync` message with:
-   - Folder metadata (name, description)
-   - Folder share record (contains node's folder UCAN)
-3. Delegate to `resource_sync::send_all_resources_for_folder()`
-
-**Message Handler:**
-```rust
-pub async fn handle_folder_data_sync(
-    payload: &FolderDataSync,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-) -> P2PResult<()>
-```
-
-**Validation:**
-- ✅ Peer has `add_folder` capability (UCAN-first check)
-- ✅ Folder UCAN structure is valid
-- ✅ Saves folder + share record atomically
-
-**Status:** ✅ **Working**
-
----
-
-#### 2.3 Resource Sync Protocol
-**File:** `network/src/p2p/resource_sync.rs`
-
-**Flow:**
-```rust
-pub async fn send_all_resources_for_folder(
-    folder_id: &str,
-    recipient_user_id: &str,
-    current_user: &User,
-    owner_folder_ucan: String,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-) -> P2PResult<()>
-```
-
-**Steps:**
-1. Get all resources in folder
-2. Get recipient's share records (which resources they have access to)
-3. Get recipient's folder share record (contains their folder UCAN and role)
-4. For each resource:
-   - Get ALL share records (for viewer forwarding)
-   - Call `services::prepare_resource_transfer()` (UCAN-first: validates, delegates, filters, encrypts)
-   - Send `ResourceDataSync` with:
-     - Resource data (encrypted with recipient's key)
-     - ALL share records (enables node to forward to viewers)
-     - Owner's folder UCAN (proves add_resources permission)
-
-**Message Handler:**
-```rust
-pub async fn handle_resource_data_sync(
-    payload: &ResourceDataSync,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-) -> P2PResult<()>
-```
-
-**Validation:**
-- ✅ Owner has `add_resources` capability in folder UCAN
-- ✅ Resource UCAN structure is valid
-- ✅ Saves resource + ALL share records
-
-**Status:** ✅ **Working**
-
----
-
-#### 2.4 Service Layer Integration
-
-**folder_service.rs:**
-```rust
-/// Accept and save a folder from a peer after validating add_folder capability
-pub async fn accept_folder_from_peer(
-    folder: &Folder,
-    folder_share_record: &FolderShareRecord,
-    peer_connection_token: &str,  // Peer's ConnectionToken
-    domain: &str,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()>
-```
-
-**Validation Steps:**
-1. Parse peer connection token as `ConnectionToken`
-2. Check peer has `add_folder` capability using `check_capability()`
-3. Validate folder share UCAN structure
-4. Save folder + share record atomically
-
-**Key Fix (commit 8704779e):**
-```rust
-// BEFORE (WRONG):
-let add_folder_resource = format!("{}:add_folder", domain);  // "sthalam:add_folder"
-check_capability(peer_token.parsed(), &add_folder_resource, "use")
-
-// AFTER (CORRECT):
-let folder_resource = format!("{}:folder:*", domain);  // "sthalam:folder:*"
-check_capability(peer_token.parsed(), &folder_resource, "add_folder")
-```
-
-**resource_service.rs:**
-```rust
-/// Prepare resource for transfer to peer (UCAN-first)
-pub async fn prepare_resource_transfer(
-    resource_id: &str,
-    current_user: &User,
-    peer_folder_ucan: &str,
-    peer_role: &str,
-    peer_user: &User,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: &Arc<RwLock<CryptoUtils>>,
-) -> ServiceResult<EncryptedResource>
-```
-
-**Steps:**
-1. Validate folder access (peer's folder UCAN contains resource's folder_id)
-2. Get peer's resource share record (contains their resource UCAN)
-3. Filter documents based on peer's UCAN capabilities
-4. Re-encrypt for peer using their public key
-
-**accept_resource_from_peer.rs:**
-```rust
-/// Accept and save a resource from a peer (UCAN-first validation)
-pub async fn accept_resource_from_peer(
-    resource: &EncryptedResource,
-    share_records: &[ShareRecord],
-    owner_folder_ucan: &str,
-    domain: &str,
-    repo_ctx: Arc<RepositoryContext>,
-) -> ServiceResult<()>
-```
-
-**Validation Steps:**
-1. Extract folder_id from owner's folder UCAN
-2. Verify owner has `add_resources` capability in folder UCAN
-3. Validate resource UCAN structure
-4. Save resource + ALL share records atomically
-
-**Status:** ✅ **Working**
-
----
-
-#### 2.5 Message Dispatching
-
-**File:** `network/src/p2p/mod.rs`
-
-**Central Message Dispatcher:**
-```rust
-pub async fn handle_message(
-    message: Message,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-) -> P2PResult<()> {
-    match message {
-        Message::Folder(folder_msg) => {
-            folder_sync::process_folder_message(
-                &folder_msg, peer_conn, repo_ctx, crypto_utils
-            ).await
-        }
-        Message::Resource(resource_msg) => {
-            resource_sync::process_resource_message(
-                &resource_msg, peer_conn, repo_ctx, crypto_utils
-            ).await
-        }
-        // ... other message types
-    }
-}
-```
-
-**Folder Message Handler:**
-```rust
-pub async fn process_folder_message(
-    folder_msg: &FolderMessage,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-) -> P2PResult<()> {
-    match folder_msg {
-        FolderMessage::FolderDataSync(payload) => {
-            handle_folder_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
-        }
-        // FolderSyncRequest, FolderSyncResponse - not yet implemented
-    }
-}
-```
-
-**Resource Message Handler:**
-```rust
-pub async fn process_resource_message(
-    resource_msg: &ResourceMessage,
-    peer_conn: Arc<PeerConnection>,
-    repo_ctx: Arc<RepositoryContext>,
-    crypto_utils: Arc<RwLock<CryptoUtils>>,
-) -> P2PResult<()> {
-    match resource_msg {
-        ResourceMessage::ResourceDataSync(payload) => {
-            handle_resource_data_sync(payload, peer_conn, repo_ctx, crypto_utils).await
-        }
-        // MergeUpdate, ResourceSyncRequest - not yet implemented
-    }
-}
-```
-
-**Status:** ✅ **Working**
-
----
-
-### ✅ Cleanup: Removed Deprecated Code
-
-**Deleted Files:**
-- `network/src/p2p/website_sync.rs` (~500 lines) - Viewer-specific ductape
-- Deprecated handshake functions in `handshake.rs`
-- Old folder/resource sync helpers
-
-**Removed Duplicate Functions:**
-- Viewer-specific folder/resource transfer functions
-- Hardcoded template generation code
-- Role-based branching logic
-
-**Code Reduction:**
-- Network package: ~3500+ lines of deprecated code removed
-- Services package: ~800 lines removed (hardcoded templates)
-- Total reduction: ~4300 lines
-
-**Result:**
-- ✅ Single code path for all roles (Owner, Node, User, Viewer)
-- ✅ UCAN-driven permissions (no role-based if/else)
-- ✅ Cleaner architecture
-- ✅ Easier to test and maintain
-
-**Status:** ✅ **Complete**
+1. [Current Architecture](#current-architecture)
+2. [Gurkha Module Structure](#gurkha-module-structure)
+3. [Service Layer Integration](#service-layer-integration)
+4. [Network Layer](#network-layer)
+5. [Frontend Integration](#frontend-integration)
+6. [What's Complete](#whats-complete)
+7. [What's In Progress](#whats-in-progress)
+8. [Known Issues](#known-issues)
 
 ---
 
 ## Current Architecture
 
-### UCAN Token Hierarchy
+### V3 Permits (Facts-Only)
+
+Osvauld uses **Permits** - our extension of UCAN tokens with:
+- **Facts-only structure**: All authorization in `fct` field, no capability URIs
+- **Single Permit type**: No typed wrappers (removed 11 typed tokens from v2)
+- **Data-driven**: Gurkha interprets facts dynamically, no hardcoded roles
+- **Document-level**: Per-document permissions, not user-level roles
+- **CEL-extensible**: Dynamic rules via expressions
+
+**See**: `docs/PERMITS_OVERVIEW.md` for complete architecture
+
+### Core Principles
+
+1. **Bearer tokens** - Possession = authorization
+2. **Dual-Permit validation** - Both sides must agree for sync
+3. **Forward secrecy** - Re-encrypt for each delegation
+4. **Decentralized** - No backend, cryptographic verification
+
+---
+
+## Gurkha Module Structure
+
+**Gurkha** is the pure domain logic layer that interprets Permits.
 
 ```
-┌─────────────────────────────────────────────────┐
-│          CONNECTION TOKENS                      │
-│  (Device-to-device handshake and auth)          │
-├─────────────────────────────────────────────────┤
-│ OneTimeConnectionToken  - Initial pairing       │
-│ OwnerConnectionToken    - Owner device sync     │
-│ NodeConnectionToken     - Node device sync      │
-│ UserConnectionToken     - User P2P collab       │
-│ ViewerAuthToken         - Viewer initial auth   │
-└─────────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────────┐
-│           FOLDER TOKENS                         │
-│   (Folder-level access control)                 │
-├─────────────────────────────────────────────────┤
-│ FolderOwnerToken   - Full folder control        │
-│ FolderShareToken   - Node/User folder access    │
-│ FolderViewerToken  - Viewer folder access       │
-└─────────────────────────────────────────────────┘
-                    ↓
-┌─────────────────────────────────────────────────┐
-│          RESOURCE TOKENS                        │
-│  (Resource-level access control)                │
-├─────────────────────────────────────────────────┤
-│ ResourceOwnerToken   - Full resource control    │
-│ ResourceShareToken   - Node/User access         │
-│ ResourceViewerToken  - Viewer resource access   │
-└─────────────────────────────────────────────────┘
+gurkha/
+├── lib.rs           # Public API, module exports
+├── parser.rs        # Parse UCAN → Permit structs (818 lines)
+├── decision.rs      # Authorization decisions (645 lines)
+├── cel.rs           # CEL expression evaluation (335 lines)
+├── service.rs       # UcanService public API (500 lines)
+├── crypto.rs        # Ed25519 signing (189 lines)
+├── verification.rs  # Proof chain validation
+├── merge.rs         # CRDT operations (401 lines)
+├── types.rs         # Domain types (153 lines)
+├── builder.rs       # UCAN builder utilities
+└── errors.rs        # Error types
 ```
 
-**Key Principles:**
-1. **Three separate token hierarchies** - Connection, Folder, Resource
-2. **Typed wrappers** - Compile-time safety, can't pass wrong token type
-3. **Frontend defines permissions** - Backend extracts from UCANs
-4. **Template delegation** - Owner → Node → User → Viewer chain
+### Key Modules
+
+**parser.rs**:
+- `Permit` struct - Main authorization token
+- `UcanCore` - Parsed UCAN with facts
+- `extract_template_from_token()` - Extract delegation templates
+- Template-to-facts conversion
+- Capability/sync facts extraction
+
+**Code**: `gurkha/src/parser.rs`
+
+**decision.rs**:
+- `SyncContext` - Dual-Permit validation
+- `should_send_updates()` - Document filtering logic
+- `decide_folder_owner_token()` - Issue folder Permits
+- `decide_resource_owner_token()` - Issue resource Permits
+
+**Code**: `gurkha/src/decision.rs`
+
+**cel.rs**:
+- `OperationValidator` - CEL expression evaluator
+- Context building (request, token, user, document)
+- Expression evaluation (not extensively used yet)
+
+**Code**: `gurkha/src/cel.rs`
+
+**service.rs**:
+- `UcanService` - Public API for services
+- `issue_folder_owner_token()` - Create folder Permits
+- `issue_resource_owner_token()` - Create resource Permits
+- `delegate_folder()` / `delegate_resource()` - Delegation methods
+
+**Code**: `gurkha/src/service.rs`
+
+**merge.rs**:
+- `export_snapshot()` - Full CRDT history
+- `export_shallow_snapshot()` - Current state only
+- `import_snapshot()` - Load Loro documents
+
+**Code**: `gurkha/src/merge.rs`
 
 ---
 
-### Network Layer (P2P Orchestration)
+## Service Layer Integration
 
+Services use Gurkha for all Permit operations.
+
+### Resource Service
+
+**Location**: `services/src/resource_service/`
+
+**Structure**:
 ```
-network/src/p2p/
-├── mod.rs              - Central message dispatcher
-├── handshake.rs        - Three-way handshake protocol
-├── folder_sync.rs      - Folder publishing orchestration
-├── resource_sync.rs    - Resource publishing orchestration
-├── peer_connection.rs  - WebSocket connection management
-└── sync_handler.rs     - Sync protocol coordination
+resource_service/
+├── mod.rs         # Module organization
+├── core.rs        # Core patterns (filter_and_encrypt_for_peer, etc.)
+├── crud.rs        # CRUD operations
+└── sync.rs        # Sync orchestration
 ```
 
-**Orchestration Pattern:**
-- Network layer handles message routing
-- Delegates business logic to service layer
-- Uses typed tokens for type safety
-- Fire-and-forget for partial failures
+**Key functions**:
+- `filter_and_encrypt_for_peer()` - Dual-Permit document filtering
+- `load_and_decrypt_by_share_token()` - Load resource via Permit
+- `delegate_and_create_share_record()` - Delegation with database persistence
+- `encrypt_and_save_resource()` - Save with key rotation
 
-**Status:** ✅ **Working**
+**Code**: `services/src/resource_service/core.rs:244-310` (filter_and_encrypt_for_peer)
 
----
+### Folder Service
 
-### Service Layer
+**Location**: `services/src/folder_service.rs`
 
-```
-services/src/
-├── ucan_service.rs     - UCAN token generation & validation (756 lines)
-├── folder_service.rs   - Folder business logic (430 lines)
-├── resource_service.rs - Resource business logic (1255 lines)
-├── merge_service.rs    - CRDT merge operations (602 lines)
-└── website_service.rs  - Viewer-specific operations (271 lines)
-```
+**Integration**:
+- Creates folder owner Permits via `ucan_service.issue_folder_owner_token()`
+- Validates folder access using Permit operations
+- Delegates folder Permits to nodes
 
-**Service Layer Principles:**
-1. **UCAN-first** - All permission checks use UCAN capabilities
-2. **Type-safe** - Functions use typed tokens
-3. **Transactional** - Database operations are atomic
-4. **Validation** - Business rules enforced before persistence
+**Code**: `services/src/folder_service.rs`
 
-**Status:** ✅ **Working** (some transitional code remains)
+### Removed
+
+**Deleted** `services/src/merge_service.rs` - Functionality moved to `gurkha/src/merge.rs`
 
 ---
 
-## What's Working
+## Network Layer
 
-### ✅ End-to-End Folder Publishing
-1. Owner connects to Node (three-way handshake)
-2. Owner publishes folder to Node
-3. Node receives folder + all resources
-4. Node can now serve resources to viewers
+**Location**: `network/src/p2p/`
 
-### ✅ UCAN-First Permission System
-1. Frontend defines all permissions in `permissions.ts`
-2. Backend extracts templates from UCANs
-3. Validation uses `check_capability()` with correct resource format
-4. No hardcoded templates or permission logic
+### Key Components
 
-### ✅ Type-Safe Token System
-1. Typed wrappers prevent wrong token usage
-2. Compile-time errors for type mismatches
-3. Self-documenting function signatures
-4. IDE autocomplete works correctly
+**handshake.rs**:
+- One-time bearer token mutual authentication
+- Permit-based identity verification
+- No hardcoded role checks
 
----
+**folder_sync.rs**:
+- Folder publishing (owner → node)
+- Permit validation before accepting resources
+- sync_handler message orchestration
 
-## Not Yet Implemented
+**resource_sync.rs**:
+- Resource transfer with Permit validation
+- Document filtering via SyncContext
+- Re-encryption for forward secrecy
 
-### ⏳ Bidirectional Sync (Owner ↔ Node)
-**Protocol:** ResourceSyncRequest → UpdatesResponse (2 rounds)
-
-**What's Missing:**
-- State vector generation
-- Incremental CRDT updates
-- 2-round convergence protocol
-- Asset ID comparison and transfer
-
-**References:** SYNC_PROTOCOL_DESIGN.md sections 5.1, 6
+**Code**:
+- `network/src/p2p/handshake.rs` (mutual auth)
+- `network/src/p2p/folder_sync.rs` (folder sync)
+- `network/src/p2p/resource_sync.rs` (resource sync)
 
 ---
 
-### ⏳ Viewer Sync (Node ↔ Viewer)
-**Protocol:** Mixed-mode sync with document-level permissions
+## Frontend Integration
 
-**What's Missing:**
-- Viewer handshake integration
-- Read-only document filtering
-- Submission isolation (viewer namespaces)
-- Full snapshot sending for submissions
+### Permission Templates
 
-**References:** SYNC_PROTOCOL_DESIGN.md sections 5.2, 8
+**Location**: `sthalam/frontend/desktop/src/config/permissions.ts`
+
+**Defines**:
+- `FOLDER_TEMPLATE` - Folder owner + delegation templates
+- `RESOURCE_TEMPLATE` - Resource owner + per-document capabilities
+
+**Frontend sends templates to backend** - Backend embeds them in Permit facts.
+
+**Code**: `sthalam/frontend/desktop/src/config/permissions.ts`
+
+### Document Handling
+
+**Location**: `sthalam/frontend/desktop/src/state/data.svelte.ts`
+
+**Fixed issues**:
+- ✅ Missing documents now create valid empty Loro snapshots
+- ✅ Handles permission-based filtering gracefully
+- ✅ No more "Decode error" when documents filtered out
+
+**Code**: `sthalam/frontend/desktop/src/state/data.svelte.ts:363-380`
 
 ---
 
-### ⏳ Folder Discovery Protocol
-**Protocol:** FolderSyncRequest → FolderSyncResponse (3-step)
+## What's Complete
 
-**What's Missing:**
-- Resource discovery (which resources are missing)
-- Parallel resource sync
-- Incremental sync for existing resources
+### Core Architecture ✅
 
-**References:** SYNC_PROTOCOL_DESIGN.md section 7
+- [x] Facts-only Permit structure
+- [x] Single Permit type (no typed wrappers)
+- [x] Document-level permissions
+- [x] Sync facts (local_only, no_incoming_updates, send_full_snapshot)
+- [x] Three capabilities (Viewer, Submitter, Collaborator)
+
+### Gurkha Service ✅
+
+- [x] Permit parsing and validation
+- [x] Dual-Permit validation (SyncContext)
+- [x] Document filtering logic (should_send_updates)
+- [x] Folder/resource Permit issuance
+- [x] Delegation with template extraction
+- [x] CEL integration (foundation)
+- [x] CRDT merge operations
+- [x] Proof chain validation
+
+### Service Layer ✅
+
+- [x] Resource service integration
+- [x] Folder service integration
+- [x] filter_and_encrypt_for_peer (core pattern)
+- [x] Forward secrecy via re-encryption
+- [x] Database persistence
+
+### Network Layer ✅
+
+- [x] Handshake with bearer tokens
+- [x] Folder sync (publish/fetch)
+- [x] Resource sync with filtering
+- [x] Permit validation in handlers
+- [x] sync_handler orchestration
+
+### Frontend ✅
+
+- [x] Permission template definitions
+- [x] Missing document handling
+- [x] Loro document integration
+- [x] Viewer handshake working
+
+### Delegation Chain ✅
+
+- [x] Owner → Node delegation
+- [x] Node → Viewer delegation
+- [x] Shareable links (aud:*)
+- [x] Individual viewer Permits
+- [x] Bidirectional filtering
 
 ---
 
-### ⏳ Asset Sync Protocol
-**Protocol:** Asset IDs in state_vectors, separate AssetTransfer messages
+## What's In Progress
 
-**What's Missing:**
-- Asset ID extraction from static_assets JSON
-- Set operations for missing assets
-- Binary asset transfer messages
+### CEL Expressions 🔄
 
-**References:** SYNC_PROTOCOL_DESIGN.md section 6
+**Status**: Foundation implemented, not extensively used yet
+
+**Current**:
+- CEL parser integrated
+- OperationValidator working
+- Context building functional
+
+**Next**:
+- Add CEL expressions to permission templates
+- Use CEL for complex conditional logic
+- Time-based permissions
+- User verification rules
+
+**Code**: `gurkha/src/cel.rs`
+
+### Document Sync Optimization 🔄
+
+**Current**:
+- Full and shallow snapshots working
+- Initial sync functional
+- CRDT merge operational
+
+**Next**:
+- Optimize shallow snapshot use cases
+- Better state tracking
+- Incremental update efficiency
 
 ---
 
 ## Known Issues
 
-### None (Folder Publishing is Working)
+### None Critical ✅
 
-All critical bugs in folder publishing have been fixed:
-- ✅ Handshake token update during reconnection
-- ✅ Capability validation using correct resource format
-- ✅ Generic ConnectionToken support
-- ✅ Message dispatching for folder/resource sync
+The viewer handshake and resource send flow is working as of commit `3f52a683`:
+- ✅ Parser bug fixed (delegation.documents field)
+- ✅ Frontend missing document handling fixed
+- ✅ Document filtering operational
+- ✅ Owner → Node → Viewer flow working
+
+---
+
+## File Structure Summary
+
+### Core Models
+
+```
+core/src/models/
+├── mod.rs            # Model exports (SyncContext removed - now in gurkha)
+├── resource.rs       # Resource struct with Loro documents
+├── document.rs       # CRDT operations (create_doc, state_frontiers)
+├── folder.rs         # Folder struct
+├── user.rs           # User identity
+└── share_record.rs   # Share persistence
+```
+
+### Gurkha (Domain Logic)
+
+```
+gurkha/src/
+├── lib.rs           # Public API
+├── parser.rs        # Permit parsing (818 lines)
+├── decision.rs      # Authorization (645 lines)
+├── cel.rs           # CEL evaluation (335 lines)
+├── service.rs       # UcanService (500 lines)
+├── crypto.rs        # Signing (189 lines)
+├── verification.rs  # Proof chains
+├── merge.rs         # CRDT (401 lines)
+├── types.rs         # Domain types (153 lines)
+└── builder.rs       # UCAN builder
+```
+
+**Deleted** (v2 architecture):
+- ❌ `gurkha/src/extractors.rs` (old typed extractors)
+- ❌ `gurkha/src/uri.rs` (capability URIs, not used in v3)
+
+### Services
+
+```
+services/src/
+├── resource_service/
+│   ├── core.rs      # Core patterns (filter_and_encrypt_for_peer)
+│   ├── crud.rs      # CRUD operations
+│   └── sync.rs      # Sync orchestration
+├── folder_service.rs
+├── user_service.rs
+└── auth_service.rs
+```
+
+**Deleted** (merged into gurkha):
+- ❌ `services/src/merge_service.rs` → `gurkha/src/merge.rs`
+
+### Network
+
+```
+network/src/p2p/
+├── handshake.rs      # Mutual authentication
+├── folder_sync.rs    # Folder publishing
+├── resource_sync.rs  # Resource transfer
+└── sync_handler.rs   # Message orchestration
+```
+
+---
+
+## Metrics
+
+### Code Size
+
+**Gurkha** (pure domain logic):
+- Total: ~4,000 lines
+- Largest: parser.rs (818), decision.rs (645), service.rs (500), merge.rs (401)
+
+**Services** (business logic):
+- resource_service: ~900 lines across 3 files
+- folder_service: ~300 lines
+
+**Network** (P2P orchestration):
+- ~2,000 lines across handlers
+
+### Removed from V2 → V3
+
+**Deleted**:
+- 11 typed token wrappers (~800 lines)
+- URI capability system (~400 lines)
+- Hardcoded role logic (~300 lines)
+
+**Net reduction**: ~1,500 lines of complex type-checking code replaced with ~600 lines of dynamic fact interpretation.
 
 ---
 
 ## Next Steps
 
-Based on SYNC_PROTOCOL_DESIGN.md implementation plan:
+### Short Term
 
-### 1. Phase 3: Bidirectional Sync (Owner ↔ Node)
-**Estimated:** 3-4 days
+1. Extensive CEL rule usage in templates
+2. Performance optimization (snapshot caching)
+3. Better error messages (Permit validation failures)
 
-**Tasks:**
-- Implement state vector generation
-- Implement CRDT update generation
-- Implement 2-round protocol (ResourceSyncRequest)
-- Add asset ID comparison logic
-- Test convergence
+### Long Term
 
-**Priority:** High (required for real-time collaboration)
+1. OCaml port of Gurkha (pure domain logic, zero dependencies)
+2. Formal verification of Permit logic
+3. Advanced CEL patterns documentation
 
 ---
 
-### 2. Phase 4: Viewer Sync (Node ↔ Viewer)
-**Estimated:** 3-4 days
-
-**Tasks:**
-- Implement viewer handshake flow
-- Implement mixed-mode document filtering
-- Implement submission isolation (viewer namespaces)
-- Test viewer workflows
-
-**Priority:** High (required for viewer access)
-
----
-
-### 3. Phase 5: Folder Discovery
-**Estimated:** 2-3 days
-
-**Tasks:**
-- Implement FolderSyncRequest/Response
-- Implement resource discovery
-- Implement parallel resource sync
-- Test folder sync scenarios
-
-**Priority:** Medium (optimization, not critical path)
-
----
-
-### 4. Phase 6: Asset Sync
-**Estimated:** 2-3 days
-
-**Tasks:**
-- Implement asset ID extraction
-- Implement set operations
-- Implement AssetTransfer messages
-- Test large asset transfers
-
-**Priority:** Medium (required for images/files)
-
----
-
-## References
-
-- **SYNC_PROTOCOL_DESIGN.md** - Complete protocol specification
-- **UCAN_REFACTOR_DESIGN.md** - UCAN architecture and token types
-- **permissions.ts** - Frontend permission templates
-- **Recent commits:**
-  - `8704779e` - Implement UCAN-first folder publishing (Owner → Node sync)
-  - `c563d03a` - Fix UCAN capability names and folder token parsing
-  - `d8cd7ed2` - Implement three-way handshake protocol
-
----
-
-## Summary
-
-**What We Have:**
-- ✅ UCAN-first permission system (typed tokens, template extraction)
-- ✅ Folder publishing (Owner → Node) - Simple push flow
-- ✅ Handshake protocol (three-way, token update on reconnection)
-- ✅ Message dispatching (central dispatcher, folder/resource handlers)
-- ✅ Service layer integration (UCAN-first validation, atomic transactions)
-
-**What We Need:**
-- ⏳ Bidirectional sync (CRDT merge, 2 rounds)
-- ⏳ Viewer sync (mixed-mode, isolation)
-- ⏳ Folder discovery (3-step protocol)
-- ⏳ Asset sync (binary transfer)
-
-**Status:** **Folder Publishing Complete** - Ready for bidirectional sync implementation
+**See also**:
+- [PERMITS_OVERVIEW.md](./PERMITS_OVERVIEW.md) - Core architecture
+- [DELEGATION.md](./DELEGATION.md) - Trust chain
+- [SYNC_PROTOCOL.md](./SYNC_PROTOCOL.md) - Sync mechanics
