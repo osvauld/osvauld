@@ -3,7 +3,7 @@
 //! Provides stateless Loro document merge operations without infrastructure dependencies.
 //! This layer is pure business logic and can be FFI'd to other languages.
 
-use loro::{ExportMode, LoroDoc, LoroError, VersionVector};
+use loro::{ExportMode, LoroDoc, LoroError, ToJson, VersionVector};
 use tracing::{debug, error, info};
 
 /// Pure CRDT merge service for Loro documents
@@ -144,6 +144,62 @@ impl MergeService {
     pub fn state_frontiers(doc: &LoroDoc) -> Vec<u8> {
         debug!("📊 Getting state frontiers");
         doc.state_frontiers().encode()
+    }
+
+    /// Log document content for debugging CRDT sync issues
+    ///
+    /// Exports document to JSON and logs relevant summary info
+    /// without overwhelming logs with full content.
+    ///
+    /// # Arguments
+    /// * `doc` - Document to log
+    /// * `doc_name` - Name of the document (for logging context)
+    /// * `context` - Context string (e.g., "before merge", "after merge")
+    pub fn log_doc_content(doc: &LoroDoc, doc_name: &str, context: &str) {
+        // Export to JSON
+        let json_value = doc.get_deep_value().to_json_value();
+
+        // Try to pretty-print for readability (truncate if too long)
+        let json_str = serde_json::to_string_pretty(&json_value)
+            .unwrap_or_else(|_| format!("{:?}", json_value));
+
+        // Log summary
+        let char_count = json_str.len();
+
+        // If it's a map, try to count keys
+        if let Some(obj) = json_value.as_object() {
+            let key_count = obj.len();
+            info!("📄 [{}] Document '{}' content: {} keys, {} chars total",
+                  context, doc_name, key_count, char_count);
+
+            // Log first-level keys
+            let keys: Vec<&String> = obj.keys().collect();
+            info!("📄 [{}] Document '{}' keys: {:?}", context, doc_name, keys);
+
+            // Special handling for comments - count them
+            if let Some(comments_val) = obj.get("comments") {
+                if let Some(comments_arr) = comments_val.as_array() {
+                    info!("📄 [{}] Document '{}' has {} comments",
+                          context, doc_name, comments_arr.len());
+                } else if let Some(comments_map) = comments_val.as_object() {
+                    info!("📄 [{}] Document '{}' has comments map with {} keys",
+                          context, doc_name, comments_map.len());
+                }
+            }
+        } else if let Some(arr) = json_value.as_array() {
+            info!("📄 [{}] Document '{}' content: array with {} items",
+                  context, doc_name, arr.len());
+        }
+
+        // Log truncated content (first 500 chars) for detailed debugging
+        let preview = if char_count > 500 {
+            format!("{}... [truncated {} more chars]",
+                    &json_str[..500], char_count - 500)
+        } else {
+            json_str
+        };
+
+        debug!("📄 [{}] Document '{}' JSON preview:\n{}", context, doc_name, preview);
     }
 
     /// Merge multiple updates in sequence

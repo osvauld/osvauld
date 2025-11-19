@@ -66,7 +66,13 @@ pub fn init_tracing(config: LogConfig) -> Result<Option<WorkerGuard>, LoggingErr
 
     // Helper function to create a filter based on the config
     let create_filter = || {
-        let filter_string = format!("network={},services={}", config.level, config.level);
+        // Suppress Loro's verbose internal logs (set to WARN)
+        // Keep our network and services logs at the configured level
+        // Also suppress other noisy dependencies
+        let filter_string = format!(
+            "network={},services={},gurkha={},loro=warn,loro::arena=warn,loro::oplog=warn,loro::dag=warn,loro::version=warn,loro::container=warn,loro::delta=warn",
+            config.level, config.level, config.level
+        );
         EnvFilter::from_str(&filter_string).unwrap_or_else(|_| EnvFilter::new(filter_string))
     };
 

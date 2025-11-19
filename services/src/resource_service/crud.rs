@@ -133,6 +133,26 @@ pub async fn create_resource(
     })?;
     debug!("✓ Share record saved");
 
+    // Create share records for folder recipients synchronously (for now)
+    // TODO: Move to background task once we verify it works
+    info!("🔄 Creating share records for folder recipients");
+    if let Err(e) = crate::folder_service::create_share_records_for_folder_recipients(
+        &resource_id,
+        &folder_id,
+        &user.id,
+        repo_ctx.clone(),
+        ucan_service.clone(),
+    )
+    .await
+    {
+        error!(
+            "Failed to create share records for folder recipients (resource: {}): {}",
+            resource_id, e
+        );
+    } else {
+        info!("✓ Share records created for folder recipients");
+    }
+
     info!("✓ Resource created successfully");
 
     // Return decrypted Resource

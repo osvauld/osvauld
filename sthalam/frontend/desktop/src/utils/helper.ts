@@ -105,7 +105,7 @@ export const sendMessage = async (action: string, data?: any): Promise<any> => {
       publishResource: (data: any) => invoke("handle_publish_resource", { resourceId: data.resourceId }), // ⏳ TODO (Phase 3)
       connectToWebsite: (data: any) => invoke("handle_connect_to_website", { input: data.connectionString }), // ✅ ACTIVE - Viewer connection
       syncResource: (data: any) => invoke("handle_sync_resource", { input: data }), // ✅ P2P resource sync
-      folderSyncViewer: (data: any) => invoke("handle_folder_sync_viewer", { folderId: data.folderId }), // ❌ Website feature - removed
+      requestFolderResources: (data: any) => invoke("handle_request_folder_resources", { input: data }), // ✅ P2P folder sync from sovereign node
     };
     //@ts-ignore
     const handler = handlerMap[action];

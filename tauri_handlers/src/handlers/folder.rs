@@ -1,7 +1,7 @@
 use crate::config::HandlerConfig;
 use crate::types::{
-    AddFolderInput, BaseCryptoResponse, FolderResponse, FolderShareUsersInput, ShareFolder,
-    SoftDeleteFolder,
+    AddFolderInput, BaseCryptoResponse, FolderResponse, FolderShareUsersInput,
+    RequestFolderResourcesInput, ShareFolder, SoftDeleteFolder,
 };
 use crate::user_state::UserState;
 use crypto_utils::CryptoUtils;
@@ -116,6 +116,24 @@ pub async fn handle_share_folder(
         user.clone(),
         repo_ctx.inner().clone(),
         crypto_utils.inner().clone(),
+        p2p_service.inner().clone(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(BaseCryptoResponse::Success)
+}
+
+#[tauri::command]
+#[instrument(skip(input, repo_ctx, p2p_service), fields(folder_id = %input.folder_id))]
+pub async fn handle_request_folder_resources(
+    input: RequestFolderResourcesInput,
+    repo_ctx: State<'_, Arc<RepositoryContext>>,
+    p2p_service: State<'_, Arc<P2PService>>,
+) -> Result<BaseCryptoResponse, String> {
+    network::p2p::sync_handler::request_folder_resources(
+        input.folder_id,
+        repo_ctx.inner().clone(),
         p2p_service.inner().clone(),
     )
     .await

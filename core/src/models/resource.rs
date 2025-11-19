@@ -3,7 +3,7 @@ use loro::LoroDoc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::models::document::{export_shallow_snapshot, import_snapshot};
+use crate::models::document::{export_snapshot, import_snapshot};
 
 // ============================================================================
 // Core Structs
@@ -241,9 +241,9 @@ impl Resource {
     pub fn to_json(&self) -> Result<String, String> {
         let mut result = serde_json::Map::new();
 
-        // Export Loro documents
+        // Export Loro documents (using full snapshots to preserve operation history)
         for (doc_name, doc) in &self.docs {
-            let snapshot = export_shallow_snapshot(doc);
+            let snapshot = export_snapshot(doc);
 
             let snapshot_array: Vec<Value> = snapshot
                 .iter()

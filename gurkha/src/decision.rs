@@ -629,17 +629,37 @@ pub fn should_send_updates(context: &SyncContext, doc_name: &str) -> crate::type
 /// 1. Check our no_incoming_updates facts → false
 /// 2. Check our capability (can WE receive?) → Collaborator/Viewer: true
 pub fn can_receive_updates(context: &SyncContext, doc_name: &str) -> bool {
+    tracing::debug!("🔒 [can_receive_updates] Checking permissions for document '{}'", doc_name);
+
     // 1. Check our no_incoming_updates facts
     if context.our_ucan.has_no_incoming_updates(doc_name) {
+        tracing::warn!("🚫 [can_receive_updates] Document '{}' has no_incoming_updates fact - DENYING", doc_name);
         return false;
     }
 
     // 2. Check our capability (can WE receive?)
     match context.our_ucan.get_capability(doc_name) {
-        None => false,
+        None => {
+            tracing::warn!("🚫 [can_receive_updates] Document '{}' has no capability defined - DENYING", doc_name);
+            false
+        }
         Some(our_cap) => {
-            // We can receive if we have Collaborator or Viewer capability
-            our_cap.can_sync_bidirectional() || !our_cap.can_write()
+            let can_bidirectional = our_cap.can_sync_bidirectional();
+            let can_write = our_cap.can_write();
+            let result = can_bidirectional || !can_write;
+
+            tracing::info!(
+                "🔒 [can_receive_updates] Document '{}': capability={:?}, can_sync_bidirectional={}, can_write={}, result={}",
+                doc_name, our_cap, can_bidirectional, can_write, result
+            );
+
+            if result {
+                tracing::info!("✅ [can_receive_updates] Document '{}' - ALLOWING updates", doc_name);
+            } else {
+                tracing::warn!("🚫 [can_receive_updates] Document '{}' - DENYING updates (capability check failed)", doc_name);
+            }
+
+            result
         }
     }
 }

@@ -152,6 +152,7 @@ pub fn run() {
             handle_soft_delete_folder,
             handle_get_shared_folder_users,
             handle_share_folder,
+            handle_request_folder_resources,
             // Shared user handlers
             handle_add_user,
             handle_get_known_users,

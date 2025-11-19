@@ -260,12 +260,9 @@ pub async fn filter_and_encrypt_for_peer(
         // Include document if we should send it
         if decision != SyncDecision::DontSend {
             if let Some(doc) = resource.get_doc(doc_name.as_str()) {
-                // Export document as snapshot based on decision type
-                let snapshot = match decision {
-                    SyncDecision::SendFullSnapshot => gurkha::MergeService::export_snapshot(doc),
-                    SyncDecision::SendIncrementalUpdates => gurkha::MergeService::export_shallow_snapshot(doc),
-                    _ => unreachable!(), // We already checked != DontSend
-                };
+                // Export document as full snapshot (with operation history)
+                // This ensures all parties have compatible CRDT operation logs for proper sync
+                let snapshot = gurkha::MergeService::export_snapshot(doc);
 
                 info!("📦 [filter_and_encrypt_for_peer] Cloning document '{}' with snapshot size: {} bytes",
                     doc_name, snapshot.len());

@@ -57,25 +57,24 @@ pub enum Message {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ResourceUpdateMsg {
-    /// Step 1: Initiator sends their state vectors and asset IDs
+    /// Step 1: Initiator sends their state vectors and asset IDs (DEPRECATED - use ResourceSyncRequest)
     /// state_vectors: JSON format {"doc_name": {"state_vector": [1,2,3,...]}}
     /// asset_ids: List of asset IDs this peer has
     StateVectorRequest {
         resource_id: String,
         state_vectors: String,  // JSON with Loro state vectors per doc
         asset_ids: Vec<String>, // Asset IDs this peer has
-        ucan_token: String,
+        sender_permit: String,
     },
 
     /// Step 2: Responder sends updates and their state
     /// updates: JSON format {"doc_name": {"updates": [...], "state_vector": [...]}}
-    /// missing_asset_ids: Asset IDs responder needs from initiator
     UpdatesResponse {
         resource_id: String,
+        sender_permit: String,
         updates: String,              // JSON with Loro updates per doc
         state_vectors: String,        // Responder's current state vectors
-        missing_asset_ids: Vec<String>, // Assets responder doesn't have
-        ucan_token: String,
+        assets: String,               // Asset data/references
     },
 }
 
@@ -135,36 +134,36 @@ pub enum HandshakeMessage {
 /// Token contents (token_type, role, first_connection) determine behavior
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HandshakeRequest {
-    /// UCAN token (OneTimeConnection, ViewerAuth, or persistent connection token)
-    pub ucan_token: String,
+    /// Permit token (OneTimeConnection, ViewerAuth, or persistent connection token)
+    pub permit_token: String,
     /// Peer user information
     pub peer_user: User,
     /// Peer device information
     pub peer_device: Device,
-    /// Signed UCAN public key for validation
-    pub signed_ucan_pub: String,
+    /// Signed permit public key for validation
+    pub signed_permit_pub: String,
 }
 
 /// Step 2: First connection response (responder issues token to initiator)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FirstConnectionResponse {
-    /// NEW persistent token for initiator
-    pub issued_ucan: String,
+    /// NEW persistent permit for initiator
+    pub issued_permit: String,
     /// Peer user information
     pub peer_user: User,
     /// Peer device information
     pub peer_device: Device,
     /// Device list
     pub devices: Vec<Device>,
-    /// Signed UCAN public key for validation
-    pub signed_ucan_pub: String,
+    /// Signed permit public key for validation
+    pub signed_permit_pub: String,
 }
 
 /// Step 3: First connection complete (initiator issues token to responder)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FirstConnectionComplete {
-    /// NEW persistent token for responder
-    pub issued_ucan: String,
+    /// NEW persistent permit for responder
+    pub issued_permit: String,
     /// Peer user ID (initiator's user ID) so responder knows which user to update
     pub peer_user_id: String,
 }
@@ -178,8 +177,8 @@ pub struct ReconnectionResponse {
     pub peer_device: Device,
     /// Device list
     pub devices: Vec<Device>,
-    /// Signed UCAN public key for validation
-    pub signed_ucan_pub: String,
+    /// Signed permit public key for validation
+    pub signed_permit_pub: String,
 }
 
 /// Asset transfer messages for static files (non-CRDT)
@@ -189,7 +188,7 @@ pub enum AssetTransferMessage {
     AssetRequest {
         resource_id: String,
         asset_ids: Vec<String>,
-        ucan_token: String,
+        sender_permit: String,
     },
     /// Response with requested asset data
     AssetResponse {
@@ -208,19 +207,20 @@ pub struct Asset {
 
 // Folder sync protocol - simple push after share_folder()
 
-/// Folder data with share record for syncing to node
+/// Folder data with share records for syncing to node
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FolderDataSync {
     pub folder: Folder,
-    pub folder_share_record: FolderShareRecord,
+    /// Folder share records (requestor + sender permits for dual-permit validation)
+    pub folder_share_records: Vec<FolderShareRecord>,
 }
 
 /// Request resources for a folder (pull-based sync)
 /// Used when Node receives a folder and wants to fetch all its resources
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FolderResourcesRequest {
-    /// Folder UCAN token proving access to folder resources
-    pub folder_token: String,
+    /// Folder permit token proving access to folder resources
+    pub folder_permit: String,
     /// Resource IDs to sync (empty = send all resources in folder)
     pub resource_ids: Vec<String>,
 }
@@ -230,27 +230,29 @@ pub struct FolderResourcesRequest {
 pub struct ResourceDataSync {
     /// Re-encrypted resource for node
     pub resource: EncryptedResource,
-    /// All share records for this resource (enables node to forward viewer updates)
+    /// Share records (viewer + node permits for dual-permit validation)
     pub share_records: Vec<ShareRecord>,
-    /// Owner's folder UCAN token (proves add_resources permission)
-    pub folder_ucan: String,
+    /// Owner's folder permit token (proves add_resources permission)
+    pub owner_folder_permit: String,
 }
 
 // Resource request protocol - initiated when peer doesn't have resource
 
-/// Step 1: Initiator sends UCAN with state vectors to check if responder has resource and start sync
+/// Step 1: Initiator sends permit with state vectors to check if responder has resource and start sync
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ResourceSyncRequestMsg {
-    /// Resource UCAN token (contains resource_id)
-    pub resource_ucan: String,
-    /// Initiator's folder UCAN (for validation when responder sends resource back)
-    pub folder_ucan: String,
+    /// Resource ID being synced
+    pub resource_id: String,
+    /// Sender's resource permit token
+    pub sender_permit: String,
     /// Initiator's state vectors for CRDT docs
-    /// JSON format: {"doc_name": {"state_vector": [1,2,3,...], "asset_ids": ["id1", "id2"]}}
+    /// JSON format: HashMap<String, Vec<u8>>
     pub state_vectors: String,
     /// Full documents for crud/submit capability (viewer submissions)
-    /// JSON format: {"submissions_doc": {"doc_type": "loro", "data": "base64..."}}
+    /// JSON format: HashMap<String, Vec<u8>>
     pub full_docs: String,
+    /// Asset IDs for static assets
+    pub asset_ids: Vec<String>,
 }
 
 /// Step 2: Responder requests full resource (doesn't have it locally)
@@ -258,8 +260,8 @@ pub struct ResourceSyncRequestMsg {
 pub struct ResourceNotFoundRequestMsg {
     /// ID of the resource being requested
     pub resource_id: String,
-    /// Responder's folder UCAN proving they should have access
-    pub folder_ucan: String,
+    /// Responder's folder permit proving they should have access
+    pub folder_permit: String,
 }
 
 /// Step 3: Initiator sends complete resource to responder
@@ -274,8 +276,8 @@ pub struct ResourceTransferMsg {
 /// Folder sync request - discover resources in folder
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FolderSyncRequestMsg {
-    /// Folder UCAN proving access to folder
-    pub folder_ucan: String,
+    /// Folder permit proving access to folder
+    pub folder_permit: String,
     /// Initiator's resource list with state vectors
     /// JSON format: {"resource_id": {"state_vectors": {...}, "asset_ids": [...]}}
     pub resources: String,
@@ -310,7 +312,7 @@ pub struct AssetTransferMsg {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FolderTokenRequest {
     pub folder_id: String,
-    pub folder_ucan: String,
+    pub folder_permit: String,
 }
 
 /// Response with generated folder token (shareable link)

@@ -258,3 +258,9 @@ pub struct UserDetails {
 pub struct SyncResourceInput {
     pub resource_id: String,
 }
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestFolderResourcesInput {
+    pub folder_id: String,
+}

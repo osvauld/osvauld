@@ -24,6 +24,19 @@ pub async fn get_folder_share_record(
         })
 }
 
+/// Get folder share records for specific recipients (dual-permit pattern)
+pub async fn get_folder_share_records_for_recipients(
+    folder_id: &str,
+    recipient_ids: &[String],
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<Vec<FolderShareRecord>> {
+    repo_ctx
+        .folder_repo
+        .get_share_records_for_folder_and_recipients(folder_id, recipient_ids)
+        .await
+        .map_err(|e| e.into())
+}
+
 /// Get all folder share records for a folder (all users with access)
 pub async fn get_all_folder_share_records(
     _folder_id: &str,

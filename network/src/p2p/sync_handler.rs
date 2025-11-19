@@ -162,107 +162,77 @@ pub async fn sync_resource(
         share_records.len()
     );
 
-    // 2. TODO: Prepare complete sync request (stubbed for now)
-    // let (resource_ucan, folder_ucan, state_vectors, full_docs) =
-    //     services::prepare_resource_sync_request(
-    //         &resource_id,
-    //         repo_ctx.clone(),
-    //         &crypto_utils,
-    //     )
-    //     .await
-    //     .map_err(|e| {
-    //         error!("Failed to prepare resource sync request: {}", e);
-    //         crate::p2p::errors::P2PError::InvalidState(format!(
-    //             "Failed to prepare sync data: {}",
-    //             e
-    //         ))
-    //     })?;
+    // 2. For each user with access, get their devices and sync
+    for share_record in share_records {
+        // Skip syncing with ourselves
+        if share_record.recipient_user_id == current_user.id {
+            continue;
+        }
 
-    info!("TODO: Resource sync not yet implemented");
-    let _ = (
-        share_records,
-        current_user,
-        repo_ctx,
-        crypto_utils,
-        p2p_service,
-    );
-    return Ok(());
+        info!("Syncing with user: {}", share_record.recipient_user_id);
 
-    // info!("✓ Prepared sync request with state_vectors and full_docs");
-    //
-    // // Create ResourceSyncRequest message
-    // let sync_request = ResourceSyncRequestMsg {
-    //     resource_ucan,
-    //     folder_ucan,
-    //     state_vectors,
-    //     full_docs,
-    // };
-    //
-    // // 3. For each user with access, get their devices and sync
-    // for share_record in share_records {
-    //     // Skip syncing with ourselves
-    //     if share_record.recipient_user_id == current_user.id {
-    //         continue;
-    //     }
-    //
-    //     info!("Syncing with user: {}", share_record.recipient_user_id);
-    //
-    //     // Get recipient's devices
-    //     let devices = repo_ctx
-    //         .device_repo
-    //         .get_devices_by_user_id(&share_record.recipient_user_id)
-    //         .await
-    //         .map_err(|e| crate::p2p::errors::P2PError::InvalidState(e.to_string()))?;
-    //
-    //     if devices.is_empty() {
-    //         error!("No devices found for user {}", share_record.recipient_user_id);
-    //         continue;
-    //     }
-    //
-    //     let device = &devices[0];
-    //
-    //     // 4. Get or establish peer connection
-    //     let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
-    //         Ok(conn) => conn,
-    //         Err(_) => {
-    //             // No active connection, try to establish one
-    //             info!(
-    //                 "No active connection to device {} for user {}, attempting to connect",
-    //                 device.id, share_record.recipient_user_id
-    //             );
-    //
-    //             match p2p_service.connect_with_ticket(&device.id).await? {
-    //                 Some(conn) => conn,
-    //                 None => {
-    //                     error!(
-    //                         "Failed to establish connection to device {} for user {}",
-    //                         device.id, share_record.recipient_user_id
-    //                     );
-    //                     continue;
-    //                 }
-    //             }
-    //         }
-    //     };
-    //
-    //     // 5. Send sync request
-    //     info!("Sending ResourceSyncRequest to peer: {}", device.id);
-    //
-    //     match peer_conn
-    //         .send_message(Message::Resource(osvauld_core::models::ResourceMessage::ResourceSyncRequest(sync_request.clone())))
-    //         .await
-    //     {
-    //         Ok(_) => {
-    //             info!("✓ Sent sync request to peer: {}", device.id);
-    //         }
-    //         Err(e) => {
-    //             error!("Failed to send sync request to peer {}: {}", device.id, e);
-    //             continue;
-    //         }
-    //     }
-    // }
-    //
-    // info!("✓ Resource sync initiated for: {}", resource_id);
-    // Ok(())
+        // Get recipient's devices
+        let devices = repo_ctx
+            .device_repo
+            .get_devices_by_user_id(&share_record.recipient_user_id)
+            .await
+            .map_err(|e| crate::p2p::errors::P2PError::InvalidState(e.to_string()))?;
+
+        if devices.is_empty() {
+            error!("No devices found for user {}", share_record.recipient_user_id);
+            continue;
+        }
+
+        let device = &devices[0];
+
+        // 4. Get or establish peer connection
+        let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
+            Ok(conn) => conn,
+            Err(_) => {
+                // No active connection, try to establish one
+                info!(
+                    "No active connection to device {} for user {}, attempting to connect",
+                    device.id, share_record.recipient_user_id
+                );
+
+                match p2p_service.connect_with_ticket(&device.id).await? {
+                    Some(conn) => conn,
+                    None => {
+                        error!(
+                            "Failed to establish connection to device {} for user {}",
+                            device.id, share_record.recipient_user_id
+                        );
+                        continue;
+                    }
+                }
+            }
+        };
+
+        // 5. Call resource_sync to initiate sync
+        info!("Calling resource_sync for peer: {}", device.id);
+
+        match crate::p2p::resource_sync::sync_resource(
+            &resource_id,
+            &share_record.recipient_user_id,
+            &current_user,
+            peer_conn,
+            repo_ctx.clone(),
+            crypto_utils.clone(),
+        )
+        .await
+        {
+            Ok(_) => {
+                info!("✓ Sync initiated with peer: {}", device.id);
+            }
+            Err(e) => {
+                error!("Failed to sync with peer {}: {}", device.id, e);
+                continue;
+            }
+        }
+    }
+
+    info!("✓ Resource sync initiated for: {}", resource_id);
+    Ok(())
 }
 
 /// Sync folder with all recipients (CRDT merge sync)
@@ -480,7 +450,7 @@ pub async fn request_folder_token(
     // 5. Create and send FolderTokenRequest
     let request = FolderTokenRequest {
         folder_id: folder.id.clone(),
-        folder_ucan: folder.ucan.clone(),
+        folder_permit: folder.ucan.clone(),
     };
 
     info!(
@@ -495,6 +465,121 @@ pub async fn request_folder_token(
         .await?;
 
     info!("✓ Folder token request sent successfully");
+    Ok(())
+}
+
+/// Request folder resources from a node by folder ID
+///
+/// This is for nodes/viewers who have database access and want to pull
+/// missing resources from another node. Automatically determines the node
+/// to sync from by looking up the folder share record.
+///
+/// # Arguments
+/// * `folder_id` - Folder ID to request resources for
+/// * `repo_ctx` - Database repository context
+/// * `p2p_service` - P2P service for connections
+///
+/// # Returns
+/// * `Ok(())` - Request sent successfully
+/// * `Err` - If connection fails or folder not found
+pub async fn request_folder_resources(
+    folder_id: String,
+    repo_ctx: Arc<RepositoryContext>,
+    p2p_service: Arc<P2PService>,
+) -> P2PResult<()> {
+    info!("Requesting folder resources for folder: {}", folder_id);
+
+    // 1. Get current user from P2PService
+    let user_guard = p2p_service.current_user.read().await;
+    let current_user = user_guard
+        .as_ref()
+        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState("No user logged in".to_string()))?
+        .clone();
+    drop(user_guard);
+
+    // 2. Get all folder shares for this folder
+    let all_folder_shares = repo_ctx
+        .folder_share_repo
+        .get_records_by_folder_id(&folder_id)
+        .await
+        .map_err(|e| crate::p2p::errors::P2PError::InvalidState(format!("Failed to find folder shares: {}", e)))?;
+
+    // 3. Filter out current user and get unique user IDs
+    let other_user_ids: Vec<String> = all_folder_shares
+        .iter()
+        .map(|share| share.recipient_user_id.clone())
+        .filter(|user_id| user_id != &current_user.id)
+        .collect::<std::collections::HashSet<_>>() // Remove duplicates
+        .into_iter()
+        .collect();
+
+    if other_user_ids.is_empty() {
+        info!("No other users have access to folder {}", folder_id);
+        return Ok(());
+    }
+
+    info!("  Found {} other users with access to folder", other_user_ids.len());
+
+    // 4. Request from each user who has access
+    for user_id in &other_user_ids {
+        info!("  Requesting from user: {}", user_id);
+
+        // Get user's devices
+        let devices = match repo_ctx.device_repo.get_devices_by_user_id(user_id).await {
+            Ok(devices) => devices,
+            Err(e) => {
+                error!("Failed to get devices for user {}: {}", user_id, e);
+                continue; // Skip this user and try the next one
+            }
+        };
+
+        if devices.is_empty() {
+            error!("No devices found for user {}", user_id);
+            continue; // Skip this user
+        }
+
+        let device = &devices[0];
+
+        // Get or establish peer connection
+        let peer_conn = match p2p_service.get_connection_by_id(&device.id).await {
+            Ok(conn) => conn,
+            Err(_) => {
+                info!(
+                    "No active connection to device {} for user {}, attempting to connect",
+                    device.id, user_id
+                );
+
+                match p2p_service.connect_with_ticket(&device.id).await {
+                    Ok(Some(conn)) => conn,
+                    Ok(None) => {
+                        error!("Failed to establish connection to device {} for user {}", device.id, user_id);
+                        continue; // Skip this user
+                    }
+                    Err(e) => {
+                        error!("Error connecting to device {} for user {}: {}", device.id, user_id, e);
+                        continue; // Skip this user
+                    }
+                }
+            }
+        };
+
+        // Send folder resources request
+        if let Err(e) = crate::p2p::folder_sync::send_folder_resources_request_by_id(
+            peer_conn,
+            folder_id.clone(),
+            current_user.id.clone(),
+            repo_ctx.clone(),
+        )
+        .await
+        {
+            error!("Failed to send folder resources request to user {}: {}", user_id, e);
+            // Continue to next user even if this one fails
+        } else {
+            info!("✓ Folder resources request sent to user: {}", user_id);
+        }
+    }
+
+    info!("✓ Folder resources requests completed for: {}", folder_id);
     Ok(())
 }
 

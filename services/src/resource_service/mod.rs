@@ -44,5 +44,8 @@ mod sync;
 pub use crud::*;
 pub use sync::*;
 
+// Re-export specific core functions needed by other services
+pub use core::delegate_and_create_share_record;
+
 // core module is private (internal use only)
 // It provides reusable building blocks used by crud and sync

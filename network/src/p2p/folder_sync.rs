@@ -6,10 +6,11 @@
 use crate::p2p::{errors::P2PResult, peer_connection::PeerConnection, resource_sync};
 use crypto_utils::CryptoUtils;
 use osvauld_core::models::{
-    p2p::{FolderDataSync, FolderMessage, FolderResourcesRequest, Message}, User,
+    p2p::{FolderDataSync, FolderMessage, FolderResourcesRequest, Message, ResourceMessage, ResourceNotFoundRequestMsg}, User,
 };
 use persistance::database::RepositoryContext;
-use services::{get_folder_by_id, get_folder_share_record};
+use services::{get_folder_by_id, get_folder_share_records_for_recipients};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, instrument};
@@ -34,12 +35,67 @@ pub async fn send_folder_resources_request(
     info!("📤 Sending FolderResourcesRequest");
 
     let folder_request = FolderResourcesRequest {
-        folder_token,
+        folder_permit: folder_token,
         resource_ids: vec![], // Empty = request all resources
     };
 
     let message = Message::Folder(FolderMessage::FolderResourcesRequest(folder_request));
 
+    peer_conn.send_message(message).await?;
+
+    info!("✅ FolderResourcesRequest sent");
+    Ok(())
+}
+
+/// Send FolderResourcesRequest by looking up folder token from database
+///
+/// This is for nodes/users who have database access and know their folder_id.
+/// Differs from send_folder_resources_request() which takes the token directly (for viewers).
+///
+/// # Arguments
+/// * `peer_conn` - Peer connection
+/// * `folder_id` - Folder ID to request
+/// * `local_user_id` - Current user's ID (to look up their folder token)
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `Ok(())` - Request sent successfully
+/// * `Err` - If folder not found, no access, or send fails
+#[instrument(skip(peer_conn, repo_ctx), level = "info")]
+pub async fn send_folder_resources_request_by_id(
+    peer_conn: Arc<PeerConnection>,
+    folder_id: String,
+    local_user_id: String,
+    repo_ctx: Arc<RepositoryContext>,
+) -> P2PResult<()> {
+    info!("📤 Sending FolderResourcesRequest for folder {}", folder_id);
+
+    // 1. Look up folder share record to get our UCAN token
+    let folder_share = repo_ctx
+        .folder_share_repo
+        .find_by_folder_and_user(&folder_id, &local_user_id)
+        .await
+        .map_err(|e| crate::p2p::errors::P2PError::InvalidState(format!("Failed to find folder share: {}", e)))?
+        .ok_or_else(|| crate::p2p::errors::P2PError::InvalidState(format!("No access to folder {}", folder_id)))?;
+
+    let folder_token = folder_share.ucan_token;
+
+    // 2. Get all resource IDs we already have in this folder
+    let resource_ids = repo_ctx
+        .resource_repo
+        .get_resource_ids_by_folder_id(&folder_id)
+        .await
+        .map_err(|e| crate::p2p::errors::P2PError::InvalidState(format!("Failed to get resource IDs: {}", e)))?;
+
+    info!("  Requesting folder with {} existing resources", resource_ids.len());
+
+    // 3. Create and send request
+    let folder_request = FolderResourcesRequest {
+        folder_permit: folder_token,
+        resource_ids, // Send what we have, peer will send the difference
+    };
+
+    let message = Message::Folder(FolderMessage::FolderResourcesRequest(folder_request));
     peer_conn.send_message(message).await?;
 
     info!("✅ FolderResourcesRequest sent");
@@ -145,25 +201,68 @@ async fn send_folder_data(
             crate::p2p::errors::P2PError::InvalidState(format!("Failed to get folder: {}", e))
         })?;
 
-    // Get share record (contains recipient's folder UCAN)
-    let folder_share_record = get_folder_share_record(folder_id, recipient_user_id, repo_ctx)
-        .await
-        .map_err(|e| {
-            error!("Failed to get folder share record: {}", e);
-            crate::p2p::errors::P2PError::InvalidState(format!(
-                "Failed to get folder share record: {}",
-                e
-            ))
+    // Get current user (sender) to create dual-permit records
+    let current_user_guard = peer_conn.context.current_user.read().await;
+    let current_user_id = current_user_guard
+        .as_ref()
+        .ok_or_else(|| {
+            error!("No current user in peer connection");
+            crate::p2p::errors::P2PError::InvalidState("No current user".to_string())
+        })?
+        .id
+        .clone();
+    drop(current_user_guard);
+
+    // Fetch TWO folder_share_records from DB (dual-permit pattern)
+    // 1. Recipient's record: shared_by=sender, recipient=recipient
+    // 2. Sender's record: shared_by=sender, recipient=sender (self-reference)
+    let recipient_ids = vec![recipient_user_id.to_string(), current_user_id.clone()];
+    let folder_share_records = services::get_folder_share_records_for_recipients(
+        folder_id,
+        &recipient_ids,
+        repo_ctx,
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to get folder share records: {}", e);
+        crate::p2p::errors::P2PError::InvalidState(format!(
+            "Failed to get folder share records: {}",
+            e
+        ))
+    })?;
+
+    if folder_share_records.len() != 2 {
+        error!(
+            "Expected 2 folder_share_records (recipient + sender), got {}",
+            folder_share_records.len()
+        );
+        return Err(crate::p2p::errors::P2PError::InvalidState(format!(
+            "Incorrect number of folder share records: expected 2, got {}",
+            folder_share_records.len()
+        )));
+    }
+
+    // Find recipient's folder_share_record to use for folder UCAN
+    let recipient_record = folder_share_records
+        .iter()
+        .find(|r| r.recipient_user_id == recipient_user_id)
+        .ok_or_else(|| {
+            error!("Recipient folder_share_record not found");
+            crate::p2p::errors::P2PError::InvalidState(
+                "Recipient folder_share_record not found".to_string(),
+            )
         })?;
 
     // Replace folder's UCAN with the recipient's folder UCAN token
     info!("   Replacing folder UCAN with recipient's token");
-    folder.ucan = folder_share_record.ucan_token.clone();
+    folder.ucan = recipient_record.ucan_token.clone();
 
-    // Send message
+    info!("   Sending FolderDataSync with 2 folder_share_records (dual-permit)");
+
+    // Send message with BOTH folder_share_records
     let data = FolderDataSync {
         folder: folder.clone(),
-        folder_share_record,
+        folder_share_records,
     };
 
     peer_conn
@@ -249,7 +348,7 @@ pub async fn handle_folder_data_sync(
 
     services::accept_folder_from_peer(
         &payload.folder,
-        &payload.folder_share_record,
+        &payload.folder_share_records,
         peer_connection_token,
         repo_ctx,
     )
@@ -302,7 +401,7 @@ pub async fn handle_folder_resources_request(
     // we're about to use it to send resources back to the peer
 
     // Parse the UCAN token
-    let parsed_ucan = gurkha::parser::Permit::from_token(&payload.folder_token)
+    let parsed_ucan = gurkha::parser::Permit::from_token(&payload.folder_permit)
         .map_err(|e| {
             error!("Failed to parse folder token: {}", e);
             crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))
@@ -341,9 +440,87 @@ pub async fn handle_folder_resources_request(
                 ))
             })?
     } else {
-        payload.resource_ids.clone()
+        // Peer sent resource_ids they ALREADY HAVE
+        // Compute set difference to send only missing resources
+
+        // Get ALL resources in folder
+        let all_resource_ids = repo_ctx
+            .resource_repo
+            .get_resource_ids_by_folder_id(&folder_id)
+            .await
+            .map_err(|e| {
+                error!("Failed to get all resources for folder {}: {}", folder_id, e);
+                crate::p2p::errors::P2PError::InvalidState(format!(
+                    "Failed to get resources: {}",
+                    e
+                ))
+            })?;
+
+        // Convert to HashSets for efficient set difference
+        let all_set: HashSet<String> = all_resource_ids.into_iter().collect();
+        let peer_has_set: HashSet<String> = payload.resource_ids.iter().cloned().collect();
+
+        // Compute difference: resources in folder that peer DOESN'T have
+        let missing_resources: Vec<String> = all_set
+            .difference(&peer_has_set)
+            .cloned()
+            .collect();
+
+        info!(
+            "  Peer has {} resources, folder has {} total, sending {} missing resources",
+            peer_has_set.len(),
+            all_set.len(),
+            missing_resources.len()
+        );
+
+        missing_resources
     };
 
+    // 6. Request resources WE'RE missing (bidirectional sync)
+    // This runs BEFORE we check if we have resources to push, because we still want to
+    // request resources we're missing even if we have nothing to send.
+    let (missing_resource_ids, our_folder_permit) = services::get_missing_resources_for_sync(
+        &folder_id,
+        &payload.resource_ids,
+        &current_user.id,
+        repo_ctx.clone(),
+    )
+    .await
+    .map_err(|e| {
+        error!("Failed to compute missing resources: {}", e);
+        crate::p2p::errors::P2PError::InvalidState(format!(
+            "Failed to compute missing resources: {}",
+            e
+        ))
+    })?;
+
+    if !missing_resource_ids.is_empty() {
+        let missing_count = missing_resource_ids.len();
+        info!("📥 Requesting {} resources we don't have from peer", missing_count);
+
+        for resource_id in missing_resource_ids {
+            info!("   Requesting resource: {}", resource_id);
+
+            let request = ResourceNotFoundRequestMsg {
+                resource_id: resource_id.clone(),
+                folder_permit: our_folder_permit.clone(),
+            };
+
+            peer_conn
+                .send_message(Message::Resource(ResourceMessage::ResourceNotFoundRequest(request)))
+                .await
+                .map_err(|e| {
+                    error!("Failed to send ResourceNotFoundRequest for {}: {}", resource_id, e);
+                    e
+                })?;
+        }
+
+        info!("✓ Sent {} ResourceNotFoundRequest messages", missing_count);
+    } else {
+        info!("✓ No missing resources to request from peer");
+    }
+
+    // 7. Early return if we have no resources to PUSH to peer
     if resource_ids.is_empty() {
         info!("  No resources to send for folder {}", folder_id);
         return Ok(());
@@ -370,7 +547,7 @@ pub async fn handle_folder_resources_request(
         drop(peer_user_guard);
 
         // Delegate folder UCAN to peer using relationship as template key
-        let (peer_folder_ucan, cid) = {
+        let (peer_folder_ucan, peer_cid) = {
             let ucan = peer_conn.ucan_service.read().await;
             ucan.delegate_folder(&owner_folder.ucan, &peer_relationship, &peer_user.ucan_pub_key)
                 .await
@@ -380,26 +557,45 @@ pub async fn handle_folder_resources_request(
                 })?
         };
 
-        // Create ephemeral folder share record (not persisted)
-        let folder_share_record = osvauld_core::models::FolderShareRecord::prepare_folder_share_record(
+        // Create TWO ephemeral folder share records (dual-permit pattern)
+
+        // 1. Viewer's/Requestor's folder_share_record (shared_by=node, recipient=viewer)
+        let viewer_folder_share_record = osvauld_core::models::FolderShareRecord::prepare_folder_share_record(
             folder_id.clone(),
-            current_user.id.clone(),
-            peer_user.id.clone(),
+            current_user.id.clone(),  // shared_by = sender (node)
+            peer_user.id.clone(),      // recipient = requestor (viewer)
             osvauld_core::models::PermissionLevel::Read,
             peer_folder_ucan.clone(),
-            cid,
+            peer_cid,
         );
 
-        info!("  Sending FolderDataSync with on-the-fly folder UCAN");
+        // 2. Node's/Sender's folder_share_record (shared_by=node, recipient=node - self-reference)
+        // Uses the original folder UCAN (owner's own permit)
+        let sender_cid = gurkha::crypto::get_ucan_cid(&owner_folder.ucan)
+            .map_err(|e| {
+                error!("Failed to compute sender folder UCAN CID: {}", e);
+                crate::p2p::errors::P2PError::InvalidState(format!("CID computation failed: {}", e))
+            })?;
 
-        // Send folder data with the ephemeral folder_share_record
+        let sender_folder_share_record = osvauld_core::models::FolderShareRecord::prepare_folder_share_record(
+            folder_id.clone(),
+            current_user.id.clone(),  // shared_by = sender (node)
+            current_user.id.clone(),  // recipient = sender (node) - self-reference
+            osvauld_core::models::PermissionLevel::Admin,
+            owner_folder.ucan.clone(),
+            sender_cid,
+        );
+
+        info!("  Sending FolderDataSync with 2 ephemeral folder_share_records (dual-permit)");
+
+        // Send folder data with BOTH folder_share_records
         // Don't call send_folder_data() as it would try to fetch from DB
         let mut folder = owner_folder.clone();
         folder.ucan = peer_folder_ucan; // Use the peer's delegated folder UCAN
 
         let data = osvauld_core::models::FolderDataSync {
             folder,
-            folder_share_record,
+            folder_share_records: vec![viewer_folder_share_record, sender_folder_share_record],
         };
 
         peer_conn
@@ -411,49 +607,19 @@ pub async fn handle_folder_resources_request(
         info!("✓ Sent ephemeral FolderDataSync to viewer");
     }
 
-    // 7. Send each resource with appropriate share_records
+    // 8. Send each resource with appropriate share_records
+    // Get peer user once outside the loop
+    let peer_user_guard = peer_conn.user.read().await;
+    let peer_user = peer_user_guard.clone();
+    drop(peer_user_guard);
+
     for resource_id in resource_ids {
-        info!("   Sending resource: {}", resource_id);
+        // Use different flows for persistent vs ephemeral shares
+        if parsed_ucan.should_persist_share() {
+            // Persistent case: Use shared function (fetches share_records from DB)
+            info!("     Token allows persistence - using persistent send flow");
 
-        // Get peer user for encryption
-        let peer_user_guard = peer_conn.user.read().await;
-        let peer_user = peer_user_guard.clone();
-        drop(peer_user_guard);
-
-        info!("👤 Peer user for resource encryption:");
-        info!("   User ID: {}", peer_user.id);
-        info!("   Username: {}", peer_user.username);
-        info!("   PGP key: {}...", &peer_user.public_key.chars().take(40).collect::<String>());
-        info!("   UCAN key: {}...", &peer_user.ucan_pub_key.chars().take(40).collect::<String>());
-
-        // Prepare resource for peer (delegates UCAN using template)
-        let peer_encrypted_resource = match services::prepare_resource_transfer(
-            &resource_id,
-            &current_user,
-            &payload.folder_token,
-            &peer_relationship,
-            &peer_user,
-            repo_ctx.clone(),
-            &crypto_utils,
-            &peer_conn.ucan_service,
-        )
-        .await
-        {
-            Ok(res) => res,
-            Err(e) => {
-                error!(
-                    "Failed to prepare resource {} for peer: {}, skipping",
-                    resource_id, e
-                );
-                continue;
-            }
-        };
-
-        // Get share_records based on CEL rule (should_persist_share)
-        let share_records = if parsed_ucan.should_persist_share() {
-            // Token allows persistence: fetch ALL share_records from DB
-            info!("     Token allows persistence - fetching share records from DB");
-            services::get_all_share_records_for_resource(&resource_id, repo_ctx.clone())
+            let share_records = services::get_all_share_records_for_resource(&resource_id, repo_ctx.clone())
                 .await
                 .map_err(|e| {
                     error!(
@@ -464,50 +630,122 @@ pub async fn handle_folder_resources_request(
                         "Failed to get share records: {}",
                         e
                     ))
-                })?
-        } else {
-            // Token ephemeral: create share_records on-the-fly
-            info!("     Token ephemeral - generating share record on-the-fly");
+                })?;
 
-            // Create viewer's share record (shared_by=node, recipient=viewer)
-            // The shared_by_user_id provides routing info for viewer to connect back to node
+            // Use the shared send_resource_with_permit function
+            if let Err(e) = resource_sync::send_resource_with_permit(
+                &resource_id,
+                &current_user,
+                &peer_user,
+                &peer_relationship,
+                &payload.folder_permit,
+                share_records,
+                folder_ucan.clone(),
+                peer_conn.clone(),
+                repo_ctx.clone(),
+                &crypto_utils,
+            )
+            .await
+            {
+                error!(
+                    "Failed to send resource {}: {}, continuing",
+                    resource_id, e
+                );
+            }
+        } else {
+            // Ephemeral case: Generate share_records on-the-fly
+            // Need to prepare resource FIRST to get peer's UCAN for creating viewer's share record
+            info!("     Token ephemeral - using ephemeral send flow");
+
+            // Prepare resource for peer (delegates UCAN using template)
+            let peer_encrypted_resource = match services::prepare_resource_transfer(
+                &resource_id,
+                &current_user,
+                &payload.folder_permit,
+                &peer_relationship,
+                &peer_user,
+                repo_ctx.clone(),
+                &crypto_utils,
+                &peer_conn.ucan_service,
+            )
+            .await
+            {
+                Ok(res) => res,
+                Err(e) => {
+                    error!(
+                        "Failed to prepare resource {} for peer: {}, skipping",
+                        resource_id, e
+                    );
+                    continue;
+                }
+            };
+
+            // Get original resource from DB to extract node's UCAN
+            let original_resource = repo_ctx
+                .resource_repo
+                .find_by_id(&resource_id)
+                .await
+                .map_err(|e| {
+                    error!("Failed to get original resource {}: {}", resource_id, e);
+                    crate::p2p::errors::P2PError::InvalidState(format!(
+                        "Failed to get original resource: {}",
+                        e
+                    ))
+                })?;
+
+            // 1. Create viewer's share record (shared_by=node, recipient=viewer)
             let viewer_ucan_cid = gurkha::crypto::get_ucan_cid(&peer_encrypted_resource.ucan_token)
                 .map_err(|e| {
-                    error!("Failed to compute UCAN CID: {}", e);
+                    error!("Failed to compute viewer UCAN CID: {}", e);
                     crate::p2p::errors::P2PError::InvalidState(format!("CID computation failed: {}", e))
                 })?;
 
             let viewer_share_record = osvauld_core::models::ShareRecord::prepare_share_record(
                 resource_id.clone(),
-                current_user.id.clone(),  // shared_by = node (routing info)
+                current_user.id.clone(),  // shared_by = node
                 peer_user.id.clone(),      // recipient = viewer
                 osvauld_core::models::PermissionLevel::Read,
                 peer_encrypted_resource.ucan_token.clone(),
                 viewer_ucan_cid,
             );
 
-            info!("     Created viewer share record (shared_by=node, recipient=viewer)");
+            // 2. Create node's share record (shared_by=node, recipient=node)
+            // Uses the original resource UCAN (node's own permit)
+            let node_ucan_cid = gurkha::crypto::get_ucan_cid(&original_resource.ucan_token)
+                .map_err(|e| {
+                    error!("Failed to compute node UCAN CID: {}", e);
+                    crate::p2p::errors::P2PError::InvalidState(format!("CID computation failed: {}", e))
+                })?;
 
-            // Return ONLY viewer's share record (avoids FK constraint on owner user)
-            vec![viewer_share_record]
-        };
-
-        info!("     Including {} share records", share_records.len());
-
-        // Send ResourceDataSync
-        let resource_data = osvauld_core::models::p2p::ResourceDataSync {
-            resource: peer_encrypted_resource,
-            share_records,
-            folder_ucan: folder_ucan.clone(),
-        };
-
-        if let Err(e) = resource_sync::send_resource_data(peer_conn.clone(), resource_data).await {
-            error!(
-                "Failed to send resource {} to peer: {}, continuing",
-                resource_id, e
+            let node_share_record = osvauld_core::models::ShareRecord::prepare_share_record(
+                resource_id.clone(),
+                current_user.id.clone(),  // shared_by = node
+                current_user.id.clone(),  // recipient = node (self)
+                osvauld_core::models::PermissionLevel::Admin,
+                original_resource.ucan_token.clone(),
+                node_ucan_cid,
             );
-        } else {
-            info!("     ✓ Successfully sent resource");
+
+            let share_records = vec![viewer_share_record, node_share_record];
+
+            info!("     Created 2 ephemeral share records: viewer + node (for dual-permit validation)");
+            info!("     Including {} share records", share_records.len());
+
+            // Send ResourceDataSync
+            let resource_data = osvauld_core::models::p2p::ResourceDataSync {
+                resource: peer_encrypted_resource,
+                share_records,
+                owner_folder_permit: folder_ucan.clone(),
+            };
+
+            if let Err(e) = resource_sync::send_resource_data(peer_conn.clone(), resource_data).await {
+                error!(
+                    "Failed to send resource {} to peer: {}, continuing",
+                    resource_id, e
+                );
+            } else {
+                info!("     ✓ Successfully sent resource");
+            }
         }
     }
 
@@ -540,7 +778,7 @@ pub async fn handle_folder_token_request(
     info!("📨 Received FolderTokenRequest for folder {}", payload.folder_id);
 
     // 1. Parse and validate folder_ucan
-    let parsed_ucan = gurkha::parser::Permit::from_token(&payload.folder_ucan)
+    let parsed_ucan = gurkha::parser::Permit::from_token(&payload.folder_permit)
         .map_err(|e| {
             error!("Failed to parse folder token: {}", e);
             crate::p2p::errors::P2PError::InvalidState(format!("Invalid folder token: {}", e))

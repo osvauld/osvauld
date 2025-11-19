@@ -6,6 +6,7 @@
 	import AddWebsiteConnectionModal from "./AddWebsiteConnectionModal.svelte";
 	import PublishButton from "./PublishButton.svelte";
 	import SyncResourceButton from "./SyncResourceButton.svelte";
+	import SyncFolderButton from "./SyncFolderButton.svelte";
 	import ModeSwitcher from "./ModeSwitcher.svelte";
 	import SaveButton from "./SaveButton.svelte";
 	import NavigationToggle from "./NavigationToggle.svelte";
@@ -58,6 +59,8 @@
 			<SaveButton />
 			<!-- Sync Resource Button -->
 			<SyncResourceButton />
+			<!-- Sync Folder Button -->
+			<SyncFolderButton />
 		</div>
 
 		<!-- Header with All Websites -->

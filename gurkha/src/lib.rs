@@ -19,6 +19,7 @@
 //! - `verification` - Proof chain validation (stateless, self-contained)
 //! - `builder` - Execution layer (builds tokens from decisions)
 //! - `merge` - Pure CRDT merge logic (Loro document operations)
+//! - `sync` - Pure sync logic (permit-driven document synchronization)
 //! - `service` - Public API (orchestrates decision + crypto)
 //! - `cel` - CEL rule evaluation for authorization
 //! - `errors` - GurkhaError types
@@ -31,6 +32,7 @@ pub mod crypto;
 pub mod verification;
 pub mod builder;
 pub mod merge;
+pub mod sync;
 pub mod service;
 pub mod errors;
 pub mod cel;
@@ -43,6 +45,7 @@ pub use decision::{TokenDecision, DelegationDecision, SyncContext, should_send_u
 pub use verification::{ProofCache, ProofChainTracer};
 pub use builder::GurkhaUcanBuilder;
 pub use merge::MergeService;
+pub use sync::{SyncRequestData, SyncResponseData, prepare_sync_request, generate_sync_response, apply_peer_docs, apply_peer_updates, generate_collaborative_updates};
 pub use service::UcanService;
 pub use cel::{OperationValidator, CelError, CelResult};
 

@@ -295,15 +295,14 @@ pub async fn get_responder_folder_ucan_for_folder(
 /// Accept and save a folder from a peer after validating add_folder capability
 pub async fn accept_folder_from_peer(
     folder: &Folder,
-    folder_share_record: &FolderShareRecord,
+    folder_share_records: &[FolderShareRecord],
     peer_connection_token: &str,
     repo_ctx: Arc<RepositoryContext>,
 ) -> ServiceResult<()> {
     tracing::info!("📂 Accepting folder from peer:");
     tracing::info!("  - Folder ID: {}", folder.id);
     tracing::info!("  - Folder name: {}", folder.name);
-    tracing::info!("  - Share record recipient: {}", folder_share_record.recipient_user_id);
-    tracing::info!("  - Share record shared_by: {}", folder_share_record.shared_by_user_id);
+    tracing::info!("  - Folder share records: {}", folder_share_records.len());
 
     // Validate that peer has add_folder capability (UCAN-first: check capability, not role)
     tracing::info!("  Step 1: Validating peer connection token...");
@@ -311,23 +310,30 @@ pub async fn accept_folder_from_peer(
         .map_err(|e| FolderServiceError::Validation(format!("Invalid peer connection token: {}", e)))?;
     // The Permit validates the UCAN structure internally
 
-    // Validate folder share UCAN token structure
-    tracing::info!("  Step 2: Validating folder share UCAN structure...");
-    gurkha::parser::Permit::from_token(&folder_share_record.ucan_token)
-        .map_err(|e| {
-            tracing::error!("❌ Invalid folder share UCAN: {}", e);
-            FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e))
-        })?;
-    tracing::info!("  ✓ Folder share UCAN structure valid");
+    // Validate all folder share UCAN token structures
+    tracing::info!("  Step 2: Validating {} folder share UCAN structures...", folder_share_records.len());
+    for (i, folder_share_record) in folder_share_records.iter().enumerate() {
+        tracing::info!("    Validating share record {} (recipient: {}, shared_by: {})",
+            i + 1,
+            folder_share_record.recipient_user_id,
+            folder_share_record.shared_by_user_id
+        );
+        gurkha::parser::Permit::from_token(&folder_share_record.ucan_token)
+            .map_err(|e| {
+                tracing::error!("❌ Invalid folder share UCAN for record {}: {}", i + 1, e);
+                FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e))
+            })?;
+    }
+    tracing::info!("  ✓ All folder share UCAN structures valid");
 
-    // Save folder and share record in transaction
-    tracing::info!("  Step 3: Saving folder and share record to database...");
+    // Save folder and all share records in transaction
+    tracing::info!("  Step 3: Saving folder and {} share records to database...", folder_share_records.len());
     repo_ctx
         .folder_repo
-        .save_folder_with_share_record(folder, folder_share_record)
+        .save_folder_with_share_records(folder, folder_share_records)
         .await?;
 
-    tracing::info!("✅ Successfully accepted and saved folder {}", folder.id);
+    tracing::info!("✅ Successfully accepted and saved folder {} with {} share records", folder.id, folder_share_records.len());
     Ok(())
 }
 
@@ -429,5 +435,167 @@ pub async fn prepare_viewer_folder_data(
         tracing::info!("✓ FolderShareRecord created for viewer {} (ephemeral, not persisted)", viewer_user_id);
     }
 
+    Ok(())
+}
+
+/// Compute resources we're missing for bidirectional folder sync
+///
+/// This function is used during folder sync to determine which resources
+/// the peer has that we don't, so we can request them.
+///
+/// # Arguments
+/// * `folder_id` - Folder ID being synced
+/// * `peer_resource_ids` - Resource IDs the peer has
+/// * `current_user_id` - Our user ID
+/// * `repo_ctx` - Database repository context
+///
+/// # Returns
+/// * `(Vec<String>, String)` - (missing_resource_ids, our_folder_permit)
+#[instrument(skip(repo_ctx), fields(folder_id, user_id = %current_user_id))]
+pub async fn get_missing_resources_for_sync(
+    folder_id: &str,
+    peer_resource_ids: &[String],
+    current_user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+) -> ServiceResult<(Vec<String>, String)> {
+    info!("Computing missing resources for folder sync");
+
+    // Get our folder permit
+    let our_folder_share = repo_ctx
+        .folder_share_repo
+        .find_by_folder_and_user(folder_id, current_user_id)
+        .await?
+        .ok_or_else(|| {
+            warn!("No folder share found for folder {} and user {}", folder_id, current_user_id);
+            FolderServiceError::Validation(format!(
+                "No access to folder {}",
+                folder_id
+            ))
+        })?;
+
+    // Get all resource IDs we have in this folder
+    let our_resource_ids = repo_ctx
+        .resource_repo
+        .get_resource_ids_by_folder_id(folder_id)
+        .await?;
+
+    // Compute set difference: peer_has - we_have
+    let peer_set: std::collections::HashSet<String> = peer_resource_ids.iter().cloned().collect();
+    let our_set: std::collections::HashSet<String> = our_resource_ids.into_iter().collect();
+
+    let missing: Vec<String> = peer_set
+        .difference(&our_set)
+        .cloned()
+        .collect();
+
+    info!("Found {} missing resources out of {} peer resources", missing.len(), peer_resource_ids.len());
+
+    Ok((missing, our_folder_share.ucan_token))
+}
+
+/// Create resource share records for all folder recipients
+///
+/// This function is called after a resource is created to automatically
+/// generate share records for all users/nodes that have access to the folder.
+/// The recipient's role is extracted from their folder_share_record and used
+/// to delegate the appropriate resource UCAN template.
+///
+/// # Arguments
+/// * `resource_id` - Resource ID that was just created
+/// * `folder_id` - Folder ID the resource belongs to
+/// * `owner_user_id` - Owner's user ID (to exclude from recipients)
+/// * `repo_ctx` - Database repository context
+/// * `ucan_service` - UCAN service for delegation
+///
+/// # Returns
+/// * `Ok(())` on success
+///
+/// # Errors
+/// * Database errors, UCAN delegation errors
+#[instrument(skip(repo_ctx, ucan_service), fields(resource_id, folder_id, owner_user_id))]
+pub async fn create_share_records_for_folder_recipients(
+    resource_id: &str,
+    folder_id: &str,
+    owner_user_id: &str,
+    repo_ctx: Arc<RepositoryContext>,
+    ucan_service: Arc<RwLock<gurkha::UcanService>>,
+) -> ServiceResult<()> {
+    info!("Creating resource share records for folder recipients");
+
+    // 1. Get all folder_share_records for this folder (excluding owner)
+    let folder_share_records = repo_ctx
+        .folder_share_repo
+        .get_records_by_folder_id(folder_id)
+        .await?
+        .into_iter()
+        .filter(|record| record.recipient_user_id != owner_user_id)
+        .collect::<Vec<_>>();
+
+    info!("Found {} folder recipients (excluding owner)", folder_share_records.len());
+
+    if folder_share_records.is_empty() {
+        info!("No folder recipients - skipping share record creation");
+        return Ok(());
+    }
+
+    // 2. Get owner user (needed for delegate_and_create_share_record)
+    let owner_user = repo_ctx
+        .user_repo
+        .get_user_by_id(owner_user_id)
+        .await
+        .map_err(|e| {
+            warn!("Failed to get owner user {}: {}", owner_user_id, e);
+            FolderServiceError::Validation(format!("Owner user not found: {}", e))
+        })?;
+
+    // 3. For each recipient, extract their role and delegate resource UCAN
+    for folder_share in folder_share_records {
+        // Parse folder permit to get the recipient's role/relationship
+        let folder_permit = Permit::from_token(&folder_share.ucan_token)
+            .map_err(|e| {
+                warn!("Invalid folder UCAN for user {}: {}", folder_share.recipient_user_id, e);
+                FolderServiceError::Validation(format!("Invalid folder UCAN: {}", e))
+            })?;
+
+        let recipient_role = folder_permit.relationship()
+            .ok_or_else(|| {
+                warn!("No relationship in folder UCAN for user {}", folder_share.recipient_user_id);
+                FolderServiceError::Validation("No relationship in folder UCAN".into())
+            })?;
+
+        debug!(
+            "Creating share record for user {} with role '{}'",
+            folder_share.recipient_user_id, recipient_role
+        );
+
+        // Use existing helper - it will automatically select the right resource template
+        // based on the recipient_role ("node", "viewer", etc.)
+        let result = resource_service::delegate_and_create_share_record(
+            resource_id,
+            &folder_share.recipient_user_id,
+            recipient_role,
+            &owner_user,
+            true, // persist to database (if CEL allows)
+            repo_ctx.clone(),
+            &ucan_service,
+        )
+        .await;
+
+        match result {
+            Ok(_) => {
+                info!("✓ Created share record for user {} (role: {})",
+                    folder_share.recipient_user_id, recipient_role);
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to create share record for user {} (role: {}): {}, continuing",
+                    folder_share.recipient_user_id, recipient_role, e
+                );
+                // Continue to next recipient even if one fails
+            }
+        }
+    }
+
+    info!("✓ Completed creating share records for folder recipients");
     Ok(())
 }
