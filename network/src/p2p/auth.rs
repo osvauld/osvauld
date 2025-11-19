@@ -3,6 +3,7 @@
 //! Single entry point for processing all handshake messages.
 //! Routes to appropriate handlers based on message type.
 
+use crate::p2p::errors::P2PError;
 use crate::p2p::{errors::P2PResult, PeerConnection};
 use osvauld_core::models::{
     Device, FirstConnectionComplete, FirstConnectionResponse, HandshakeMessage, HandshakeRequest,
@@ -10,7 +11,6 @@ use osvauld_core::models::{
 };
 use services::{HandshakeType, ParsedHandshakeToken};
 use tracing::{error, info, instrument};
-
 /// Initiate handshake with peer
 ///
 /// Called automatically after P2P connection is established.
@@ -43,10 +43,10 @@ pub async fn initiate_handshake(
 
     // Build HandshakeRequest
     let request = HandshakeRequest {
-        ucan_token,
+        permit_token: ucan_token,
         peer_user: local_user,
         peer_device: local_device,
-        signed_ucan_pub,
+        signed_permit_pub: signed_ucan_pub,
     };
 
     // Send HandshakeRequest
@@ -115,8 +115,8 @@ pub async fn process_handshake_request(
 
     // 1. Parse and validate token
     let parsed = services::parse_and_validate_handshake_token(
-        &request.ucan_token,
-        &request.signed_ucan_pub,
+        &request.permit_token,
+        &request.signed_permit_pub,
         &request.peer_user.ucan_pub_key,
         &conn.ucan_service,
     )
@@ -161,17 +161,15 @@ async fn handle_peer_first_connection(
 
     // 1. Get relationship string from parsed token facts
     // Relationship comes from the parsed OneTimeConnection token
-    let relationship_str = parsed.relationship
-        .as_deref()
-        .unwrap_or("user"); // Default to "user" if not specified
+    let relationship_str = parsed.relationship.as_deref().unwrap_or("user"); // Default to "user" if not specified
 
     // 2. Issue persistent connection token BEFORE saving user
     // This ensures we never store the one-time token in the database
-    let issued_ucan = conn.ucan_service.read().await
-        .issue_peer_connection(
-            &request.peer_user.ucan_pub_key,
-            relationship_str,
-        )
+    let issued_ucan = conn
+        .ucan_service
+        .read()
+        .await
+        .issue_peer_connection(&request.peer_user.ucan_pub_key, relationship_str)
         .await
         .map_err(|e| {
             error!("❌ Failed to issue persistent connection token: {}", e);
@@ -200,7 +198,7 @@ async fn handle_peer_first_connection(
     // CRITICAL: Set conn.user to point to the peer's user, not our local user
     // This ensures encryption uses the peer's PGP public key
     let mut peer_user_with_token = request.peer_user.clone();
-    peer_user_with_token.ucan_token = request.ucan_token.clone();
+    peer_user_with_token.ucan_token = request.permit_token.clone();
 
     let mut user_guard = conn.user.write().await;
     *user_guard = peer_user_with_token;
@@ -253,7 +251,7 @@ async fn handle_reconnection(
 
     // 2. Update peer user in connection state with their UCAN token
     let mut peer_user = request.peer_user.clone();
-    peer_user.ucan_token = request.ucan_token.clone();
+    peer_user.ucan_token = request.permit_token.clone();
 
     let mut user_guard = conn.user.write().await;
     *user_guard = peer_user;
@@ -289,7 +287,7 @@ async fn process_first_connection_response(
     // When we connect TO them, we'll present this token
     // When they connect TO us, they'll present the token we issue below
     let mut peer_user_with_their_token = response.peer_user.clone();
-    peer_user_with_their_token.ucan_token = response.issued_ucan.clone();
+    peer_user_with_their_token.ucan_token = response.issued_permit.clone();
 
     services::save_first_connection_user(
         &peer_user_with_their_token,
@@ -318,11 +316,11 @@ async fn process_first_connection_response(
 
     // 4. Issue NEW persistent connection token FOR the peer (node)
     // They will save this and present it when connecting TO us
-    let issued_ucan = conn.ucan_service.read().await
-        .issue_peer_connection(
-            &response.peer_user.ucan_pub_key,
-            relationship_str,
-        )
+    let issued_ucan = conn
+        .ucan_service
+        .read()
+        .await
+        .issue_peer_connection(&response.peer_user.ucan_pub_key, relationship_str)
         .await
         .map_err(|e| {
             error!("❌ Failed to issue persistent connection token: {}", e);
@@ -361,7 +359,7 @@ async fn process_first_connection_complete(
     // 1. Update the peer user's token (the initiator who sent us this token)
     services::update_user_token(
         &complete.peer_user_id,
-        &complete.issued_ucan,
+        &complete.issued_permit,
         &conn.repo_ctx,
     )
     .await
@@ -415,8 +413,13 @@ async fn send_first_connection_response(
     conn: &PeerConnection,
     issued_ucan: String,
 ) -> P2PResult<()> {
-    let local_user = conn.user.read().await.clone();
-    let local_device = conn.device.read().await.clone();
+    // Get actual local user and device from ServiceContext
+    // NOT from conn.user/conn.device which are set to peer's user/device for encryption
+    let local_user = conn.get_local_user().await?;
+    let local_device = conn
+        .get_local_device()
+        .await
+        .ok_or_else(|| P2PError::InvalidState("Local device not set".to_string()))?;
 
     let local_devices = conn
         .repo_ctx
@@ -437,11 +440,11 @@ async fn send_first_connection_response(
     };
 
     let response = FirstConnectionResponse {
-        issued_ucan,
+        issued_permit: issued_ucan,
         peer_user: local_user,
         peer_device: local_device,
         devices: local_devices,
-        signed_ucan_pub,
+        signed_permit_pub: signed_ucan_pub,
     };
 
     let message = Message::Handshake(HandshakeMessage::FirstConnectionResponse(response));
@@ -458,7 +461,7 @@ async fn send_first_connection_complete(
     peer_user_id: String,
 ) -> P2PResult<()> {
     let complete = FirstConnectionComplete {
-        issued_ucan,
+        issued_permit: issued_ucan,
         peer_user_id,
     };
 
@@ -471,8 +474,13 @@ async fn send_first_connection_complete(
 
 /// Helper: Send ReconnectionResponse to peer
 async fn send_reconnection_response(conn: &PeerConnection) -> P2PResult<()> {
-    let local_user = conn.user.read().await.clone();
-    let local_device = conn.device.read().await.clone();
+    // Get actual local user and device from ServiceContext
+    // NOT from conn.user/conn.device which are set to peer's user/device for encryption
+    let local_user = conn.get_local_user().await?;
+    let local_device = conn
+        .get_local_device()
+        .await
+        .ok_or_else(|| P2PError::InvalidState("Local device not set".to_string()))?;
 
     let local_devices = conn
         .repo_ctx
@@ -496,7 +504,7 @@ async fn send_reconnection_response(conn: &PeerConnection) -> P2PResult<()> {
         peer_user: local_user,
         peer_device: local_device,
         devices: local_devices,
-        signed_ucan_pub,
+        signed_permit_pub: signed_ucan_pub,
     };
 
     let message = Message::Handshake(HandshakeMessage::ReconnectionResponse(response));
