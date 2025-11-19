@@ -9,15 +9,16 @@
 
 1. [Overview](#overview)
 2. [Sync is Permit-Driven](#sync-is-permit-driven)
-3. [Publishing Resources](#publishing-resources)
-4. [Dual-Permit Validation (SyncContext)](#dual-permit-validation-synccontext)
-5. [Document Filtering Logic](#document-filtering-logic)
-6. [Sync Facts](#sync-facts)
-7. [Document Capabilities & Sync Behavior](#document-capabilities--sync-behavior)
-8. [Bidirectional Filtering](#bidirectional-filtering)
-9. [CRDT Merge Operations](#crdt-merge-operations)
-10. [CEL Expressions](#cel-expressions)
-11. [Forward Secrecy](#forward-secrecy)
+3. [Folder Sync](#folder-sync)
+4. [Publishing Resources](#publishing-resources)
+5. [Dual-Permit Validation (SyncContext)](#dual-permit-validation-synccontext)
+6. [Document Filtering Logic](#document-filtering-logic)
+7. [Sync Facts](#sync-facts)
+8. [Document Capabilities & Sync Behavior](#document-capabilities--sync-behavior)
+9. [Bidirectional Filtering](#bidirectional-filtering)
+10. [CRDT Merge Operations](#crdt-merge-operations)
+11. [CEL Expressions](#cel-expressions)
+12. [Forward Secrecy](#forward-secrecy)
 
 ---
 
@@ -82,6 +83,138 @@ for doc_name in resource.doc_names() {
 
 **Code**: Permit-driven sync
 **See**: `services/src/resource_service/core.rs:244-310` (filter_and_encrypt_for_peer)
+
+---
+
+## Folder Sync
+
+Folder sync is the **first step** in the sync pipeline, establishing what resources exist in a folder before syncing individual resources.
+
+### What is Folder Sync?
+
+Folder sync synchronizes:
+1. **Folder metadata** (name, description, settings)
+2. **Resource list** (IDs of resources in folder)
+3. **Resource permits** (permissions for each resource)
+
+This enables peers to know **what resources exist** and **what permissions they have** before requesting resource content.
+
+### Folder Sync vs Resource Sync
+
+**Folder Sync** (sync the folder container):
+- Syncs folder metadata + list of resource IDs
+- Validates folder-level permissions (folder permit)
+- Provides resource permits for each resource
+- Happens **first** in sync pipeline
+
+**Resource Sync** (sync the resource content):
+- Syncs actual resource documents (Loro CRDTs)
+- Validates resource-level permissions (resource permit)
+- Applies document filtering based on permits
+- Happens **after** folder sync
+
+**Same underlying mechanism**: Both use permit-driven validation, dual-permit checks, and the same sync protocol!
+
+### Folder Sync Flow
+
+```
+Owner                           Node                            Viewer
+  |                              |                                |
+  |--[1] sync_folder request---->|                                |
+  |                              |                                |
+  |   [2] Validate folder permit |                                |
+  |   [3] Prepare folder data    |                                |
+  |       - Folder metadata      |                                |
+  |       - Resource IDs list    |                                |
+  |       - Resource permits     |                                |
+  |                              |                                |
+  |<--[4] Send folder data-------|                                |
+  |                              |                                |
+  |                              |--[5] sync_folder request------>|
+  |                              |                                |
+  |                              |   [6] Validate folder permit  |
+  |                              |   [7] Filter resource list    |
+  |                              |       based on viewer permit   |
+  |                              |                                |
+  |                              |<--[8] Send filtered folder-----|
+  |                              |                                |
+```
+
+### Dual-Permit Validation for Folders
+
+Just like resource sync, folder sync uses **dual-permit validation**:
+
+```rust
+// Owner syncing folder to Node
+let sync_context = SyncContext::new(owner_folder_permit, node_folder_permit)?;
+
+// Validate: Can owner send? Can node receive?
+if !can_sync_folder(&sync_context) {
+    return Err("Folder sync not permitted");
+}
+```
+
+**Folder permit** validates folder-level access:
+- Can peer access this folder?
+- Can peer see folder metadata?
+- Can peer receive resource list?
+
+**Resource permits** (included in folder sync response):
+- Individual permission for each resource
+- Used later during resource sync
+- Already delegated by owner → node → viewer chain
+
+### Folder Sync + Resource Sync = Complete Picture
+
+```
+1. Owner syncs folder to Node
+   → Node now knows: "Folder X contains resources A, B, C"
+   → Node has permits for A, B, C
+
+2. Node syncs folder to Viewer
+   → Viewer now knows: "Folder X contains resources A, B" (C filtered out)
+   → Viewer has permits for A, B (not C)
+
+3. Viewer requests resource A
+   → Node validates viewer's permit for A
+   → Node sends filtered resource A content
+```
+
+**Key insight**: Folder sync establishes **what exists and what's allowed**, resource sync delivers **the actual content**.
+
+### Same Code Path as Resource Sync
+
+You're right - folder sync follows the same pattern!
+
+**Same principles**:
+- ✅ Permit-driven (folder permits)
+- ✅ Dual-validation (both sides' permits checked)
+- ✅ Filtering (resource list filtered based on permissions)
+- ✅ Re-encryption (folder data re-encrypted for each peer)
+- ✅ Bidirectional (both sides can sync folders)
+
+**Code paths**:
+```rust
+// Folder sync
+services::prepare_folder_for_peer(folder_id, our_permit, peer_permit, ...)
+→ Validate folder permits
+→ Filter resource list
+→ Re-encrypt for peer
+
+// Resource sync
+services::prepare_resource_for_peer(resource_id, our_permit, peer_permit, ...)
+→ Validate resource permits
+→ Filter documents
+→ Re-encrypt for peer
+```
+
+**Same building blocks, different data being synced!**
+
+**Code**: Folder sync implementation
+**See**:
+- `network/src/p2p/folder_sync.rs` (P2P folder sync orchestration)
+- `services/src/folder_service.rs:create_share_records_for_folder_recipients` (folder sharing)
+- `services/src/folder_service.rs` (folder service layer)
 
 ---
 
