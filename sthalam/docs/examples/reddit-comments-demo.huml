@@ -1,0 +1,274 @@
+name: "Reddit Comments Demo"
+version: "v2.0.0"
+
+types::
+  Post::
+    id::
+      type: "string"
+    title::
+      type: "string"
+    content::
+      type: "string"
+    author::
+      type: "string"
+    timestamp::
+      type: "number"
+    upvotes::
+      type: "number"
+
+  Comment::
+    id::
+      type: "string"
+    postId::
+      type: "string"
+    text::
+      type: "string"
+    author::
+      type: "string"
+    timestamp::
+      type: "number"
+    upvotes::
+      type: "number"
+    parentCommentId::
+      type: "string"
+
+documents::
+  posts::
+    type: "array"
+    items: "Post"
+    initial:: []
+    document: "content_doc"
+
+  comments::
+    type: "array"
+    items: "Comment"
+    initial:: []
+    document: "collaborative_doc"
+
+  currentUser::
+    type: "string"
+    initial: "Guest"
+    document: "collaborative_doc"
+
+  newPostTitle::
+    type: "string"
+    initial: ""
+    document: "ui_state_doc"
+
+  newPostContent::
+    type: "string"
+    initial: ""
+    document: "ui_state_doc"
+
+  newCommentText::
+    type: "string"
+    initial: ""
+    document: "ui_state_doc"
+
+computed::
+  totalPosts::
+    expr: "${ size(posts) }"
+    deps::
+      - "posts"
+
+  totalComments::
+    expr: "${ size(comments) }"
+    deps::
+      - "comments"
+
+ui::
+  publisher::
+    - ::
+      type: "screen"
+      id: "main"
+      name: "main"
+      isEntryPoint: true
+      css: "padding: 2rem; max-width: 1200px; margin: 0 auto; font-family: system-ui; background: #f5f5f5;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Reddit-Style Discussion Board"
+          css: "color: #ff4500; margin-bottom: 0.5rem; font-size: 2rem;"
+
+        - ::
+          type: "text"
+          content: "Demonstrates nested types, recursive loops, and explicit syntax"
+          css: "color: #666; margin-bottom: 2rem; font-style: italic;"
+
+        - ::
+          type: "container"
+          css: "background: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "📊 Stats"
+              css: "margin-bottom: 1rem; font-size: 1.25rem; color: #333;"
+
+            - ::
+              type: "text"
+              content: "Total Posts: {{totalPosts}} | Total Comments: {{totalComments}}"
+              css: "font-size: 1rem; color: #666;"
+
+        - ::
+          type: "section"
+          css: "background: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1);"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "✍️ Create New Post"
+              css: "margin-bottom: 1rem; font-size: 1.25rem; color: #333;"
+
+            - ::
+              type: "input"
+              name: "newPostTitle"
+              placeholder: "Enter post title..."
+              css: "width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 1rem; margin-bottom: 1rem; font-family: inherit;"
+
+            - ::
+              type: "textarea"
+              name: "newPostContent"
+              placeholder: "Enter post content..."
+              css: "width: 100%; padding: 0.75rem; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 1rem; margin-bottom: 1rem; min-height: 100px; font-family: inherit; resize: vertical;"
+
+            - ::
+              type: "button"
+              content: "Post"
+              action: "setState"
+              stateUpdates::
+                posts: "${ posts + [{\"id\": generateId(), \"title\": newPostTitle, \"content\": newPostContent, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0}] }"
+                newPostTitle: ""
+                newPostContent: ""
+              css: "padding: 0.75rem 2rem; background: #ff4500; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1rem; font-weight: 600;"
+
+        - ::
+          type: "section"
+          css: "margin-bottom: 2rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 2
+              content: "💬 Posts"
+              css: "margin-bottom: 1.5rem; font-size: 1.5rem; color: #333;"
+
+            - ::
+              type: "loop"
+              each: "${ posts }"
+              as: "post"
+              key: "id"
+              blocks::
+                - ::
+                  type: "container"
+                  css: "background: white; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border-left: 4px solid #ff4500;"
+                  blocks::
+                    - ::
+                      type: "heading"
+                      level: 3
+                      content: "{{post.title}}"
+                      css: "margin-bottom: 0.5rem; font-size: 1.5rem; color: #222;"
+
+                    - ::
+                      type: "text"
+                      content: "{{post.content}}"
+                      css: "margin-bottom: 1rem; color: #444; line-height: 1.6;"
+
+                    - ::
+                      type: "text"
+                      content: "Posted by {{post.author}} • {{post.upvotes}} upvotes"
+                      css: "font-size: 0.875rem; color: #888; margin-bottom: 1.5rem;"
+
+                    - ::
+                      type: "container"
+                      css: "border-top: 1px solid #e0e0e0; padding-top: 1rem;"
+                      blocks::
+                        - ::
+                          type: "heading"
+                          level: 4
+                          content: "💭 Comments ({{size(comments.filter(c => c.postId == post.id))}})"
+                          css: "margin-bottom: 1rem; font-size: 1.125rem; color: #555;"
+
+                        - ::
+                          type: "loop"
+                          each: "${ comments.filter(c => c.postId == post.id) }"
+                          as: "comment"
+                          key: "id"
+                          blocks::
+                            - ::
+                              type: "container"
+                              css: "background: #f9f9f9; padding: 1rem; border-radius: 6px; margin-bottom: 1rem; border-left: 3px solid #0079d3;"
+                              blocks::
+                                - ::
+                                  type: "text"
+                                  content: "{{comment.text}}"
+                                  css: "margin-bottom: 0.5rem; color: #222;"
+
+                                - ::
+                                  type: "text"
+                                  content: "by {{comment.author}} • {{comment.upvotes}} upvotes"
+                                  css: "font-size: 0.8125rem; color: #888;"
+
+                        - ::
+                          type: "container"
+                          css: "margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e0e0e0;"
+                          blocks::
+                            - ::
+                              type: "input"
+                              name: "newCommentText"
+                              placeholder: "Add a comment..."
+                              css: "width: 100%; padding: 0.625rem; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 0.9375rem; margin-bottom: 0.75rem; font-family: inherit;"
+
+                            - ::
+                              type: "button"
+                              content: "Comment"
+                              action: "setState"
+                              stateUpdates::
+                                comments: "${ comments + [{\"id\": generateId(), \"postId\": post.id, \"text\": newCommentText, \"author\": currentUser, \"timestamp\": now(), \"upvotes\": 0, \"parentCommentId\": \"\"}] }"
+                                newCommentText: ""
+                              css: "padding: 0.5rem 1.25rem; background: #0079d3; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9375rem;"
+
+        - ::
+          type: "section"
+          css: "background: #fffbea; padding: 1.5rem; border-radius: 8px; border: 2px solid #f59e0b; margin-top: 2rem;"
+          blocks::
+            - ::
+              type: "heading"
+              level: 3
+              content: "📝 Template v2.0 Features Demonstrated"
+              css: "margin-bottom: 1rem; color: #92400e; font-size: 1.25rem;"
+
+            - ::
+              type: "text"
+              content: "✅ types:: section with nested Post and Comment types"
+              css: "margin-bottom: 0.5rem; color: #92400e;"
+
+            - ::
+              type: "text"
+              content: "✅ Recursive type (Comment.replies: Comment[])"
+              css: "margin-bottom: 0.5rem; color: #92400e;"
+
+            - ::
+              type: "text"
+              content: "✅ Explicit type: loop blocks (3 levels of nesting!)"
+              css: "margin-bottom: 0.5rem; color: #92400e;"
+
+            - ::
+              type: "text"
+              content: "✅ Explicit ${ } for CEL expressions"
+              css: "margin-bottom: 0.5rem; color: #92400e;"
+
+            - ::
+              type: "text"
+              content: "✅ Explicit double-brace syntax for string interpolation"
+              css: "margin-bottom: 0.5rem; color: #92400e;"
+
+            - ::
+              type: "text"
+              content: "✅ Multi-line dicts throughout (no inline)"
+              css: "margin-bottom: 0.5rem; color: #92400e;"
+
+            - ::
+              type: "text"
+              content: "✅ Separated posts (content_doc) and comments (collaborative_doc) for granular permissions"
+              css: "color: #92400e;"

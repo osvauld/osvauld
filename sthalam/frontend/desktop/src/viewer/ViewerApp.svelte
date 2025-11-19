@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { loroCoordinator } from '../shared/loro/loroCoordinator';
+  import { initializeStateFromTemplate, reloadFieldsFromDocument, subscribeToDocument, getUniqueDocuments } from '../shared/loro/stateManager';
   import { evaluateCEL as evaluateExpression } from '../lib/services/celEvaluator';
   import { parseHUML } from '../lib/services/humlParser';
   import ScreenRenderer from './ScreenRenderer.svelte';
@@ -22,7 +23,7 @@
 
   // CRDT subscriptions
   let templateUnsubscribe: (() => void) | null = null;
-  let collaborativeUnsubscribe: (() => void) | null = null;
+  let documentUnsubscribes: (() => void)[] = [];
 
   // Template metadata for routing state updates
   let templateDefinition: any = null;
@@ -33,7 +34,7 @@
 
   onDestroy(() => {
     if (templateUnsubscribe) templateUnsubscribe();
-    if (collaborativeUnsubscribe) collaborativeUnsubscribe();
+    documentUnsubscribes.forEach(unsub => unsub());
   });
 
   /**
@@ -57,38 +58,13 @@
       // Store template definition for state routing
       templateDefinition = template;
 
-      // 1. Load viewer state definition from template (read-only)
-      const stateDefinition = template.documents?.viewerState || {};
-
-      // Extract initial values from state schema
-      const initialState: Record<string, any> = {};
-      for (const [key, schema] of Object.entries(stateDefinition)) {
-        if (typeof schema === 'object' && schema !== null && 'initial' in schema) {
-          initialState[key] = (schema as any).initial;
-        } else {
-          initialState[key] = schema;
-        }
-      }
-
-      // Load persisted state from contentDoc if exists (read-only)
-      const stateMap = loroCoordinator.getStateMap();
-      const persistedState = stateMap.toJSON();
-
-      // Also load collections from contentDoc
-      const contentMap = loroCoordinator.getContentMap();
-      const contentDocData = contentMap.toJSON();
-
-      // Load collaborative state from collaborativeDoc (shared with owner/publisher)
-      const collaborativeMap = loroCoordinator.getCollaborativeMap();
-      const collaborativeState = collaborativeMap.toJSON();
-
-      // Merge: initial state < persisted state < contentDoc collections < collaborative state
-      viewerState = { ...initialState, ...persistedState, ...contentDocData, ...collaborativeState };
+      // 1. Load state from template documents using shared state manager
+      viewerState = initializeStateFromTemplate(template, loroCoordinator);
 
       console.log('📊 [ViewerApp] Initialized viewer state:', viewerState);
 
       // 2. Load computed expressions from template
-      const expressions = template.documents?.viewerComputed || {};
+      const expressions = template.computed || {};
       computedExpressions = expressions;
       console.log('🧮 [ViewerApp] Loaded computed expressions:', Object.keys(computedExpressions));
     } catch (error) {
@@ -105,15 +81,19 @@
       loadViewerScreens();
     });
 
-    // 5. Subscribe to collaborative doc changes (when owner/publisher updates collaborative state)
-    const collaborativeDoc = loroCoordinator.getDocuments().collaborativeDoc;
-    collaborativeUnsubscribe = collaborativeDoc.subscribe(() => {
-      // Reload collaborative state when it changes from sync
-      const collaborativeMap = loroCoordinator.getCollaborativeMap();
-      const collaborativeState = collaborativeMap.toJSON();
-      viewerState = { ...viewerState, ...collaborativeState };
-      console.log('🔄 [ViewerApp] Updated collaborative state from sync:', collaborativeState);
-    });
+    // 5. Subscribe to all documents used in the template (derived from template metadata)
+    const documentsToSubscribe = getUniqueDocuments(templateDefinition);
+    console.log('📡 [ViewerApp] Subscribing to documents:', documentsToSubscribe);
+
+    for (const docName of documentsToSubscribe) {
+      const unsubscribe = subscribeToDocument(docName, loroCoordinator, () => {
+        // Reload fields from this document when it changes from sync
+        const updatedState = reloadFieldsFromDocument(docName, templateDefinition, loroCoordinator);
+        viewerState = { ...viewerState, ...updatedState };
+        console.log(`🔄 [ViewerApp] Updated state from ${docName}:`, updatedState);
+      });
+      documentUnsubscribes.push(unsubscribe);
+    }
   }
 
   /**

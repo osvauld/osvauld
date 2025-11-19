@@ -1,7 +1,7 @@
 (executable
  (name cel_wasm)
- (modules cel_wasm)
- (libraries cel js_of_ocaml js_of_ocaml-ppx)
+ (modules logging cel_wasm reactive_state)
+ (libraries cel js_of_ocaml js_of_ocaml-ppx logs logs.browser react)
  (preprocess
   (pps js_of_ocaml-ppx))
  (modes wasm))

@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { loroCoordinator } from '../shared/loro/loroCoordinator';
-  import { evaluateCEL as evaluateExpression } from '../lib/services/celEvaluator';
+  import { getMapForField, getDocumentNameForField } from '../shared/loro/documentRouter';
+  import { initializeStateFromTemplate, reloadFieldsFromDocument, subscribeToDocument, shouldTriggerReactiveUpdate, getUniqueDocuments } from '../shared/loro/stateManager';
+  import { evaluateCEL as evaluateExpression, initReactive, updateReactiveState, getAllReactiveValues } from '../lib/services/celEvaluator';
   import { parseHUML } from '../lib/services/humlParser';
   import BlockRenderer from '../renderer/BlockRenderer.svelte';
   import ModeSwitcher from '../components/ModeSwitcher.svelte';
@@ -15,11 +17,19 @@
   let screens = $state<any[]>([]);
   let currentScreenId = $state<string>('');
 
-  // Computed expressions from template
+  // Computed expressions from template (kept for reference, but now handled by reactive system)
   let computedExpressions = $state<Record<string, string>>({});
 
-  // Computed values - derived synchronously (no infinite loop since we removed time/fps/mouse)
-  let computedValues = $derived(evaluateComputedValues());
+  // Reactive version counter - increments on each state update to trigger Svelte reactivity
+  let reactiveVersion = $state(0);
+
+  // Computed values - now powered by OCaml React FRP!
+  // This returns ALL reactive values (state + computed) from the signal graph
+  // The reactiveVersion dependency forces this to re-run when state updates
+  let computedValues = $derived.by(() => {
+    reactiveVersion; // Read to create dependency
+    return getAllReactiveValues();
+  });
 
   // Asset type configuration for unified upload handler
   const ASSET_CONFIG = {
@@ -31,7 +41,7 @@
 
   // CRDT subscriptions
   let templateUnsubscribe: (() => void) | null = null;
-  let collaborativeUnsubscribe: (() => void) | null = null;
+  let documentUnsubscribes: (() => void)[] = [];
 
   // Template metadata for routing state updates
   let templateDefinition: any = null;
@@ -42,22 +52,8 @@
 
   onDestroy(() => {
     if (templateUnsubscribe) templateUnsubscribe();
-    if (collaborativeUnsubscribe) collaborativeUnsubscribe();
+    documentUnsubscribes.forEach(unsub => unsub());
   });
-
-  /**
-   * Determine which Loro document a state key belongs to
-   */
-  function getDocumentTypeForKey(key: string): 'publisherState' | 'collaborativeState' | 'contentDoc' | 'unknown' {
-    if (!templateDefinition?.documents) return 'unknown';
-
-    // Check each document section
-    if (templateDefinition.documents.publisherState?.[key]) return 'publisherState';
-    if (templateDefinition.documents.collaborativeState?.[key]) return 'collaborativeState';
-    if (templateDefinition.documents.contentDoc?.[key]) return 'contentDoc';
-
-    return 'unknown';
-  }
 
   /**
    * Persist state changes to appropriate Loro documents automatically
@@ -68,39 +64,36 @@
 
     // Only save if we have state to persist
     if (Object.keys(stateToSave).length === 0) return;
+    if (!templateDefinition?.documents) return;
 
-    // Route state updates to the correct Loro document
-    const stateMap = loroCoordinator.getStateMap();
-    const collaborativeMap = loroCoordinator.getCollaborativeMap();
-    const contentMap = loroCoordinator.getContentMap();
+    // Track which documents were modified so we can commit them
+    const modifiedDocs = new Set<string>();
 
     for (const [key, value] of Object.entries(stateToSave)) {
       // Only persist non-temporary fields (exclude _uploading, _error)
       if (key.endsWith('_uploading') || key.endsWith('_error')) continue;
 
-      // Determine which document this key belongs to
-      const docType = getDocumentTypeForKey(key);
+      try {
+        // Get the UCAN document name from template metadata
+        const docName = getDocumentNameForField(key, templateDefinition);
 
-      switch (docType) {
-        case 'publisherState':
-          stateMap.set(key, value);
-          break;
-        case 'collaborativeState':
-          collaborativeMap.set(key, value);
-          break;
-        case 'contentDoc':
-          contentMap.set(key, value);
-          break;
-        default:
-          // Default to stateMap for backwards compatibility
-          stateMap.set(key, value);
-          break;
+        // Get the Loro map for this document and set the value
+        const loroMap = getMapForField(key, templateDefinition, loroCoordinator);
+        loroMap.set(key, value);
+
+        // Track that this document was modified
+        modifiedDocs.add(docName);
+      } catch (error) {
+        console.warn(`[PublisherApp] Failed to persist field '${key}':`, error);
       }
     }
 
-    // Commit all documents
-    loroCoordinator.getDocuments().contentDoc.commit();
-    loroCoordinator.getDocuments().collaborativeDoc.commit();
+    // Commit all modified documents
+    const docs = loroCoordinator.getDocuments();
+    if (modifiedDocs.has('content_doc')) docs.contentDoc.commit();
+    if (modifiedDocs.has('collaborative_doc')) docs.collaborativeDoc.commit();
+    if (modifiedDocs.has('user_content_doc')) docs.userContentDoc.commit();
+    if (modifiedDocs.has('ui_state_doc')) docs.uiStateDoc.commit();
   });
 
   /**
@@ -124,33 +117,8 @@
       // Store template definition for state routing
       templateDefinition = template;
 
-      // 1. Load publisher state definition from template
-      const stateDefinition = template.documents?.publisherState || {};
-
-      // Extract initial values from state schema
-      const initialState: Record<string, any> = {};
-      for (const [key, schema] of Object.entries(stateDefinition)) {
-        if (typeof schema === 'object' && schema !== null && 'initial' in schema) {
-          initialState[key] = (schema as any).initial;
-        } else {
-          initialState[key] = schema;
-        }
-      }
-
-      // Load persisted state from contentDoc if exists
-      const stateMap = loroCoordinator.getStateMap();
-      const persistedState = stateMap.toJSON();
-
-      // Also load collections from contentDoc (videos, images, files, etc.)
-      const contentMap = loroCoordinator.getContentMap();
-      const contentDocData = contentMap.toJSON();
-
-      // Load collaborative state from collaborativeDoc (shared with viewers)
-      const collaborativeMap = loroCoordinator.getCollaborativeMap();
-      const collaborativeState = collaborativeMap.toJSON();
-
-      // Merge: initial state < persisted state < contentDoc collections < collaborative state
-      publisherUIState = { ...initialState, ...persistedState, ...contentDocData, ...collaborativeState };
+      // 1. Load state from template documents using shared state manager
+      publisherUIState = initializeStateFromTemplate(template, loroCoordinator);
 
       // Initialize arrays as empty if not defined (for list-based templates)
       if (!publisherUIState.videos) {
@@ -170,19 +138,29 @@
       }
 
       console.log('📊 [PublisherApp] Initialized state:', publisherUIState);
-      console.log('💾 [PublisherApp] Loaded persisted state from contentDoc:', persistedState);
-      console.log('🔄 [PublisherApp] Collaborative state:', collaborativeState);
-      console.log('🔍 [PublisherApp] Has comments?', 'comments' in publisherUIState, publisherUIState.comments);
 
       // 2. Load computed expressions from template
-      const expressions = template.documents?.publisherComputed || {};
+      const expressions = template.computed || {};
       computedExpressions = expressions;
       console.log('🧮 [PublisherApp] Loaded computed expressions:', Object.keys(computedExpressions));
+
+      // 3. Initialize reactive system with template
+      console.log('🔍 [PublisherApp] Template structure before initReactive:', {
+        hasDocuments: !!template.documents,
+        hasPublisherState: !!template.documents?.publisherState,
+        hasPublisherComputed: !!template.documents?.publisherComputed,
+        publisherStateKeys: template.documents?.publisherState ? Object.keys(template.documents.publisherState) : [],
+        publisherComputedKeys: template.documents?.publisherComputed ? Object.keys(template.documents.publisherComputed) : [],
+        sampleState: template.documents?.publisherState?.counter,
+        sampleComputed: template.documents?.publisherComputed?.counterDouble
+      });
+      initReactive(template);
+      console.log('⚛️ [PublisherApp] Reactive system initialized');
     } catch (error) {
       console.error('❌ [PublisherApp] Failed to parse HUML:', error);
     }
 
-    // 3. Load publisher screens
+    // 4. Load publisher screens
     loadPublisherScreens();
 
     // 4. Subscribe to template changes (when HUML source changes)
@@ -192,15 +170,22 @@
       loadPublisherScreens();
     });
 
-    // 5. Subscribe to collaborative doc changes (when viewers update collaborative state)
-    const collaborativeDoc = loroCoordinator.getDocuments().collaborativeDoc;
-    collaborativeUnsubscribe = collaborativeDoc.subscribe(() => {
-      // Reload collaborative state when it changes from sync
-      const collaborativeMap = loroCoordinator.getCollaborativeMap();
-      const collaborativeState = collaborativeMap.toJSON();
-      publisherUIState = { ...publisherUIState, ...collaborativeState };
-      console.log('🔄 [PublisherApp] Updated collaborative state from sync:', collaborativeState);
-    });
+    // 5. Subscribe to all documents used in the template (derived from template metadata)
+    const documentsToSubscribe = getUniqueDocuments(templateDefinition);
+    console.log('📡 [PublisherApp] Subscribing to documents:', documentsToSubscribe);
+
+    for (const docName of documentsToSubscribe) {
+      const unsubscribe = subscribeToDocument(docName, loroCoordinator, () => {
+        // Reload fields from this document when it changes from sync
+        // Use untrack() to prevent triggering the $effect that saves to Loro
+        untrack(() => {
+          const updatedState = reloadFieldsFromDocument(docName, templateDefinition, loroCoordinator);
+          publisherUIState = { ...publisherUIState, ...updatedState };
+          console.log(`🔄 [PublisherApp] Updated state from ${docName}:`, updatedState);
+        });
+      });
+      documentUnsubscribes.push(unsubscribe);
+    }
   }
 
   /**
@@ -252,50 +237,11 @@
   }
 
   /**
-   * Evaluate computed expressions (with dependency resolution via multiple passes)
-   * Returns computed values based on current publisherUIState
+   * OLD: Evaluate computed expressions (REPLACED BY OCaml React FRP)
+   * The reactive system handles this automatically now - no multi-pass evaluation needed!
+   * Dependencies are explicit and React FRP handles propagation efficiently.
    */
-  function evaluateComputedValues(): Record<string, any> {
-    if (Object.keys(computedExpressions).length === 0) {
-      return {};
-    }
-
-    let newComputed: Record<string, any> = {};
-    let prevComputed: Record<string, any> = {};
-    let maxPasses = 5;  // Prevent infinite loops
-    let pass = 0;
-
-    // Keep evaluating until values stabilize (handles dependencies between computed values)
-    do {
-      prevComputed = { ...newComputed };
-      pass++;
-
-      for (const [key, expression] of Object.entries(computedExpressions)) {
-        try {
-          // Build context with previously computed values
-          const context = {
-            ...publisherUIState,
-            ...newComputed,  // Include already-computed values!
-            size: (arr: any[]) => arr?.length || 0,
-            length: (str: string) => str?.length || 0
-          };
-
-          // Expressions are pure CEL (no {{}} markers in template)
-          const result = evaluateExpression(expression, context);
-          newComputed[key] = result;
-        } catch (error) {
-          newComputed[key] = undefined;
-        }
-      }
-
-      // Check if values changed
-      const changed = Object.keys(newComputed).some(key => newComputed[key] !== prevComputed[key]);
-      if (!changed) break;
-
-    } while (pass < maxPasses);
-
-    return newComputed;
-  }
+  // REMOVED: Multi-pass evaluation logic - replaced by reactive system
 
   /**
    * Handle publisher actions (generic)
@@ -423,12 +369,20 @@
 
     if (!stateUpdates) return;
 
-    // Evaluate state updates (expressions are already evaluated by ButtonBlock)
-    // stateUpdates contains the final values to set
+    // Update reactive state (triggers automatic reactive propagation!)
+    for (const [key, value] of Object.entries(stateUpdates)) {
+      updateReactiveState(key, value);
+      console.log(`⚛️ [PublisherApp] Reactive update: ${key} =`, value);
+    }
+
+    // Also update local UI state for non-reactive fields (like UI state, uploads, etc.)
     publisherUIState = {
       ...publisherUIState,
       ...stateUpdates
     };
+
+    // Increment version to trigger Svelte reactivity
+    reactiveVersion++;
 
     console.log('📝 [PublisherApp] State updated:', stateUpdates);
   }
@@ -454,8 +408,8 @@
    * Prepare context for expression evaluation (generic)
    */
   let expressionContext = $derived({
-    ...publisherUIState,
     ...computedValues,
+    ...publisherUIState,  // Spread last so local state overwrites reactive signals
     mode: 'publisher'
   });
 </script>
@@ -485,7 +439,15 @@
               context={expressionContext}
               onAction={handleAction}
               onStateChange={(key, value) => {
+                // Update local state - use spread to trigger $derived reactivity
                 publisherUIState = { ...publisherUIState, [key]: value };
+
+                // Update reactive system for collaborative/synced documents
+                const docName = getDocumentNameForField(key, templateDefinition);
+                if (shouldTriggerReactiveUpdate(docName)) {
+                  updateReactiveState(key, value);
+                  reactiveVersion++; // Trigger reactivity for collaborative changes
+                }
               }}
             />
           {/each}
