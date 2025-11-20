@@ -53,17 +53,17 @@ documents::
   newPostTitle::
     type: "string"
     initial: ""
-    document: "ui_state_doc"
+    document: "user_content_doc"
 
   newPostContent::
     type: "string"
     initial: ""
-    document: "ui_state_doc"
+    document: "user_content_doc"
 
   newCommentText::
     type: "string"
     initial: ""
-    document: "ui_state_doc"
+    document: "user_content_doc"
 
 computed::
   totalPosts::

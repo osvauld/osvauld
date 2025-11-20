@@ -7,6 +7,7 @@
 
 import { parseHUML } from '../../lib/services/humlParser';
 import { loroCoordinator } from './loroCoordinator';
+import { LoroList } from 'loro-crdt';
 
 export class TemplateImporter {
   /**
@@ -58,10 +59,19 @@ export class TemplateImporter {
       this.initializeState(template.documents.collaborativeState, collaborativeMap);
     }
 
+    // submissionsDoc → submissions_doc
+    if (template.documents?.submissionsDoc) {
+      console.log('📝 [TemplateImporter] submissionsDoc:', template.documents.submissionsDoc);
+      // Initialize the submissions structure directly as a list
+      loroCoordinator.getDocuments().submissionsDoc.getList('submissions');
+      console.log('✅ [TemplateImporter] Initialized submissions_doc with List structure');
+    }
+
     // 6. Commit changes
     loroCoordinator.getDocuments().templateDoc.commit();
     loroCoordinator.getDocuments().contentDoc.commit();
     loroCoordinator.getDocuments().collaborativeDoc.commit();
+    loroCoordinator.getDocuments().submissionsDoc.commit();
 
     console.log('✅ [TemplateImporter] Import complete!');
   }

@@ -1,0 +1,130 @@
+name: "Multi-Screen Navigation Demo"
+version: "v2.0.0"
+
+ui::
+  viewer::
+    - ::
+      type: "screen"
+      id: "home"
+      name: "Home"
+      isEntryPoint: true
+      css: "padding: 3rem; background: linear-gradient(135deg, #1e1e2e 0%, #0d0e13 100%); min-height: 100vh;"
+      blocks::
+        - ::
+          type: "container"
+          css: "max-width: 800px; margin: 0 auto;"
+          blocks::
+            - ::
+              type: "heading"
+              content: "Welcome to Viewer Mode"
+              level: 1
+              css: "font-size: 48px; color: #89b4fa; text-align: center; margin-bottom: 1rem;"
+
+            - ::
+              type: "text"
+              content: "This demonstrates multi-screen navigation in Sthalam viewer mode. Click the button below to navigate to Page 2."
+              css: "font-size: 18px; color: #cdd6f4; text-align: center; margin-bottom: 2rem; line-height: 1.6;"
+
+            - ::
+              type: "button"
+              content: "Go to Page 2 →"
+              action: "navigate"
+              targetScreen: "page2"
+              css: "display: block; margin: 0 auto; padding: 1rem 2rem; background: #89b4fa; color: #1e1e2e; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+  publisher::
+    - ::
+      type: "screen"
+      id: "home"
+      name: "Home"
+      isEntryPoint: true
+      css: "padding: 3rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh;"
+      blocks::
+        - ::
+          type: "container"
+          css: "max-width: 800px; margin: 0 auto;"
+          blocks::
+            - ::
+              type: "heading"
+              content: "Welcome to Publisher Mode"
+              level: 1
+              css: "font-size: 48px; color: white; text-align: center; margin-bottom: 1rem;"
+
+            - ::
+              type: "text"
+              content: "This is the publisher view. Navigate between screens using the buttons below."
+              css: "font-size: 18px; color: rgba(255,255,255,0.9); text-align: center; margin-bottom: 2rem; line-height: 1.6;"
+
+            - ::
+              type: "button"
+              content: "Go to Editor →"
+              action: "navigate"
+              targetScreen: "editor"
+              css: "display: block; margin: 0 auto; padding: 1rem 2rem; background: white; color: #667eea; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+    - ::
+      type: "screen"
+      id: "editor"
+      name: "Editor"
+      css: "padding: 3rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); min-height: 100vh;"
+      blocks::
+        - ::
+          type: "container"
+          css: "max-width: 800px; margin: 0 auto;"
+          blocks::
+            - ::
+              type: "heading"
+              content: "Editor Screen"
+              level: 1
+              css: "font-size: 42px; color: white; text-align: center; margin-bottom: 1rem;"
+
+            - ::
+              type: "text"
+              content: "This is where you would edit content. Multi-screen navigation allows you to separate different concerns."
+              css: "font-size: 18px; color: rgba(255,255,255,0.9); text-align: center; margin-bottom: 2rem; line-height: 1.6;"
+
+            - ::
+              type: "container"
+              css: "display: flex; gap: 1rem; justify-content: center;"
+              blocks::
+                - ::
+                  type: "button"
+                  content: "← Back to Home"
+                  action: "navigate"
+                  targetScreen: "home"
+                  css: "padding: 1rem 2rem; background: white; color: #f5576c; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+                - ::
+                  type: "button"
+                  content: "Settings →"
+                  action: "navigate"
+                  targetScreen: "settings"
+                  css: "padding: 1rem 2rem; background: rgba(255,255,255,0.2); color: white; border: 2px solid white; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
+
+    - ::
+      type: "screen"
+      id: "settings"
+      name: "Settings"
+      css: "padding: 3rem; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); min-height: 100vh;"
+      blocks::
+        - ::
+          type: "container"
+          css: "max-width: 800px; margin: 0 auto;"
+          blocks::
+            - ::
+              type: "heading"
+              content: "Settings"
+              level: 1
+              css: "font-size: 42px; color: white; text-align: center; margin-bottom: 1rem;"
+
+            - ::
+              type: "text"
+              content: "Configure your application settings here. This demonstrates how to create multi-screen apps with clear navigation."
+              css: "font-size: 18px; color: rgba(255,255,255,0.9); text-align: center; margin-bottom: 2rem; line-height: 1.6;"
+
+            - ::
+              type: "button"
+              content: "← Back to Home"
+              action: "navigate"
+              targetScreen: "home"
+              css: "display: block; margin: 0 auto; padding: 1rem 2rem; background: white; color: #00f2fe; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"

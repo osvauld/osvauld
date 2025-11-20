@@ -5,7 +5,7 @@
  * NO TREES - Only Maps and Lists for simplicity
  */
 
-import { LoroDoc, type LoroMap, type LoroList, type VersionVector } from 'loro-crdt';
+import { LoroDoc, LoroList, type LoroMap, type VersionVector } from 'loro-crdt';
 import { SubmissionsStore } from '../../lib/submissionsStore';
 
 export interface Documents {
@@ -137,10 +137,11 @@ export class LoroCoordinator {
   }
 
   /**
-   * Get submissions map
+   * Get submissions list
    */
-  getSubmissions(): LoroMap {
-    return this.documents.submissionsDoc.getMap('submissions');
+  getSubmissions(): LoroList {
+    // Get the submissions list directly from the document root
+    return this.documents.submissionsDoc.getList('submissions');
   }
 
   /**
@@ -211,6 +212,9 @@ export class LoroCoordinator {
     const contentMap = tempContentDoc.getMap('content');
     contentMap.set('title', title);
 
+    // Initialize submissions with empty list structure directly
+    tempSubmissionsDoc.getList('submissions');
+
     // Commit changes
     tempTemplateDoc.commit();
     tempContentDoc.commit();
@@ -273,6 +277,66 @@ export class LoroCoordinator {
   }
 
   /**
+   * Merge incoming CRDT updates into existing documents
+   * Used for real-time sync when updates arrive from network
+   */
+  mergeIncomingUpdates(updates: Record<string, Uint8Array>) {
+    console.log('🔄 [LoroCoordinator] Merging incoming updates for', Object.keys(updates).length, 'documents');
+
+    // Map document names to their LoroDoc instances
+    const docMap: Record<string, LoroDoc> = {
+      'template_doc': this.documents.templateDoc,
+      'content_doc': this.documents.contentDoc,
+      'user_content_doc': this.documents.userContentDoc,
+      'collaborative_doc': this.documents.collaborativeDoc,
+      'submissions_doc': this.documents.submissionsDoc,
+    };
+
+    // Merge updates into each document
+    for (const [docName, updateBytes] of Object.entries(updates)) {
+      const doc = docMap[docName];
+      if (doc) {
+        try {
+          console.log(`📥 [LoroCoordinator] Merging ${updateBytes.length} bytes into ${docName}`);
+
+          // Import updates - Loro automatically merges using CRDT logic
+          doc.import(updateBytes);
+
+          console.log(`✅ [LoroCoordinator] Successfully merged updates for ${docName}`);
+
+          // Debug: Log document content after merge (especially for submissions)
+          if (docName === 'submissions_doc') {
+            try {
+              const submissionsList = doc.getList('submissions');
+              const submissionsData = submissionsList.toJSON();
+              console.log(`📋 [LoroCoordinator] Submissions_doc content after merge:`, submissionsData);
+
+              if (Array.isArray(submissionsData)) {
+                console.log(`📊 [LoroCoordinator] Number of submissions in doc:`, submissionsData.length);
+                console.log(`📊 [LoroCoordinator] Submission IDs:`, submissionsData.map((s: any) => s.id));
+              } else {
+                console.warn(`⚠️ [LoroCoordinator] Submissions data is not an array!`);
+              }
+
+              // Also log the raw document size
+              const snapshot = doc.export({ mode: "snapshot" });
+              console.log(`📏 [LoroCoordinator] Submissions_doc snapshot size: ${snapshot.length} bytes`);
+            } catch (error) {
+              console.error(`❌ [LoroCoordinator] Failed to extract submissions content:`, error);
+            }
+          }
+        } catch (error) {
+          console.error(`❌ [LoroCoordinator] Failed to merge updates for ${docName}:`, error);
+        }
+      } else {
+        console.warn(`⚠️ [LoroCoordinator] Unknown document: ${docName}`);
+      }
+    }
+
+    console.log('✅ [LoroCoordinator] All updates merged');
+  }
+
+  /**
    * Get all documents (for direct access if needed)
    */
   getDocuments() {
@@ -285,9 +349,9 @@ export class LoroCoordinator {
    */
   getSubmissionsStore(): SubmissionsStore {
     if (!this.submissionsStore) {
-      const submissionsMap = this.getSubmissions();
-      this.submissionsStore = new SubmissionsStore(submissionsMap);
-      console.log('📋 [LoroCoordinator] SubmissionsStore created');
+      const submissionsList = this.getSubmissions();
+      this.submissionsStore = new SubmissionsStore(submissionsList);
+      console.log('📋 [LoroCoordinator] SubmissionsStore created with List-based storage');
     }
     return this.submissionsStore;
   }

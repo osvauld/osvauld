@@ -1,35 +1,64 @@
-name: "Form Blocks Test"
-version: "v1.0.0"
+name: "Form Blocks Showcase"
+version: "v2.0.0"
 
 documents::
-  publisherState::
-    username::
-      type: "string"
-      initial: ""
-    email::
-      type: "string"
-      initial: ""
-    message::
-      type: "string"
-      initial: ""
-    agreeToTerms::
-      type: "boolean"
-      initial: false
-    newsletter::
-      type: "boolean"
-      initial: false
-    country::
-      type: "string"
-      initial: ""
-    favoriteColor::
-      type: "string"
-      initial: ""
+  username::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
 
-  publisherComputed::
-    hasUsername: "${ size(username) > 0 }"
-    messageLength: "${ size(message) }"
-    isValidEmail: "${ contains(email, '@') }"
-    canSubmit: "${ hasUsername && isValidEmail && agreeToTerms }"
+  email::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
+
+  message::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
+
+  agreeToTerms::
+    type: "boolean"
+    initial: false
+    document: "user_content_doc"
+
+  newsletter::
+    type: "boolean"
+    initial: false
+    document: "user_content_doc"
+
+  country::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
+
+  favoriteColor::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
+
+computed::
+  hasUsername::
+    expr: "${ size(username) > 0 }"
+    deps::
+      - "username"
+
+  messageLength::
+    expr: "${ size(message) }"
+    deps::
+      - "message"
+
+  isValidEmail::
+    expr: "${ contains(email, '@') }"
+    deps::
+      - "email"
+
+  canSubmit::
+    expr: "${ hasUsername && isValidEmail && agreeToTerms }"
+    deps::
+      - "hasUsername"
+      - "isValidEmail"
+      - "agreeToTerms"
 
 ui::
   publisher::
@@ -43,7 +72,7 @@ ui::
         - ::
           type: "heading"
           level: 1
-          content: "Form Blocks Test"
+          content: "Form Blocks Showcase"
           css: "color: #2563eb; margin-bottom: 2rem;"
 
         - ::
@@ -285,18 +314,15 @@ ui::
 
             - ::
               type: "container"
-              layout: "flex"
-              direction: "row"
-              gap: "1rem"
+              css: "display: flex; gap: 1rem;"
               blocks::
                 - ::
                   type: "button"
                   content: "Submit"
                   action: "setState"
-                  disabled: "${ !canSubmit }"
                   stateUpdates::
                     username: "${ username }"
-                  css: "padding: 0.75rem 1.5rem; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; opacity: 1;"
+                  css: "padding: 0.75rem 1.5rem; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
 
                 - ::
                   type: "button"

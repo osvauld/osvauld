@@ -1,35 +1,119 @@
-name: "CEL Functions Test"
-version: "v1.0.0"
+name: "Basics: Counter & CEL Functions"
+version: "v2.0.0"
 
 documents::
-  publisherState::
-    currentTimestamp::
-      type: "number"
-      initial: 0
-    currentId::
-      type: "string"
-      initial: ""
-    itemCount::
-      type: "number"
-      initial: 0
+  counter::
+    type: "number"
+    initial: 0
+    document: "user_content_doc"
 
-  publisherComputed::
-    hasItems: "${ itemCount > 0 }"
+  currentTimestamp::
+    type: "number"
+    initial: 0
+    document: "user_content_doc"
+
+  currentId::
+    type: "string"
+    initial: ""
+    document: "user_content_doc"
+
+  itemCount::
+    type: "number"
+    initial: 0
+    document: "user_content_doc"
+
+computed::
+  counterDouble::
+    expr: "${ counter * 2 }"
+    deps::
+      - "counter"
+
+  isPositive::
+    expr: "${ counter > 0 }"
+    deps::
+      - "counter"
+
+  hasItems::
+    expr: "${ itemCount > 0 }"
+    deps::
+      - "itemCount"
 
 ui::
   publisher::
     - ::
       type: "screen"
-      id: "test"
-      name: "test"
+      id: "counter"
+      name: "Counter Demo"
       isEntryPoint: true
+      css: "padding: 2rem; font-family: system-ui; max-width: 600px; margin: 0 auto;"
+      blocks::
+        - ::
+          type: "heading"
+          level: 1
+          content: "Counter: {{counter}}"
+          css: "color: #2563eb; font-size: 2.5rem; margin-bottom: 0.5rem;"
+
+        - ::
+          type: "text"
+          content: "Double: {{counterDouble}}"
+          css: "color: #6b7280; margin-bottom: 1.5rem; font-size: 1.25rem;"
+
+        - ::
+          type: "container"
+          css: "display: flex; gap: 1rem; margin-bottom: 2rem;"
+          blocks::
+            - ::
+              type: "button"
+              content: "Increment"
+              action: "setState"
+              stateUpdates::
+                counter: "${ counter + 1 }"
+              css: "padding: 0.75rem 1.5rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;"
+
+            - ::
+              type: "button"
+              content: "Decrement"
+              action: "setState"
+              stateUpdates::
+                counter: "${ counter - 1 }"
+              css: "padding: 0.75rem 1.5rem; background: #ef4444; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;"
+
+            - ::
+              type: "button"
+              content: "Reset"
+              action: "setState"
+              stateUpdates::
+                counter: 0
+              css: "padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;"
+
+        - ::
+          type: "text"
+          content: "✅ Counter is positive!"
+          css: "color: #10b981; font-weight: 500; padding: 1rem; background: #d1fae5; border-radius: 8px;"
+
+        - ::
+          type: "container"
+          css: "margin-top: 2rem; text-align: center;"
+          blocks::
+            - ::
+              type: "button"
+              content: "View CEL Functions →"
+              action: "navigate"
+              targetScreen: "cel_functions"
+              css: "padding: 0.75rem 1.5rem; background: #8b5cf6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;"
+
+    - ::
+      type: "screen"
+      id: "cel_functions"
+      name: "CEL Functions"
       css: "padding: 2rem; max-width: 900px; margin: 0 auto; font-family: system-ui;"
       blocks::
         - ::
           type: "heading"
           level: 1
-          content: "CEL Functions Test"
+          content: "CEL Functions Demo"
           css: "color: #2563eb; margin-bottom: 2rem;"
+
         - ::
           type: "section"
           css: "background: #f0f9ff; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border: 2px solid #0ea5e9;"
@@ -37,23 +121,27 @@ ui::
             - ::
               type: "heading"
               level: 2
-              content: "timestamp() Function"
+              content: "now() Function"
               css: "margin: 0 0 1rem 0; color: #0c4a6e;"
+
             - ::
               type: "text"
-              content: "Current Timestamp: {{timestamp()}}"
+              content: "Current Timestamp: {{now()}}"
               css: "font-size: 1.1rem; color: #334155; margin-bottom: 0.5rem; font-family: monospace;"
+
             - ::
               type: "text"
               content: "Stored: {{currentTimestamp}}"
               css: "font-size: 1rem; color: #64748b; margin-bottom: 1rem; font-family: monospace;"
+
             - ::
               type: "button"
               content: "Capture Timestamp"
               action: "setState"
               stateUpdates::
-                currentTimestamp: "${ timestamp() }"
+                currentTimestamp: "${ now() }"
               css: "padding: 0.75rem 1.5rem; background: #0ea5e9; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
         - ::
           type: "section"
           css: "background: #f0fdf4; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border: 2px solid #22c55e;"
@@ -63,14 +151,17 @@ ui::
               level: 2
               content: "generateId() Function"
               css: "margin: 0 0 1rem 0; color: #14532d;"
+
             - ::
               type: "text"
               content: "Generated ID: {{generateId()}}"
               css: "font-size: 1.1rem; color: #334155; margin-bottom: 0.5rem; font-family: monospace; word-break: break-all;"
+
             - ::
               type: "text"
               content: "Stored ID: {{currentId}}"
               css: "font-size: 1rem; color: #64748b; margin-bottom: 1rem; font-family: monospace; word-break: break-all;"
+
             - ::
               type: "button"
               content: "Generate New ID"
@@ -78,6 +169,7 @@ ui::
               stateUpdates::
                 currentId: "${ generateId() }"
               css: "padding: 0.75rem 1.5rem; background: #22c55e; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
         - ::
           type: "section"
           css: "background: #fefce8; padding: 1.5rem; border-radius: 8px; border: 2px solid #eab308;"
@@ -85,18 +177,17 @@ ui::
             - ::
               type: "heading"
               level: 2
-              content: "Combined Usage Test"
+              content: "Array Functions: size()"
               css: "margin: 0 0 1rem 0; color: #713f12;"
+
             - ::
               type: "text"
               content: "Items added: {{itemCount}}"
               css: "font-size: 1rem; color: #78716c; margin-bottom: 1rem;"
+
             - ::
               type: "container"
-              layout: "flex"
-              direction: "row"
-              gap: "1rem"
-              css: "margin-bottom: 1.5rem;"
+              css: "display: flex; gap: 1rem; margin-bottom: 1.5rem;"
               blocks::
                 - ::
                   type: "button"
@@ -105,6 +196,7 @@ ui::
                   stateUpdates::
                     itemCount: "${ itemCount + 1 }"
                   css: "padding: 0.75rem 1.5rem; background: #eab308; color: #713f12; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
                 - ::
                   type: "button"
                   content: "Reset Count"
@@ -112,44 +204,19 @@ ui::
                   stateUpdates::
                     itemCount: 0
                   css: "padding: 0.75rem 1.5rem; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;"
+
             - ::
               type: "text"
               content: "✅ {{itemCount}} item(s) added successfully!"
-              when: "${ itemCount > 0 }"
               css: "padding: 1rem; background: #d1fae5; color: #065f46; border-radius: 6px; font-weight: 500;"
-            - ::
-              type: "text"
-              content: "No items yet. Click Add Item to test!"
-              when: "${ itemCount == 0 }"
-              css: "padding: 1rem; background: #fee2e2; color: #991b1b; border-radius: 6px;"
+
         - ::
-          type: "section"
-          css: "background: #faf5ff; padding: 1.5rem; border-radius: 8px; border: 2px solid #a855f7;"
+          type: "container"
+          css: "margin-top: 2rem; text-align: center;"
           blocks::
             - ::
-              type: "heading"
-              level: 2
-              content: "Live Updates"
-              css: "margin: 0 0 1rem 0; color: #581c87;"
-            - ::
-              type: "text"
-              content: "These values update every render:"
-              css: "color: #78716c; margin-bottom: 1rem;"
-            - ::
-              type: "container"
-              layout: "flex"
-              direction: "column"
-              gap: "0.5rem"
-              blocks::
-                - ::
-                  type: "text"
-                  content: "🕐 Live Timestamp: {{timestamp()}}"
-                  css: "font-family: monospace; color: #4c1d95; background: white; padding: 0.5rem; border-radius: 4px;"
-                - ::
-                  type: "text"
-                  content: "🆔 New ID: {{generateId()}}"
-                  css: "font-family: monospace; color: #4c1d95; background: white; padding: 0.5rem; border-radius: 4px; word-break: break-all;"
-            - ::
-              type: "text"
-              content: "Note: These regenerate on each UI update"
-              css: "font-size: 0.875rem; color: #a855f7; margin-top: 0.5rem; font-style: italic;"
+              type: "button"
+              content: "← Back to Counter"
+              action: "navigate"
+              targetScreen: "counter"
+              css: "padding: 0.75rem 1.5rem; background: #6b7280; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;"
